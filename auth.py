@@ -2027,6 +2027,8 @@ class AuthManager:
 
         import badges
         user_pinned = user_info.get("pinned_badges") if (user_info and user_info.get("pinned_badges")) else None
+        reg_tournaments = self.db.get_user_registered_tournaments(user_id) if user_id else []
+        user_lists = self.db.get_user_army_lists(user_id) if (user_id and hasattr(self.db, "get_user_army_lists")) else []
         b_eval = badges.evaluate_player_badges(
             player_data=p_stat,
             history=history_points,
@@ -2034,7 +2036,10 @@ class AuthManager:
             faction_mastery=faction_mastery,
             matchup_matrix=matchup_matrix,
             user_pinned_ids=user_pinned,
-            game_system=target_sys
+            game_system=target_sys,
+            tracker_sessions=tracker_history,
+            registered_tournaments=reg_tournaments,
+            armylists=user_lists
         )
         user_ack = (user_info and user_info.get("acknowledged_badge_ids")) or []
         ack_set = set(user_ack) if isinstance(user_ack, list) else set()
@@ -2053,11 +2058,16 @@ class AuthManager:
             "matchup_matrix": matchup_matrix,
             "events_attended": events_attended,
             "upcoming_events": upcoming_events,
-            "registered_tournaments": self.db.get_user_registered_tournaments(user_id) if user_id else [],
+            "registered_tournaments": reg_tournaments,
             "badge_count": b_eval["badge_count"],
             "total_badges": b_eval["total_badges"],
             "completion_pct": b_eval["completion_pct"],
             "glory_score": b_eval["glory_score"],
+            "career_glory": b_eval.get("career_glory", b_eval.get("glory_score", 0)),
+            "seasonal_glory": b_eval.get("seasonal_glory", 0),
+            "glory_balance": b_eval.get("glory_balance", b_eval.get("glory_score", 0)),
+            "seasonal": b_eval.get("seasonal", {}),
+            "active_season": b_eval.get("active_season", "2026"),
             "rank": b_eval["rank"],
             "pinned_badges": b_eval["pinned_badges"],
             "badges_celebrated": bool(user_info.get("badges_celebrated") if user_info else False),

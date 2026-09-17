@@ -188,6 +188,11 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
     data["total_badges"] = b_eval["total_badges"]
     data["completion_pct"] = b_eval["completion_pct"]
     data["glory_score"] = b_eval["glory_score"]
+    data["career_glory"] = b_eval.get("career_glory", b_eval.get("glory_score", 0))
+    data["seasonal_glory"] = b_eval.get("seasonal_glory", 0)
+    data["glory_balance"] = b_eval.get("glory_balance", b_eval.get("glory_score", 0))
+    data["seasonal"] = b_eval.get("seasonal", {})
+    data["active_season"] = b_eval.get("active_season", "2026")
     data["rank"] = b_eval["rank"]
     data["pinned_badges"] = b_eval["pinned_badges"]
     data["badges"] = b_eval["badges"]
@@ -198,14 +203,21 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
 @router.get("/api/badges/catalog", summary="Get complete catalog of all master badges and military ranks")
 async def api_badges_catalog(game_system: Optional[str] = Query("40k")):
     import badges
+    import seasonal_badges
     gs = (game_system or "40k").lower()
+    is_aos = gs == "aos"
+    seasonal_cat = seasonal_badges.SEASON_2026_CATALOG_AOS if is_aos else seasonal_badges.SEASON_2026_CATALOG_40K
+    seasonal_cats = seasonal_badges.SEASONAL_CATEGORIES_AOS if is_aos else seasonal_badges.SEASONAL_CATEGORIES_40K
     return {
         "success": True,
         "game_system": gs,
         "total": len(badges.get_all_badges_catalog(gs)),
         "categories": badges.get_categories(gs),
         "ranks": badges.get_ranks(gs),
-        "badges": badges.get_all_badges_catalog(gs)
+        "badges": badges.get_all_badges_catalog(gs),
+        "seasonal_catalog": seasonal_cat,
+        "seasonal_categories": seasonal_cats,
+        "active_season": "2026"
     }
 
 # API: Tournaments List

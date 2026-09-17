@@ -9527,8 +9527,147 @@ body.is-authenticated #floating-chat-widget {
   color: #fbbf24;
 }
 
+/* 6. Trophy Room Scope Switcher */
+.trophy-scope-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 0.25rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+.trophy-scope-toggle {
+  display: inline-flex;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 4px;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+.trophy-scope-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-sm) - 2px);
+  color: #94a3b8;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.trophy-scope-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+.trophy-scope-btn.active {
+  background: rgba(30, 41, 59, 0.95);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.trophy-scope-btn.active[data-scope="seasonal"] {
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+.trophy-scope-count {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  padding: 0.12rem 0.45rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+}
+.trophy-scope-btn.active .trophy-scope-count {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+.trophy-scope-btn.active[data-scope="seasonal"] .trophy-scope-count {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+.trophy-season-pill {
+  background: rgba(245, 158, 11, 0.15) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* 7. Seasonal Command Banner & Styling */
+.trophy-command-banner.seasonal-banner {
+  background: radial-gradient(circle at top right, rgba(245, 158, 11, 0.15), transparent 60%),
+              linear-gradient(180deg, rgba(30, 41, 59, 0.85), rgba(15, 23, 42, 0.95));
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 15px rgba(245, 158, 11, 0.1);
+}
+.trophy-capstone-status {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fbbf24;
+  margin-top: 0.25rem;
+  line-height: 1.4;
+}
+.trophy-capstone-status strong {
+  color: #fef08a;
+}
+.trophy-card.capstone-card {
+  border: 1.5px solid rgba(244, 63, 94, 0.85);
+  box-shadow: 0 0 20px rgba(244, 63, 94, 0.25);
+}
+.trophy-card.capstone-card.unlocked {
+  background: radial-gradient(circle at top right, rgba(244, 63, 94, 0.15), transparent 70%),
+              linear-gradient(180deg, rgba(30, 41, 59, 0.85), rgba(15, 23, 42, 0.95));
+}
+
 /* Responsive adjustments for Trophy Room */
 @media (max-width: 768px) {
+  .trophy-scope-bar {
+    width: 100%;
+  }
+  .trophy-scope-toggle {
+    width: 100%;
+    display: flex;
+  }
+  .trophy-scope-btn {
+    flex: 1;
+    min-width: 0;
+    justify-content: center;
+    padding: 0.45rem 0.3rem;
+    font-size: 0.74rem;
+    gap: 0.3rem;
+  }
+  .trophy-scope-btn .scope-text {
+    font-size: 0.73rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .scope-text-compact {
+    display: none;
+  }
+  @media (max-width: 500px) {
+    .scope-text-full {
+      display: none;
+    }
+    .scope-text-compact {
+      display: inline;
+    }
+  }
+  .trophy-scope-count {
+    padding: 0.1rem 0.35rem;
+    font-size: 0.68rem;
+    flex-shrink: 0;
+  }
+  .trophy-progress-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
   .trophy-room-wrapper {
     width: 100%;
     max-width: 100%;

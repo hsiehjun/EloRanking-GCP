@@ -7,9 +7,16 @@
 (function(window) {
   'use strict';
 
+  var currentHubScope = 'career';
+  var currentPublicScope = 'career';
   var currentTrophyCategory = 'all';
   var currentTrophyStatus = 'all';
   var currentTrophySearch = '';
+
+  var currentSeasonalCategory = 'all';
+  var currentSeasonalStatus = 'all';
+  var currentSeasonalSearch = '';
+
   var activeTrophyData = null;
   var activeHubTrophyData = null;
   var activePublicTrophyData = null;
@@ -22,6 +29,88 @@
     'uncommon': 2,
     'common': 1
   };
+
+  /**
+   * Helper to retrieve seasonal dataset from dashboard/player payload
+   */
+  function getSeasonalData(data) {
+    if (!data) return null;
+    if (data.seasonal) {
+      var seasonKey = data.active_season || '2026';
+      if (data.seasonal[seasonKey]) return data.seasonal[seasonKey];
+      if (data.seasonal.badges) return data.seasonal;
+    }
+    return null;
+  }
+
+  /**
+   * Helper to search for a badge across career badges and active seasonal badges
+   */
+  function findBadgeInAllData(data, badgeId) {
+    if (!data) return null;
+    if (data.badges && Array.isArray(data.badges)) {
+      var b = data.badges.find(function(x) { return x.id === badgeId; });
+      if (b) return b;
+    }
+    var sData = getSeasonalData(data);
+    if (sData && sData.badges && Array.isArray(sData.badges)) {
+      var sb = sData.badges.find(function(x) { return x.id === badgeId; });
+      if (sb) return sb;
+    }
+    return null;
+  }
+
+  /**
+   * Renders the Scope Switcher Bar ([ 🏛️ Career Milestones ] vs [ ⚡ Season 2026 ])
+   */
+  function renderScopeBar(scope, isPublic, careerCount, totalCareer, seasonalCount, totalSeasonal, onSwitchFn) {
+    var isCareer = scope === 'career';
+    var isSeasonal = scope === 'seasonal';
+    var careerText = isPublic
+      ? ('<span class="scope-text-full">Career Milestones</span><span class="scope-text-compact">Career</span> (' + careerCount + ')')
+      : '<span class="scope-text-full">Career Milestones</span><span class="scope-text-compact">Career</span>';
+    var seasonalText = isPublic
+      ? ('<span class="scope-text-full">Season 2026</span><span class="scope-text-compact">Season \'26</span> (' + seasonalCount + ')')
+      : '<span class="scope-text-full">Season 2026</span><span class="scope-text-compact">Season \'26</span>';
+
+    var careerCountPill = !isPublic ? ('<span class="trophy-scope-count">' + careerCount + ' / ' + totalCareer + '</span>') : '';
+    var seasonalCountPill = !isPublic ? ('<span class="trophy-scope-count trophy-season-pill">' + seasonalCount + ' / ' + totalSeasonal + '</span>') : '';
+
+    return [
+      '<div class="trophy-scope-bar">',
+      '  <div class="trophy-scope-toggle" role="tablist" aria-label="Trophy Scope">',
+      '    <button type="button" class="trophy-scope-btn ' + (isCareer ? 'active' : '') + '" data-scope="career" ',
+      '            onclick="' + onSwitchFn + '(\'career\')" role="tab" aria-selected="' + isCareer + '">',
+      '      <span class="scope-icon">🏛️</span>',
+      '      <span class="scope-text">' + careerText + '</span>',
+      careerCountPill,
+      '    </button>',
+      '    <button type="button" class="trophy-scope-btn ' + (isSeasonal ? 'active' : '') + '" data-scope="seasonal" ',
+      '            onclick="' + onSwitchFn + '(\'seasonal\')" role="tab" aria-selected="' + isSeasonal + '">',
+      '      <span class="scope-icon">⚡</span>',
+      '      <span class="scope-text">' + seasonalText + '</span>',
+      seasonalCountPill,
+      '    </button>',
+      '  </div>',
+      '</div>'
+    ].join('\n');
+  }
+
+  function setHubScope(scope) {
+    currentHubScope = scope;
+    var container = document.getElementById('hub-panel-trophies') || document.getElementById('trophy-room-container');
+    if (container && activeHubTrophyData) {
+      renderTrophyRoom(container, activeHubTrophyData, true, activeHubTrophyData.player && activeHubTrophyData.player.player_id);
+    }
+  }
+
+  function setPublicScope(scope) {
+    currentPublicScope = scope;
+    var container = document.getElementById('profile-panel-trophies');
+    if (container && activePublicTrophyData) {
+      renderTrophyRoom(container, activePublicTrophyData, false, activePublicTrophyData.player && activePublicTrophyData.player.player_id);
+    }
+  }
 
   /**
    * Escape HTML utility
@@ -132,18 +221,27 @@
     var gloryScore = data.glory_score || 0;
     var completionPct = data.completion_pct || (totalBadges ? Math.round((badgeCount / totalBadges) * 100) : 0);
 
+    // Seasonal Data Extraction
+    var sData = getSeasonalData(data);
+    var seasonalBadges = sData ? (sData.badges || []) : [];
+    var seasonalCount = sData ? (sData.badge_count || 0) : 0;
+    var totalSeasonal = seasonalBadges.length || 21;
+    var seasonalCompletionPct = sData ? (sData.completion_pct || 0) : 0;
+    var seasonalGlory = sData ? (sData.glory_score || 0) : 0;
+    var unifiedGlory = data.glory_balance != null ? data.glory_balance : (gloryScore + seasonalGlory);
+
     var nextRankText = rank.next_rank_title
       ? rank.badges_needed_for_next + ' more honors needed for <strong>' + escapeHtml(rank.next_rank_title) + '</strong>'
       : 'Pinnacle Everchosen Status Attained';
 
-    // Banner Stats Group: Hub shows Glory Honor + Unlocked; Public Profile strictly hides Glory Honor
-    var statsGroupHtml = '';
+    // Banner Stats Group for Career View:
+    var careerStatsGroupHtml = '';
     if (!isPublic) {
-      statsGroupHtml = [
+      careerStatsGroupHtml = [
         '<div class="trophy-banner-stats-group">',
-        '  <div class="trophy-stat-pill trophy-glory-pill-interactive" onclick="window.BadgesUI.openGloryCurrencyModal()" style="cursor: pointer;" title="Glory Honor: Future Requisition Currency (Click for Field Intel)">',
+        '  <div class="trophy-stat-pill trophy-glory-pill-interactive" onclick="window.BadgesUI.openGloryCurrencyModal()" style="cursor: pointer;" title="Glory Honor: Unified Spendable Balance (Click for Field Intel)">',
         '        <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem;">',
-        '          <span class="trophy-stat-val" style="color: #fbbf24;">' + gloryScore.toLocaleString() + '</span>',
+        '          <span class="trophy-stat-val" style="color: #fbbf24;">' + unifiedGlory.toLocaleString() + '</span>',
         '          <span style="font-size: 0.68rem; opacity: 0.85;">ℹ️</span>',
         '        </div>',
         '        <span class="trophy-stat-lbl">Glory Honor</span>',
@@ -155,7 +253,7 @@
         '</div>'
       ].join('\n');
     } else {
-      statsGroupHtml = [
+      careerStatsGroupHtml = [
         '<div class="trophy-banner-stats-group">',
         '  <div class="trophy-stat-pill">',
         '    <span class="trophy-stat-val" style="color: #38bdf8;">' + badgeCount + ' / ' + totalBadges + '</span>',
@@ -165,7 +263,7 @@
       ].join('\n');
     }
 
-    var bannerAndProgressHtml = [
+    var careerBannerAndProgressHtml = [
       '  <!-- 1. General Command Banner & Progression Track -->',
       '  <div class="trophy-command-banner">',
       '    <div class="trophy-banner-rank-group">',
@@ -182,7 +280,7 @@
       '        <div class="trophy-next-rank-status">' + nextRankText + '</div>',
       '      </div>',
       '    </div>',
-      statsGroupHtml,
+      careerStatsGroupHtml,
       '  </div>',
       '  <!-- 2. Rank XP Progress Bar -->',
       '  <div class="trophy-progress-wrap">',
@@ -199,18 +297,83 @@
     if (isPublic) {
       // PUBLIC PROFILE SHOWCASE MODE:
       // Omit category chips bar, search input, and All/Unlocked/Locked status toggles.
-      // Show only unlocked battle honors sorted by rarity descending (Mythic -> Legendary -> Epic -> Rare -> Uncommon -> Common).
-      var unlockedBadges = badges.filter(function(b) { return !!b.unlocked; });
-      unlockedBadges.sort(function(a, b) {
+      // Show only unlocked battle honors sorted by rarity descending.
+      var unlockedCareer = badges.filter(function(b) { return !!b.unlocked; });
+      unlockedCareer.sort(function(a, b) {
         var rDiff = (RARITY_ORDER[b.rarity] || 0) - (RARITY_ORDER[a.rarity] || 0);
         if (rDiff !== 0) return rDiff;
         return (a.name || '').localeCompare(b.name || '');
       });
 
+      var unlockedSeasonal = seasonalBadges.filter(function(b) { return !!b.unlocked; });
+      unlockedSeasonal.sort(function(a, b) {
+        var rDiff = (RARITY_ORDER[b.rarity] || 0) - (RARITY_ORDER[a.rarity] || 0);
+        if (rDiff !== 0) return rDiff;
+        return (a.name || '').localeCompare(b.name || '');
+      });
+
+      var scopeBarHtml = renderScopeBar(currentPublicScope, true, unlockedCareer.length, badges.length, unlockedSeasonal.length, totalSeasonal, 'window.BadgesUI.setPublicScope');
+
+      if (currentPublicScope === 'seasonal') {
+        var isCapstoneAchieved = sData && sData.capstone_unlocked;
+        var capstoneText = isCapstoneAchieved
+          ? '👑 <strong>Pinnacle Commendation Attained:</strong> Warmaster of 2026'
+          : '👑 <strong>Pinnacle Target:</strong> 15 Seasonal Honors Claimed for Warmaster of 2026';
+
+        var seasonalPublicBannerHtml = [
+          '  <div class="trophy-command-banner seasonal-banner">',
+          '    <div class="trophy-banner-rank-group">',
+          '      <div class="trophy-rank-insignia" style="border: 1.5px solid rgba(245, 158, 11, 0.6); box-shadow: 0 0 15px rgba(245, 158, 11, 0.25);">',
+          '        <span>⚡</span>',
+          '      </div>',
+          '      <div class="trophy-banner-text">',
+          '        <div class="trophy-banner-title-row">',
+          '          <h3 class="trophy-military-title">Season 2026 Campaign</h3>',
+          '          <span class="trophy-rank-level-badge" style="background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;">Active Annual Circuit</span>',
+          '        </div>',
+          '        <div class="trophy-banner-sub">Sanctioned annual combat feats and tournament endurance running Jan 1 – Dec 31, 2026.</div>',
+          '        <div class="trophy-capstone-status">' + capstoneText + '</div>',
+          '      </div>',
+          '    </div>',
+          '    <div class="trophy-banner-stats-group">',
+          '      <div class="trophy-stat-pill">',
+          '        <span class="trophy-stat-val" style="color: #fbbf24;">' + unlockedSeasonal.length + ' / ' + totalSeasonal + '</span>',
+          '        <span class="trophy-stat-lbl">Unlocked (' + seasonalCompletionPct + '%)</span>',
+          '      </div>',
+          '    </div>',
+          '  </div>'
+        ].join('\n');
+
+        var seasonalShowcaseHeader = [
+          '  <div class="trophy-showcase-header" style="border-left: 3px solid #fbbf24;">',
+          '    <div class="trophy-showcase-title-row">',
+          '      <h4 class="trophy-showcase-heading">⚡ Season 2026 Campaign Honors (' + unlockedSeasonal.length + ')</h4>',
+          '      <span class="trophy-showcase-badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border-color: rgba(245, 158, 11, 0.35);">Annual Commendations</span>',
+          '    </div>',
+          '    <p class="trophy-showcase-sub">Verified competitive achievements, Grand Tournament finishes, and game companion feats earned in Season 2026.</p>',
+          '  </div>'
+        ].join('\n');
+
+        var seasonalPublicHtml = [
+          '<div class="trophy-room-wrapper">',
+          scopeBarHtml,
+          seasonalPublicBannerHtml,
+          seasonalShowcaseHeader,
+          '  <div class="trophy-grid" id="profile-trophy-grid-container">',
+          renderPublicTrophyCards(unlockedSeasonal, 'Season 2026'),
+          '  </div>',
+          '</div>'
+        ].join('\n');
+
+        containerEl.innerHTML = seasonalPublicHtml;
+        return;
+      }
+
+      // Default Career Scope in Public Profile
       var showcaseHeaderHtml = [
         '  <div class="trophy-showcase-header">',
         '    <div class="trophy-showcase-title-row">',
-        '      <h4 class="trophy-showcase-heading">🎖️ Earned Battlefield Honors (' + unlockedBadges.length + ')</h4>',
+        '      <h4 class="trophy-showcase-heading">🎖️ Earned Battlefield Honors (' + unlockedCareer.length + ')</h4>',
         '      <span class="trophy-showcase-badge">Official Commendations</span>',
         '    </div>',
         '    <p class="trophy-showcase-sub">Verified competitive achievements and tournament milestones awarded by High Command.</p>',
@@ -219,11 +382,12 @@
 
       var publicHtml = [
         '<div class="trophy-room-wrapper">',
-        bannerAndProgressHtml,
+        scopeBarHtml,
+        careerBannerAndProgressHtml,
         showcaseHeaderHtml,
         '  <!-- 5. Trophies Grid (Public Showcase) -->',
         '  <div class="trophy-grid" id="profile-trophy-grid-container">',
-        renderPublicTrophyCards(unlockedBadges),
+        renderPublicTrophyCards(unlockedCareer),
         '  </div>',
         '</div>'
       ].join('\n');
@@ -234,6 +398,125 @@
 
     // MY HUB PERSONAL COMMAND MODE:
     // Full interactive control room: category chips, search bar, All/Unlocked/Locked status toggles, pin support.
+    var scopeBarHtml = renderScopeBar(currentHubScope, false, badgeCount, totalBadges, seasonalCount, totalSeasonal, 'window.BadgesUI.setHubScope');
+
+    if (currentHubScope === 'seasonal') {
+      // SEASONAL HUB VIEW
+      var isCapstoneAchieved = sData && sData.capstone_unlocked;
+      var capstoneProgressTgt = 15;
+      var capstoneProgressCur = Math.min(seasonalCount, capstoneProgressTgt);
+      var capstoneProgressPct = Math.min(100, Math.round((capstoneProgressCur / capstoneProgressTgt) * 100));
+
+      var capstoneStatusText = isCapstoneAchieved
+        ? '👑 <strong>Warmaster of 2026</strong> Attained (+500 Glory Requisition Claimed)'
+        : '👑 <strong>' + Math.max(0, capstoneProgressTgt - seasonalCount) + '</strong> more honors needed for <strong>Warmaster of 2026</strong> (+500 Glory)';
+
+      var seasonalBannerAndProgress = [
+        '  <!-- Seasonal Command Banner -->',
+        '  <div class="trophy-command-banner seasonal-banner">',
+        '    <div class="trophy-banner-rank-group">',
+        '      <div class="trophy-rank-insignia" style="border: 1.5px solid rgba(245, 158, 11, 0.6); box-shadow: 0 0 18px rgba(245, 158, 11, 0.3);">',
+        '        <span>⚡</span>',
+        '      </div>',
+        '      <div class="trophy-banner-text">',
+        '        <div class="trophy-banner-title-row">',
+        '          <h3 class="trophy-military-title">Season 2026 Campaign</h3>',
+        '          <span class="trophy-rank-level-badge" style="background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;">Active Annual Circuit</span>',
+        '          <button type="button" class="trophy-info-btn" onclick="window.BadgesUI.openGuideModal()" title="Field Manual: Annual Seasons &amp; Glory Honor" aria-label="Progression Guide"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>',
+        '        </div>',
+        '        <div class="trophy-banner-sub">Annual competitive season running Jan 1 – Dec 31, 2026. Trophies award fresh Glory Honor and reset annually.</div>',
+        '        <div class="trophy-capstone-status">' + capstoneStatusText + '</div>',
+        '      </div>',
+        '    </div>',
+        '    <div class="trophy-banner-stats-group">',
+        '      <div class="trophy-stat-pill trophy-glory-pill-interactive" onclick="window.BadgesUI.openGloryCurrencyModal()" style="cursor: pointer;" title="Glory Honor: Unified Spendable Balance (Click for Field Intel)">',
+        '        <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem;">',
+        '          <span class="trophy-stat-val" style="color: #fbbf24;">' + unifiedGlory.toLocaleString() + '</span>',
+        '          <span style="font-size: 0.68rem; opacity: 0.85;">ℹ️</span>',
+        '        </div>',
+        '        <span class="trophy-stat-lbl">Glory Honor</span>',
+        '      </div>',
+        '      <div class="trophy-stat-pill">',
+        '        <span class="trophy-stat-val" style="color: #fbbf24;">' + seasonalCount + ' / ' + totalSeasonal + '</span>',
+        '        <span class="trophy-stat-lbl">Unlocked (' + seasonalCompletionPct + '%)</span>',
+        '      </div>',
+        '    </div>',
+        '  </div>',
+        '  <!-- Seasonal Capstone Progress Track -->',
+        '  <div class="trophy-progress-wrap">',
+        '    <div class="trophy-progress-meta">',
+        '      <span>Season 2026 Campaign: ' + seasonalCount + ' / ' + totalSeasonal + ' Claimed (' + seasonalCompletionPct + '%)</span>',
+        '      <span>' + (isCapstoneAchieved ? '100% Pinnacle Achieved' : (capstoneProgressPct + '% to Warmaster of 2026 (15 Req.)')) + '</span>',
+        '    </div>',
+        '    <div class="trophy-progress-bar">',
+        '      <div class="trophy-progress-fill" style="width: ' + (isCapstoneAchieved ? 100 : capstoneProgressPct) + '%; background: linear-gradient(90deg, #f59e0b, #fbbf24);"></div>',
+        '    </div>',
+        '  </div>'
+      ].join('\n');
+
+      var catCounts = { 'all': seasonalBadges.length };
+      seasonalBadges.forEach(function(b) {
+        var c = b.category || 'combat';
+        catCounts[c] = (catCounts[c] || 0) + 1;
+      });
+
+      var seasonalCategoriesList = [
+        { id: 'all', title: 'All Feats', icon: '⚡' },
+        { id: 'combat', title: 'Combat Feats', icon: '⚔️' },
+        { id: 'tournament', title: 'Tournament Circuit', icon: '🏆' },
+        { id: 'tracker', title: 'Game Tracker', icon: '📱' },
+        { id: 'factions', title: 'Army & Armory', icon: '🛡️' },
+        { id: 'capstone', title: 'Pinnacle Honor', icon: '👑' }
+      ];
+
+      var chipsHtml = seasonalCategoriesList.map(function(c) {
+        var activeClass = currentSeasonalCategory === c.id ? 'active' : '';
+        var count = catCounts[c.id] || 0;
+        return [
+          '<button type="button" class="trophy-category-chip ' + activeClass + '" data-cat="' + c.id + '" onclick="window.BadgesUI.setSeasonalCategory(\'' + c.id + '\')">',
+          '  <span class="chip-icon">' + c.icon + '</span>',
+          '  <span class="chip-label">' + escapeHtml(c.title) + '</span>',
+          '  <span class="chip-count">' + count + '</span>',
+          '</button>'
+        ].join('');
+      }).join('\n');
+
+      var seasonalHubHtml = [
+        '<div class="trophy-room-wrapper">',
+        scopeBarHtml,
+        seasonalBannerAndProgress,
+        '  <!-- 3. Seasonal Category Filter Chips -->',
+        '  <div class="trophy-categories-bar" id="hub-trophy-categories-bar">',
+        chipsHtml,
+        '  </div>',
+        '  <!-- 4. Search & Status Filter Bar -->',
+        '  <div class="trophy-search-filter-bar" id="hub-trophy-search-filter-bar">',
+        '    <div class="trophy-search-input-wrap">',
+        '      <span class="trophy-search-icon">🔍</span>',
+        '      <input type="text" id="hub-trophy-search-input" class="trophy-search-input" ',
+        '             placeholder="Search Season 2026 honors by title, keyword, or feat..." ',
+        '             value="' + escapeHtml(currentSeasonalSearch) + '" ',
+        '             oninput="window.BadgesUI.onSeasonalSearchInput(this.value)">',
+        '      <button type="button" class="trophy-search-clear" id="hub-trophy-search-clear" onclick="window.BadgesUI.clearSeasonalSearch()" style="display:' + (currentSeasonalSearch ? 'inline-flex' : 'none') + ';">✕</button>',
+        '    </div>',
+        '    <div class="trophy-status-toggles" id="hub-trophy-status-toggles">',
+        '      <button type="button" class="trophy-status-btn ' + (currentSeasonalStatus === 'all' ? 'active' : '') + '" onclick="window.BadgesUI.setSeasonalStatusFilter(\'all\')">All</button>',
+        '      <button type="button" class="trophy-status-btn ' + (currentSeasonalStatus === 'unlocked' ? 'active' : '') + '" onclick="window.BadgesUI.setSeasonalStatusFilter(\'unlocked\')">Unlocked (' + seasonalCount + ')</button>',
+        '      <button type="button" class="trophy-status-btn ' + (currentSeasonalStatus === 'locked' ? 'active' : '') + '" onclick="window.BadgesUI.setSeasonalStatusFilter(\'locked\')">In Progress (' + (totalSeasonal - seasonalCount) + ')</button>',
+        '    </div>',
+        '  </div>',
+        '  <!-- 5. Trophies Grid (Seasonal Hub) -->',
+        '  <div class="trophy-grid" id="hub-trophy-grid-container">',
+        renderSeasonalTrophyCards(seasonalBadges, isSelf, playerId),
+        '  </div>',
+        '</div>'
+      ].join('\n');
+
+      containerEl.innerHTML = seasonalHubHtml;
+      return;
+    }
+
+    // Default Career Hub View
     var catCounts = { 'all': badges.length };
     badges.forEach(function(b) {
       var cat = b.category || 'career';
@@ -263,7 +546,8 @@
 
     var hubHtml = [
       '<div class="trophy-room-wrapper">',
-      bannerAndProgressHtml,
+      scopeBarHtml,
+      careerBannerAndProgressHtml,
       '  <!-- 3. Category Filter Chips (Hub Personal) -->',
       '  <div class="trophy-categories-bar" id="hub-trophy-categories-bar">',
       chipsHtml,
@@ -298,13 +582,19 @@
    * Renders only the unlocked trophies for Public Profile showcase mode
    * Strictly omits personal glory points and pin buttons
    */
-  function renderPublicTrophyCards(unlockedBadges) {
+  function renderPublicTrophyCards(unlockedBadges, seasonScope) {
     if (!unlockedBadges || unlockedBadges.length === 0) {
+      var emptyMsg = seasonScope
+        ? 'This competitor has not yet unlocked achievements in the ' + escapeHtml(seasonScope) + ' campaign.'
+        : 'This competitor has not yet unlocked battlefield achievements in sanctioned play.';
+      var emptyTitle = seasonScope
+        ? 'No ' + escapeHtml(seasonScope) + ' Honors Unlocked Yet'
+        : 'No Battle Honors Unlocked Yet';
       return [
         '<div class="trophy-empty-state" style="grid-column: 1 / -1; padding: 3rem 1rem; text-align: center; color: var(--text-muted); background: rgba(15, 23, 42, 0.4); border-radius: var(--radius-md); border: 1px dashed var(--border);">',
-        '  <div style="font-size: 2.2rem; margin-bottom: 0.75rem;">🛡️</div>',
-        '  <div style="font-weight: 700; color: #fff; font-size: 1.05rem; margin-bottom: 0.35rem;">No Battle Honors Unlocked Yet</div>',
-        '  <div style="font-size: 0.85rem; color: #94a3b8;">This competitor has not yet unlocked battlefield achievements in sanctioned play.</div>',
+        '  <div style="font-size: 2.2rem; margin-bottom: 0.75rem;">' + (seasonScope ? '⚡' : '🛡️') + '</div>',
+        '  <div style="font-weight: 700; color: #fff; font-size: 1.05rem; margin-bottom: 0.35rem;">' + emptyTitle + '</div>',
+        '  <div style="font-size: 0.85rem; color: #94a3b8;">' + emptyMsg + '</div>',
         '</div>'
       ].join('\n');
     }
@@ -314,6 +604,7 @@
       var title = b.name || 'Honor';
       var desc = b.description || '';
       var icon = b.icon || '⚔️';
+      var isCapstone = b.category === 'capstone';
 
       var provenanceHtml = '';
       if (b.provenance) {
@@ -324,14 +615,19 @@
         ].join('');
       }
 
+      var seasonTag = (b.scope === 'seasonal' || b.season)
+        ? '<span class="trophy-rarity-pill trophy-season-pill" style="font-size: 0.65rem; padding: 0.15rem 0.45rem;">⚡ \'26</span>'
+        : '';
+
       return [
-        '<div class="trophy-card unlocked rarity-' + escapeHtml(rarity) + '" ',
+        '<div class="trophy-card unlocked rarity-' + escapeHtml(rarity) + (isCapstone ? ' capstone-card' : '') + '" ',
         '     onclick="window.BadgesUI.openTrophyModal(\'' + escapeHtml(b.id) + '\', true)">',
         '  <div class="trophy-card-top">',
         '    <div class="trophy-card-icon-wrap glow">',
         '      <span class="trophy-card-icon">' + icon + '</span>',
         '    </div>',
         '    <div class="trophy-card-badges">',
+        seasonTag,
         '      <span class="trophy-rarity-pill rarity-' + escapeHtml(rarity) + '">' + escapeHtml(b.rarity_label || rarity) + '</span>',
         '    </div>',
         '  </div>',
@@ -345,6 +641,119 @@
         '    <span class="trophy-card-status earned">',
         '      🏆 Earned',
         '    </span>',
+        '  </div>',
+        '</div>'
+      ].join('\n');
+    }).join('\n');
+  }
+
+  /**
+   * Renders the cards in the seasonal grid given the current filters (for My Hub)
+   */
+  function renderSeasonalTrophyCards(badges, isSelf, playerId) {
+    badges = badges || [];
+    var search = currentSeasonalSearch.toLowerCase().trim();
+    var cat = currentSeasonalCategory;
+    var status = currentSeasonalStatus;
+
+    var filtered = badges.filter(function(b) {
+      if (cat !== 'all' && b.category !== cat) return false;
+      if (status === 'unlocked' && !b.unlocked) return false;
+      if (status === 'locked' && b.unlocked) return false;
+      if (search) {
+        var nameMatch = (b.name || '').toLowerCase().includes(search);
+        var descMatch = (b.description || '').toLowerCase().includes(search);
+        var catMatch = (b.category_title || '').toLowerCase().includes(search);
+        var provMatch = (b.provenance || '').toLowerCase().includes(search);
+        if (!nameMatch && !descMatch && !catMatch && !provMatch) return false;
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      return [
+        '<div class="trophy-empty-state" style="grid-column: 1 / -1; padding: 3rem 1rem; text-align: center; color: var(--text-muted); background: rgba(15, 23, 42, 0.4); border-radius: var(--radius-md); border: 1px dashed var(--border);">',
+        '  <div style="font-size: 2.2rem; margin-bottom: 0.75rem;">⚡</div>',
+        '  <div style="font-weight: 700; color: #fff; font-size: 1.05rem; margin-bottom: 0.35rem;">No Season 2026 Honors Found</div>',
+        '  <div style="font-size: 0.85rem; color: #94a3b8;">Try adjusting your search query or selecting another campaign category.</div>',
+        '</div>'
+      ].join('\n');
+    }
+
+    var pinnedIds = new Set(((activeHubTrophyData || activeTrophyData) && (activeHubTrophyData || activeTrophyData).pinned_badges || []).map(function(x) { return x.id; }));
+
+    return filtered.map(function(b) {
+      var isUnlocked = !!b.unlocked;
+      var isPinned = pinnedIds.has(b.id);
+      var rarity = b.rarity || 'common';
+      var isCapstone = b.category === 'capstone';
+      var title = b.name || 'Honor';
+      var desc = b.description || '';
+      var icon = b.icon || '⚔️';
+      var gloryVal = b.glory || b.glory_points || 25;
+
+      var pinBtnHtml = '';
+      if (isSelf && isUnlocked) {
+        var pinLabel = isPinned ? '★ Pinned' : '📌 Pin';
+        var pinClass = isPinned ? 'is-pinned' : '';
+        pinBtnHtml = [
+          '<button type="button" class="trophy-pin-btn ' + pinClass + '" ',
+          '        onclick="event.stopPropagation(); window.BadgesUI.togglePin(\'' + escapeHtml(b.id) + '\');" ',
+          '        title="' + (isPinned ? 'Unpin from Hero Profile Card' : 'Pin to Hero Profile Card') + '">',
+          '  ' + pinLabel,
+          '</button>'
+        ].join('');
+      }
+
+      var progressHtml = '';
+      if (!isUnlocked && b.progress && b.progress.target) {
+        var cur = b.progress.current || 0;
+        var tgt = b.progress.target || 1;
+        var pct = Math.min(100, Math.round((cur / tgt) * 100));
+        progressHtml = [
+          '<div class="trophy-card-progress">',
+          '  <div class="trophy-card-progress-bar">',
+          '    <div class="trophy-card-progress-fill" style="width: ' + pct + '%;' + (isCapstone ? ' background: linear-gradient(90deg, #f43f5e, #fbbf24);' : '') + '"></div>',
+          '  </div>',
+          '  <div class="trophy-card-progress-lbl">' + cur + ' / ' + tgt + ' ' + (b.progress.unit || '') + ' (' + pct + '%)</div>',
+          '</div>'
+        ].join('\n');
+      }
+
+      var provenanceHtml = '';
+      if (isUnlocked && b.provenance) {
+        provenanceHtml = [
+          '<div class="trophy-card-provenance" title="' + escapeHtml(b.provenance) + '">',
+          '  <span class="prov-check">✓</span> ' + escapeHtml(b.provenance),
+          '</div>'
+        ].join('');
+      }
+
+      return [
+        '<div class="trophy-card ' + (isUnlocked ? 'unlocked' : 'locked') + ' rarity-' + escapeHtml(rarity) + (isCapstone ? ' capstone-card' : '') + '" ',
+        '     onclick="window.BadgesUI.openTrophyModal(\'' + escapeHtml(b.id) + '\', false)">',
+        '  <div class="trophy-card-top">',
+        '    <div class="trophy-card-icon-wrap ' + (isUnlocked ? 'glow' : 'silhouette') + '">',
+        '      <span class="trophy-card-icon">' + icon + '</span>',
+        '    </div>',
+        '    <div class="trophy-card-badges">',
+        '      <span class="trophy-rarity-pill trophy-season-pill" style="font-size: 0.65rem; padding: 0.15rem 0.45rem;">⚡ \'26</span>',
+        '      <span class="trophy-rarity-pill rarity-' + escapeHtml(rarity) + '">' + escapeHtml(b.rarity_label || rarity) + '</span>',
+        '      <span class="trophy-glory-pill">+' + gloryVal + ' Glory</span>',
+        '    </div>',
+        '  </div>',
+        '  <div class="trophy-card-body">',
+        '    <div class="trophy-card-cat">' + escapeHtml(b.category_title || b.category) + '</div>',
+        '    <h4 class="trophy-card-title">' + escapeHtml(title) + '</h4>',
+        '    <p class="trophy-card-desc">' + escapeHtml(desc) + '</p>',
+        progressHtml,
+        provenanceHtml,
+        '  </div>',
+        '  <div class="trophy-card-footer">',
+        '    <span class="trophy-card-status ' + (isUnlocked ? 'earned' : 'locked') + '">',
+        '      ' + (isUnlocked ? '🏆 Earned' : '🔒 In Progress'),
+        '    </span>',
+        pinBtnHtml,
         '  </div>',
         '</div>'
       ].join('\n');
@@ -472,11 +881,18 @@
     var isSelf = (typeof currentUser !== 'undefined' && currentUser && data.player &&
                   (currentUser.player_id === data.player.player_id || currentUser.id === data.account_user_id)) || true;
     var playerId = data.player && data.player.player_id;
-    container.innerHTML = renderTrophyCards(data.badges, isSelf, playerId);
+
+    if (currentHubScope === 'seasonal') {
+      var sData = getSeasonalData(data);
+      var seasonalBadges = sData ? (sData.badges || []) : [];
+      container.innerHTML = renderSeasonalTrophyCards(seasonalBadges, isSelf, playerId);
+    } else {
+      container.innerHTML = renderTrophyCards(data.badges, isSelf, playerId);
+    }
   }
 
   /**
-   * Category filter selection (My Hub)
+   * Category filter selection (My Hub - Career)
    */
   function setCategory(cat) {
     currentTrophyCategory = cat;
@@ -490,7 +906,7 @@
   }
 
   /**
-   * Status filter selection (My Hub)
+   * Status filter selection (My Hub - Career)
    */
   function setStatusFilter(status) {
     currentTrophyStatus = status;
@@ -504,7 +920,7 @@
   }
 
   /**
-   * Search input handler (My Hub)
+   * Search input handler (My Hub - Career)
    */
   function onSearchInput(val) {
     currentTrophySearch = val || '';
@@ -525,22 +941,63 @@
   }
 
   /**
+   * Seasonal filter handlers (My Hub - Season 2026)
+   */
+  function setSeasonalCategory(cat) {
+    currentSeasonalCategory = cat;
+    var bar = document.getElementById('hub-trophy-categories-bar');
+    if (bar) {
+      bar.querySelectorAll('.trophy-category-chip').forEach(function(btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-cat') === cat);
+      });
+    }
+    refreshGrid();
+  }
+
+  function setSeasonalStatusFilter(status) {
+    currentSeasonalStatus = status;
+    var bar = document.getElementById('hub-trophy-status-toggles');
+    if (bar) {
+      bar.querySelectorAll('.trophy-status-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.textContent.toLowerCase().includes(status));
+      });
+    }
+    refreshGrid();
+  }
+
+  function onSeasonalSearchInput(val) {
+    currentSeasonalSearch = val || '';
+    var clearBtn = document.getElementById('hub-trophy-search-clear');
+    if (clearBtn) {
+      clearBtn.style.display = currentSeasonalSearch ? 'inline-flex' : 'none';
+    }
+    refreshGrid();
+  }
+
+  function clearSeasonalSearch() {
+    currentSeasonalSearch = '';
+    var inp = document.getElementById('hub-trophy-search-input');
+    if (inp) inp.value = '';
+    var clearBtn = document.getElementById('hub-trophy-search-clear');
+    if (clearBtn) clearBtn.style.display = 'none';
+    refreshGrid();
+  }
+
+  /**
    * Opens the High-Resolution Trophy Detail Modal
    * When isPublic is true, personal Glory points and Pin buttons are strictly omitted
    */
   function openTrophyModal(badgeId, isPublic) {
     var data = isPublic ? (activePublicTrophyData || activeTrophyData) : (activeHubTrophyData || activeTrophyData);
-    if (!data || !data.badges) {
+    if (!data) {
       data = activeTrophyData || activePublicTrophyData || activeHubTrophyData;
     }
-    if (!data || !data.badges) return;
+    if (!data) return;
 
-    var badge = data.badges.find(function(b) { return b.id === badgeId; });
+    var badge = findBadgeInAllData(data, badgeId);
     if (!badge) {
       var otherData = isPublic ? activeHubTrophyData : activePublicTrophyData;
-      if (otherData && otherData.badges) {
-        badge = otherData.badges.find(function(b) { return b.id === badgeId; });
-      }
+      badge = findBadgeInAllData(otherData, badgeId);
     }
     if (!badge) return;
 
@@ -551,9 +1008,16 @@
     var isUnlocked = !!badge.unlocked;
     var rarity = badge.rarity || 'common';
     var isSecret = !!badge.is_secret && !isUnlocked;
+    var isSeasonal = badge.scope === 'seasonal' || !!badge.season;
+    var isCapstone = badge.category === 'capstone';
     var title = isSecret ? 'Secret Battlefield Honor' : badge.name;
     var desc = isSecret ? (badge.hint || 'This honor is shrouded in battlefield mystery. Unlock it through decisive play.') : badge.description;
     var icon = isSecret ? '❓' : (badge.icon || '⚔️');
+    var gloryVal = badge.glory || badge.glory_points || 10;
+
+    var catText = isSeasonal
+      ? ('Season ' + (badge.season || '2026') + ' Campaign • ' + (badge.category_title || badge.category))
+      : (badge.category_title || badge.category);
 
     // Pin button: only for personal command hub (isPublic is false), if self & unlocked
     var pinBtnHtml = '';
@@ -576,8 +1040,12 @@
     // Glory points pill: only in My Hub (isPublic is false)
     var gloryPillHtml = '';
     if (!isPublic) {
-      gloryPillHtml = '<span class="trophy-glory-pill">+' + (badge.glory_points || 10) + ' Glory Points</span>';
+      gloryPillHtml = '<span class="trophy-glory-pill">+' + gloryVal + ' Glory Points</span>';
     }
+
+    var seasonPillHtml = isSeasonal
+      ? '<span class="trophy-rarity-pill trophy-season-pill" style="font-size: 0.7rem; padding: 0.15rem 0.55rem;">⚡ Season ' + (badge.season || '2026') + '</span>'
+      : '';
 
     var progressHtml = '';
     if (!isUnlocked && badge.progress && badge.progress.target) {
@@ -585,14 +1053,14 @@
       var tgt = badge.progress.target || 1;
       var pct = Math.min(100, Math.round((cur / tgt) * 100));
       progressHtml = [
-        '<div style="margin: 1rem 0; padding: 0.85rem; background: rgba(15, 23, 42, 0.6); border-radius: var(--radius-sm); border: 1px solid var(--border);">',
-        '  <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.35rem;">',
-        '    <span style="color: var(--text-secondary);">Campaign Progress</span>',
-        '    <span style="font-weight: 700; color: #fff;">' + cur + ' / ' + tgt + ' ' + (badge.progress.unit || '') + ' (' + pct + '%)</span>',
-        '  </div>',
-        '  <div style="width: 100%; height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 9999px; overflow: hidden;">',
-        '    <div style="width: ' + pct + '%; height: 100%; background: linear-gradient(90deg, #38bdf8, #818cf8); border-radius: 9999px;"></div>',
-        '  </div>',
+        '<div style="margin: 1rem 0; padding: 0.85rem; background: rgba(15, 23, 42, 0.6); border-radius: var(--radius-sm); border: 1px solid var(--border);">' +
+        '  <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.35rem;">' +
+        '    <span style="color: var(--text-secondary);">' + (isSeasonal ? 'Campaign Feat Progress' : 'Campaign Progress') + '</span>' +
+        '    <span style="font-weight: 700; color: #fff;">' + cur + ' / ' + tgt + ' ' + (badge.progress.unit || '') + ' (' + pct + '%)</span>' +
+        '  </div>' +
+        '  <div style="width: 100%; height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 9999px; overflow: hidden;">' +
+        '    <div style="width: ' + pct + '%; height: 100%; background: ' + (isCapstone ? 'linear-gradient(90deg, #f43f5e, #fbbf24)' : 'linear-gradient(90deg, #38bdf8, #818cf8)') + '; border-radius: 9999px;"></div>' +
+        '  </div>' +
         '</div>'
       ].join('\n');
     }
@@ -609,12 +1077,13 @@
       '    <div style="width: 80px; height: 80px; margin: 0 auto 1rem; border-radius: 20px; display: flex; align-items: center; justify-content: center; font-size: 3rem; background: rgba(15, 23, 42, 0.9); border: 2px solid ' + (badge.border || 'var(--border)') + '; box-shadow: 0 0 25px ' + (badge.border || 'rgba(0,0,0,0.5)') + ';">',
       '      ' + icon,
       '    </div>',
-      '    <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 0.5rem;">',
+      '    <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">',
+      seasonPillHtml,
       '      <span class="trophy-rarity-pill rarity-' + escapeHtml(rarity) + '">' + escapeHtml(badge.rarity_label || rarity) + '</span>',
       gloryPillHtml,
       '    </div>',
       '    <h3 style="font-size: 1.4rem; font-weight: 800; color: #fff; margin: 0.2rem 0; letter-spacing: -0.01em;">' + escapeHtml(title) + '</h3>',
-      '    <div style="font-size: 0.82rem; color: #94a3b8; font-weight: 600;">' + escapeHtml(badge.category_title || badge.category) + '</div>',
+      '    <div style="font-size: 0.82rem; color: #94a3b8; font-weight: 600;">' + escapeHtml(catText) + '</div>',
       '  </div>',
       '  <!-- Body -->',
       '  <div style="padding: 1.5rem;">',
@@ -625,8 +1094,9 @@
       '    <div style="padding: 0.85rem; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.06); font-size: 0.82rem;">',
       '      <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">',
       '        <span style="color: var(--text-muted);">Status:</span>',
-      '        <span style="font-weight: 700; color: ' + (isUnlocked ? '#10b981' : '#f59e0b') + ';">' + (isUnlocked ? '✓ Unlocked' : '🔒 Locked') + '</span>',
+      '        <span style="font-weight: 700; color: ' + (isUnlocked ? '#10b981' : '#f59e0b') + ';">' + (isUnlocked ? '✓ Unlocked' : '🔒 In Progress') + '</span>',
       '      </div>',
+      (isSeasonal ? '<div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;"><span style="color: var(--text-muted);">Circuit:</span><span style="color: #fbbf24; font-weight: 600;">Season ' + (badge.season || '2026') + ' Annual Campaign</span></div>' : ''),
       (badge.unlocked_at ? '<div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;"><span style="color: var(--text-muted);">Unlocked On:</span><span style="color: #fff; font-family: var(--font-mono);">' + escapeHtml(badge.unlocked_at) + '</span></div>' : ''),
       (badge.provenance ? '<div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.06); color: #38bdf8;"><span style="font-weight: 700;">Battle Provenance:</span> ' + escapeHtml(badge.provenance) + '</div>' : ''),
       '    </div>',
@@ -667,7 +1137,7 @@
         }
         return;
       }
-      var target = (data.badges || []).find(function(b) { return b.id === badgeId; });
+      var target = findBadgeInAllData(data, badgeId);
       if (target && target.unlocked) {
         pinned.push(target);
       }
@@ -967,9 +1437,9 @@
       '  </div>',
       '  <div style="padding: 1.25rem 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem;">',
       '    <p style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.45; margin: 0;">While your <strong>Elo Rating</strong> tracks match skill and your <strong>Badge Count</strong> levels up your Military Rank border, <strong>Glory Honor</strong> serves as OmniTactica&apos;s lifetime tactical reward currency.</p>',
-      '    <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: var(--radius-sm); padding: 0.85rem 1rem;">',
-      '      <div style="font-size: 0.78rem; font-weight: 800; color: #fbbf24; margin-bottom: 0.35rem;">💰 REQUISITION ACCUMULATION</div>',
-      '      <div style="font-size: 0.78rem; color: #cbd5e1; line-height: 1.4;">Every battlefield honor unlocked permanently deposits Glory Points into your treasury (+10 Common up to +500 Mythic). Your accumulated balance is 100% saved and guaranteed.</div>',
+      '    <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: var(--radius-sm); padding: 0.85rem 1rem; margin-bottom: 0.85rem;">',
+      '      <div style="font-size: 0.78rem; font-weight: 800; color: #fbbf24; margin-bottom: 0.35rem;">💰 UNIFIED SPENDABLE GLORY WALLET</div>',
+      '      <div style="font-size: 0.78rem; color: #cbd5e1; line-height: 1.4;">Your spendable Glory Balance combines your <strong>Career Glory</strong> (lifetime milestones) + <strong>Season 2026 Glory</strong> (annual campaign circuit). Each calendar year resets the seasonal circuit so you can earn fresh Glory points again, while keeping all past career honors, medals, and Elo ratings intact.</div>',
       '    </div>',
       '    <div>',
       '      <div style="font-size: 0.8rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.6rem;">🔮 The Requisition Armory (Upcoming Expansion)</div>',
@@ -1014,7 +1484,10 @@
     renderPinnedMedals: renderPinnedMedals,
     renderTrophyRoom: renderTrophyRoom,
     renderTrophyCards: renderTrophyCards,
+    renderSeasonalTrophyCards: renderSeasonalTrophyCards,
     renderPublicTrophyCards: renderPublicTrophyCards,
+    setHubScope: setHubScope,
+    setPublicScope: setPublicScope,
     openTrophyModal: openTrophyModal,
     closeTrophyModal: closeTrophyModal,
     closeModal: closeTrophyModal,
@@ -1023,6 +1496,10 @@
     setStatusFilter: setStatusFilter,
     onSearchInput: onSearchInput,
     clearSearch: clearSearch,
+    setSeasonalCategory: setSeasonalCategory,
+    setSeasonalStatusFilter: setSeasonalStatusFilter,
+    onSeasonalSearchInput: onSeasonalSearchInput,
+    clearSeasonalSearch: clearSeasonalSearch,
     checkFirstTimeCelebration: checkFirstTimeCelebration,
     closeCelebrationModal: closeCelebrationModal,
     openGuideModal: openGuideModal,

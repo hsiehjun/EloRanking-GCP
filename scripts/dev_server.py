@@ -3017,9 +3017,75 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "new_elo": 1845.5
                     }
                 ],
-                "tracker_history": [],
+                "tracker_history": [
+                    {
+                        "session_id": "trk_s26_01",
+                        "game_system": "40k",
+                        "date": "2026-02-14",
+                        "completed": True,
+                        "player_score": 92,
+                        "opponent_score": 58,
+                        "final_round": 5,
+                        "rounds_completed": 5,
+                        "secondary_points": 38,
+                        "mode": "competitive"
+                    },
+                    {
+                        "session_id": "trk_s26_02",
+                        "game_system": "40k",
+                        "date": "2026-03-05",
+                        "completed": True,
+                        "player_score": 88,
+                        "opponent_score": 72,
+                        "final_round": 5,
+                        "rounds_completed": 5,
+                        "secondary_points": 35,
+                        "mode": "competitive"
+                    },
+                    {
+                        "session_id": "trk_s26_03",
+                        "game_system": "40k",
+                        "date": "2026-04-12",
+                        "completed": True,
+                        "player_score": 79,
+                        "opponent_score": 64,
+                        "final_round": 5,
+                        "rounds_completed": 5,
+                        "secondary_points": 30,
+                        "mode": "competitive"
+                    }
+                ],
+                "army_lists": [
+                    {
+                        "id": "list_s26_01",
+                        "name": "2026 Strike Force Vanguard",
+                        "game_system": "40k",
+                        "faction": "Space Marines",
+                        "points": 2000,
+                        "created_at": "2026-01-10T12:00:00Z"
+                    },
+                    {
+                        "id": "list_s26_02",
+                        "name": "Canoptek Swarm 2026",
+                        "game_system": "40k",
+                        "faction": "Necrons",
+                        "points": 2000,
+                        "created_at": "2026-02-01T15:30:00Z"
+                    }
+                ],
                 "active_sessions": [],
-                "events_attended": [],
+                "events_attended": [
+                    {
+                        "event_id": "ev_active_lvo_2026",
+                        "event_name": "LVO 2026 Warhammer 40K Champs",
+                        "event_date": "2026-01-18",
+                        "date": "2026-01-18",
+                        "rounds": 5,
+                        "finish": 4,
+                        "total_players": 128,
+                        "is_gt": True
+                    }
+                ],
                 "upcoming_events": [],
                 "bcp_linked": True,
                 "is_bcp_connected": True,
@@ -3050,7 +3116,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 faction_mastery=res.get("faction_mastery") or [],
                 matchup_matrix=res.get("matchup_matrix") or [],
                 user_pinned_ids=user_pinned,
-                game_system=req_game_sys
+                game_system=req_game_sys,
+                tracker_sessions=res.get("tracker_history") or [],
+                registered_tournaments=res.get("registered_tournaments") or [],
+                armylists=res.get("army_lists") or []
             )
             user_ack = DEV_USER.get("acknowledged_badge_ids") or []
             ack_set = set(user_ack)

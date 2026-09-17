@@ -1148,14 +1148,19 @@ def evaluate_player_badges(
     faction_mastery: Optional[List[Dict[str, Any]]] = None,
     matchup_matrix: Optional[List[Dict[str, Any]]] = None,
     user_pinned_ids: Optional[List[str]] = None,
-    game_system: str = "40k"
+    game_system: str = "40k",
+    tracker_sessions: Optional[List[Dict[str, Any]]] = None,
+    registered_tournaments: Optional[List[Dict[str, Any]]] = None,
+    armylists: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
-    """Evaluates all 105 badges for a player against authentic match history.
+    """Evaluates all career and seasonal honors for a player against authentic telemetry.
 
-    Fully isolated between Warhammer 40k ('40k') and Age of Sigmar ('aos').
+    Fully isolated between Warhammer 40k ('40k') and Age of Sigmar ('aos'),
+    with unified seasonal progression for Season 2026.
     """
-    if str(game_system or "40k").lower() == "aos":
-        return aos_badges.evaluate_aos_player_badges(
+    target_sys = str(game_system or "40k").lower()
+    if target_sys == "aos":
+        res = aos_badges.evaluate_aos_player_badges(
             player_data=player_data,
             history=history,
             tournaments=tournaments,
@@ -1163,11 +1168,50 @@ def evaluate_player_badges(
             matchup_matrix=matchup_matrix,
             user_pinned_ids=user_pinned_ids
         )
-    return _evaluate_40k_player_badges(
+    else:
+        res = _evaluate_40k_player_badges(
+            player_data=player_data,
+            history=history,
+            tournaments=tournaments,
+            faction_mastery=faction_mastery,
+            matchup_matrix=matchup_matrix,
+            user_pinned_ids=user_pinned_ids
+        )
+
+    # Evaluate Season 2026
+    import seasonal_badges
+    season_eval = seasonal_badges.evaluate_player_seasonal_badges(
         player_data=player_data,
         history=history,
         tournaments=tournaments,
-        faction_mastery=faction_mastery,
-        matchup_matrix=matchup_matrix,
-        user_pinned_ids=user_pinned_ids
+        tracker_sessions=tracker_sessions or player_data.get("tracker_history") or player_data.get("tracker_sessions"),
+        registered_tournaments=registered_tournaments or player_data.get("registered_tournaments"),
+        armylists=armylists or player_data.get("armylists"),
+        season="2026",
+        game_system=target_sys
     )
+
+    career_glory = res.get("glory_score", 0)
+    seasonal_glory = season_eval.get("glory_score", 0)
+    total_glory = career_glory + seasonal_glory
+
+    # Check if user pinned any seasonal trophies
+    if user_pinned_ids and isinstance(user_pinned_ids, list):
+        seasonal_map = {b["id"]: b for b in season_eval.get("badges", [])}
+        cur_pinned_ids = {b["id"] for b in res.get("pinned_badges", [])}
+        for pid in user_pinned_ids[:3]:
+            if pid in seasonal_map and pid not in cur_pinned_ids:
+                # Replace lowest rarity auto-pinned badge if needed
+                if len(res["pinned_badges"]) >= 3:
+                    res["pinned_badges"].pop()
+                res["pinned_badges"].insert(0, seasonal_map[pid])
+
+    res["career_glory"] = career_glory
+    res["seasonal_glory"] = seasonal_glory
+    res["glory_score"] = total_glory
+    res["glory_balance"] = total_glory  # Unified spendable wallet
+    res["seasonal"] = {
+        "2026": season_eval
+    }
+    res["active_season"] = "2026"
+    return res
