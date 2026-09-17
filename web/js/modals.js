@@ -219,8 +219,8 @@ async function openPlayerModal(playerId, playerName = '') {
 
     const predictBtn = document.getElementById('btn-modal-scout-predict');
     if (predictBtn) {
-      const shortName = resolvedName && resolvedName !== 'Player Profile' ? resolvedName.split(' ')[0] : 'Player';
-      predictBtn.innerHTML = `🔮 Predict Match vs ${escapeHtml(shortName)}`;
+      predictBtn.innerHTML = `<span>🔮 Predict Match</span>`;
+      predictBtn.title = `Simulate match vs ${escapeHtml(resolvedName)}`;
     }
 
     // OmniTactica Registered User & Chat Request Handler

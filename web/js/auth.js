@@ -947,6 +947,21 @@ function renderHeaderAuth() {
   if (esNavBtn) {
     esNavBtn.style.display = (currentUser && isUserTO(currentUser)) ? 'flex' : 'none';
   }
+
+  const mobileProfileBtn = document.getElementById('mobile-btn-more');
+  const mobileAvatarIcon = document.getElementById('mobile-top-avatar-icon');
+  if (mobileProfileBtn) {
+    if (currentUser) {
+      mobileProfileBtn.title = `Account Settings (${currentUser.display_name || currentUser.email || 'Player'})`;
+      mobileProfileBtn.onclick = () => openUserSettingsModal();
+      if (mobileAvatarIcon) mobileAvatarIcon.textContent = currentUser.faction_icon || '👤';
+    } else {
+      mobileProfileBtn.title = 'Sign In / Account Settings';
+      mobileProfileBtn.onclick = () => { window.location.href = '/login'; };
+      if (mobileAvatarIcon) mobileAvatarIcon.textContent = '👤';
+    }
+  }
+
   syncMobileNavDropdown();
 
   if (!container) return;
@@ -1110,9 +1125,22 @@ function populateSettingsFactionDropdown(selectedVal = '') {
   }
 }
 window.populateSettingsFactionDropdown = populateSettingsFactionDropdown;
-window.fetchDynamicFactions = fetchDynamicFactions;
+function handleMobileProfileClick() {
+  if (typeof currentUser !== 'undefined' && currentUser) {
+    if (typeof openUserSettingsModal === 'function') {
+      openUserSettingsModal();
+      return;
+    }
+  }
+  window.location.href = '/login';
+}
+window.handleMobileProfileClick = handleMobileProfileClick;
 
 function openUserSettingsModal() {
+  if (!currentUser) {
+    window.location.href = '/login';
+    return;
+  }
   const modal = document.getElementById('user-settings-modal');
   if (!modal) return;
 

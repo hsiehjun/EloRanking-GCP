@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=1892112ed0">
-  <link rel="stylesheet" href="/css/styles.css?v=1892112ed0">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=1892112ed0">
+  <link rel="stylesheet" href="/css/theme.css?v=1c4f5834bf">
+  <link rel="stylesheet" href="/css/styles.css?v=1c4f5834bf">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=1c4f5834bf">
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -242,7 +242,7 @@
           <button type="button" id="mobile-btn-search" class="mobile-top-action-btn" onclick="switchTab('search')" title="Search Directory">
             <span>🔍</span>
           </button>
-          <button type="button" id="mobile-btn-more" class="mobile-top-action-btn mobile-profile-btn" onclick="openMobileMoreSheet()" title="Profile & Account Menu">
+          <button type="button" id="mobile-btn-more" class="mobile-top-action-btn mobile-profile-btn" onclick="handleMobileProfileClick()" title="Account Settings">
             <span id="mobile-top-avatar-icon">👤</span>
           </button>
         </div>
@@ -911,7 +911,7 @@
               </tr>
             </thead>
             <tbody id="leaderboard-body">
-              <tr>
+              <tr class="loading-row">
                 <td colspan="8" class="empty-state">
                   <div class="spinner"></div>
                   <div style="margin-top: 0.5rem;">Loading Elo standings...</div>
@@ -949,7 +949,7 @@
               </tr>
             </thead>
             <tbody id="lead-teams-body">
-              <tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top: 0.5rem;">Loading team standings...</div></td></tr>
+              <tr class="loading-row"><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top: 0.5rem;">Loading team standings...</div></td></tr>
             </tbody>
           </table>
         </div>
@@ -2308,6 +2308,9 @@
             <button type="button" class="btn btn-primary btn-sm btn-modal-full-profile" id="btn-modal-open-full-profile" onclick="openDedicatedPlayerProfileFromModal()" title="Open dedicated, full-page player profile">
               <span>↗ Full Profile</span>
             </button>
+            <button type="button" class="btn btn-outline btn-sm btn-modal-scout-predict" id="btn-modal-scout-predict" onclick="closeModal('player-modal'); openPredictorWithPlayer(currentModalPlayerId, currentModalPlayerName);" title="Simulate match vs player">
+              <span>🔮 Predict Match</span>
+            </button>
             <div id="modal-player-chat-container"></div>
             <button class="modal-close" onclick="closeModal('player-modal')" aria-label="Close modal">✕</button>
           </div>
@@ -2366,29 +2369,6 @@
           <div id="modal-matches-more-prompt" class="scout-more-prompt" style="display: none;"></div>
         </div>
 
-        <!-- Full Profile Navigation CTA Card -->
-        <div class="scout-full-profile-banner" onclick="openDedicatedPlayerProfileFromModal()" role="button" tabindex="0" title="Open complete player profile with tournament journey, Nemesis matchups and career trajectory">
-          <div class="scout-banner-content">
-            <div class="scout-banner-icon">📊</div>
-            <div class="scout-banner-text">
-              <div class="scout-banner-heading">Open Full Tournament Journey &amp; Analytics ↗</div>
-              <div class="scout-banner-desc">Interactive Elo graph, faction win rates, Nemesis rivalries &amp; match history</div>
-            </div>
-          </div>
-          <button type="button" class="btn btn-primary btn-sm scout-banner-action" onclick="event.stopPropagation(); openDedicatedPlayerProfileFromModal();">
-            Full Profile ↗
-          </button>
-        </div>
-
-        <!-- Secondary Actions Row -->
-        <div class="scout-footer-actions">
-          <button type="button" class="btn btn-outline btn-sm" id="btn-modal-scout-predict" onclick="closeModal('player-modal'); openPredictorWithPlayer(currentModalPlayerId, currentModalPlayerName);" style="gap: 0.35rem; color: #a855f7; border-color: rgba(168,85,247,0.35); background: rgba(168,85,247,0.08);">
-            🔮 Predict Match vs Player
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" onclick="closeModal('player-modal')">
-            Close
-          </button>
-        </div>
       </div>
     </div>
   </div>
@@ -3061,17 +3041,20 @@
 
       <div class="modal-body">
         <!-- Sub-tabs within Faction Modal -->
-        <div class="subtabs-bar" style="margin-bottom: 1rem;">
-          <button id="faction-subtab-matches" class="subtab-btn active" onclick="switchFactionModalTab('matches')">
-            <span>⚔️ Recent Games & Matches</span>
+        <div class="subtabs-bar faction-modal-subtabs" style="margin-bottom: 0.85rem;">
+          <button id="faction-subtab-matches" class="subtab-btn active" onclick="switchFactionModalTab('matches')" title="Recent Games & Matches">
+            <span class="subtab-text-desktop">⚔️ Recent Games & Matches</span>
+            <span class="subtab-text-mobile">⚔️ Matches</span>
             <span id="faction-tab-matches-count" class="subtab-count-badge">0</span>
           </button>
-          <button id="faction-subtab-players" class="subtab-btn" onclick="switchFactionModalTab('players')">
-            <span>👑 Top Commanders</span>
+          <button id="faction-subtab-players" class="subtab-btn" onclick="switchFactionModalTab('players')" title="Top Commanders">
+            <span class="subtab-text-desktop">👑 Top Commanders</span>
+            <span class="subtab-text-mobile">👑 Commanders</span>
             <span id="faction-tab-players-count" class="subtab-count-badge">0</span>
           </button>
-          <button id="faction-subtab-matchups" class="subtab-btn" onclick="switchFactionModalTab('matchups')">
-            <span>📊 Matchups Matrix</span>
+          <button id="faction-subtab-matchups" class="subtab-btn" onclick="switchFactionModalTab('matchups')" title="Matchups Matrix">
+            <span class="subtab-text-desktop">📊 Matchups Matrix</span>
+            <span class="subtab-text-mobile">📊 Matchups</span>
             <span id="faction-tab-matchups-count" class="subtab-count-badge">0</span>
           </button>
         </div>
@@ -3142,8 +3125,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "1892112ed0";</script>
-  <script src="/js/app.bundle.min.js?v=1892112ed0"></script>
+  <script>window.APP_VERSION = "1c4f5834bf";</script>
+  <script src="/js/app.bundle.min.js?v=1c4f5834bf"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

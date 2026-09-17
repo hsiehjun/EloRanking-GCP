@@ -147,7 +147,7 @@ async function loadLeaderboard(isPrefetch = false) {
     tbody.style.pointerEvents = 'none';
     tbody.style.transition = 'opacity 0.15s ease';
   } else if (!cached && tbody && (!leaderboardData || leaderboardData.length === 0) && !isPrefetch) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading leaderboard...</div></td></tr>';
+    tbody.innerHTML = '<tr class="loading-row"><td colspan="9" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading leaderboard...</div></td></tr>';
   }
 
   try {
@@ -194,7 +194,7 @@ async function loadLeaderboard(isPrefetch = false) {
     if (tbody && !cached) {
       tbody.style.opacity = '1';
       tbody.style.pointerEvents = '';
-      tbody.innerHTML = `<tr><td colspan="9" class="empty-state" style="color:var(--loss);"><p>Error loading leaderboard: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboard()">🔄 Retry</button></td></tr>`;
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="9" class="empty-state" style="color:var(--loss);"><p>Error loading leaderboard: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboard()">🔄 Retry</button></td></tr>`;
     }
   }
 }
@@ -207,7 +207,7 @@ function renderLeaderboardRows() {
   tbody.innerHTML = '';
 
   if (!leaderboardData || leaderboardData.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No players found.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8" class="empty-state">No players found.</td></tr>';
     return;
   }
 
@@ -309,7 +309,7 @@ async function loadLeaderboardTeams(isPrefetch = false) {
     tbody.style.pointerEvents = 'none';
     tbody.style.transition = 'opacity 0.15s ease';
   } else if (!cached && tbody && (!leaderboardTeamsData || leaderboardTeamsData.length === 0) && !isPrefetch) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading team standings...</div></td></tr>';
+    tbody.innerHTML = '<tr class="loading-row"><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading team standings...</div></td></tr>';
   }
 
   try {
@@ -361,7 +361,7 @@ async function loadLeaderboardTeams(isPrefetch = false) {
     if (tbody && !cached) {
       tbody.style.opacity = '1';
       tbody.style.pointerEvents = '';
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-state" style="color:var(--loss);"><p>Error loading team rankings: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboardTeams()">🔄 Retry</button></td></tr>`;
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="8" class="empty-state" style="color:var(--loss);"><p>Error loading team rankings: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboardTeams()">🔄 Retry</button></td></tr>`;
     }
   }
 }
@@ -376,7 +376,7 @@ function renderLeaderboardTeamsRows() {
 
   const list = Array.isArray(leaderboardTeamsData) ? leaderboardTeamsData : (leaderboardTeamsData && Array.isArray(leaderboardTeamsData.items) ? leaderboardTeamsData.items : []);
   if (!list || list.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No teams found.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8" class="empty-state">No teams found.</td></tr>';
     return;
   }
 
