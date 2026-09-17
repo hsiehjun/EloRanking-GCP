@@ -8851,6 +8851,28 @@ body.is-authenticated #floating-chat-widget {
   vertical-align: middle;
 }
 
+.hero-insignia-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  padding: 0;
+  margin-left: 1px;
+}
+.hero-insignia-info-btn:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  color: #38bdf8;
+  transform: scale(1.1);
+}
+
 .hero-insignia-btn {
   display: inline-flex;
   align-items: center;

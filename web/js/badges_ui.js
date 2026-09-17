@@ -216,7 +216,9 @@
     html.push('    <span class="seasonal-icon">' + sIcon + '</span>');
     html.push('    <span class="seasonal-tag">\'26</span>');
     html.push('  </button>');
-
+    html.push('  <button type="button" class="hero-insignia-info-btn" onclick="window.BadgesUI && window.BadgesUI.openGuideModal();" title="Field Manual: Crests, Seals &amp; Heraldry Symbols" aria-label="Heraldry Guide">');
+    html.push('    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>');
+    html.push('  </button>');
     html.push('</div>');
 
     return html.join('\n');
@@ -1395,28 +1397,52 @@
     var existing = document.getElementById('badges-guide-modal');
     if (existing) existing.remove();
 
-    var ranksData = [
-      { level: 1, title: 'Initiate', badges: '0 – 4', icon: '🛡️', borderText: 'border: 1px solid rgba(255, 255, 255, 0.08)', desc: 'Standard field fatigues. Fresh recruits taking their first steps in competitive play.' },
-      { level: 2, title: 'Veteran', badges: '5 – 14', icon: '⚔️', borderText: 'border: 1.5px solid rgba(217, 119, 6, 0.45)', desc: 'Refined subtle bronze trim. Proven experience across sanctioned tournament rounds.' },
-      { level: 3, title: 'Centurion', badges: '15 – 29', icon: '🗡️', borderText: 'border: 1.5px solid rgba(148, 163, 184, 0.55)', desc: 'Polished steel border. Respected club pillar, match winner, and tactical regular.' },
-      { level: 4, title: 'Commander', badges: '30 – 49', icon: '🎖️', borderText: 'border: 1.5px solid rgba(203, 213, 225, 0.75)', desc: 'Sterling silver trim with subtle ambient backplate. Regional competitive threat.' },
-      { level: 5, title: 'Lord General', badges: '50 – 69', icon: '🦅', borderText: 'border: 1.5px solid rgba(245, 158, 11, 0.75)', desc: 'Regal golden trim with ambient sheen. Powerhouse commander battling on top tables.' },
-      { level: 6, title: 'High Warmaster', badges: '70 – 89', icon: '🔥', borderText: 'border: 1.5px solid #fbbf24 + Amber Halo Glow', desc: 'Luminous gold edge with 25px amber halo. Continental tournament champion.' },
-      { level: 7, title: 'Apex Everchosen', badges: '90+', icon: '👑', borderText: 'border: 1.5px solid #c084fc + Prismatic Astral Aura', desc: 'Deep violet trim with 30px astral halo aura. Worldwide mythic legend.' }
+    var careerCrestsData = [
+      { level: 1, title: 'Initiate Crest', badges: '0 – 4', icon: '🛡️', borderText: 'Standard iron perimeter; recruit in field fatigues', desc: 'Fresh competitor taking their first steps in verified competitive play.' },
+      { level: 2, title: 'Battle-Brother Crest', badges: '5 – 14', icon: '⚔️', borderText: 'Burnished bronze trim (1.5px subtle border)', desc: 'Frontline tournament combatant with proven match victories.' },
+      { level: 3, title: 'Centurion Crest', badges: '15 – 29', icon: '🗡️', borderText: 'Polished cobalt steel border (1.5px trim)', desc: 'Respected squad leader, club pillar, and consistent match winner.' },
+      { level: 4, title: 'Force Commander Crest', badges: '30 – 49', icon: '🎖️', borderText: 'Sterling silver border + ambient sheen', desc: 'Theater-level champion and verified regional tournament threat.' },
+      { level: 5, title: 'Chapter Master Crest', badges: '50 – 69', icon: '🦅', borderText: 'Imperial gold Aquila border (1.5px gold trim)', desc: 'Powerhouse master commander battling consistently on top tables.' },
+      { level: 6, title: 'High Warmaster Crest', badges: '70 – 89', icon: '🔥', borderText: 'Blazing solar flame + 25px amber halo glow', desc: 'Dominant continental champion commanding theater-wide respect.' },
+      { level: 7, title: 'Primarch / Everchosen Crest', badges: '90+', icon: '👑', borderText: 'Celestial sovereign crown + astral pulsing aura', desc: 'Mythic tabletop legend at the absolute pinnacle of lifetime achievements.' }
     ];
 
-    var ranksListHtml = ranksData.map(function(r) {
+    var careerCrestsHtml = careerCrestsData.map(function(r) {
       return [
         '<div style="display: flex; align-items: flex-start; gap: 0.85rem; padding: 0.65rem 0.85rem; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: var(--radius-sm); margin-bottom: 0.5rem;">',
         '  <div style="font-size: 1.4rem; min-width: 32px; text-align: center; margin-top: 0.1rem;">' + r.icon + '</div>',
         '  <div style="flex: 1; min-width: 0;">',
         '    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem; flex-wrap: wrap;">',
         '      <span style="font-weight: 800; font-size: 0.88rem; color: #fff;">' + escapeHtml(r.title) + '</span>',
-        '      <span style="font-size: 0.68rem; font-weight: 700; color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.1rem 0.4rem; border-radius: 9999px;">Rank ' + r.level + '</span>',
-        '      <span style="font-size: 0.72rem; color: #38bdf8; margin-left: auto; font-family: var(--font-mono); font-weight: 700;">' + escapeHtml(r.badges) + ' Honors</span>',
+        '      <span style="font-size: 0.68rem; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); padding: 0.1rem 0.4rem; border-radius: 9999px;">Tier ' + r.level + '/7</span>',
+        '      <span style="font-size: 0.72rem; color: #94a3b8; margin-left: auto; font-family: var(--font-mono); font-weight: 700;">' + escapeHtml(r.badges) + ' Career Milestones</span>',
         '    </div>',
         '    <div style="font-size: 0.76rem; color: #cbd5e1; line-height: 1.35; margin-bottom: 0.2rem;">' + escapeHtml(r.desc) + '</div>',
         '    <div style="font-size: 0.68rem; color: #94a3b8; font-family: var(--font-mono);">' + escapeHtml(r.borderText) + '</div>',
+        '  </div>',
+        '</div>'
+      ].join('');
+    }).join('');
+
+    var seasonalSealsData = [
+      { tier: 'Pinnacle Capstone', title: 'Warmaster / Everchosen of 2026', req: '15+ Seasonal Honors', icon: '👑 \'26', borderText: 'Crimson-Gold Halo + Sovereign Crown', desc: 'Achieved by completing 15+ of the 20 seasonal campaign honors. Awards +500 Glory Requisition bounty.' },
+      { tier: 'Tier 3: Champion', title: 'Season Champion (Gold)', req: '10 – 14 Seasonal Honors', icon: '🥇 \'26', borderText: 'Burnished Gold Laurel Medal', desc: 'Elite tournament mastery and sustained dedication across the annual circuit.' },
+      { tier: 'Tier 2: Veteran', title: 'Season Veteran (Silver)', req: '5 – 9 Seasonal Honors', icon: '🥈 \'26', borderText: 'Sterling Silver Campaign Medal', desc: 'Active competitive participant across GTs, Companion sessions, and roster management.' },
+      { tier: 'Tier 1: Enlisted', title: 'Campaign Active (Bronze)', req: '1 – 4 Seasonal Honors', icon: '⚡ \'26', borderText: 'Amber Lightning Campaign Ribbon', desc: 'Enlisted competitor with verified match play in the active annual season.' }
+    ];
+
+    var seasonalSealsHtml = seasonalSealsData.map(function(s) {
+      return [
+        '<div style="display: flex; align-items: flex-start; gap: 0.85rem; padding: 0.65rem 0.85rem; background: rgba(245, 158, 11, 0.04); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: var(--radius-sm); margin-bottom: 0.5rem;">',
+        '  <div style="font-size: 1.25rem; font-family: var(--font-mono); font-weight: 800; min-width: 48px; text-align: center; color: #fbbf24; margin-top: 0.1rem;">' + s.icon + '</div>',
+        '  <div style="flex: 1; min-width: 0;">',
+        '    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem; flex-wrap: wrap;">',
+        '      <span style="font-weight: 800; font-size: 0.88rem; color: #fef08a;">' + escapeHtml(s.title) + '</span>',
+        '      <span style="font-size: 0.68rem; font-weight: 700; color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.1rem 0.4rem; border-radius: 9999px;">' + s.tier + '</span>',
+        '      <span style="font-size: 0.72rem; color: #fbbf24; margin-left: auto; font-family: var(--font-mono); font-weight: 700;">' + escapeHtml(s.req) + '</span>',
+        '    </div>',
+        '    <div style="font-size: 0.76rem; color: #cbd5e1; line-height: 1.35; margin-bottom: 0.2rem;">' + escapeHtml(s.desc) + '</div>',
+        '    <div style="font-size: 0.68rem; color: #fbbf24; opacity: 0.85; font-family: var(--font-mono);">' + escapeHtml(s.borderText) + '</div>',
         '  </div>',
         '</div>'
       ].join('');
@@ -1427,50 +1453,65 @@
     modal.className = 'modal-backdrop active';
     modal.style.zIndex = '100001';
     modal.innerHTML = [
-      '<div class="modal-card" style="max-width: 620px; max-height: 88vh; background: #0f172a; border-radius: var(--radius-lg); border: 1.5px solid rgba(255, 255, 255, 0.15); box-shadow: 0 10px 40px rgba(0,0,0,0.85); display: flex; flex-direction: column; overflow: hidden;">',
+      '<div class="modal-card" style="max-width: 660px; max-height: 90vh; background: #0f172a; border-radius: var(--radius-lg); border: 1.5px solid rgba(255, 255, 255, 0.15); box-shadow: 0 10px 40px rgba(0,0,0,0.85); display: flex; flex-direction: column; overflow: hidden;">',
       '  <div style="padding: 1.25rem 1.5rem; background: rgba(255, 255, 255, 0.02); border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">',
       '    <div style="display: flex; align-items: center; gap: 0.65rem;">',
       '      <div style="font-size: 1.3rem;">📖</div>',
       '      <div>',
       '        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">High Command Field Manual</h3>',
-      '        <div style="font-size: 0.75rem; color: #94a3b8;">Military Progression Ranks, Card Borders &amp; Glory Honor System</div>',
+      '        <div style="font-size: 0.75rem; color: #94a3b8;">Heraldic Insignia System, Seasonal Seals &amp; Unified Glory Wallet</div>',
       '      </div>',
       '    </div>',
       '    <button type="button" class="modal-close" onclick="window.BadgesUI.closeGuideModal()" style="background: none; border: none; font-size: 1.4rem; color: #94a3b8; cursor: pointer;">✕</button>',
       '  </div>',
-      '  <div style="padding: 1.25rem 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem;">',
-      '    <!-- Section 1: Military Ranks & Borders -->',
+      '  <div style="padding: 1.25rem 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.35rem;">',
+      '    <!-- Section 1: Pure Icon Heraldry Overview -->',
+      '    <div style="background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--radius-sm); padding: 0.9rem 1rem;">',
+      '      <h4 style="font-size: 0.86rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 0.35rem; display: flex; align-items: center; gap: 0.4rem;">',
+      '        <span>🛡️</span> Pure Icon Heraldry &amp; Direct Navigation',
+      '      </h4>',
+      '      <p style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.45; margin: 0 0 0.5rem;">To eliminate competing text titles and preserve valuable mobile screen real estate, your <strong>Elo Rating</strong> is the sole text ranking. Your career and annual achievements are represented by two clean, interactive insignia buttons in your header:</p>',
+      '      <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; padding: 0.5rem 0.75rem; background: rgba(15, 23, 42, 0.6); border-radius: var(--radius-sm); border: 1px solid rgba(255, 255, 255, 0.06);">',
+      '        <div style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; color: #e2e8f0;">',
+      '          <span style="font-size: 1.2rem;">🛡️</span> <strong>Career Crest:</strong> Lifetime milestone volume (Click to open Career Trophies).',
+      '        </div>',
+      '        <div style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; color: #fbbf24;">',
+      '          <span style="font-size: 1.1rem; font-family: var(--font-mono); font-weight: 800;">⚡ \'26</span> <strong>Seasonal Seal:</strong> Active 2026 circuit performance (Click to open Season 2026).',
+      '        </div>',
+      '      </div>',
+      '    </div>',
+      '    <!-- Section 2: Lifetime Career Crests -->',
+      '    <div>',
+      '      <h4 style="font-size: 0.85rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 0.4rem; display: flex; align-items: center; gap: 0.4rem;">',
+      '        <span>🦅</span> 7 Lifetime Career Crests &amp; Card Border Tiers',
+      '      </h4>',
+      '      <p style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.45; margin: 0 0 0.75rem;">Your Career Crest reflects the total number of permanent milestones unlocked across your entire competitive career. Upgrades your profile insignia and card border halo across OmniTactica.</p>',
+      careerCrestsHtml,
+      '    </div>',
+      '    <!-- Section 3: Annual Campaign Seals -->',
       '    <div>',
       '      <h4 style="font-size: 0.85rem; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 0.4rem; display: flex; align-items: center; gap: 0.4rem;">',
-      '        <span>🎖️</span> 7 Military Progression Tiers &amp; Hero Card Borders',
+      '        <span>⚡</span> Annual Campaign Seals (Season 2026 &amp; Future Circuits)',
       '      </h4>',
-      '      <p style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.45; margin: 0 0 0.75rem;">Your Military Rank represents your overall volume of competitive milestones. Every badge you unlock brings you closer to the next military tier, upgrading your Hero Card border and halo glow across the entire platform with <strong style=\"color: #10b981;\">strictly zero layout shift</strong>.</p>',
-      ranksListHtml,
+      '      <p style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.45; margin: 0 0 0.75rem;">Every calendar year (Jan 1 – Dec 31) runs a fresh seasonal campaign. Your seasonal seal levels up as you claim 2026 honors across matches, Companion sessions, and tournaments.</p>',
+      seasonalSealsHtml,
       '    </div>',
-      '    <!-- Section 2: Glory Points vs Badges vs Elo -->',
-      '    <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-sm); padding: 1rem;">',
-      '      <h4 style="font-size: 0.85rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 0.5rem; display: flex; align-items: center; gap: 0.4rem;">',
-      '        <span>⚡</span> Badge Count vs. Elo vs. Glory Requisition Currency',
+      '    <!-- Section 4: Elo vs Heraldry vs Glory Wallet -->',
+      '    <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: var(--radius-sm); padding: 1rem;">',
+      '      <h4 style="font-size: 0.85rem; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 0.5rem; display: flex; align-items: center; gap: 0.4rem;">',
+      '        <span>💰</span> Unified Spendable Glory Wallet',
       '      </h4>',
-      '      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; margin-bottom: 0.75rem;">',
-      '        <div style="padding: 0.75rem; background: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm); border: 1px solid rgba(255, 255, 255, 0.06);">',
-      '          <div style="font-size: 0.78rem; font-weight: 800; color: #fff; margin-bottom: 0.25rem;"># OF BADGES (Milestones)</div>',
-      '          <div style="font-size: 0.75rem; color: #94a3b8; line-height: 1.35;">Total lifetime feats unlocked. Determines your <strong>Military Rank</strong> (Level 1 to 7) and progressive <strong>Card Borders &amp; Glows</strong>.</div>',
-      '        </div>',
-      '        <div style="padding: 0.75rem; background: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm); border: 1px solid rgba(255, 255, 255, 0.06);">',
-      '          <div style="font-size: 0.78rem; font-weight: 800; color: #fbbf24; margin-bottom: 0.25rem;">GLORY HONOR (Future Currency)</div>',
-      '          <div style="font-size: 0.75rem; color: #94a3b8; line-height: 1.35;">Earnable tactical credits. In upcoming phases, trade Glory Honor for exclusive holo-frames, faction crests, and stream flairs. <a href=\"javascript:void(0)\" onclick=\"window.BadgesUI.openGloryCurrencyModal()\" style=\"color: #38bdf8; text-decoration: underline;\">Learn more →</a></div>',
-      '        </div>',
-      '      </div>',
-      '      <div style="font-size: 0.74rem; color: #cbd5e1; line-height: 1.4;">',
-      '        <strong style=\"color: #fbbf24;\">Glory Tier Deposits:</strong> Common (+10) • Uncommon (+25) • Rare (+50) • Epic (+100) • Legendary (+250) • Mythic (+500)',
+      '      <p style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.45; margin: 0 0 0.75rem;">Your spendable Glory balance pools together your <strong>Career Glory</strong> (lifetime permanent milestones) and <strong>Season 2026 Glory</strong> (annual campaign bounties). Each new season resets the annual circuit so you can earn fresh Glory points again, while keeping all past career points in your wallet.</p>',
+      '      <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.74rem; color: #cbd5e1; background: rgba(255, 255, 255, 0.03); padding: 0.6rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid rgba(255, 255, 255, 0.06);">',
+      '        <span>Common (+10-35) • Rare (+50-125) • Epic (+150-250) • Mythic (+300-500)</span>',
+      '        <a href=\"javascript:void(0)\" onclick=\"window.BadgesUI.openGloryCurrencyModal()\" style=\"color: #38bdf8; font-weight: 700; text-decoration: underline;\">Requisition Armory Intel →</a>',
       '      </div>',
       '    </div>',
-      '    <!-- Section 3: Signature Honors Rack & Secrets -->',
+      '    <!-- Section 5: Signature Honors & Secrets -->',
       '    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem;">',
       '      <div style="padding: 0.85rem; background: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm); border: 1px solid rgba(255, 255, 255, 0.07);">',
       '        <div style="font-size: 0.8rem; font-weight: 800; color: #fff; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.35rem;"><span>📌</span> Signature Rack</div>',
-      '        <div style="font-size: 0.74rem; color: #94a3b8; line-height: 1.35;">Pin up to 3 of your proudest honors to your Hero Card and Public Profile for opponents and stream casters to admire.</div>',
+      '        <div style="font-size: 0.74rem; color: #94a3b8; line-height: 1.35;">Pin up to 3 of your proudest career or seasonal honors to your Hero Card and Public Profile.</div>',
       '      </div>',
       '      <div style="padding: 0.85rem; background: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm); border: 1px solid rgba(255, 255, 255, 0.07);">',
       '        <div style="font-size: 0.8rem; font-weight: 800; color: #c084fc; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.35rem;"><span>🕵️</span> Classified Secrets</div>',
@@ -1479,7 +1520,7 @@
       '    </div>',
       '  </div>',
       '  <div style="padding: 0.85rem 1.5rem; background: rgba(255, 255, 255, 0.02); border-top: 1px solid rgba(255, 255, 255, 0.08); text-align: right;">',
-      '    <button type="button" class="btn btn-primary" onclick="window.BadgesUI.closeGuideModal()" style="padding: 0.5rem 1.25rem;">Understood, Commander</button>',
+      '    <button type="button" class="btn btn-primary" onclick="window.BadgesUI.closeGuideModal()" style="padding: 0.5rem 1.25rem;">Understood, High Command</button>',
       '  </div>',
       '</div>'
     ].join('\n');
