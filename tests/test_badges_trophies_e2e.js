@@ -207,7 +207,7 @@ async function runBadgesE2ETests() {
       const cards = document.querySelectorAll('.trophy-card');
       const unlockedCards = document.querySelectorAll('.trophy-card.unlocked');
       const lockedCards = document.querySelectorAll('.trophy-card.locked');
-      const searchInput = document.getElementById('trophy-search-input');
+      const searchInput = document.getElementById('hub-trophy-search-input') || document.getElementById('trophy-search-input');
       return {
         panelVisible: panel ? window.getComputedStyle(panel).display !== 'none' : false,
         hasBanner: !!banner,
@@ -243,7 +243,7 @@ async function runBadgesE2ETests() {
     const battlefieldCount = await client.eval(`(() => {
       const chip = document.querySelector('.trophy-category-chip[data-cat="battlefield"]');
       if (chip) chip.click();
-      return document.querySelectorAll('#trophy-grid-container .trophy-card').length;
+      return document.querySelectorAll('#hub-trophy-grid-container .trophy-card, #trophy-grid-container .trophy-card, .trophy-grid .trophy-card').length;
     })()`);
     console.log('  Battlefield category visible cards:', battlefieldCount);
     if (battlefieldCount === 0 || battlefieldCount > 25) {
@@ -264,7 +264,7 @@ async function runBadgesE2ETests() {
     console.log('\n[Stage 4] Showcasing the 6 Rarity Levels (Common, Uncommon, Rare, Epic, Legendary, Mythic)...');
     await client.eval(`(() => {
       const rarities = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
-      const grid = document.getElementById('trophy-grid-container');
+      const grid = document.getElementById('hub-trophy-grid-container') || document.getElementById('trophy-grid-container') || document.querySelector('.trophy-grid');
       if (!grid) return;
       const cards = Array.from(grid.querySelectorAll('.trophy-card'));
       const picked = [];
@@ -287,7 +287,7 @@ async function runBadgesE2ETests() {
 
     // Restore grid
     await client.eval(`(() => {
-      const grid = document.getElementById('trophy-grid-container');
+      const grid = document.getElementById('hub-trophy-grid-container') || document.getElementById('trophy-grid-container') || document.querySelector('.trophy-grid');
       if (grid) {
         grid.querySelectorAll('.trophy-card').forEach(c => c.style.display = '');
       }
@@ -299,11 +299,11 @@ async function runBadgesE2ETests() {
     // ------------------------------------------------------------------
     console.log('\n[Stage 5] Testing Search & Modal Inspection...');
     const searchResultCount = await client.eval(`(() => {
-      const input = document.getElementById('trophy-search-input');
+      const input = document.getElementById('hub-trophy-search-input') || document.getElementById('trophy-search-input');
       if (!input) return -1;
       input.value = 'Alamo';
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      return document.querySelectorAll('#trophy-grid-container .trophy-card').length;
+      return document.querySelectorAll('#hub-trophy-grid-container .trophy-card, #trophy-grid-container .trophy-card, .trophy-grid .trophy-card').length;
     })()`);
     console.log('  Search "Alamo" visible cards:', searchResultCount);
     if (searchResultCount !== 1) {
