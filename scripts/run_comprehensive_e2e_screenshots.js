@@ -153,9 +153,27 @@ async function main() {
     await sleep(1000);
     await takeScreenshot(client, `journey1_rankings_aos_desktop.png`, { width: 1440, height: 900, device: 'Desktop' });
 
-    // Switch back to 40k
-    await client.eval(`if (typeof window.switchGameSystem === 'function') window.switchGameSystem('40k');`);
+    // Interaction: Search filter typing
+    console.log("  -> Testing Leaderboard search filter...");
+    await client.eval(`
+      const searchInput = document.getElementById('player-search-input') || document.querySelector('input[placeholder*="Search"]');
+      if (searchInput) {
+        searchInput.value = 'Mani';
+        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    `);
     await sleep(800);
+    await takeScreenshot(client, `journey1_rankings_filtered_desktop.png`, { width: 1440, height: 900, device: 'Desktop' });
+
+    // Clear search
+    await client.eval(`
+      const searchInput = document.getElementById('player-search-input') || document.querySelector('input[placeholder*="Search"]');
+      if (searchInput) {
+        searchInput.value = '';
+        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    `);
+    await sleep(500);
 
     // =========================================================================
     // JOURNEY 2: PLAYER PROFILE MODAL & MATCH PREDICTOR
@@ -170,6 +188,18 @@ async function main() {
 
     for (const vp of viewports) {
       await takeScreenshot(client, `journey2_player_modal_${vp.name}.png`, { ...vp, device: vp.label });
+    }
+
+    // Interaction: Player Modal Badges & Trophies Tab
+    console.log("  -> Switching to Player Badges & Trophies Tab...");
+    await client.eval(`
+      const badgesTab = Array.from(document.querySelectorAll('#player-modal .modal-tab, #player-modal button, #player-modal .tab-btn')).find(b => b.textContent && (b.textContent.includes('Troph') || b.textContent.includes('Badge')));
+      if (badgesTab) badgesTab.click();
+      else if (typeof window.switchPlayerProfileTab === 'function') window.switchPlayerProfileTab('trophies');
+    `);
+    await sleep(800);
+    for (const vp of viewports) {
+      await takeScreenshot(client, `journey2_player_badges_${vp.name}.png`, { ...vp, device: vp.label });
     }
 
     // Close modal
@@ -202,7 +232,7 @@ async function main() {
     }
 
     // Open an event modal
-    console.log("  -> Opening Event Details Modal (Placings & Pairings)...");
+    console.log("  -> Opening Event Details Modal (Placings, Pairings & Rosters)...");
     await client.eval(`
       if (typeof window.openEventModal === 'function') {
         window.openEventModal('ev_ongoing_gt_live');
@@ -215,12 +245,22 @@ async function main() {
     }
 
     // Switch to pairings tab inside event modal
+    console.log("  -> Event Modal: Pairings Tab...");
     await client.eval(`
       const pairTab = Array.from(document.querySelectorAll('.modal-tab, .tab-btn')).find(b => b.textContent && b.textContent.includes('Pairing'));
       if (pairTab) pairTab.click();
     `);
     await sleep(1000);
     await takeScreenshot(client, `journey3_event_modal_pairings_desktop.png`, { width: 1440, height: 900, device: 'Desktop' });
+
+    // Switch to rosters tab inside event modal
+    console.log("  -> Event Modal: Rosters Tab...");
+    await client.eval(`
+      const rosterTab = Array.from(document.querySelectorAll('.modal-tab, .tab-btn')).find(b => b.textContent && b.textContent.includes('Roster'));
+      if (rosterTab) rosterTab.click();
+    `);
+    await sleep(1000);
+    await takeScreenshot(client, `journey3_event_modal_rosters_desktop.png`, { width: 1440, height: 900, device: 'Desktop' });
 
     // Close event modal
     await client.eval(`
@@ -267,15 +307,37 @@ async function main() {
     }
 
     // =========================================================================
-    // JOURNEY 6: COMPETITOR MY HUB & SETTINGS
+    // JOURNEY 6: COMPETITOR MY HUB, TROPHIES ROOM & SETTINGS
     // =========================================================================
-    console.log("\n--- [Journey 6] Competitor My Hub & Settings ---");
+    console.log("\n--- [Journey 6] Competitor My Hub & Trophies Room ---");
     await client.eval(`if (typeof window.switchTab === 'function') window.switchTab('my-hub');`);
     await sleep(1500);
 
     for (const vp of viewports) {
       await takeScreenshot(client, `journey6_my_hub_${vp.name}.png`, { ...vp, device: vp.label });
     }
+
+    // Interaction: Switch to Trophies Subtab
+    console.log("  -> Switching to Trophies Room Subtab...");
+    await client.eval(`
+      const tropSubtab = Array.from(document.querySelectorAll('.hub-subtab, [data-subtab="trophies"], button')).find(b => b.textContent && (b.textContent.includes('Troph') || b.textContent.includes('Trophy')));
+      if (tropSubtab) tropSubtab.click();
+      else if (typeof window.switchMyHubSubtab === 'function') window.switchMyHubSubtab('trophies');
+    `);
+    await sleep(1200);
+    for (const vp of viewports) {
+      await takeScreenshot(client, `journey6_trophies_room_${vp.name}.png`, { ...vp, device: vp.label });
+    }
+
+    // Interaction: Switch to Armylists Subtab
+    console.log("  -> Switching to Armylists Subtab...");
+    await client.eval(`
+      const armySubtab = Array.from(document.querySelectorAll('.hub-subtab, [data-subtab="armylists"], button')).find(b => b.textContent && b.textContent.includes('Army'));
+      if (armySubtab) armySubtab.click();
+      else if (typeof window.switchMyHubSubtab === 'function') window.switchMyHubSubtab('armylists');
+    `);
+    await sleep(1000);
+    await takeScreenshot(client, `journey6_armylists_desktop.png`, { width: 1440, height: 900, device: 'Desktop' });
 
     // Open User Settings Modal
     console.log("  -> Opening User Settings Modal...");
@@ -311,6 +373,21 @@ async function main() {
     for (const vp of viewports) {
       await takeScreenshot(client, `journey8_tracker_play_${vp.name}.png`, { ...vp, device: vp.label });
     }
+
+    // Interaction: Live Tracker Round and Score button clicks
+    console.log("  -> Testing Tracker Buttons: Advancing Round & Incrementing Score...");
+    await client.eval(`
+      // Click Round 2 button
+      const r2Btn = Array.from(document.querySelectorAll('button, .round-pill, .round-tab')).find(b => b.textContent && (b.textContent.trim() === '2' || b.textContent.includes('Round 2') || b.textContent.includes('R2')));
+      if (r2Btn) r2Btn.click();
+
+      // Click score plus button
+      const plusBtn = document.querySelector('.score-btn-plus, [data-action="increment"], .inc-btn, button.btn-plus');
+      if (plusBtn) plusBtn.click();
+    `);
+    await sleep(800);
+    await takeScreenshot(client, `journey8_tracker_interactive_desktop.png`, { width: 1440, height: 900, device: 'Desktop' });
+    await takeScreenshot(client, `journey8_tracker_interactive_mobile.png`, { width: 390, height: 844, mobile: true, device: 'Mobile' });
 
     // Scorecard view
     console.log("  -> Viewing Digital Scorecard...");
