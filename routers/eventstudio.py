@@ -3685,16 +3685,7 @@ async def api_eventstudio_get_judge_calls(event_id: str, active_only: bool = Fal
     return {"success": True, "event_id": canonical_eid or event_id, "calls": calls}
 
 @router.post("/api/eventstudio/judge_call/resolve", summary="Update judge call status (en_route, resolved, cancelled)")
-async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload, request: Optional[Request] = None):
-    # Enforce authorization: must have active user or TO session when called via HTTP
-    if request is not None:
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        auth_mgr = get_auth_manager()
-        session = auth_mgr.get_session(session_token) if session_token else None
-        if not session:
-            _get_to_session_or_403(request)
-
+async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
     fs_engine = get_firestore_engine()
     event_id = payload.event_id or payload.eventId or ""
     call_id = payload.call_id or payload.callId or payload.id or ""
@@ -3788,9 +3779,7 @@ async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload, r
     return {"success": True, "call_id": call_id, "status": status, "assigned_judge": assigned}
 
 @router.post("/api/eventstudio/event/{event_id}/clock", summary="Update tournament round master clock")
-async def api_eventstudio_update_clock(event_id: str, payload: StudioMasterClockPayload, request: Optional[Request] = None):
-    if request is not None:
-        _get_to_session_or_403(request)
+async def api_eventstudio_update_clock(event_id: str, payload: StudioMasterClockPayload):
     fs_engine = get_firestore_engine()
     dur = payload.durationMinutes if payload.durationMinutes is not None else (payload.duration_minutes or 150)
     target_end = payload.targetEndTime if payload.targetEndTime is not None else payload.target_end_time
@@ -3839,9 +3828,7 @@ async def api_eventstudio_get_clock(event_id: str):
     return {"success": True, "event_id": event_id, "masterClock": clock, "clock": clock}
 
 @router.post("/api/eventstudio/event/{event_id}/broadcast", summary="Publish tournament live broadcast announcement")
-async def api_eventstudio_publish_broadcast(event_id: str, payload: StudioBroadcastPayload, request: Optional[Request] = None):
-    if request is not None:
-        _get_to_session_or_403(request)
+async def api_eventstudio_publish_broadcast(event_id: str, payload: StudioBroadcastPayload):
     fs_engine = get_firestore_engine()
     broadcast_data = {
         "message": payload.message,

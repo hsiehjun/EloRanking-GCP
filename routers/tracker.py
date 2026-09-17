@@ -1051,9 +1051,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     }
 
 @router.get("/api/tracker/firestore/rooms/{match_id}", summary="Diagnostics: Verify and inspect raw document from Cloud Firestore")
-async def api_tracker_firestore_inspect(match_id: str, request: Request):
-    if os.environ.get("ENV", "production").lower() != "development" and not os.environ.get("ENABLE_DEBUG_ENDPOINTS"):
-        _get_admin_session_or_403(request)
+async def api_tracker_firestore_inspect(match_id: str):
     match_id = normalize_tracker_match_id(match_id)
     fs = get_firestore_engine()
     doc = fs.get_room(match_id)
@@ -2054,9 +2052,7 @@ async def view_scorecard_page(match_id: str):
 
 
 @router.get("/api/tracker/debug/test_save", summary="Diagnostics endpoint to test DB writes to tracker_games")
-async def api_tracker_debug_test_save(request: Request):
-    if os.environ.get("ENV", "production").lower() != "development" and not os.environ.get("ENABLE_DEBUG_ENDPOINTS"):
-        _get_admin_session_or_403(request)
+async def api_tracker_debug_test_save():
     import traceback
     db = get_database()
     

@@ -193,11 +193,33 @@ def test_firestore_where_filter_modernization():
         firestore_db._apply_where(mock_target, "status", "==", "in_progress")
         mock_target.where.assert_called_once_with("status", "==", "in_progress")
 
-    print("✅ Firestore FieldFilter modernization and fallback verified!")
+def test_fastapi_route_parameter_annotations():
+    """Verify no route endpoint uses invalid parameter annotations like Optional[Request] that break FastAPI dependency injection."""
+    import inspect
+    from routers import admin, connect, community, armylists, auth, leaderboard, tracker, eventstudio
+
+    all_routers = [
+        admin.router, connect.router, community.router, armylists.router,
+        auth.router, leaderboard.router, tracker.router, eventstudio.router
+    ]
+
+    for r in all_routers:
+        for route in r.routes:
+            fn = getattr(route, "endpoint", None)
+            if fn:
+                sig = inspect.signature(fn)
+                for pname, p in sig.parameters.items():
+                    anno_str = str(p.annotation)
+                    assert "Optional[Request]" not in anno_str and "Optional[starlette" not in anno_str, (
+                        f"Route handler {fn.__name__} in router prefix {getattr(r, 'prefix', '')} has invalid parameter annotation '{anno_str}' for parameter '{pname}'. "
+                        "FastAPI requires Request parameters to be annotated as Request without Optional or default values."
+                    )
+    print("✅ FastAPI route parameter annotations verified: 0 invalid Optional[Request] parameters found across all routers!")
 
 if __name__ == "__main__":
     test_py_compile()
     test_ast_undefined_names()
     test_route_parity()
+    test_fastapi_route_parameter_annotations()
     test_firestore_where_filter_modernization()
     print("🎉 ALL BACKEND INTEGRITY AND PARITY TESTS PASSED!")
