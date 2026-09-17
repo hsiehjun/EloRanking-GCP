@@ -1467,6 +1467,21 @@ class PostgresDatabase:
             else:
                 game_sys = "40k"
 
+            status_dict = event_data.get("status") if isinstance(event_data.get("status"), dict) else {}
+            is_ended_calc = bool(
+                status_dict.get("ended") or status_dict.get("isEnded") or
+                status_dict.get("status") in ("ended", "completed", "finished") or
+                event_data.get("isEnded") or event_data.get("is_ended") or event_data.get("ended")
+            )
+            now_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            end_val_str = str(event_data.get("endDate") or event_data.get("end_date") or "")[:10]
+            ev_val_str = str(event_data.get("eventDate") or event_data.get("event_date") or "")[:10]
+            num_rds_val = int(event_data.get("numberOfRounds") or event_data.get("num_rounds") or 0)
+            if end_val_str and end_val_str < now_utc_str:
+                is_ended_calc = True
+            elif ev_val_str and ev_val_str < now_utc_str and (num_rds_val <= 3 or not end_val_str):
+                is_ended_calc = True
+
             with conn.cursor() as cursor:
                 cursor.execute("""
                 INSERT INTO events (
@@ -1508,7 +1523,7 @@ class PostgresDatabase:
                     event_data.get("totalPlayers", event_data.get("total_players", 0)),
                     event_data.get("numberOfRounds", event_data.get("num_rounds", 0)),
                     event_data.get("currentRound", event_data.get("current_round", 0)),
-                    bool((event_data.get("status") or {}).get("ended")) if isinstance(event_data.get("status"), dict) and "ended" in event_data["status"] else bool(event_data.get("isEnded", event_data.get("is_ended", False))),
+                    is_ended_calc,
                     game_sys_id,
                     json.dumps(event_data.get("raw_json", event_data)),
                     datetime.now(timezone.utc),
@@ -3165,17 +3180,64 @@ class PostgresDatabase:
                         raw_meta = json.loads(raw_meta)
                     except Exception:
                         raw_meta = {}
+
+                # Dynamically compute whether the event has completed
+                now_utc = datetime.now(timezone.utc)
+                end_dt = res.get("end_date") or (raw_meta.get("endDate") if isinstance(raw_meta, dict) else None) or (raw_meta.get("end_date") if isinstance(raw_meta, dict) else None)
+                ev_dt = res.get("event_date") or (raw_meta.get("eventDate") if isinstance(raw_meta, dict) else None) or (raw_meta.get("startDate") if isinstance(raw_meta, dict) else None) or (raw_meta.get("event_date") if isinstance(raw_meta, dict) else None)
+                num_rds = int(res.get("num_rounds") or (raw_meta.get("numberOfRounds") if isinstance(raw_meta, dict) else 0) or 0)
+                cur_rd = int(res.get("current_round") or (raw_meta.get("currentRound") if isinstance(raw_meta, dict) else 0) or 0)
+
+                status_meta = raw_meta.get("status") if isinstance(raw_meta, dict) and isinstance(raw_meta.get("status"), dict) else {}
+                computed_is_ended = bool(
+                    res.get("is_ended") or
+                    (raw_meta.get("isEnded") if isinstance(raw_meta, dict) else False) or
+                    (raw_meta.get("ended") if isinstance(raw_meta, dict) else False) or
+                    status_meta.get("ended") or
+                    status_meta.get("isEnded")
+                )
+
+                if not computed_is_ended:
+                    if end_dt is not None:
+                        if isinstance(end_dt, datetime):
+                            computed_is_ended = end_dt < now_utc
+                        else:
+                            end_dt_str = str(end_dt).strip()
+                            if "T" in end_dt_str or ":" in end_dt_str:
+                                try:
+                                    dt_parsed = datetime.fromisoformat(end_dt_str.replace("Z", "+00:00"))
+                                    computed_is_ended = dt_parsed < now_utc
+                                except Exception:
+                                    computed_is_ended = end_dt_str[:10] < now_utc.strftime("%Y-%m-%d")
+                            else:
+                                computed_is_ended = end_dt_str[:10] < now_utc.strftime("%Y-%m-%d")
+
+                    if not computed_is_ended and ev_dt is not None:
+                        ev_dt_str = str(ev_dt).strip()[:10]
+                        today_str = now_utc.strftime("%Y-%m-%d")
+                        if ev_dt_str < today_str and (num_rds <= 3 or cur_rd >= num_rds):
+                            computed_is_ended = True
+
+                    if not computed_is_ended and num_rds > 0 and cur_rd >= num_rds and len(matches) > 0:
+                        final_matches = [m for m in matches if int(m.get("round") or 0) == num_rds]
+                        if final_matches and all(m.get("is_done") or m.get("winner_id") or m.get("is_bye") or (m.get("player1_score") is not None and m.get("player2_score") is not None) for m in final_matches):
+                            computed_is_ended = True
+
+                res["is_ended"] = computed_is_ended
+                res["ended"] = computed_is_ended
                 if isinstance(raw_meta, dict):
-                    res["status"] = raw_meta.get("status") or {
-                        "ended": bool(res.get("is_ended")),
-                        "started": bool(res.get("started"))
-                    }
+                    res_status = dict(raw_meta.get("status") or {})
+                    res_status["ended"] = computed_is_ended
+                    res_status["isEnded"] = computed_is_ended
+                    res_status["started"] = bool(res.get("started") or computed_is_ended or res_status.get("started"))
+                    res["status"] = res_status
                     res["team_standings"] = raw_meta.get("team_standings", [])
                     res["is_team_event"] = bool(raw_meta.get("teamEvent") or raw_meta.get("team_standings"))
                 else:
                     res["status"] = {
-                        "ended": bool(res.get("is_ended")),
-                        "started": bool(res.get("started"))
+                        "ended": computed_is_ended,
+                        "isEnded": computed_is_ended,
+                        "started": bool(res.get("started") or computed_is_ended)
                     }
                     res["team_standings"] = []
                     res["is_team_event"] = False

@@ -1568,6 +1568,9 @@ function getLocalIsoDateStr(d = new Date()) {
 
 function isTournamentEnded(ev) {
   if (!ev) return false;
+  if (typeof window.isEventEnded === 'function') {
+    return window.isEventEnded(ev);
+  }
   if (
     ev.is_ended === true ||
     ev.isEnded === true ||
@@ -1583,24 +1586,39 @@ function isTournamentEnded(ev) {
     return true;
   }
   const todayStr = getLocalIsoDateStr();
-  const rawEnd = ev.end_date || ev.endDate || ev.raw_json?.endDate || '';
-  const endDateStr = String(rawEnd).slice(0, 10);
-  if (endDateStr && endDateStr < todayStr) {
-    return true;
+  const rawEnd = ev.end_date || ev.endDate || ev.raw_json?.endDate || ev.raw_json?.end_date || '';
+  if (rawEnd) {
+    const endMs = Date.parse(rawEnd);
+    if (!isNaN(endMs)) {
+      if (String(rawEnd).includes('T') || String(rawEnd).includes(':')) {
+        if (endMs < Date.now()) return true;
+      } else {
+        const endDateStr = String(rawEnd).slice(0, 10);
+        if (endDateStr < todayStr) return true;
+      }
+    }
   }
   const rawStart = ev.event_date || ev.eventDate || ev.start_date || ev.startDate || '';
   const startDateStr = String(rawStart).slice(0, 10);
-  if (!endDateStr && startDateStr) {
+  const numRounds = Number(ev.num_rounds || ev.numberOfRounds || ev.raw_json?.numberOfRounds || 0);
+  const currentRound = Number(ev.current_round || ev.currentRound || ev.raw_json?.currentRound || 0);
+  const endDateStr = rawEnd ? String(rawEnd).slice(0, 10) : '';
+  const isSingleDay = !endDateStr || endDateStr === startDateStr || (numRounds > 0 && numRounds <= 3);
+
+  if (startDateStr) {
+    if (isSingleDay && startDateStr < todayStr) {
+      return true;
+    }
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = getLocalIsoDateStr(yesterday);
     if (startDateStr < yesterdayStr) {
       return true;
     }
-    const numRounds = Number(ev.num_rounds || ev.numberOfRounds || ev.raw_json?.numberOfRounds || 0);
-    if (startDateStr < todayStr && numRounds > 0 && numRounds <= 3) {
-      return true;
-    }
+  }
+
+  if (numRounds > 0 && currentRound >= numRounds && (ev.matches?.length > 0 || ev.total_matches > 0)) {
+    return true;
   }
   return false;
 }

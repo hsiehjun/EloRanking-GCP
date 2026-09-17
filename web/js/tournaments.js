@@ -3139,18 +3139,127 @@ let currentEventParsedRoster = null;
 let currentEventArmyListViewMode = 'text';
 
 function isEventEnded(ev, regData = null) {
-  return Boolean(
+  if (!ev && !regData) return false;
+
+  // 1. Explicit boolean or status string checks
+  if (
     ev?.ended === true ||
     ev?.is_ended === true ||
+    ev?.isEnded === true ||
     ev?.status?.ended === true ||
+    ev?.status?.isEnded === true ||
+    ev?.status === 'ended' ||
+    ev?.status === 'completed' ||
+    ev?.status === 'finished' ||
     ev?.raw_json?.ended === true ||
     ev?.raw_json?.isEnded === true ||
     ev?.raw_json?.status?.ended === true ||
+    ev?.raw_json?.status === 'ended' ||
+    ev?.raw_json?.status === 'completed' ||
     regData?.ended === true ||
     regData?.is_ended === true ||
-    regData?.status?.ended === true
+    regData?.status?.ended === true ||
+    regData?.status === 'ended' ||
+    regData?.status === 'completed'
+  ) {
+    return true;
+  }
+
+  // 2. Structural Round & Match Context
+  const numRounds = Number(ev?.num_rounds || ev?.numberOfRounds || ev?.raw_json?.numberOfRounds || ev?.raw_json?.num_rounds || 0);
+  const currentRound = Number(ev?.current_round || ev?.currentRound || ev?.raw_json?.currentRound || 0);
+  const matches = Array.isArray(ev?.matches) ? ev.matches : (Array.isArray(eventMatchesCache) ? eventMatchesCache : []);
+  const players = Array.isArray(ev?.players) ? ev.players : (Array.isArray(eventPlayersCache) ? eventPlayersCache : []);
+  const hasMatches = matches.length > 0 || players.some(p => (p.event_wins || p.wins || 0) > 0 || (p.event_losses || p.losses || 0) > 0 || (p.placement && p.placement > 0));
+
+  const hasActiveMatches = matches.some(m =>
+    m.status === 'in_progress' ||
+    m.status === 'active' ||
+    (currentRound > 0 && Number(m.round) === currentRound && m.winner_id == null && !m.is_done && (m.player1_score == null || m.player2_score == null))
   );
+  const isIncompleteRounds = numRounds > 0 && currentRound > 0 && currentRound < numRounds;
+
+  // 3. Date and Timestamp Checks
+  const now = new Date();
+  const todayStr = (typeof getLocalIsoDateStr === 'function')
+    ? getLocalIsoDateStr()
+    : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  const rawEnd = ev?.end_date || ev?.endDate || ev?.raw_json?.endDate || ev?.raw_json?.end_date || '';
+  const rawStart = ev?.event_date || ev?.eventDate || ev?.start_date || ev?.startDate || ev?.raw_json?.startDate || ev?.raw_json?.eventDate || '';
+  const startDateStr = String(rawStart).slice(0, 10);
+  const endDateStr = rawEnd ? String(rawEnd).slice(0, 10) : '';
+  const isSingleDay = !endDateStr || endDateStr === startDateStr || (numRounds > 0 && numRounds <= 3);
+
+  const pastThreshold = new Date(now.getTime() - (48 * 60 * 60 * 1000));
+  const pastThresholdStr = `${pastThreshold.getFullYear()}-${String(pastThreshold.getMonth() + 1).padStart(2, '0')}-${String(pastThreshold.getDate()).padStart(2, '0')}`;
+
+  if (rawEnd) {
+    const endMs = Date.parse(rawEnd);
+    if (!isNaN(endMs)) {
+      const isPastEnd = String(rawEnd).includes('T') || String(rawEnd).includes(':')
+        ? endMs < now.getTime()
+        : endDateStr < todayStr;
+
+      if (isPastEnd) {
+        // If event is more than 48 hours past its end date, it is definitely ended regardless of status
+        if (endMs < pastThreshold.getTime() || endDateStr < pastThresholdStr) {
+          return true;
+        }
+        // If rounds are complete or no active matches in progress, it is completed
+        if (!hasActiveMatches && !isIncompleteRounds) {
+          return true;
+        }
+      }
+    }
+  }
+
+  if (startDateStr) {
+    // Single-day events (RTTs) in the past are completed
+    if (isSingleDay && startDateStr < todayStr && hasMatches && !hasActiveMatches) {
+      return true;
+    }
+
+    // Any event that started more than 3 days ago with matches is completed
+    const threeDaysAgo = new Date(now.getTime() - (3 * 24 * 60 * 60 * 1000));
+    const threeDaysAgoStr = `${threeDaysAgo.getFullYear()}-${String(threeDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(threeDaysAgo.getDate()).padStart(2, '0')}`;
+    if (startDateStr < threeDaysAgoStr && hasMatches) {
+      return true;
+    }
+  }
+
+  // 3. Round & Match Structural Completion
+  // If all rounds are reached and all matches in the final round are scored/finished
+  if (numRounds > 0 && currentRound >= numRounds && matches.length > 0) {
+    const finalRoundMatches = matches.filter(m => Number(m.round) === numRounds);
+    if (finalRoundMatches.length > 0) {
+      const allFinalScored = finalRoundMatches.every(m =>
+        m.is_done === true ||
+        m.winner_id != null ||
+        m.is_bye === true ||
+        (m.player1_score != null && m.player2_score != null)
+      );
+      if (allFinalScored) {
+        return true;
+      }
+    }
+  }
+
+  // 4. Official final standings already determined
+  if (hasMatches && players.some(p => (p.placement === 1 || p.official_placement === 1) && (p.event_wins > 0 || p.wins > 0))) {
+    if (startDateStr && startDateStr <= todayStr) {
+      if (numRounds > 0 && currentRound >= numRounds) {
+        return true;
+      }
+      if (isSingleDay && startDateStr < todayStr) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
+window.isEventEnded = isEventEnded;
 
 function getEventTierBadgeHtml(totalPlayers) {
   const count = Number(totalPlayers || 0);
@@ -3260,9 +3369,20 @@ function getEventKpiSummary(ev) {
   const isDoublesEvent = Boolean(ev?.is_doubles_event);
   const totalPlayers = ev?.total_players || players.length || 0;
   const totalTeams = ev?.total_teams || teams.length || 0;
-  const numRounds = ev?.num_rounds || (matches.length > 0 ? Math.max(...matches.map(m => m.round || 1)) : 5);
+  const numRounds = Number(ev?.num_rounds || (matches.length > 0 ? Math.max(...matches.map(m => m.round || 1)) : 5));
   const ended = isEventEnded(ev);
-  const hasMatchesPlayed = matches.length > 0 || players.some(p => (p.event_wins || p.wins || 0) > 0 || (p.event_losses || p.losses || 0) > 0 || (p.placement && p.placement > 0));
+  const now = new Date();
+  const todayStr = (typeof getLocalIsoDateStr === 'function')
+    ? getLocalIsoDateStr()
+    : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const rawStart = ev?.event_date || ev?.eventDate || ev?.start_date || ev?.startDate || ev?.raw_json?.startDate || ev?.raw_json?.eventDate || '';
+  const startDateStr = String(rawStart).slice(0, 10);
+  const isFuture = Boolean(startDateStr && startDateStr > todayStr);
+
+  const hasMatchesPlayed = !isFuture && (
+    matches.length > 0 ||
+    players.some(p => (Number(p.event_wins || p.wins || 0) > 0) || (Number(p.event_losses || p.losses || 0) > 0) || (Number(p.event_draws || p.draws || 0) > 0) || (Number(p.event_battle_points || p.battle_points || 0) > 0))
+  );
 
   const elos = players.map(p => Number(p.current_elo || p.elo || 1500)).filter(e => !isNaN(e) && e > 0);
   const avgElo = elos.length > 0 ? (elos.reduce((a, b) => a + b, 0) / elos.length) : 1500;

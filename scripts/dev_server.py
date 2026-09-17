@@ -14,6 +14,7 @@ import urllib.parse
 import urllib.request
 import secrets
 import time
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 5174))
@@ -1694,6 +1695,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "total_badges": b_eval["total_badges"],
                 "completion_pct": b_eval["completion_pct"],
                 "glory_score": b_eval["glory_score"],
+                "career_glory": b_eval.get("career_glory", b_eval.get("glory_score", 0)),
+                "seasonal_glory": b_eval.get("seasonal_glory", 0),
+                "glory_balance": b_eval.get("glory_balance", b_eval.get("glory_score", 0)),
+                "seasonal": b_eval.get("seasonal", {}),
+                "active_season": b_eval.get("active_season", "2026"),
                 "rank": b_eval["rank"],
                 "pinned_badges": b_eval["pinned_badges"],
                 "badges_celebrated": bool(DEV_USER.get("badges_celebrated", False)),
@@ -1731,12 +1737,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path in ("api/events/recommended", "api/community/overview", "api/community/bcp-upcoming", "api/community/bcp_upcoming"):
+            now_dt = datetime.now(timezone.utc)
+            today_iso = now_dt.strftime("%Y-%m-%d")
+            tomorrow_iso = (now_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+            yesterday_iso = (now_dt - timedelta(days=1)).strftime("%Y-%m-%d")
             ongoing_ev = {
                 "id": "ev_ongoing_gt_live",
                 "event_id": "ev_ongoing_gt_live",
                 "name": "Warhammer 40k US Open Series 2026",
-                "event_date": "2026-09-15",
-                "end_date": "2026-09-16",
+                "event_date": yesterday_iso,
+                "end_date": tomorrow_iso,
                 "city": "Atlanta",
                 "state": "GA",
                 "country": "US",
@@ -1921,6 +1931,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "total_badges": b_eval["total_badges"],
                 "completion_pct": b_eval["completion_pct"],
                 "glory_score": b_eval["glory_score"],
+                "career_glory": b_eval.get("career_glory", b_eval.get("glory_score", 0)),
+                "seasonal_glory": b_eval.get("seasonal_glory", 0),
+                "glory_balance": b_eval.get("glory_balance", b_eval.get("glory_score", 0)),
+                "seasonal": b_eval.get("seasonal", {}),
+                "active_season": b_eval.get("active_season", "2026"),
                 "rank": b_eval["rank"],
                 "pinned_badges": b_eval["pinned_badges"],
                 "badges_celebrated": bool(DEV_USER.get("badges_celebrated", False)),
@@ -2007,14 +2022,24 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                                 "total_players": int(b_json.get("totalPlayers") or len(b_json.get("players") or []) or 0),
                                 "num_rounds": int(b_json.get("numberOfRounds") or 3),
                                 "current_round": int(b_json.get("currentRound") or 0),
-                                "is_ended": bool(b_json.get("ended") or False),
-                                "ended": bool(b_json.get("ended") or False),
-                                "started": bool(b_json.get("started") or False),
-                                "status": {"ended": bool(b_json.get("ended") or False), "started": bool(b_json.get("started") or False)},
-                                "players": b_json.get("players") or [],
-                                "matches": b_json.get("matches") or [],
-                                "team_standings": []
                             }
+                            raw_end_str = str(b_json.get("endDate") or b_json.get("end_date") or "")
+                            raw_start_str = str(b_json.get("eventDate") or b_json.get("event_date") or b_json.get("startDate") or "")
+                            today_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                            num_rds_val = int(b_json.get("numberOfRounds") or 3)
+                            computed_ended = bool(b_json.get("ended") or b_json.get("isEnded"))
+                            if not computed_ended:
+                                if raw_end_str and raw_end_str[:10] < today_utc_str:
+                                    computed_ended = True
+                                elif raw_start_str and raw_start_str[:10] < today_utc_str and (num_rds_val <= 3 or not raw_end_str):
+                                    computed_ended = True
+                            res["is_ended"] = computed_ended
+                            res["ended"] = computed_ended
+                            res["started"] = bool(b_json.get("started") or computed_ended)
+                            res["status"] = {"ended": computed_ended, "isEnded": computed_ended, "started": bool(b_json.get("started") or computed_ended)}
+                            res["players"] = b_json.get("players") or []
+                            res["matches"] = b_json.get("matches") or []
+                            res["team_standings"] = []
                             self.send_response(200)
                             self.send_header("Content-Type", "application/json; charset=utf-8")
                             self.end_headers()
@@ -2025,11 +2050,12 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     pass
 
             if ev_param == "ev_ongoing_gt_live":
+                now_dt = datetime.now(timezone.utc)
                 res = {
                     "id": "ev_ongoing_gt_live",
                     "name": "Warhammer 40k US Open Series 2026 - Atlanta Major",
-                    "event_date": "2026-09-15",
-                    "end_date": "2026-09-16",
+                    "event_date": (now_dt - timedelta(days=1)).strftime("%Y-%m-%d"),
+                    "end_date": (now_dt + timedelta(days=1)).strftime("%Y-%m-%d"),
                     "city": "Atlanta",
                     "state": "GA",
                     "country": "United States",
@@ -2136,6 +2162,162 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "team": "Making Saves", "placement": 12, "event_wins": 0, "event_losses": 3, "event_draws": 0, "event_battle_points": 140,
                             "current_elo": 2153.2, "event_net_elo": -32.0, "has_list": True,
                             "army_list": "++ Grey Knights - Teleport Strike Force [2,000 pts] ++\nCharacters:\nKaldor Draigo [125 pts]: Titansword\nGrand Master in Nemesis Dreadknight [200 pts]: Nemesis daemon greathammer\nInfantry:\n5x Brotherhood Terminator Squad [210 pts]: Nemesis force weapon"
+                        }
+                    ],
+                    "team_standings": []
+                }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps(res).encode("utf-8"))
+                return
+
+            if ev_param == "73q0VFQZIVGo" or "73q0" in ev_param.lower() or "flg" in ev_param.lower():
+                res = {
+                    "id": "73q0VFQZIVGo",
+                    "name": "FLG Monthly 40K RTT - September",
+                    "event_date": "2026-09-12",
+                    "end_date": "2026-09-12",
+                    "city": "Las Vegas",
+                    "state": "NV",
+                    "country": "United States",
+                    "venue": "Frontline Gaming",
+                    "total_players": 19,
+                    "num_rounds": 3,
+                    "current_round": 3,
+                    "is_ended": True,
+                    "ended": True,
+                    "started": True,
+                    "status": {"ended": True, "isEnded": True, "started": True},
+                    "raw_json": {
+                        "ended": False,
+                        "isEnded": False,
+                        "status": {"ended": False, "isEnded": False, "started": True},
+                        "startDate": "2026-09-12T10:00:00",
+                        "endDate": "2026-09-12T19:00:00",
+                        "numberOfRounds": 3,
+                        "currentRound": 3
+                    },
+                    "matches": [
+                        {"id": "m_flg_1_1", "round": 1, "table_number": 1, "table": 1, "player1_id": "p_roberto", "player1_name": "Roberto Medina", "player1_faction": "Adepta Sororitas", "player1_score": 97, "player2_id": "p_tyler_a", "player2_name": "Tyler Adams", "player2_faction": "Imperial Knights", "player2_score": 38, "winner_id": "p_roberto", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_1_2", "round": 1, "table_number": 2, "table": 2, "player1_id": "p_junior", "player1_name": "Junior Aflleje", "player1_faction": "Leagues of Votann", "player1_score": 91, "player2_id": "p_brandon", "player2_name": "Brandon White", "player2_faction": "Aeldari", "player2_score": 45, "winner_id": "p_junior", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_1_3", "round": 1, "table_number": 3, "table": 3, "player1_id": "p_culham", "player1_name": "Culham Otton", "player1_faction": "Astra Militarum", "player1_score": 89, "player2_id": "p_justin", "player2_name": "Justin Lee", "player2_faction": "Genestealer Cults", "player2_score": 52, "winner_id": "p_culham", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_1_4", "round": 1, "table_number": 4, "table": 4, "player1_id": "p_aurelio", "player1_name": "Aurelio Correa", "player1_faction": "Dark Angels", "player1_score": 88, "player2_id": "p_ryan", "player2_name": "Ryan King", "player2_faction": "World Eaters", "player2_score": 40, "winner_id": "p_aurelio", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_1_5", "round": 1, "table_number": 5, "table": 5, "player1_id": "p_ramon", "player1_name": "Ramon Ortiz", "player1_faction": "Chaos Space Marines", "player1_score": 85, "player2_id": "p_eric", "player2_name": "Eric Allen", "player2_faction": "Thousand Sons", "player2_score": 45, "winner_id": "p_ramon", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_1_6", "round": 1, "table_number": 6, "table": 6, "player1_id": "p_derek", "player1_name": "Derek Williams", "player1_faction": "Necrons", "player1_score": 82, "player2_id": "p_chris_y", "player2_name": "Chris Young", "player2_faction": "Death Guard", "player2_score": 50, "winner_id": "p_derek", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_1_7", "round": 1, "table_number": 7, "table": 7, "player1_id": "p_anthony", "player1_name": "Anthony Davis", "player1_faction": "T'au Empire", "player1_score": 80, "player2_id": "p_thomas", "player2_name": "Thomas Hall", "player2_faction": "Adeptus Custodes", "player2_score": 55, "winner_id": "p_anthony", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_1_8", "round": 1, "table_number": 8, "table": 8, "player1_id": "p_michael", "player1_name": "Michael Chang", "player1_faction": "Tyranids", "player1_score": 78, "player2_id": "p_jason", "player2_name": "Jason Scott", "player2_faction": "Grey Knights", "player2_score": 60, "winner_id": "p_michael", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_1_9", "round": 1, "table_number": 9, "table": 9, "player1_id": "p_brian", "player1_name": "Brian Miller", "player1_faction": "Blood Angels", "player1_score": 75, "player2_id": "p_kevin", "player2_name": "Kevin Wright", "player2_faction": "Space Marines", "player2_score": 65, "winner_id": "p_brian", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_2_1", "round": 2, "table_number": 1, "table": 1, "player1_id": "p_roberto", "player1_name": "Roberto Medina", "player1_faction": "Adepta Sororitas", "player1_score": 96, "player2_id": "p_culham", "player2_name": "Culham Otton", "player2_faction": "Astra Militarum", "player2_score": 82, "winner_id": "p_roberto", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_2_2", "round": 2, "table_number": 2, "table": 2, "player1_id": "p_junior", "player1_name": "Junior Aflleje", "player1_faction": "Leagues of Votann", "player1_score": 93, "player2_id": "p_aurelio", "player2_name": "Aurelio Correa", "player2_faction": "Dark Angels", "player2_score": 84, "winner_id": "p_junior", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_2_3", "round": 2, "table_number": 3, "table": 3, "player1_id": "p_ramon", "player1_name": "Ramon Ortiz", "player1_faction": "Chaos Space Marines", "player1_score": 86, "player2_id": "p_derek", "player2_name": "Derek Williams", "player2_faction": "Necrons", "player2_score": 78, "winner_id": "p_ramon", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_2_4", "round": 2, "table_number": 4, "table": 4, "player1_id": "p_anthony", "player1_name": "Anthony Davis", "player1_faction": "T'au Empire", "player1_score": 82, "player2_id": "p_brian", "player2_name": "Brian Miller", "player2_faction": "Blood Angels", "player2_score": 72, "winner_id": "p_anthony", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_2_5", "round": 2, "table_number": 5, "table": 5, "player1_id": "p_michael", "player1_name": "Michael Chang", "player1_faction": "Tyranids", "player1_score": 77, "player2_id": "p_david_c", "player2_name": "David Clark", "player2_faction": "Orks", "player2_score": 70, "winner_id": "p_michael", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_2_6", "round": 2, "table_number": 6, "table": 6, "player1_id": "p_kevin", "player1_name": "Kevin Wright", "player1_faction": "Space Marines", "player1_score": 71, "player2_id": "p_jason", "player2_name": "Jason Scott", "player2_faction": "Grey Knights", "player2_score": 65, "winner_id": "p_kevin", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_3_1", "round": 3, "table_number": 1, "table": 1, "player1_id": "p_roberto", "player1_name": "Roberto Medina", "player1_faction": "Adepta Sororitas", "player1_score": 98, "player2_id": "p_junior", "player2_name": "Junior Aflleje", "player2_faction": "Leagues of Votann", "player2_score": 90, "winner_id": "p_roberto", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_3_2", "round": 3, "table_number": 2, "table": 2, "player1_id": "p_culham", "player1_name": "Culham Otton", "player1_faction": "Astra Militarum", "player1_score": 95, "player2_id": "p_ramon", "player2_name": "Ramon Ortiz", "player2_faction": "Chaos Space Marines", "player2_score": 74, "winner_id": "p_culham", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_3_3", "round": 3, "table_number": 3, "table": 3, "player1_id": "p_aurelio", "player1_name": "Aurelio Correa", "player1_faction": "Dark Angels", "player1_score": 87, "player2_id": "p_anthony", "player2_name": "Anthony Davis", "player2_faction": "T'au Empire", "player2_score": 73, "winner_id": "p_aurelio", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_3_4", "round": 3, "table_number": 4, "table": 4, "player1_id": "p_derek", "player1_name": "Derek Williams", "player1_faction": "Necrons", "player1_score": 80, "player2_id": "p_michael", "player2_name": "Michael Chang", "player2_faction": "Tyranids", "player2_score": 73, "winner_id": "p_derek", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_3_5", "round": 3, "table_number": 5, "table": 5, "player1_id": "p_brian", "player1_name": "Brian Miller", "player1_faction": "Blood Angels", "player1_score": 73, "player2_id": "p_david_c", "player2_name": "David Clark", "player2_faction": "Orks", "player2_score": 68, "winner_id": "p_brian", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_3_6", "round": 3, "table_number": 6, "table": 6, "player1_id": "p_david_c", "player1_name": "David Clark", "player1_faction": "Orks", "player1_score": 67, "player2_id": "p_thomas", "player2_name": "Thomas Hall", "player2_faction": "Adeptus Custodes", "player2_score": 65, "winner_id": "p_david_c", "is_done": True, "status": "finished"},
+                        {"id": "m_flg_3_7", "round": 3, "table_number": 7, "table": 7, "player1_id": "p_jason", "player1_name": "Jason Scott", "player1_faction": "Grey Knights", "player1_score": 65, "player2_id": "p_chris_y", "player2_name": "Chris Young", "player2_faction": "Death Guard", "player2_score": 63, "winner_id": "p_jason", "is_done": True, "status": "finished"}
+                    ],
+                    "players": [
+                        {
+                            "player_id": "p_roberto", "full_name": "Roberto Medina", "faction": "Adepta Sororitas", "detachment": "Bringers of Flame",
+                            "team": "War Room Gladiator", "placement": 1, "event_wins": 3, "event_losses": 0, "event_draws": 0, "event_battle_points": 291,
+                            "current_elo": 1566.4, "event_net_elo": 35.0, "has_list": False
+                        },
+                        {
+                            "player_id": "p_junior", "full_name": "Junior Aflleje", "faction": "Leagues of Votann", "detachment": "Prioritised Target",
+                            "team": "Team Zero Comp", "placement": 2, "event_wins": 3, "event_losses": 0, "event_draws": 0, "event_battle_points": 274,
+                            "current_elo": 2190.8, "event_net_elo": 5.6, "has_list": True
+                        },
+                        {
+                            "player_id": "p_culham", "full_name": "Culham Otton", "faction": "Astra Militarum", "detachment": "Reconnaissance Patrol",
+                            "team": "Optimized Jank", "placement": 3, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 266,
+                            "current_elo": 1659.5, "event_net_elo": -1.9, "has_list": True
+                        },
+                        {
+                            "player_id": "p_aurelio", "full_name": "Aurelio Correa", "faction": "Dark Angels", "detachment": "Reconnaissance Company",
+                            "team": "Team Zero Comp", "placement": 4, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 259,
+                            "current_elo": 1788.2, "event_net_elo": 11.5, "has_list": True
+                        },
+                        {
+                            "player_id": "p_ramon", "full_name": "Ramon Ortiz", "faction": "Chaos Space Marines", "detachment": "Raiders",
+                            "team": "Vegas Vets", "placement": 5, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 245,
+                            "current_elo": 1710.0, "event_net_elo": 8.2, "has_list": False
+                        },
+                        {
+                            "player_id": "p_derek", "full_name": "Derek Williams", "faction": "Necrons", "detachment": "Canoptek Court",
+                            "team": "Vegas Vets", "placement": 6, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 240,
+                            "current_elo": 1620.0, "event_net_elo": 4.1, "has_list": True
+                        },
+                        {
+                            "player_id": "p_anthony", "full_name": "Anthony Davis", "faction": "T'au Empire", "detachment": "Mont'ka",
+                            "placement": 7, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 235,
+                            "current_elo": 1580.0, "event_net_elo": 6.0, "has_list": False
+                        },
+                        {
+                            "player_id": "p_michael", "full_name": "Michael Chang", "faction": "Tyranids", "detachment": "Invasion Fleet",
+                            "placement": 8, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 228,
+                            "current_elo": 1550.0, "event_net_elo": 3.5, "has_list": True
+                        },
+                        {
+                            "player_id": "p_brian", "full_name": "Brian Miller", "faction": "Blood Angels", "detachment": "Sons of Sanguinius",
+                            "placement": 9, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 220,
+                            "current_elo": 1540.0, "event_net_elo": 2.1, "has_list": False
+                        },
+                        {
+                            "player_id": "p_david_c", "full_name": "David Clark", "faction": "Orks", "detachment": "Da Big Hunt",
+                            "placement": 10, "event_wins": 1, "event_losses": 2, "event_draws": 0, "event_battle_points": 205,
+                            "current_elo": 1510.0, "event_net_elo": -8.0, "has_list": False
+                        },
+                        {
+                            "player_id": "p_kevin", "full_name": "Kevin Wright", "faction": "Space Marines", "detachment": "Ironstorm Spearhead",
+                            "placement": 11, "event_wins": 1, "event_losses": 2, "event_draws": 0, "event_battle_points": 198,
+                            "current_elo": 1490.0, "event_net_elo": -5.5, "has_list": False
+                        },
+                        {
+                            "player_id": "p_jason", "full_name": "Jason Scott", "faction": "Grey Knights", "detachment": "Teleport Strike Force",
+                            "placement": 12, "event_wins": 1, "event_losses": 2, "event_draws": 0, "event_battle_points": 190,
+                            "current_elo": 1475.0, "event_net_elo": -7.2, "has_list": False
+                        },
+                        {
+                            "player_id": "p_thomas", "full_name": "Thomas Hall", "faction": "Adeptus Custodes", "detachment": "Shield Host",
+                            "placement": 13, "event_wins": 1, "event_losses": 2, "event_draws": 0, "event_battle_points": 185,
+                            "current_elo": 1460.0, "event_net_elo": -6.4, "has_list": False
+                        },
+                        {
+                            "player_id": "p_chris_y", "full_name": "Chris Young", "faction": "Death Guard", "detachment": "Plague Company",
+                            "placement": 14, "event_wins": 1, "event_losses": 2, "event_draws": 0, "event_battle_points": 178,
+                            "current_elo": 1440.0, "event_net_elo": -9.1, "has_list": False
+                        },
+                        {
+                            "player_id": "p_eric", "full_name": "Eric Allen", "faction": "Thousand Sons", "detachment": "Cult of Magic",
+                            "placement": 15, "event_wins": 1, "event_losses": 2, "event_draws": 0, "event_battle_points": 170,
+                            "current_elo": 1420.0, "event_net_elo": -11.0, "has_list": False
+                        },
+                        {
+                            "player_id": "p_ryan", "full_name": "Ryan King", "faction": "World Eaters", "detachment": "Berzerker Warband",
+                            "placement": 16, "event_wins": 0, "event_losses": 3, "event_draws": 0, "event_battle_points": 150,
+                            "current_elo": 1390.0, "event_net_elo": -18.5, "has_list": False
+                        },
+                        {
+                            "player_id": "p_justin", "full_name": "Justin Lee", "faction": "Genestealer Cults", "detachment": "Host of Ascension",
+                            "placement": 17, "event_wins": 0, "event_losses": 3, "event_draws": 0, "event_battle_points": 142,
+                            "current_elo": 1370.0, "event_net_elo": -20.2, "has_list": False
+                        },
+                        {
+                            "player_id": "p_brandon", "full_name": "Brandon White", "faction": "Aeldari", "detachment": "Battle Host",
+                            "placement": 18, "event_wins": 0, "event_losses": 3, "event_draws": 0, "event_battle_points": 135,
+                            "current_elo": 1350.0, "event_net_elo": -22.0, "has_list": False
+                        },
+                        {
+                            "player_id": "p_tyler_a", "full_name": "Tyler Adams", "faction": "Imperial Knights", "detachment": "Noble Lance",
+                            "placement": 19, "event_wins": 0, "event_losses": 3, "event_draws": 0, "event_battle_points": 120,
+                            "current_elo": 1320.0, "event_net_elo": -24.0, "has_list": False
                         }
                     ],
                     "team_standings": []
@@ -2559,11 +2741,12 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path == "api/events":
+            now_dt = datetime.now(timezone.utc)
             events_list = [
                 {
                     "id": "ev_ongoing_gt_live",
                     "name": "Warhammer 40k US Open Series 2026 - Atlanta Major",
-                    "event_date": "2026-09-15",
+                    "event_date": (now_dt - timedelta(days=1)).strftime("%Y-%m-%d"),
                     "city": "Atlanta",
                     "state": "GA",
                     "country": "United States",
@@ -2572,6 +2755,19 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "match_count": 18,
                     "is_ended": False,
                     "status": "ongoing"
+                },
+                {
+                    "id": "73q0VFQZIVGo",
+                    "name": "FLG Monthly 40K RTT - September",
+                    "event_date": "2026-09-12",
+                    "city": "Las Vegas",
+                    "state": "NV",
+                    "country": "United States",
+                    "total_players": 19,
+                    "num_rounds": 3,
+                    "match_count": 22,
+                    "is_ended": True,
+                    "status": "ended"
                 },
                 {
                     "id": "ev_riverside_2026",
@@ -2864,6 +3060,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "total_badges": b_eval["total_badges"],
                 "completion_pct": b_eval["completion_pct"],
                 "glory_score": b_eval["glory_score"],
+                "career_glory": b_eval.get("career_glory", b_eval.get("glory_score", 0)),
+                "seasonal_glory": b_eval.get("seasonal_glory", 0),
+                "glory_balance": b_eval.get("glory_balance", b_eval.get("glory_score", 0)),
+                "seasonal": b_eval.get("seasonal", {}),
+                "active_season": b_eval.get("active_season", "2026"),
                 "rank": b_eval["rank"],
                 "pinned_badges": b_eval["pinned_badges"],
                 "badges_celebrated": bool(DEV_USER.get("badges_celebrated", False)),
@@ -2881,14 +3082,21 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path in ("api/badges/catalog", "api/badges/catalog/"):
             import badges
+            import seasonal_badges
             req_gs = query_params.get("game_system", ["40k"])[0].lower()
+            is_aos = req_gs == "aos"
+            seasonal_cat = seasonal_badges.SEASON_2026_CATALOG_AOS if is_aos else seasonal_badges.SEASON_2026_CATALOG_40K
+            seasonal_cats = seasonal_badges.SEASONAL_CATEGORIES_AOS if is_aos else seasonal_badges.SEASONAL_CATEGORIES_40K
             catalog = {
                 "success": True,
                 "game_system": req_gs,
                 "total": len(badges.get_all_badges_catalog(req_gs)),
                 "categories": badges.get_categories(req_gs),
                 "ranks": badges.get_ranks(req_gs),
-                "badges": badges.get_all_badges_catalog(req_gs)
+                "badges": badges.get_all_badges_catalog(req_gs),
+                "seasonal_catalog": seasonal_cat,
+                "seasonal_categories": seasonal_cats,
+                "active_season": "2026"
             }
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
