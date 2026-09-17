@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=03933dc39d">
-  <link rel="stylesheet" href="/css/styles.css?v=03933dc39d">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=03933dc39d">
+  <link rel="stylesheet" href="/css/theme.css?v=f7349a95e0">
+  <link rel="stylesheet" href="/css/styles.css?v=f7349a95e0">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=f7349a95e0">
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -413,7 +413,7 @@
               </button>
 
               <!-- Quick Action & Weekend Filters -->
-              <div style="display: inline-flex; align-items: center; gap: 0.35rem; border-left: 1px solid rgba(255,255,255,0.12); padding-left: 0.5rem; margin-left: 0.2rem;">
+              <div class="comm-quick-filters-group" style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
                 <button class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-weekend" onclick="setTournamentsQuickFilter('weekend')" title="Show tournaments happening this Friday through Sunday">
                   ⚡ This Weekend
                 </button>
@@ -3127,8 +3127,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "03933dc39d";</script>
-  <script src="/js/app.bundle.min.js?v=03933dc39d"></script>
+  <script>window.APP_VERSION = "f7349a95e0";</script>
+  <script src="/js/app.bundle.min.js?v=f7349a95e0"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

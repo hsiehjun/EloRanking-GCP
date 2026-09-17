@@ -105,8 +105,16 @@ def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int
     """Classifies an event into Super Major, Major, GT, or RTT with badges and styling."""
     n_lower = (name or "").lower()
     circuits_list = circuits or []
+    try:
+        tot_p = int(total_players or 0)
+    except (ValueError, TypeError):
+        tot_p = 0
+    try:
+        num_t = int(num_tickets or 0)
+    except (ValueError, TypeError):
+        num_t = 0
     is_super = (
-        total_players >= 200 or num_tickets >= 350 or
+        tot_p >= 200 or num_t >= 350 or
         any(k in n_lower for k in [
             "lvo", "las vegas open", "adepticon", "nova open", "super major",
             "london grand tournament", "lgt", "world championship", "wtc", "world team championship"
@@ -116,7 +124,7 @@ def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int
         return {"tier": "super_major", "badge": "👑 SUPER MAJOR", "color": "#a855f7", "weight": 4}
 
     is_major = (
-        total_players >= 70 or num_tickets >= 90 or
+        tot_p >= 70 or num_t >= 90 or
         any(k in n_lower for k in [
             "us open", "open", "major", "armadillo cup", "championship", "california cup", "bfs gt", "trials gx"
         ]) or
@@ -126,7 +134,7 @@ def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int
         return {"tier": "major", "badge": "🌟 MAJOR", "color": "#38bdf8", "weight": 3}
 
     is_gt = (
-        total_players >= 28 or num_tickets >= 32 or
+        tot_p >= 28 or num_t >= 32 or
         any(k in n_lower for k in ["gt", "grand tournament", "cup", "brawl", "clash"])
     )
     if is_gt:

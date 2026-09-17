@@ -1159,6 +1159,14 @@ function renderTournamentsCalendar() {
       if (!isDateInWeekend(startStr, 1)) return;
     }
 
+    // Apply text search query filter if set
+    if (communityState.tournamentsSearchQuery) {
+      const q = communityState.tournamentsSearchQuery.toLowerCase();
+      const name = (ev.name || '').toLowerCase();
+      const loc = [ev.venue, ev.venue_name, ev.city, ev.state].filter(Boolean).join(' ').toLowerCase();
+      if (!name.includes(q) && !loc.includes(q)) return;
+    }
+
     let d = new Date(startStr + 'T12:00:00');
     const endDate = new Date(endStr + 'T12:00:00');
     let safety = 0;
@@ -1233,9 +1241,9 @@ function renderTournamentsCalendar() {
       const truncatedName = escapeHtml(ev.name || 'Event').slice(0, 18);
       chipsHtml += `
         <div class="comm-calendar-chip ${tierClass}" onclick="event.stopPropagation(); openEventModal('${escapeHtml(ev.id)}')" title="${escapeHtml(ev.name)} (${ev.total_players || 0} players)">
-          <span>${tierIcon}</span>
-          <span style="overflow: hidden; text-overflow: ellipsis;">${truncatedName}</span>
-          ${ev.total_players ? `<span style="opacity: 0.8; font-size: 0.62rem; margin-left: auto;">(${ev.total_players})</span>` : ''}
+          <span class="comm-chip-icon">${tierIcon}</span>
+          <span class="comm-chip-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;">${truncatedName}</span>
+          ${ev.total_players ? `<span class="comm-chip-count" style="opacity: 0.8; font-size: 0.62rem; margin-left: auto;">(${ev.total_players})</span>` : ''}
         </div>
       `;
     });
@@ -1248,6 +1256,22 @@ function renderTournamentsCalendar() {
       `;
     }
 
+    let dotsHtml = '';
+    if (dayEvents.length > 0) {
+      const maxDots = 3;
+      dayEvents.slice(0, maxDots).forEach(ev => {
+        const tier = ev.tier || 'rtt';
+        let dotClass = 'rtt';
+        if (tier === 'super_major') dotClass = 'super-major';
+        else if (tier === 'major') dotClass = 'major';
+        else if (tier === 'gt') dotClass = 'gt';
+        dotsHtml += `<span class="comm-cal-dot ${dotClass}" title="${escapeHtml(ev.name)}"></span>`;
+      });
+      if (dayEvents.length > maxDots) {
+        dotsHtml += `<span class="comm-cal-dot-more">+${dayEvents.length - maxDots}</span>`;
+      }
+    }
+
     html += `
       <div class="${classes.join(' ')}" data-date="${cellDateStr}" onclick="openCalendarDayDrawer('${cellDateStr}')">
         <div class="comm-calendar-day-header">
@@ -1255,7 +1279,12 @@ function renderTournamentsCalendar() {
           ${isToday ? `<span class="comm-calendar-day-badge" style="background: #38bdf8; color: #070b14;">TODAY</span>` : ''}
         </div>
         <div class="comm-calendar-events-list">
-          ${chipsHtml}
+          <div class="comm-calendar-desktop-events">
+            ${chipsHtml}
+          </div>
+          <div class="comm-calendar-mobile-dots">
+            ${dotsHtml}
+          </div>
         </div>
       </div>
     `;
@@ -3519,7 +3548,11 @@ function clearTournamentsVenueFilter() {
  */
 function filterCommunityTournaments(query) {
   communityState.tournamentsSearchQuery = (query || '').trim();
-  renderCommunityEvents();
+  if (communityState.tournamentsViewMode === 'calendar') {
+    renderTournamentsCalendar();
+  } else {
+    renderCommunityEvents();
+  }
 }
 
 /**
