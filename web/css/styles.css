@@ -8841,6 +8841,133 @@ body.is-authenticated #floating-chat-widget {
   box-shadow: 0 0 12px rgba(251, 191, 36, 0.3);
 }
 
+/* ==========================================================================
+   Hero Insignia Cluster (Pure Icon Heraldry: Career Crest & Seasonal Seals)
+   ========================================================================== */
+.hero-insignia-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  vertical-align: middle;
+}
+
+.hero-insignia-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-sm, 8px);
+  padding: 0.2rem 0.45rem;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  height: 28px;
+  box-sizing: border-box;
+  text-decoration: none;
+  user-select: none;
+}
+
+.hero-insignia-btn:hover {
+  transform: translateY(-1px) scale(1.06);
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.hero-insignia-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.hero-insignia-btn .insignia-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+/* Career Crest Variants */
+.career-crest-btn {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95));
+  border-color: rgba(148, 163, 184, 0.35);
+}
+.career-crest-btn:hover {
+  border-color: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+}
+.career-crest-btn.rank-border-centurion {
+  border-color: rgba(217, 119, 6, 0.6);
+}
+.career-crest-btn.rank-border-commander {
+  border-color: rgba(59, 130, 246, 0.65);
+}
+.career-crest-btn.rank-border-general {
+  border-color: rgba(245, 158, 11, 0.7);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.25);
+}
+.career-crest-btn.rank-border-warmaster {
+  border-color: #f59e0b;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+}
+.career-crest-btn.rank-border-everchosen {
+  border-color: #fbbf24;
+  box-shadow: 0 0 14px rgba(251, 191, 36, 0.5);
+}
+
+/* Seasonal Campaign Seal Variants */
+.seasonal-seal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--font-mono, monospace);
+  font-weight: 800;
+  font-size: 0.72rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--radius-sm, 8px);
+}
+
+.seasonal-seal-btn .seasonal-icon {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.seasonal-seal-btn .seasonal-tag {
+  letter-spacing: -0.02em;
+  font-weight: 800;
+}
+
+.seasonal-seal-btn.seal-warmaster {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(225, 29, 72, 0.25));
+  border: 1px solid rgba(245, 158, 11, 0.8);
+  color: #fef08a;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+}
+.seasonal-seal-btn.seal-warmaster:hover {
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.65);
+  border-color: #fef08a;
+}
+
+.seasonal-seal-btn.seal-gold {
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.6);
+  color: #fbbf24;
+}
+
+.seasonal-seal-btn.seal-silver {
+  background: rgba(148, 163, 184, 0.2);
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  color: #e2e8f0;
+}
+
+.seasonal-seal-btn.seal-bronze {
+  background: rgba(217, 119, 6, 0.18);
+  border: 1px solid rgba(217, 119, 6, 0.45);
+  color: #fcd34d;
+}
+
+.seasonal-seal-btn.seal-initiate {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #94a3b8;
+}
+
 /* Hero Card Signature Honors (Pinned Medals Rack) */
 .hero-pinned-medals {
   display: flex;

@@ -1041,7 +1041,7 @@ function renderMyHub(data) {
                   ? `<span class="profile-standing-badge" style="background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.35); font-weight:700;" title="Currently standing at all-time career peak Elo rating (${currentElo})!">All-Time Peak 👑</span>`
                   : `<span class="profile-standing-badge" title="All-Time Peak Rating: ${peakElo}">Peak: ${peakElo} 👑</span>`
                 }
-                ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data.rank, 'switchHubSubtab') : ''}
+                ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data, 'switchHubSubtab') : ''}
                 ${p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="openTeamModal('${escapeHtml(p.team)}')" title="Click to view ${escapeHtml(p.team)} roster">🛡️ ${escapeHtml(p.team)}</span>` : ''}
               </div>
               <div style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 0.45rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">

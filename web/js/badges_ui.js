@@ -112,6 +112,30 @@
     }
   }
 
+  function navigateToScope(scope, isPublic) {
+    if (isPublic) {
+      if (typeof switchProfileSubtab === 'function') {
+        switchProfileSubtab('trophies');
+      }
+      setPublicScope(scope);
+      setTimeout(function() {
+        var el = document.getElementById('profile-panel-trophies') || document.querySelector('.trophy-room-wrapper');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    } else {
+      if (typeof switchHubSubtab === 'function') {
+        switchHubSubtab('trophies');
+      } else if (typeof switchHubTab === 'function') {
+        switchHubTab('trophies');
+      }
+      setHubScope(scope);
+      setTimeout(function() {
+        var el = document.getElementById('hub-panel-trophies') || document.getElementById('trophy-room-container');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    }
+  }
+
   /**
    * Escape HTML utility
    */
@@ -126,26 +150,83 @@
   }
 
   /**
-   * Renders the Military Rank badge for Hero Profile card
+   * Renders the compact Heraldic Insignia Cluster for the Hero Profile Card
+   * Displays the Global Career Crest and Seasonal Campaign Seal(s) with zero competing rank text.
+   * Clicking an insignia acts as a direct navigation shortcut to that trophy scope.
    */
-  function renderRankBadge(rank, switchTabFnName) {
+  function renderHeroInsigniaCluster(rankOrData, switchTabFnName, seasonalParam) {
+    if (!rankOrData) return '';
+    var isPublic = switchTabFnName && (String(switchTabFnName).indexOf('Profile') !== -1 || switchTabFnName === 'public');
+    var data = (rankOrData.rank || rankOrData.player) ? rankOrData : null;
+    var rank = data ? data.rank : rankOrData;
     if (!rank) return '';
-    var r = rank;
-    var title = r.title || 'Initiate';
-    var level = r.rank || 1;
-    var icon = r.icon || '🛡️';
-    var cssClass = r.css_class || 'rank-border-initiate';
-    var tooltip = 'Trophy Honor Rank (Tier ' + level + '/7): ' + title + ' (' + (r.badge_count || 0) + ' medals unlocked) • Click to view Trophies';
-    var fnCall = switchTabFnName ? switchTabFnName + "('trophies')" : "switchHubSubtab('trophies')";
 
-    return [
-      '<div class="profile-rank-badge ' + escapeHtml(cssClass) + '" onclick="' + fnCall + '" style="cursor:pointer;" title="' + escapeHtml(tooltip) + '">',
-      '  <span class="rank-icon">' + icon + '</span>',
-      '  <span class="rank-label">Trophy Rank:</span>',
-      '  <span class="rank-title">' + escapeHtml(title) + '</span>',
-      '  <span class="rank-lvl-pill">Tier ' + level + '/7</span>',
-      '</div>'
-    ].join('\n');
+    var seasonalData = seasonalParam || (data && data.seasonal) || {};
+    var s2026 = seasonalData['2026'] || seasonalData[2026] || (data && data.seasonal_badges ? { badge_count: data.seasonal_badges.length } : null);
+
+    var rankIcon = rank.icon || '🛡️';
+    var rankLevel = rank.rank || 1;
+    var rankTitle = rank.title || 'Career Crest';
+    var rankClass = rank.css_class || 'rank-border-initiate';
+    var badgeCount = (data && data.badge_count != null) ? data.badge_count : (rank.badge_count || 0);
+
+    var careerTooltip = 'Career Crest: ' + rankTitle + ' (Tier ' + rankLevel + '/7 • ' + badgeCount + ' Milestones Unlocked) — Click to view Career Trophies';
+    var publicArg = isPublic ? 'true' : 'false';
+
+    var html = [
+      '<div class="hero-insignia-cluster" role="group" aria-label="Player Crest and Seasonal Honors">',
+      '  <button type="button" class="hero-insignia-btn career-crest-btn ' + escapeHtml(rankClass) + '" ',
+      '          onclick="window.BadgesUI && window.BadgesUI.navigateToScope(\'career\', ' + publicArg + ');" ',
+      '          title="' + escapeHtml(careerTooltip) + '" aria-label="' + escapeHtml(careerTooltip) + '">',
+      '    <span class="insignia-icon">' + rankIcon + '</span>',
+      '  </button>'
+    ];
+
+    // Seasonal Campaign Seal (Season 2026)
+    var sCount = s2026 ? (s2026.badge_count != null ? s2026.badge_count : (s2026.badges ? s2026.badges.filter(function(b) { return b.unlocked; }).length : 0)) : ((data && data.seasonal_badge_count) || 0);
+    var isCapstone = s2026 ? (s2026.capstone_unlocked || sCount >= 15) : ((data && data.seasonal_capstone) || sCount >= 15);
+
+    var sTierClass = 'seal-initiate';
+    var sTierTitle = 'Campaign Enlisted';
+    var sIcon = '⚡';
+
+    if (isCapstone) {
+      sTierClass = 'seal-warmaster';
+      sTierTitle = 'Warmaster of 2026 Attained';
+      sIcon = '👑';
+    } else if (sCount >= 10) {
+      sTierClass = 'seal-gold';
+      sTierTitle = 'Season Champion (Gold)';
+      sIcon = '🥇';
+    } else if (sCount >= 5) {
+      sTierClass = 'seal-silver';
+      sTierTitle = 'Season Veteran (Silver)';
+      sIcon = '🥈';
+    } else if (sCount >= 1) {
+      sTierClass = 'seal-bronze';
+      sTierTitle = 'Campaign Active (Bronze)';
+      sIcon = '⚡';
+    }
+
+    var seasonalTooltip = 'Season 2026 Campaign: ' + sTierTitle + ' (' + sCount + '/21 Honors Unlocked) — Click to view Season 2026';
+
+    html.push('  <button type="button" class="hero-insignia-btn seasonal-seal-btn ' + sTierClass + '" ');
+    html.push('          onclick="window.BadgesUI && window.BadgesUI.navigateToScope(\'seasonal\', ' + publicArg + ');" ');
+    html.push('          title="' + escapeHtml(seasonalTooltip) + '" aria-label="' + escapeHtml(seasonalTooltip) + '">');
+    html.push('    <span class="seasonal-icon">' + sIcon + '</span>');
+    html.push('    <span class="seasonal-tag">\'26</span>');
+    html.push('  </button>');
+
+    html.push('</div>');
+
+    return html.join('\n');
+  }
+
+  /**
+   * Backward-compatible wrapper for renderRankBadge
+   */
+  function renderRankBadge(rankOrData, switchTabFnName, seasonalParam) {
+    return renderHeroInsigniaCluster(rankOrData, switchTabFnName, seasonalParam);
   }
 
   /**
@@ -272,8 +353,8 @@
       '      </div>',
       '      <div class="trophy-banner-text">',
       '        <div class="trophy-banner-title-row">',
-      '          <h3 class="trophy-military-title">' + escapeHtml(rank.title || 'Initiate') + '</h3>',
-      '          <span class="trophy-rank-level-badge">Rank Level ' + (rank.rank || 1) + '</span>',
+      '          <h3 class="trophy-military-title">Career Milestones</h3>',
+      '          <span class="trophy-rank-level-badge">Crest Tier ' + (rank.rank || 1) + ': ' + escapeHtml(rank.title || 'Initiate') + '</span>',
       '          <button type="button" class="trophy-info-btn" onclick="window.BadgesUI.openGuideModal()" title="Field Manual: Rank Borders &amp; Glory System" aria-label="Progression Guide"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>',
       '        </div>',
       '        <div class="trophy-banner-sub">' + escapeHtml(rank.description || '') + '</div>',
@@ -285,7 +366,7 @@
       '  <!-- 2. Rank XP Progress Bar -->',
       '  <div class="trophy-progress-wrap">',
       '    <div class="trophy-progress-meta">',
-      '      <span>' + escapeHtml(rank.title || 'Initiate') + ' (Tier ' + (rank.rank || 1) + ')</span>',
+      '      <span>Career Crest Tier ' + (rank.rank || 1) + ': ' + escapeHtml(rank.title || 'Initiate') + '</span>',
       '      <span>' + (rank.progress_pct || 0) + '% to ' + escapeHtml(rank.next_rank_title || 'Apex') + '</span>',
       '    </div>',
       '    <div class="trophy-progress-bar">',
@@ -1481,6 +1562,8 @@
   // Export public API
   window.BadgesUI = {
     renderRankBadge: renderRankBadge,
+    renderHeroInsigniaCluster: renderHeroInsigniaCluster,
+    navigateToScope: navigateToScope,
     renderPinnedMedals: renderPinnedMedals,
     renderTrophyRoom: renderTrophyRoom,
     renderTrophyCards: renderTrophyCards,
