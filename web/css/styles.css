@@ -148,20 +148,12 @@ header {
 }
 
 /* Hub Career Progression Drawer: Permanently visible on Desktop & Tablet, toggle button hidden */
-.hub-career-toggle-btn {
-  display: none !important;
-}
-#hub-career-details-drawer,
-.hub-career-drawer-collapsed,
-.hub-career-drawer-expanded {
-  display: block !important;
-}
-
 @media (min-width: 641px) {
   .hub-career-toggle-btn {
     display: none !important;
   }
   #hub-career-details-drawer,
+  #profile-career-details-drawer,
   .hub-career-drawer-collapsed,
   .hub-career-drawer-expanded {
     display: block !important;
@@ -2628,11 +2620,15 @@ input, select, textarea {
       transition: all 0.2s ease !important;
     }
 
-    .hub-career-drawer-collapsed {
+    .hub-career-drawer-collapsed,
+    #hub-career-details-drawer.hub-career-drawer-collapsed,
+    #profile-career-details-drawer.hub-career-drawer-collapsed {
       display: none !important;
     }
 
-    .hub-career-drawer-expanded {
+    .hub-career-drawer-expanded,
+    #hub-career-details-drawer.hub-career-drawer-expanded,
+    #profile-career-details-drawer.hub-career-drawer-expanded {
       display: block !important;
       animation: fadeIn 0.2s ease-out;
     }
@@ -2643,6 +2639,7 @@ input, select, textarea {
       display: none !important;
     }
     #hub-career-details-drawer,
+    #profile-career-details-drawer,
     .hub-career-drawer-collapsed,
     .hub-career-drawer-expanded {
       display: block !important;
@@ -8800,6 +8797,15 @@ body.is-authenticated #floating-chat-widget {
   font-size: 0.9rem;
   line-height: 1;
 }
+.profile-rank-badge .rank-label {
+  font-size: 0.66rem;
+  opacity: 0.85;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  margin-right: 2px;
+}
 .profile-rank-badge .rank-lvl-pill {
   padding: 1px 5px;
   background: rgba(255, 255, 255, 0.1);
@@ -8807,6 +8813,10 @@ body.is-authenticated #floating-chat-widget {
   font-family: var(--font-mono);
   font-size: 0.7rem;
   color: var(--accent);
+}
+.profile-rank-badge:hover {
+  filter: brightness(1.15);
+  border-color: rgba(56, 189, 248, 0.5);
 }
 .profile-rank-badge.rank-border-centurion {
   border-color: rgba(217, 119, 6, 0.45);

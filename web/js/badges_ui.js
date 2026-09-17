@@ -37,20 +37,22 @@
   /**
    * Renders the Military Rank badge for Hero Profile card
    */
-  function renderRankBadge(rank) {
+  function renderRankBadge(rank, switchTabFnName) {
     if (!rank) return '';
     var r = rank;
     var title = r.title || 'Initiate';
     var level = r.rank || 1;
     var icon = r.icon || '🛡️';
     var cssClass = r.css_class || 'rank-border-initiate';
-    var tooltip = (r.description || '') + (r.next_rank_title ? ' • ' + r.badges_needed_for_next + ' badges to ' + r.next_rank_title : '');
+    var tooltip = 'Trophy Honor Rank (Tier ' + level + '/7): ' + title + ' (' + (r.badge_count || 0) + ' medals unlocked) • Click to view Trophies';
+    var fnCall = switchTabFnName ? switchTabFnName + "('trophies')" : "switchHubSubtab('trophies')";
 
     return [
-      '<div class="profile-rank-badge ' + escapeHtml(cssClass) + '" title="' + escapeHtml(tooltip) + '">',
+      '<div class="profile-rank-badge ' + escapeHtml(cssClass) + '" onclick="' + fnCall + '" style="cursor:pointer;" title="' + escapeHtml(tooltip) + '">',
       '  <span class="rank-icon">' + icon + '</span>',
+      '  <span class="rank-label">Trophy Rank:</span>',
       '  <span class="rank-title">' + escapeHtml(title) + '</span>',
-      '  <span class="rank-lvl-pill">Lv. ' + level + '</span>',
+      '  <span class="rank-lvl-pill">Tier ' + level + '/7</span>',
       '</div>'
     ].join('\n');
   }
@@ -63,11 +65,12 @@
     totalUnlocked = totalUnlocked || 0;
     var fnName = switchTabFnName || (isSelf ? "switchHubSubtab" : "switchProfileSubtab");
     var moreCount = Math.max(0, totalUnlocked - pinnedBadges.length);
+    var labelText = '🎖️ SIGNATURE HONORS' + (totalUnlocked > 0 ? ' (' + totalUnlocked + '/105):' : ':');
 
     if (pinnedBadges.length === 0 && totalUnlocked === 0) {
       return [
         '<div class="hero-pinned-medals">',
-        '  <span class="pinned-medals-label">🎖️ SIGNATURE HONORS:</span>',
+        '  <span class="pinned-medals-label">' + labelText + '</span>',
         '  <div class="pinned-medals-rack">',
         '    <span class="pinned-empty-hint" onclick="' + fnName + '(\'trophies\')">Complete matches to unlock your first honors (0/105)</span>',
         '    <button type="button" class="pinned-more-btn" onclick="' + fnName + '(\'trophies\')"><span>Trophies</span> <span>▾</span></button>',
@@ -93,11 +96,11 @@
 
     return [
       '<div class="hero-pinned-medals" id="hero-pinned-medals">',
-      '  <span class="pinned-medals-label">🎖️ SIGNATURE HONORS:</span>',
+      '  <span class="pinned-medals-label">' + labelText + '</span>',
       '  <div class="pinned-medals-rack">',
       medalsHtml,
       '    <button type="button" class="pinned-more-btn" onclick="' + fnName + '(\'trophies\')" title="View all 105 trophies">',
-      '      <span>+' + moreCount + ' More</span> <span>▾</span>',
+      '      <span>+' + moreCount + ' More Trophies →</span>',
       '    </button>',
       '  </div>',
       '</div>'

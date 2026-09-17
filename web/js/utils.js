@@ -344,21 +344,22 @@ function renderEloBadgePill(elo, matchesCount = null, options = {}) {
   const showTier = options.showTierName || false;
   const sizeClass = options.size === 'lg' ? 'elo-pill-lg' : (options.size === 'sm' ? 'elo-pill-sm' : '');
   const formattedVal = val.toFixed(1);
+  const unitSuffix = (options.size === 'lg' || options.showEloUnit) ? ' Elo' : '';
 
   if (tier.isUncalibrated) {
     const tooltip = `Aspirant · Uncalibrated (${tier.matchesPlayed}/5 matches completed)`;
     return `<span class="elo-pill ${tier.badgeClass} ${sizeClass}" title="${tooltip}">` +
       `<span class="elo-pill-icon">${tier.icon}</span>` +
       (showTier ? `<span class="elo-pill-tier">${escapeHtml(tier.shortName)}</span><span class="elo-pill-sep">·</span>` : '') +
-      `<span class="elo-pill-value">${formattedVal}</span>` +
+      `<span class="elo-pill-value">${formattedVal}${unitSuffix}</span>` +
       `</span>`;
   }
 
-  const tooltip = `${tier.name} · ${formattedVal} Elo`;
+  const tooltip = `Competitive Rating: ${formattedVal} Elo · Tier: ${tier.name}`;
   return `<span class="elo-pill ${tier.badgeClass} ${sizeClass}" title="${tooltip}">` +
     `<span class="elo-pill-icon">${tier.icon}</span>` +
     (showTier ? `<span class="elo-pill-tier">${escapeHtml(tier.shortName)}</span><span class="elo-pill-sep">·</span>` : '') +
-    `<span class="elo-pill-value">${formattedVal}</span>` +
+    `<span class="elo-pill-value">${formattedVal}${unitSuffix}</span>` +
     `</span>`;
 }
 

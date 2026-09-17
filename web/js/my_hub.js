@@ -848,15 +848,15 @@ function renderMyHub(data) {
     xpSectionHtml = `
       <div class="profile-xp-section">
         <div class="profile-xp-header">
-          <span>Progress to Next Tier: <strong style="color:#fff;">${escapeHtml(tier.nextTier.name)}</strong></span>
-          <span style="font-family: var(--font-mono); color: var(--accent);">${tier.nextTier.ptsNeeded} pts needed</span>
+          <span>⚔️ Next Elo Tier: <strong style="color:#fff;">${escapeHtml(tier.nextTier.name)}</strong></span>
+          <span style="font-family: var(--font-mono); color: var(--accent); font-weight: 700;">${tier.nextTier.ptsNeeded} Elo needed</span>
         </div>
         <div class="profile-xp-track">
           <div class="profile-xp-fill" style="width: ${tier.progressPercent}%;"></div>
         </div>
         <div class="profile-xp-footer">
-          <span>${tier.minElo}.0</span>
-          <span>${tier.nextTier.targetElo}.0 (${tier.progressPercent}%)</span>
+          <span>${tier.minElo}.0 Elo (${escapeHtml(tier.name)})</span>
+          <span>${tier.nextTier.targetElo}.0 Elo (${escapeHtml(tier.nextTier.name)}) · ${tier.progressPercent}%</span>
         </div>
       </div>
     `;
@@ -1036,11 +1036,12 @@ function renderMyHub(data) {
                 ${rankings.faction_rank ? `<span class="tier-badge tier-A" style="font-size: 0.78rem; padding: 0.15rem 0.55rem;">${escapeHtml(p.top_faction || '')} #${rankings.faction_rank}</span>` : ''}
               </div>
               <div class="profile-badges-row" style="margin-top: 0.15rem;">
-                ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(currentEloNum, totalMatches, { showTierName: true, size: 'lg', gameSystem: sys }) : `<span class="badge">${currentElo}</span>`}
-                <span class="profile-standing-badge" title="All-Time Peak Rating">
-                  Peak: ${peakElo} 👑
-                </span>
-                ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data.rank) : ''}
+                ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(currentEloNum, totalMatches, { showTierName: true, size: 'lg', gameSystem: sys }) : `<span class="badge">${currentElo} Elo</span>`}
+                ${Number(peakElo) <= Number(currentEloNum) + 0.5
+                  ? `<span class="profile-standing-badge" style="background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.35); font-weight:700;" title="Currently standing at all-time career peak Elo rating (${currentElo})!">All-Time Peak 👑</span>`
+                  : `<span class="profile-standing-badge" title="All-Time Peak Rating: ${peakElo}">Peak: ${peakElo} 👑</span>`
+                }
+                ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data.rank, 'switchHubSubtab') : ''}
                 ${p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="openTeamModal('${escapeHtml(p.team)}')" title="Click to view ${escapeHtml(p.team)} roster">🛡️ ${escapeHtml(p.team)}</span>` : ''}
               </div>
               <div style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 0.45rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
@@ -1074,8 +1075,11 @@ function renderMyHub(data) {
         </div>
 
         <!-- Collapsible Career Progression & Full Stats for Mobile -->
-        <button type="button" class="hub-career-toggle-btn mobile-only" onclick="toggleHubCareerDetails()">
-          <span>🎖️ Career Progression &amp; Full Stats</span>
+        <button type="button" id="hub-career-toggle-btn" class="hub-career-toggle-btn mobile-only" onclick="toggleHubCareerDetails()" aria-expanded="false">
+          <span style="display:inline-flex; align-items:center; gap:6px;">
+            <span>📊</span>
+            <span id="hub-career-toggle-text">Show Full Stats &amp; Progression</span>
+          </span>
           <span id="hub-career-toggle-arrow">▼</span>
         </button>
 
@@ -3476,16 +3480,22 @@ window.resetMyHubState = function() {
 function toggleHubCareerDetails() {
   const drawer = document.getElementById('hub-career-details-drawer');
   const arrow = document.getElementById('hub-career-toggle-arrow');
+  const textSpan = document.getElementById('hub-career-toggle-text');
+  const btn = document.getElementById('hub-career-toggle-btn');
   if (!drawer) return;
   const isCollapsed = drawer.classList.contains('hub-career-drawer-collapsed');
   if (isCollapsed) {
     drawer.classList.remove('hub-career-drawer-collapsed');
     drawer.classList.add('hub-career-drawer-expanded');
     if (arrow) arrow.textContent = '▲';
+    if (textSpan) textSpan.textContent = 'Hide Full Stats & Progression';
+    if (btn) btn.setAttribute('aria-expanded', 'true');
   } else {
     drawer.classList.remove('hub-career-drawer-expanded');
     drawer.classList.add('hub-career-drawer-collapsed');
     if (arrow) arrow.textContent = '▼';
+    if (textSpan) textSpan.textContent = 'Show Full Stats & Progression';
+    if (btn) btn.setAttribute('aria-expanded', 'false');
   }
 }
 window.toggleHubCareerDetails = toggleHubCareerDetails;

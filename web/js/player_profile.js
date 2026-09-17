@@ -255,15 +255,15 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     xpSectionHtml = `
       <div class="profile-xp-section">
         <div class="profile-xp-header">
-          <span>Progress to Next Tier: <strong style="color:#fff;">${escapeHtml(tier.nextTier.name)}</strong></span>
-          <span style="font-family: var(--font-mono); color: var(--accent);">${tier.nextTier.ptsNeeded} pts needed</span>
+          <span>⚔️ Next Elo Tier: <strong style="color:#fff;">${escapeHtml(tier.nextTier.name)}</strong></span>
+          <span style="font-family: var(--font-mono); color: var(--accent); font-weight: 700;">${tier.nextTier.ptsNeeded} Elo needed</span>
         </div>
         <div class="profile-xp-track">
           <div class="profile-xp-fill" style="width: ${tier.progressPercent}%;"></div>
         </div>
         <div class="profile-xp-footer">
-          <span>${tier.minElo}.0</span>
-          <span>${tier.nextTier.targetElo}.0 (${tier.progressPercent}%)</span>
+          <span>${tier.minElo}.0 Elo (${escapeHtml(tier.name)})</span>
+          <span>${tier.nextTier.targetElo}.0 Elo (${escapeHtml(tier.nextTier.name)}) · ${tier.progressPercent}%</span>
         </div>
       </div>
     `;
@@ -413,11 +413,12 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
               <h1 class="profile-name-title">${escapeHtml(playerName)}</h1>
             </div>
             <div class="profile-badges-row" style="margin-top: 0.15rem;">
-              ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(currentElo, totalMatches, { showTierName: true, size: 'lg', gameSystem: sys }) : `<span class="badge">${currentElo.toFixed(1)}</span>`}
-              <span class="profile-standing-badge" title="All-Time Peak Rating">
-                Peak: ${peakElo.toFixed(1)} 👑
-              </span>
-              ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data.rank) : ''}
+              ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(currentElo, totalMatches, { showTierName: true, size: 'lg', gameSystem: sys }) : `<span class="badge">${currentElo.toFixed(1)} Elo</span>`}
+              ${Number(peakElo) <= Number(currentElo) + 0.5
+                ? `<span class="profile-standing-badge" style="background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.35); font-weight:700;" title="Currently standing at all-time career peak Elo rating (${currentElo.toFixed(1)})!">All-Time Peak 👑</span>`
+                : `<span class="profile-standing-badge" title="All-Time Peak Rating: ${peakElo.toFixed(1)}">Peak: ${peakElo.toFixed(1)} 👑</span>`
+              }
+              ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data.rank, 'switchProfileSubtab') : ''}
               ${teamName ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="openTeamModal('${escapeHtml(teamName)}')" title="Click to view ${escapeHtml(teamName)} roster">🛡️ ${escapeHtml(teamName)}</span>` : ''}
             </div>
             ${window.BadgesUI ? window.BadgesUI.renderPinnedMedals(data.pinned_badges, data.badge_count, data.is_self, 'switchProfileSubtab') : ''}
@@ -439,41 +440,52 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
         </div>
       </div>
 
-      <!-- Milestone XP Progress Bar -->
-      ${xpSectionHtml}
+      <!-- Collapsible Career Progression & Full Stats for Mobile -->
+      <button type="button" id="profile-career-toggle-btn" class="hub-career-toggle-btn mobile-only" onclick="toggleProfileCareerDetails()" aria-expanded="false">
+        <span style="display:inline-flex; align-items:center; gap:6px;">
+          <span>📊</span>
+          <span id="profile-career-toggle-text">Show Full Stats &amp; Progression</span>
+        </span>
+        <span id="profile-career-toggle-arrow">▼</span>
+      </button>
 
-      <!-- Key Metrics Grid -->
-      <div class="profile-metrics-grid">
-        <div class="profile-metric-box">
-          <div class="m-lbl">Record</div>
-          <div class="m-val" style="font-size: 1.1rem;">
-            <span style="color:var(--win);">${wins}W</span> - <span style="color:var(--loss);">${losses}L</span>${draws > 0 ? ` - <span style="color:var(--draw);">${draws}D</span>` : ''}
+      <div id="profile-career-details-drawer" class="hub-career-drawer-collapsed">
+        <!-- Milestone XP Progress Bar -->
+        ${xpSectionHtml}
+
+        <!-- Key Metrics Grid -->
+        <div class="profile-metrics-grid">
+          <div class="profile-metric-box">
+            <div class="m-lbl">Record</div>
+            <div class="m-val" style="font-size: 1.1rem;">
+              <span style="color:var(--win);">${wins}W</span> - <span style="color:var(--loss);">${losses}L</span>${draws > 0 ? ` - <span style="color:var(--draw);">${draws}D</span>` : ''}
+            </div>
+          </div>
+          <div class="profile-metric-box">
+            <div class="m-lbl">Win Rate</div>
+            <div class="m-val" style="color: ${Number(winRate) >= 60 ? 'var(--win)' : (Number(winRate) >= 45 ? 'var(--accent)' : '#fff')};">
+              ${winRate}%
+            </div>
+          </div>
+          <div class="profile-metric-box">
+            <div class="m-lbl">Matches</div>
+            <div class="m-val">${totalMatches}</div>
+          </div>
+          <div class="profile-metric-box">
+            <div class="m-lbl">Peak Streak</div>
+            <div class="m-val" style="color: var(--win);">${streak} Wins</div>
+          </div>
+          <div class="profile-metric-box" style="grid-column: span 2;">
+            <div class="m-lbl">Top Armies</div>
+            <div style="margin-top: 0.25rem; display: flex; gap: 0.35rem; justify-content: center; flex-wrap: wrap;">
+              ${topFactionsHtml || '<span style="color:var(--text-muted); font-size:0.8rem;">Various</span>'}
+            </div>
           </div>
         </div>
-        <div class="profile-metric-box">
-          <div class="m-lbl">Win Rate</div>
-          <div class="m-val" style="color: ${Number(winRate) >= 60 ? 'var(--win)' : (Number(winRate) >= 45 ? 'var(--accent)' : '#fff')};">
-            ${winRate}%
-          </div>
-        </div>
-        <div class="profile-metric-box">
-          <div class="m-lbl">Matches</div>
-          <div class="m-val">${totalMatches}</div>
-        </div>
-        <div class="profile-metric-box">
-          <div class="m-lbl">Peak Streak</div>
-          <div class="m-val" style="color: var(--win);">${streak} Wins</div>
-        </div>
-        <div class="profile-metric-box" style="grid-column: span 2;">
-          <div class="m-lbl">Top Armies</div>
-          <div style="margin-top: 0.25rem; display: flex; gap: 0.35rem; justify-content: center; flex-wrap: wrap;">
-            ${topFactionsHtml || '<span style="color:var(--text-muted); font-size:0.8rem;">Various</span>'}
-          </div>
-        </div>
+
+        <!-- Recent Form Beads -->
+        ${recentFormHtml}
       </div>
-
-      <!-- Recent Form Beads -->
-      ${recentFormHtml}
     </div>
 
     <!-- Optional H2H vs Viewing Player -->
@@ -1393,12 +1405,35 @@ function filterProfileMatchups(query) {
   });
 }
 
+function toggleProfileCareerDetails() {
+  const drawer = document.getElementById('profile-career-details-drawer');
+  const arrow = document.getElementById('profile-career-toggle-arrow');
+  const textSpan = document.getElementById('profile-career-toggle-text');
+  const btn = document.getElementById('profile-career-toggle-btn');
+  if (!drawer) return;
+  const isCollapsed = drawer.classList.contains('hub-career-drawer-collapsed');
+  if (isCollapsed) {
+    drawer.classList.remove('hub-career-drawer-collapsed');
+    drawer.classList.add('hub-career-drawer-expanded');
+    if (arrow) arrow.textContent = '▲';
+    if (textSpan) textSpan.textContent = 'Hide Full Stats & Progression';
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+  } else {
+    drawer.classList.remove('hub-career-drawer-expanded');
+    drawer.classList.add('hub-career-drawer-collapsed');
+    if (arrow) arrow.textContent = '▼';
+    if (textSpan) textSpan.textContent = 'Show Full Stats & Progression';
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+}
+
 // Global exports
 if (typeof window !== 'undefined') {
   window.openPlayerProfilePage = openPlayerProfilePage;
   window.renderDedicatedPlayerProfile = renderDedicatedPlayerProfile;
   window.toggleProfileEventCard = toggleProfileEventCard;
   window.toggleAllProfileEventCards = toggleAllProfileEventCards;
+  window.toggleProfileCareerDetails = toggleProfileCareerDetails;
   window.copyPlayerProfileLink = copyPlayerProfileLink;
   window.navigateBackFromProfile = navigateBackFromProfile;
   window.openPredictorWithPlayer = openPredictorWithPlayer;
