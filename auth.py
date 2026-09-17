@@ -143,7 +143,7 @@ class AuthManager:
     def _ensure_tables(self):
         """Creates native users and sessions tables safely without heavy indexing locks or deadlocks."""
         try:
-            # Fast check: If users and user_sessions already exist and auth schema is ready, return immediately
+            # Fast check: If users, user_sessions, system_settings exist AND modern user columns exist, return immediately
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
@@ -154,10 +154,17 @@ class AuthManager:
                     """)
                     row = cur.fetchone()
                     if row and row[0]:
-                        cur.execute("SELECT value FROM system_settings WHERE key = 'auth_schema_ready';")
-                        setting = cur.fetchone()
-                        if setting and setting[0] == 'true':
-                            return
+                        cur.execute("""
+                        SELECT COUNT(*) FROM information_schema.columns 
+                        WHERE table_schema = 'public' AND table_name = 'users' 
+                          AND column_name IN ('pinned_badges', 'badges_celebrated', 'acknowledged_badge_ids', 'role', 'bcp_id_token', 'invited_by_user_id', 'invite_code_used');
+                        """)
+                        col_cnt = cur.fetchone()
+                        if col_cnt and col_cnt[0] >= 7:
+                            cur.execute("SELECT value FROM system_settings WHERE key = 'auth_schema_ready';")
+                            setting = cur.fetchone()
+                            if setting and setting[0] == 'true':
+                                return
         except Exception as e:
             logger.debug(f"Auth schema pre-check notice: {e}")
 
@@ -168,7 +175,8 @@ class AuthManager:
                     cur.execute("SELECT pg_try_advisory_lock(83921938);")
                     acquired = cur.fetchone()[0]
                     if not acquired:
-                        logger.info("Another process is currently ensuring auth tables; skipping.")
+                        logger.info("Another process is currently ensuring auth tables; running non-blocking column check.")
+                        self._ensure_user_columns()
                         return
 
                 try:
@@ -322,6 +330,30 @@ class AuthManager:
                         pass
         except Exception as e:
             logger.debug(f"Ensure tables notice: {e}")
+
+    def _ensure_user_columns(self):
+        """Ensures modern user columns (pinned_badges, badges_celebrated, acknowledged_badge_ids, etc.) exist safely with short lock_timeout."""
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT to_regclass('public.users') IS NOT NULL;")
+                    row = cur.fetchone()
+                    if not (row and row[0]):
+                        return
+                    cur.execute("""
+                    SET lock_timeout = '2s';
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'player';
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS bcp_id_token TEXT;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code_used VARCHAR(64);
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS pinned_badges TEXT;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS badges_celebrated BOOLEAN DEFAULT FALSE;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS acknowledged_badge_ids TEXT;
+                    """)
+                conn.commit()
+                logger.info("Successfully ensured modern user columns in users table.")
+        except Exception as e:
+            logger.warning(f"Notice ensuring user columns: {e}")
 
     def get_system_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
         from psycopg2 import extras
@@ -832,52 +864,112 @@ class AuthManager:
                 return None
 
     def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Fetches user dict by user ID."""
+        """Fetches user dict by user ID with resilient fallback and automatic schema self-healing."""
+        if not user_id:
+            return None
         from psycopg2 import extras
-        with self.db.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute("""
-                SELECT u.id, u.email, u.display_name, u.role, u.player_id,
-                       u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
-                       u.pinned_badges, u.badges_celebrated, u.acknowledged_badge_ids,
-                       COALESCE(p.player_name, pl.full_name) as competitor_name,
-                       p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
-                       p.top_faction, COALESCE(p.team, pl.team) as team
-                FROM users u
-                LEFT JOIN player_ratings p ON u.player_id = p.player_id
-                LEFT JOIN players pl ON u.player_id = pl.id
-                WHERE u.id = %s;
-                """, (user_id,))
-                row = cur.fetchone()
-                if row:
-                    data = dict(row)
-                    user_email = (data.get("email") or "").strip().lower()
-                    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
-                    data["role"] = "admin" if (user_email == superadmin_email or str(row.get("role") or "").lower() == "admin") else (str(row.get("role") or "player").lower())
-                    data["is_admin"] = bool(data["role"] == "admin")
-                    data["can_access_to"] = bool(data["role"] in ("admin", "to", "organizer", "referee"))
-                    data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
-                    data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
-                    data["bcp_connected"] = bool(data.get("bcp_user_id"))
-                    import json
-                    raw_pinned = data.get("pinned_badges")
-                    if raw_pinned and isinstance(raw_pinned, str):
-                        try:
-                            data["pinned_badges"] = json.loads(raw_pinned)
-                        except Exception:
-                            data["pinned_badges"] = []
-                    else:
-                        data["pinned_badges"] = raw_pinned or []
-                    data["badges_celebrated"] = bool(data.get("badges_celebrated") or False)
-                    raw_ack = data.get("acknowledged_badge_ids")
-                    if raw_ack and isinstance(raw_ack, str):
-                        try:
-                            data["acknowledged_badge_ids"] = json.loads(raw_ack)
-                        except Exception:
-                            data["acknowledged_badge_ids"] = []
-                    else:
-                        data["acknowledged_badge_ids"] = raw_ack or []
-                    return data
+        import json
+
+        row = None
+        # Attempt 1: Full query with badge columns
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    cur.execute("""
+                    SELECT u.id, u.email, u.display_name, u.role, u.player_id,
+                           u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
+                           u.pinned_badges, u.badges_celebrated, u.acknowledged_badge_ids,
+                           COALESCE(p.player_name, pl.full_name) as competitor_name,
+                           p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
+                           p.top_faction, COALESCE(p.team, pl.team) as team
+                    FROM users u
+                    LEFT JOIN player_ratings p ON u.player_id = p.player_id
+                    LEFT JOIN players pl ON u.player_id = pl.id
+                    WHERE u.id = %s;
+                    """, (user_id,))
+                    row = cur.fetchone()
+        except Exception as query_err:
+            logger.warning(f"get_user_by_id primary query notice: {query_err}. Attempting schema self-heal and fallback...")
+            # Trigger schema self-healing in database
+            try:
+                self._ensure_user_columns()
+            except Exception:
+                pass
+
+            # Attempt 2: Retry with full columns if columns were just created
+            try:
+                with self.db.get_connection() as conn:
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                        cur.execute("""
+                        SELECT u.id, u.email, u.display_name, u.role, u.player_id,
+                               u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
+                               u.pinned_badges, u.badges_celebrated, u.acknowledged_badge_ids,
+                               COALESCE(p.player_name, pl.full_name) as competitor_name,
+                               p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
+                               p.top_faction, COALESCE(p.team, pl.team) as team
+                        FROM users u
+                        LEFT JOIN player_ratings p ON u.player_id = p.player_id
+                        LEFT JOIN players pl ON u.player_id = pl.id
+                        WHERE u.id = %s;
+                        """, (user_id,))
+                        row = cur.fetchone()
+            except Exception:
+                # Attempt 3: Baseline query without badge columns (100% resilient across any legacy schema)
+                try:
+                    with self.db.get_connection() as conn:
+                        with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                            cur.execute("""
+                            SELECT u.id, u.email, u.display_name, u.role, u.player_id,
+                                   u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
+                                   COALESCE(p.player_name, pl.full_name) as competitor_name,
+                                   p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
+                                   p.top_faction, COALESCE(p.team, pl.team) as team
+                            FROM users u
+                            LEFT JOIN player_ratings p ON u.player_id = p.player_id
+                            LEFT JOIN players pl ON u.player_id = pl.id
+                            WHERE u.id = %s;
+                            """, (user_id,))
+                            row = cur.fetchone()
+                except Exception as fallback_err:
+                    logger.error(f"get_user_by_id resilient fallback failed: {fallback_err}")
+                    return None
+
+        if row:
+            data = dict(row)
+            user_email = (data.get("email") or "").strip().lower()
+            superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+            data["role"] = "admin" if (user_email == superadmin_email or str(row.get("role") or "").lower() == "admin") else (str(row.get("role") or "player").lower())
+            data["is_admin"] = bool(data["role"] == "admin")
+            data["can_access_to"] = bool(data["role"] in ("admin", "to", "organizer", "referee"))
+            data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
+            data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
+            data["bcp_connected"] = bool(data.get("bcp_user_id"))
+
+            raw_pinned = data.get("pinned_badges")
+            if raw_pinned and isinstance(raw_pinned, str):
+                try:
+                    data["pinned_badges"] = json.loads(raw_pinned)
+                except Exception:
+                    data["pinned_badges"] = []
+            elif isinstance(raw_pinned, list):
+                data["pinned_badges"] = raw_pinned
+            else:
+                data["pinned_badges"] = []
+
+            data["badges_celebrated"] = bool(data.get("badges_celebrated") or False)
+
+            raw_ack = data.get("acknowledged_badge_ids")
+            if raw_ack and isinstance(raw_ack, str):
+                try:
+                    data["acknowledged_badge_ids"] = json.loads(raw_ack)
+                except Exception:
+                    data["acknowledged_badge_ids"] = []
+            elif isinstance(raw_ack, list):
+                data["acknowledged_badge_ids"] = raw_ack
+            else:
+                data["acknowledged_badge_ids"] = []
+
+            return data
         return None
 
     def set_user_role(self, email_or_id: str, role: str) -> bool:
@@ -894,6 +986,19 @@ class AuthManager:
     def update_settings(self, user_id: str, display_name: Optional[str] = None, old_password: Optional[str] = None, new_password: Optional[str] = None, pinned_badges: Optional[List[str]] = None, badges_celebrated: Optional[bool] = None, acknowledged_badge_ids: Optional[List[str]] = None) -> Dict[str, Any]:
         """Updates user display name, password, pinned badges, or acknowledged badges."""
         from psycopg2 import extras
+        import json
+
+        # Pre-ensure user columns if badge fields are requested
+        if pinned_badges is not None or badges_celebrated is not None or acknowledged_badge_ids is not None:
+            try:
+                self._ensure_user_columns()
+            except Exception:
+                pass
+
+        user_record = self.get_user_by_id(user_id)
+        if not user_record:
+            return {"success": False, "error": "User not found."}
+
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute("SELECT id, password_hash FROM users WHERE id = %s;", (user_id,))
@@ -918,7 +1023,6 @@ class AuthManager:
                     params.append(_hash_password(new_password))
 
                 if pinned_badges is not None and isinstance(pinned_badges, list):
-                    import json
                     updates.append("pinned_badges = %s")
                     params.append(json.dumps(pinned_badges[:3]))
 
@@ -927,15 +1031,7 @@ class AuthManager:
                     params.append(bool(badges_celebrated))
 
                 if acknowledged_badge_ids is not None and isinstance(acknowledged_badge_ids, list):
-                    import json
-                    cur.execute("SELECT acknowledged_badge_ids FROM users WHERE id = %s;", (user_id,))
-                    ack_row = cur.fetchone()
-                    current_ack = set()
-                    if ack_row and ack_row.get("acknowledged_badge_ids"):
-                        try:
-                            current_ack = set(json.loads(ack_row["acknowledged_badge_ids"]))
-                        except Exception:
-                            current_ack = set()
+                    current_ack = set(user_record.get("acknowledged_badge_ids") or [])
                     current_ack.update(acknowledged_badge_ids)
                     updates.append("acknowledged_badge_ids = %s")
                     params.append(json.dumps(list(current_ack)))
@@ -946,11 +1042,29 @@ class AuthManager:
 
                 updates.append("updated_at = NOW()")
                 params.append(user_id)
-                cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s;", tuple(params))
+                try:
+                    cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s;", tuple(params))
+                except Exception as update_err:
+                    conn.rollback()
+                    logger.warning(f"update_settings primary update notice: {update_err}, ensuring columns and retrying...")
+                    self._ensure_user_columns()
+                    try:
+                        with conn.cursor() as retry_cur:
+                            retry_cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s;", tuple(params))
+                    except Exception as retry_err:
+                        logger.error(f"update_settings retry failed: {retry_err}")
+                        return {"success": False, "error": "Failed to update settings."}
             conn.commit()
 
         user_info = self.get_user_by_id(user_id)
-        return {"success": True, "user": user_info}
+        return {
+            "success": True,
+            "message": "Settings updated successfully.",
+            "user": user_info,
+            "pinned_badges": (user_info or {}).get("pinned_badges", []),
+            "badges_celebrated": (user_info or {}).get("badges_celebrated", False),
+            "acknowledged_badge_ids": (user_info or {}).get("acknowledged_badge_ids", [])
+        }
 
     def logout(self, session_token: str) -> bool:
         """Terminates active session."""
