@@ -541,7 +541,7 @@ async function openPlayerModal(playerId, playerName = '') {
 
     renderPlayerMatches(matchesList);
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty-state" style="color:var(--loss);">Error loading profile: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty-state" style="color:var(--loss);">Error loading profile: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -788,7 +788,7 @@ async function openTeamModal(teamName) {
 
     renderTeamRosterRows(roster);
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading team: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading team: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 

@@ -65,11 +65,6 @@ async def api_submit_feedback(payload: FeedbackPayload, request: Request):
     )
     return {"success": True, "id": fb_id, "message": "Thank you! Your feedback has been received."}
 
-@router.get("/api/feedback", summary="Get recent user feedbacks (Admin)")
-async def api_get_feedbacks(request: Request, limit: int = Query(50)):
-    db = get_database()
-    return db.get_feedbacks(limit=limit)
-
 def _is_admin_feedback_request(request: Request, token: Optional[str] = None) -> bool:
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
@@ -81,6 +76,13 @@ def _is_admin_feedback_request(request: Request, token: Optional[str] = None) ->
         return False
     user_role = (session.get("role") or "player").strip().lower()
     return user_role in ("admin", "superuser", "developer", "owner", "to", "referee")
+
+@router.get("/api/feedback", summary="Get recent user feedbacks (Admin)")
+async def api_get_feedbacks(request: Request, limit: int = Query(50), token: Optional[str] = Query(None)):
+    if not _is_admin_feedback_request(request, token=token):
+        raise HTTPException(status_code=403, detail="Admin access restricted to authorized administrators.")
+    db = get_database()
+    return db.get_feedbacks(limit=limit)
 
 class FeedbackUpdatePayload(BaseModel):
     status: Optional[str] = None

@@ -53,26 +53,101 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# HTTP Caching & Edge Optimization Middleware
+# GZip Response Compression Middleware
+try:
+    from starlette.middleware.gzip import GZipMiddleware
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
+except ImportError:
+    try:
+        from fastapi.middleware.gzip import GZipMiddleware
+        app.add_middleware(GZipMiddleware, minimum_size=1000)
+    except ImportError:
+        pass
+
+# In-Memory Rate Limiting for Auth & Sensitive Endpoints
+_AUTH_RATE_LIMITS = {
+    "/api/auth/login": (20, 60),               # 20 requests per 60s
+    "/api/auth/verify-registration": (15, 60), # 15 requests per 60s
+    "/api/auth/register": (10, 60),            # 10 requests per 60s
+    "/api/auth/forgot-password": (8, 60),      # 8 requests per 60s
+    "/api/auth/reset-password": (8, 60),       # 8 requests per 60s
+}
+_rate_limits_state: Dict[str, List[float]] = {}
+
+# HTTP Caching, Security Headers, and Rate Limiting Middleware
 @app.middleware("http")
-async def add_cache_headers(request, call_next):
-    response = await call_next(request)
+async def add_security_cache_and_rate_limit(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/api/auth") or path.startswith("/api/user") or path.startswith("/api/connect") or path.startswith("/api/tracker") or path.startswith("/api/chat") or path.startswith("/api/version") or path == "/health" or path == "/api/health":
-        # Never cache authentication, session, user, connect, chat, live tracker, health, or version endpoints
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "127.0.0.1")
+    if client_ip and "," in client_ip:
+        client_ip = client_ip.split(",")[0].strip()
+
+    # 1. Rate Limiting Check
+    if path in _AUTH_RATE_LIMITS:
+        max_requests, window_secs = _AUTH_RATE_LIMITS[path]
+        rate_key = f"{client_ip}:{path}"
+        now = time.time()
+        timestamps = _rate_limits_state.get(rate_key, [])
+        valid_timestamps = [t for t in timestamps if (now - t) < window_secs]
+        if len(valid_timestamps) >= max_requests:
+            retry_after = int(window_secs - (now - valid_timestamps[0])) + 1
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests. Please slow down.", "error": "Rate limit exceeded. Please try again shortly."},
+                headers={"Retry-After": str(max(1, retry_after))}
+            )
+        valid_timestamps.append(now)
+        _rate_limits_state[rate_key] = valid_timestamps
+        if len(_rate_limits_state) > 10000:
+            for k in list(_rate_limits_state.keys())[:2000]:
+                _rate_limits_state.pop(k, None)
+
+    response = await call_next(request)
+
+    # 2. Baseline Security Headers (OWASP)
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(self)"
+
+    # 3. HTTP Caching & Edge Rules
+    if (
+        path.startswith("/api/auth") or
+        path.startswith("/api/user") or
+        path.startswith("/api/admin") or
+        path.startswith("/api/eventstudio") or
+        path.startswith("/api/feedback") or
+        path.startswith("/api/connect") or
+        path.startswith("/api/tracker") or
+        path.startswith("/api/chat") or
+        path.startswith("/api/version") or
+        path == "/health" or
+        path == "/api/health"
+    ):
+        # Never cache authentication, admin, studio, session, user, connect, chat, live tracker, health, or version endpoints
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
     elif path.startswith("/css") or path.startswith("/js"):
-        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        if request.url.query and ("v=" in request.url.query):
+            response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+        else:
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"
     elif path.startswith("/api/"):
-        response.headers["Cache-Control"] = "public, max-age=15, stale-while-revalidate=60"
+        response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
+
     return response
 
-# CORS Middleware
+# CORS Middleware with explicit origins and regex support for credentials
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.c\.googlers\.com|.*\.omnitactica\.(com|app))(:\d+)?$",
+    allow_origins=[
+        "http://localhost:5173", "http://localhost:5174", "http://localhost:5175",
+        "http://127.0.0.1:5173", "http://127.0.0.1:5174", "http://127.0.0.1:5175",
+        "http://hsiehjun-high-perf-2.c.googlers.com:5175",
+        "https://omnitactica.com", "https://omnitactica.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -267,7 +267,7 @@ async function loadMyHubDashboard() {
   } catch (err) {
     console.warn("Notice updating competitor hub from server:", err);
     if (!cachedData) {
-      container.innerHTML = `<div class="empty-state" style="color:var(--loss);">Error loading competitor hub: ${err.message}</div>`;
+      container.innerHTML = `<div class="empty-state" style="color:var(--loss);">Error loading competitor hub: ${escapeHtml(err.message)}</div>`;
     }
   }
 }
@@ -2435,7 +2435,7 @@ async function loadHubRecommendedEvents() {
 
     container.innerHTML = events.map(ev => renderHubEventCard(ev)).join('');
   } catch (err) {
-    container.innerHTML = `<div style="color:var(--loss); font-size:0.8rem; padding:1rem;">Error loading recommendations: ${err.message}</div>`;
+    container.innerHTML = `<div style="color:var(--loss); font-size:0.8rem; padding:1rem;">Error loading recommendations: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -2473,7 +2473,7 @@ async function executeHubEventsSearch() {
 
     container.innerHTML = events.map(ev => renderHubEventCard(ev)).join('');
   } catch (err) {
-    container.innerHTML = `<div style="color:var(--loss); font-size:0.8rem; padding:1rem;">Search failed: ${err.message}</div>`;
+    container.innerHTML = `<div style="color:var(--loss); font-size:0.8rem; padding:1rem;">Search failed: ${escapeHtml(err.message)}</div>`;
   }
 }
 

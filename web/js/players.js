@@ -57,7 +57,7 @@ async function loadPlayersDirectory() {
     renderPlayersDirectoryRows();
     renderPaginationBar('players-pagination', playersPagination, 'setPlayersPage', 'setPlayersPageSize');
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="empty-state" style="color:var(--loss);">Error loading player directory: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="empty-state" style="color:var(--loss);">Error loading player directory: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 

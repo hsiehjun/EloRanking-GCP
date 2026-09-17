@@ -64,6 +64,7 @@ logger = logging.getLogger("NativeAuth")
 
 COGNITO_ENDPOINT = "https://cognito-idp.us-east-1.amazonaws.com/"
 BCP_COGNITO_CLIENT_ID = "5083iih0nitpn5enl02fkpr9bc"
+_FAILED_VERIFY_ATTEMPTS: Dict[str, Tuple[int, float]] = {}
 
 
 def _hash_password(password: str) -> str:
@@ -518,6 +519,13 @@ class AuthManager:
         if not email or not code:
             return {"success": False, "error": "Email and 6-digit verification code are required."}
 
+        now_ts = time.time()
+        attempts, first_ts = _FAILED_VERIFY_ATTEMPTS.get(email, (0, now_ts))
+        if (now_ts - first_ts) > 900:
+            attempts, first_ts = 0, now_ts
+        if attempts >= 5:
+            return {"success": False, "error": "Too many failed attempts. Please request a new verification code."}
+
         from psycopg2 import extras
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -532,7 +540,11 @@ class AuthManager:
                     return {"success": False, "error": "No pending registration found for this email. Please register again."}
 
                 if row["verify_code"] != code:
-                    return {"success": False, "error": "Incorrect verification code. Please check your email and try again."}
+                    _FAILED_VERIFY_ATTEMPTS[email] = (attempts + 1, first_ts)
+                    rem = max(0, 5 - (attempts + 1))
+                    return {"success": False, "error": f"Incorrect verification code. {rem} attempt(s) remaining."}
+
+                _FAILED_VERIFY_ATTEMPTS.pop(email, None)
 
                 if row["expires_at"] < datetime.now(timezone.utc):
                     return {"success": False, "error": "Verification code has expired. Please request a new code."}
@@ -688,12 +700,14 @@ class AuthManager:
             display_name=user.get("display_name")
         )
 
+        if mail_res.get("simulated"):
+            logger.info(f"📧 Simulated password reset code generated for {email}: {code}")
+
         return {
             "success": True,
             "message": "If this email is registered, a password reset link and verification code has been dispatched.",
             "email": email,
             "simulated": mail_res.get("simulated", False),
-            "dev_code": code if mail_res.get("simulated") else None,
             "mail_error": mail_res.get("error") if mail_res.get("error") else None,
             "smtp_configured": bool(os.environ.get("SMTP_HOST", "").strip())
         }
@@ -1812,31 +1826,10 @@ class AuthManager:
         return tokens.get("id_token") or tokens.get("access_token")
 
     def get_any_valid_bcp_token(self) -> Optional[str]:
-        """Returns any active BCP token available from environment or linked users."""
+        """Returns active system BCP token configured in environment, avoiding cross-tenant token sharing."""
         env_tok = os.environ.get("BCP_ACCESS_TOKEN") or os.environ.get("BCP_TOKEN") or os.environ.get("BCP_JWT")
         if env_tok:
             return env_tok.strip()
-
-        try:
-            from psycopg2 import extras
-            with self.db.get_connection() as conn:
-                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                    cur.execute("""
-                    SELECT id FROM users
-                    WHERE (bcp_access_token IS NOT NULL OR bcp_refresh_token IS NOT NULL)
-                      AND bcp_user_id IS NOT NULL
-                    ORDER BY bcp_token_expires_at DESC NULLS LAST, updated_at DESC
-                    LIMIT 5;
-                    """)
-                    rows = cur.fetchall() or []
-                    for row in rows:
-                        uid = row.get("id")
-                        if uid:
-                            tok = self.get_valid_bcp_token(uid)
-                            if tok:
-                                return tok
-        except Exception as e:
-            logger.debug(f"Notice finding valid BCP token across users: {e}")
         return None
 
 

@@ -170,7 +170,7 @@ async function loadEvents() {
     renderEventsRows();
     renderPaginationBar('events-pagination', eventsPagination, 'setEventsPage', 'setEventsPageSize');
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading tournaments: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading tournaments: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -785,15 +785,15 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     }
     if (rbody) {
       rbody.style.opacity = '1';
-      rbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading tournament: ${err.message}</td></tr>`;
+      rbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading tournament: ${escapeHtml(err.message)}</td></tr>`;
     }
     if (ebody) {
       ebody.style.opacity = '1';
-      ebody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading participant ratings: ${err.message}</td></tr>`;
+      ebody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading participant ratings: ${escapeHtml(err.message)}</td></tr>`;
     }
     if (pbody) {
       pbody.style.opacity = '1';
-      pbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error syncing pairings: ${err.message}</td></tr>`;
+      pbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error syncing pairings: ${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }

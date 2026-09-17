@@ -56,18 +56,20 @@ async def api_leaderboard(
     game_system: Optional[str] = Query("40k"),
     active_only: bool = Query(True)
 ):
-    return get_database().get_top_ranked_players(
-        page=page,
-        page_size=page_size,
-        limit=limit,
-        min_matches=min_matches,
-        query=query.strip() if query else None,
-        faction=faction.strip() if faction else "All",
-        sort_by=sort_by,
-        order=order,
-        game_system=game_system,
-        active_only=active_only
-    )
+    def _fetch():
+        return get_database().get_top_ranked_players(
+            page=page,
+            page_size=page_size,
+            limit=limit,
+            min_matches=min_matches,
+            query=query.strip() if query else None,
+            faction=faction.strip() if faction else "All",
+            sort_by=sort_by,
+            order=order,
+            game_system=game_system,
+            active_only=active_only
+        )
+    return await asyncio.to_thread(_fetch)
 
 # API: Teams Power Rankings
 @router.get("/api/teams", summary="Get teams power rankings (paginated)")
@@ -84,21 +86,25 @@ async def api_teams(
     game_system: Optional[str] = Query("40k")
 ):
     actual_min = min_members if min_members is not None else min_roster
-    return get_database().get_teams_leaderboard(
-        page=page,
-        page_size=page_size,
-        min_members=actual_min,
-        limit=limit,
-        query=query.strip() if query else None,
-        sort_by=sort_by,
-        order=order,
-        game_system=game_system
-    )
+    def _fetch():
+        return get_database().get_teams_leaderboard(
+            page=page,
+            page_size=page_size,
+            min_members=actual_min,
+            limit=limit,
+            query=query.strip() if query else None,
+            sort_by=sort_by,
+            order=order,
+            game_system=game_system
+        )
+    return await asyncio.to_thread(_fetch)
 
 # API: Team Roster
 @router.get("/api/team/{team_name}", summary="Get team member roster and power metrics")
 async def api_team_roster(team_name: str, game_system: Optional[str] = Query("40k")):
-    return get_database().get_team_roster(team_name.strip(), game_system=game_system)
+    def _fetch():
+        return get_database().get_team_roster(team_name.strip(), game_system=game_system)
+    return await asyncio.to_thread(_fetch)
 
 # API: Full Player Directory
 @router.get("/api/players", summary="Search and browse player directory (paginated)")
@@ -114,23 +120,27 @@ async def api_players_directory(
     game_system: Optional[str] = Query("40k"),
     active_only: bool = Query(False)
 ):
-    return get_database().get_players_directory(
-        page=page,
-        page_size=page_size,
-        limit=limit,
-        query=query.strip() if query else None,
-        faction=faction.strip() if faction else "All",
-        min_matches=min_matches,
-        sort_by=sort_by,
-        order=order,
-        game_system=game_system,
-        active_only=active_only
-    )
+    def _fetch():
+        return get_database().get_players_directory(
+            page=page,
+            page_size=page_size,
+            limit=limit,
+            query=query.strip() if query else None,
+            faction=faction.strip() if faction else "All",
+            min_matches=min_matches,
+            sort_by=sort_by,
+            order=order,
+            game_system=game_system,
+            active_only=active_only
+        )
+    return await asyncio.to_thread(_fetch)
 
 # API: Autocomplete Search for Match Predictor
 @router.get("/api/players/search", summary="Search players for predictor autocomplete")
 async def api_players_search(q: str = Query("", min_length=1), limit: int = Query(10, ge=1, le=50), game_system: Optional[str] = Query("40k")):
-    return get_database().search_players(q.strip(), limit=limit, game_system=game_system)
+    def _fetch():
+        return get_database().search_players(q.strip(), limit=limit, game_system=game_system)
+    return await asyncio.to_thread(_fetch)
 
 # API: Player Profile & Historical Win Path
 @router.get("/api/player/{player_id}", summary="Get player profile, win path, and Elo trajectory")

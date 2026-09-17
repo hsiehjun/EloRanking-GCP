@@ -129,7 +129,8 @@ async def api_auth_verify_registration(request: Request, payload: VerifyRegistra
         raise HTTPException(status_code=400, detail=res.get("error", "Verification failed"))
     token = res.get("session_token")
     if token:
-        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax")
+        is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
+        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=True, samesite="lax", secure=is_sec)
     return res
 
 @router.post("/api/auth/resend-verification", summary="Resend 6-digit email verification code")
@@ -152,7 +153,8 @@ async def api_auth_login(request: Request, payload: LoginPayload, response: Resp
         raise HTTPException(status_code=401, detail=res.get("error", "Invalid credentials"))
     token = res.get("session_token")
     if token:
-        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax")
+        is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
+        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=True, samesite="lax", secure=is_sec)
     return res
 
 @router.post("/api/auth/forgot-password", summary="Request password reset link and verification code via email")
@@ -168,7 +170,7 @@ async def api_auth_validate_reset_token(token: Optional[str] = Query(None), code
     return res
 
 @router.post("/api/auth/reset-password", summary="Reset account password using token or email & code")
-async def api_auth_reset_password(payload: ResetPasswordPayload, response: Response):
+async def api_auth_reset_password(request: Request, payload: ResetPasswordPayload, response: Response):
     auth_mgr = get_auth_manager()
     res = auth_mgr.reset_password(
         new_password=payload.new_password,
@@ -180,7 +182,8 @@ async def api_auth_reset_password(payload: ResetPasswordPayload, response: Respo
         raise HTTPException(status_code=400, detail=res.get("error", "Password reset failed"))
     token = res.get("session_token")
     if token:
-        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax")
+        is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
+        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=True, samesite="lax", secure=is_sec)
     return res
 
 @router.get("/api/auth/me", summary="Check active user session and BCP link status")

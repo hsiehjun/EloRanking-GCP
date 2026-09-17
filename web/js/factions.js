@@ -134,7 +134,7 @@ async function loadFactionMeta() {
       renderFactionTrendChart(factionMetaData.monthly_trends || []);
     }
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading faction meta: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading faction meta: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 

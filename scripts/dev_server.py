@@ -942,6 +942,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
         self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)")
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         super().end_headers()
 
@@ -1062,7 +1066,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         if clean_path in ("api/auth/login", "api/auth/register"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax")
+            self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax; HttpOnly")
             self.end_headers()
             self.wfile.write(json.dumps({"success": True, "token": "dev-auth-token-123", **DEV_USER}).encode("utf-8"))
             return
@@ -3111,7 +3115,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             target = f"/11th/tracker/play{('?' + query_str) if query_str else ''}"
             self.send_response(302)
             self.send_header("Location", target)
-            self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax")
+            self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax; HttpOnly")
             self.end_headers()
             return
 
@@ -3121,7 +3125,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 target = f"/11th/tracker/play{('?' + query_str) if query_str else ''}"
                 self.send_response(302)
                 self.send_header("Location", target)
-                self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax")
+                self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax; HttpOnly")
                 self.end_headers()
                 return
             self._serve_html_with_auth(TRACKER_DIR / "lobby.html", is_head)
@@ -3227,7 +3231,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(encoded)))
-            self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax")
+            self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax; HttpOnly")
             self.end_headers()
             if not is_head:
                 self.wfile.write(encoded)
@@ -3247,12 +3251,25 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         try:
             with open(file_path, "rb") as f:
                 content = f.read()
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(content)))
-            self.end_headers()
-            if not is_head:
-                self.wfile.write(content)
+
+            accept_enc = self.headers.get("Accept-Encoding", "")
+            if "gzip" in accept_enc and len(content) > 1000:
+                import gzip
+                compressed = gzip.compress(content, compresslevel=6)
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Content-Length", str(len(compressed)))
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(compressed)
+            else:
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(content)
         except Exception as e:
             self.send_error(500, f"Internal Server Error: {e}")
 
