@@ -1671,11 +1671,12 @@ async def api_tracker_user_sessions(
     user = auth_mgr.get_session(session_token) if session_token else None
     
     user_id = user["id"] if user else None
-    user_name = user.get("display_name") if user else None
+    user_name = (user.get("display_name") or user.get("competitor_name") or user.get("player_name")) if user else None
+    player_id = user.get("player_id") if user else None
     
     fs_engine = get_firestore_engine()
     db = get_database()
-    active_docs = fs_engine.list_active_rooms_for_user(user_id=user_id, user_name=user_name)
+    active_docs = fs_engine.list_active_rooms_for_user(user_id=user_id, user_name=user_name, player_id=player_id)
     
     seen_matches = set()
     active_sessions = []

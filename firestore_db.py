@@ -199,11 +199,14 @@ class FirestoreRoomEngine:
         """Marks a match room as completed and removes it from active Firestore."""
         return self.discard_room(match_id)
 
-    def list_active_rooms_for_user(self, user_id: Optional[str] = None, user_name: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_active_rooms_for_user(self, user_id: Optional[str] = None, user_name: Optional[str] = None, player_id: Optional[str] = None, limit: int = 150) -> List[Dict[str, Any]]:
         """Queries Firestore for active in_progress rooms involving this user."""
         rooms = []
         seen_keys = set()
         
+        valid_ids = {str(x).strip().lower() for x in (user_id, player_id) if x and str(x).strip()}
+        target_name = user_name.strip().lower() if user_name and user_name.strip() else None
+
         if self._client:
             try:
                 col = self._client.collection("rooms")
@@ -219,19 +222,23 @@ class FirestoreRoomEngine:
 
                     p1_id = d.get("user_id_p1") or (d.get("participants", {}).get("player1", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
                     p2_id = d.get("user_id_p2") or (d.get("participants", {}).get("player2", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
+                    p1_pid = d.get("p1_id") or (d.get("state", {}).get("game", {}).get("p1Id") if isinstance(d.get("state"), dict) else None)
+                    p2_pid = d.get("p2_id") or (d.get("state", {}).get("game", {}).get("p2Id") if isinstance(d.get("state"), dict) else None)
                     p1_name = (d.get("p1_name") or (d.get("state", {}).get("game", {}).get("p1Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
                     p2_name = (d.get("p2_name") or (d.get("state", {}).get("game", {}).get("p2Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
                     
                     match = False
-                    if not user_id and not user_name:
+                    if not valid_ids and not target_name:
                         match = True
-                    elif user_id and (p1_id == user_id or p2_id == user_id):
-                        match = True
-                    elif user_name:
-                        u_lower = user_name.strip().lower()
-                        # Strict exact equality matching (no substring containment)
-                        if (p1_name and u_lower == p1_name) or (p2_name and u_lower == p2_name):
-                            match = True
+                    else:
+                        if valid_ids:
+                            for candidate in (p1_id, p2_id, p1_pid, p2_pid):
+                                if candidate and str(candidate).strip().lower() in valid_ids:
+                                    match = True
+                                    break
+                        if not match and target_name:
+                            if (p1_name and target_name == p1_name) or (p2_name and target_name == p2_name):
+                                match = True
                             
                     if match:
                         seen_keys.add(rkey)
@@ -244,18 +251,23 @@ class FirestoreRoomEngine:
             if rkey not in seen_keys and d.get("status") == "in_progress" and not d.get("is_abandoned") and not d.get("is_finished"):
                 p1_id = d.get("user_id_p1") or (d.get("participants", {}).get("player1", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
                 p2_id = d.get("user_id_p2") or (d.get("participants", {}).get("player2", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
+                p1_pid = d.get("p1_id") or (d.get("state", {}).get("game", {}).get("p1Id") if isinstance(d.get("state"), dict) else None)
+                p2_pid = d.get("p2_id") or (d.get("state", {}).get("game", {}).get("p2Id") if isinstance(d.get("state"), dict) else None)
                 p1_name = (d.get("p1_name") or (d.get("state", {}).get("game", {}).get("p1Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
                 p2_name = (d.get("p2_name") or (d.get("state", {}).get("game", {}).get("p2Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
                 
                 match = False
-                if not user_id and not user_name:
+                if not valid_ids and not target_name:
                     match = True
-                elif user_id and (p1_id == user_id or p2_id == user_id):
-                    match = True
-                elif user_name:
-                    u_lower = user_name.strip().lower()
-                    if (p1_name and u_lower == p1_name) or (p2_name and u_lower == p2_name):
-                        match = True
+                else:
+                    if valid_ids:
+                        for candidate in (p1_id, p2_id, p1_pid, p2_pid):
+                            if candidate and str(candidate).strip().lower() in valid_ids:
+                                match = True
+                                break
+                    if not match and target_name:
+                        if (p1_name and target_name == p1_name) or (p2_name and target_name == p2_name):
+                            match = True
                 if match:
                     seen_keys.add(rkey)
                     rooms.append(d)

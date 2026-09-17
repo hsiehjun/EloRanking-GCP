@@ -970,20 +970,20 @@ function renderHeaderAuth() {
     const name = currentUser.display_name || currentUser.email || 'Player';
     const isAdmin = currentUser.role === 'admin' || Boolean(currentUser.is_admin);
     const adminLink = isAdmin ? `
-      <a href="/admin" style="display:inline-flex; align-items:center; gap:4px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#f87171; font-weight:800; font-size:0.75rem; padding:3px 8px; border-radius:6px; text-decoration:none;" title="Admin Governance Dashboard">
+      <a href="/admin" style="display:inline-flex; align-items:center; gap:4px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#f87171; font-weight:800; font-size:0.75rem; padding:3px 8px; border-radius:6px; text-decoration:none; white-space:nowrap; flex-shrink:0;" title="Admin Governance Dashboard">
         <span>🛡️</span> Admin
       </a>
     ` : '';
     container.innerHTML = `
-      <div style="display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.85); border:1px solid var(--border); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif;">
-        <span style="width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 8px rgba(16,185,129,0.5);"></span>
-        <button onclick="openUserSettingsModal()" style="background:transparent; border:none; color:#f8fafc; font-weight:700; font-size:0.82rem; cursor:pointer; display:flex; align-items:center; gap:5px; padding:0;" title="Account Settings (Click to change password or gamer tag)">
-          <span>${escapeHtml(name)}</span>
-          <span style="color:#94a3b8; font-size:11px;">⚙️</span>
+      <div style="display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.85); border:1px solid var(--border); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; white-space:nowrap; flex-shrink:0;">
+        <span style="width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 8px rgba(16,185,129,0.5); flex-shrink:0; display:inline-block;"></span>
+        <button onclick="openUserSettingsModal()" style="background:transparent; border:none; color:#f8fafc; font-weight:700; font-size:0.82rem; cursor:pointer; display:inline-flex; align-items:center; gap:5px; padding:0; white-space:nowrap; flex-shrink:0;" title="Account Settings (Click to change password or gamer tag)">
+          <span style="white-space:nowrap;">${escapeHtml(name)}</span>
+          <span style="color:#94a3b8; font-size:12px; display:inline-flex; align-items:center; justify-content:center; line-height:1; vertical-align:middle; transform:translateY(-0.5px);">⚙️</span>
         </button>
         ${adminLink}
         <span style="color:var(--border-color, #334155); font-size:12px;">|</span>
-        <button onclick="handleLogout()" style="background:transparent; border:none; color:#ef4444; font-size:0.78rem; font-weight:700; cursor:pointer; padding:0;">Logout</button>
+        <button onclick="handleLogout()" style="background:transparent; border:none; color:#ef4444; font-size:0.78rem; font-weight:700; cursor:pointer; padding:0; white-space:nowrap; flex-shrink:0;">Logout</button>
       </div>
     `;
   } else {

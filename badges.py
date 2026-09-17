@@ -400,6 +400,7 @@ def _evaluate_40k_player_badges(
     events_set = set()
     factions_won = set()
     factions_played = set()
+    factions_defeated = set()
     mirror_wins = 0
     consecutive_wins = 0
     max_streak_in_history = 0
@@ -470,6 +471,8 @@ def _evaluate_40k_player_badges(
 
             if p_fac:
                 factions_won.add(p_fac.lower())
+            if o_fac:
+                factions_defeated.add(o_fac.lower())
 
             diff = p_score - o_score
             if diff == 1:
@@ -910,8 +913,8 @@ def _evaluate_40k_player_badges(
             progress = {"current": min(mirror_wins, 6), "target": 6, "unit": "mirror wins"}
 
         elif b_id == "nemesis_neutralizer":
-            unlocked = len(matchup_matrix) >= 5 or len(factions_won) >= 5
-            progress = {"current": len(matchup_matrix), "target": 5, "unit": "matchups"}
+            unlocked = len(factions_defeated) >= 5 or len(matchup_matrix) >= 5 or len(factions_won) >= 5
+            progress = {"current": max(len(factions_defeated), len(matchup_matrix), len(factions_won)), "target": 5, "unit": "enemy factions"}
 
         elif b_id == "list_innovator":
             unlocked = len(factions_won) >= 5

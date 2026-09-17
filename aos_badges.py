@@ -9,6 +9,45 @@ Calibrated strictly to AoS 50-VP max scoring (GHB format).
 """
 
 from typing import Dict, List, Any, Optional
+import re
+
+def _safe_round(val: Any, default: int = 0) -> int:
+    """Extract round number cleanly from integer, float, or strings like 'R1', 'Round 2'."""
+    if val is None:
+        return default
+    if isinstance(val, (int, float)):
+        return int(val)
+    val_str = str(val).strip()
+    match = re.search(r'\d+', val_str)
+    if match:
+        try:
+            return int(match.group(0))
+        except (ValueError, TypeError):
+            return default
+    return default
+
+def _safe_int(val: Any, default: int = 0) -> int:
+    """Safely parse integer from mixed types without ValueError."""
+    if val is None:
+        return default
+    if isinstance(val, int):
+        return val
+    try:
+        return int(float(str(val).strip()))
+    except (ValueError, TypeError):
+        return default
+
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    """Safely parse float from mixed types without ValueError."""
+    if val is None:
+        return default
+    if isinstance(val, (int, float)):
+        return float(val)
+    try:
+        return float(str(val).strip())
+    except (ValueError, TypeError):
+        return default
+
 
 # Rarity metadata and glory scores
 RARITY_CONFIG = {
@@ -244,7 +283,7 @@ def get_all_badges_catalog() -> List[Dict[str, Any]]:
 
 def get_rank_for_badge_count(badge_count: int) -> Dict[str, Any]:
     """Returns the matching military rank given an unlocked AoS badge count."""
-    count = max(0, int(badge_count))
+    count = max(0, _safe_int(badge_count))
     current_rank = RANKS_AOS[0]
     next_rank = None
 
@@ -300,19 +339,19 @@ def evaluate_aos_player_badges(
     matchup_matrix = matchup_matrix or []
 
     # Career aggregates
-    current_elo = float(player_data.get("current_elo") or 1500.0)
-    peak_elo = float(player_data.get("peak_elo") or current_elo)
-    matches_played = int(player_data.get("matches_played") or player_data.get("total_matches") or len(history))
+    current_elo = _safe_float(player_data.get("current_elo"), 1500.0)
+    peak_elo = _safe_float(player_data.get("peak_elo"), current_elo)
+    matches_played = _safe_int(player_data.get("matches_played") or player_data.get("total_matches") or len(history))
     history_wins = len([m for m in history if str(m.get("result") or "").upper() == "W"])
     history_losses = len([m for m in history if str(m.get("result") or "").upper() == "L"])
     history_draws = len([m for m in history if str(m.get("result") or "").upper() == "D"])
-    wins = max(int(player_data.get("wins") or 0), history_wins)
-    losses = max(int(player_data.get("losses") or 0), history_losses)
-    draws = max(int(player_data.get("draws") or 0), history_draws)
+    wins = max(_safe_int(player_data.get("wins")), history_wins)
+    losses = max(_safe_int(player_data.get("losses")), history_losses)
+    draws = max(_safe_int(player_data.get("draws")), history_draws)
     matches_played = max(matches_played, wins + losses + draws)
-    win_rate = float(player_data.get("win_rate") or (round(wins / max(1, matches_played) * 100, 1) if matches_played else 0))
+    win_rate = _safe_float(player_data.get("win_rate") or (round(wins / max(1, matches_played) * 100, 1) if matches_played else 0))
     team = str(player_data.get("team") or "").strip()
-    longest_streak = int(player_data.get("longest_win_streak") or 0)
+    longest_streak = _safe_int(player_data.get("longest_win_streak"))
 
     # ── AoS Grand Alliances & Meta Constants ──
     ORDER_FACTIONS = {"stormcast eternals", "cities of sigmar", "seraphon", "idoneth deepkin", "daughters of khaine", "lumineth realm-lords", "fyreslayers", "kharadron overlords", "sylvaneth"}
@@ -371,13 +410,13 @@ def evaluate_aos_player_badges(
     event_matches: Dict[str, List[Dict[str, Any]]] = {}
 
     for m in history:
-        p_score = int(m.get("player_score") or 0)
-        o_score = int(m.get("opponent_score") or 0)
+        p_score = _safe_int(m.get("player_score") if m.get("player_score") is not None else m.get("p1_score"))
+        o_score = _safe_int(m.get("opponent_score") if m.get("opponent_score") is not None else m.get("p2_score"))
         res = str(m.get("result") or "").upper()
-        rnd = int(m.get("round") or 0)
+        rnd = _safe_round(m.get("round"))
         p_fac = str(m.get("player_faction") or m.get("faction") or "").strip().lower()
         o_fac = str(m.get("opponent_faction") or "").strip().lower()
-        o_elo = float(m.get("opponent_elo") or 1500.0)
+        o_elo = _safe_float(m.get("opponent_elo"), 1500.0)
         o_name = str(m.get("opponent_name") or m.get("opponent_id") or "").strip()
         ev_id = str(m.get("event_id") or m.get("tournament_id") or "").strip()
         loc = str(m.get("location") or m.get("city") or "").strip()
@@ -424,13 +463,13 @@ def evaluate_aos_player_badges(
 
             if o_score < min_opp_score: min_opp_score = o_score
 
-            my_elo_at_match = float(m.get("new_elo") or current_elo) - float(m.get("delta_elo") or 0)
+            my_elo_at_match = _safe_float(m.get("new_elo"), current_elo) - _safe_float(m.get("delta_elo"), 0.0)
             if (o_elo - my_elo_at_match) >= 100: upset_100_wins += 1
             if (o_elo - my_elo_at_match) >= 175: upset_175_wins += 1
             if (o_elo - my_elo_at_match) >= 250: upset_250_wins += 1
             if o_elo >= 2000: beat_top_10 = True
 
-            opp_wr = float(m.get("opponent_win_rate") or 0)
+            opp_wr = _safe_float(m.get("opponent_win_rate"), 0.0)
             if opp_wr >= 65.0: beat_65_wr_opp += 1
             if opp_wr >= 75.0: beat_75_wr_opp += 1
 
@@ -464,7 +503,7 @@ def evaluate_aos_player_badges(
 
     table_one_starts = 0
     for ev_id, m_list in event_matches.items():
-        sorted_m = sorted(m_list, key=lambda x: int(x.get("round", 0) or 0))
+        sorted_m = sorted(m_list, key=lambda x: _safe_round(x.get("round")))
         if len(sorted_m) >= 3:
             first_3 = sorted_m[:3]
             if all(str(m.get("result", "")).upper() == "W" for m in first_3):
@@ -475,7 +514,7 @@ def evaluate_aos_player_badges(
     apex_1800_count = 0
     for ev_id, m_list in event_matches.items():
         if len(m_list) >= 4:
-            opp_elos = [float(m.get("opponent_elo") or 1500.0) for m in m_list]
+            opp_elos = [_safe_float(m.get("opponent_elo"), 1500.0) for m in m_list]
             ev_wins = len([m for m in m_list if str(m.get("result", "")).upper() == "W"])
             avg_opp = sum(opp_elos) / len(opp_elos)
             if avg_opp >= 1700.0 and ev_wins >= 3: crucible_1700_count += 1
@@ -484,11 +523,11 @@ def evaluate_aos_player_badges(
 
     max_faction_wins = 0
     if faction_mastery:
-        max_faction_wins = max([int(f.get("wins", 0)) for f in faction_mastery] or [0])
+        max_faction_wins = max([_safe_int(f.get("wins", 0)) for f in faction_mastery] or [0])
     max_faction_wins = max(max_faction_wins, wins)
 
-    regional_rank = int(player_data.get("regional_rank") or player_data.get("region_rank") or 0)
-    global_rank = int(player_data.get("global_rank") or 0)
+    regional_rank = _safe_int(player_data.get("regional_rank") or player_data.get("region_rank"))
+    global_rank = _safe_int(player_data.get("global_rank"))
     max_vs_opponent = max(opponents_count.values()) if opponents_count else 0
 
     evaluated_badges = []
@@ -595,7 +634,7 @@ def evaluate_aos_player_badges(
             progress = {"current": upset_250_wins, "target": 1, "unit": "+250 Elo upsets"}
 
         elif b_id == "aos_godsbane":
-            unlocked = beat_top_10 or any(float(m.get("opponent_elo", 0) or 0) >= 2000.0 and str(m.get("result", "")).upper() == "W" for m in history)
+            unlocked = beat_top_10 or any(_safe_float(m.get("opponent_elo")) >= 2000.0 and str(m.get("result", "")).upper() == "W" for m in history)
             progress = {"current": 1 if unlocked else 0, "target": 1, "unit": "2000+ Elo victories"}
 
         elif b_id == "aos_crucible_survivor_1":

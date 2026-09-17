@@ -39,6 +39,90 @@ function isValidRegisteredTournament(ev) {
   return true;
 }
 
+function getLocalTrackerSessions(gs = '40k') {
+  const isAos = gs === 'aos';
+  const historyKey = isAos ? 'omni-aos-tracker-history' : 'gdm-11e-tracker-history';
+  const stateKey = isAos ? 'omni-aos-tracker-state' : 'gdm-11e-tracker-state';
+  let hidden = [];
+  try { hidden = JSON.parse(localStorage.getItem('gt-hidden-matches') || '[]'); } catch (e) {}
+  const hiddenSet = new Set(hidden);
+
+  let active = [];
+  let completed = [];
+
+  try {
+    const rawHistory = localStorage.getItem(historyKey);
+    if (rawHistory) {
+      const parsed = JSON.parse(rawHistory);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(item => {
+          const mid = (item.match_id || item.id || '').trim();
+          if (!mid || hiddenSet.has(mid)) return;
+          const isFin = Boolean(item.isFinished || item.is_finished || item.status === 'completed');
+          const itemSys = item.game_system || (mid.startsWith('AOS-') ? 'aos' : '40k');
+          if (isAos ? (itemSys !== 'aos' && !mid.startsWith('AOS-')) : (itemSys === 'aos' || mid.startsWith('AOS-'))) return;
+
+          const formatted = {
+            id: mid,
+            match_id: mid,
+            game_system: itemSys,
+            p1_name: item.p1_name || item.game?.p1Name || 'Player 1',
+            p2_name: item.p2_name || item.game?.p2Name || 'Player 2',
+            p1_score: item.p1_score ?? item.p1Score ?? 0,
+            p2_score: item.p2_score ?? item.p2Score ?? 0,
+            p1_faction: item.p1_faction || item.game?.p1Faction || '',
+            p2_faction: item.p2_faction || item.game?.p2Faction || '',
+            primary_mission: item.primary_mission || item.game?.primary || '',
+            current_round: item.current_round || item.round || 1,
+            round: item.round || item.current_round || 1,
+            is_finished: isFin,
+            created_at: item.created_at || item.date || Date.now(),
+            date: item.date || item.created_at
+          };
+
+          if (!isFin) {
+            active.push(formatted);
+          } else {
+            completed.push(formatted);
+          }
+        });
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const rawState = localStorage.getItem(stateKey);
+    if (rawState) {
+      const stateObj = JSON.parse(rawState);
+      const mid = (stateObj.match_id || stateObj.id || '').trim();
+      if (mid && !hiddenSet.has(mid) && !stateObj.is_finished && stateObj.status !== 'completed') {
+        const itemSys = stateObj.game_system || (mid.startsWith('AOS-') ? 'aos' : '40k');
+        const matchesSys = isAos ? (itemSys === 'aos' || mid.startsWith('AOS-')) : (itemSys !== 'aos' && !mid.startsWith('AOS-'));
+        if (matchesSys && !active.some(a => (a.match_id || a.id) === mid)) {
+          active.unshift({
+            id: mid,
+            match_id: mid,
+            game_system: itemSys,
+            p1_name: stateObj.p1_name || stateObj.game?.p1Name || 'Player 1',
+            p2_name: stateObj.p2_name || stateObj.game?.p2Name || 'Player 2',
+            p1_score: stateObj.p1?.score ?? stateObj.p1_score ?? stateObj.p1Score ?? 0,
+            p2_score: stateObj.p2?.score ?? stateObj.p2_score ?? stateObj.p2Score ?? 0,
+            p1_faction: stateObj.p1_faction || stateObj.game?.p1Faction || '',
+            p2_faction: stateObj.p2_faction || stateObj.game?.p2Faction || '',
+            primary_mission: stateObj.primary_mission || stateObj.game?.primary || '',
+            current_round: stateObj.current_round || stateObj.round || 1,
+            round: stateObj.round || stateObj.current_round || 1,
+            is_finished: false,
+            created_at: stateObj.created_at || Date.now()
+          });
+        }
+      }
+    }
+  } catch (e) {}
+
+  return { active, completed };
+}
+
 async function loadMyHubDashboard() {
   const container = document.getElementById('my-hub-content');
   if (!container) return;
@@ -62,7 +146,12 @@ async function loadMyHubDashboard() {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && (!parsed.player_id || parsed.player_id !== 'p_innes')) {
-          cachedData = parsed;
+          if (parsed.badge_count !== undefined && parsed.rank) {
+            cachedData = parsed;
+          } else {
+            localStorage.removeItem(cacheStorageKey);
+            if (gs === '40k') localStorage.removeItem('my_hub_cache');
+          }
         }
       }
       if (cachedData && Array.isArray(cachedData.registered_tournaments)) {
@@ -71,10 +160,27 @@ async function loadMyHubDashboard() {
     } catch (e) {}
   }
 
+  // Ensure local active and completed tracker matches are instantly reflected in optimistic render
+  const localInitial = getLocalTrackerSessions(gs);
   if (cachedData) {
+    if ((!cachedData.active_sessions || cachedData.active_sessions.length === 0) && localInitial.active.length > 0) {
+      cachedData.active_sessions = localInitial.active;
+      cachedData.primary_active = localInitial.active[0] || null;
+      cachedData.unfinished_sessions = localInitial.active.slice(1);
+    }
+    if ((!cachedData.completed_history || cachedData.completed_history.length === 0) && localInitial.completed.length > 0) {
+      cachedData.completed_history = localInitial.completed;
+      cachedData.tracker_history = localInitial.completed;
+    }
     renderMyHub(cachedData);
   } else if (currentUser) {
-    renderMyHub(buildMyHubShellData(currentUser));
+    const shell = buildMyHubShellData(currentUser);
+    shell.active_sessions = localInitial.active;
+    shell.primary_active = localInitial.active[0] || null;
+    shell.unfinished_sessions = localInitial.active.slice(1);
+    shell.completed_history = localInitial.completed;
+    shell.tracker_history = localInitial.completed;
+    renderMyHub(shell);
   } else {
     container.innerHTML = `
       <div class="empty-state" style="padding: 3rem 1rem;">
@@ -89,8 +195,8 @@ async function loadMyHubDashboard() {
     const token = window.api ? window.api.getAuthToken() : '';
     const [dashRes, sessRes, regRes] = await Promise.allSettled([
       window.api.getUserDashboard(currentUser.player_id),
-      fetch(`/api/tracker/sessions?token=${encodeURIComponent(token)}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      fetch(`/api/tracker/sessions?token=${encodeURIComponent(token)}&game_system=${encodeURIComponent(gs)}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       }).then(r => r.ok ? r.json() : null).catch(() => null),
       (window.api && typeof window.api.getUserRegisteredTournaments === 'function')
         ? window.api.getUserRegisteredTournaments(true)
@@ -104,18 +210,45 @@ async function loadMyHubDashboard() {
     const data = dashRes.value;
     const sessData = (sessRes.status === 'fulfilled' && sessRes.value) ? sessRes.value : null;
 
-    if (sessData && sessData.success) {
-      let hidden = [];
-      try { hidden = JSON.parse(localStorage.getItem('gt-hidden-matches') || '[]'); } catch (e) {}
-      const hiddenSet = new Set(hidden);
+    let hidden = [];
+    try { hidden = JSON.parse(localStorage.getItem('gt-hidden-matches') || '[]'); } catch (e) {}
+    const hiddenSet = new Set(hidden);
 
-      const rawActive = sessData.active_sessions || (sessData.primary_active ? [sessData.primary_active, ...(sessData.unfinished_sessions || [])] : []);
-      data.active_sessions = rawActive.filter(m => !hiddenSet.has(m.match_id || m.id));
-      data.primary_active = data.active_sessions[0] || null;
-      data.unfinished_sessions = data.active_sessions.slice(1);
-      data.completed_history = (sessData.completed_history || []).filter(m => !hiddenSet.has(m.match_id || m.id));
-      data.tracker_history = data.completed_history;
-    }
+    const localFresh = getLocalTrackerSessions(gs);
+
+    const serverActive = (sessData && sessData.success)
+      ? (sessData.active_sessions || (sessData.primary_active ? [sessData.primary_active, ...(sessData.unfinished_sessions || [])] : []))
+      : [];
+    const serverCompleted = (sessData && sessData.success && Array.isArray(sessData.completed_history))
+      ? sessData.completed_history
+      : [];
+
+    const activeMap = new Map();
+    localFresh.active.forEach(m => {
+      const mid = (m.match_id || m.id || '').trim();
+      if (mid && !hiddenSet.has(mid)) activeMap.set(mid, m);
+    });
+    serverActive.forEach(m => {
+      const mid = (m.match_id || m.id || '').trim();
+      if (mid && !hiddenSet.has(mid)) activeMap.set(mid, m);
+    });
+
+    data.active_sessions = Array.from(activeMap.values());
+    data.primary_active = data.active_sessions[0] || null;
+    data.unfinished_sessions = data.active_sessions.slice(1);
+
+    const compMap = new Map();
+    localFresh.completed.forEach(m => {
+      const mid = (m.match_id || m.id || '').trim();
+      if (mid && !hiddenSet.has(mid) && !activeMap.has(mid)) compMap.set(mid, m);
+    });
+    serverCompleted.forEach(m => {
+      const mid = (m.match_id || m.id || '').trim();
+      if (mid && !hiddenSet.has(mid) && !activeMap.has(mid)) compMap.set(mid, m);
+    });
+
+    data.completed_history = Array.from(compMap.values());
+    data.tracker_history = data.completed_history;
 
     if (regRes.status === 'fulfilled' && regRes.value && Array.isArray(regRes.value.tournaments)) {
       data.registered_tournaments = regRes.value.tournaments.filter(isValidRegisteredTournament);
@@ -1050,7 +1183,7 @@ function renderMyHub(data) {
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
             <div style="display: flex; align-items: center; gap: 0.5rem;">
               <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎲 Active Matches & History</h3>
-              <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">11th Ed</span>
+              <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">${sys === 'aos' ? 'AoS' : '11th Ed'}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 0.5rem;">
               <a href="${(typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker'}" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Game Tracker ➔</a>
@@ -1067,10 +1200,19 @@ function renderMyHub(data) {
               <div style="display: flex; flex-direction: column; gap: 10px;">
                 ${activeMatches.map(m => {
                   const mid = m.match_id || m.id || '';
-                  const shortId = mid.replace('WH40K-', '');
+                  const shortId = mid.replace('WH40K-', '').replace('AOS-', '');
                   const rNum = m.round || m.current_round || 1;
                   const createdDate = m.created_at || m.date || m.timestamp;
                   const dateLabel = createdDate ? new Date(createdDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Recent';
+                  const isAosMatch = (m.game_system === 'aos' || mid.startsWith('AOS-') || sys === 'aos');
+                  const resumeUrl = isAosMatch ? `/11th/tracker/aos?match_id=${encodeURIComponent(mid)}` : `/11th/tracker/play?match_id=${encodeURIComponent(mid)}`;
+                  const p1 = m.p1_name || (m.game && m.game.p1Name) || 'Player 1';
+                  const p2 = m.p2_name || (m.game && m.game.p2Name) || 'Player 2';
+                  const p1Score = m.p1_score ?? m.p1Score ?? (m.p1 && m.p1.score) ?? 0;
+                  const p2Score = m.p2_score ?? m.p2Score ?? (m.p2 && m.p2.score) ?? 0;
+                  const p1Fac = m.p1_faction || (m.game && m.game.p1Faction) || 'Army 1';
+                  const p2Fac = m.p2_faction || (m.game && m.game.p2Faction) || 'Army 2';
+                  const mission = m.primary_mission || (m.game && (m.game.primary || m.game.primaryMission)) || '';
                   return `
                     <div style="background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.3); border-radius: 12px; padding: 12px 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
                       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
@@ -1082,14 +1224,14 @@ function renderMyHub(data) {
                       </div>
                       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                         <div>
-                          <b style="color: #fff; font-size: 0.88rem;">${escapeHtml(m.p1_name || 'Player 1')} (${m.p1_score || 0}) <span style="color: var(--text-muted); font-weight: normal;">vs</span> ${escapeHtml(m.p2_name || 'Player 2')} (${m.p2_score || 0})</b>
+                          <b style="color: #fff; font-size: 0.88rem;">${escapeHtml(p1)} (${p1Score}) <span style="color: var(--text-muted); font-weight: normal;">vs</span> ${escapeHtml(p2)} (${p2Score})</b>
                           <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">
-                            ${escapeHtml(m.p1_faction || 'Army 1')} vs ${escapeHtml(m.p2_faction || 'Army 2')}
-                            ${m.primary_mission ? ` • 🎯 ${escapeHtml(m.primary_mission)}` : ''}
+                            ${escapeHtml(p1Fac)} vs ${escapeHtml(p2Fac)}
+                            ${mission ? ` • 🎯 ${escapeHtml(mission)}` : ''}
                           </div>
                         </div>
                         <div style="display: flex; gap: 6px; align-items: center;">
-                          <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" target="_blank" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
+                          <a href="${resumeUrl}" target="_blank" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
                             ▶️ Resume Match
                           </a>
                           ${!(String(mid).toUpperCase().startsWith('BCP-') || String(mid).toUpperCase().startsWith('ES-') || m.event_id || m.tournament_id) ? `
@@ -1158,7 +1300,7 @@ function renderMyHub(data) {
                 </tbody>
               </table>
             </div>
-          ` : (!data.primary_active && (!data.unfinished_sessions || data.unfinished_sessions.length === 0)) ? `
+          ` : (activeMatches.length === 0 && (!data.completed_history || data.completed_history.length === 0)) ? `
             <div style="padding: 2.25rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
               <div style="font-size: 1.05rem; margin-bottom: 0.35rem;">🎲 No Live Game Tracker matches logged.</div>
               <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">Track live games with automated scoring & real-time sync!</div>
@@ -3261,16 +3403,35 @@ function discardTrackerSession(matchId) {
     }
   }
 
-  // 3. Cache hidden match ID immediately in localStorage
+  // 3. Cache hidden match ID immediately in localStorage & purge local state
   try {
     let hidden = JSON.parse(localStorage.getItem('gt-hidden-matches') || '[]');
     if (!hidden.includes(matchId)) {
       hidden.push(matchId);
       localStorage.setItem('gt-hidden-matches', JSON.stringify(hidden));
     }
-    let localCache = JSON.parse(localStorage.getItem('gdm-11e-tracker-history') || '[]');
-    localCache = localCache.filter(item => (item.match_id || item.id) !== matchId);
-    localStorage.setItem('gdm-11e-tracker-history', JSON.stringify(localCache));
+    // Purge from 40k & AoS history cache
+    let localCache40k = JSON.parse(localStorage.getItem('gdm-11e-tracker-history') || '[]');
+    localCache40k = localCache40k.filter(item => (item.match_id || item.id) !== matchId);
+    localStorage.setItem('gdm-11e-tracker-history', JSON.stringify(localCache40k));
+
+    let localCacheAos = JSON.parse(localStorage.getItem('omni-aos-tracker-history') || '[]');
+    localCacheAos = localCacheAos.filter(item => (item.match_id || item.id) !== matchId);
+    localStorage.setItem('omni-aos-tracker-history', JSON.stringify(localCacheAos));
+
+    // If active session matches, clear active state
+    try {
+      const active40k = JSON.parse(localStorage.getItem('gdm-11e-tracker-state') || '{}');
+      if ((active40k.match_id || active40k.id) === matchId) {
+        localStorage.removeItem('gdm-11e-tracker-state');
+      }
+    } catch (e) {}
+    try {
+      const activeAos = JSON.parse(localStorage.getItem('omni-aos-tracker-state') || '{}');
+      if ((activeAos.match_id || activeAos.id) === matchId) {
+        localStorage.removeItem('omni-aos-tracker-state');
+      }
+    } catch (e) {}
   } catch(e) {}
 
   // 4. Direct Firestore SDK deletion if loaded
