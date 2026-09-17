@@ -121,6 +121,10 @@ header {
 }
 
 /* Responsive utility classes */
+.mobile-only {
+  display: none !important;
+}
+
 @media (min-width: 769px) {
   .desktop-hidden {
     display: none !important;
@@ -130,6 +134,9 @@ header {
   .mobile-hidden {
     display: none !important;
   }
+  .mobile-only {
+    display: initial !important;
+  }
 }
 
 /* Mobile Navigation & Bottom Bar: Strictly hidden on tablet and desktop (> 768px) */
@@ -138,6 +145,27 @@ header {
 .mobile-more-sheet-backdrop,
 .mobile-top-bar-actions {
   display: none !important;
+}
+
+/* Hub Career Progression Drawer: Permanently visible on Desktop & Tablet, toggle button hidden */
+.hub-career-toggle-btn {
+  display: none !important;
+}
+#hub-career-details-drawer,
+.hub-career-drawer-collapsed,
+.hub-career-drawer-expanded {
+  display: block !important;
+}
+
+@media (min-width: 641px) {
+  .hub-career-toggle-btn {
+    display: none !important;
+  }
+  #hub-career-details-drawer,
+  .hub-career-drawer-collapsed,
+  .hub-career-drawer-expanded {
+    display: block !important;
+  }
 }
 
 .nav-tabs {
@@ -2346,9 +2374,13 @@ input, select, textarea {
     bottom: 0 !important;
     left: 0 !important;
     right: 0 !important;
-    height: 58px !important;
-    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
-    background: rgba(7, 11, 20, 0.96) !important;
+    min-height: 56px !important;
+    height: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
+    padding-top: 3px !important;
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 4px) !important;
+    padding-left: max(env(safe-area-inset-left, 0px), 2px) !important;
+    padding-right: max(env(safe-area-inset-right, 0px), 2px) !important;
+    background: rgba(7, 11, 20, 0.97) !important;
     backdrop-filter: blur(20px) !important;
     -webkit-backdrop-filter: blur(20px) !important;
     border-top: 1px solid rgba(56, 189, 248, 0.25) !important;
@@ -2360,7 +2392,8 @@ input, select, textarea {
   }
 
   .mobile-bottom-nav .mobile-nav-item {
-    flex: 1 !important;
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
     display: flex !important;
     flex-direction: column !important;
     align-items: center !important;
@@ -2370,23 +2403,32 @@ input, select, textarea {
     border: none !important;
     color: #94a3b8 !important;
     text-decoration: none !important;
-    padding: 4px 0 !important;
+    padding: 3px 1px !important;
     cursor: pointer !important;
     transition: all 0.15s ease !important;
     -webkit-tap-highlight-color: transparent !important;
+    box-sizing: border-box !important;
   }
 
   .mobile-bottom-nav .mobile-nav-icon {
-    font-size: 1.18rem !important;
-    line-height: 1.2 !important;
+    font-size: 1.15rem !important;
+    line-height: 1.15 !important;
+    display: block !important;
     transition: transform 0.15s ease !important;
   }
 
   .mobile-bottom-nav .mobile-nav-label {
-    font-size: 0.65rem !important;
+    font-size: 0.64rem !important;
     font-weight: 700 !important;
-    letter-spacing: 0.02em !important;
-    margin-top: 1px !important;
+    letter-spacing: 0.01em !important;
+    margin-top: 2px !important;
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 100% !important;
+    display: block !important;
+    text-align: center !important;
   }
 
   .mobile-bottom-nav .mobile-nav-item.active {
@@ -2394,7 +2436,7 @@ input, select, textarea {
   }
 
   .mobile-bottom-nav .mobile-nav-item.active .mobile-nav-icon {
-    transform: scale(1.15) translateY(-1px) !important;
+    transform: scale(1.12) translateY(-1px) !important;
     filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6)) !important;
   }
 
@@ -2410,6 +2452,46 @@ input, select, textarea {
   }
   [data-game-system="aos"] .mobile-bottom-nav .mobile-nav-item.active .mobile-nav-icon {
     filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6)) !important;
+  }
+
+  /* Screen-size-specific bottom nav fine-tuning */
+  @media (max-width: 360px) {
+    .mobile-bottom-nav {
+      min-height: 52px !important;
+      height: calc(52px + env(safe-area-inset-bottom, 0px)) !important;
+      padding-top: 2px !important;
+    }
+    .mobile-bottom-nav .mobile-nav-item {
+      padding: 2px 0px !important;
+    }
+    .mobile-bottom-nav .mobile-nav-icon {
+      font-size: 1.02rem !important;
+    }
+    .mobile-bottom-nav .mobile-nav-label {
+      font-size: 0.58rem !important;
+      letter-spacing: -0.02em !important;
+      margin-top: 1px !important;
+    }
+  }
+
+  @media (min-width: 361px) and (max-width: 389px) {
+    .mobile-bottom-nav .mobile-nav-icon {
+      font-size: 1.1rem !important;
+    }
+    .mobile-bottom-nav .mobile-nav-label {
+      font-size: 0.62rem !important;
+      letter-spacing: -0.01em !important;
+    }
+  }
+
+  @media (min-width: 390px) and (max-width: 768px) {
+    .mobile-bottom-nav .mobile-nav-icon {
+      font-size: 1.2rem !important;
+    }
+    .mobile-bottom-nav .mobile-nav-label {
+      font-size: 0.67rem !important;
+      letter-spacing: 0.01em !important;
+    }
   }
 
   /* Mobile More / Profile Bottom Sheet */
@@ -2526,32 +2608,45 @@ input, select, textarea {
     background: rgba(239, 68, 68, 0.15) !important;
   }
 
-  /* My Hub Progressive Disclosure Accordion */
-  .hub-career-toggle-btn {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    width: 100% !important;
-    background: rgba(15, 23, 42, 0.8) !important;
-    border: 1px dashed rgba(56, 189, 248, 0.35) !important;
-    border-radius: 10px !important;
-    padding: 0.6rem 0.85rem !important;
-    color: #38bdf8 !important;
-    font-size: 0.82rem !important;
-    font-weight: 700 !important;
-    cursor: pointer !important;
-    margin-top: 0.65rem !important;
-    margin-bottom: 0.4rem !important;
-    transition: all 0.2s ease !important;
+  /* My Hub Progressive Disclosure Accordion (Mobile phones <= 640px only) */
+  @media (max-width: 640px) {
+    .hub-career-toggle-btn {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      width: 100% !important;
+      background: rgba(15, 23, 42, 0.8) !important;
+      border: 1px dashed rgba(56, 189, 248, 0.35) !important;
+      border-radius: 10px !important;
+      padding: 0.6rem 0.85rem !important;
+      color: #38bdf8 !important;
+      font-size: 0.82rem !important;
+      font-weight: 700 !important;
+      cursor: pointer !important;
+      margin-top: 0.65rem !important;
+      margin-bottom: 0.4rem !important;
+      transition: all 0.2s ease !important;
+    }
+
+    .hub-career-drawer-collapsed {
+      display: none !important;
+    }
+
+    .hub-career-drawer-expanded {
+      display: block !important;
+      animation: fadeIn 0.2s ease-out;
+    }
   }
 
-  .hub-career-drawer-collapsed {
-    display: none !important;
-  }
-
-  .hub-career-drawer-expanded {
-    display: block !important;
-    animation: fadeIn 0.2s ease-out;
+  @media (min-width: 641px) {
+    .hub-career-toggle-btn {
+      display: none !important;
+    }
+    #hub-career-details-drawer,
+    .hub-career-drawer-collapsed,
+    .hub-career-drawer-expanded {
+      display: block !important;
+    }
   }
 
   /* Tournaments Hub Compact Controls & Calendar Header */
