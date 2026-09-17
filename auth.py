@@ -199,6 +199,9 @@ class AuthManager:
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS bcp_id_token TEXT;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code_used VARCHAR(64);
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS pinned_badges TEXT;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS badges_celebrated BOOLEAN DEFAULT FALSE;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS acknowledged_badge_ids TEXT;
                         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_user_id ON users(bcp_user_id) WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_email ON users(LOWER(bcp_email)) WHERE bcp_email IS NOT NULL AND bcp_email != '';
@@ -836,6 +839,7 @@ class AuthManager:
                 cur.execute("""
                 SELECT u.id, u.email, u.display_name, u.role, u.player_id,
                        u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
+                       u.pinned_badges, u.badges_celebrated, u.acknowledged_badge_ids,
                        COALESCE(p.player_name, pl.full_name) as competitor_name,
                        p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
                        p.top_faction, COALESCE(p.team, pl.team) as team
@@ -855,6 +859,24 @@ class AuthManager:
                     data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
                     data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
+                    import json
+                    raw_pinned = data.get("pinned_badges")
+                    if raw_pinned and isinstance(raw_pinned, str):
+                        try:
+                            data["pinned_badges"] = json.loads(raw_pinned)
+                        except Exception:
+                            data["pinned_badges"] = []
+                    else:
+                        data["pinned_badges"] = raw_pinned or []
+                    data["badges_celebrated"] = bool(data.get("badges_celebrated") or False)
+                    raw_ack = data.get("acknowledged_badge_ids")
+                    if raw_ack and isinstance(raw_ack, str):
+                        try:
+                            data["acknowledged_badge_ids"] = json.loads(raw_ack)
+                        except Exception:
+                            data["acknowledged_badge_ids"] = []
+                    else:
+                        data["acknowledged_badge_ids"] = raw_ack or []
                     return data
         return None
 
@@ -869,8 +891,8 @@ class AuthManager:
                 conn.commit()
                 return cur.rowcount > 0
 
-    def update_settings(self, user_id: str, display_name: Optional[str] = None, old_password: Optional[str] = None, new_password: Optional[str] = None) -> Dict[str, Any]:
-        """Updates user display name or password."""
+    def update_settings(self, user_id: str, display_name: Optional[str] = None, old_password: Optional[str] = None, new_password: Optional[str] = None, pinned_badges: Optional[List[str]] = None, badges_celebrated: Optional[bool] = None, acknowledged_badge_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Updates user display name, password, pinned badges, or acknowledged badges."""
         from psycopg2 import extras
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -894,6 +916,30 @@ class AuthManager:
                         return {"success": False, "error": "New password must be at least 6 characters."}
                     updates.append("password_hash = %s")
                     params.append(_hash_password(new_password))
+
+                if pinned_badges is not None and isinstance(pinned_badges, list):
+                    import json
+                    updates.append("pinned_badges = %s")
+                    params.append(json.dumps(pinned_badges[:3]))
+
+                if badges_celebrated is not None:
+                    updates.append("badges_celebrated = %s")
+                    params.append(bool(badges_celebrated))
+
+                if acknowledged_badge_ids is not None and isinstance(acknowledged_badge_ids, list):
+                    import json
+                    cur.execute("SELECT acknowledged_badge_ids FROM users WHERE id = %s;", (user_id,))
+                    ack_row = cur.fetchone()
+                    current_ack = set()
+                    if ack_row and ack_row.get("acknowledged_badge_ids"):
+                        try:
+                            current_ack = set(json.loads(ack_row["acknowledged_badge_ids"]))
+                        except Exception:
+                            current_ack = set()
+                    current_ack.update(acknowledged_badge_ids)
+                    updates.append("acknowledged_badge_ids = %s")
+                    params.append(json.dumps(list(current_ack)))
+                    updates.append("badges_celebrated = TRUE")
 
                 if not updates:
                     return {"success": True, "message": "No changes requested.", "user": self.get_user_by_id(user_id)}
@@ -1714,7 +1760,10 @@ class AuthManager:
                 "matchup_matrix": [],
                 "events_attended": [],
                 "upcoming_events": [],
-                "rivals": []
+                "rivals": [],
+                "badges_celebrated": bool(user_info.get("badges_celebrated") if user_info else False),
+                "acknowledged_badge_ids": [],
+                "newly_unlocked_badges": []
             }
 
         from psycopg2 import extras
@@ -1869,6 +1918,21 @@ class AuthManager:
         except Exception:
             total_ranked = 77322 if target_sys == "40k" else 15000
 
+        import badges
+        user_pinned = user_info.get("pinned_badges") if (user_info and user_info.get("pinned_badges")) else None
+        b_eval = badges.evaluate_player_badges(
+            player_data=p_stat,
+            history=history_points,
+            tournaments=events_attended,
+            faction_mastery=faction_mastery,
+            matchup_matrix=matchup_matrix,
+            user_pinned_ids=user_pinned,
+            game_system=target_sys
+        )
+        user_ack = (user_info and user_info.get("acknowledged_badge_ids")) or []
+        ack_set = set(user_ack) if isinstance(user_ack, list) else set()
+        newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
+
         return {
             "player": p_stat,
             "rankings": {
@@ -1882,7 +1946,18 @@ class AuthManager:
             "matchup_matrix": matchup_matrix,
             "events_attended": events_attended,
             "upcoming_events": upcoming_events,
-            "registered_tournaments": self.db.get_user_registered_tournaments(user_id) if user_id else []
+            "registered_tournaments": self.db.get_user_registered_tournaments(user_id) if user_id else [],
+            "badge_count": b_eval["badge_count"],
+            "total_badges": b_eval["total_badges"],
+            "completion_pct": b_eval["completion_pct"],
+            "glory_score": b_eval["glory_score"],
+            "rank": b_eval["rank"],
+            "pinned_badges": b_eval["pinned_badges"],
+            "badges_celebrated": bool(user_info.get("badges_celebrated") if user_info else False),
+            "acknowledged_badge_ids": list(ack_set),
+            "newly_unlocked_badges": newly_unlocked,
+            "badges": b_eval["badges"],
+            "categories": b_eval["categories"]
         }
 
 

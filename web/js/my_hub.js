@@ -157,7 +157,7 @@ function switchHubSubtab(tabId) {
     });
   }
 
-  const panels = ['active', 'journey', 'trajectory', 'factions', 'matchups'];
+  const panels = ['active', 'journey', 'trajectory', 'factions', 'matchups', 'trophies'];
   panels.forEach(id => {
     const el = document.getElementById(`hub-panel-${id}`);
     if (el) {
@@ -167,6 +167,13 @@ function switchHubSubtab(tabId) {
 
   if (currentHubSubtab === 'trajectory' && myHubData && myHubData.history) {
     setTimeout(() => renderHubTrajectory(myHubData.history), 20);
+  }
+
+  if (currentHubSubtab === 'trophies' && window.BadgesUI && myHubData) {
+    const panel = document.getElementById('hub-panel-trophies');
+    if (panel) {
+      window.BadgesUI.renderTrophyRoom(panel, myHubData, true, myHubData.player && myHubData.player.player_id);
+    }
   }
 }
 
@@ -881,8 +888,8 @@ function renderMyHub(data) {
 
   let html = `
     <div id="my-hub-container" class="my-hub-container" data-active-tab="${currentHubSubtab || 'active'}">
-      <!-- Upgraded 16-Tier Competitor Hero Card -->
-      <div class="profile-hero-card ${tier.themeClass || ''}" style="margin-bottom: 1.25rem;">
+      <!-- Upgraded 16-Tier Competitor Hero Card with Military Rank Border -->
+      <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''}" style="margin-bottom: 1.25rem;">
         <div class="profile-hero-top">
           <div class="profile-identity-group">
             <div class="profile-rank-crest" title="${escapeHtml(tier.name)}">
@@ -900,6 +907,7 @@ function renderMyHub(data) {
                 <span class="profile-standing-badge" title="All-Time Peak Rating">
                   Peak: ${peakElo} 👑
                 </span>
+                ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data.rank) : ''}
                 ${p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="openTeamModal('${escapeHtml(p.team)}')" title="Click to view ${escapeHtml(p.team)} roster">🛡️ ${escapeHtml(p.team)}</span>` : ''}
               </div>
               <div style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 0.45rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
@@ -918,6 +926,7 @@ function renderMyHub(data) {
                   </button>
                 `}
               </div>
+              ${window.BadgesUI ? window.BadgesUI.renderPinnedMedals(data.pinned_badges, data.badge_count, true, 'switchHubSubtab') : ''}
             </div>
           </div>
 
@@ -999,6 +1008,10 @@ function renderMyHub(data) {
       <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'matchups' ? 'active' : ''}" data-tab="matchups" onclick="switchHubSubtab('matchups')">
         <span>🎯 Matchup Matrix</span>
         <span class="profile-subtab-count">${matchups.length}</span>
+      </button>
+      <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'trophies' ? 'active' : ''}" data-tab="trophies" onclick="switchHubSubtab('trophies')">
+        <span>🏆 Trophies</span>
+        <span class="profile-subtab-count">${data.badge_count || 0}/${data.total_badges || 105}</span>
       </button>
     </div>
 
@@ -1239,6 +1252,11 @@ function renderMyHub(data) {
             : '')}
     </div>
 
+    <!-- TAB PANEL 6: Trophies & Battle Honors -->
+    <div id="hub-panel-trophies" class="profile-tab-panel ${currentHubSubtab === 'trophies' ? 'active' : ''}">
+      <!-- Dynamically populated by window.BadgesUI -->
+    </div>
+
   </div> <!-- /my-hub-container -->
   `;
 
@@ -1247,6 +1265,20 @@ function renderMyHub(data) {
   // Render SVG Trajectory & Load Army Lists
   renderHubTrajectory(history);
   loadHubArmyLists();
+
+  // If trophies subtab is active, render Trophy Room immediately
+  if (currentHubSubtab === 'trophies' && window.BadgesUI) {
+    const trophyPanel = document.getElementById('hub-panel-trophies');
+    if (trophyPanel) {
+      window.BadgesUI.renderTrophyRoom(trophyPanel, data, true, data.player && data.player.player_id);
+    }
+  }
+
+  // Check for one-time career commendation celebration (batches all historical honors with zero popup spam)
+  if (window.BadgesUI && typeof window.BadgesUI.checkFirstTimeCelebration === 'function') {
+    var celebrantId = (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.id || currentUser.player_id) : 'guest';
+    window.BadgesUI.checkFirstTimeCelebration(data, celebrantId);
+  }
 }
 
 function renderHubTrajectory(history) {

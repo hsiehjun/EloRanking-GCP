@@ -23,7 +23,8 @@ def test_py_compile():
         root_dir / "scraper.py",
         root_dir / "firestore_db.py",
         root_dir / "army_list_parser.py",
-        root_dir / "bcp_adapter.py"
+        root_dir / "bcp_adapter.py",
+        root_dir / "badges.py"
     ] + list((root_dir / "routers").glob("*.py"))
 
     for p in py_files:
@@ -151,7 +152,7 @@ def test_route_parity():
     import server
     assert server.app is not None, "server.app failed to initialize"
     registered_routes = [(r[0], r[1]) for r in server.app.routes]
-    assert len(registered_routes) in (188, 190, 192, 197, 198, 202, 203, 213, 214, 215, 218, 219, 227, 230, 233, 234, 236), f"Expected 192-236 routes, found {len(registered_routes)}"
+    assert len(registered_routes) in (188, 190, 192, 197, 198, 202, 203, 213, 214, 215, 218, 219, 227, 230, 233, 234, 236, 237, 238), f"Expected 192-238 routes, found {len(registered_routes)}"
 
     canonical_path = Path("/tmp/canonical_routes.json")
     if canonical_path.exists():

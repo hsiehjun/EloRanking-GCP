@@ -13,6 +13,7 @@ import mimetypes
 import urllib.parse
 import urllib.request
 import secrets
+import time
 from pathlib import Path
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 5174))
@@ -1066,6 +1067,59 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"success": True, "token": "dev-auth-token-123", **DEV_USER}).encode("utf-8"))
             return
 
+        if clean_path in ("api/user/pin_badges", "api/user/pin_badges/"):
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            if "pinned_badges" in p_load:
+                DEV_USER["pinned_badges"] = p_load.get("pinned_badges", [])[:3]
+            if "badges_celebrated" in p_load:
+                DEV_USER["badges_celebrated"] = bool(p_load.get("badges_celebrated"))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "pinned_badges": DEV_USER.get("pinned_badges", []), "badges_celebrated": DEV_USER.get("badges_celebrated", False)}).encode("utf-8"))
+            return
+
+        if clean_path in ("api/user/settings", "api/user/settings/"):
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            if "display_name" in p_load and p_load["display_name"]:
+                DEV_USER["display_name"] = p_load["display_name"]
+            if "pinned_badges" in p_load and isinstance(p_load["pinned_badges"], list):
+                DEV_USER["pinned_badges"] = p_load["pinned_badges"][:3]
+            if "badges_celebrated" in p_load:
+                DEV_USER["badges_celebrated"] = bool(p_load["badges_celebrated"])
+            if "acknowledged_badge_ids" in p_load and isinstance(p_load["acknowledged_badge_ids"], list):
+                curr_ack = set(DEV_USER.get("acknowledged_badge_ids") or [])
+                curr_ack.update(p_load["acknowledged_badge_ids"])
+                DEV_USER["acknowledged_badge_ids"] = list(curr_ack)
+                DEV_USER["badges_celebrated"] = True
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "user": DEV_USER}).encode("utf-8"))
+            return
+
+        if clean_path in ("api/user/acknowledge_badges", "api/user/acknowledge_badges/"):
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            new_ids = p_load.get("badge_ids") or p_load.get("acknowledged_badge_ids") or []
+            curr_ack = set(DEV_USER.get("acknowledged_badge_ids") or [])
+            curr_ack.update(new_ids)
+            DEV_USER["acknowledged_badge_ids"] = list(curr_ack)
+            DEV_USER["badges_celebrated"] = True
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "acknowledged_badge_ids": DEV_USER["acknowledged_badge_ids"]}).encode("utf-8"))
+            return
+
         if clean_path == "api/tracker/room/create":
             try:
                 p_load = json.loads(body.decode("utf-8")) if body else {}
@@ -1359,6 +1413,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_request(self, is_head=False):
         raw_path = self.path.split("?")[0]
         query_str = self.path.split("?")[1] if "?" in self.path else ""
+        query_params = urllib.parse.parse_qs(query_str)
         clean_path = raw_path.strip("/")
 
         # 1. API routes
@@ -1619,6 +1674,28 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         }
                     ]
                 }
+            import badges
+            req_game_sys = query_params.get("game_system", ["40k"])[0].lower() if "query_params" in locals() else "40k"
+            b_eval = badges.evaluate_player_badges(
+                player_data=res.get("player") or res,
+                history=res.get("history") or [],
+                tournaments=res.get("tournaments") or [],
+                faction_mastery=res.get("faction_mastery") or [],
+                matchup_matrix=res.get("matchup_matrix") or [],
+                user_pinned_ids=None,
+                game_system=req_game_sys
+            )
+            res.update({
+                "badge_count": b_eval["badge_count"],
+                "total_badges": b_eval["total_badges"],
+                "completion_pct": b_eval["completion_pct"],
+                "glory_score": b_eval["glory_score"],
+                "rank": b_eval["rank"],
+                "pinned_badges": b_eval["pinned_badges"],
+                "badges_celebrated": bool(DEV_USER.get("badges_celebrated", False)),
+                "badges": b_eval["badges"],
+                "categories": b_eval["categories"]
+            })
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -1820,6 +1897,34 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     },
                     "army_lists": []
                 }
+            import badges
+            req_game_sys = query_params.get("game_system", ["40k"])[0].lower() if "query_params" in locals() else "40k"
+            user_pinned = DEV_USER.get("pinned_badges") if isinstance(DEV_USER, dict) else None
+            b_eval = badges.evaluate_player_badges(
+                player_data=res.get("player") or res,
+                history=res.get("history") or [],
+                tournaments=res.get("tournaments") or [],
+                faction_mastery=res.get("faction_mastery") or [],
+                matchup_matrix=res.get("matchup_matrix") or [],
+                user_pinned_ids=user_pinned,
+                game_system=req_game_sys
+            )
+            user_ack = DEV_USER.get("acknowledged_badge_ids") or []
+            ack_set = set(user_ack)
+            newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
+            res.update({
+                "badge_count": b_eval["badge_count"],
+                "total_badges": b_eval["total_badges"],
+                "completion_pct": b_eval["completion_pct"],
+                "glory_score": b_eval["glory_score"],
+                "rank": b_eval["rank"],
+                "pinned_badges": b_eval["pinned_badges"],
+                "badges_celebrated": bool(DEV_USER.get("badges_celebrated", False)),
+                "acknowledged_badge_ids": list(ack_set),
+                "newly_unlocked_badges": newly_unlocked,
+                "badges": b_eval["badges"],
+                "categories": b_eval["categories"]
+            })
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -2735,11 +2840,57 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     }
                 ]
             }
+            import badges
+            req_game_sys = query_params.get("game_system", ["40k"])[0].lower() if "query_params" in locals() else "40k"
+            user_pinned = DEV_USER.get("pinned_badges") if isinstance(DEV_USER, dict) else None
+            b_eval = badges.evaluate_player_badges(
+                player_data=res.get("player") or res,
+                history=res.get("history") or [],
+                tournaments=res.get("events_attended") or [],
+                faction_mastery=res.get("faction_mastery") or [],
+                matchup_matrix=res.get("matchup_matrix") or [],
+                user_pinned_ids=user_pinned,
+                game_system=req_game_sys
+            )
+            user_ack = DEV_USER.get("acknowledged_badge_ids") or []
+            ack_set = set(user_ack)
+            newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
+            res.update({
+                "badge_count": b_eval["badge_count"],
+                "total_badges": b_eval["total_badges"],
+                "completion_pct": b_eval["completion_pct"],
+                "glory_score": b_eval["glory_score"],
+                "rank": b_eval["rank"],
+                "pinned_badges": b_eval["pinned_badges"],
+                "badges_celebrated": bool(DEV_USER.get("badges_celebrated", False)),
+                "acknowledged_badge_ids": list(ack_set),
+                "newly_unlocked_badges": newly_unlocked,
+                "badges": b_eval["badges"],
+                "categories": b_eval["categories"]
+            })
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path in ("api/badges/catalog", "api/badges/catalog/"):
+            import badges
+            req_gs = query_params.get("game_system", ["40k"])[0].lower()
+            catalog = {
+                "success": True,
+                "game_system": req_gs,
+                "total": len(badges.get_all_badges_catalog(req_gs)),
+                "categories": badges.get_categories(req_gs),
+                "ranks": badges.get_ranks(req_gs),
+                "badges": badges.get_all_badges_catalog(req_gs)
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(catalog).encode("utf-8"))
             return
 
         if clean_path.startswith("api/scorecard/"):

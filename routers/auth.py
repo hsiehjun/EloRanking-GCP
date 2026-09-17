@@ -59,6 +59,12 @@ class UserSettingsPayload(BaseModel):
     display_name: Optional[str] = None
     old_password: Optional[str] = None
     new_password: Optional[str] = None
+    pinned_badges: Optional[List[str]] = None
+    badges_celebrated: Optional[bool] = None
+    acknowledged_badge_ids: Optional[List[str]] = None
+
+class PinBadgesPayload(BaseModel):
+    pinned_badges: List[str] = []
 
 class VerifyRegistrationPayload(BaseModel):
     email: str
@@ -268,10 +274,31 @@ async def api_user_settings(request: Request, payload: UserSettingsPayload, toke
         session["id"],
         display_name=payload.display_name,
         old_password=payload.old_password,
-        new_password=payload.new_password
+        new_password=payload.new_password,
+        pinned_badges=payload.pinned_badges,
+        badges_celebrated=payload.badges_celebrated,
+        acknowledged_badge_ids=payload.acknowledged_badge_ids
     )
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error", "Failed to update settings"))
+    return res
+
+@router.post("/api/user/pin_badges", summary="Update user's top 3 pinned showcase medals")
+async def api_user_pin_badges(request: Request, payload: PinBadgesPayload, token: Optional[str] = Query(None)):
+    auth_header = request.headers.get("Authorization", "")
+    session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    session = get_auth_manager().get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    res = get_auth_manager().update_settings(
+        session["id"],
+        pinned_badges=payload.pinned_badges
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "Failed to update pinned medals"))
     return res
 
 @router.post("/api/user/bcp/connect", summary="Connect and link Best Coast Pairings account")

@@ -157,14 +157,46 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
             if req:
                 data["existing_request_id"] = req["id"]
                 data["existing_request_status"] = req["status"]
-                data["existing_request_sender_id"] = req["sender_id"]
     else:
         data["has_account"] = False
         data["account_user_id"] = None
         data["can_chat"] = False
         data["is_self"] = False
 
+    import badges
+    user_pinned = user_row.get("pinned_badges") if (user_row and user_row.get("pinned_badges")) else None
+    b_eval = badges.evaluate_player_badges(
+        player_data=data.get("player") or data,
+        history=data.get("history") or [],
+        tournaments=data.get("tournaments") or [],
+        faction_mastery=data.get("faction_mastery") or [],
+        matchup_matrix=data.get("matchup_matrix") or [],
+        user_pinned_ids=user_pinned,
+        game_system=game_system or "40k"
+    )
+    data["badge_count"] = b_eval["badge_count"]
+    data["total_badges"] = b_eval["total_badges"]
+    data["completion_pct"] = b_eval["completion_pct"]
+    data["glory_score"] = b_eval["glory_score"]
+    data["rank"] = b_eval["rank"]
+    data["pinned_badges"] = b_eval["pinned_badges"]
+    data["badges"] = b_eval["badges"]
+    data["categories"] = b_eval["categories"]
+
     return data
+
+@router.get("/api/badges/catalog", summary="Get complete catalog of all master badges and military ranks")
+async def api_badges_catalog(game_system: Optional[str] = Query("40k")):
+    import badges
+    gs = (game_system or "40k").lower()
+    return {
+        "success": True,
+        "game_system": gs,
+        "total": len(badges.get_all_badges_catalog(gs)),
+        "categories": badges.get_categories(gs),
+        "ranks": badges.get_ranks(gs),
+        "badges": badges.get_all_badges_catalog(gs)
+    }
 
 # API: Tournaments List
 @router.get("/api/events", summary="List tournaments with date and status filters (paginated)")

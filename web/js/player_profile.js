@@ -401,8 +401,8 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
   const netCareerEloStr = (netCareerElo >= 0 ? '+' : '') + netCareerElo.toFixed(1);
 
   container.innerHTML = `
-    <!-- Dynamic Hero Banner Card -->
-    <div class="profile-hero-card ${tier.themeClass || ''}">
+    <!-- Dynamic Hero Banner Card with Military Rank Border -->
+    <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''}">
       <div class="profile-hero-top">
         <div class="profile-identity-group">
           <div class="profile-rank-crest" title="${escapeHtml(tier.name)}">
@@ -417,8 +417,10 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
               <span class="profile-standing-badge" title="All-Time Peak Rating">
                 Peak: ${peakElo.toFixed(1)} 👑
               </span>
+              ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data.rank) : ''}
               ${teamName ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="openTeamModal('${escapeHtml(teamName)}')" title="Click to view ${escapeHtml(teamName)} roster">🛡️ ${escapeHtml(teamName)}</span>` : ''}
             </div>
+            ${window.BadgesUI ? window.BadgesUI.renderPinnedMedals(data.pinned_badges, data.badge_count, data.is_self, 'switchProfileSubtab') : ''}
           </div>
         </div>
 
@@ -495,6 +497,10 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
         <span>🎯 Matchup Matrix</span>
         <span class="profile-subtab-count">${profileMatchupMatrix.length}</span>
       </button>
+      <button type="button" class="profile-subtab-btn" data-tab="trophies" onclick="switchProfileSubtab('trophies')">
+        <span>🏆 Trophies</span>
+        <span class="profile-subtab-count">${data.badge_count || 0}/${data.total_badges || 105}</span>
+      </button>
     </div>
 
     <!-- TAB PANEL 1: Tournament Journey Accordion -->
@@ -570,6 +576,11 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     <!-- TAB PANEL 4: Matchup Matrix -->
     <div id="profile-panel-matchups" class="profile-tab-panel">
       ${renderMatchupMatrixTabContent(profileMatchupMatrix, rawHistory, 'profile-matchup-table', 'filterProfileMatchups')}
+    </div>
+
+    <!-- TAB PANEL 5: Trophies & Battle Honors -->
+    <div id="profile-panel-trophies" class="profile-tab-panel">
+      <!-- Dynamically populated by window.BadgesUI -->
     </div>
   `;
 
@@ -1337,7 +1348,7 @@ function switchProfileSubtab(tabId) {
     });
   }
 
-  const panels = ['journey', 'trajectory', 'factions', 'matchups'];
+  const panels = ['journey', 'trajectory', 'factions', 'matchups', 'trophies'];
   panels.forEach(id => {
     const el = document.getElementById(`profile-panel-${id}`);
     if (el) {
@@ -1348,6 +1359,13 @@ function switchProfileSubtab(tabId) {
   if (tabId === 'trajectory' && currentProfileData) {
     const rawHistory = Array.isArray(currentProfileData.history) ? currentProfileData.history : (currentProfileData.win_path || []);
     setTimeout(() => renderProfileTrajectoryChart(rawHistory), 20);
+  }
+
+  if (tabId === 'trophies' && window.BadgesUI && currentProfileData) {
+    const el = document.getElementById('profile-panel-trophies');
+    if (el) {
+      window.BadgesUI.renderTrophyRoom(el, currentProfileData, !!currentProfileData.is_self, currentProfileData.player_id);
+    }
   }
 }
 

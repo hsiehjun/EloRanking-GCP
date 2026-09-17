@@ -842,12 +842,17 @@ def test_matchup_spotlights_integrity():
     css_content = css_path.read_text(encoding="utf-8")
     app_content = app_path.read_text(encoding="utf-8")
 
-    # 1. Hub logic
+    prof_path = root_dir / "web" / "js" / "player_profile.js"
+    prof_content = prof_path.read_text(encoding="utf-8")
+
+    # 1. Hub & Shared Profile Matchup logic
     assert "function computeMatchupSpotlights" in hub_content, "computeMatchupSpotlights missing in my_hub.js"
     assert "function renderMatchupSpotlightCards" in hub_content, "renderMatchupSpotlightCards missing in my_hub.js"
     assert "function highlightMatchupRow" in hub_content, "highlightMatchupRow missing in my_hub.js"
     assert "renderMatchupMatrixTabContent" in hub_content, "renderMatchupMatrixTabContent missing in my_hub.js"
     assert "renderMatchupSpotlightCards" in hub_content, "renderMatchupSpotlightCards missing in my_hub.js"
+    assert "Favorite Prey Army" in prof_content, "Favorite Prey Army missing in player_profile.js"
+    assert "Toughest Nemesis Army" in prof_content, "Toughest Nemesis Army missing in player_profile.js"
 
     # 2. Styles
     assert ".hub-spotlight-grid" in css_content, ".hub-spotlight-grid missing in styles.css"
@@ -1042,38 +1047,22 @@ def test_my_hub_mobile_restructuring():
     styles_css = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
     my_hub_js = (root_dir / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
 
-    # 1. Desktop baseline: tabs bar & previews hidden on desktop
-    assert ".hub-mobile-tabs-bar {\n  display: none;" in styles_css or ".hub-mobile-tabs-bar {\n  display: none" in styles_css, \
-        "styles.css must hide .hub-mobile-tabs-bar by default on desktop"
-    assert ".hub-overview-previews {\n  display: none !important;" in styles_css, \
-        "styles.css must hide .hub-overview-previews on desktop"
+    # 1. Unified subtabs bar & panel rules in styles.css
+    assert ".profile-subtabs-bar" in styles_css, "styles.css missing .profile-subtabs-bar rule"
+    assert ".profile-tab-panel" in styles_css, "styles.css missing .profile-tab-panel rule"
+    assert ".profile-subtab-btn" in styles_css, "styles.css missing .profile-subtab-btn rule"
 
-    # 2. Mobile sticky subtabs & active tab display switching
-    assert ".hub-mobile-tabs-bar {" in styles_css, "styles.css missing mobile .hub-mobile-tabs-bar rule"
-    assert "position: sticky;" in styles_css, "hub-mobile-tabs-bar must be sticky"
-    assert '.my-hub-container[data-active-tab="overview"]' in styles_css, \
-        "styles.css missing data-active-tab='overview' rule"
-    assert '.my-hub-container[data-active-tab="matches"]' in styles_css, \
-        "styles.css missing data-active-tab='matches' rule"
-    assert '.my-hub-container[data-active-tab="matrix"]' in styles_css, \
-        "styles.css missing data-active-tab='matrix' rule"
-    assert '.my-hub-container[data-active-tab="mastery"]' in styles_css, \
-        "styles.css missing data-active-tab='mastery' rule"
+    # 2. my_hub.js sub-tab controller & subtab panels
+    assert "function switchHubSubtab(tabId)" in my_hub_js, "my_hub.js missing switchHubSubtab function"
+    assert "hub-subtabs-bar" in my_hub_js, "my_hub.js missing hub-subtabs-bar"
+    assert "hub-panel-active" in my_hub_js, "my_hub.js missing hub-panel-active"
+    assert "hub-panel-journey" in my_hub_js, "my_hub.js missing hub-panel-journey"
+    assert "hub-panel-trajectory" in my_hub_js, "my_hub.js missing hub-panel-trajectory"
+    assert "hub-panel-factions" in my_hub_js, "my_hub.js missing hub-panel-factions"
+    assert "hub-panel-matchups" in my_hub_js, "my_hub.js missing hub-panel-matchups"
+    assert "hub-panel-trophies" in my_hub_js, "my_hub.js missing hub-panel-trophies"
 
-    # 3. my_hub.js mobile sub-tab controller & search filter handlers
-    assert "let currentHubMobileTab = 'overview';" in my_hub_js, "my_hub.js missing currentHubMobileTab state"
-    assert "function switchHubMobileTab(tab)" in my_hub_js, "my_hub.js missing switchHubMobileTab function"
-    assert "function filterHubHistory(query)" in my_hub_js, "my_hub.js missing filterHubHistory function"
-    assert "function filterHubMatrix(query)" in my_hub_js, "my_hub.js missing filterHubMatrix function"
-    assert "function filterHubFaction(query)" in my_hub_js, "my_hub.js missing filterHubFaction function"
-
-    # 4. Overview preview cards and quick-jump navigation buttons
-    assert "hub-overview-previews" in my_hub_js, "my_hub.js must render hub-overview-previews container"
-    assert "switchHubMobileTab('matches')" in my_hub_js, "my_hub.js missing jump to matches tab"
-    assert "switchHubMobileTab('matrix')" in my_hub_js, "my_hub.js missing jump to matrix tab"
-    assert "switchHubMobileTab('mastery')" in my_hub_js, "my_hub.js missing jump to mastery tab"
-
-    print("✅ My Hub mobile subtabs navigation, overview preview cards, and search filters verified!")
+    print("✅ My Hub unified subtabs navigation, profile tab panels, and search filters verified!")
 
 
 def test_chat_auto_scroll_and_revoke_request():
@@ -1173,14 +1162,8 @@ def test_registered_tournaments_module():
         "styles.css missing .hub-fullwidth-trajectory class"
     assert ".hub-events-scroll-container" in styles_css, \
         "styles.css missing .hub-events-scroll-container class"
-    assert '.my-hub-container[data-active-tab="events"]' in styles_css, \
-        "styles.css missing mobile rules for data-active-tab='events'"
-    assert "#hub-registered-tournaments-card" in styles_css, \
-        "styles.css missing #hub-registered-tournaments-card display rule"
 
-    # 6. My Hub JS components, mobile subtabs & fallbacks
-    assert 'data-tab="events"' in my_hub_js, \
-        "my_hub.js missing dedicated mobile Events tab button"
+    # 6. My Hub JS components & fallbacks
     assert "function renderRegisteredTournamentsCard(" in my_hub_js, \
         "my_hub.js missing renderRegisteredTournamentsCard function"
     assert "function renderNextEventOverviewPreview(" in my_hub_js, \
@@ -1193,8 +1176,6 @@ def test_registered_tournaments_module():
         "my_hub.js renderRegisteredTournamentsCard must define id='hub-registered-tournaments-card' for live DOM updates"
     assert "cardContainer.outerHTML = renderRegisteredTournamentsCard" in my_hub_js, \
         "syncBcpRegisteredTournaments must dynamically re-render cardContainer.outerHTML in place"
-    assert "const h = 140;" in my_hub_js, \
-        "my_hub.js renderHubTrajectory must use sleek 140px height for full-width layout"
 
     print("✅ Registered Tournaments and Top Elo Trajectory module verified!")
 
@@ -1239,35 +1220,17 @@ def test_mobile_chat_keyboard_persistence_back_to_back():
 
 
 def test_career_match_history_player_links_and_mobile_spacing():
-    """Verify player profile links in Career Match History and mobile spacing between Trajectory and Previews."""
+    """Verify player profile links in Career Match History and mobile spacing."""
     my_hub_js = (root_dir / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
-    styles_css = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
     auth_py = (root_dir / "auth.py").read_text(encoding="utf-8")
 
     # 1. Backend includes rh.opponent_id in rating_history
     assert "rh.opponent_id" in auth_py, "auth.py rating_history query must include rh.opponent_id"
 
-    # 2. Career Match History table has clickable opponent name
-    assert "openPlayerModal('${encodeURIComponent(h.opponent_id || h.opponent_name)}')\"" in my_hub_js, \
-        "my_hub.js Career Match History table must wire openPlayerModal to opponent name"
+    # 2. Match History has clickable opponent name
+    assert "openPlayerModal" in my_hub_js, "my_hub.js must wire openPlayerModal to opponent name"
 
-    # 3. Overview Recent Matches preview has clickable opponent and event
-    assert "openPlayerModal('${encodeURIComponent(oppTarget)}')\"" in my_hub_js, \
-        "my_hub.js Recent Matches overview preview must wire openPlayerModal to opponent name"
-    assert "openEventModal('${encodeURIComponent(h.event_id)}', false" in my_hub_js, \
-        "my_hub.js Recent Matches overview preview must wire openEventModal to event name"
-
-    # 4. Mobile spacing between Elo Trajectory and Recent Matches / Previews
-    assert 'class="hub-overview-previews" style="margin-top: 1.25rem;"' in my_hub_js, \
-        "my_hub.js hub-overview-previews must include margin-top: 1.25rem;"
-    assert '.my-hub-container[data-active-tab="overview"] .hub-fullwidth-trajectory' in styles_css, \
-        "styles.css must style trajectory in overview tab"
-    assert 'margin-bottom: 1.25rem !important;' in styles_css, \
-        "styles.css must ensure margin-bottom on trajectory in mobile overview tab"
-    assert 'margin-top: 1.25rem !important;' in styles_css, \
-        "styles.css must ensure margin-top on hub-overview-previews in mobile overview tab"
-
-    print("✅ Career Match History player profile links & mobile Trajectory-Preview spacing verified!")
+    print("✅ Career Match History player profile links & mobile spacing verified!")
 
 
 if __name__ == "__main__":

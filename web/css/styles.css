@@ -8653,6 +8653,706 @@ body.is-authenticated #floating-chat-widget {
   background: #64748b;
 }
 
+/* ==========================================================================
+   7-TIER MILITARY RANK HERO BORDERS & TROPHY SYSTEM STYLES
+   ========================================================================== */
+
+/* 7-Tier Military Rank Card Border Overrides (Zero layout shift) */
+.profile-hero-card.rank-border-initiate {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+.profile-hero-card.rank-border-veteran {
+  border: 1.5px solid rgba(100, 116, 139, 0.45) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 15px rgba(100, 116, 139, 0.08) !important;
+}
+.profile-hero-card.rank-border-centurion {
+  border: 1.5px solid rgba(217, 119, 6, 0.55) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 18px rgba(217, 119, 6, 0.12) !important;
+}
+.profile-hero-card.rank-border-commander {
+  border: 1.5px solid rgba(59, 130, 246, 0.7) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 22px rgba(59, 130, 246, 0.16) !important;
+}
+.profile-hero-card.rank-border-general {
+  border: 1.5px solid rgba(245, 158, 11, 0.75) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 26px rgba(245, 158, 11, 0.22) !important;
+}
+.profile-hero-card.rank-border-warmaster {
+  border: 1.5px solid #f59e0b !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 32px rgba(245, 158, 11, 0.28) !important;
+}
+.profile-hero-card.rank-border-everchosen {
+  border: 1.5px solid #fbbf24 !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 38px rgba(251, 191, 36, 0.38), inset 0 0 15px rgba(251, 191, 36, 0.08) !important;
+}
+
+/* Military Rank Badge on Profile Hero */
+.profile-rank-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.18rem 0.55rem;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-sm);
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  letter-spacing: 0.02em;
+}
+.profile-rank-badge .rank-icon {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.profile-rank-badge .rank-lvl-pill {
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--accent);
+}
+.profile-rank-badge.rank-border-centurion {
+  border-color: rgba(217, 119, 6, 0.45);
+  color: #fbbf24;
+}
+.profile-rank-badge.rank-border-commander {
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #60a5fa;
+}
+.profile-rank-badge.rank-border-general {
+  border-color: rgba(245, 158, 11, 0.55);
+  color: #fbbf24;
+}
+.profile-rank-badge.rank-border-warmaster {
+  border-color: #f59e0b;
+  color: #fbbf24;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+}
+.profile-rank-badge.rank-border-everchosen {
+  border-color: #fbbf24;
+  color: #f43f5e;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.3);
+}
+
+/* Hero Card Signature Honors (Pinned Medals Rack) */
+.hero-pinned-medals {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+  padding: 0.45rem 0.75rem;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  flex-wrap: wrap;
+}
+.pinned-medals-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+.pinned-medals-rack {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  flex: 1;
+}
+.pinned-empty-hint {
+  font-size: 0.76rem;
+  color: #64748b;
+  font-style: italic;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.pinned-empty-hint:hover {
+  color: #94a3b8;
+  text-decoration: underline;
+}
+.hero-medal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.55rem;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #f8fafc;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+}
+.hero-medal-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.hero-medal-chip .hero-medal-icon {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.hero-medal-chip .hero-medal-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.pinned-more-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.22rem 0.55rem;
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.pinned-more-btn:hover {
+  border-color: var(--accent);
+  color: #fff;
+  background: rgba(56, 189, 248, 0.08);
+}
+
+/* Rarity Accents for Medal Chips */
+.hero-medal-chip.rarity-uncommon { border-color: rgba(16, 185, 129, 0.4); }
+.hero-medal-chip.rarity-rare { border-color: rgba(59, 130, 246, 0.5); }
+.hero-medal-chip.rarity-epic { border-color: rgba(168, 85, 247, 0.55); box-shadow: 0 0 6px rgba(168, 85, 247, 0.15); }
+.hero-medal-chip.rarity-legendary { border-color: rgba(245, 158, 11, 0.6); box-shadow: 0 0 8px rgba(245, 158, 11, 0.2); }
+.hero-medal-chip.rarity-mythic { border-color: rgba(244, 63, 94, 0.7); box-shadow: 0 0 10px rgba(244, 63, 94, 0.3); }
+
+/* ==========================================================================
+   TROPHY ROOM - GENERAL'S WAR ROOM & BATTLE HONORS
+   ========================================================================== */
+.trophy-room-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* 1. Command Banner */
+.trophy-command-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.35rem 1.5rem;
+  background: radial-gradient(circle at top right, rgba(245, 158, 11, 0.08), transparent 60%),
+              linear-gradient(180deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.95));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+  flex-wrap: wrap;
+}
+.trophy-banner-rank-group {
+  display: flex;
+  align-items: center;
+  gap: 1.15rem;
+  flex: 1;
+  min-width: 260px;
+}
+.trophy-rank-insignia {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.2rem;
+  line-height: 1;
+  box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.6);
+  flex-shrink: 0;
+}
+.trophy-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.trophy-banner-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.trophy-military-title {
+  font-size: 1.45rem;
+  font-weight: 900;
+  color: #fff;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.trophy-rank-level-badge {
+  padding: 0.15rem 0.5rem;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.trophy-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+.trophy-info-btn:hover {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.6);
+  color: #fbbf24;
+  transform: translateY(-1px);
+}
+.trophy-banner-sub {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+.trophy-next-rank-status {
+  font-size: 0.78rem;
+  color: #38bdf8;
+  font-weight: 600;
+  margin-top: 0.15rem;
+}
+.trophy-banner-stats-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.trophy-stat-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 1.1rem;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  min-width: 95px;
+}
+.trophy-stat-val {
+  font-size: 1.25rem;
+  font-weight: 900;
+  font-family: var(--font-mono);
+  line-height: 1.1;
+}
+.trophy-stat-lbl {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-top: 0.2rem;
+  letter-spacing: 0.04em;
+}
+
+/* 2. Rank XP Progress Track */
+.trophy-progress-wrap {
+  padding: 0.75rem 1rem;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+}
+.trophy-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.trophy-progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+.trophy-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  border-radius: 9999px;
+  transition: width 0.4s ease;
+}
+
+/* 3. Category Filter Chips */
+.trophy-categories-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+  scrollbar-width: thin;
+}
+.trophy-category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.85rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.trophy-category-chip:hover {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+.trophy-category-chip.active {
+  background: var(--accent);
+  color: #0f172a;
+  border-color: var(--accent);
+  box-shadow: 0 2px 10px rgba(56, 189, 248, 0.25);
+}
+.trophy-category-chip .chip-count {
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+}
+.trophy-category-chip.active .chip-count {
+  background: rgba(15, 23, 42, 0.25);
+  color: #0f172a;
+  font-weight: 800;
+}
+
+/* 4. Search & Status Filter Bar */
+.trophy-search-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+.trophy-search-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 260px;
+}
+.trophy-search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.9rem;
+  color: #64748b;
+  pointer-events: none;
+}
+.trophy-search-input {
+  width: 100%;
+  padding: 0.55rem 2.2rem 0.55rem 2.2rem;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: 0.84rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.trophy-search-input:focus {
+  border-color: var(--accent);
+}
+.trophy-search-clear {
+  position: absolute;
+  right: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.trophy-status-toggles {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.trophy-status-btn {
+  padding: 0.45rem 0.75rem;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.trophy-status-btn:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.trophy-status-btn.active {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+/* 5. Trophy Grid & Cards */
+.trophy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 1rem;
+}
+.trophy-card {
+  position: relative;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.trophy-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+.trophy-card.unlocked {
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.85));
+}
+.trophy-card.locked {
+  background: rgba(15, 23, 42, 0.4);
+  opacity: 0.78;
+}
+.trophy-card.locked:hover {
+  opacity: 0.95;
+}
+
+/* Rarity Border Tints for Cards */
+.trophy-card.rarity-common.unlocked { border-color: rgba(148, 163, 184, 0.35); }
+.trophy-card.rarity-uncommon.unlocked { border-color: rgba(16, 185, 129, 0.45); }
+.trophy-card.rarity-rare.unlocked { border-color: rgba(59, 130, 246, 0.5); }
+.trophy-card.rarity-epic.unlocked { border-color: rgba(168, 85, 247, 0.6); box-shadow: 0 0 12px rgba(168, 85, 247, 0.1); }
+.trophy-card.rarity-legendary.unlocked { border-color: rgba(245, 158, 11, 0.7); box-shadow: 0 0 16px rgba(245, 158, 11, 0.18); }
+.trophy-card.rarity-mythic.unlocked { border-color: rgba(244, 63, 94, 0.8); box-shadow: 0 0 20px rgba(244, 63, 94, 0.25); }
+
+.trophy-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.trophy-card-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.45rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.trophy-card-icon-wrap.glow {
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+}
+.trophy-card-icon-wrap.silhouette {
+  filter: grayscale(100%) brightness(50%);
+}
+.trophy-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.trophy-rarity-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+.trophy-rarity-pill.rarity-common { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+.trophy-rarity-pill.rarity-uncommon { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); }
+.trophy-rarity-pill.rarity-rare { background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.4); }
+.trophy-rarity-pill.rarity-epic { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.45); }
+.trophy-rarity-pill.rarity-legendary { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.5); }
+.trophy-rarity-pill.rarity-mythic { background: rgba(244, 63, 94, 0.15); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.6); }
+
+.trophy-glory-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fbbf24;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-family: var(--font-mono);
+}
+
+.trophy-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+}
+.trophy-card-cat {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.04em;
+}
+.trophy-card-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+  margin: 0;
+  line-height: 1.25;
+}
+.trophy-card-desc {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.trophy-card-progress {
+  margin-top: 0.45rem;
+}
+.trophy-card-progress-bar {
+  width: 100%;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+.trophy-card-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #38bdf8, #818cf8);
+  border-radius: 9999px;
+}
+.trophy-card-progress-lbl {
+  font-size: 0.7rem;
+  color: #64748b;
+  font-family: var(--font-mono);
+  margin-top: 0.25rem;
+}
+
+.trophy-card-provenance {
+  font-size: 0.74rem;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.08);
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  border-left: 2px solid #38bdf8;
+  margin-top: 0.4rem;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trophy-card-provenance .prov-check {
+  color: #10b981;
+  font-weight: 900;
+}
+
+.trophy-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.45rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.trophy-card-status {
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+.trophy-card-status.earned {
+  color: #10b981;
+}
+.trophy-card-status.locked {
+  color: #64748b;
+}
+
+.trophy-pin-btn {
+  padding: 0.22rem 0.55rem;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.trophy-pin-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.trophy-pin-btn.is-pinned {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+
+/* Responsive adjustments for Trophy Room */
+@media (max-width: 768px) {
+  .trophy-command-banner {
+    padding: 1.1rem;
+    gap: 1rem;
+  }
+  .trophy-banner-rank-group {
+    min-width: 100%;
+  }
+  .trophy-banner-stats-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .trophy-stat-pill {
+    flex: 1;
+  }
+  .trophy-grid {
+    grid-template-columns: 1fr;
+  }
+  .hero-pinned-medals {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 /* Recent Form Beads */
 .profile-recent-form {
   display: flex;

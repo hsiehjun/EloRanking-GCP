@@ -438,6 +438,23 @@ window.api = {
     });
   },
 
+  // Badges & Trophies System
+  async getBadgesCatalog(gameSystem = '40k') {
+    const q = gameSystem ? '?game_system=' + encodeURIComponent(gameSystem) : '';
+    return this._fetchJson('/api/badges/catalog' + q);
+  },
+
+  async pinBadges(pinnedBadges = []) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson('/api/user/pin_badges', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ pinned_badges: pinnedBadges })
+    });
+  },
+
   // Global Summary Stats
   async getStats(gameSystem = '') {
     const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
