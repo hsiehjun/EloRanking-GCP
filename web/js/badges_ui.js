@@ -11,6 +11,8 @@
   var currentTrophyStatus = 'all';
   var currentTrophySearch = '';
   var activeTrophyData = null;
+  var activeHubTrophyData = null;
+  var activePublicTrophyData = null;
 
   var RARITY_ORDER = {
     'mythic': 6,
@@ -85,7 +87,7 @@
       var icon = b.icon || '⚔️';
       return [
         '<div class="hero-medal-chip rarity-' + escapeHtml(rarity) + '" ',
-        '     onclick="' + fnName + '(\'trophies\'); window.BadgesUI.openTrophyModal(\'' + escapeHtml(b.id) + '\');" ',
+        '     onclick="' + fnName + '(\'trophies\'); window.BadgesUI.openTrophyModal(\'' + escapeHtml(b.id) + '\', ' + (!isSelf) + ');" ',
         '     title="' + escapeHtml(name + ' (' + (b.rarity_label || rarity) + '): ' + (b.description || '')) + '">',
         '  <span class="hero-medal-icon">' + icon + '</span>',
         '  <span class="hero-medal-title">' + escapeHtml(name) + '</span>',
@@ -114,6 +116,15 @@
     if (!containerEl) return;
     activeTrophyData = data;
 
+    // Detect public profile showcase mode vs personal hub command room mode
+    var isPublic = (containerEl && (containerEl.id === 'profile-panel-trophies' || (containerEl.closest && containerEl.closest('#tab-player-profile')))) || !isSelf;
+
+    if (isPublic) {
+      activePublicTrophyData = data;
+    } else {
+      activeHubTrophyData = data;
+    }
+
     var badges = data.badges || [];
     var rank = data.rank || {};
     var badgeCount = data.badge_count || 0;
@@ -121,7 +132,108 @@
     var gloryScore = data.glory_score || 0;
     var completionPct = data.completion_pct || (totalBadges ? Math.round((badgeCount / totalBadges) * 100) : 0);
 
-    // Compute category counts
+    var nextRankText = rank.next_rank_title
+      ? rank.badges_needed_for_next + ' more honors needed for <strong>' + escapeHtml(rank.next_rank_title) + '</strong>'
+      : 'Pinnacle Everchosen Status Attained';
+
+    // Banner Stats Group: Hub shows Glory Honor + Unlocked; Public Profile strictly hides Glory Honor
+    var statsGroupHtml = '';
+    if (!isPublic) {
+      statsGroupHtml = [
+        '<div class="trophy-banner-stats-group">',
+        '  <div class="trophy-stat-pill trophy-glory-pill-interactive" onclick="window.BadgesUI.openGloryCurrencyModal()" style="cursor: pointer;" title="Glory Honor: Future Requisition Currency (Click for Field Intel)">',
+        '        <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem;">',
+        '          <span class="trophy-stat-val" style="color: #fbbf24;">' + gloryScore.toLocaleString() + '</span>',
+        '          <span style="font-size: 0.68rem; opacity: 0.85;">ℹ️</span>',
+        '        </div>',
+        '        <span class="trophy-stat-lbl">Glory Honor</span>',
+        '  </div>',
+        '  <div class="trophy-stat-pill">',
+        '    <span class="trophy-stat-val" style="color: #38bdf8;">' + badgeCount + ' / ' + totalBadges + '</span>',
+        '    <span class="trophy-stat-lbl">Unlocked (' + completionPct + '%)</span>',
+        '  </div>',
+        '</div>'
+      ].join('\n');
+    } else {
+      statsGroupHtml = [
+        '<div class="trophy-banner-stats-group">',
+        '  <div class="trophy-stat-pill">',
+        '    <span class="trophy-stat-val" style="color: #38bdf8;">' + badgeCount + ' / ' + totalBadges + '</span>',
+        '    <span class="trophy-stat-lbl">Unlocked (' + completionPct + '%)</span>',
+        '  </div>',
+        '</div>'
+      ].join('\n');
+    }
+
+    var bannerAndProgressHtml = [
+      '  <!-- 1. General Command Banner & Progression Track -->',
+      '  <div class="trophy-command-banner">',
+      '    <div class="trophy-banner-rank-group">',
+      '      <div class="trophy-rank-insignia ' + escapeHtml(rank.css_class || 'rank-border-initiate') + '">',
+      '        <span>' + (rank.icon || '🛡️') + '</span>',
+      '      </div>',
+      '      <div class="trophy-banner-text">',
+      '        <div class="trophy-banner-title-row">',
+      '          <h3 class="trophy-military-title">' + escapeHtml(rank.title || 'Initiate') + '</h3>',
+      '          <span class="trophy-rank-level-badge">Rank Level ' + (rank.rank || 1) + '</span>',
+      '          <button type="button" class="trophy-info-btn" onclick="window.BadgesUI.openGuideModal()" title="Field Manual: Rank Borders &amp; Glory System" aria-label="Progression Guide"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>',
+      '        </div>',
+      '        <div class="trophy-banner-sub">' + escapeHtml(rank.description || '') + '</div>',
+      '        <div class="trophy-next-rank-status">' + nextRankText + '</div>',
+      '      </div>',
+      '    </div>',
+      statsGroupHtml,
+      '  </div>',
+      '  <!-- 2. Rank XP Progress Bar -->',
+      '  <div class="trophy-progress-wrap">',
+      '    <div class="trophy-progress-meta">',
+      '      <span>' + escapeHtml(rank.title || 'Initiate') + ' (Tier ' + (rank.rank || 1) + ')</span>',
+      '      <span>' + (rank.progress_pct || 0) + '% to ' + escapeHtml(rank.next_rank_title || 'Apex') + '</span>',
+      '    </div>',
+      '    <div class="trophy-progress-bar">',
+      '      <div class="trophy-progress-fill" style="width: ' + (rank.progress_pct || 0) + '%;"></div>',
+      '    </div>',
+      '  </div>'
+    ].join('\n');
+
+    if (isPublic) {
+      // PUBLIC PROFILE SHOWCASE MODE:
+      // Omit category chips bar, search input, and All/Unlocked/Locked status toggles.
+      // Show only unlocked battle honors sorted by rarity descending (Mythic -> Legendary -> Epic -> Rare -> Uncommon -> Common).
+      var unlockedBadges = badges.filter(function(b) { return !!b.unlocked; });
+      unlockedBadges.sort(function(a, b) {
+        var rDiff = (RARITY_ORDER[b.rarity] || 0) - (RARITY_ORDER[a.rarity] || 0);
+        if (rDiff !== 0) return rDiff;
+        return (a.name || '').localeCompare(b.name || '');
+      });
+
+      var showcaseHeaderHtml = [
+        '  <div class="trophy-showcase-header">',
+        '    <div class="trophy-showcase-title-row">',
+        '      <h4 class="trophy-showcase-heading">🎖️ Earned Battlefield Honors (' + unlockedBadges.length + ')</h4>',
+        '      <span class="trophy-showcase-badge">Official Commendations</span>',
+        '    </div>',
+        '    <p class="trophy-showcase-sub">Verified competitive achievements and tournament milestones awarded by High Command.</p>',
+        '  </div>'
+      ].join('\n');
+
+      var publicHtml = [
+        '<div class="trophy-room-wrapper">',
+        bannerAndProgressHtml,
+        showcaseHeaderHtml,
+        '  <!-- 5. Trophies Grid (Public Showcase) -->',
+        '  <div class="trophy-grid" id="profile-trophy-grid-container">',
+        renderPublicTrophyCards(unlockedBadges),
+        '  </div>',
+        '</div>'
+      ].join('\n');
+
+      containerEl.innerHTML = publicHtml;
+      return;
+    }
+
+    // MY HUB PERSONAL COMMAND MODE:
+    // Full interactive control room: category chips, search bar, All/Unlocked/Locked status toggles, pin support.
     var catCounts = { 'all': badges.length };
     badges.forEach(function(b) {
       var cat = b.category || 'career';
@@ -149,84 +261,98 @@
       ].join('');
     }).join('\n');
 
-    var nextRankText = rank.next_rank_title
-      ? rank.badges_needed_for_next + ' more honors needed for <strong>' + escapeHtml(rank.next_rank_title) + '</strong>'
-      : 'Pinnacle Everchosen Status Attained';
-
-    var html = [
+    var hubHtml = [
       '<div class="trophy-room-wrapper">',
-      '  <!-- 1. General Command Banner & Progression Track -->',
-      '  <div class="trophy-command-banner">',
-      '    <div class="trophy-banner-rank-group">',
-      '      <div class="trophy-rank-insignia ' + escapeHtml(rank.css_class || 'rank-border-initiate') + '">',
-      '        <span>' + (rank.icon || '🛡️') + '</span>',
-      '      </div>',
-      '      <div class="trophy-banner-text">',
-      '        <div class="trophy-banner-title-row">',
-      '          <h3 class="trophy-military-title">' + escapeHtml(rank.title || 'Initiate') + '</h3>',
-      '          <span class="trophy-rank-level-badge">Rank Level ' + (rank.rank || 1) + '</span>',
-      '          <button type="button" class="trophy-info-btn" onclick="window.BadgesUI.openGuideModal()" title="Field Manual: Rank Borders &amp; Glory System" aria-label="Progression Guide"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>',
-      '        </div>',
-      '        <div class="trophy-banner-sub">' + escapeHtml(rank.description || '') + '</div>',
-      '        <div class="trophy-next-rank-status">' + nextRankText + '</div>',
-      '      </div>',
-      '    </div>',
-      '    <div class="trophy-banner-stats-group">',
-      '      <div class="trophy-stat-pill trophy-glory-pill-interactive" onclick="window.BadgesUI.openGloryCurrencyModal()" style="cursor: pointer;" title="Glory Honor: Future Requisition Currency (Click for Field Intel)">',
-      '        <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem;">',
-      '          <span class="trophy-stat-val" style="color: #fbbf24;">' + gloryScore.toLocaleString() + '</span>',
-      '          <span style="font-size: 0.68rem; opacity: 0.85;">ℹ️</span>',
-      '        </div>',
-      '        <span class="trophy-stat-lbl">Glory Honor</span>',
-      '      </div>',
-      '      <div class="trophy-stat-pill">',
-      '        <span class="trophy-stat-val" style="color: #38bdf8;">' + badgeCount + ' / ' + totalBadges + '</span>',
-      '        <span class="trophy-stat-lbl">Unlocked (' + completionPct + '%)</span>',
-      '      </div>',
-      '    </div>',
-      '  </div>',
-      '  <!-- 2. Rank XP Progress Bar -->',
-      '  <div class="trophy-progress-wrap">',
-      '    <div class="trophy-progress-meta">',
-      '      <span>' + escapeHtml(rank.title || 'Initiate') + ' (Tier ' + (rank.rank || 1) + ')</span>',
-      '      <span>' + (rank.progress_pct || 0) + '% to ' + escapeHtml(rank.next_rank_title || 'Apex') + '</span>',
-      '    </div>',
-      '    <div class="trophy-progress-bar">',
-      '      <div class="trophy-progress-fill" style="width: ' + (rank.progress_pct || 0) + '%;"></div>',
-      '    </div>',
-      '  </div>',
-      '  <!-- 3. Category Filter Chips -->',
-      '  <div class="trophy-categories-bar" id="trophy-categories-bar">',
+      bannerAndProgressHtml,
+      '  <!-- 3. Category Filter Chips (Hub Personal) -->',
+      '  <div class="trophy-categories-bar" id="hub-trophy-categories-bar">',
       chipsHtml,
       '  </div>',
-      '  <!-- 4. Search & Status Filter Bar -->',
-      '  <div class="trophy-search-filter-bar">',
+      '  <!-- 4. Search & Status Filter Bar (Hub Personal) -->',
+      '  <div class="trophy-search-filter-bar" id="hub-trophy-search-filter-bar">',
       '    <div class="trophy-search-input-wrap">',
       '      <span class="trophy-search-icon">🔍</span>',
-      '      <input type="text" id="trophy-search-input" class="trophy-search-input" ',
+      '      <input type="text" id="hub-trophy-search-input" class="trophy-search-input" ',
       '             placeholder="Search all 105 honors by title, keyword, or feat..." ',
       '             value="' + escapeHtml(currentTrophySearch) + '" ',
       '             oninput="window.BadgesUI.onSearchInput(this.value)">',
-      '      <button type="button" class="trophy-search-clear" id="trophy-search-clear" onclick="window.BadgesUI.clearSearch()" style="display:' + (currentTrophySearch ? 'inline-flex' : 'none') + ';">✕</button>',
+      '      <button type="button" class="trophy-search-clear" id="hub-trophy-search-clear" onclick="window.BadgesUI.clearSearch()" style="display:' + (currentTrophySearch ? 'inline-flex' : 'none') + ';">✕</button>',
       '    </div>',
-      '    <div class="trophy-status-toggles">',
+      '    <div class="trophy-status-toggles" id="hub-trophy-status-toggles">',
       '      <button type="button" class="trophy-status-btn ' + (currentTrophyStatus === 'all' ? 'active' : '') + '" onclick="window.BadgesUI.setStatusFilter(\'all\')">All</button>',
       '      <button type="button" class="trophy-status-btn ' + (currentTrophyStatus === 'unlocked' ? 'active' : '') + '" onclick="window.BadgesUI.setStatusFilter(\'unlocked\')">Unlocked (' + badgeCount + ')</button>',
       '      <button type="button" class="trophy-status-btn ' + (currentTrophyStatus === 'locked' ? 'active' : '') + '" onclick="window.BadgesUI.setStatusFilter(\'locked\')">Locked (' + (totalBadges - badgeCount) + ')</button>',
       '    </div>',
       '  </div>',
-      '  <!-- 5. Trophies Grid -->',
-      '  <div class="trophy-grid" id="trophy-grid-container">',
+      '  <!-- 5. Trophies Grid (Hub Personal) -->',
+      '  <div class="trophy-grid" id="hub-trophy-grid-container">',
       renderTrophyCards(badges, isSelf, playerId),
       '  </div>',
       '</div>'
     ].join('\n');
 
-    containerEl.innerHTML = html;
+    containerEl.innerHTML = hubHtml;
   }
 
   /**
-   * Renders the cards in the grid given the current filters
+   * Renders only the unlocked trophies for Public Profile showcase mode
+   * Strictly omits personal glory points and pin buttons
+   */
+  function renderPublicTrophyCards(unlockedBadges) {
+    if (!unlockedBadges || unlockedBadges.length === 0) {
+      return [
+        '<div class="trophy-empty-state" style="grid-column: 1 / -1; padding: 3rem 1rem; text-align: center; color: var(--text-muted); background: rgba(15, 23, 42, 0.4); border-radius: var(--radius-md); border: 1px dashed var(--border);">',
+        '  <div style="font-size: 2.2rem; margin-bottom: 0.75rem;">🛡️</div>',
+        '  <div style="font-weight: 700; color: #fff; font-size: 1.05rem; margin-bottom: 0.35rem;">No Battle Honors Unlocked Yet</div>',
+        '  <div style="font-size: 0.85rem; color: #94a3b8;">This competitor has not yet unlocked battlefield achievements in sanctioned play.</div>',
+        '</div>'
+      ].join('\n');
+    }
+
+    return unlockedBadges.map(function(b) {
+      var rarity = b.rarity || 'common';
+      var title = b.name || 'Honor';
+      var desc = b.description || '';
+      var icon = b.icon || '⚔️';
+
+      var provenanceHtml = '';
+      if (b.provenance) {
+        provenanceHtml = [
+          '<div class="trophy-card-provenance" title="' + escapeHtml(b.provenance) + '">',
+          '  <span class="prov-check">✓</span> ' + escapeHtml(b.provenance),
+          '</div>'
+        ].join('');
+      }
+
+      return [
+        '<div class="trophy-card unlocked rarity-' + escapeHtml(rarity) + '" ',
+        '     onclick="window.BadgesUI.openTrophyModal(\'' + escapeHtml(b.id) + '\', true)">',
+        '  <div class="trophy-card-top">',
+        '    <div class="trophy-card-icon-wrap glow">',
+        '      <span class="trophy-card-icon">' + icon + '</span>',
+        '    </div>',
+        '    <div class="trophy-card-badges">',
+        '      <span class="trophy-rarity-pill rarity-' + escapeHtml(rarity) + '">' + escapeHtml(b.rarity_label || rarity) + '</span>',
+        '    </div>',
+        '  </div>',
+        '  <div class="trophy-card-body">',
+        '    <div class="trophy-card-cat">' + escapeHtml(b.category_title || b.category) + '</div>',
+        '    <h4 class="trophy-card-title">' + escapeHtml(title) + '</h4>',
+        '    <p class="trophy-card-desc">' + escapeHtml(desc) + '</p>',
+        provenanceHtml,
+        '  </div>',
+        '  <div class="trophy-card-footer">',
+        '    <span class="trophy-card-status earned">',
+        '      🏆 Earned',
+        '    </span>',
+        '  </div>',
+        '</div>'
+      ].join('\n');
+    }).join('\n');
+  }
+
+  /**
+   * Renders the cards in the grid given the current filters (for My Hub)
    */
   function renderTrophyCards(badges, isSelf, playerId) {
     badges = badges || [];
@@ -258,7 +384,7 @@
       ].join('\n');
     }
 
-    var pinnedIds = new Set((activeTrophyData && activeTrophyData.pinned_badges || []).map(function(x) { return x.id; }));
+    var pinnedIds = new Set(((activeHubTrophyData || activeTrophyData) && (activeHubTrophyData || activeTrophyData).pinned_badges || []).map(function(x) { return x.id; }));
 
     return filtered.map(function(b) {
       var isUnlocked = !!b.unlocked;
@@ -308,7 +434,7 @@
 
       return [
         '<div class="trophy-card ' + (isUnlocked ? 'unlocked' : 'locked') + ' rarity-' + escapeHtml(rarity) + '" ',
-        '     onclick="window.BadgesUI.openTrophyModal(\'' + escapeHtml(b.id) + '\')">',
+        '     onclick="window.BadgesUI.openTrophyModal(\'' + escapeHtml(b.id) + '\', false)">',
         '  <div class="trophy-card-top">',
         '    <div class="trophy-card-icon-wrap ' + (isUnlocked ? 'glow' : 'silhouette') + '">',
         '      <span class="trophy-card-icon">' + icon + '</span>',
@@ -337,23 +463,24 @@
   }
 
   /**
-   * Refreshes the trophy grid in place without rebuilding the whole tab
+   * Refreshes the Hub trophy grid in place without rebuilding the whole tab
    */
   function refreshGrid() {
-    var container = document.getElementById('trophy-grid-container');
-    if (!container || !activeTrophyData) return;
-    var isSelf = (typeof currentUser !== 'undefined' && currentUser && activeTrophyData.player &&
-                  (currentUser.player_id === activeTrophyData.player.player_id || currentUser.id === activeTrophyData.account_user_id));
-    var playerId = activeTrophyData.player && activeTrophyData.player.player_id;
-    container.innerHTML = renderTrophyCards(activeTrophyData.badges, isSelf, playerId);
+    var container = document.getElementById('hub-trophy-grid-container') || document.getElementById('trophy-grid-container');
+    var data = activeHubTrophyData || activeTrophyData;
+    if (!container || !data) return;
+    var isSelf = (typeof currentUser !== 'undefined' && currentUser && data.player &&
+                  (currentUser.player_id === data.player.player_id || currentUser.id === data.account_user_id)) || true;
+    var playerId = data.player && data.player.player_id;
+    container.innerHTML = renderTrophyCards(data.badges, isSelf, playerId);
   }
 
   /**
-   * Category filter selection
+   * Category filter selection (My Hub)
    */
   function setCategory(cat) {
     currentTrophyCategory = cat;
-    var bar = document.getElementById('trophy-categories-bar');
+    var bar = document.getElementById('hub-trophy-categories-bar') || document.getElementById('trophy-categories-bar');
     if (bar) {
       bar.querySelectorAll('.trophy-category-chip').forEach(function(btn) {
         btn.classList.toggle('active', btn.getAttribute('data-cat') === cat);
@@ -363,22 +490,25 @@
   }
 
   /**
-   * Status filter selection
+   * Status filter selection (My Hub)
    */
   function setStatusFilter(status) {
     currentTrophyStatus = status;
-    document.querySelectorAll('.trophy-status-btn').forEach(function(btn) {
-      btn.classList.toggle('active', btn.textContent.toLowerCase().includes(status));
-    });
+    var bar = document.getElementById('hub-trophy-status-toggles') || document.querySelector('.trophy-status-toggles');
+    if (bar) {
+      bar.querySelectorAll('.trophy-status-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.textContent.toLowerCase().includes(status));
+      });
+    }
     refreshGrid();
   }
 
   /**
-   * Search input handler
+   * Search input handler (My Hub)
    */
   function onSearchInput(val) {
     currentTrophySearch = val || '';
-    var clearBtn = document.getElementById('trophy-search-clear');
+    var clearBtn = document.getElementById('hub-trophy-search-clear') || document.getElementById('trophy-search-clear');
     if (clearBtn) {
       clearBtn.style.display = currentTrophySearch ? 'inline-flex' : 'none';
     }
@@ -387,19 +517,31 @@
 
   function clearSearch() {
     currentTrophySearch = '';
-    var inp = document.getElementById('trophy-search-input');
+    var inp = document.getElementById('hub-trophy-search-input') || document.getElementById('trophy-search-input');
     if (inp) inp.value = '';
-    var clearBtn = document.getElementById('trophy-search-clear');
+    var clearBtn = document.getElementById('hub-trophy-search-clear') || document.getElementById('trophy-search-clear');
     if (clearBtn) clearBtn.style.display = 'none';
     refreshGrid();
   }
 
   /**
    * Opens the High-Resolution Trophy Detail Modal
+   * When isPublic is true, personal Glory points and Pin buttons are strictly omitted
    */
-  function openTrophyModal(badgeId) {
-    if (!activeTrophyData || !activeTrophyData.badges) return;
-    var badge = activeTrophyData.badges.find(function(b) { return b.id === badgeId; });
+  function openTrophyModal(badgeId, isPublic) {
+    var data = isPublic ? (activePublicTrophyData || activeTrophyData) : (activeHubTrophyData || activeTrophyData);
+    if (!data || !data.badges) {
+      data = activeTrophyData || activePublicTrophyData || activeHubTrophyData;
+    }
+    if (!data || !data.badges) return;
+
+    var badge = data.badges.find(function(b) { return b.id === badgeId; });
+    if (!badge) {
+      var otherData = isPublic ? activeHubTrophyData : activePublicTrophyData;
+      if (otherData && otherData.badges) {
+        badge = otherData.badges.find(function(b) { return b.id === badgeId; });
+      }
+    }
     if (!badge) return;
 
     var modalId = 'trophy-detail-modal';
@@ -413,20 +555,28 @@
     var desc = isSecret ? (badge.hint || 'This honor is shrouded in battlefield mystery. Unlock it through decisive play.') : badge.description;
     var icon = isSecret ? '❓' : (badge.icon || '⚔️');
 
-    var isSelf = (typeof currentUser !== 'undefined' && currentUser && activeTrophyData.player &&
-                  (currentUser.player_id === activeTrophyData.player.player_id || currentUser.id === activeTrophyData.account_user_id));
-    var pinnedIds = new Set((activeTrophyData.pinned_badges || []).map(function(x) { return x.id; }));
-    var isPinned = pinnedIds.has(badge.id);
-
+    // Pin button: only for personal command hub (isPublic is false), if self & unlocked
     var pinBtnHtml = '';
-    if (isSelf && isUnlocked) {
-      pinBtnHtml = [
-        '<button type="button" class="btn ' + (isPinned ? 'btn-secondary' : 'btn-primary') + '" ',
-        '        onclick="window.BadgesUI.togglePin(\'' + escapeHtml(badge.id) + '\'); window.BadgesUI.closeTrophyModal();" ',
-        '        style="display: flex; align-items: center; gap: 0.4rem;">',
-        '  <span>' + (isPinned ? '★ Unpin from Hero' : '📌 Pin to Profile Hero') + '</span>',
-        '</button>'
-      ].join('');
+    if (!isPublic && isUnlocked) {
+      var isSelf = (typeof currentUser !== 'undefined' && currentUser && data.player &&
+                    (currentUser.player_id === data.player.player_id || currentUser.id === data.account_user_id)) || true;
+      if (isSelf) {
+        var pinnedIds = new Set(((activeHubTrophyData || activeTrophyData).pinned_badges || []).map(function(x) { return x.id; }));
+        var isPinned = pinnedIds.has(badge.id);
+        pinBtnHtml = [
+          '<button type="button" class="btn ' + (isPinned ? 'btn-secondary' : 'btn-primary') + '" ',
+          '        onclick="window.BadgesUI.togglePin(\'' + escapeHtml(badge.id) + '\'); window.BadgesUI.closeTrophyModal();" ',
+          '        style="display: flex; align-items: center; gap: 0.4rem;">',
+          '  <span>' + (isPinned ? '★ Unpin from Hero' : '📌 Pin to Profile Hero') + '</span>',
+          '</button>'
+        ].join('');
+      }
+    }
+
+    // Glory points pill: only in My Hub (isPublic is false)
+    var gloryPillHtml = '';
+    if (!isPublic) {
+      gloryPillHtml = '<span class="trophy-glory-pill">+' + (badge.glory_points || 10) + ' Glory Points</span>';
     }
 
     var progressHtml = '';
@@ -461,7 +611,7 @@
       '    </div>',
       '    <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 0.5rem;">',
       '      <span class="trophy-rarity-pill rarity-' + escapeHtml(rarity) + '">' + escapeHtml(badge.rarity_label || rarity) + '</span>',
-      '      <span class="trophy-glory-pill">+' + (badge.glory_points || 10) + ' Glory Points</span>',
+      gloryPillHtml,
       '    </div>',
       '    <h3 style="font-size: 1.4rem; font-weight: 800; color: #fff; margin: 0.2rem 0; letter-spacing: -0.01em;">' + escapeHtml(title) + '</h3>',
       '    <div style="font-size: 0.82rem; color: #94a3b8; font-weight: 600;">' + escapeHtml(badge.category_title || badge.category) + '</div>',
@@ -501,8 +651,9 @@
    * Toggles pinning of a badge (maximum 3 badges pinned to Hero Profile Card)
    */
   async function togglePin(badgeId) {
-    if (!activeTrophyData) return;
-    var pinned = activeTrophyData.pinned_badges || [];
+    var data = activeHubTrophyData || activeTrophyData;
+    if (!data) return;
+    var pinned = data.pinned_badges || [];
     var existingIdx = pinned.findIndex(function(b) { return b.id === badgeId; });
 
     if (existingIdx >= 0) {
@@ -516,13 +667,13 @@
         }
         return;
       }
-      var target = (activeTrophyData.badges || []).find(function(b) { return b.id === badgeId; });
+      var target = (data.badges || []).find(function(b) { return b.id === badgeId; });
       if (target && target.unlocked) {
         pinned.push(target);
       }
     }
 
-    activeTrophyData.pinned_badges = pinned;
+    data.pinned_badges = pinned;
     var pinnedIds = pinned.map(function(b) { return b.id; });
 
     // Sync to API & localStorage
@@ -541,9 +692,9 @@
     // Re-render hero medals rack
     var rackContainer = document.getElementById('hero-pinned-medals');
     if (rackContainer) {
-      var isSelf = (typeof currentUser !== 'undefined' && currentUser && activeTrophyData.player &&
-                    (currentUser.player_id === activeTrophyData.player.player_id || currentUser.id === activeTrophyData.account_user_id));
-      rackContainer.outerHTML = renderPinnedMedals(pinned, activeTrophyData.badge_count, isSelf);
+      var isSelf = (typeof currentUser !== 'undefined' && currentUser && data.player &&
+                    (currentUser.player_id === data.player.player_id || currentUser.id === data.account_user_id)) || true;
+      rackContainer.outerHTML = renderPinnedMedals(pinned, data.badge_count, isSelf, 'switchHubSubtab');
     }
 
     if (typeof showToast === 'function') {
@@ -863,6 +1014,7 @@
     renderPinnedMedals: renderPinnedMedals,
     renderTrophyRoom: renderTrophyRoom,
     renderTrophyCards: renderTrophyCards,
+    renderPublicTrophyCards: renderPublicTrophyCards,
     openTrophyModal: openTrophyModal,
     closeTrophyModal: closeTrophyModal,
     closeModal: closeTrophyModal,
