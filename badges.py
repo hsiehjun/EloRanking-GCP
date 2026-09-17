@@ -8,8 +8,46 @@ round records, Elo movements, and faction matchups).
 """
 
 from typing import Dict, List, Any, Optional
+import re
 import aos_badges
 from aos_badges import BADGE_CATALOG_AOS, RANKS_AOS, CATEGORIES_AOS
+
+def _safe_round(val: Any, default: int = 0) -> int:
+    """Extract round number cleanly from integer, float, or strings like 'R1', 'Round 2'."""
+    if val is None:
+        return default
+    if isinstance(val, (int, float)):
+        return int(val)
+    val_str = str(val).strip()
+    match = re.search(r'\d+', val_str)
+    if match:
+        try:
+            return int(match.group(0))
+        except (ValueError, TypeError):
+            return default
+    return default
+
+def _safe_int(val: Any, default: int = 0) -> int:
+    """Safely parse integer from mixed types without ValueError."""
+    if val is None:
+        return default
+    if isinstance(val, int):
+        return val
+    try:
+        return int(float(str(val).strip()))
+    except (ValueError, TypeError):
+        return default
+
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    """Safely parse float from mixed types without ValueError."""
+    if val is None:
+        return default
+    if isinstance(val, (int, float)):
+        return float(val)
+    try:
+        return float(str(val).strip())
+    except (ValueError, TypeError):
+        return default
 
 # Rarity metadata and glory scores
 RARITY_CONFIG = {
@@ -327,19 +365,19 @@ def _evaluate_40k_player_badges(
     matchup_matrix = matchup_matrix or []
 
     # Career aggregates
-    current_elo = float(player_data.get("current_elo") or 1500.0)
-    peak_elo = float(player_data.get("peak_elo") or current_elo)
-    matches_played = int(player_data.get("matches_played") or player_data.get("total_matches") or len(history))
+    current_elo = _safe_float(player_data.get("current_elo"), 1500.0)
+    peak_elo = _safe_float(player_data.get("peak_elo"), current_elo)
+    matches_played = _safe_int(player_data.get("matches_played") or player_data.get("total_matches") or len(history))
     history_wins = len([m for m in history if str(m.get("result") or "").upper() == "W"])
     history_losses = len([m for m in history if str(m.get("result") or "").upper() == "L"])
     history_draws = len([m for m in history if str(m.get("result") or "").upper() == "D"])
-    wins = max(int(player_data.get("wins") or 0), history_wins)
-    losses = max(int(player_data.get("losses") or 0), history_losses)
-    draws = max(int(player_data.get("draws") or 0), history_draws)
+    wins = max(_safe_int(player_data.get("wins")), history_wins)
+    losses = max(_safe_int(player_data.get("losses")), history_losses)
+    draws = max(_safe_int(player_data.get("draws")), history_draws)
     matches_played = max(matches_played, wins + losses + draws)
-    win_rate = float(player_data.get("win_rate") or (round(wins / max(1, matches_played) * 100, 1) if matches_played else 0))
+    win_rate = _safe_float(player_data.get("win_rate") or (round(wins / max(1, matches_played) * 100, 1) if matches_played else 0))
     team = str(player_data.get("team") or "").strip()
-    longest_streak = int(player_data.get("longest_win_streak") or 0)
+    longest_streak = _safe_int(player_data.get("longest_win_streak"))
 
     # ── Alliance & Meta Constants ──
     IMPERIUM_FACTIONS = {"space marines", "adeptus custodes", "astra militarum", "adepta sororitas", "grey knights", "adeptus mechanicus", "imperial knights", "black templars", "blood angels", "dark angels", "space wolves", "deathwatch"}
@@ -403,13 +441,13 @@ def _evaluate_40k_player_badges(
             event_matches.setdefault(ev_id, []).append(m)
 
         res = str(m.get("result") or "").upper()
-        p_score = int(m.get("player_score") if m.get("player_score") is not None else (m.get("p1_score") or 0))
-        o_score = int(m.get("opponent_score") if m.get("opponent_score") is not None else (m.get("p2_score") or 0))
+        p_score = _safe_int(m.get("player_score") if m.get("player_score") is not None else m.get("p1_score"))
+        o_score = _safe_int(m.get("opponent_score") if m.get("opponent_score") is not None else m.get("p2_score"))
         p_fac = str(m.get("player_faction") or m.get("faction") or "").strip()
         o_fac = str(m.get("opponent_faction") or "").strip()
-        o_elo = float(m.get("opponent_elo") or 1500.0)
+        o_elo = _safe_float(m.get("opponent_elo"), 1500.0)
         o_name = str(m.get("opponent_name") or "").strip()
-        rnd = int(m.get("round", 0) or 0)
+        rnd = _safe_round(m.get("round"))
 
         if o_name:
             opponents_count[o_name.lower()] = opponents_count.get(o_name.lower(), 0) + 1
@@ -461,7 +499,7 @@ def _evaluate_40k_player_badges(
                 min_opp_score = o_score
 
             # Elo upsets
-            my_elo_at_match = float(m.get("new_elo") or current_elo) - float(m.get("delta_elo") or 0)
+            my_elo_at_match = _safe_float(m.get("new_elo"), current_elo) - _safe_float(m.get("delta_elo"), 0.0)
             if (o_elo - my_elo_at_match) >= 100:
                 upset_100_wins += 1
             if (o_elo - my_elo_at_match) >= 175:
@@ -494,7 +532,7 @@ def _evaluate_40k_player_badges(
     # Check for undefeated 3-0 starts in GTs
     table_one_starts = 0
     for ev_id, m_list in event_matches.items():
-        sorted_m = sorted(m_list, key=lambda x: int(x.get("round", 0) or 0))
+        sorted_m = sorted(m_list, key=lambda x: _safe_round(x.get("round")))
         if len(sorted_m) >= 3:
             first_3 = sorted_m[:3]
             if all(str(m.get("result", "")).upper() == "W" for m in first_3):
@@ -506,7 +544,7 @@ def _evaluate_40k_player_badges(
     apex_1800_count = 0
     for ev_id, m_list in event_matches.items():
         if len(m_list) >= 4:
-            opp_elos = [float(m.get("opponent_elo") or 1500.0) for m in m_list]
+            opp_elos = [_safe_float(m.get("opponent_elo"), 1500.0) for m in m_list]
             ev_wins = len([m for m in m_list if str(m.get("result", "")).upper() == "W"])
             avg_opp = sum(opp_elos) / len(opp_elos)
             if avg_opp >= 1700.0 and ev_wins >= 3:
