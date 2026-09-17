@@ -471,6 +471,467 @@ AUTH_INJECTION = """<script>
 </script>
 """
 
+def enrich_roster_with_wahapedia_mock(parsed: dict, raw_text: str) -> dict:
+    if not parsed or not isinstance(parsed, dict):
+        return parsed
+    
+    import re
+    text_lower = (raw_text or '').lower()
+    
+    # 1. Datasheet lookup table
+    waha_datasheets = {
+        'chaos lord with jump pack': {
+            'name': 'Chaos Lord with Jump Pack',
+            'role': 'Character',
+            'is_warlord': True,
+            'stats': {'M': '12"', 'T': 4, 'SV': '3+', 'INV': '4+', 'W': 5, 'LD': '6+', 'OC': 1},
+            'weapons': [
+                {'name': 'Daemon hammer', 'type': 'Melee', 'range': 'Melee', 'A': '4', 'skill': '3+', 'S': '8', 'AP': '-2', 'D': '2', 'keywords': ['Devastating Wounds']},
+                {'name': 'Plasma pistol - supercharge', 'type': 'Ranged', 'range': '12"', 'A': '1', 'skill': '2+', 'S': '8', 'AP': '-3', 'D': '2', 'keywords': ['Hazardous', 'Pistol']}
+            ],
+            'abilities': [
+                {'name': 'Lord of Chaos', 'description': 'Once per battle round, one unit from your army with this ability can be targeted with a Stratagem for 0CP, even if another unit has already been targeted.'},
+                {'name': 'Jump Pack Assault', 'description': 'Each time this model ends a Charge move, roll one D6: on a 2-5, enemy unit suffers D3 mortal wounds; on a 6, enemy unit suffers 3 mortal wounds.'}
+            ],
+            'keywords': ['Infantry', 'Character', 'Chaos', 'Chaos Space Marines', 'Chaos Lord', 'Jump Pack', 'Fly']
+        },
+        'dark apostle': {
+            'name': 'Dark Apostle',
+            'role': 'Character',
+            'stats': {'M': '6"', 'T': 4, 'SV': '3+', 'INV': '4+', 'W': 4, 'LD': '5+', 'OC': 1},
+            'weapons': [
+                {'name': 'Accursed crozius', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '2+', 'S': '6', 'AP': '-1', 'D': '2', 'keywords': []},
+                {'name': 'Bolt pistol', 'type': 'Ranged', 'range': '12"', 'A': '1', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': ['Pistol']}
+            ],
+            'abilities': [
+                {'name': 'Dark Zealotry', 'description': 'While this model is leading a unit, each time a model in that unit makes a melee attack, add 1 to the Wound roll.'}
+            ],
+            'keywords': ['Infantry', 'Character', 'Chaos', 'Dark Apostle']
+        },
+        'cultist mob': {
+            'name': 'Cultist Mob',
+            'role': 'Battleline',
+            'model_count': 10,
+            'stats': {'M': '6"', 'T': 3, 'SV': '6+', 'INV': '-', 'W': 1, 'LD': '7+', 'OC': 1},
+            'weapons': [
+                {'name': 'Cultist firearm', 'type': 'Ranged', 'range': '24"', 'A': '1', 'skill': '4+', 'S': '3', 'AP': '0', 'D': '1', 'keywords': []},
+                {'name': 'Brutal assault weapon', 'type': 'Melee', 'range': 'Melee', 'A': '2', 'skill': '4+', 'S': '3', 'AP': '0', 'D': '1', 'keywords': []}
+            ],
+            'abilities': [
+                {'name': 'For the Dark Gods', 'description': 'If you control an objective marker at the end of your Command phase and this unit is within range, it remains under your control even if you have no models within range.'}
+            ],
+            'keywords': ['Infantry', 'Battleline', 'Chaos', 'Cultist Mob']
+        },
+        'legionaries': {
+            'name': 'Legionaries',
+            'role': 'Battleline',
+            'model_count': 5,
+            'stats': {'M': '6"', 'T': 4, 'SV': '3+', 'INV': '-', 'W': 2, 'LD': '6+', 'OC': 2},
+            'weapons': [
+                {'name': 'Astartes chainsword', 'type': 'Melee', 'range': 'Melee', 'A': '4', 'skill': '3+', 'S': '4', 'AP': '-1', 'D': '1', 'keywords': []},
+                {'name': 'Heavy melee weapon', 'type': 'Melee', 'range': 'Melee', 'A': '3', 'skill': '3+', 'S': '8', 'AP': '-2', 'D': '2', 'keywords': []}
+            ],
+            'abilities': [
+                {'name': 'Veterans of the Long War', 'description': 'Each time a model in this unit makes a melee attack, re-roll a Wound roll of 1. If targeting an enemy within range of an objective marker, re-roll the Wound roll instead.'}
+            ],
+            'keywords': ['Infantry', 'Battleline', 'Chaos', 'Legionaries']
+        },
+        'chaos rhino': {
+            'name': 'Chaos Rhino',
+            'role': 'Transports & Dedicated',
+            'stats': {'M': '12"', 'T': 9, 'SV': '3+', 'INV': '-', 'W': 10, 'LD': '6+', 'OC': 2},
+            'weapons': [
+                {'name': 'Combi-bolter', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': ['Rapid Fire 2']},
+                {'name': 'Havoc launcher', 'type': 'Ranged', 'range': '48"', 'A': 'D6', 'skill': '3+', 'S': '5', 'AP': '0', 'D': '1', 'keywords': ['Blast', 'Indirect Fire']}
+            ],
+            'abilities': [
+                {'name': 'Self-Repair', 'description': 'At the start of your Command phase, this model regains 1 lost wound.'},
+                {'name': 'Dedicated Transport (12)', 'description': 'Can transport up to 12 Chaos Space Marines Infantry models.'}
+            ],
+            'keywords': ['Vehicle', 'Transport', 'Dedicated Transport', 'Smoke', 'Chaos', 'Chaos Rhino']
+        },
+        'warp talons': {
+            'name': 'Warp Talons',
+            'role': 'Mounted & Fast Attack',
+            'model_count': 5,
+            'stats': {'M': '12"', 'T': 4, 'SV': '3+', 'INV': '5+', 'W': 2, 'LD': '6+', 'OC': 1},
+            'weapons': [
+                {'name': 'Warp claws', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '3+', 'S': '5', 'AP': '-2', 'D': '1', 'keywords': ['Twin-linked']}
+            ],
+            'abilities': [
+                {'name': 'Warpflock', 'description': 'At the end of your opponent\'s turn, if this unit is not within Engagement Range, you can place it into Strategic Reserves.'}
+            ],
+            'keywords': ['Infantry', 'Fly', 'Chaos', 'Daemon', 'Warp Talons']
+        },
+        'chosen': {
+            'name': 'Chosen',
+            'role': 'Infantry & Elites',
+            'model_count': 5,
+            'stats': {'M': '6"', 'T': 4, 'SV': '3+', 'INV': '-', 'W': 3, 'LD': '6+', 'OC': 2},
+            'weapons': [
+                {'name': 'Paired accursed weapons', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '3+', 'S': '5', 'AP': '-2', 'D': '1', 'keywords': ['Twin-linked']}
+            ],
+            'abilities': [
+                {'name': 'Chosen Marauders', 'description': 'This unit is eligible to shoot and declare a charge in a turn in which it Advanced or Fell Back.'}
+            ],
+            'keywords': ['Infantry', 'Chaos', 'Chosen']
+        },
+        'forgefiend': {
+            'name': 'Forgefiend',
+            'role': 'Vehicles & Monsters',
+            'stats': {'M': '8"', 'T': 10, 'SV': '3+', 'INV': '5+', 'W': 12, 'LD': '6+', 'OC': 4},
+            'weapons': [
+                {'name': '3x Ectoplasma cannon', 'type': 'Ranged', 'range': '36"', 'A': '3D3', 'skill': '3+', 'S': '10', 'AP': '-3', 'D': '3', 'keywords': ['Blast']}
+            ],
+            'abilities': [
+                {'name': 'Daemon Engine', 'description': 'This model has a 5+ invulnerable save.'},
+                {'name': 'Forge Bolts', 'description': 'Each time this model makes a Dark Pact, its ranged weapons gain [DEVASTATING WOUNDS].'}
+            ],
+            'keywords': ['Vehicle', 'Walker', 'Daemon Engine', 'Chaos', 'Forgefiend']
+        },
+        'predator destructor': {
+            'name': 'Predator Destructor',
+            'role': 'Vehicles & Monsters',
+            'stats': {'M': '10"', 'T': 10, 'SV': '3+', 'INV': '-', 'W': 11, 'LD': '6+', 'OC': 3},
+            'weapons': [
+                {'name': 'Predator autocannon', 'type': 'Ranged', 'range': '48"', 'A': '4', 'skill': '3+', 'S': '9', 'AP': '-1', 'D': '3', 'keywords': ['Rapid Fire 2']},
+                {'name': '2x Lascannon', 'type': 'Ranged', 'range': '48"', 'A': '2', 'skill': '3+', 'S': '12', 'AP': '-3', 'D': 'D6+1', 'keywords': []}
+            ],
+            'abilities': [
+                {'name': 'Destructor', 'description': 'Each time this model makes a ranged attack targeting an Infantry unit, improve the Armour Penetration characteristic of that attack by 1.'}
+            ],
+            'keywords': ['Vehicle', 'Smoke', 'Chaos', 'Predator Destructor']
+        },
+        'trajann valoris': {
+            'name': 'Trajann Valoris',
+            'role': 'Character',
+            'is_warlord': True,
+            'stats': {'M': '6"', 'T': 5, 'SV': '2+', 'INV': '4+', 'W': 6, 'LD': '5+', 'OC': 2},
+            'weapons': [
+                {'name': 'Watcher\'s Axe - strike', 'type': 'Melee', 'range': 'Melee', 'A': '6', 'skill': '2+', 'S': '10', 'AP': '-2', 'D': '3', 'keywords': []},
+                {'name': 'Watcher\'s Axe - sweep', 'type': 'Melee', 'range': 'Melee', 'A': '12', 'skill': '2+', 'S': '6', 'AP': '-1', 'D': '1', 'keywords': []}
+            ],
+            'abilities': [
+                {'name': 'Captain-General', 'description': 'While this model is leading a unit, you can ignore any or all modifiers to the characteristics of models in that unit.'},
+                {'name': 'Moment Shackle', 'description': 'Once per battle, in the Fight phase, choose 12 attacks, a 2+ invulnerable save, or fight first.'}
+            ],
+            'keywords': ['Infantry', 'Character', 'Epic Hero', 'Imperium', 'Adeptus Custodes', 'Trajann Valoris']
+        },
+        'blade champion': {
+            'name': 'Blade Champion',
+            'role': 'Character',
+            'stats': {'M': '6"', 'T': 5, 'SV': '2+', 'INV': '4+', 'W': 6, 'LD': '6+', 'OC': 2},
+            'weapons': [
+                {'name': 'Vaultswords - strike', 'type': 'Melee', 'range': 'Melee', 'A': '6', 'skill': '2+', 'S': '7', 'AP': '-2', 'D': '2', 'keywords': ['Precision']}
+            ],
+            'abilities': [
+                {'name': 'Martial Inspiration', 'description': 'While this model is leading a unit, you can re-roll Advance and Charge rolls made for that unit.'}
+            ],
+            'keywords': ['Infantry', 'Character', 'Imperium', 'Blade Champion']
+        },
+        'custodian guard': {
+            'name': 'Custodian Guard',
+            'role': 'Battleline',
+            'model_count': 4,
+            'stats': {'M': '6"', 'T': 6, 'SV': '2+', 'INV': '4+', 'W': 3, 'LD': '6+', 'OC': 2},
+            'weapons': [
+                {'name': 'Guardian Spear - shooting', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '2+', 'S': '4', 'AP': '-1', 'D': '2', 'keywords': ['Assault']},
+                {'name': 'Guardian Spear - melee', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '2+', 'S': '7', 'AP': '-2', 'D': '2', 'keywords': []}
+            ],
+            'abilities': [
+                {'name': 'Stand Vigil', 'description': 'Each time a model in this unit makes an attack, re-roll a Wound roll of 1. If controlling an objective, re-roll the Wound roll instead.'}
+            ],
+            'keywords': ['Infantry', 'Battleline', 'Imperium', 'Adeptus Custodes', 'Custodian Guard']
+        },
+        'lord inquisitor kyria draxus': {
+            'name': 'Lord Inquisitor Kyria Draxus',
+            'role': 'Character',
+            'stats': {'M': '6"', 'T': 3, 'SV': '3+', 'INV': '5+', 'W': 4, 'LD': '6+', 'OC': 1},
+            'weapons': [
+                {'name': 'Dirgesinger', 'type': 'Ranged', 'range': '18"', 'A': '4', 'skill': '2+', 'S': '4', 'AP': '-1', 'D': '2', 'keywords': ['Devastating Wounds', 'Indirect Fire', 'Anti-Infantry 4+']}
+            ],
+            'abilities': [
+                {'name': 'Psychic Veil', 'description': 'While this model is leading a unit, that unit cannot be targeted by ranged attacks unless the attacker is within 18".'}
+            ],
+            'keywords': ['Infantry', 'Character', 'Epic Hero', 'Inquisition', 'Kyria Draxus']
+        },
+        'kaldor draigo': {
+            'name': 'Kaldor Draigo',
+            'role': 'Character',
+            'is_warlord': True,
+            'stats': {'M': '5"', 'T': 5, 'SV': '2+', 'INV': '4+', 'W': 6, 'LD': '6+', 'OC': 2},
+            'weapons': [
+                {'name': 'Scourging', 'type': 'Ranged', 'range': '18"', 'A': 'D6', 'skill': '2+', 'S': '6', 'AP': '-1', 'D': '2', 'keywords': ['Psychic', 'Blast']},
+                {'name': 'The Titansword', 'type': 'Melee', 'range': 'Melee', 'A': '6', 'skill': '2+', 'S': '8', 'AP': '-3', 'D': '3', 'keywords': ['Psychic']}
+            ],
+            'abilities': [
+                {'name': 'One With the Warp', 'description': 'Once per battle, when this model\'s unit arrives from Deep Strike, add 3 to charge rolls.'}
+            ],
+            'keywords': ['Infantry', 'Character', 'Epic Hero', 'Terminator', 'Grey Knights', 'Kaldor Draigo']
+        },
+        'grand master in nemesis dreadknight': {
+            'name': 'Grand Master in Nemesis Dreadknight',
+            'role': 'Vehicles & Monsters',
+            'stats': {'M': '8"', 'T': 8, 'SV': '2+', 'INV': '4+', 'W': 13, 'LD': '6+', 'OC': 4},
+            'weapons': [
+                {'name': 'Heavy psycannon', 'type': 'Ranged', 'range': '24"', 'A': '6', 'skill': '2+', 'S': '10', 'AP': '-1', 'D': '3', 'keywords': ['Psychic']},
+                {'name': 'Nemesis daemon greathammer - strike', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '3+', 'S': '14', 'AP': '-3', 'D': 'D6+1', 'keywords': ['Psychic']}
+            ],
+            'abilities': [
+                {'name': 'Surge of Wrath', 'description': 'Each time this model makes an attack targeting a Monster or Vehicle, re-roll the Hit roll, Wound roll and Damage roll.'}
+            ],
+            'keywords': ['Vehicle', 'Walker', 'Character', 'Grey Knights', 'Nemesis Dreadknight']
+        },
+        'strike squad': {
+            'name': 'Strike Squad',
+            'role': 'Battleline',
+            'model_count': 5,
+            'stats': {'M': '6"', 'T': 4, 'SV': '2+', 'INV': '-', 'W': 2, 'LD': '6+', 'OC': 2},
+            'weapons': [
+                {'name': 'Storm bolter', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': ['Rapid Fire 2']},
+                {'name': 'Nemesis force weapon', 'type': 'Melee', 'range': 'Melee', 'A': '3', 'skill': '3+', 'S': '6', 'AP': '-2', 'D': '2', 'keywords': ['Psychic']}
+            ],
+            'abilities': [
+                {'name': 'Sanctifying Ritual', 'description': 'If you control an objective marker at the end of your Command phase and this unit is within range, it remains under your control.'}
+            ],
+            'keywords': ['Infantry', 'Battleline', 'Psyker', 'Grey Knights', 'Strike Squad']
+        },
+        'nemesis dreadknight': {
+            'name': 'Nemesis Dreadknight',
+            'role': 'Vehicles & Monsters',
+            'stats': {'M': '8"', 'T': 8, 'SV': '2+', 'INV': '4+', 'W': 13, 'LD': '6+', 'OC': 4},
+            'weapons': [
+                {'name': 'Heavy incinator', 'type': 'Ranged', 'range': '12"', 'A': '2D6', 'skill': 'N/A', 'S': '6', 'AP': '-1', 'D': '1', 'keywords': ['Ignores Cover', 'Torrent']},
+                {'name': 'Heavy psycannon', 'type': 'Ranged', 'range': '24"', 'A': '6', 'skill': '3+', 'S': '10', 'AP': '-1', 'D': '3', 'keywords': ['Psychic']}
+            ],
+            'abilities': [
+                {'name': 'Empyric Severance', 'description': 'This model is eligible to shoot and declare a charge in a turn in which it Advanced or Fell Back.'}
+            ],
+            'keywords': ['Vehicle', 'Walker', 'Psyker', 'Grey Knights', 'Nemesis Dreadknight']
+        },
+        'grey knights terminator squad': {
+            'name': 'Grey Knights Terminator Squad',
+            'role': 'Infantry & Elites',
+            'model_count': 5,
+            'stats': {'M': '5"', 'T': 5, 'SV': '2+', 'INV': '4+', 'W': 3, 'LD': '6+', 'OC': 2},
+            'weapons': [
+                {'name': 'Storm bolter', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': ['Rapid Fire 2']},
+                {'name': 'Nemesis force weapon', 'type': 'Melee', 'range': 'Melee', 'A': '4', 'skill': '3+', 'S': '6', 'AP': '-2', 'D': '2', 'keywords': ['Psychic']}
+            ],
+            'abilities': [
+                {'name': 'Hammerhand', 'description': 'Each time this unit makes a Charge move, until the end of the turn, melee weapons equipped by models in this unit have [LETHAL HITS].'}
+            ],
+            'keywords': ['Infantry', 'Terminator', 'Psyker', 'Grey Knights', 'Terminator Squad']
+        }
+    }
+    
+    # 2. Assign Faction, Army Rules, Detachment Rules, and Stratagems
+    if any(k in text_lower for k in ['chaos space marines', 'chaos', 'csm', 'heretic astartes']):
+        parsed['faction'] = 'Chaos Space Marines'
+        parsed['detachment'] = parsed.get('detachment') if (parsed.get('detachment') and parsed.get('detachment') != 'Core Detachment') else 'Raiders'
+        parsed['army_rules'] = [
+            {
+                'name': 'Dark Pacts',
+                'description': 'If your Army Faction is Chaos Space Marines, each time a unit from your army with this ability is selected to shoot or fight, it can make a Dark Pact. Choose either [LETHAL HITS] or [SUSTAINED HITS 1] for its weapons until the end of the phase. After resolving attacks, that unit must take a Leadership test. If failed, it suffers D3 mortal wounds.'
+            }
+        ]
+        parsed['detachment_rules'] = [
+            {
+                'name': 'Raiders of the Warp',
+                'description': 'Each time a unit from your army makes an Advance or Charge roll while in your deployment zone or targeting an enemy unit within range of an objective marker, re-roll that roll.'
+            }
+        ]
+        parsed['stratagems'] = [
+            {
+                'name': 'Profane Zeal',
+                'cp_cost': '1 CP',
+                'type': 'Battle Tactic',
+                'phase': 'Shooting or Fight phase',
+                'turn': 'Either',
+                'description': 'Target one Chaos Space Marines unit from your army. Until the end of the phase, each time a model in your unit makes an attack, re-roll a Hit roll of 1 and re-roll a Wound roll of 1.'
+            },
+            {
+                'name': 'Dark Obscuration',
+                'cp_cost': '1 CP',
+                'type': 'Strategic Ploy',
+                'phase': 'Opponent\'s Shooting phase',
+                'turn': 'Opponent\'s',
+                'description': 'Target one Chaos Space Marines unit from your army that was selected as the target of ranged attacks. Until the end of the phase, models in that unit have Stealth. If under Dark Pact, can only be targeted within 12".'
+            },
+            {
+                'name': 'Eternal Hate',
+                'cp_cost': '2 CP',
+                'type': 'Epic Deed',
+                'phase': 'Fight phase',
+                'turn': 'Either',
+                'description': 'Target one Chaos Space Marines model from your army that was just destroyed. That model can fight before being removed from play.'
+            }
+        ]
+    elif any(k in text_lower for k in ['custodes', 'adeptus custodes', 'shield host']):
+        parsed['faction'] = 'Adeptus Custodes'
+        parsed['detachment'] = parsed.get('detachment') if (parsed.get('detachment') and parsed.get('detachment') != 'Core Detachment') else 'Shield Host'
+        parsed['army_rules'] = [
+            {
+                'name': 'Martial Ka\'tah',
+                'description': 'At the start of the Fight phase, select one Ka\'tah Stance to be active for your army: Kaptaris Stance (Enemy models suffer -1 to hit) or Dacatarai Stance (Melee weapons gain [SUSTAINED HITS 1]).'
+            }
+        ]
+        parsed['detachment_rules'] = [
+            {
+                'name': 'Aegis of the Emperor',
+                'description': 'Models in this detachment have a 4+ invulnerable save and a 4+ Feel No Pain against mortal wounds.'
+            }
+        ]
+        parsed['stratagems'] = [
+            {
+                'name': 'Arcane Genetic Crafting',
+                'cp_cost': '1 CP',
+                'type': 'Battle Tactic',
+                'phase': 'Shooting or Fight phase',
+                'turn': 'Either',
+                'description': 'Each time an attack is allocated to a model in your unit, subtract 1 from the Damage characteristic of that attack.'
+            },
+            {
+                'name': 'Slayer of Champions',
+                'cp_cost': '1 CP',
+                'type': 'Battle Tactic',
+                'phase': 'Fight phase',
+                'turn': 'Either',
+                'description': 'Each time a model in your unit makes a melee attack targeting a Monster or Vehicle, add 1 to the Wound roll.'
+            },
+            {
+                'name': 'Vigilance Unending',
+                'cp_cost': '1 CP',
+                'type': 'Strategic Ploy',
+                'phase': 'Command phase',
+                'turn': 'Your',
+                'description': 'Select one objective marker you control. It remains under your control even if you have no models within range of it.'
+            }
+        ]
+    elif any(k in text_lower for k in ['grey knights', 'kaldor draigo', 'teleport strike force']):
+        parsed['faction'] = 'Grey Knights'
+        parsed['detachment'] = parsed.get('detachment') if (parsed.get('detachment') and parsed.get('detachment') != 'Core Detachment') else 'Teleport Strike Force'
+        parsed['army_rules'] = [
+            {
+                'name': 'Teleport Assault',
+                'description': 'At the end of your opponent\'s turn, select up to 3 Grey Knights units from your army into Strategic Reserves. In your next Reinforcements step, set them up anywhere more than 9" horizontally away from all enemies.'
+            }
+        ]
+        parsed['detachment_rules'] = [
+            {
+                'name': 'Teleport Shunt',
+                'description': 'Each time a unit from your army Advances, do not roll. Instead, that unit gains Fly and has a Move characteristic of 12".'
+            }
+        ]
+        parsed['stratagems'] = [
+            {
+                'name': 'Mist of Deimos',
+                'cp_cost': '1 CP',
+                'type': 'Strategic Ploy',
+                'phase': 'Opponent\'s Movement phase',
+                'turn': 'Opponent\'s',
+                'description': 'When an enemy ends a move within 9" of your unit, your unit can make a Normal move of up to 6" or be placed into Strategic Reserves.'
+            },
+            {
+                'name': 'Radiant Strike',
+                'cp_cost': '1 CP',
+                'type': 'Battle Tactic',
+                'phase': 'Fight phase',
+                'turn': 'Either',
+                'description': 'Melee weapons equipped by models in your unit gain [DEVASTATING WOUNDS] until the end of the phase.'
+            },
+            {
+                'name': 'Haloed in Soulfire',
+                'cp_cost': '1 CP',
+                'type': 'Strategic Ploy',
+                'phase': 'Your Movement phase',
+                'turn': 'Your',
+                'description': 'When a unit arrives from Deep Strike, enemy models cannot target that unit with ranged attacks unless within 12".'
+            }
+        ]
+    else:
+        # Fallback rules
+        if not parsed.get('army_rules'):
+            parsed['army_rules'] = [{'name': 'Army Faction Doctrine', 'description': 'Standard faction rules and special combat abilities apply to all eligible datasheets.'}]
+        if not parsed.get('detachment_rules'):
+            parsed['detachment_rules'] = [{'name': 'Detachment Focus', 'description': 'Units in this detachment gain specialized tactical benefits and operational mobility.'}]
+        if not parsed.get('stratagems'):
+            parsed['stratagems'] = [
+                {'name': 'Command Re-roll', 'cp_cost': '1 CP', 'type': 'Battle Tactic', 'phase': 'Any phase', 'turn': 'Either', 'description': 'Re-roll one Hit roll, Wound roll, Damage roll, saving throw, Advance roll or Charge roll.'},
+                {'name': 'Counter-offensive', 'cp_cost': '2 CP', 'type': 'Strategic Ploy', 'phase': 'Fight phase', 'turn': 'Either', 'description': 'Select one eligible unit from your army to fight next.'},
+                {'name': 'Insane Bravery', 'cp_cost': '1 CP', 'type': 'Epic Deed', 'phase': 'Command phase', 'turn': 'Either', 'description': 'Unit automatically passes Battle-shock test.'}
+            ]
+
+    # 3. Enrich Units
+    units = parsed.get('units') or []
+    for u in units:
+        raw_u_name = u.get('name') or ''
+        clean = re.sub(r'^\d+x?\s+', '', raw_u_name).strip()
+        clean_lower = clean.lower()
+        
+        # Check matching in lookup
+        matched_ds = None
+        for k, v in waha_datasheets.items():
+            if k in clean_lower or clean_lower in k:
+                matched_ds = v
+                break
+        
+        if matched_ds:
+            u['name'] = matched_ds['name']
+            u['role'] = matched_ds['role']
+            u['stats'] = matched_ds['stats']
+            u['weapons'] = matched_ds['weapons']
+            u['abilities'] = matched_ds['abilities']
+            u['keywords'] = matched_ds['keywords']
+            if matched_ds.get('is_warlord'):
+                u['is_warlord'] = True
+            if matched_ds.get('model_count'):
+                u['model_count'] = matched_ds['model_count']
+        else:
+            # Fallback generator
+            is_char = any(w in clean_lower for w in ['lord', 'captain', 'leader', 'character', 'apostle', 'champion', 'warlord', 'hero'])
+            is_veh = any(w in clean_lower for w in ['tank', 'rhino', 'dreadnought', 'predator', 'fiend', 'vehicle', 'monster', 'walker', 'raider'])
+            is_bl = any(w in clean_lower for w in ['cultist', 'guard', 'legionary', 'squad', 'intercessor', 'battleline', 'strike'])
+            
+            if is_char:
+                u['role'] = 'Character'
+                u['stats'] = {'M': '6"', 'T': 4, 'SV': '2+', 'INV': '4+', 'W': 5, 'LD': '6+', 'OC': 1}
+                u['weapons'] = [
+                    {'name': 'Master-crafted Power Weapon', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '2+', 'S': '5', 'AP': '-2', 'D': '2', 'keywords': []},
+                    {'name': 'Combi-weapon', 'type': 'Ranged', 'range': '24"', 'A': '1', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': ['Anti-Infantry 4+', 'Devastating Wounds']}
+                ]
+                u['abilities'] = [{'name': 'Inspiring Leader', 'description': 'While this model is leading a unit, add 1 to the Leadership characteristic of models in that unit.'}]
+                u['keywords'] = ['Infantry', 'Character']
+            elif is_veh:
+                u['role'] = 'Vehicles & Monsters'
+                u['stats'] = {'M': '10"', 'T': 10, 'SV': '3+', 'INV': '5+', 'W': 11, 'LD': '6+', 'OC': 3}
+                u['weapons'] = [
+                    {'name': 'Heavy Battle Cannon', 'type': 'Ranged', 'range': '48"', 'A': 'D6+3', 'skill': '3+', 'S': '10', 'AP': '-2', 'D': '3', 'keywords': ['Blast']},
+                    {'name': 'Armoured Tracks', 'type': 'Melee', 'range': 'Melee', 'A': '3', 'skill': '4+', 'S': '6', 'AP': '0', 'D': '1', 'keywords': []}
+                ]
+                u['abilities'] = [{'name': 'Armoured Hull', 'description': 'Each time an attack is allocated to this model, an unmodified saving throw of 1 always fails.'}]
+                u['keywords'] = ['Vehicle']
+            elif is_bl:
+                u['role'] = 'Battleline'
+                u['stats'] = {'M': '6"', 'T': 4, 'SV': '3+', 'INV': '-', 'W': 2, 'LD': '6+', 'OC': 2}
+                u['weapons'] = [
+                    {'name': 'Standard Bolt Rifle', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '3+', 'S': '4', 'AP': '-1', 'D': '1', 'keywords': ['Assault', 'Heavy']},
+                    {'name': 'Close Combat Weapon', 'type': 'Melee', 'range': 'Melee', 'A': '3', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': []}
+                ]
+                u['abilities'] = [{'name': 'Objective Secured', 'description': 'This unit has an Objective Control characteristic of 2.'}]
+                u['keywords'] = ['Infantry', 'Battleline']
+            else:
+                u['role'] = 'Infantry & Elites'
+                u['stats'] = {'M': '6"', 'T': 4, 'SV': '3+', 'INV': '-', 'W': 2, 'LD': '6+', 'OC': 1}
+                u['weapons'] = [
+                    {'name': 'Tactical Firearm', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '3+', 'S': '4', 'AP': '-1', 'D': '1', 'keywords': []},
+                    {'name': 'Close Combat Weapon', 'type': 'Melee', 'range': 'Melee', 'A': '3', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': []}
+                ]
+                u['abilities'] = [{'name': 'Combat Squads', 'description': 'Standard tactical doctrine applies.'}]
+                u['keywords'] = ['Infantry']
+
+    return parsed
+
 class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(WEB_DIR), **kwargs)
@@ -512,6 +973,24 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         clean_path = self.path.split("?")[0].strip("/")
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length > 0 else b"{}"
+
+        if clean_path == "api/armylists/parse":
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            raw_text = p_load.get("text") or p_load.get("raw_text") or ""
+            source_hint = p_load.get("format")
+            from army_list_parser import get_parser
+            parser = get_parser()
+            parsed = parser.parse(raw_text, source_hint=source_hint)
+            parsed = enrich_roster_with_wahapedia_mock(parsed, raw_text)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "army_list": parsed}).encode("utf-8"))
+            return
 
         if (clean_path.startswith("api/events/") or clean_path.startswith("api/eventstudio/event/")) and clean_path.endswith("/livestreams"):
             parts = clean_path.split("/")
@@ -2160,6 +2639,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             bcp_header = self.headers.get("X-BCP-Token", "")
             cookie_hdr = self.headers.get("Cookie", "")
             has_bcp_auth = bool(bcp_header or "dev-auth-token" in auth_header or "Bearer " in auth_header or "session_token" in cookie_hdr)
+
+            if "sim_no_sub=1" in query_str or "no_sub=1" in query_str or self.headers.get("X-Sim-No-Sub") == "1" or "no_sub" in lid or "sub_req" in lid:
+                has_bcp_auth = False
+            elif "sim_sub=1" in query_str or "sub=1" in query_str or self.headers.get("X-Sim-Sub") == "1":
+                has_bcp_auth = True
             
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")

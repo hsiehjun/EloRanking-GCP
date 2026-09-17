@@ -3265,8 +3265,10 @@ window.exportArmyListToBcp = exportArmyListToBcp;
 window.deleteHubArmyList = deleteHubArmyList;
 window.launchTrackerWithList = launchTrackerWithList;
 window.discardTrackerSession = discardTrackerSession;
+window.renderNativeRosterViewer = renderNativeRosterViewer;
 window.resetMyHubState = function() {
   myHubData = null;
   window.myHubData = null;
   hubSavedLists = [];
 };
+

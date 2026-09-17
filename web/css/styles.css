@@ -9312,3 +9312,94 @@ body.is-authenticated #floating-chat-widget {
   padding: 0.75rem 0.6rem !important;
 }
 
+/* ==========================================================================
+   Tournament Competitor Army List Modal & Wahapedia Enrichment
+   ========================================================================== */
+#event-army-list-modal .modal-window {
+  max-width: 980px;
+  width: 95%;
+  max-height: 90vh;
+  display: flex !important;
+  flex-direction: column !important;
+  background: #0b1120;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 16px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.9), 0 0 24px rgba(56, 189, 248, 0.12);
+  overflow: hidden;
+}
+
+#btn-army-list-mode-text {
+  background: transparent;
+  color: #94a3b8;
+  border: none;
+  cursor: pointer;
+}
+
+#btn-army-list-mode-text.active {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+}
+
+#btn-army-list-mode-enriched {
+  background: transparent;
+  color: #38bdf8;
+  border: none;
+  cursor: pointer;
+}
+
+#btn-army-list-mode-enriched.active {
+  background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 12px rgba(56, 189, 248, 0.45);
+}
+
+.gt-unit-card {
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.gt-unit-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+
+@media (max-width: 768px) {
+  #event-army-list-modal.modal-backdrop {
+    align-items: flex-start !important;
+    padding: max(0.5rem, env(safe-area-inset-top, 0px)) 0.5rem max(0.5rem, env(safe-area-inset-bottom, 0px)) 0.5rem !important;
+  }
+  #event-army-list-modal .modal-window {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - max(1rem, env(safe-area-inset-top, 0px)) - max(0.5rem, env(safe-area-inset-bottom, 0px))) !important;
+    margin: 0 auto !important;
+    border-radius: 14px !important;
+  }
+  #event-army-list-mode-toggle {
+    width: 100%;
+    justify-content: center;
+    margin-top: 0.35rem;
+  }
+  #event-army-list-mode-toggle button {
+    flex: 1;
+    text-align: center;
+    padding: 0.35rem 0.5rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  #event-army-list-modal .modal-header {
+    padding: 0.75rem 1rem !important;
+  }
+  #event-army-list-modal .modal-footer {
+    padding: 0.65rem 1rem !important;
+  }
+  #event-army-list-modal-title {
+    font-size: 0.95rem !important;
+  }
+  #event-army-list-modal-subtitle {
+    font-size: 0.72rem !important;
+  }
+}
+
+

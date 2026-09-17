@@ -59,21 +59,24 @@ function isUserBcpConnected() {
 
 function renderBcpLinkRequiredCard(listUrl) {
   return `
-    <div style="text-align:center; padding:1.75rem 1rem;">
-      <div style="font-size:2.5rem; margin-bottom:0.75rem;">🔒</div>
-      <div style="font-size:1.15rem; font-weight:800; color:#38bdf8; margin-bottom:0.45rem;">BCP Subscription Required to View List</div>
-      <div style="font-size:0.86rem; color:var(--text-secondary); max-width:440px; margin:0 auto 1.35rem auto; line-height:1.5;">
-        Viewing competitor tournament army rosters requires an active Best Coast Pairings subscription. Link your subscribed BCP account to view army rosters directly inside OmniTactica.
+    <div style="text-align:center; padding:2.75rem 1.25rem; margin:auto; max-width:540px;">
+      <div style="font-size:3.2rem; margin-bottom:0.75rem; filter:drop-shadow(0 4px 12px rgba(239,68,68,0.3));">🔒</div>
+      <div style="font-size:1.25rem; font-weight:800; color:#f87171; margin-bottom:0.5rem; letter-spacing:0.02em;">
+        BCP Subscription Required
+      </div>
+      <div style="font-size:0.95rem; color:#e2e8f0; line-height:1.6; margin-bottom:1rem;">
+        need bcp subscription - please subscribe here: <a href="https://www.bestcoastpairings.com/subscription" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline; font-weight:700; word-break:break-all;">https://www.bestcoastpairings.com/subscription</a>
+      </div>
+      <div style="font-size:0.84rem; color:var(--text-secondary); line-height:1.55; margin-bottom:1.6rem;">
+        Viewing competitor tournament army rosters requires an active Best Coast Pairings subscription. Once subscribed, link your BCP account to unlock full in-app roster and Wahapedia datasheet enrichment.
       </div>
       <div style="display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:0.75rem;">
-        <button type="button" class="btn btn-primary" onclick="closeModal('event-army-list-modal'); if (typeof openBcpLinkModal === 'function') openBcpLinkModal();" style="display:inline-flex; align-items:center; gap:0.45rem; font-weight:700; font-size:0.86rem; padding:0.6rem 1.35rem; background:linear-gradient(135deg, #0284c7 0%, #0369a1 100%); border:1px solid #38bdf8; color:#fff; border-radius:6px; cursor:pointer;">
+        <a href="https://www.bestcoastpairings.com/subscription" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.45rem; font-weight:700; font-size:0.86rem; padding:0.65rem 1.4rem; background:linear-gradient(135deg, #0284c7 0%, #2563eb 100%); border:1px solid #38bdf8; color:#fff; border-radius:8px; text-decoration:none; box-shadow:0 4px 14px rgba(2,132,199,0.4); cursor:pointer;">
+          ⭐ Subscribe on Best Coast Pairings ↗
+        </a>
+        <button type="button" class="btn btn-outline" onclick="closeEventArmyListModal(); if (typeof openBcpLinkModal === 'function') openBcpLinkModal();" style="display:inline-flex; align-items:center; gap:0.45rem; font-weight:600; font-size:0.86rem; padding:0.65rem 1.25rem; border:1px solid rgba(56,189,248,0.4); color:#38bdf8; border-radius:8px; cursor:pointer; background:rgba(15,23,42,0.8);">
           🔗 Link BCP Account
         </button>
-        ${listUrl ? `
-          <a href="${escapeHtml(listUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="display:inline-flex; align-items:center; gap:0.45rem; font-weight:600; font-size:0.86rem; padding:0.6rem 1.15rem; text-decoration:none; border:1px solid var(--border); color:var(--text-secondary); border-radius:6px;">
-            Open on BCP ↗
-          </a>
-        ` : ''}
       </div>
     </div>
   `;
@@ -1275,7 +1278,7 @@ function renderEventTeamsRows() {
               <div class="team-member-col-elo team-col-checkin" style="text-align:right; display:flex; align-items:center; justify-content:flex-end; gap:4px;">
                 <span class="elo-badge ${mBadge}" style="font-size:0.82rem; font-weight:700; padding:2px 7px;">${mElo}</span>
                 ${deltaBadge}
-                ${hasPlayerSubmittedList(m) ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(m.player_id || mName)}')" style="font-size:0.7rem; padding:2px 6px; margin-left:4px; cursor:pointer;" title="View Army Roster on Best Coast Pairings">📋 List ↗</button>` : ''}
+                ${hasPlayerSubmittedList(m) ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(m.player_id || mName)}')" style="font-size:0.7rem; padding:2px 6px; margin-left:4px; cursor:pointer;" title="View competitor army roster">📋 List</button>` : ''}
               </div>
             `;
           } else {
@@ -1287,7 +1290,7 @@ function renderEventTeamsRows() {
             col4Html = `
               <div class="team-member-col-elo team-col-checkin" style="text-align:right; display:flex; align-items:center; justify-content:flex-end; gap:6px;">
                 ${checkinTag}
-                ${hasPlayerSubmittedList(m) ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(m.player_id || mName)}')" style="font-size:0.7rem; padding:2px 6px; cursor:pointer;" title="View Army Roster on Best Coast Pairings">📋 List ↗</button>` : ''}
+                ${hasPlayerSubmittedList(m) ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(m.player_id || mName)}')" style="font-size:0.7rem; padding:2px 6px; cursor:pointer;" title="View competitor army roster">📋 List</button>` : ''}
               </div>
             `;
           }
@@ -1642,8 +1645,8 @@ function renderEventResultsRows() {
       </td>
       <td style="text-align: right;">
         ${hasPlayerSubmittedList(p) ? `
-          <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.74rem; padding:3px 9px; font-weight:600; cursor:pointer;" title="View submitted army roster on Best Coast Pairings">
-            📋 Roster ↗
+          <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.74rem; padding:3px 9px; font-weight:600; cursor:pointer;" title="View competitor army roster">
+            📋 Roster
           </button>
         ` : `<span style="color:var(--text-muted); font-size:0.85rem; padding-right:0.45rem;">—</span>`}
       </td>
@@ -3131,6 +3134,9 @@ let eventHubFactionFilter = 'All';
 let quickModalViewMode = 'players';
 let quickModalSearchQuery = '';
 let currentArmyListModalPlayer = null;
+let currentEventArmyListText = '';
+let currentEventParsedRoster = null;
+let currentEventArmyListViewMode = 'text';
 
 function isEventEnded(ev, regData = null) {
   return Boolean(
@@ -3594,8 +3600,8 @@ function renderQuickModalTable() {
         </td>
         <td style="width:60px; padding:0.5rem 0.65rem; text-align:right;">
           ${hasPlayerSubmittedList(p) ? `
-            <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.72rem; padding:2px 8px; cursor:pointer;" title="View submitted army roster on Best Coast Pairings">
-              📋 List ↗
+            <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.72rem; padding:2px 8px; cursor:pointer;" title="View competitor army roster">
+              📋 List
             </button>
           ` : `<span style="color:var(--text-muted); font-size:0.85rem; padding-right:0.4rem;">—</span>`}
         </td>
@@ -4619,10 +4625,41 @@ function openEventPlayerListModal(playerIdentifier) {
   }
 
   currentArmyListModalPlayer = p || { full_name: playerIdentifier, player_id: playerIdentifier };
+  currentEventParsedRoster = p?._parsed_roster || null;
+  currentEventArmyListText = '';
+
+  const modal = document.getElementById('event-army-list-modal');
+  if (!modal) return;
+
+  const titleEl = document.getElementById('event-army-list-modal-title');
+  const subEl = document.getElementById('event-army-list-modal-subtitle');
+  const toggleWrap = document.getElementById('event-army-list-mode-toggle');
+  const contentEl = document.getElementById('event-army-list-modal-content');
+  const btnProfile = document.getElementById('btn-army-list-view-profile');
+  const btnCopy = document.getElementById('btn-army-list-copy');
+  const btnBcpLink = document.getElementById('btn-army-list-bcp-link');
+
+  const modalFac = formatEventPlayerFaction(p?.faction || p?.army_name);
+  const facSub = (modalFac && modalFac !== '-') ? modalFac : 'Faction Unselected';
+  if (titleEl) titleEl.innerText = `${p?.full_name || playerIdentifier || 'Competitor'} — Army Roster`;
+  if (subEl) subEl.innerText = `${facSub}${p?.detachment ? ` • ${p.detachment}` : ''}${p?.team ? ` • 🛡️ ${p.team}` : ''}`;
+
+  if (btnProfile) {
+    const targetId = p?.player_id || p?.id || '';
+    btnProfile.onclick = () => {
+      closeEventArmyListModal();
+      if (typeof openPlayerProfilePage === 'function' && targetId) {
+        openPlayerProfilePage(targetId);
+      } else if (typeof openPlayerModal === 'function') {
+        openPlayerModal(targetId, p?.full_name || '');
+      }
+    };
+  }
 
   const listInfo = getPlayerListDetails(p);
-  let targetUrl = '';
 
+  // Setup external BCP link button in footer
+  let targetUrl = '';
   if (listInfo.url && (listInfo.url.startsWith('http://') || listInfo.url.startsWith('https://'))) {
     targetUrl = listInfo.url;
   } else if (listInfo.listId) {
@@ -4633,27 +4670,180 @@ function openEventPlayerListModal(playerIdentifier) {
     targetUrl = p.bcp_url || p.bcpUrl;
   }
 
-  // Fallback: If no direct list URL exists, navigate to the BCP event page
-  if (!targetUrl) {
-    const rawEvId = (p && (p.event_id || p.eventId || p.bcp_event_id)) ||
-                    currentOpenEventId ||
-                    (typeof currentEventData !== 'undefined' && currentEventData && (currentEventData.bcp_event_id || currentEventData.id)) ||
-                    '';
-    const cleanEvId = String(rawEvId).replace(/^bcp_/i, '').replace(/^es-/i, '').trim();
-    if (cleanEvId && !cleanEvId.startsWith('ES-') && cleanEvId.length >= 4) {
-      targetUrl = `https://www.bestcoastpairings.com/event/${encodeURIComponent(cleanEvId)}`;
+  if (btnBcpLink) {
+    if (targetUrl) {
+      btnBcpLink.href = targetUrl;
+      btnBcpLink.style.display = 'inline-flex';
+    } else {
+      btnBcpLink.style.display = 'none';
     }
   }
 
-  if (targetUrl) {
-    window.open(targetUrl, '_blank', 'noopener,noreferrer');
-    return;
+  // Open the modal
+  modal.style.display = 'flex';
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  } else {
+    modal.classList.add('active');
   }
 
-  if (typeof showToast === 'function') {
-    showToast('No Best Coast Pairings link found for this competitor.', 'info');
+  // Handle list content
+  if (listInfo.text) {
+    currentEventArmyListText = listInfo.text;
+    if (toggleWrap) toggleWrap.style.display = 'inline-flex';
+    if (btnCopy) btnCopy.style.display = 'inline-flex';
+    setEventArmyListViewMode(currentEventArmyListViewMode || 'text');
+  } else if (listInfo.listId || listInfo.url) {
+    if (toggleWrap) toggleWrap.style.display = 'none';
+    if (btnCopy) btnCopy.style.display = 'none';
+    if (contentEl) {
+      contentEl.innerHTML = `
+        <div style="text-align:center; padding:3.5rem 1.5rem; margin:auto;">
+          <div class="spinner-mini" style="display:inline-block; width:38px; height:38px; border:3px solid rgba(56,189,248,0.2); border-top-color:#38bdf8; border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:1rem;"></div>
+          <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.35rem;">Fetching Roster from Best Coast Pairings...</div>
+          <div style="font-size:0.84rem; color:var(--text-muted);">Connecting to official Best Coast Pairings roster</div>
+        </div>
+      `;
+    }
+
+    const targetListId = listInfo.listId || listInfo.url;
+    window.api.getBcpArmyList(targetListId)
+      .then(res => {
+        if (res && res.success && res.text) {
+          const trimmed = res.text.trim();
+          if (p) {
+            p.army_list = trimmed;
+            p.army_list_text = trimmed;
+          }
+          currentEventArmyListText = trimmed;
+          if (toggleWrap) toggleWrap.style.display = 'inline-flex';
+          if (btnCopy) btnCopy.style.display = 'inline-flex';
+          setEventArmyListViewMode(currentEventArmyListViewMode || 'text');
+        } else if (res && (res.requires_bcp_link || res.status === 401 || res.status === 403 || (res.error && (res.error.toLowerCase().includes('subscription') || res.error.toLowerCase().includes('bcp'))))) {
+          if (toggleWrap) toggleWrap.style.display = 'none';
+          if (btnCopy) btnCopy.style.display = 'none';
+          if (contentEl) {
+            contentEl.innerHTML = renderBcpLinkRequiredCard(listInfo.url || targetUrl);
+          }
+        } else {
+          if (toggleWrap) toggleWrap.style.display = 'none';
+          if (btnCopy) btnCopy.style.display = 'none';
+          if (contentEl) {
+            contentEl.innerHTML = `
+              <div style="text-align:center; padding:3rem 1.5rem; margin:auto; max-width:480px;">
+                <div style="font-size:2.5rem; margin-bottom:0.75rem;">📋</div>
+                <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.45rem;">Best Coast Pairings Roster</div>
+                <div style="font-size:0.85rem; color:var(--text-secondary); line-height:1.5; margin-bottom:1.25rem;">
+                  ${escapeHtml(res?.error || 'Full roster text could not be loaded automatically.')}
+                </div>
+                ${targetUrl ? `
+                  <a href="${escapeHtml(targetUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.5rem; font-weight:700; font-size:0.85rem; padding:0.6rem 1.25rem; text-decoration:none; background:#0284c7; border:1px solid #38bdf8; color:#fff; border-radius:6px;">
+                    📄 Open on Best Coast Pairings ↗
+                  </a>
+                ` : ''}
+              </div>
+            `;
+          }
+        }
+      })
+      .catch(err => {
+        if (toggleWrap) toggleWrap.style.display = 'none';
+        if (btnCopy) btnCopy.style.display = 'none';
+        if (contentEl) {
+          contentEl.innerHTML = renderBcpLinkRequiredCard(listInfo.url || targetUrl);
+        }
+      });
   } else {
-    alert('No Best Coast Pairings link found for this competitor.');
+    // No roster submitted
+    if (toggleWrap) toggleWrap.style.display = 'none';
+    if (btnCopy) btnCopy.style.display = 'none';
+    if (contentEl) {
+      contentEl.innerHTML = `
+        <div style="text-align:center; padding:3rem 1.5rem; margin:auto; color:var(--text-muted);">
+          <div style="font-size:2.5rem; margin-bottom:0.75rem;">📄</div>
+          <div style="font-size:1.05rem; font-weight:700; color:#fff; margin-bottom:0.45rem;">No Roster Submitted</div>
+          <div style="font-size:0.84rem; line-height:1.5; max-width:400px; margin:0 auto;">
+            No army list text or link has been published on Best Coast Pairings for ${escapeHtml(p?.full_name || 'this competitor')} yet.
+          </div>
+        </div>
+      `;
+    }
+  }
+}
+
+function setEventArmyListViewMode(mode) {
+  currentEventArmyListViewMode = mode || 'text';
+  const btnText = document.getElementById('btn-army-list-mode-text');
+  const btnEnriched = document.getElementById('btn-army-list-mode-enriched');
+  const contentEl = document.getElementById('event-army-list-modal-content');
+  if (!contentEl) return;
+
+  if (btnText && btnEnriched) {
+    if (mode === 'enriched') {
+      btnEnriched.classList.add('active');
+      btnText.classList.remove('active');
+    } else {
+      btnText.classList.add('active');
+      btnEnriched.classList.remove('active');
+    }
+  }
+
+  if (mode === 'enriched') {
+    if (currentEventParsedRoster) {
+      const renderer = window.renderNativeRosterViewer || (typeof renderNativeRosterViewer === 'function' ? renderNativeRosterViewer : null);
+      if (renderer) {
+        contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'enriched' });
+      } else {
+        contentEl.innerHTML = `<pre style="padding:1.25rem; color:#e2e8f0; font-family:var(--font-mono); font-size:0.82rem; line-height:1.6; white-space:pre-wrap;">${escapeHtml(currentEventArmyListText)}</pre>`;
+      }
+    } else {
+      // Show loading spinner while parsing with Wahapedia
+      contentEl.innerHTML = `
+        <div style="text-align:center; padding:3.5rem 1.5rem; margin:auto;">
+          <div class="spinner-mini" style="display:inline-block; width:38px; height:38px; border:3px solid rgba(56,189,248,0.2); border-top-color:#38bdf8; border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:1rem;"></div>
+          <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.35rem;">⚡ Enriching Roster with Wahapedia...</div>
+          <div style="font-size:0.84rem; color:var(--text-muted);">Parsing datasheets, statlines, weapons, abilities & stratagems</div>
+        </div>
+      `;
+
+      window.api.parseArmyList(currentEventArmyListText)
+        .then(res => {
+          if (res && res.success && res.army_list) {
+            currentEventParsedRoster = res.army_list;
+            if (currentArmyListModalPlayer) {
+              currentArmyListModalPlayer._parsed_roster = res.army_list;
+            }
+            if (currentEventArmyListViewMode === 'enriched') {
+              const renderer = window.renderNativeRosterViewer || (typeof renderNativeRosterViewer === 'function' ? renderNativeRosterViewer : null);
+              if (renderer) {
+                contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'enriched' });
+              } else {
+                contentEl.innerHTML = `<pre style="padding:1.25rem; color:#e2e8f0; font-family:var(--font-mono); font-size:0.82rem; line-height:1.6; white-space:pre-wrap;">${escapeHtml(currentEventArmyListText)}</pre>`;
+              }
+            }
+          } else {
+            setEventArmyListViewMode('text');
+            if (typeof showToast === 'function') {
+              showToast('Wahapedia datasheet parser could not enrich this list format.', 'info');
+            }
+          }
+        })
+        .catch(err => {
+          setEventArmyListViewMode('text');
+        });
+    }
+  } else {
+    // Raw Text mode
+    contentEl.innerHTML = `
+      <div style="padding:1.25rem; flex:1; display:flex; flex-direction:column; background:#070b14;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
+          <div style="font-size:0.84rem; font-weight:800; color:#38bdf8; display:flex; align-items:center; gap:0.4rem;">
+            <span>📄</span> Raw Competitor Roster (Monospaced Format)
+          </div>
+        </div>
+        <pre style="flex:1; margin:0; padding:1.15rem; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:10px; font-family:var(--font-mono, monospace); font-size:0.82rem; line-height:1.6; color:#e2e8f0; white-space:pre-wrap; word-break:break-word; max-height:520px; overflow-y:auto;">${escapeHtml(currentEventArmyListText)}</pre>
+      </div>
+    `;
   }
 }
 
@@ -4666,11 +4856,11 @@ function closeEventArmyListModal() {
   }
 }
 window.closeEventArmyListModal = closeEventArmyListModal;
+window.setEventArmyListViewMode = setEventArmyListViewMode;
 
 function copyEventArmyListModalText() {
-  const contentEl = document.getElementById('event-army-list-modal-content');
-  if (!contentEl) return;
-  const text = contentEl.innerText || '';
+  const text = currentEventArmyListText || document.getElementById('event-army-list-modal-content')?.innerText || '';
+  if (!text) return;
   if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
     navigator.clipboard.writeText(text).then(() => {
       if (typeof showProfileToast === 'function') {
