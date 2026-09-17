@@ -7,6 +7,7 @@ Uses only Python standard library (no external dependencies required).
 import http.server
 import os
 import sys
+import time
 import json
 import mimetypes
 import urllib.parse
@@ -2237,6 +2238,86 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
+        if clean_path == "api/teams" or clean_path.startswith("api/teams") or "leaderboard/teams" in clean_path:
+            teams_data = [
+                {
+                    "rank": 1,
+                    "team": "Art of War",
+                    "power_rating": 2207.7,
+                    "active_roster_count": 6,
+                    "roster_count": 8,
+                    "top_player_name": "Innes Wilson",
+                    "top_player_id": "p_innes_wilson",
+                    "top_player_elo": 2375.2,
+                    "total_wins": 345,
+                    "total_losses": 62,
+                    "total_draws": 4,
+                    "team_win_rate": 84.8
+                },
+                {
+                    "rank": 2,
+                    "team": "Team Zero Comp",
+                    "power_rating": 2045.2,
+                    "active_roster_count": 5,
+                    "roster_count": 7,
+                    "top_player_name": "David Gaylard",
+                    "top_player_id": "p_david",
+                    "top_player_elo": 2280.4,
+                    "total_wins": 210,
+                    "total_losses": 48,
+                    "total_draws": 2,
+                    "team_win_rate": 81.4
+                },
+                {
+                    "rank": 3,
+                    "team": "Team Ignite",
+                    "power_rating": 1920.8,
+                    "active_roster_count": 4,
+                    "roster_count": 6,
+                    "top_player_name": "Manning Feinleib",
+                    "top_player_id": "p_manning",
+                    "top_player_elo": 2170.2,
+                    "total_wins": 180,
+                    "total_losses": 55,
+                    "total_draws": 3,
+                    "team_win_rate": 76.6
+                },
+                {
+                    "rank": 4,
+                    "team": "Down Under",
+                    "power_rating": 1855.0,
+                    "active_roster_count": 4,
+                    "roster_count": 5,
+                    "top_player_name": "Liam Hackett",
+                    "top_player_id": "p_liam",
+                    "top_player_elo": 2110.5,
+                    "total_wins": 140,
+                    "total_losses": 60,
+                    "total_draws": 1,
+                    "team_win_rate": 70.0
+                },
+                {
+                    "rank": 5,
+                    "team": "Vanguard Tactics",
+                    "power_rating": 1780.4,
+                    "active_roster_count": 4,
+                    "roster_count": 6,
+                    "top_player_name": "Stephen Box",
+                    "top_player_id": "p_box",
+                    "top_player_elo": 2040.0,
+                    "total_wins": 125,
+                    "total_losses": 65,
+                    "total_draws": 2,
+                    "team_win_rate": 65.8
+                }
+            ]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"teams": teams_data, "items": teams_data, "total": len(teams_data)}).encode("utf-8"))
+            return
+
         if "leaderboard" in clean_path or "players" in clean_path:
             players_data = [
                 {
@@ -2249,10 +2330,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "wins": 120,
                     "losses": 15,
                     "draws": 2,
+                    "matches_played": 137,
                     "win_rate": 87.6,
+                    "team": "Art of War",
                     "factions": "Dark Angels, Space Marines (Astartes), Genestealer Cult, Chaos Space Marines, Adeptus Astartes, Tyranids, Aeldari, Blood Angels, Grey Knights, World Eaters, T'au Empire, Legion of the Damned, Elysian Drop Troops, Black Templars, Thousand Sons",
-                    "top_faction": "Dark Angels, Space Marines (Astartes), Genestealer Cult, Chaos Space Marines, Adeptus Astartes, Tyranids, Aeldari, Blood Angels, Grey Knights, World Eaters, T'au Empire, Legion of the Damned, Elysian Drop Troops, Black Templars, Thousand Sons",
-                    "last_active": "2026-01-20"
+                    "top_faction": "Space Marines, Dark Angels",
+                    "last_active": "2026-01-20",
+                    "has_account": True
                 },
                 {
                     "rank": 2,
@@ -2264,17 +2348,105 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "wins": 145,
                     "losses": 20,
                     "draws": 1,
+                    "matches_played": 166,
                     "win_rate": 87.3,
+                    "team": "Art of War",
                     "factions": "Adeptus Custodes, Aeldari, Necrons, Drukhari, Imperial Agents, Chaos Space Marines, Ynnari, Death Guard, World Eaters",
-                    "top_faction": "Adeptus Custodes, Aeldari, Necrons, Drukhari, Imperial Agents, Chaos Space Marines, Ynnari, Death Guard, World Eaters",
-                    "last_active": "2026-01-18"
+                    "top_faction": "Adeptus Custodes, Aeldari",
+                    "last_active": "2026-01-18",
+                    "has_account": True
+                },
+                {
+                    "rank": 3,
+                    "player_id": "p_david_gaylard",
+                    "player_name": "David Gaylard",
+                    "current_elo": 2280.4,
+                    "peak_elo": 2310.0,
+                    "record": "98-18-0",
+                    "wins": 98,
+                    "losses": 18,
+                    "draws": 0,
+                    "matches_played": 116,
+                    "win_rate": 84.5,
+                    "team": "Team Zero Comp",
+                    "top_faction": "Necrons, Custodes",
+                    "last_active": "2026-01-15",
+                    "has_account": False
+                },
+                {
+                    "rank": 4,
+                    "player_id": "p_jack_harpster",
+                    "player_name": "Jack Harpster",
+                    "current_elo": 2240.1,
+                    "peak_elo": 2260.0,
+                    "record": "85-22-1",
+                    "wins": 85,
+                    "losses": 22,
+                    "draws": 1,
+                    "matches_played": 108,
+                    "win_rate": 78.7,
+                    "team": "Art of War",
+                    "top_faction": "Blood Angels",
+                    "last_active": "2026-01-14",
+                    "has_account": True
+                },
+                {
+                    "rank": 5,
+                    "player_id": "p_john_lennon",
+                    "player_name": "John Lennon",
+                    "current_elo": 2210.8,
+                    "peak_elo": 2235.0,
+                    "record": "110-28-2",
+                    "wins": 110,
+                    "losses": 28,
+                    "draws": 2,
+                    "matches_played": 140,
+                    "win_rate": 78.6,
+                    "team": "Art of War",
+                    "top_faction": "Ultramarines",
+                    "last_active": "2026-01-12",
+                    "has_account": True
+                },
+                {
+                    "rank": 6,
+                    "player_id": "p_richard_siegler",
+                    "player_name": "Richard Siegler",
+                    "current_elo": 2195.0,
+                    "peak_elo": 2240.0,
+                    "record": "130-35-3",
+                    "wins": 130,
+                    "losses": 35,
+                    "draws": 3,
+                    "matches_played": 168,
+                    "win_rate": 77.4,
+                    "team": "Art of War",
+                    "top_faction": "Adeptus Mechanicus",
+                    "last_active": "2026-01-10",
+                    "has_account": True
+                },
+                {
+                    "rank": 7,
+                    "player_id": "p_manning_feinleib",
+                    "player_name": "Manning Feinleib",
+                    "current_elo": 2170.2,
+                    "peak_elo": 2190.0,
+                    "record": "75-21-1",
+                    "wins": 75,
+                    "losses": 21,
+                    "draws": 1,
+                    "matches_played": 97,
+                    "win_rate": 77.3,
+                    "team": "Team Zero Comp",
+                    "top_faction": "Tyranids",
+                    "last_active": "2026-01-08",
+                    "has_account": False
                 }
             ]
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"players": players_data, "leaderboard": players_data, "count": len(players_data), "total": len(players_data)}).encode("utf-8"))
+                self.wfile.write(json.dumps({"players": players_data, "leaderboard": players_data, "items": players_data, "count": len(players_data), "total": len(players_data)}).encode("utf-8"))
             return
 
         if clean_path == "api/events":
@@ -2326,7 +2498,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"items": events_list, "total": len(events_list), "page": 1, "page_size": 25, "total_pages": 1}).encode("utf-8"))
             return
 
-        if clean_path in ("api/teams", "api/community/feed", "api/notifications/unread-count"):
+        if clean_path in ("api/community/feed", "api/notifications/unread-count"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()

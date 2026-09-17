@@ -176,8 +176,9 @@ async function loadLeaderboard(isPrefetch = false) {
         renderPaginationBar('leaderboard-pagination', leaderboardPagination, 'setLeaderboardPage', 'setLeaderboardPageSize');
       }
     } else {
-      leaderboardData = Array.isArray(res) ? res : [];
-      leaderboardPagination.total = leaderboardData.length;
+      leaderboardData = Array.isArray(res) ? res : (res && Array.isArray(res.players) ? res.players : (res && Array.isArray(res.items) ? res.items : []));
+      leaderboardPagination.total = (res && res.total != null) ? res.total : leaderboardData.length;
+      leaderboardPagination.totalPages = (res && res.total_pages) ? res.total_pages : Math.max(1, Math.ceil(leaderboardPagination.total / leaderboardPagination.pageSize));
       if (tbody) {
         tbody.style.opacity = '1';
         tbody.style.pointerEvents = '';
@@ -281,6 +282,7 @@ function renderLeaderboardRows() {
     tbody.appendChild(tr);
   });
 }
+window.renderLeaderboardRows = renderLeaderboardRows;
 
 async function loadLeaderboardTeams(isPrefetch = false) {
   const minRoster = 1;
@@ -339,8 +341,9 @@ async function loadLeaderboardTeams(isPrefetch = false) {
         renderPaginationBar('lead-teams-pagination', leaderboardTeamsPagination, 'setLeaderboardTeamsPage', 'setLeaderboardTeamsPageSize');
       }
     } else {
-      leaderboardTeamsData = Array.isArray(res) ? res : [];
-      leaderboardTeamsPagination.total = leaderboardTeamsData.length;
+      leaderboardTeamsData = Array.isArray(res) ? res : (res && Array.isArray(res.teams) ? res.teams : (res && Array.isArray(res.items) ? res.items : []));
+      leaderboardTeamsPagination.total = (res && res.total != null) ? res.total : leaderboardTeamsData.length;
+      leaderboardTeamsPagination.totalPages = (res && res.total_pages) ? res.total_pages : Math.max(1, Math.ceil(leaderboardTeamsPagination.total / leaderboardTeamsPagination.pageSize));
       if (tbody) {
         tbody.style.opacity = '1';
         tbody.style.pointerEvents = '';
@@ -443,6 +446,7 @@ function renderLeaderboardTeamsRows() {
     tbody.appendChild(tr);
   });
 }
+window.renderLeaderboardTeamsRows = renderLeaderboardTeamsRows;
 
 function handlePlayerChatClick(playerId, playerName, accountUserId) {
   const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');

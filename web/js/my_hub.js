@@ -931,41 +931,49 @@ function renderMyHub(data) {
           </div>
         </div>
 
-        <!-- Milestone XP Progress Bar -->
-        ${xpSectionHtml}
+        <!-- Collapsible Career Progression & Full Stats for Mobile -->
+        <button type="button" class="hub-career-toggle-btn mobile-only" onclick="toggleHubCareerDetails()">
+          <span>🎖️ Career Progression &amp; Full Stats</span>
+          <span id="hub-career-toggle-arrow">▼</span>
+        </button>
 
-        <!-- Key Metrics Grid -->
-        <div class="profile-metrics-grid">
-          <div class="profile-metric-box">
-            <div class="m-lbl">Record</div>
-            <div class="m-val" style="font-size: 1.05rem;">
-              <span style="color:var(--win);">${p.wins || 0}W</span> - <span style="color:var(--loss);">${p.losses || 0}L</span>${(p.draws || 0) > 0 ? ` - <span style="color:var(--draw);">${p.draws}D</span>` : ''}
+        <div id="hub-career-details-drawer" class="hub-career-drawer-collapsed">
+          <!-- Key Metrics Grid -->
+          <div class="profile-metrics-grid" style="margin-top: 0.75rem;">
+            <div class="profile-metric-box">
+              <div class="m-lbl">Record</div>
+              <div class="m-val" style="font-size: 1.05rem;">
+                <span style="color:var(--win);">${p.wins || 0}W</span> - <span style="color:var(--loss);">${p.losses || 0}L</span>${(p.draws || 0) > 0 ? ` - <span style="color:var(--draw);">${p.draws}D</span>` : ''}
+              </div>
+            </div>
+            <div class="profile-metric-box">
+              <div class="m-lbl">Win Rate</div>
+              <div class="m-val" style="color: ${Number(winRate) >= 60 ? 'var(--win)' : (Number(winRate) >= 45 ? 'var(--accent)' : '#fff')};">
+                ${winRate}%
+              </div>
+            </div>
+            <div class="profile-metric-box">
+              <div class="m-lbl">Matches</div>
+              <div class="m-val">${totalMatches}</div>
+            </div>
+            <div class="profile-metric-box">
+              <div class="m-lbl">Peak Streak</div>
+              <div class="m-val" style="color: var(--win);">${peakStreak} Wins</div>
+            </div>
+            <div class="profile-metric-box" style="grid-column: span 2;">
+              <div class="m-lbl">Top Armies</div>
+              <div style="margin-top: 0.25rem; display: flex; gap: 0.35rem; justify-content: center; flex-wrap: wrap;">
+                ${topFactionsHtml || `<span style="color:var(--text-muted); font-size:0.8rem;">${escapeHtml(p.top_faction || 'Various')}</span>`}
+              </div>
             </div>
           </div>
-          <div class="profile-metric-box">
-            <div class="m-lbl">Win Rate</div>
-            <div class="m-val" style="color: ${Number(winRate) >= 60 ? 'var(--win)' : (Number(winRate) >= 45 ? 'var(--accent)' : '#fff')};">
-              ${winRate}%
-            </div>
-          </div>
-          <div class="profile-metric-box">
-            <div class="m-lbl">Matches</div>
-            <div class="m-val">${totalMatches}</div>
-          </div>
-          <div class="profile-metric-box">
-            <div class="m-lbl">Peak Streak</div>
-            <div class="m-val" style="color: var(--win);">${peakStreak} Wins</div>
-          </div>
-          <div class="profile-metric-box" style="grid-column: span 2;">
-            <div class="m-lbl">Top Armies</div>
-            <div style="margin-top: 0.25rem; display: flex; gap: 0.35rem; justify-content: center; flex-wrap: wrap;">
-              ${topFactionsHtml || `<span style="color:var(--text-muted); font-size:0.8rem;">${escapeHtml(p.top_faction || 'Various')}</span>`}
-            </div>
-          </div>
+
+          <!-- Milestone XP Progress Bar -->
+          ${xpSectionHtml}
+
+          <!-- Recent Form Beads -->
+          ${recentFormHtml}
         </div>
-
-        <!-- Recent Form Beads -->
-        ${recentFormHtml}
       </div>
 
 
@@ -3271,4 +3279,22 @@ window.resetMyHubState = function() {
   window.myHubData = null;
   hubSavedLists = [];
 };
+
+function toggleHubCareerDetails() {
+  const drawer = document.getElementById('hub-career-details-drawer');
+  const arrow = document.getElementById('hub-career-toggle-arrow');
+  if (!drawer) return;
+  const isCollapsed = drawer.classList.contains('hub-career-drawer-collapsed');
+  if (isCollapsed) {
+    drawer.classList.remove('hub-career-drawer-collapsed');
+    drawer.classList.add('hub-career-drawer-expanded');
+    if (arrow) arrow.textContent = '▲';
+  } else {
+    drawer.classList.remove('hub-career-drawer-expanded');
+    drawer.classList.add('hub-career-drawer-collapsed');
+    if (arrow) arrow.textContent = '▼';
+  }
+}
+window.toggleHubCareerDetails = toggleHubCareerDetails;
+
 

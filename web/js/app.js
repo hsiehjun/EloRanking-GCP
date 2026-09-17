@@ -286,6 +286,13 @@ function switchTab(tabName) {
     }
   }
 
+  // Synchronize modern mobile bottom navigation bar
+  document.querySelectorAll('.mobile-bottom-nav .mobile-nav-item').forEach(item => {
+    const t = item.getAttribute('data-tab');
+    const isAct = (t === tabName) || (t === 'community' && tabName === 'community');
+    item.classList.toggle('active', isAct);
+  });
+
   // Update tab panel visibility
   document.querySelectorAll('.tab-panel').forEach(p => {
     p.classList.remove('active');
@@ -932,3 +939,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 });
+
+function openMobileMoreSheet() {
+  const sheet = document.getElementById('mobile-more-sheet-backdrop');
+  if (sheet) {
+    if (typeof currentUser !== 'undefined' && currentUser) {
+      const nameEl = document.getElementById('mobile-sheet-username');
+      const eloEl = document.getElementById('mobile-sheet-elo');
+      const avatarEl = document.getElementById('mobile-sheet-avatar');
+      if (nameEl) nameEl.textContent = currentUser.display_name || currentUser.email || 'Competitor';
+      if (eloEl && currentUser.current_elo) eloEl.textContent = `${Number(currentUser.current_elo).toFixed(1)} Elo`;
+      if (avatarEl) avatarEl.textContent = (currentUser.faction_icon || '⚔️');
+      const esBtn = document.getElementById('mobile-sheet-eventstudio-btn');
+      if (esBtn && typeof isUserTO === 'function') {
+        esBtn.style.display = isUserTO(currentUser) ? 'flex' : 'none';
+      }
+    }
+    sheet.style.display = 'flex';
+    document.body.classList.add('modal-open');
+  }
+}
+
+function closeMobileMoreSheet() {
+  const sheet = document.getElementById('mobile-more-sheet-backdrop');
+  if (sheet) {
+    sheet.style.display = 'none';
+    document.body.classList.remove('modal-open');
+  }
+}
+
+window.openMobileMoreSheet = openMobileMoreSheet;
+window.closeMobileMoreSheet = closeMobileMoreSheet;
+

@@ -4582,4 +4582,7 @@ window.changeCommunityRegion = (region) => {
   loadCommunityHub(null, null, communityState.radiusMiles, null);
 };
 window.detectCommunityRegion = detectCommunityGPS;
+window.openCalendarDayDrawer = openCalendarDayDrawer;
+window.closeCalendarDayDrawer = closeCalendarDayDrawer;
+window.renderTournamentsCalendar = renderTournamentsCalendar;
 

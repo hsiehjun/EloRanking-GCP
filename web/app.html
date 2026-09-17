@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=04eddbdc19">
-  <link rel="stylesheet" href="/css/styles.css?v=04eddbdc19">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=04eddbdc19">
+  <link rel="stylesheet" href="/css/theme.css?v=1892112ed0">
+  <link rel="stylesheet" href="/css/styles.css?v=1892112ed0">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=1892112ed0">
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -220,31 +220,32 @@
         </button>
       </div>
 
-      <!-- Mobile Tab Dropdown Selector (Strictly mobile viewports <= 768px only; replaces header on mobile) -->
+      <!-- Mobile Tab Action Controls (Strictly mobile viewports <= 768px only; replaces dropdown on mobile) -->
       <div class="mobile-nav-wrapper">
-        <div class="mobile-nav-select-wrap">
-          <select id="mobile-nav-select" class="mobile-nav-select" onchange="handleMobileNavChange(this.value)" oninput="handleMobileNavChange(this.value)" aria-label="Switch Tab">
-            <option value="my-hub">🏠 My Hub</option>
-            <option value="community">👥 Community Hub</option>
-            <option value="tracker">🎲 Game Tracker</option>
-            <option value="leaderboard" selected>🏆 Leaderboard</option>
-            <option value="meta-intel">📊 Meta Intel</option>
-            <option value="search">🔍 Search Directory</option>
-            <option disabled id="mobile-opt-divider">──────────</option>
-            <option value="feedback" id="mobile-opt-feedback">💬 Send Feedback</option>
-            <option value="settings" id="mobile-opt-settings">⚙️ Account Settings</option>
-            <option value="logout" id="mobile-opt-logout">🚪 Sign Out</option>
-            <option value="login" id="mobile-opt-login" style="display: none;">🔑 Sign In</option>
-          </select>
-          <div class="mobile-nav-select-arrow" aria-hidden="true">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-          </div>
+        <select id="mobile-nav-select" class="mobile-nav-select" style="display: none;" onchange="handleMobileNavChange(this.value)" oninput="handleMobileNavChange(this.value)" aria-label="Switch Tab">
+          <option value="my-hub">🏠 My Hub</option>
+          <option value="community">👥 Community Hub</option>
+          <option value="tracker">🎲 Game Tracker</option>
+          <option value="leaderboard" selected>🏆 Leaderboard</option>
+          <option value="meta-intel">📊 Meta Intel</option>
+          <option value="search">🔍 Search Directory</option>
+          <option disabled id="mobile-opt-divider">──────────</option>
+          <option value="feedback" id="mobile-opt-feedback">💬 Send Feedback</option>
+          <option value="settings" id="mobile-opt-settings">⚙️ Account Settings</option>
+          <option value="logout" id="mobile-opt-logout">🚪 Sign Out</option>
+          <option value="login" id="mobile-opt-login" style="display: none;">🔑 Sign In</option>
+        </select>
+        <div class="mobile-top-bar-actions">
+          <button type="button" id="mobile-game-switcher" class="mobile-game-system-pill" onclick="toggleGameSystemMobile()" title="Switch Game System">
+            <span id="mobile-sys-icon">⚔️</span> <span id="mobile-sys-label">40K</span>
+          </button>
+          <button type="button" id="mobile-btn-search" class="mobile-top-action-btn" onclick="switchTab('search')" title="Search Directory">
+            <span>🔍</span>
+          </button>
+          <button type="button" id="mobile-btn-more" class="mobile-top-action-btn mobile-profile-btn" onclick="openMobileMoreSheet()" title="Profile & Account Menu">
+            <span id="mobile-top-avatar-icon">👤</span>
+          </button>
         </div>
-        <button type="button" id="mobile-game-switcher" class="mobile-game-system-pill" onclick="toggleGameSystemMobile()" title="Switch Game System">
-          <span id="mobile-sys-icon">⚔️</span> <span id="mobile-sys-label">40K</span>
-        </button>
       </div>
 
       <!-- User Account Action & Feedback Area -->
@@ -3141,8 +3142,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "04eddbdc19";</script>
-  <script src="/js/app.bundle.min.js?v=04eddbdc19"></script>
+  <script>window.APP_VERSION = "1892112ed0";</script>
+  <script src="/js/app.bundle.min.js?v=1892112ed0"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
@@ -3798,6 +3799,104 @@
         <a href="/11th/tracker" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.6rem 1.2rem; border-color: rgba(56,189,248,0.4); color: #38bdf8; text-decoration: none;">
           ⚔️ Launch 40K Tracker
         </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Bottom Navigation Bar (Fixed thumb navigation on <= 768px viewports) -->
+  <nav id="mobile-bottom-nav" class="mobile-bottom-nav" aria-label="Mobile Navigation">
+    <button type="button" class="mobile-nav-item active" data-tab="leaderboard" onclick="switchTab('leaderboard')">
+      <div class="mobile-nav-icon">🏆</div>
+      <span class="mobile-nav-label">Standings</span>
+    </button>
+    <button type="button" class="mobile-nav-item" data-tab="community" onclick="switchTab('community')">
+      <div class="mobile-nav-icon">📅</div>
+      <span class="mobile-nav-label">Events</span>
+    </button>
+    <button type="button" class="mobile-nav-item" data-tab="meta-intel" onclick="switchTab('meta-intel')">
+      <div class="mobile-nav-icon">📊</div>
+      <span class="mobile-nav-label">Meta</span>
+    </button>
+    <button type="button" class="mobile-nav-item" data-tab="my-hub" onclick="navigateToMyHub(true)">
+      <div class="mobile-nav-icon">🏠</div>
+      <span class="mobile-nav-label">My Hub</span>
+    </button>
+    <a class="mobile-nav-item" data-tab="tracker" href="/11th/tracker" onclick="return handleTrackerNavClick(event);">
+      <div class="mobile-nav-icon">🎲</div>
+      <span class="mobile-nav-label">Tracker</span>
+    </a>
+  </nav>
+
+  <!-- Mobile More / Profile Bottom Sheet Modal -->
+  <div id="mobile-more-sheet-backdrop" class="modal-backdrop mobile-more-sheet-backdrop" style="display: none;" onclick="if(event.target === this) closeMobileMoreSheet()">
+    <div class="modal-card mobile-more-sheet">
+      <div class="mobile-more-sheet-header">
+        <div id="mobile-more-user-info" style="display: flex; align-items: center; gap: 10px;">
+          <div class="mobile-user-avatar" id="mobile-sheet-avatar">⚔️</div>
+          <div>
+            <div style="font-weight: 800; font-size: 1rem; color: #fff;" id="mobile-sheet-username">Competitor</div>
+            <div style="font-size: 0.75rem; color: #38bdf8;" id="mobile-sheet-elo">1500.0 Elo</div>
+          </div>
+        </div>
+        <button type="button" class="modal-close" onclick="closeMobileMoreSheet()" aria-label="Close sheet">✕</button>
+      </div>
+
+      <div class="mobile-more-menu-items">
+        <button type="button" class="mobile-menu-row" onclick="closeMobileMoreSheet(); switchTab('search');">
+          <span class="menu-icon">🔍</span>
+          <div class="menu-text">
+            <div class="menu-title">Search Directory</div>
+            <div class="menu-desc">Find players, clubs, and armies</div>
+          </div>
+          <span class="menu-chevron">›</span>
+        </button>
+        <button type="button" class="mobile-menu-row" onclick="closeMobileMoreSheet(); switchTab('radar');">
+          <span class="menu-icon">🎯</span>
+          <div class="menu-text">
+            <div class="menu-title">Sparring Radar</div>
+            <div class="menu-desc">Find local opponents & stores</div>
+          </div>
+          <span class="menu-chevron">›</span>
+        </button>
+        <button type="button" class="mobile-menu-row" id="mobile-sheet-eventstudio-btn" onclick="closeMobileMoreSheet(); switchTab('event-studio');" style="display: none;">
+          <span class="menu-icon">🛠️</span>
+          <div class="menu-text">
+            <div class="menu-title">Event Studio <span class="to-pill">TO</span></div>
+            <div class="menu-desc">Manage brackets & sync BCP</div>
+          </div>
+          <span class="menu-chevron">›</span>
+        </button>
+        <button type="button" class="mobile-menu-row" onclick="closeMobileMoreSheet(); openUserSettingsModal();">
+          <span class="menu-icon">⚙️</span>
+          <div class="menu-text">
+            <div class="menu-title">Account Settings</div>
+            <div class="menu-desc">Manage BCP link, club, and profile</div>
+          </div>
+          <span class="menu-chevron">›</span>
+        </button>
+        <button type="button" class="mobile-menu-row" onclick="closeMobileMoreSheet(); openFeedbackModal();">
+          <span class="menu-icon">💬</span>
+          <div class="menu-text">
+            <div class="menu-title">Send Feedback</div>
+            <div class="menu-desc">Report bugs or suggest features</div>
+          </div>
+          <span class="menu-chevron">›</span>
+        </button>
+        <button type="button" class="mobile-menu-row" onclick="closeMobileMoreSheet(); handleMobileNavChange('reload');">
+          <span class="menu-icon">🔄</span>
+          <div class="menu-text">
+            <div class="menu-title">Clear Cache & Reload</div>
+            <div class="menu-desc">Force update to latest version</div>
+          </div>
+          <span class="menu-chevron">›</span>
+        </button>
+        <button type="button" class="mobile-menu-row mobile-logout-row" id="mobile-sheet-logout-btn" onclick="closeMobileMoreSheet(); handleLogout();">
+          <span class="menu-icon">🚪</span>
+          <div class="menu-text">
+            <div class="menu-title" style="color: #ef4444;">Sign Out</div>
+          </div>
+          <span class="menu-chevron">›</span>
+        </button>
       </div>
     </div>
   </div>
