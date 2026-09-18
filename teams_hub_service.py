@@ -463,6 +463,196 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "war_room": {"faction_matchups": [], "club_rivalries": []},
                 "trophy_room": [],
                 "locker_room": {"pinned_message": None, "messages": [], "squad_events": []}
+            },
+            # ── AGE OF SIGMAR (AoS) PREMIER COMPETITIVE CLUBS ──
+            {
+                "id": "team_hammerhal_vanguard",
+                "name": "Hammerhal Vanguard",
+                "short_tag": "HVG",
+                "owner_player_id": "p_nico_t",
+                "captain_name": "Nicolas Tassone",
+                "home_venue": "Sanctuary Gaming Centre",
+                "home_city": "Nottingham",
+                "home_state": "England",
+                "home_country": "UK",
+                "game_system": "aos",
+                "logo_url": "/assets/badges/badge_tier1_legend.svg",
+                "bio": "Premier competitive Age of Sigmar team competing across European and US Grand Tournaments. Masters of celestial lightning and Sigmarite battle tactics.",
+                "discord_url": "https://discord.gg/hammerhal",
+                "membership_mode": "approval_required",
+                "created_at": "2024-02-01T00:00:00Z",
+                "total_wins": 210,
+                "total_losses": 45,
+                "total_draws": 3,
+                "roster": [
+                    {"player_id": "p_nico_t", "player_name": "Nicolas Tassone", "current_elo": 2280.0, "peak_elo": 2310.0, "faction": "Stormcast Eternals", "role": "Captain", "status": "confirmed", "is_active": True, "win_rate": 82.5, "matches_played": 110, "form": "⚡ +16 Elo"},
+                    {"player_id": "p_matt_d", "player_name": "Matthew Davies", "current_elo": 2210.0, "peak_elo": 2240.0, "faction": "Cities of Sigmar", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 79.0, "matches_played": 92, "form": "Steady"},
+                    {"player_id": "p_jack_a", "player_name": "Jack Armstrong", "current_elo": 2170.0, "peak_elo": 2195.0, "faction": "Sylvaneth", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 77.0, "matches_played": 84, "form": "Steady"},
+                    {"player_id": "p_jeremy_v", "player_name": "Jeremy Veysseire", "current_elo": 2140.0, "peak_elo": 2160.0, "faction": "Lumineth Realm-lords", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 75.5, "matches_played": 78, "form": "Steady"},
+                    {"player_id": "p_dan_f", "player_name": "Dan Ford", "current_elo": 2090.0, "peak_elo": 2110.0, "faction": "Kharadron Overlords", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 73.0, "matches_played": 70, "form": "Steady"},
+                    {"player_id": "p_adam_e", "player_name": "Adam Ellis", "current_elo": 1980.0, "peak_elo": 2010.0, "faction": "Fyreslayers", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 69.5, "matches_played": 56, "form": "Steady"}
+                ],
+                "battlefield_feed": [
+                    {
+                        "id": "feed-aos-1",
+                        "date": now_iso,
+                        "tournament": "London Grand Tournament (AoS)",
+                        "round": "Finals",
+                        "player_name": "Nicolas Tassone",
+                        "faction": "Stormcast Eternals",
+                        "opponent_name": "Will Brittain",
+                        "opponent_team": "Aqshy Reavers",
+                        "score": "28 - 14",
+                        "result": "win",
+                        "elo_delta": "+15.2 Elo",
+                        "is_team_round": False
+                    },
+                    {
+                        "id": "feed-aos-2",
+                        "date": yesterday_iso,
+                        "tournament": "European Team Championship (ETC AoS)",
+                        "round": "Round 5 Team Match",
+                        "match_title": "ETC Round 5: Hammerhal Vanguard def. Aqshy Reavers (4 - 1)",
+                        "is_team_round": True,
+                        "result": "team_win",
+                        "round_score": "4 tables to 1",
+                        "notes": "Decisive battle tactic completion in battle rounds 3 and 4."
+                    }
+                ],
+                "war_room": {
+                    "faction_matchups": [
+                        {"enemy_faction": "Slaves to Darkness", "encounters": 28, "wins": 23, "losses": 5, "win_rate": 82.1},
+                        {"enemy_faction": "Soulblight Gravelords", "encounters": 25, "wins": 20, "losses": 5, "win_rate": 80.0},
+                        {"enemy_faction": "Skaven", "encounters": 20, "wins": 17, "losses": 3, "win_rate": 85.0},
+                        {"enemy_faction": "Ossiarch Bonereapers", "encounters": 16, "wins": 12, "losses": 4, "win_rate": 75.0}
+                    ],
+                    "club_rivalries": [
+                        {
+                            "rival_team": "Aqshy Reavers",
+                            "matches_played": 18,
+                            "wins": 13,
+                            "losses": 5,
+                            "win_rate": 72.2,
+                            "last_played": "ETC 2026",
+                            "team_rounds": {"wins": 3, "losses": 1, "played": 4},
+                            "singles_clashes": {"wins": 10, "losses": 4, "played": 14}
+                        },
+                        {
+                            "rival_team": "Shyish Deathlords",
+                            "matches_played": 12,
+                            "wins": 9,
+                            "losses": 3,
+                            "win_rate": 75.0,
+                            "last_played": "London Open 2025",
+                            "team_rounds": {"wins": 2, "losses": 0, "played": 2},
+                            "singles_clashes": {"wins": 7, "losses": 3, "played": 10}
+                        }
+                    ]
+                },
+                "trophy_room": [
+                    {"id": "tr-aos-1", "title": "2025 AoS Worlds Team Champions", "icon": "🏆", "category": "World Championship", "awarded_date": "Aug 2025", "significance": "Undefeated 5v5 team tournament victory", "glory_points": 1000},
+                    {"id": "tr-aos-2", "title": "2026 London AoS GT Champions", "icon": "👑", "category": "Super Major Title", "awarded_date": "Jan 2026", "significance": "Nicolas Tassone 1st Place overall", "glory_points": 500},
+                    {"id": "tr-aos-3", "title": "Century Club: 200+ AoS Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2025", "significance": "Over 200 competitive wins under the HVG crest", "glory_points": 250},
+                    {"id": "tr-aos-4", "title": "Azyrite Elite", "icon": "⭐", "category": "Squad Caliber", "awarded_date": "2026", "significance": "Four active players over 2,100 Elo", "glory_points": 100}
+                ],
+                "locker_room": {
+                    "pinned_message": {
+                        "id": "msg-pinned-aos",
+                        "sender_name": "Nicolas Tassone",
+                        "role": "Captain",
+                        "message": "📌 Practice session this Tuesday at Sanctuary Gaming Centre. Bringing General's Handbook 2025-26 Battlepack.",
+                        "timestamp": now_iso
+                    },
+                    "messages": [
+                        {
+                            "id": "msg-aos-1",
+                            "sender_name": "Matthew Davies",
+                            "role": "Core",
+                            "message": "Testing the Fusil-Major screen deployment against Slaves to Darkness cavalry.",
+                            "timestamp": yesterday_iso
+                        }
+                    ],
+                    "squad_events": [
+                        {
+                            "event_id": "aos_gt_2026",
+                            "event_name": "Warhammer Age of Sigmar European Open 2026",
+                            "event_date": "2026-07-12",
+                            "venue": "Nottingham Convention Hall",
+                            "city": "Nottingham",
+                            "confirmed_attendees": ["Nicolas Tassone", "Matthew Davies", "Jack Armstrong"],
+                            "notes": "Full 5-man squad attending."
+                        }
+                    ]
+                }
+            },
+            {
+                "id": "team_aqshy_reavers",
+                "name": "Aqshy Reavers",
+                "short_tag": "AQR",
+                "owner_player_id": "p_will_b",
+                "captain_name": "Will Brittain",
+                "home_venue": "Element Games North West Gaming Centre",
+                "home_city": "Stockport",
+                "home_state": "England",
+                "home_country": "UK",
+                "game_system": "aos",
+                "logo_url": "/assets/badges/badge_tier1_legend.svg",
+                "bio": "Ferocious Realm of Fire aggression. Specialized in high-impact melee pressure and relentless objective domination.",
+                "discord_url": "https://discord.gg/aqshyreavers",
+                "membership_mode": "approval_required",
+                "created_at": "2024-03-10T00:00:00Z",
+                "total_wins": 140,
+                "total_losses": 55,
+                "total_draws": 2,
+                "roster": [
+                    {"player_id": "p_will_b", "player_name": "Will Brittain", "current_elo": 2180.0, "peak_elo": 2200.0, "faction": "Blades of Khorne", "role": "Captain", "status": "confirmed", "is_active": True, "win_rate": 78.0, "matches_played": 80, "form": "Steady"},
+                    {"player_id": "p_tom_m", "player_name": "Tom Mawdsley", "current_elo": 2120.0, "peak_elo": 2140.0, "faction": "Ironjawz", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 74.0, "matches_played": 72, "form": "Steady"},
+                    {"player_id": "p_liam_w", "player_name": "Liam Watt", "current_elo": 2050.0, "peak_elo": 2075.0, "faction": "Fyreslayers", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 71.0, "matches_played": 64, "form": "Steady"},
+                    {"player_id": "p_chris_bo", "player_name": "Chris Bond", "current_elo": 1990.0, "peak_elo": 2010.0, "faction": "Ogor Mawtribes", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 68.0, "matches_played": 58, "form": "Steady"},
+                    {"player_id": "p_dave_g", "player_name": "Dave Grant", "current_elo": 1940.0, "peak_elo": 1960.0, "faction": "Kruleboyz", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 66.0, "matches_played": 50, "form": "Steady"}
+                ],
+                "battlefield_feed": [],
+                "war_room": {"faction_matchups": [], "club_rivalries": []},
+                "trophy_room": [
+                    {"id": "tr-aqr-1", "title": "2025 Blood & Glory Major Champions", "icon": "🏆", "category": "Major GT Title", "awarded_date": "Nov 2025", "significance": "Will Brittain 1st Place overall", "glory_points": 500},
+                    {"id": "tr-aqr-2", "title": "Century Club: 100+ AoS Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2025", "significance": "Over 100 competitive wins under AQR banner", "glory_points": 250},
+                    {"id": "tr-aqr-3", "title": "Charter Foundation", "icon": "📜", "category": "Club Foundation", "awarded_date": "2024", "significance": "Founded in the Realm of Fire", "glory_points": 100}
+                ],
+                "locker_room": {"pinned_message": None, "messages": [], "squad_events": []}
+            },
+            {
+                "id": "team_shyish_deathlords",
+                "name": "Shyish Deathlords",
+                "short_tag": "SDL",
+                "owner_player_id": "p_terry_p",
+                "captain_name": "Terry Pike",
+                "home_venue": "Bad Moon Cafe",
+                "home_city": "London",
+                "home_state": "England",
+                "home_country": "UK",
+                "game_system": "aos",
+                "logo_url": "/assets/badges/badge_tier1_legend.svg",
+                "bio": "Unending legions of death. Master tacticians of the Amethyst Realm and competitive European circuit veterans.",
+                "discord_url": "https://discord.gg/shyishdeathlords",
+                "membership_mode": "open",
+                "created_at": "2024-04-15T00:00:00Z",
+                "total_wins": 115,
+                "total_losses": 50,
+                "total_draws": 1,
+                "roster": [
+                    {"player_id": "p_terry_p", "player_name": "Terry Pike", "current_elo": 2150.0, "peak_elo": 2170.0, "faction": "Soulblight Gravelords", "role": "Captain", "status": "confirmed", "is_active": True, "win_rate": 76.0, "matches_played": 74, "form": "Steady"},
+                    {"player_id": "p_rob_s", "player_name": "Rob Symes", "current_elo": 2080.0, "peak_elo": 2100.0, "faction": "Nighthaunt", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 72.0, "matches_played": 66, "form": "Steady"},
+                    {"player_id": "p_dan_st", "player_name": "Dan Street", "current_elo": 2020.0, "peak_elo": 2040.0, "faction": "Ossiarch Bonereapers", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 69.5, "matches_played": 58, "form": "Steady"},
+                    {"player_id": "p_sam_p", "player_name": "Sam Pearson", "current_elo": 1970.0, "peak_elo": 1990.0, "faction": "Flesh-eater Courts", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 67.0, "matches_played": 52, "form": "Steady"},
+                    {"player_id": "p_ben_j", "player_name": "Ben Johnson", "current_elo": 1920.0, "peak_elo": 1940.0, "faction": "Soulblight Gravelords", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 65.0, "matches_played": 44, "form": "Steady"}
+                ],
+                "battlefield_feed": [],
+                "war_room": {"faction_matchups": [], "club_rivalries": []},
+                "trophy_room": [
+                    {"id": "tr-sdl-1", "title": "2025 Sheffield Slaughter GT Champions", "icon": "🏆", "category": "Major GT Title", "awarded_date": "Oct 2025", "significance": "Terry Pike 1st Place overall", "glory_points": 500},
+                    {"id": "tr-sdl-2", "title": "Century Club: 100+ AoS Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2025", "significance": "100+ sanctioned tournament wins", "glory_points": 250}
+                ],
+                "locker_room": {"pinned_message": None, "messages": [], "squad_events": []}
             }
         ],
         "player_affiliations": {

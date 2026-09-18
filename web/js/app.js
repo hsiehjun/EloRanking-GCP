@@ -185,6 +185,10 @@ function switchGameSystem(sys) {
     if (typeof openEventHubPage === 'function' && typeof currentOpenEventId !== 'undefined' && currentOpenEventId) {
       openEventHubPage(currentOpenEventId, sys);
     }
+  } else if (activeTab === 'teams') {
+    if (typeof loadTeamsView === 'function') {
+      loadTeamsView();
+    }
   }
 
   // If quick player modal is currently active, reload it under the newly selected game system

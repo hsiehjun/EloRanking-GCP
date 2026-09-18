@@ -211,6 +211,48 @@ class TestTeamsHubServiceAndEndpoints(unittest.TestCase):
         self.assertEqual(hub["locker_room"]["pinned_message"]["message"], "Tactical Briefing: ATC 2026 practice at 7 PM sharp!")
         self.assertEqual(hub["locker_room"]["pinned_message"]["sender_name"], "Captain Pin")
 
+    def test_aos_and_40k_game_system_isolation(self):
+        """Verifies strict 100% isolation between 40k and AoS teams and hub directories."""
+        teams_40k = self.service.get_all_teams("40k")
+        teams_aos = self.service.get_all_teams("aos")
+
+        self.assertGreater(len(teams_40k), 0)
+        self.assertGreater(len(teams_aos), 0)
+
+        # 1. Check all 40k teams have game_system == 40k
+        for t in teams_40k:
+            self.assertEqual(t.get("game_system", "40k").lower(), "40k")
+
+        # 2. Check all AoS teams have game_system == aos
+        for t in teams_aos:
+            self.assertEqual(t.get("game_system").lower(), "aos")
+
+        # 3. Check zero ID overlap
+        ids_40k = set(t["id"] for t in teams_40k)
+        ids_aos = set(t["id"] for t in teams_aos)
+        self.assertEqual(len(ids_40k.intersection(ids_aos)), 0)
+
+        # 4. Check AoS leaderboard returns Hammerhal Vanguard as #1
+        lb_aos = self.service.get_teams_leaderboard(game_system="aos", page=1, page_size=10)
+        self.assertIn("teams", lb_aos)
+        self.assertGreater(len(lb_aos["teams"]), 0)
+        self.assertEqual(lb_aos["teams"][0]["game_system"], "aos")
+        self.assertEqual(lb_aos["teams"][0]["name"], "Hammerhal Vanguard")
+
+        # 5. Check 40k leaderboard returns Art of War as #1
+        lb_40k = self.service.get_teams_leaderboard(game_system="40k", page=1, page_size=10)
+        self.assertEqual(lb_40k["teams"][0]["name"], "Art of War")
+        self.assertEqual(lb_40k["teams"][0]["game_system"], "40k")
+
+        # 6. Check AoS hub returns AoS factions and trophies
+        hub_hvg = self.service.get_team_hub("team_hammerhal_vanguard", "aos")
+        self.assertIsNotNone(hub_hvg)
+        self.assertEqual(hub_hvg["short_tag"], "HVG")
+        self.assertEqual(hub_hvg["captain_name"], "Nicolas Tassone")
+        # Ensure AoS roster factions
+        roster_factions = [p["faction"] for p in hub_hvg["roster"]]
+        self.assertIn("Stormcast Eternals", roster_factions)
+
 
 if __name__ == "__main__":
     unittest.main()
