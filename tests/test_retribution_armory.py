@@ -18,9 +18,9 @@ class TestRetributionArmory(unittest.TestCase):
         wings = self.catalog["wings"]
         self.assertIn("dice_forge", wings)
         self.assertIn("profile_forge", wings)
+        self.assertIn("avatars", wings)
         self.assertIn("titles", wings)
-        self.assertIn("reactions", wings)
-        self.assertIn("oracle", wings)
+        self.assertIn("pokes", wings)
 
         items = self.catalog["items"]
         self.assertGreaterEqual(len(items), 12)
@@ -52,9 +52,9 @@ class TestRetributionArmory(unittest.TestCase):
         self.assertIsNone(holofoil_unlocked["prerequisite_reason"])
 
         # Grand Strategist title requires Tier 4+
-        strat_tier3 = next(i for i in cat_tier1["items"] if i["id"] == "title_grand_strategist")
+        strat_tier3 = next(i for i in cat_tier1["items"] if i["id"] == "title_40k_grand_strategist")
         self.assertFalse(strat_tier3["meets_prerequisite"])
-        strat_tier4 = next(i for i in cat_tier4["items"] if i["id"] == "title_grand_strategist")
+        strat_tier4 = next(i for i in cat_tier4["items"] if i["id"] == "title_40k_grand_strategist")
         self.assertTrue(strat_tier4["meets_prerequisite"])
 
     def test_ownership_and_equipped_flags(self):
@@ -62,7 +62,7 @@ class TestRetributionArmory(unittest.TestCase):
         mock_vault = {
             "inventory": {
                 "dice_warpfire_plasma": {"acquired_at": "2026-09-18T00:00:00Z"},
-                "salute_tactical_salute": {"acquired_at": "2026-09-18T00:00:00Z", "quantity": 10}
+                "poke_40k_inquisitor_smite": {"acquired_at": "2026-09-18T00:00:00Z", "quantity": 10}
             },
             "equipped": {
                 "active_dice": "dice_warpfire_plasma",
@@ -79,7 +79,7 @@ class TestRetributionArmory(unittest.TestCase):
         self.assertFalse(unowned["is_owned"])
         self.assertFalse(unowned["is_equipped"])
 
-        consumable = next(i for i in cat["items"] if i["id"] == "salute_tactical_salute")
+        consumable = next(i for i in cat["items"] if i["id"] == "poke_40k_inquisitor_smite")
         self.assertTrue(consumable["is_owned"])
         self.assertEqual(consumable.get("charges_remaining"), 10)
 

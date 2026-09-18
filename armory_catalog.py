@@ -1,55 +1,97 @@
 """OmniTactica Retribution Armory Catalog Registry.
 
-Defines all purchasable items, skins, cosmetic enhancements, match reactions,
-and tournament pick'em passes. Every item is 100% actionable and wired directly
-into OmniTactica's frontend components (Dice Tray, Hero Card, Leaderboard, Scorecard).
+Defines game-specific purchasable items across Warhammer 40,000 and Age of Sigmar:
+- Custom Dice Skins with Critical Burst VFX
+- Profile Card Holo-Foils, Molten Core & Telemetry Auras
+- Faction Sigil Avatars (Space Marines, Chaos, Necrons, Aeldari, Orks, Tyranids, Custodes, Tau, Guard)
+- Authentic Faction Titles & Identity Flairs
+- Player Pokes (Inquisitorial Smite, WAAAGH! Club, Sigmar Zap, Squig Nibble)
+
+All items are 100% functional, game-system isolated, and powered by a unified Glory wallet.
 """
 
 from typing import Dict, List, Any, Optional
 
-# Armory Department / Wing Configurations
-ARMORY_WINGS = {
+# ── Armory Wing Definitions (Per Game System) ──
+ARMORY_WINGS_40K = {
     "dice_forge": {
         "id": "dice_forge",
         "title": "The Dice Forge",
         "icon": "🎲",
-        "subtitle": "Dice Tray Skins & Critical Burst VFX",
-        "description": "Custom die materials, pip illumination, and natural 6 critical burst particle FX in the Live Match Companion."
+        "subtitle": "40K Tournament Dice & Crit 6 Particle VFX",
+        "description": "Custom 40k resin materials, glowing pips, and ionized plasma/magma bursts on natural 6s in the Live Tracker."
     },
     "profile_forge": {
         "id": "profile_forge",
         "title": "Profile Forge",
         "icon": "✨",
         "subtitle": "Holo-Foil Finishes & Card Aura Halos",
-        "description": "Prismatic holo-foil overlays, molten borders, and animated prestige halos for your Hero Card and Public Profile."
+        "description": "Prismatic animated holo-foil sweeps, molten volcanic borders, and neon telemetry grids for your Hero Card."
+    },
+    "avatars": {
+        "id": "avatars",
+        "title": "Faction Sigils",
+        "icon": "👤",
+        "subtitle": "Faction Heraldry & Crest Avatars",
+        "description": "Authentic chapter, legion, dynasty, craftworld, and hive fleet sigils to replace your player avatar across the platform."
     },
     "titles": {
         "id": "titles",
         "title": "Munitorum Titles",
         "icon": "🏷️",
-        "subtitle": "Equippable Player Identity Flairs",
-        "description": "Tactical subtitles displayed beneath your player name on the Global Leaderboards, Tournament Pairings, and Scorecards."
+        "subtitle": "Faction & Mil-Spec Player Subtitles",
+        "description": "Lore-accurate faction honors displayed beneath your username on the Global Leaderboard, Tournament Pairings, and Scorecards."
     },
-    "reactions": {
-        "id": "reactions",
-        "title": "Tactical Salutes",
-        "icon": "🫡",
-        "subtitle": "Live Match Reactions & Spectator Cheers",
-        "description": "Consumable sportsmanship banners and match cheers broadcast across Table 1 during live games and spectator streams."
-    },
-    "oracle": {
-        "id": "oracle",
-        "title": "Tactica Oracle",
-        "icon": "🔮",
-        "subtitle": "Fantasy 40K & GT Tournament Pick'ems",
-        "description": "Wager spendable Glory credits on upcoming Grand Tournaments. Predict podium finishers and dark horses for Glory bounties."
+    "pokes": {
+        "id": "pokes",
+        "title": "Tactical Pokes",
+        "icon": "👉",
+        "subtitle": "Interactive Opponent Pokes & Reactions",
+        "description": "Fun tactical pokes (Inquisitorial Smite, Ork WAAAGH! Club, Nurgle Sneeze) to poke opponents in live matches and profiles."
     }
 }
 
-# Rarity Styling and Color Palette
+ARMORY_WINGS_AOS = {
+    "dice_forge": {
+        "id": "dice_forge",
+        "title": "The Celestial Forge",
+        "icon": "🎲",
+        "subtitle": "Realm Dice & Critical Burst VFX",
+        "description": "Azyrite lightning, Aqshy flame, and Realmstone crystal dice in the Mortal Realms Live Tracker."
+    },
+    "profile_forge": {
+        "id": "profile_forge",
+        "title": "Realmstone Forge",
+        "icon": "✨",
+        "subtitle": "Holo-Foil Finishes & Mortal Realm Auras",
+        "description": "Shyish grave mist, Hysh celestial light, and Ghyran life-energy borders for your Hero Card."
+    },
+    "avatars": {
+        "id": "avatars",
+        "title": "Grand Alliance Sigils",
+        "icon": "👤",
+        "subtitle": "Realm Heraldry & Pantheon Avatars",
+        "description": "Sigmarite, Bloodbound, Skaven, and Gloomspite emblems to adorn your player avatar."
+    },
+    "titles": {
+        "id": "titles",
+        "title": "Realm Titles",
+        "icon": "🏷️",
+        "subtitle": "Grand Alliance Player Subtitles",
+        "description": "Mythic titles from the Eight Realms displayed beneath your username across OmniTactica."
+    },
+    "pokes": {
+        "id": "pokes",
+        "title": "Mortal Realm Pokes",
+        "icon": "👉",
+        "subtitle": "Realm Pokes & Challenges",
+        "description": "Interactive pokes (Sigmarite Zap, Squig Nibble, Khorne Skull Challenge) to send to rivals and clubmates."
+    }
+}
+
 ARMORY_RARITY = {
     "common": {
-        "label": "Standard Requisition",
+        "label": "Standard Issue",
         "color": "#94a3b8",
         "border": "rgba(148, 163, 184, 0.35)",
         "badge_bg": "rgba(148, 163, 184, 0.12)"
@@ -74,11 +116,11 @@ ARMORY_RARITY = {
     }
 }
 
-# ── 12 Fully Actionable Launch Products ──
 ARMORY_ITEMS: List[Dict[str, Any]] = [
-    # ── WING 1: THE DICE FORGE (3 Tray Skins) ──
+    # ── 40K DICE FORGE ──
     {
         "id": "dice_warpfire_plasma",
+        "game_system": "40k",
         "name": "Warpfire Plasma Dice",
         "wing": "dice_forge",
         "slot": "active_dice",
@@ -100,6 +142,7 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
     },
     {
         "id": "dice_molten_magma",
+        "game_system": "40k",
         "name": "Molten Magma Dice",
         "wing": "dice_forge",
         "slot": "active_dice",
@@ -121,6 +164,7 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
     },
     {
         "id": "dice_ceramite_white",
+        "game_system": "40k",
         "name": "Imperial Ceramite Dice",
         "wing": "dice_forge",
         "slot": "active_dice",
@@ -141,9 +185,10 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         }
     },
 
-    # ── WING 2: PROFILE FORGE (3 Card Holo-Foils & Border Halos) ──
+    # ── 40K PROFILE FORGE ──
     {
         "id": "frame_astral_holofoil",
+        "game_system": "40k",
         "name": "Astral Holo-Foil Shimmer",
         "wing": "profile_forge",
         "slot": "active_card_frame",
@@ -152,7 +197,7 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         "is_consumable": False,
         "prerequisite": {"career_crest_tier": 3, "label": "Requires Centurion (Crest Tier 3+)"},
         "icon": "🌈",
-        "description": "Prismatic rainbow holographic foil overlay that refracts ambient light across your Hero Card and Public Profile.",
+        "description": "Prismatic rainbow holographic foil overlay that sweeps across your Hero Card and Public Profile.",
         "payload": {
             "css_class": "frame-astral-holofoil",
             "border_glow": "0 0 25px rgba(168, 85, 247, 0.45)",
@@ -161,6 +206,7 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
     },
     {
         "id": "frame_molten_core",
+        "game_system": "40k",
         "name": "Molten Core Aura",
         "wing": "profile_forge",
         "slot": "active_card_frame",
@@ -178,6 +224,7 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
     },
     {
         "id": "frame_cyber_matrix",
+        "game_system": "40k",
         "name": "Tactica Neon Matrix",
         "wing": "profile_forge",
         "slot": "active_card_frame",
@@ -194,9 +241,141 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         }
     },
 
-    # ── WING 3: MUNITORUM TITLES (4 Equippable Subtitles) ──
+    # ── 40K FACTION SIGIL AVATARS ──
     {
-        "id": "title_bane_of_warp",
+        "id": "avatar_40k_ultramarines",
+        "game_system": "40k",
+        "name": "Ultramarines Chapter Crest",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 200,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🛡️",
+        "description": "The gilded Ultima crest of the XIII Legion. Replaces your player avatar with the proud standard of Macragge.",
+        "payload": {
+            "avatar_icon": "🛡️",
+            "faction": "Adeptus Astartes",
+            "bg_color": "#1e3a8a",
+            "border_color": "#fbbf24"
+        }
+    },
+    {
+        "id": "avatar_40k_world_eaters",
+        "game_system": "40k",
+        "name": "World Eaters Blood Maw",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 200,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🩸",
+        "description": "Brass and crimson jaw of the XII Legion. Blood for the Blood God, Skulls for the Skull Throne.",
+        "payload": {
+            "avatar_icon": "🩸",
+            "faction": "World Eaters",
+            "bg_color": "#7f1d1d",
+            "border_color": "#dc2626"
+        }
+    },
+    {
+        "id": "avatar_40k_necrons",
+        "game_system": "40k",
+        "name": "Necron Triarch Ankh",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 200,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "⏳",
+        "description": "Glowing necrodermis emerald glyph of the Silent King. Replaces avatar with ancient dynastic authority.",
+        "payload": {
+            "avatar_icon": "⏳",
+            "faction": "Necrons",
+            "bg_color": "#064e3b",
+            "border_color": "#34d399"
+        }
+    },
+    {
+        "id": "avatar_40k_orks",
+        "game_system": "40k",
+        "name": "Ork Iron Jaw Banner",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "common",
+        "cost_glory": 150,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "💥",
+        "description": "Serrated metal jaw standard of the great WAAAGH! Loud, brutal, and thoroughly unpainted.",
+        "payload": {
+            "avatar_icon": "💥",
+            "faction": "Orks",
+            "bg_color": "#713f12",
+            "border_color": "#facc15"
+        }
+    },
+    {
+        "id": "avatar_40k_custodes",
+        "game_system": "40k",
+        "name": "Custodes Imperial Aquila",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "epic",
+        "cost_glory": 350,
+        "is_consumable": False,
+        "prerequisite": {"career_crest_tier": 3, "label": "Requires Centurion (Crest Tier 3+)"},
+        "icon": "🦅",
+        "description": "Double-headed eagle shield of the Ten Thousand. Auramite burnish of the Master of Mankind.",
+        "payload": {
+            "avatar_icon": "🦅",
+            "faction": "Adeptus Custodes",
+            "bg_color": "#451a03",
+            "border_color": "#fbbf24"
+        }
+    },
+
+    # ── 40K MUNITORUM TITLES ──
+    {
+        "id": "title_40k_angel_of_death",
+        "game_system": "40k",
+        "name": "Title: Angel of Death",
+        "wing": "titles",
+        "slot": "active_title",
+        "rarity": "rare",
+        "cost_glory": 200,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "⚔️",
+        "description": "Displays 'ANGEL OF DEATH' beneath your username across OmniTactica.",
+        "payload": {
+            "title_text": "Angel of Death",
+            "css_class": "title-badge-astartes"
+        }
+    },
+    {
+        "id": "title_40k_shield_captain",
+        "game_system": "40k",
+        "name": "Title: Shield-Captain",
+        "wing": "titles",
+        "slot": "active_title",
+        "rarity": "epic",
+        "cost_glory": 300,
+        "is_consumable": False,
+        "prerequisite": {"career_crest_tier": 3, "label": "Requires Centurion (Crest Tier 3+)"},
+        "icon": "🦅",
+        "description": "Displays 'SHIELD-CAPTAIN' in royal auramite gold beneath your username.",
+        "payload": {
+            "title_text": "Shield-Captain",
+            "css_class": "title-badge-custodes"
+        }
+    },
+    {
+        "id": "title_40k_bane_of_warp",
+        "game_system": "40k",
         "name": "Title: Bane of the Warp",
         "wing": "titles",
         "slot": "active_title",
@@ -204,32 +383,17 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         "cost_glory": 200,
         "is_consumable": False,
         "prerequisite": None,
-        "icon": "🛡️",
-        "description": "Displays 'BANE OF THE WARP' beneath your username across Leaderboards, Tournament Pairings, and Scorecards.",
+        "icon": "🔮",
+        "description": "Displays 'BANE OF THE WARP' with glowing violet void aura beneath your username.",
         "payload": {
             "title_text": "Bane of the Warp",
             "css_class": "title-badge-warp"
         }
     },
     {
-        "id": "title_forge_father",
-        "name": "Title: Forge Father",
-        "wing": "titles",
-        "slot": "active_title",
-        "rarity": "rare",
-        "cost_glory": 200,
-        "is_consumable": False,
-        "prerequisite": None,
-        "icon": "🔨",
-        "description": "Displays 'FORGE FATHER' beneath your username on your profile and leaderboards.",
-        "payload": {
-            "title_text": "Forge Father",
-            "css_class": "title-badge-forge"
-        }
-    },
-    {
-        "id": "title_grand_strategist",
-        "name": "Title: Grand Strategist",
+        "id": "title_40k_warmaster_chaos",
+        "game_system": "40k",
+        "name": "Title: Warmaster of Chaos",
         "wing": "titles",
         "slot": "active_title",
         "rarity": "epic",
@@ -237,14 +401,66 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         "is_consumable": False,
         "prerequisite": {"career_crest_tier": 4, "label": "Requires Force Commander (Crest Tier 4+)"},
         "icon": "⭐",
-        "description": "Prestigious high-command title awarded to master battlefield commanders.",
+        "description": "Displays 'WARMASTER OF CHAOS' in deep obsidian and blood crimson.",
+        "payload": {
+            "title_text": "Warmaster of Chaos",
+            "css_class": "title-badge-chaos"
+        }
+    },
+    {
+        "id": "title_40k_phaeron_infinite",
+        "game_system": "40k",
+        "name": "Title: Phaeron of the Infinite",
+        "wing": "titles",
+        "slot": "active_title",
+        "rarity": "rare",
+        "cost_glory": 250,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "⏳",
+        "description": "Displays 'PHAERON OF THE INFINITE' in luminous dynastic green.",
+        "payload": {
+            "title_text": "Phaeron of the Infinite",
+            "css_class": "title-badge-necron"
+        }
+    },
+    {
+        "id": "title_40k_waaagh_boss",
+        "game_system": "40k",
+        "name": "Title: Da Biggest Boss",
+        "wing": "titles",
+        "slot": "active_title",
+        "rarity": "rare",
+        "cost_glory": 200,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "💥",
+        "description": "Displays 'DA BIGGEST BOSS' in bold ork glyph styling.",
+        "payload": {
+            "title_text": "Da Biggest Boss",
+            "css_class": "title-badge-ork"
+        }
+    },
+    {
+        "id": "title_40k_grand_strategist",
+        "game_system": "40k",
+        "name": "Title: Grand Strategist",
+        "wing": "titles",
+        "slot": "active_title",
+        "rarity": "epic",
+        "cost_glory": 350,
+        "is_consumable": False,
+        "prerequisite": {"career_crest_tier": 4, "label": "Requires Force Commander (Crest Tier 4+)"},
+        "icon": "🎖️",
+        "description": "Prestigious theater-level title awarded to veteran battlefield commanders.",
         "payload": {
             "title_text": "Grand Strategist",
             "css_class": "title-badge-strategist"
         }
     },
     {
-        "id": "title_unbroken",
+        "id": "title_40k_the_unbroken",
+        "game_system": "40k",
         "name": "Title: The Unbroken",
         "wing": "titles",
         "slot": "active_title",
@@ -253,86 +469,241 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         "is_consumable": False,
         "prerequisite": None,
         "icon": "🗡️",
-        "description": "Displays 'THE UNBROKEN' beneath your username across OmniTactica.",
+        "description": "Displays 'THE UNBROKEN' in stark steel silver.",
         "payload": {
             "title_text": "The Unbroken",
             "css_class": "title-badge-unbroken"
         }
     },
 
-    # ── WING 4: TACTICAL SALUTES (2 Consumable Match Reaction Bundles) ──
+    # ── 40K TACTICAL POKES ──
     {
-        "id": "salute_tactical_salute",
-        "name": "Tactical Salute (5-Pack)",
-        "wing": "reactions",
-        "slot": "consumable_salute",
+        "id": "poke_40k_inquisitor_smite",
+        "game_system": "40k",
+        "name": "Inquisitorial Smite (5-Pack)",
+        "wing": "pokes",
+        "slot": "consumable_poke",
         "rarity": "common",
         "cost_glory": 25,
         "is_consumable": True,
         "bundle_count": 5,
         "prerequisite": None,
-        "icon": "🫡",
-        "description": "Broadcast an animated 🫡 Tactical Salute banner across Table 1 during live matches or spectator streams.",
+        "icon": "⚡",
+        "description": "Poke an opponent or clubmate with an Inquisitorial decree! Broadcasts an animated thunderbolt poke.",
         "payload": {
-            "reaction_type": "salute",
-            "icon": "🫡",
-            "label": "Tactical Salute",
-            "banner_text": "sent a Tactical Salute! 🫡"
+            "poke_type": "smite",
+            "icon": "⚡",
+            "label": "Inquisitorial Smite",
+            "poke_banner": "zapped you with an Inquisitorial Smite! ⚡"
         }
     },
     {
-        "id": "salute_emperor_protects",
-        "name": "The Emperor Protects (5-Pack)",
-        "wing": "reactions",
-        "slot": "consumable_salute",
+        "id": "poke_40k_ork_waaagh",
+        "game_system": "40k",
+        "name": "WAAAGH! Club Poke (5-Pack)",
+        "wing": "pokes",
+        "slot": "consumable_poke",
         "rarity": "common",
         "cost_glory": 25,
         "is_consumable": True,
         "bundle_count": 5,
         "prerequisite": None,
-        "icon": "🛡️",
-        "description": "Send a protective blessing banner 🛡️ celebrating clutch invulnerable saves and round rallies.",
+        "icon": "💥",
+        "description": "OI! Pokes a player with an Ork Choppa clatter: 'GET BACK IN DA FIGHT, YA GIT!'",
         "payload": {
-            "reaction_type": "blessing",
-            "icon": "🛡️",
-            "label": "The Emperor Protects",
-            "banner_text": "declares: The Emperor Protects! 🛡️"
+            "poke_type": "waaagh",
+            "icon": "💥",
+            "label": "WAAAGH! Club Poke",
+            "poke_banner": "poked you with an Ork Choppa! OI! 💥"
+        }
+    },
+    {
+        "id": "poke_40k_commissar_blam",
+        "game_system": "40k",
+        "name": "Commissar's Warning (5-Pack)",
+        "wing": "pokes",
+        "slot": "consumable_poke",
+        "rarity": "common",
+        "cost_glory": 25,
+        "is_consumable": True,
+        "bundle_count": 5,
+        "prerequisite": None,
+        "icon": "🔫",
+        "description": "A stern motivational poke: 'Eyes forward, soldier! The Emperor expects your duty!'",
+        "payload": {
+            "poke_type": "commissar",
+            "icon": "🔫",
+            "label": "Commissar's Warning",
+            "poke_banner": "sent a Commissar's stern warning poke! 🔫"
         }
     },
 
-    # ── WING 5: TACTICA ORACLE (1 Tournament Pick'em Pass) ──
+    # ── AOS DICE FORGE ──
     {
-        "id": "oracle_gt_pickem_pass",
-        "name": "AdeptiCon '26 Oracle Pass",
-        "wing": "oracle",
-        "slot": "tournament_wager",
-        "rarity": "rare",
-        "cost_glory": 50,
-        "is_consumable": True,
-        "bundle_count": 1,
+        "id": "dice_aos_azyr_lightning",
+        "game_system": "aos",
+        "name": "Azyrite Celestial Dice",
+        "wing": "dice_forge",
+        "slot": "active_dice",
+        "rarity": "epic",
+        "cost_glory": 450,
+        "is_consumable": False,
         "prerequisite": None,
-        "icon": "🔮",
-        "description": "Tournament Pick'em entry ticket for the active Grand Tournament. Predict Podium & Top Factions for a 500 Glory Bounty.",
+        "icon": "⚡",
+        "description": "Forged in Sigmaron from celestial starlight. Natural 6s trigger an Azyrite thunder strike.",
         "payload": {
-            "type": "pickem_ticket",
-            "target_event_id": "ev_ongoing_gt_live",
-            "event_name": "Warhammer 40k US Open Series 2026",
-            "bounty_glory": 500
+            "theme": "azyr_lightning",
+            "die_bg": "radial-gradient(circle at 30% 30%, #38bdf8 0%, #0369a1 85%, #082f49 100%)",
+            "pip_color": "#fef08a",
+            "pip_glow": "0 0 6px rgba(56, 189, 248, 0.9)",
+            "crit_effect": "lightning_blast",
+            "crit_color": "#38bdf8",
+            "roll_sound": "thunder_strike"
+        }
+    },
+
+    # ── AOS PROFILE FORGE ──
+    {
+        "id": "frame_aos_shyish_grave",
+        "game_system": "aos",
+        "name": "Shyish Grave Mist Aura",
+        "wing": "profile_forge",
+        "slot": "active_card_frame",
+        "rarity": "epic",
+        "cost_glory": 450,
+        "is_consumable": False,
+        "prerequisite": {"career_crest_tier": 3, "label": "Requires Centurion (Crest Tier 3+)"},
+        "icon": "👻",
+        "description": "Spectral ethereal mist of the Underworlds surrounding your profile card border.",
+        "payload": {
+            "css_class": "frame-shyish-grave",
+            "border_glow": "0 0 25px rgba(45, 212, 191, 0.5)",
+            "border_color": "#2dd4bf"
+        }
+    },
+
+    # ── AOS FACTION SIGIL AVATARS ──
+    {
+        "id": "avatar_aos_stormcast",
+        "game_system": "aos",
+        "name": "Stormcast Sigmarite Hammer",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 200,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🔨",
+        "description": "The sacred Ghal Maraz warhammer crest of the God-King Sigmar.",
+        "payload": {
+            "avatar_icon": "🔨",
+            "faction": "Stormcast Eternals",
+            "bg_color": "#1e3a8a",
+            "border_color": "#fbbf24"
+        }
+    },
+    {
+        "id": "avatar_aos_gloomspite",
+        "game_system": "aos",
+        "name": "Bad Moon of the Gitz",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "common",
+        "cost_glory": 150,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🌙",
+        "description": "The sinister cackling grin of the Clammy Hand Bad Moon.",
+        "payload": {
+            "avatar_icon": "🌙",
+            "faction": "Gloomspite Gitz",
+            "bg_color": "#3f3f46",
+            "border_color": "#eab308"
+        }
+    },
+
+    # ── AOS REALM TITLES ──
+    {
+        "id": "title_aos_lord_celestant",
+        "game_system": "aos",
+        "name": "Title: Lord-Celestant",
+        "wing": "titles",
+        "slot": "active_title",
+        "rarity": "rare",
+        "cost_glory": 250,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "⚡",
+        "description": "Displays 'LORD-CELESTANT' beneath your username across the Mortal Realms.",
+        "payload": {
+            "title_text": "Lord-Celestant",
+            "css_class": "title-badge-stormcast"
+        }
+    },
+
+    # ── AOS POKES ──
+    {
+        "id": "poke_aos_sigmar_zap",
+        "game_system": "aos",
+        "name": "Azyrite Lightning Zap (5-Pack)",
+        "wing": "pokes",
+        "slot": "consumable_poke",
+        "rarity": "common",
+        "cost_glory": 25,
+        "is_consumable": True,
+        "bundle_count": 5,
+        "prerequisite": None,
+        "icon": "⚡",
+        "description": "Zap a rival player with Azyrite celestial lightning!",
+        "payload": {
+            "poke_type": "lightning",
+            "icon": "⚡",
+            "label": "Azyrite Zap",
+            "poke_banner": "zapped you with Azyrite celestial lightning! ⚡"
+        }
+    },
+    {
+        "id": "poke_aos_squig_bite",
+        "game_system": "aos",
+        "name": "Squig Nibble (5-Pack)",
+        "wing": "pokes",
+        "slot": "consumable_poke",
+        "rarity": "common",
+        "cost_glory": 25,
+        "is_consumable": True,
+        "bundle_count": 5,
+        "prerequisite": None,
+        "icon": "🍄",
+        "description": "Send a hungry cave squig to give your opponent a friendly nibble!",
+        "payload": {
+            "poke_type": "squig",
+            "icon": "🍄",
+            "label": "Squig Nibble",
+            "poke_banner": "sent a wild cave squig to nibble you! 🍄"
         }
     }
 ]
 
-# Quick Map for O(1) Catalog Lookups
 ARMORY_INDEX: Dict[str, Dict[str, Any]] = {item["id"]: item for item in ARMORY_ITEMS}
 
-def get_armory_catalog(user_vault: Optional[Dict[str, Any]] = None, user_crest_tier: int = 1) -> Dict[str, Any]:
-    """Returns the full Armory catalog with user ownership flags, equipped status, and affordability."""
+def get_armory_catalog(user_vault: Optional[Dict[str, Any]] = None, user_crest_tier: int = 1, game_system: str = "40k") -> Dict[str, Any]:
+    """Returns the game-specific Armory catalog (40k or aos) with user ownership and equipped status."""
+    gs = str(game_system or "40k").lower().strip()
+    if gs not in ("40k", "aos"):
+        gs = "40k"
+
     vault = user_vault or {"inventory": {}, "equipped": {}}
     inventory = vault.get("inventory") or {}
     equipped = vault.get("equipped") or {}
 
+    wings = ARMORY_WINGS_AOS if gs == "aos" else ARMORY_WINGS_40K
+
     items_output = []
     for item in ARMORY_ITEMS:
+        item_sys = item.get("game_system")
+        if item_sys and item_sys != gs and item_sys != "universal":
+            continue
+
         item_id = item["id"]
         is_owned = item_id in inventory
         is_equipped = False
@@ -340,7 +711,6 @@ def get_armory_catalog(user_vault: Optional[Dict[str, Any]] = None, user_crest_t
         if slot and equipped.get(slot) == item_id:
             is_equipped = True
 
-        # Check prerequisite
         prereq = item.get("prerequisite")
         meets_prereq = True
         prereq_reason = None
@@ -361,7 +731,8 @@ def get_armory_catalog(user_vault: Optional[Dict[str, Any]] = None, user_crest_t
         items_output.append(item_copy)
 
     return {
-        "wings": ARMORY_WINGS,
+        "game_system": gs,
+        "wings": wings,
         "rarity_config": ARMORY_RARITY,
         "items": items_output,
         "total_items": len(items_output)
