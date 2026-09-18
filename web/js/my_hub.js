@@ -2939,29 +2939,41 @@ function renderNativeRosterViewer(list, options = {}) {
       .replace(/<span class=["']?tooltip[^"']*["']?>\s*([^<]+?)\s*<\/span>/gi, '$1')
       .replace(/<a [^>]*>([^<]+)<\/a>/gi, '$1');
     formatted = formatted.replace(/<\/?(script|iframe|object|embed|style|form|input|button)[^>]*>/gi, '');
+
+    // Normalize Wahapedia tables: strip inline widths and wrap in responsive horizontal scrolling container
+    if (formatted.includes('<table')) {
+      formatted = formatted.replace(/<table\b([^>]*)>/gi, (match, attrs) => {
+        const cleanedAttrs = (attrs || '')
+          .replace(/\b(?:width|height)\s*=\s*["'][^"']*?["']/gi, '')
+          .replace(/\bstyle\s*=\s*["'][^"']*?(?:width|min-width|max-width)[^"']*?["']/gi, '');
+        return `<div class="waha-table-wrap"><table class="waha-responsive-table" ${cleanedAttrs}>`;
+      });
+      formatted = formatted.replace(/<\/table>/gi, '</table></div>');
+    }
+
     return formatted;
   }
 
-  let contentHtml = `<div style="display:flex; flex-direction:column; gap:1.25rem; padding:1.25rem; overflow-y:auto; flex:1; background:#070b14;">`;
+  let contentHtml = `<div class="roster-viewer-body" style="display:flex; flex-direction:column; gap:1.25rem; padding:1.25rem; overflow-y:auto; flex:1; background:#070b14; width:100%; box-sizing:border-box;">`;
 
   // 1. Army & Detachment Rules Banner
   if (armyRules.length > 0 || detachmentRules.length > 0) {
     contentHtml += `
-      <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(56, 189, 248, 0.25); border-radius:12px; padding:12px 16px;">
+      <div class="roster-rules-card" style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(56, 189, 248, 0.25); border-radius:12px; padding:12px 14px; width:100%; box-sizing:border-box;">
         <div style="font-size:13px; font-weight:800; color:#38bdf8; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
           <span>📜</span> Army & Detachment Rules
         </div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:10px;">
+        <div class="roster-rules-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap:10px; width:100%; box-sizing:border-box;">
           ${armyRules.map(ar => `
-            <div style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px;">
-              <div style="font-weight:800; font-size:13px; color:#f8fafc; margin-bottom:4px;">🛡️ ${escapeHtml(ar.name)}</div>
-              <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${formatWahaText(ar.description || '')}</div>
+            <div class="roster-rule-item" style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px 12px; min-width:0; width:100%; box-sizing:border-box; overflow:hidden;">
+              <div style="font-weight:800; font-size:13px; color:#f8fafc; margin-bottom:6px; display:flex; align-items:center; gap:6px;">🛡️ ${escapeHtml(ar.name)}</div>
+              <div class="waha-rich-text">${formatWahaText(ar.description || '')}</div>
             </div>
           `).join('')}
           ${detachmentRules.map(dr => `
-            <div style="background:#070b14; border:1px solid rgba(192,132,252,0.25); border-radius:8px; padding:10px;">
-              <div style="font-weight:800; font-size:13px; color:#c084fc; margin-bottom:4px;">⚡ ${escapeHtml(dr.name)}</div>
-              <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${formatWahaText(dr.description || '')}</div>
+            <div class="roster-rule-item" style="background:#070b14; border:1px solid rgba(192,132,252,0.25); border-radius:8px; padding:10px 12px; min-width:0; width:100%; box-sizing:border-box; overflow:hidden;">
+              <div style="font-weight:800; font-size:13px; color:#c084fc; margin-bottom:6px; display:flex; align-items:center; gap:6px;">⚡ ${escapeHtml(dr.name)}</div>
+              <div class="waha-rich-text">${formatWahaText(dr.description || '')}</div>
             </div>
           `).join('')}
         </div>
@@ -2972,23 +2984,23 @@ function renderNativeRosterViewer(list, options = {}) {
   // 2. Detachment Stratagems Banner
   if (stratagems.length > 0) {
     contentHtml += `
-      <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(239, 68, 68, 0.25); border-radius:12px; padding:12px 16px;">
+      <div class="roster-stratagems-card" style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(239, 68, 68, 0.25); border-radius:12px; padding:12px 14px; width:100%; box-sizing:border-box;">
         <div style="font-size:13px; font-weight:800; color:#f87171; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
           <span>⚔️</span> Detachment Stratagems <span style="font-size:11px; color:#94a3b8; font-weight:normal;">(${stratagems.length})</span>
         </div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:10px;">
+        <div class="roster-stratagems-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap:10px; width:100%; box-sizing:border-box;">
           ${stratagems.map(st => `
-            <div style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:6px;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <b style="font-size:12px; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(st.name)}</b>
-                <span class="badge" style="background:rgba(239,68,68,0.2); color:#ef4444; font-size:10px; font-weight:800; border:1px solid rgba(239,68,68,0.4); padding:1px 5px;">${escapeHtml(st.cp_cost || '1 CP')}</span>
+            <div class="roster-stratagem-item" style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; gap:6px; min-width:0; width:100%; box-sizing:border-box; overflow:hidden;">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                <b style="font-size:12px; color:#fff; font-family:'JetBrains Mono',monospace; overflow-wrap:break-word; word-break:break-word;">${escapeHtml(st.name)}</b>
+                <span class="badge" style="background:rgba(239,68,68,0.2); color:#ef4444; font-size:10px; font-weight:800; border:1px solid rgba(239,68,68,0.4); padding:1px 5px; flex-shrink:0;">${escapeHtml(st.cp_cost || '1 CP')}</span>
               </div>
               <div style="display:flex; flex-wrap:wrap; gap:4px; font-size:9.5px;">
                 ${st.type ? `<span style="color:#38bdf8; background:rgba(56,189,248,0.1); padding:1px 4px; border-radius:3px;">${escapeHtml(st.type)}</span>` : ''}
                 ${st.phase ? `<span style="color:#facc15; background:rgba(250,204,21,0.1); padding:1px 4px; border-radius:3px;">🕒 ${escapeHtml(st.phase)}</span>` : ''}
                 ${st.turn ? `<span style="color:#a855f7; background:rgba(168,85,247,0.1); padding:1px 4px; border-radius:3px;">${escapeHtml(st.turn)}</span>` : ''}
               </div>
-              <div style="font-size:11px; color:#94a3b8; line-height:1.4; white-space:pre-wrap;">${formatWahaText(st.description || '')}</div>
+              <div class="waha-rich-text">${formatWahaText(st.description || '')}</div>
             </div>
           `).join('')}
         </div>
@@ -3070,7 +3082,7 @@ function renderNativeRosterViewer(list, options = {}) {
           <div style="font-size:0.85rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; margin-bottom:0.6rem; display:flex; align-items:center; gap:0.4rem;">
             <span>${catIcon}</span> ${catName} <span style="font-size:0.75rem; color:#64748b; font-weight:normal;">(${totalUnitsInCat})</span>
           </div>
-          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(290px, 1fr)); gap:0.85rem;">
+          <div class="roster-units-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap:0.85rem; width:100%; box-sizing:border-box;">
             ${catUnits.map(u => {
               const uName = u.name || 'Unit';
               const uPts = u.unitPoints || u.points || 0;
@@ -3088,7 +3100,7 @@ function renderNativeRosterViewer(list, options = {}) {
               const enhCost = enhDetail.cost || enhDetail.points || (u.enhancement_pts ? `+${u.enhancement_pts} pts` : '');
 
               return `
-                <div class="gt-unit-card" style="background:rgba(15, 23, 42, 0.9); border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.45)' : (enhName ? 'rgba(192,132,252,0.4)' : 'rgba(255,255,255,0.08)')}; border-radius:12px; padding:0.9rem; display:flex; flex-direction:column; gap:0.65rem; transition:all 0.2s;">
+                <div class="gt-unit-card" style="background:rgba(15, 23, 42, 0.9); border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.45)' : (enhName ? 'rgba(192,132,252,0.4)' : 'rgba(255,255,255,0.08)')}; border-radius:12px; padding:0.85rem; display:flex; flex-direction:column; gap:0.65rem; transition:all 0.2s; min-width:0; width:100%; box-sizing:border-box; overflow:hidden;">
                   <!-- Top Row: Unit Name & Points -->
                   <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.4rem;">
                     <div style="min-width:0; flex:1;">
@@ -3096,10 +3108,10 @@ function renderNativeRosterViewer(list, options = {}) {
                         ${uQty > 1 ? `
                           <span class="badge" style="background:#0284c7; color:#fff; font-size:0.75rem; font-weight:800; padding:1px 6px; border-radius:4px; font-family:var(--font-mono);">${uQty}x</span>
                         ` : (uCount > 1 ? `<span style="font-size:0.8rem; font-weight:800; color:#38bdf8; font-family:var(--font-mono);">${uCount}x</span>` : '')}
-                        <b style="font-size:0.96rem; color:#fff; font-family:var(--font-mono);">${escapeHtml(uName)}</b>
-                        ${u.is_warlord ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; font-size:0.65rem; font-weight:800; border:1px solid rgba(245,158,11,0.4); padding:0.1rem 0.35rem;">👑 WARLORD</span>' : ''}
+                        <b style="font-size:0.95rem; color:#fff; font-family:var(--font-mono); overflow-wrap:break-word; word-break:break-word;">${escapeHtml(uName)}</b>
+                        ${u.is_warlord ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; font-size:0.65rem; font-weight:800; border:1px solid rgba(245,158,11,0.4); padding:0.1rem 0.35rem; white-space:nowrap;">👑 WARLORD</span>' : ''}
                       </div>
-                      ${enhName ? `<div style="font-size:0.75rem; color:#c084fc; font-weight:700; margin-top:0.2rem;">✨ ${escapeHtml(enhName)} ${enhCost ? `(${escapeHtml(String(enhCost))})` : ''}</div>` : ''}
+                      ${enhName ? `<div style="font-size:0.75rem; color:#c084fc; font-weight:700; margin-top:0.2rem; overflow-wrap:break-word;">✨ ${escapeHtml(enhName)} ${enhCost ? `(${escapeHtml(String(enhCost))})` : ''}</div>` : ''}
                       ${(u.keywords && u.keywords.length > 0) ? `
                         <div style="display:flex; flex-wrap:wrap; gap:3px; margin-top:4px;">
                           ${u.keywords.map(k => `<span style="font-size:0.62rem; color:#94a3b8; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); padding:0px 5px; border-radius:3px;">${escapeHtml(k)}</span>`).join('')}
@@ -3114,7 +3126,7 @@ function renderNativeRosterViewer(list, options = {}) {
                   </div>
 
                   <!-- Tactical Statline Bar -->
-                  <div style="display:grid; grid-template-columns:repeat(7, 1fr); background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.4rem 0.15rem; text-align:center; font-family:var(--font-mono);">
+                  <div style="display:grid; grid-template-columns:repeat(7, 1fr); background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.4rem 0.15rem; text-align:center; font-family:var(--font-mono); width:100%; box-sizing:border-box;">
                     <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">M</div><div style="font-size:0.8rem; color:#fff; font-weight:800;">${stats.M || '6"'}</div></div>
                     <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">T</div><div style="font-size:0.8rem; color:#fff; font-weight:800;">${stats.T || 4}</div></div>
                     <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">SV</div><div style="font-size:0.8rem; color:#fff; font-weight:800;">${stats.SV || '3+'}</div></div>
@@ -3126,7 +3138,7 @@ function renderNativeRosterViewer(list, options = {}) {
 
                   <!-- Weapons Table (Mobile Responsive) -->
                   ${weapons.length > 0 ? `
-                    <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; overflow-x:auto; -webkit-overflow-scrolling:touch;">
+                    <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; overflow-x:auto; -webkit-overflow-scrolling:touch; width:100%; box-sizing:border-box;">
                       <div style="min-width:320px;">
                         <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:4px 8px; background:rgba(255,255,255,0.04); font-size:0.62rem; font-weight:800; color:#94a3b8; font-family:var(--font-mono); text-transform:uppercase;">
                           <div>Weapon</div><div style="text-align:center;">Rng</div><div style="text-align:center;">A</div><div style="text-align:center;">BS/WS</div><div style="text-align:center;">S</div><div style="text-align:center;">AP</div><div style="text-align:center;">D</div>
@@ -3157,22 +3169,22 @@ function renderNativeRosterViewer(list, options = {}) {
 
                   <!-- Abilities, Enhancement Details & Rules -->
                   ${(abilities.length > 0 || rules.length > 0 || enhName) ? `
-                    <div style="display:flex; flex-direction:column; gap:4px;">
+                    <div style="display:flex; flex-direction:column; gap:4px; width:100%; box-sizing:border-box;">
                       ${rules.length > 0 ? `
                         <div style="display:flex; flex-wrap:wrap; gap:4px;">
                           ${rules.map(r => `<span style="font-size:0.62rem; font-weight:800; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.2); padding:1px 5px; border-radius:4px;">${escapeHtml(r.name)}</span>`).join('')}
                         </div>
                       ` : ''}
                       ${enhName ? `
-                        <div style="background:rgba(192,132,252,0.12); border:1px solid rgba(192,132,252,0.3); border-radius:6px; padding:6px 8px; font-size:0.7rem;">
+                        <div style="background:rgba(192,132,252,0.12); border:1px solid rgba(192,132,252,0.3); border-radius:6px; padding:6px 8px; font-size:0.7rem; min-width:0; width:100%; box-sizing:border-box;">
                           <b style="color:#c084fc; font-size:0.72rem;">✨ Enhancement: ${escapeHtml(enhName)} ${enhCost ? `(${escapeHtml(String(enhCost))})` : ''}:</b>
-                          ${enhDesc ? `<div style="color:#e2e8f0; line-height:1.35; margin-top:2px;">${formatWahaText(enhDesc)}</div>` : '<div style="color:#94a3b8; font-style:italic; margin-top:2px;">Detachment enhancement assigned to this character</div>'}
+                          ${enhDesc ? `<div class="waha-rich-text" style="color:#e2e8f0; margin-top:2px;">${formatWahaText(enhDesc)}</div>` : '<div style="color:#94a3b8; font-style:italic; margin-top:2px;">Detachment enhancement assigned to this character</div>'}
                         </div>
                       ` : ''}
                       ${abilities.map(ab => `
-                        <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:5px 7px; font-size:0.7rem;">
+                        <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:6px 8px; font-size:0.7rem; min-width:0; width:100%; box-sizing:border-box;">
                           <b style="color:#facc15; font-size:0.72rem;">${escapeHtml(ab.name)}:</b>
-                          <div style="color:#cbd5e1; line-height:1.35; margin-top:2px;">${formatWahaText(ab.description)}</div>
+                          <div class="waha-rich-text" style="margin-top:2px;">${formatWahaText(ab.description)}</div>
                         </div>
                       `).join('')}
                     </div>
@@ -3317,35 +3329,39 @@ async function openViewArmyListModal(listId, mode = null) {
   const bodyHtml = renderNativeRosterViewer(list, { mode: activeMode });
 
   modal.innerHTML = `
-    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:1100px; height:88vh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc; box-shadow:0 30px 80px rgba(0,0,0,0.9);">
+    <div class="modal-window hub-armylist-modal-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:1100px; height:88vh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc; box-shadow:0 30px 80px rgba(0,0,0,0.9);">
       <!-- Header -->
-      <div style="padding:12px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-        <div>
-          <div style="font-size:17px; font-weight:900; color:#fff; font-family:var(--font-mono);">${escapeHtml(list.name || 'Army Roster')}</div>
-          <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-top:2px;">
-            ${escapeHtml(list.faction || '40k')} • <span style="color:#a855f7;">${escapeHtml(list.detachment || 'Core Detachment')}</span> • <span style="color:#f59e0b;">${list.points || 2000} PTS</span>
-            ${warlord ? ` • <span style="color:#facc15;">👑 ${escapeHtml(warlord)}</span>` : ''}
+      <div class="modal-header hub-armylist-modal-header" style="padding:12px 18px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; flex-direction:column; gap:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; width:100%; gap:10px;">
+          <div style="min-width:0; flex:1;">
+            <div style="font-size:16px; font-weight:900; color:#fff; font-family:var(--font-mono); line-height:1.3; overflow-wrap:break-word; word-break:break-word;">${escapeHtml(list.name || 'Army Roster')}</div>
+            <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-top:2px; line-height:1.35; overflow-wrap:break-word; word-break:break-word;">
+              ${escapeHtml(list.faction || '40k')} • <span style="color:#a855f7;">${escapeHtml(list.detachment || 'Core Detachment')}</span> • <span style="color:#f59e0b;">${list.points || 2000} PTS</span>
+              ${warlord ? ` • <span style="color:#facc15;">👑 ${escapeHtml(warlord)}</span>` : ''}
+            </div>
           </div>
+          <button onclick="closeViewArmyListModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:#94a3b8; font-size:18px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all 0.15s ease;">✕</button>
         </div>
 
-        <!-- Mode Toggle Segmented Control -->
-        <div style="display:flex; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:3px; gap:4px;">
-          <button onclick="setHubRosterViewMode('enriched', '${list.id}')" style="background:${activeMode==='enriched'?'#0284c7':'transparent'}; color:${activeMode==='enriched'?'#fff':'#94a3b8'}; border:none; padding:5px 12px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:5px;">
-            ⚡ Enriched Datasheets
-          </button>
-          <button onclick="setHubRosterViewMode('text', '${list.id}')" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:5px 12px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:5px;">
-            📄 Raw Roster Text
-          </button>
-        </div>
+        <div class="hub-armylist-controls-row" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; width:100%;">
+          <!-- Mode Toggle Segmented Control -->
+          <div style="display:flex; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:3px; gap:4px; flex:1; min-width:240px; box-sizing:border-box;">
+            <button onclick="setHubRosterViewMode('enriched', '${list.id}')" style="flex:1; background:${activeMode==='enriched'?'#0284c7':'transparent'}; color:${activeMode==='enriched'?'#fff':'#94a3b8'}; border:none; padding:6px 12px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; text-align:center;">
+              ⚡ Enriched Datasheets
+            </button>
+            <button onclick="setHubRosterViewMode('text', '${list.id}')" style="flex:1; background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:6px 12px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; text-align:center;">
+              📄 Raw Roster Text
+            </button>
+          </div>
 
-        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          <button onclick="launchTrackerWithList('${list.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:6px 14px; border-radius:6px; cursor:pointer;">
-            ⚔️ Play in Tracker
-          </button>
-          <button onclick="deleteHubArmyList('${list.id}', true)" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); font-weight:800; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;">
-            🗑️ Delete
-          </button>
-          <button onclick="closeViewArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer; padding:4px 8px;">✕</button>
+          <div class="hub-armylist-actions" style="display:flex; align-items:center; gap:8px;">
+            <button onclick="launchTrackerWithList('${list.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:6px 14px; border-radius:6px; cursor:pointer;">
+              ⚔️ Play in Tracker
+            </button>
+            <button onclick="deleteHubArmyList('${list.id}', true)" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); font-weight:800; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;">
+              🗑️ Delete
+            </button>
+          </div>
         </div>
       </div>
 

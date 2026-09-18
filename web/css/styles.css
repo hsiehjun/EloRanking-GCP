@@ -11208,7 +11208,8 @@ body.is-authenticated #floating-chat-widget {
 /* ==========================================================================
    Tournament Competitor Army List Modal & Wahapedia Enrichment
    ========================================================================== */
-#event-army-list-modal .modal-window {
+#event-army-list-modal .modal-window,
+#hub-view-armylist-modal .modal-window {
   max-width: 980px;
   width: 95%;
   max-height: 90vh;
@@ -11219,6 +11220,7 @@ body.is-authenticated #floating-chat-widget {
   border-radius: 16px;
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.9), 0 0 24px rgba(56, 189, 248, 0.12);
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 #btn-army-list-mode-text {
@@ -11226,6 +11228,7 @@ body.is-authenticated #floating-chat-widget {
   color: #94a3b8;
   border: none;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 #btn-army-list-mode-text.active {
@@ -11239,6 +11242,7 @@ body.is-authenticated #floating-chat-widget {
   color: #38bdf8;
   border: none;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 #btn-army-list-mode-enriched.active {
@@ -11249,6 +11253,7 @@ body.is-authenticated #floating-chat-widget {
 
 .gt-unit-card {
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  box-sizing: border-box;
 }
 
 .gt-unit-card:hover {
@@ -11256,21 +11261,140 @@ body.is-authenticated #floating-chat-widget {
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
 }
 
+/* Wahapedia Rich Text & Content Styling */
+.waha-rich-text {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.waha-rich-text p {
+  margin: 0 0 0.5rem 0;
+}
+
+.waha-rich-text p:last-child {
+  margin-bottom: 0;
+}
+
+.waha-rich-text ul {
+  margin: 0.4rem 0 0.55rem 0;
+  padding-left: 1.25rem;
+}
+
+.waha-rich-text li {
+  margin-bottom: 0.25rem;
+  line-height: 1.45;
+  color: #cbd5e1;
+}
+
+/* Wahapedia Responsive Table Scroll Container */
+.waha-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0.65rem 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(15, 23, 42, 0.75);
+  box-sizing: border-box;
+}
+
+.waha-table-wrap::-webkit-scrollbar {
+  height: 5px;
+}
+
+.waha-table-wrap::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.waha-table-wrap::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.3);
+  border-radius: 4px;
+}
+
+.waha-table-wrap table,
+.waha-responsive-table,
+.event-army-list-window table,
+#hub-view-armylist-modal table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: #e2e8f0;
+  box-sizing: border-box;
+}
+
+.waha-table-wrap th,
+.waha-responsive-table th,
+.event-army-list-window th,
+#hub-view-armylist-modal th {
+  background: rgba(30, 41, 59, 0.95);
+  color: #38bdf8;
+  font-weight: 800;
+  font-size: 0.72rem;
+  padding: 0.48rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.waha-table-wrap td,
+.waha-responsive-table td,
+.event-army-list-window td,
+#hub-view-armylist-modal td {
+  padding: 0.42rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  vertical-align: middle;
+  color: #cbd5e1;
+  font-size: 0.73rem;
+}
+
+.waha-table-wrap tr:nth-child(even) td,
+.waha-responsive-table tr:nth-child(even) td,
+.event-army-list-window tr:nth-child(even) td,
+#hub-view-armylist-modal tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.waha-table-wrap td:first-child,
+.waha-responsive-table td:first-child {
+  font-weight: 700;
+  color: #f8fafc;
+  max-width: 140px;
+  min-width: 95px;
+  white-space: normal !important;
+  word-break: break-word;
+  line-height: 1.3;
+}
+
+/* Mobile & Tablet Responsiveness for Army List Modals */
 @media (max-width: 768px) {
-  #event-army-list-modal.modal-backdrop {
+  #event-army-list-modal.modal-backdrop,
+  #hub-view-armylist-modal {
     align-items: flex-end !important;
     padding: 0 !important;
   }
-  #event-army-list-modal .modal-window {
+  
+  #event-army-list-modal .modal-window,
+  #hub-view-armylist-modal .modal-window,
+  .hub-armylist-modal-window {
     width: 100% !important;
     max-width: 100% !important;
-    max-height: 90dvh !important;
+    max-height: 92dvh !important;
     margin: 0 auto !important;
     border-radius: 20px 20px 0 0 !important;
     border-bottom: none !important;
-    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.7) !important;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.8) !important;
   }
-  #event-army-list-modal .modal-window::before {
+  
+  #event-army-list-modal .modal-window::before,
+  #hub-view-armylist-modal .modal-window::before,
+  .hub-armylist-modal-window::before {
     content: "" !important;
     display: block !important;
     width: 42px !important;
@@ -11279,29 +11403,126 @@ body.is-authenticated #floating-chat-widget {
     background: rgba(148, 163, 184, 0.4) !important;
     margin: 8px auto 4px auto !important;
   }
-  #event-army-list-mode-toggle {
-    width: 100%;
-    justify-content: center;
-    margin-top: 0.35rem;
+  
+  .roster-viewer-body {
+    padding: 0.75rem 0.65rem !important;
+    gap: 0.85rem !important;
   }
+
+  .roster-rules-card,
+  .roster-stratagems-card {
+    padding: 0.8rem !important;
+    border-radius: 10px !important;
+  }
+
+  .roster-rules-grid,
+  .roster-stratagems-grid,
+  .roster-units-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.65rem !important;
+  }
+
+  .gt-unit-card {
+    padding: 0.75rem !important;
+    border-radius: 10px !important;
+  }
+
+  #event-army-list-mode-toggle {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+    margin-top: 0.15rem !important;
+    box-sizing: border-box !important;
+  }
+  
   #event-army-list-mode-toggle button {
-    flex: 1;
-    text-align: center;
-    padding: 0.35rem 0.5rem !important;
+    flex: 1 !important;
+    text-align: center !important;
+    padding: 0.42rem 0.5rem !important;
+    font-size: 0.76rem !important;
+    white-space: nowrap !important;
+  }
+
+  #event-army-list-modal .modal-footer {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.5rem !important;
+    padding: 0.65rem 0.85rem !important;
+    background: rgba(15, 23, 42, 0.96) !important;
+  }
+
+  #event-army-list-modal .modal-footer > * {
+    width: 100% !important;
+  }
+
+  #event-army-list-modal .event-army-list-footer-actions {
+    display: flex !important;
+    width: 100% !important;
+    gap: 0.45rem !important;
+  }
+
+  #event-army-list-modal .modal-footer button,
+  #event-army-list-modal .modal-footer a {
+    flex: 1 !important;
+    text-align: center !important;
+    justify-content: center !important;
+    padding: 0.55rem 0.75rem !important;
+    font-size: 0.8rem !important;
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
+  }
+
+  .hub-armylist-modal-header {
+    padding: 10px 14px !important;
+  }
+
+  .hub-armylist-controls-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+
+  .hub-armylist-controls-row > div {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .hub-armylist-actions {
+    display: flex !important;
+    width: 100% !important;
+    gap: 6px !important;
+  }
+
+  .hub-armylist-actions button {
+    flex: 1 !important;
+    text-align: center !important;
+    justify-content: center !important;
+    padding: 0.55rem 0.65rem !important;
   }
 }
 
 @media (max-width: 480px) {
   #event-army-list-modal .modal-header {
-    padding: 0.75rem 1rem !important;
+    padding: 0.75rem 0.85rem !important;
   }
-  #event-army-list-modal .modal-footer {
-    padding: 0.65rem 1rem !important;
-  }
+  
   #event-army-list-modal-title {
-    font-size: 0.95rem !important;
+    font-size: 0.96rem !important;
+    line-height: 1.25 !important;
   }
+  
   #event-army-list-modal-subtitle {
+    font-size: 0.72rem !important;
+    line-height: 1.3 !important;
+  }
+
+  .waha-rich-text {
+    font-size: 0.75rem !important;
+  }
+
+  .waha-table-wrap table,
+  .waha-responsive-table {
     font-size: 0.72rem !important;
   }
 }
