@@ -1131,6 +1131,15 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             except Exception:
                 payload = {}
 
+            if clean_path == "api/armory/reset":
+                DEV_USER["armory_vault"] = {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}}
+                DEV_USER["glory_spent"] = 0
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "message": "Armory vault reset to clean slate"}).encode("utf-8"))
+                return
+
             if clean_path == "api/armory/purchase":
                 import armory_catalog
                 item_id = (payload.get("item_id") or "").strip()
@@ -1145,7 +1154,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}})
                 inv = v.setdefault("inventory", {})
                 cost = item.get("cost_glory", 0)
-                total_earned = 1845
+                total_earned = 5000
                 spent = int(DEV_USER.get("glory_spent") or 0)
                 spendable = max(0, total_earned - spent)
 
@@ -1757,7 +1766,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         if clean_path == "api/armory/catalog":
             import armory_catalog
             v = DEV_USER.get("armory_vault") or {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}}
-            total_earned = 1845
+            total_earned = 5000
             spent = int(DEV_USER.get("glory_spent") or 0)
             spendable = max(0, total_earned - spent)
             crest_tier = 5
@@ -1778,7 +1787,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path == "api/armory/vault":
             v = DEV_USER.get("armory_vault") or {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}}
-            total_earned = 1845
+            total_earned = 5000
             spent = int(DEV_USER.get("glory_spent") or 0)
             spendable = max(0, total_earned - spent)
             res = {

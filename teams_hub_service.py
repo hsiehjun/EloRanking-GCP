@@ -288,11 +288,11 @@ def get_default_teams_seed() -> Dict[str, Any]:
                     ]
                 },
                 "trophy_room": [
-                    {"id": "tr-1", "title": "2026 LVO Champions", "icon": "👑", "category": "Super Major Title", "awarded_date": "Jan 2026", "significance": "Undefeated 8-0 run by Innes Wilson"},
-                    {"id": "tr-2", "title": "2025 WTC Champions", "icon": "🏆", "category": "World Championship", "awarded_date": "Aug 2025", "significance": "Team USA Anchor Squad (Jack Harpster, John Lennon)"},
-                    {"id": "tr-3", "title": "2025 Nova Open Champions", "icon": "🥇", "category": "Major GT Title", "awarded_date": "Sep 2025", "significance": "Folger Pyles 1st Place overall"},
-                    {"id": "tr-4", "title": "Century Club: 300+ Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2025", "significance": "Over 300 sanctioned tournament wins under the AOW banner"},
-                    {"id": "tr-5", "title": "Elite Powerhouse", "icon": "⭐", "category": "Squad Caliber", "awarded_date": "2026", "significance": "Five active competitors over 2,100 Elo"}
+                    {"id": "tr-1", "title": "2026 LVO Champions", "icon": "👑", "category": "Super Major Title", "awarded_date": "Jan 2026", "significance": "Undefeated 8-0 run by Innes Wilson", "glory_points": 500},
+                    {"id": "tr-2", "title": "2025 WTC Champions", "icon": "🏆", "category": "World Championship", "awarded_date": "Aug 2025", "significance": "Team USA Anchor Squad (Jack Harpster, John Lennon)", "glory_points": 1000},
+                    {"id": "tr-3", "title": "2025 Nova Open Champions", "icon": "🥇", "category": "Major GT Title", "awarded_date": "Sep 2025", "significance": "Folger Pyles 1st Place overall", "glory_points": 300},
+                    {"id": "tr-4", "title": "Century Club: 300+ Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2025", "significance": "Over 300 sanctioned tournament wins under the AOW banner", "glory_points": 250},
+                    {"id": "tr-5", "title": "Elite Powerhouse", "icon": "⭐", "category": "Squad Caliber", "awarded_date": "2026", "significance": "Five active competitors over 2,100 Elo", "glory_points": 150}
                 ],
                 "locker_room": {
                     "pinned_message": {
@@ -363,7 +363,10 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "battlefield_feed": [],
                 "war_room": {"faction_matchups": [], "club_rivalries": []},
                 "trophy_room": [
-                    {"id": "tr-tzc-1", "title": "2025 European Team Champions", "icon": "🏆", "category": "Major Team Title", "awarded_date": "2025", "significance": "1st Place at European Team Invitational"}
+                    {"id": "tr-tzc-1", "title": "2025 European Team Champions", "icon": "🏆", "category": "Major Team Title", "awarded_date": "2025", "significance": "1st Place at European Team Invitational", "glory_points": 500},
+                    {"id": "tr-tzc-2", "title": "2025 UK Masters Champions", "icon": "🥇", "category": "Major GT Title", "awarded_date": "Nov 2025", "significance": "David Gaylard 1st Place overall", "glory_points": 300},
+                    {"id": "tr-tzc-3", "title": "Double Century: 200+ Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2025", "significance": "Over 200 tournament victories under TZC banner", "glory_points": 200},
+                    {"id": "tr-tzc-4", "title": "Elite Powerhouse", "icon": "⭐", "category": "Squad Caliber", "awarded_date": "2026", "significance": "Five active competitors over 2,100 Elo", "glory_points": 150}
                 ],
                 "locker_room": {"pinned_message": None, "messages": [], "squad_events": []}
             },
@@ -397,7 +400,11 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 ],
                 "battlefield_feed": [],
                 "war_room": {"faction_matchups": [], "club_rivalries": []},
-                "trophy_room": [],
+                "trophy_room": [
+                    {"id": "tr-ign-1", "title": "2025 Warzone Atlanta Finalists", "icon": "🥈", "category": "Major GT Title", "awarded_date": "Nov 2025", "significance": "Manning Feinleib 2nd Place podium finish", "glory_points": 250},
+                    {"id": "tr-ign-2", "title": "Northeast Regional Masters", "icon": "🥇", "category": "Regional Title", "awarded_date": "Oct 2025", "significance": "1st Place at Northeast Team Invitational", "glory_points": 200},
+                    {"id": "tr-ign-3", "title": "Century Club: 150+ Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2025", "significance": "Over 150 sanctioned tournament wins under IGN jersey", "glory_points": 150}
+                ],
                 "locker_room": {"pinned_message": None, "messages": [], "squad_events": []}
             },
             {
@@ -429,7 +436,11 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 ],
                 "battlefield_feed": [],
                 "war_room": {"faction_matchups": [], "club_rivalries": []},
-                "trophy_room": [],
+                "trophy_room": [
+                    {"id": "tr-duw-1", "title": "2025 Australian National Champions", "icon": "🏆", "category": "National Championship", "awarded_date": "Dec 2025", "significance": "Liam Hackett 1st Place overall", "glory_points": 400},
+                    {"id": "tr-duw-2", "title": "WTC Team Australia Qualifiers", "icon": "🇦🇺", "category": "International Honor", "awarded_date": "2025", "significance": "Official Australian WTC national squad anchor", "glory_points": 250},
+                    {"id": "tr-duw-3", "title": "Century Club: 140+ Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2025", "significance": "Over 140 sanctioned tournament wins", "glory_points": 150}
+                ],
                 "locker_room": {"pinned_message": None, "messages": [], "squad_events": []}
             },
             {
@@ -461,7 +472,11 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 ],
                 "battlefield_feed": [],
                 "war_room": {"faction_matchups": [], "club_rivalries": []},
-                "trophy_room": [],
+                "trophy_room": [
+                    {"id": "tr-vt-1", "title": "2025 London Grand Tournament Finalists", "icon": "🥇", "category": "Major GT Title", "awarded_date": "Oct 2025", "significance": "Stephen Box Top 4 finish", "glory_points": 300},
+                    {"id": "tr-vt-2", "title": "Vanguard Sportsmanship Crown", "icon": "🛡️", "category": "Academy Honor", "awarded_date": "2025", "significance": "Awarded for tactical mentorship and highest fair-play scores", "glory_points": 200},
+                    {"id": "tr-vt-3", "title": "Century Club: 120+ Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2025", "significance": "Over 120 tournament victories", "glory_points": 150}
+                ],
                 "locker_room": {"pinned_message": None, "messages": [], "squad_events": []}
             }
         ],
@@ -521,7 +536,7 @@ class TeamsHubService:
             print(f"Error saving teams DB: {e}")
 
     def _recalculate_team(self, team: Dict[str, Any]) -> Dict[str, Any]:
-        """Runs the power rating engine and formats team stats."""
+        """Runs the power rating engine, computes Club Glory Honor, and formats team stats."""
         roster = team.get("roster", [])
         active_roster = [p for p in roster if p.get("is_active", True)]
         total_wins = team.get("total_wins", 0)
@@ -548,6 +563,72 @@ class TeamsHubService:
         team["team_win_rate"] = win_rate
         team["total_matches"] = total_matches
         team["is_qualified"] = (len(active_roster) >= 3 and total_matches >= 15)
+
+        # Calculate Club Glory Honor & Trophy Points
+        trophies = team.get("trophy_room", [])
+        if not trophies:
+            t_id = team.get("id", "club")
+            c_name = team.get("captain_name", "Captain")
+            trophies = [
+                {
+                    "id": f"tr-found-{t_id}",
+                    "title": "Club Founded",
+                    "icon": "🛡️",
+                    "category": "Foundation Milestone",
+                    "awarded_date": str(team.get("created_at", "2026-01-01"))[:10],
+                    "significance": f"Chartered on OmniTactica under captain {c_name}",
+                    "glory_points": 100
+                }
+            ]
+            team["trophy_room"] = trophies
+
+        total_glory = 0
+        for tr in trophies:
+            pts = tr.get("glory_points")
+            if pts is None:
+                cat = tr.get("category", "")
+                tit = tr.get("title", "")
+                if "World" in cat or "WTC" in cat or "WTC" in tit:
+                    pts = 1000
+                elif "Super Major" in cat:
+                    pts = 500
+                elif "National" in cat or "National" in tit:
+                    pts = 400
+                elif "Major" in cat:
+                    pts = 300
+                elif "Milestone" in cat or "Century" in tit:
+                    pts = 250
+                elif "Regional" in cat:
+                    pts = 200
+                else:
+                    pts = 150
+                tr["glory_points"] = pts
+            total_glory += int(pts)
+
+        team["glory_score"] = total_glory
+        team["team_glory_honor"] = total_glory
+
+        # Heraldic Insignia Tiers based on Club Glory Honor
+        if total_glory >= 2000:
+            team["heraldry_tier"] = "Sovereign Crown"
+            team["heraldry_badge"] = "👑 Sovereign"
+            team["heraldry_border"] = "rgba(245, 158, 11, 0.6)"
+            team["heraldry_color"] = "#f59e0b"
+        elif total_glory >= 1000:
+            team["heraldry_tier"] = "Gold Vanguard"
+            team["heraldry_badge"] = "🥇 Gold"
+            team["heraldry_border"] = "rgba(251, 191, 36, 0.5)"
+            team["heraldry_color"] = "#fbbf24"
+        elif total_glory >= 500:
+            team["heraldry_tier"] = "Silver Paragon"
+            team["heraldry_badge"] = "🥈 Silver"
+            team["heraldry_border"] = "rgba(148, 163, 184, 0.4)"
+            team["heraldry_color"] = "#94a3b8"
+        else:
+            team["heraldry_tier"] = "Bronze Standard"
+            team["heraldry_badge"] = "🛡️ Bronze"
+            team["heraldry_border"] = "rgba(180, 83, 9, 0.35)"
+            team["heraldry_color"] = "#b45309"
 
         return team
 
@@ -586,7 +667,11 @@ class TeamsHubService:
             all_teams = [t for t in all_teams if t.get("active_roster_count", 0) >= min_roster]
 
         reverse = (order.upper() == "DESC")
-        valid_fields = ["power_rating", "active_avg_elo", "top_player_elo", "active_roster_count", "roster_count", "team_win_rate", "total_wins", "total_matches"]
+        valid_fields = [
+            "power_rating", "active_avg_elo", "top_player_elo", "active_roster_count",
+            "roster_count", "team_win_rate", "total_wins", "total_matches",
+            "glory_score", "team_glory_honor"
+        ]
         field = sort_by if sort_by in valid_fields else "power_rating"
         all_teams.sort(key=lambda t: t.get(field, 0.0), reverse=reverse)
 
@@ -781,7 +866,7 @@ class TeamsHubService:
             "battlefield_feed": [],
             "war_room": {"faction_matchups": [], "club_rivalries": []},
             "trophy_room": [
-                {"id": f"tr-found-{t_id}", "title": "Club Founded", "icon": "🛡️", "category": "Milestone", "awarded_date": now_iso[:10], "significance": f"Founded on OmniTactica by {kwargs.get('captain_name', 'Captain')}"}
+                {"id": f"tr-found-{t_id}", "title": "Club Founded", "icon": "🛡️", "category": "Foundation Milestone", "awarded_date": now_iso[:10], "significance": f"Founded on OmniTactica by {kwargs.get('captain_name', 'Captain')}", "glory_points": 100}
             ],
             "locker_room": {
                 "pinned_message": {

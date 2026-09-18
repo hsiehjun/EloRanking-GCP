@@ -94,13 +94,18 @@ function renderTeamHub(team) {
   const totalRoster = Number(team.roster_count || (team.roster ? team.roster.length : 1));
   const maturityPct = Number(team.maturity_pct || 100);
 
+  const gloryScore = Number(team.glory_score || team.team_glory_honor || 0);
+  const heraldryTier = team.heraldry_tier || 'Sovereign Crown';
+  const heraldryBadge = team.heraldry_badge || '👑 Sovereign';
+  const heraldryColor = team.heraldry_color || '#f59e0b';
+
   let bannerHtml = `
     <div class="team-command-hero" style="background: linear-gradient(135deg, rgba(15,23,42,0.98) 0%, rgba(30,58,138,0.25) 100%); border: 1px solid rgba(56,189,248,0.3); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 20px 45px rgba(0,0,0,0.6);">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
         
         <!-- Left: Club Identity & Heraldry -->
         <div class="team-hero-brand-wrap" style="display: flex; align-items: center; gap: 1rem;">
-          <div style="width: 64px; height: 64px; border-radius: 14px; background: rgba(56,189,248,0.12); border: 2px solid rgba(56,189,248,0.4); display: flex; align-items: center; justify-content: center; font-size: 2.2rem; box-shadow: 0 0 20px rgba(56,189,248,0.2); flex-shrink: 0;">
+          <div style="width: 64px; height: 64px; border-radius: 14px; background: rgba(56,189,248,0.12); border: 2px solid ${heraldryColor}; display: flex; align-items: center; justify-content: center; font-size: 2.2rem; box-shadow: 0 0 20px ${heraldryColor}44; flex-shrink: 0; cursor: pointer;" onclick="openClubGloryModal()" title="${escapeHtml(heraldryTier)} Crest (Click for Glory Intel)">
             🛡️
           </div>
           <div>
@@ -113,6 +118,9 @@ function renderTeamHub(team) {
               </span>
               <span class="badge" style="background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 9999px;">
                 👑 #${team.rank || 1} Global (${sys.toUpperCase()})
+              </span>
+              <span class="badge" onclick="openClubGloryModal()" style="cursor: pointer; background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4); font-size: 0.72rem; padding: 2px 8px; border-radius: 9999px;" title="Club Glory Honor: Click for Intel">
+                ${escapeHtml(heraldryBadge)} (💰 ${gloryScore.toLocaleString()} Glory)
               </span>
             </div>
             <p style="font-size: 0.84rem; color: #94a3b8; margin: 0.25rem 0 0; line-height: 1.4;">
@@ -149,8 +157,8 @@ function renderTeamHub(team) {
         </div>
       </div>
 
-      <!-- Vital Stats Strip -->
-      <div class="team-stats-strip" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.85rem; margin-top: 1.25rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1.15rem;">
+      <!-- Vital Stats Strip (5 Columns) -->
+      <div class="team-stats-strip" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.85rem; margin-top: 1.25rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1.15rem;">
         <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 0.75rem; text-align: center;">
           <div style="font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Power Rating</div>
           <div style="font-size: 1.45rem; font-weight: 900; color: #c084fc; font-family: var(--font-mono);">${Number(team.power_rating || 0).toFixed(1)}</div>
@@ -173,6 +181,12 @@ function renderTeamHub(team) {
           <div style="font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Active Squad</div>
           <div style="font-size: 1.45rem; font-weight: 900; color: #f59e0b; font-family: var(--font-mono);">${activeCount} <span style="font-size:0.85rem; color:#94a3b8;">/ ${totalRoster}</span></div>
           <div style="font-size: 0.68rem; color: #10b981;">${maturityPct}% Roster Maturity</div>
+        </div>
+
+        <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 0.75rem; text-align: center; cursor: pointer; transition: transform 0.15s;" onclick="openClubGloryModal()" title="Club Glory Honor: Lifetime tactical currency (Click for Intel)">
+          <div style="font-size: 0.7rem; font-weight: 700; color: #fbbf24; text-transform: uppercase;">Club Glory Honor</div>
+          <div style="font-size: 1.45rem; font-weight: 900; color: #fbbf24; font-family: var(--font-mono);">💰 ${gloryScore.toLocaleString()}</div>
+          <div style="font-size: 0.68rem; color: #cbd5e1;">${escapeHtml(heraldryTier)}</div>
         </div>
       </div>
     </div>
@@ -260,7 +274,7 @@ function renderSubtabRoster(team) {
       
       <!-- Starting 5 Showcase Cards -->
       <div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
           <div>
             <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">⭐ Tournament Starting 5</h3>
             <div style="font-size: 0.76rem; color: #94a3b8;">Peak tournament squad driving 40% of the club's Power Rating</div>
@@ -304,9 +318,12 @@ function renderSubtabRoster(team) {
 
       <!-- Full Club Ladder Table -->
       <div>
-        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 0.75rem;">📋 Complete Active Club Ladder (${fullRoster.length})</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">📋 Complete Active Club Ladder (${fullRoster.length})</h3>
+          <input type="text" id="team-roster-filter" class="search-input" placeholder="Filter roster by player, faction, or role..." style="font-size: 0.78rem; padding: 0.35rem 0.75rem; width: 260px; max-width: 100%;" oninput="filterTeamRosterTable()">
+        </div>
         <div class="table-container">
-          <table class="table">
+          <table class="table" id="team-roster-table">
             <thead>
               <tr>
                 <th>Rank</th>
@@ -318,9 +335,9 @@ function renderSubtabRoster(team) {
                 <th>Win Rate</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="team-roster-tbody">
               ${fullRoster.map((p, idx) => `
-                <tr onclick="openPlayerModal('${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name)}')" style="cursor: pointer;">
+                <tr onclick="openPlayerModal('${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name)}')" style="cursor: pointer;" class="roster-member-row" data-search="${escapeHtml((p.player_name + ' ' + (p.faction || '') + ' ' + (p.role || '')).toLowerCase())}">
                   <td style="font-family: var(--font-mono); font-weight: 700; color: #94a3b8;">#${idx + 1}</td>
                   <td>
                     <span class="player-link" style="font-weight: 700;">${escapeHtml(p.player_name)}</span>
@@ -350,22 +367,48 @@ function renderSubtabRoster(team) {
   `;
 }
 
+function filterTeamRosterTable() {
+  const input = document.getElementById('team-roster-filter');
+  const q = input ? input.value.trim().toLowerCase() : '';
+  const rows = document.querySelectorAll('.roster-member-row');
+  rows.forEach(r => {
+    const text = r.getAttribute('data-search') || '';
+    r.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+}
+
 function renderSubtabFeed(team) {
   const feed = team.battlefield_feed || [];
   if (feed.length === 0) {
     return `<div class="empty-state" style="padding: 3rem;">No recent battlefield games recorded under this club banner.</div>`;
   }
 
+  const teamCount = feed.filter(m => m.is_team_round).length;
+  const singlesCount = feed.filter(m => !m.is_team_round).length;
+
   return `
     <div style="display: flex; flex-direction: column; gap: 1rem;">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">⚔️ Battlefield Feed &amp; Match History</h3>
-        <span style="font-size: 0.76rem; color: #94a3b8;">Live matches recorded wearing the club jersey</span>
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+        <div>
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">⚔️ Battlefield Feed &amp; Match History</h3>
+          <span style="font-size: 0.76rem; color: #94a3b8;">Live matches recorded wearing the club jersey</span>
+        </div>
+        <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+          <button type="button" class="badge team-feed-filter-btn active" id="btn-feed-filter-all" onclick="filterTeamFeed('all')" style="cursor: pointer; background: rgba(56,189,248,0.2); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); padding: 4px 10px; border-radius: 6px;">
+            All Battles (${feed.length})
+          </button>
+          <button type="button" class="badge team-feed-filter-btn" id="btn-feed-filter-team" onclick="filterTeamFeed('team')" style="cursor: pointer; background: rgba(255,255,255,0.05); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 6px;">
+            🏆 Team Matches (${teamCount})
+          </button>
+          <button type="button" class="badge team-feed-filter-btn" id="btn-feed-filter-singles" onclick="filterTeamFeed('singles')" style="cursor: pointer; background: rgba(255,255,255,0.05); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 6px;">
+            ⚔️ Singles (${singlesCount})
+          </button>
+        </div>
       </div>
 
-      <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+      <div style="display: flex; flex-direction: column; gap: 0.75rem;" id="team-feed-list">
         ${feed.map(m => `
-          <div class="card" style="background: #090f1d; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 1rem;">
+          <div class="card feed-match-card" data-feed-type="${m.is_team_round ? 'team' : 'singles'}" style="background: #090f1d; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 1rem;">
             ${m.is_team_round ? `
               <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
                 <div style="display: flex; align-items: center; gap: 8px;">
@@ -404,6 +447,28 @@ function renderSubtabFeed(team) {
   `;
 }
 
+function filterTeamFeed(type) {
+  document.querySelectorAll('.team-feed-filter-btn').forEach(btn => {
+    btn.style.background = 'rgba(255,255,255,0.05)';
+    btn.style.color = '#94a3b8';
+    btn.style.borderColor = 'rgba(255,255,255,0.1)';
+  });
+  const activeBtn = document.getElementById(`btn-feed-filter-${type}`);
+  if (activeBtn) {
+    activeBtn.style.background = 'rgba(56,189,248,0.2)';
+    activeBtn.style.color = '#38bdf8';
+    activeBtn.style.borderColor = 'rgba(56,189,248,0.4)';
+  }
+  document.querySelectorAll('.feed-match-card').forEach(card => {
+    const cardType = card.getAttribute('data-feed-type');
+    if (type === 'all' || cardType === type) {
+      card.style.display = '';
+    } else {
+      card.style.display = 'none';
+    }
+  });
+}
+
 function renderSubtabTrajectory(team) {
   return `
     <div style="display: flex; flex-direction: column; gap: 1rem;">
@@ -413,6 +478,39 @@ function renderSubtabTrajectory(team) {
       </div>
       <div style="background: #090f1d; border: 1px solid rgba(56,189,248,0.25); border-radius: 12px; padding: 1.25rem; text-align: center;">
         <canvas id="team-trajectory-canvas" width="800" height="280" style="width: 100%; max-width: 800px; height: 260px; display: block; margin: 0 auto;"></canvas>
+        
+        <!-- Seasonal Milestones Table -->
+        <div style="margin-top: 1.25rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1rem; text-align: left;">
+          <h4 style="font-size: 0.9rem; font-weight: 800; color: #fff; margin: 0 0 0.5rem;">Season Performance Milestones</h4>
+          <div class="table-container">
+            <table class="table" style="font-size: 0.8rem;">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Power Rating</th>
+                  <th>Global Rank</th>
+                  <th>Circuit Phase</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${(team.trajectory_points || [
+                  { month: 'Oct 2025', power_rating: 1900, rank: 3 },
+                  { month: 'Nov 2025', power_rating: 1950, rank: 2 },
+                  { month: 'Dec 2025', power_rating: 2040, rank: 2 },
+                  { month: 'Jan 2026', power_rating: 2180, rank: 1 },
+                  { month: 'Feb 2026', power_rating: team.power_rating || 2240, rank: 1 }
+                ]).map(tp => `
+                  <tr>
+                    <td style="font-family: var(--font-mono); color: #38bdf8; font-weight: 700;">${tp.month}</td>
+                    <td style="font-family: var(--font-mono); font-weight: 800; color: #c084fc;">${Number(tp.power_rating).toFixed(1)}</td>
+                    <td style="font-family: var(--font-mono); font-weight: 700; color: #10b981;">👑 #${tp.rank || 1}</td>
+                    <td style="color: #cbd5e1;">Sanctioned GT Circuit Season Record</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -558,28 +656,62 @@ function renderSubtabWarRoom(team) {
 
 function renderSubtabTrophies(team) {
   const trophies = team.trophy_room || [];
+  const gloryScore = Number(team.glory_score || team.team_glory_honor || 0);
+  const heraldryTier = team.heraldry_tier || 'Sovereign Crown';
+  const heraldryBadge = team.heraldry_badge || '👑 Sovereign';
+  const heraldryColor = team.heraldry_color || '#f59e0b';
+
   return `
-    <div style="display: flex; flex-direction: column; gap: 1rem;">
+    <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+      <!-- Club Glory Honor Treasury Banner -->
+      <div style="background: linear-gradient(135deg, rgba(30, 27, 75, 0.6) 0%, rgba(15, 23, 42, 0.95) 100%); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 14px; padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 52px; height: 52px; border-radius: 12px; background: rgba(245, 158, 11, 0.15); border: 2px solid ${heraldryColor}; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; box-shadow: 0 0 16px rgba(245, 158, 11, 0.25); flex-shrink: 0;">
+            💰
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <span style="font-size: 1.35rem; font-weight: 900; color: #fbbf24; font-family: var(--font-mono);">${gloryScore.toLocaleString()}</span>
+              <span style="font-size: 0.95rem; font-weight: 800; color: #fff;">Club Glory Honor</span>
+              <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.72rem; padding: 2px 8px; border-radius: 9999px;">${escapeHtml(heraldryBadge)} Tier</span>
+            </div>
+            <p style="font-size: 0.78rem; color: #cbd5e1; margin: 0.25rem 0 0; line-height: 1.4;">
+              Earned collectively through Super Major titles, WTC team podiums, and certified win milestones.
+            </p>
+          </div>
+        </div>
+        <button type="button" class="btn btn-outline" onclick="openClubGloryModal()" style="font-size: 0.78rem; font-weight: 700; color: #fbbf24; border-color: rgba(245, 158, 11, 0.4); padding: 0.45rem 0.95rem; border-radius: 8px;">
+          💰 Glory Perks &amp; Intel →
+        </button>
+      </div>
+
       <div>
-        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">🏆 Club Trophy Room &amp; Honors</h3>
+        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">🏆 Club Championship Banners &amp; Honors</h3>
         <div style="font-size: 0.76rem; color: #94a3b8;">Championship banners, major titles, and certified club milestones</div>
       </div>
 
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem;">
         ${trophies.map(t => `
-          <div class="card" style="background: #090f1d; border: 1px solid rgba(245,158,11,0.3); border-radius: 12px; padding: 1.1rem;">
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 0.5rem;">
-              <span style="font-size: 1.8rem;">${escapeHtml(t.icon || '🏆')}</span>
-              <div>
-                <div style="font-size: 0.7rem; font-weight: 700; color: #f59e0b; text-transform: uppercase;">${escapeHtml(t.category || 'Title')}</div>
-                <div style="font-weight: 800; font-size: 1rem; color: #fff;">${escapeHtml(t.title)}</div>
+          <div class="card" style="background: #090f1d; border: 1px solid rgba(245,158,11,0.3); border-radius: 12px; padding: 1.1rem; display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="font-size: 1.8rem;">${escapeHtml(t.icon || '🏆')}</span>
+                  <div>
+                    <div style="font-size: 0.7rem; font-weight: 700; color: #f59e0b; text-transform: uppercase;">${escapeHtml(t.category || 'Title')}</div>
+                    <div style="font-weight: 800; font-size: 1rem; color: #fff;">${escapeHtml(t.title)}</div>
+                  </div>
+                </div>
+                <span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.35); font-size: 0.72rem; font-weight: 800; white-space: nowrap;">
+                  +${t.glory_points || 250} Glory
+                </span>
               </div>
+              <p style="font-size: 0.8rem; color: #cbd5e1; margin: 0.4rem 0 0; line-height: 1.4;">
+                ${escapeHtml(t.significance || '')}
+              </p>
             </div>
-            <p style="font-size: 0.8rem; color: #cbd5e1; margin: 0.4rem 0 0; line-height: 1.4;">
-              ${escapeHtml(t.significance || '')}
-            </p>
-            <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 0.4rem; text-align: right;">
-              ${escapeHtml(t.awarded_date || '')}
+            <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 0.8rem; text-align: right; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.4rem;">
+              Awarded: ${escapeHtml(t.awarded_date || '')}
             </div>
           </div>
         `).join('')}
@@ -593,6 +725,7 @@ function renderSubtabLockerRoom(team) {
   const pinned = locker.pinned_message;
   const messages = locker.messages || [];
   const squadEvents = locker.squad_events || [];
+  const isCaptain = (currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id));
 
   return `
     <div style="display: flex; flex-direction: column; gap: 1.5rem;">
@@ -600,15 +733,29 @@ function renderSubtabLockerRoom(team) {
       <!-- Pinned Captain Announcement -->
       ${pinned ? `
         <div style="background: linear-gradient(135deg, rgba(30,58,138,0.3) 0%, rgba(15,23,42,0.8) 100%); border: 1px solid rgba(56,189,248,0.4); border-radius: 12px; padding: 1.15rem;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
-            <span style="font-size: 0.74rem; font-weight: 800; color: #38bdf8; text-transform: uppercase;">📌 PINNED CAPTAIN ANNOUNCEMENT</span>
-            <span style="font-size: 0.72rem; color: #94a3b8;">${escapeHtml(pinned.sender_name)}</span>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.4rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 0.74rem; font-weight: 800; color: #38bdf8; text-transform: uppercase;">📌 PINNED CAPTAIN ANNOUNCEMENT</span>
+              <span style="font-size: 0.72rem; color: #94a3b8;">by ${escapeHtml(pinned.sender_name)}</span>
+            </div>
+            ${isCaptain ? `
+              <button type="button" class="btn btn-outline" onclick="promptUpdateCaptainAnnouncement('${escapeHtml(team.id)}')" style="font-size: 0.7rem; padding: 2px 8px; color: #38bdf8; border-color: rgba(56,189,248,0.3); border-radius: 6px;">
+                ✏️ Edit Announcement
+              </button>
+            ` : ''}
           </div>
           <p style="font-size: 0.88rem; color: #fff; margin: 0; line-height: 1.45;">
             ${escapeHtml(pinned.message)}
           </p>
         </div>
-      ` : ''}
+      ` : (isCaptain ? `
+        <div style="background: rgba(15,23,42,0.5); border: 1px dashed rgba(56,189,248,0.3); border-radius: 12px; padding: 1rem; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 0.82rem; color: #94a3b8;">No captain announcement pinned. Pin one for your squad:</span>
+          <button type="button" class="btn btn-outline" onclick="promptUpdateCaptainAnnouncement('${escapeHtml(team.id)}')" style="font-size: 0.74rem; padding: 0.35rem 0.75rem; color: #38bdf8;">
+            📌 Pin Announcement
+          </button>
+        </div>
+      ` : '')}
 
       <!-- Squad Travel Calendar -->
       <div>
@@ -687,7 +834,7 @@ function renderGlobalClubsDirectory() {
             Global ${sys.toUpperCase()} Club Power Rankings
           </h1>
           <p style="font-size: 0.84rem; color: #94a3b8; margin: 0.25rem 0 0;">
-            Clubs ranked by the Tri-Anchor Skill Baseline, 30-Player Roster Maturity Curve, and Team Combat Multipliers.
+            Clubs ranked by the Tri-Anchor Skill Baseline, 30-Player Roster Maturity Curve, Combat Multipliers, and Club Glory.
           </p>
         </div>
         <button type="button" class="btn btn-primary" onclick="openCreateTeamModal()" style="font-size: 0.84rem; font-weight: 800; padding: 0.55rem 1.25rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;">
@@ -697,17 +844,28 @@ function renderGlobalClubsDirectory() {
 
       <!-- Filter Controls Bar -->
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; background: rgba(15,23,42,0.6); padding: 0.85rem 1.15rem; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px;">
-        <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 260px;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 240px;">
           <input type="text" id="teams-search-input" class="search-input" placeholder="Search clubs by name, tag, or captain..." style="width: 100%; font-size: 0.84rem;" oninput="debounceTeamsSearch()">
         </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <label style="font-size: 0.76rem; font-weight: 700; color: #94a3b8;">Min Roster:</label>
-          <select id="teams-min-roster-filter" class="form-input" style="font-size: 0.78rem; background: #070b14; color: #fff; border: 1px solid rgba(56,189,248,0.3); border-radius: 6px; padding: 0.35rem 0.6rem; cursor: pointer;" onchange="teamsPagination.page = 1; loadTeamsDirectory();">
-            <option value="1" selected>All Clubs (1+)</option>
-            <option value="3">Qualified (3+)</option>
-            <option value="5">Squads (5+)</option>
-            <option value="10">Major Clubs (10+)</option>
-          </select>
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.76rem; font-weight: 700; color: #94a3b8;">Sort By:</label>
+            <select id="teams-sort-select" class="form-input" style="font-size: 0.78rem; background: #070b14; color: #fff; border: 1px solid rgba(56,189,248,0.3); border-radius: 6px; padding: 0.35rem 0.6rem; cursor: pointer;" onchange="teamsSortState.field = this.value; teamsPagination.page = 1; loadTeamsDirectory();">
+              <option value="power_rating" selected>⚡ Power Rating</option>
+              <option value="glory_score">💰 Club Glory Honor</option>
+              <option value="team_win_rate">🏆 Win Rate %</option>
+              <option value="active_roster_count">👥 Active Squad Depth</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.76rem; font-weight: 700; color: #94a3b8;">Min Roster:</label>
+            <select id="teams-min-roster-filter" class="form-input" style="font-size: 0.78rem; background: #070b14; color: #fff; border: 1px solid rgba(56,189,248,0.3); border-radius: 6px; padding: 0.35rem 0.6rem; cursor: pointer;" onchange="teamsPagination.page = 1; loadTeamsDirectory();">
+              <option value="1" selected>All Clubs (1+)</option>
+              <option value="3">Qualified (3+)</option>
+              <option value="5">Squads (5+)</option>
+              <option value="10">Major Clubs (10+)</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -722,12 +880,13 @@ function renderGlobalClubsDirectory() {
               <th>Combat Factor</th>
               <th>Top Anchor</th>
               <th>Active Depth</th>
+              <th>Club Glory</th>
               <th>Record</th>
               <th>Win Rate</th>
             </tr>
           </thead>
           <tbody id="teams-body">
-            <tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading teams directory...</div></td></tr>
+            <tr><td colspan="9" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading teams directory...</div></td></tr>
           </tbody>
         </table>
       </div>
@@ -766,7 +925,7 @@ async function loadTeamsDirectory() {
       renderPaginationBar('teams-pagination', teamsPagination, 'setTeamsPage', 'setTeamsPageSize');
     }
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="empty-state" style="color:var(--loss);">Error loading teams: ${escapeHtml(err.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="empty-state" style="color:var(--loss);">Error loading teams: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -776,7 +935,7 @@ function renderTeamsDirectoryRows() {
   tbody.innerHTML = '';
 
   if (!teamsDirectoryData || teamsDirectoryData.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No clubs found matching search criteria.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No clubs found matching search criteria.</td></tr>';
     return;
   }
 
@@ -787,6 +946,7 @@ function renderTeamsDirectoryRows() {
 
     const rank = t.rank || (teamsPagination.page - 1) * teamsPagination.pageSize + idx + 1;
     const cf = Number(t.combat_factor || 1.0).toFixed(3);
+    const gloryVal = Number(t.glory_score || t.team_glory_honor || 0);
 
     tr.innerHTML = `
       <td style="font-family: var(--font-mono); font-weight: 700; color: #94a3b8;">#${rank}</td>
@@ -816,6 +976,12 @@ function renderTeamsDirectoryRows() {
         <span class="badge" style="font-size: 0.74rem; background: rgba(56,189,248,0.1); color: #38bdf8;">
           ${t.active_roster_count != null ? t.active_roster_count : (t.roster_count || 1)} Active / ${t.roster_count || 1} Total
         </span>
+      </td>
+      <td>
+        <div style="font-family: var(--font-mono); font-weight: 800; font-size: 0.95rem; color: #fbbf24; display: flex; align-items: center; gap: 4px;">
+          💰 ${gloryVal.toLocaleString()}
+        </div>
+        <div style="font-size: 0.68rem; color: #cbd5e1;">${escapeHtml(t.heraldry_badge || '🛡️ Standard')}</div>
       </td>
       <td style="font-family: var(--font-mono); font-size: 0.84rem;">
         <span style="color: #10b981; font-weight: 700;">${t.total_wins || 0}W</span> - 
@@ -1065,6 +1231,135 @@ async function confirmLeaveTeam() {
   }
 }
 
+// --------------------------------------------------------------------------
+// 8. CLUB GLORY HONOR & REQUISITIONS MODAL
+// --------------------------------------------------------------------------
+
+function openClubGloryModal() {
+  let modal = document.getElementById('club-glory-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'club-glory-modal';
+    modal.className = 'modal-overlay';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 10000; padding: 1rem;';
+    document.body.appendChild(modal);
+  }
+
+  modal.style.display = 'flex';
+  modal.innerHTML = `
+    <div class="modal-card" style="background: #090f1d; border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 16px; max-width: 580px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 1.5rem; box-shadow: 0 25px 60px rgba(0,0,0,0.8); position: relative;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            💰
+          </div>
+          <div>
+            <h3 style="font-size: 1.25rem; font-weight: 900; color: #fff; margin: 0; font-family: var(--font-heading);">Club Glory Honor &amp; Requisitions</h3>
+            <div style="font-size: 0.74rem; color: #fbbf24; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">Collective Competitive Treasury</div>
+          </div>
+        </div>
+        <button type="button" class="modal-close" onclick="closeClubGloryModal()" style="background: none; border: none; font-size: 1.4rem; color: #94a3b8; cursor: pointer;">✕</button>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 1rem; font-size: 0.84rem; color: #cbd5e1; line-height: 1.45;">
+        <p style="margin: 0;">
+          While individual <strong>Glory Honor</strong> fuels your personal Retribution Armory requisitions, <strong>Club Glory Honor</strong> is the lifetime sovereign treasury earned by your club under the team jersey.
+        </p>
+
+        <!-- Section 1: How Teams Earn Glory -->
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1rem;">
+          <div style="font-weight: 800; color: #fff; font-size: 0.88rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 6px;">
+            <span>🏆</span> How Clubs Earn Glory Honor
+          </div>
+          <ul style="margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.8rem;">
+            <li><strong>World Championships (WTC):</strong> +1,000 Glory for national medals and World team podiums.</li>
+            <li><strong>Super Major Championships (LVO, AdeptiCon):</strong> +500 Glory for 1st place championship runs.</li>
+            <li><strong>Major Grand Tournaments (NOVA, SoCal):</strong> +300 Glory for 1st place victories.</li>
+            <li><strong>Century Club Milestones:</strong> +250 Glory upon achieving 100+, 200+, or 300+ sanctioned tournament wins.</li>
+            <li><strong>Active Squad Depth:</strong> +150 Glory for maintaining 5+ competitors above 2,100 Elo.</li>
+          </ul>
+        </div>
+
+        <!-- Section 2: Heraldic Insignia Tiers -->
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1rem;">
+          <div style="font-weight: 800; color: #fff; font-size: 0.88rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 6px;">
+            <span>🛡️</span> Club Heraldry Insignia Tiers
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; font-size: 0.78rem;">
+            <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 0.5rem;">
+              <div style="font-weight: 800; color: #fbbf24;">👑 Sovereign Crown (2,000+)</div>
+              <div style="color: #94a3b8;">Crimson-Gold Aura &amp; Sovereign Crest Border</div>
+            </div>
+            <div style="background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.25); border-radius: 8px; padding: 0.5rem;">
+              <div style="font-weight: 800; color: #fde047;">🥇 Gold Vanguard (1,000+)</div>
+              <div style="color: #94a3b8;">Burnished Gold Border &amp; Elite Flair</div>
+            </div>
+            <div style="background: rgba(148, 163, 184, 0.08); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 8px; padding: 0.5rem;">
+              <div style="font-weight: 800; color: #cbd5e1;">🥈 Silver Paragon (500+)</div>
+              <div style="color: #94a3b8;">Polished Silver Frame &amp; Veteran Status</div>
+            </div>
+            <div style="background: rgba(180, 83, 9, 0.08); border: 1px solid rgba(180, 83, 9, 0.25); border-radius: 8px; padding: 0.5rem;">
+              <div style="font-weight: 800; color: #d97706;">🛡️ Bronze Standard (&lt;500)</div>
+              <div style="color: #94a3b8;">Chartered Club Iron-Bronze Crest</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 3: Requisition Perks Roadmap -->
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 10px; padding: 1rem;">
+          <div style="font-weight: 800; color: #38bdf8; font-size: 0.88rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 6px;">
+            <span>⚡</span> Armory Club Requisitions (Roadmap)
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.78rem;">
+            <div>🎲 <strong>Custom Club Dice Skins:</strong> Club-themed tabletop dice tray finishes for match companions.</div>
+            <div>✨ <strong>Animated Holo-Crest Frames:</strong> Prismatic borders displayed on team members' hero cards.</div>
+            <div>📢 <strong>Captain Broadcast Priority:</strong> Verified captain bulletins pushed across regional event networks.</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end;">
+        <button type="button" class="btn btn-primary" onclick="closeClubGloryModal()" style="font-size: 0.82rem; font-weight: 800; padding: 0.45rem 1.25rem; border-radius: 8px;">
+          Understood, High Command
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function closeClubGloryModal() {
+  const modal = document.getElementById('club-glory-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function promptUpdateCaptainAnnouncement(teamId) {
+  const currentMsg = (currentTeamHubData && currentTeamHubData.locker_room && currentTeamHubData.locker_room.pinned_message)
+    ? currentTeamHubData.locker_room.pinned_message.message
+    : '';
+  const newMsg = prompt('Enter new Captain Announcement for the squad:', currentMsg);
+  if (newMsg === null) return;
+  const cleanMsg = newMsg.trim();
+  if (!cleanMsg) {
+    alert('Announcement cannot be empty.');
+    return;
+  }
+
+  try {
+    await window.api.postTeamMessage(teamId, cleanMsg, true);
+    if (typeof showToastNotification === 'function') {
+      showToastNotification('📌 Pinned Captain Announcement Updated!', 'success');
+    }
+    const hubRes = await window.api.getTeamHub(teamId);
+    if (hubRes && hubRes.team) {
+      currentTeamHubData = hubRes.team;
+      renderTeamHub(currentTeamHubData);
+      switchTeamHubSubtab('locker');
+    }
+  } catch (err) {
+    alert(`Error updating captain announcement: ${err.message}`);
+  }
+}
+
 window.loadTeamsView = loadTeamsView;
 window.renderTeamHub = renderTeamHub;
 window.switchTeamHubSubtab = switchTeamHubSubtab;
@@ -1084,3 +1379,8 @@ window.submitCreateTeamHub = submitCreateTeamHub;
 window.sendTeamLockerMessage = sendTeamLockerMessage;
 window.toggleTeamSquadEventAttendance = toggleTeamSquadEventAttendance;
 window.confirmLeaveTeam = confirmLeaveTeam;
+window.filterTeamRosterTable = filterTeamRosterTable;
+window.filterTeamFeed = filterTeamFeed;
+window.openClubGloryModal = openClubGloryModal;
+window.closeClubGloryModal = closeClubGloryModal;
+window.promptUpdateCaptainAnnouncement = promptUpdateCaptainAnnouncement;

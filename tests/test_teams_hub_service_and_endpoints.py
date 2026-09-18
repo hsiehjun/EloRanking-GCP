@@ -144,7 +144,73 @@ class TestTeamsHubServiceAndEndpoints(unittest.TestCase):
         att2 = self.service.toggle_event_attendance(team["id"], "ev_test_101", "Captain John")
         self.assertFalse(att2["attending"])
 
+    def test_club_glory_honor_and_heraldry_tiers(self):
+        hub = self.service.get_team_hub("team_art_of_war", "40k")
+        self.assertIsNotNone(hub)
+        self.assertIn("glory_score", hub)
+        self.assertIn("team_glory_honor", hub)
+        self.assertIn("heraldry_tier", hub)
+
+        # Art of War has LVO (500) + WTC (1000) + Nova (300) + Century (250) + Elite (150) = 2200
+        self.assertEqual(hub["glory_score"], 2200)
+        self.assertEqual(hub["team_glory_honor"], 2200)
+        self.assertEqual(hub["heraldry_tier"], "Sovereign Crown")
+        self.assertEqual(hub["heraldry_badge"], "👑 Sovereign")
+
+        # Verify every trophy has a positive integer glory_points
+        for tr in hub["trophy_room"]:
+            self.assertIn("glory_points", tr)
+            self.assertGreater(tr["glory_points"], 0)
+
+        # Team Zero Comp has 1150 Glory -> Gold Vanguard
+        tzc = self.service.get_team_hub("team_zero_comp", "40k")
+        self.assertIsNotNone(tzc)
+        self.assertEqual(tzc["glory_score"], 1150)
+        self.assertEqual(tzc["heraldry_tier"], "Gold Vanguard")
+        self.assertEqual(tzc["heraldry_badge"], "🥇 Gold")
+
+    def test_leaderboard_sorting_by_glory_score(self):
+        res = self.service.get_teams_leaderboard(game_system="40k", sort_by="glory_score", order="DESC", page=1, page_size=25)
+        teams = res["teams"]
+        self.assertGreaterEqual(len(teams), 5)
+        # Check monotonic descent
+        scores = [t["glory_score"] for t in teams]
+        for i in range(len(scores) - 1):
+            self.assertGreaterEqual(scores[i], scores[i + 1])
+
+        # Top team by glory should be Art of War with 2200
+        self.assertEqual(teams[0]["name"], "Art of War")
+        self.assertEqual(teams[0]["glory_score"], 2200)
+
+    def test_captain_pinned_announcement_update(self):
+        import time
+        t_name = f"Pin Test Squad {int(time.time() * 1000)}"
+        team = self.service.create_team(
+            owner_player_id="capt_pin_test",
+            name=t_name,
+            short_tag="PTS",
+            captain_name="Captain Pin"
+        )
+        t_id = team["id"]
+
+        # Post pinned announcement
+        new_pinned = self.service.add_team_message(
+            team_id=t_id,
+            sender_player_id="capt_pin_test",
+            sender_name="Captain Pin",
+            message="Tactical Briefing: ATC 2026 practice at 7 PM sharp!",
+            role="Captain",
+            is_pinned=True
+        )
+        self.assertEqual(new_pinned["message"], "Tactical Briefing: ATC 2026 practice at 7 PM sharp!")
+
+        hub = self.service.get_team_hub(t_id, "40k")
+        self.assertIsNotNone(hub["locker_room"]["pinned_message"])
+        self.assertEqual(hub["locker_room"]["pinned_message"]["message"], "Tactical Briefing: ATC 2026 practice at 7 PM sharp!")
+        self.assertEqual(hub["locker_room"]["pinned_message"]["sender_name"], "Captain Pin")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
