@@ -243,98 +243,257 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
 
     # ── 40K FACTION SIGIL AVATARS ──
     {
-        "id": "avatar_40k_ultramarines",
+        "id": "avatar_dark_angels",
         "game_system": "40k",
-        "name": "Ultramarines Chapter Crest",
+        "name": "Dark Angels Winged Sword",
         "wing": "avatars",
         "slot": "active_avatar",
         "rarity": "rare",
-        "cost_glory": 200,
+        "cost_glory": 100,
         "is_consumable": False,
         "prerequisite": None,
-        "icon": "🛡️",
-        "description": "The gilded Ultima crest of the XIII Legion. Replaces your player avatar with the proud standard of Macragge.",
+        "icon": "⚔️",
+        "description": "The sacred downward broadsword of Caliban flanked by dark emerald angelic wings. Unforgiven standard of the First Legion.",
         "payload": {
-            "avatar_icon": "🛡️",
-            "faction": "Adeptus Astartes",
-            "bg_color": "#1e3a8a",
-            "border_color": "#fbbf24"
+            "avatar_icon": "⚔️",
+            "faction": "Dark Angels",
+            "badge_color": "#10b981"
         }
     },
     {
-        "id": "avatar_40k_world_eaters",
-        "game_system": "40k",
-        "name": "World Eaters Blood Maw",
-        "wing": "avatars",
-        "slot": "active_avatar",
-        "rarity": "rare",
-        "cost_glory": 200,
-        "is_consumable": False,
-        "prerequisite": None,
-        "icon": "🩸",
-        "description": "Brass and crimson jaw of the XII Legion. Blood for the Blood God, Skulls for the Skull Throne.",
-        "payload": {
-            "avatar_icon": "🩸",
-            "faction": "World Eaters",
-            "bg_color": "#7f1d1d",
-            "border_color": "#dc2626"
-        }
-    },
-    {
-        "id": "avatar_40k_necrons",
+        "id": "avatar_necrons",
         "game_system": "40k",
         "name": "Necron Triarch Ankh",
         "wing": "avatars",
         "slot": "active_avatar",
         "rarity": "rare",
-        "cost_glory": 200,
+        "cost_glory": 100,
         "is_consumable": False,
         "prerequisite": None,
         "icon": "⏳",
-        "description": "Glowing necrodermis emerald glyph of the Silent King. Replaces avatar with ancient dynastic authority.",
+        "description": "The undying dynastic hieroglyphic ankh cartouche glowing with Gauss-green eldritch eternity. Sovereign sigil of the Silent King.",
         "payload": {
             "avatar_icon": "⏳",
             "faction": "Necrons",
-            "bg_color": "#064e3b",
-            "border_color": "#34d399"
+            "badge_color": "#34d399"
         }
     },
     {
-        "id": "avatar_40k_orks",
+        "id": "avatar_adeptus_astartes",
         "game_system": "40k",
-        "name": "Ork Iron Jaw Banner",
+        "name": "Imperial Aquila",
         "wing": "avatars",
         "slot": "active_avatar",
-        "rarity": "common",
-        "cost_glory": 150,
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🛡️",
+        "description": "The double-headed Imperial Eagle of the Space Marines with crowned and blind heads, clutching the thunderbolts of the Imperium.",
+        "payload": {
+            "avatar_icon": "🛡️",
+            "faction": "Adeptus Astartes",
+            "badge_color": "#fbbf24"
+        }
+    },
+    {
+        "id": "avatar_chaos_space_marines",
+        "game_system": "40k",
+        "name": "Star of Chaos Undivided",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🩸",
+        "description": "The barbed eight-pointed star of Chaos Undivided surrounding a horned daemon skull burning with crimson warp flame.",
+        "payload": {
+            "avatar_icon": "🩸",
+            "faction": "Chaos Space Marines",
+            "badge_color": "#ef4444"
+        }
+    },
+    {
+        "id": "avatar_orks",
+        "game_system": "40k",
+        "name": "Ork Iron Gob & WAAAGH! Skull",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
         "is_consumable": False,
         "prerequisite": None,
         "icon": "💥",
-        "description": "Serrated metal jaw standard of the great WAAAGH! Loud, brutal, and thoroughly unpainted.",
+        "description": "A savage green Ork skull wearing a riveted iron jaw plate with jagged steel teeth and a slash of 'Go Fasta' red warpaint.",
         "payload": {
             "avatar_icon": "💥",
             "faction": "Orks",
-            "bg_color": "#713f12",
-            "border_color": "#facc15"
+            "badge_color": "#22c55e"
         }
     },
     {
-        "id": "avatar_40k_custodes",
+        "id": "avatar_black_templars",
         "game_system": "40k",
-        "name": "Custodes Imperial Aquila",
+        "name": "Black Templars Maltese Cross",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "✝️",
+        "description": "The sharp black and silver crusader cross with holy iron rivets and centered skull relic. Suffer not the unclean to live.",
+        "payload": {
+            "avatar_icon": "✝️",
+            "faction": "Black Templars",
+            "badge_color": "#f8fafc"
+        }
+    },
+    {
+        "id": "avatar_blood_angels",
+        "game_system": "40k",
+        "name": "Blood Angels Winged Drop",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🩸",
+        "description": "Graceful angelic golden wings framing a multifaceted glowing ruby blood teardrop, honoring the sacrifice of Sanguinius.",
+        "payload": {
+            "avatar_icon": "🩸",
+            "faction": "Blood Angels",
+            "badge_color": "#f43f5e"
+        }
+    },
+    {
+        "id": "avatar_space_wolves",
+        "game_system": "40k",
+        "name": "Space Wolves Iron Wolf",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🐺",
+        "description": "The fearsome silhouette of the dire wolf that stalks the stars with bared fangs and a piercing Fenrisian frost-blue eye.",
+        "payload": {
+            "avatar_icon": "🐺",
+            "faction": "Space Wolves",
+            "badge_color": "#38bdf8"
+        }
+    },
+    {
+        "id": "avatar_adeptus_custodes",
+        "game_system": "40k",
+        "name": "Auramite Custodes Raptor",
         "wing": "avatars",
         "slot": "active_avatar",
         "rarity": "epic",
-        "cost_glory": 350,
+        "cost_glory": 150,
         "is_consumable": False,
-        "prerequisite": {"career_crest_tier": 3, "label": "Requires Centurion (Crest Tier 3+)"},
+        "bundle_count": 1,
+        "prerequisite": None,
         "icon": "🦅",
-        "description": "Double-headed eagle shield of the Ten Thousand. Auramite burnish of the Master of Mankind.",
+        "description": "Majestic auramite raptor eagle of the Emperor's Bodyguard, encircled with solar halo rays and lightning bundles.",
         "payload": {
             "avatar_icon": "🦅",
             "faction": "Adeptus Custodes",
-            "bg_color": "#451a03",
-            "border_color": "#fbbf24"
+            "badge_color": "#fbbf24"
+        }
+    },
+    {
+        "id": "avatar_adeptus_mechanicus",
+        "game_system": "40k",
+        "name": "Mechanicus Opus Machina",
+        "game_system": "40k",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "⚙️",
+        "description": "The sacred half-human, half-bionic skull enclosed inside the 16-toothed crimson and white cog of the Omnissiah.",
+        "payload": {
+            "avatar_icon": "⚙️",
+            "faction": "Adeptus Mechanicus",
+            "badge_color": "#ef4444"
+        }
+    },
+    {
+        "id": "avatar_tyranids",
+        "game_system": "40k",
+        "name": "Hive Mind Synapse Carapace",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🧬",
+        "description": "Interlocking bio-chitinous exoskeleton shell plates with ribbed horns and pulsating lime/magenta psychic synapse nodes.",
+        "payload": {
+            "avatar_icon": "🧬",
+            "faction": "Tyranids",
+            "badge_color": "#a855f7"
+        }
+    },
+    {
+        "id": "avatar_tau_empire",
+        "game_system": "40k",
+        "name": "T'au Fire Caste Sept Mark",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "⚪",
+        "description": "The aerodynamic segmented caste disc with precision aerodynamic cutouts and ochre core of the Greater Good.",
+        "payload": {
+            "avatar_icon": "⚪",
+            "faction": "T'au Empire",
+            "badge_color": "#ea580c"
+        }
+    },
+    {
+        "id": "avatar_aeldari",
+        "game_system": "40k",
+        "name": "Aeldari Rune of Ulthwé",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🧝",
+        "description": "Graceful psychoplastic wraithbone rune with curved crests and a radiant celestial spirit stone glowing with ancient starlight.",
+        "payload": {
+            "avatar_icon": "🧝",
+            "faction": "Aeldari",
+            "badge_color": "#38bdf8"
+        }
+    },
+    {
+        "id": "avatar_death_guard",
+        "game_system": "40k",
+        "name": "Death Guard Corroded Helm",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🪰",
+        "description": "Corroded dark bronze Mark III power armour helmet with toxic orange visor and the three rotting spheres of Grandfather Nurgle.",
+        "payload": {
+            "avatar_icon": "🪰",
+            "faction": "Death Guard",
+            "badge_color": "#84cc16"
         }
     },
 
@@ -584,41 +743,93 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
 
     # ── AOS FACTION SIGIL AVATARS ──
     {
-        "id": "avatar_aos_stormcast",
+        "id": "avatar_stormcast_eternals",
         "game_system": "aos",
-        "name": "Stormcast Sigmarite Hammer",
+        "name": "Twin-Tailed Comet",
         "wing": "avatars",
         "slot": "active_avatar",
         "rarity": "rare",
-        "cost_glory": 200,
+        "cost_glory": 100,
         "is_consumable": False,
         "prerequisite": None,
         "icon": "🔨",
-        "description": "The sacred Ghal Maraz warhammer crest of the God-King Sigmar.",
+        "description": "Sigmar's celestial twin-tailed herald with crossed Ghal Maraz warhammers of reforging and celestial justice.",
         "payload": {
             "avatar_icon": "🔨",
             "faction": "Stormcast Eternals",
-            "bg_color": "#1e3a8a",
-            "border_color": "#fbbf24"
+            "badge_color": "#fbbf24"
         }
     },
     {
-        "id": "avatar_aos_gloomspite",
+        "id": "avatar_khorne_bloodbound",
         "game_system": "aos",
-        "name": "Bad Moon of the Gitz",
+        "name": "Khorne Skull Rune",
         "wing": "avatars",
         "slot": "active_avatar",
-        "rarity": "common",
-        "cost_glory": 150,
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "💀",
+        "description": "Blood for the Blood God! The eight-tiered brass rune carved in gore and glory of the Skull Throne.",
+        "payload": {
+            "avatar_icon": "💀",
+            "faction": "Blades of Khorne",
+            "badge_color": "#ef4444"
+        }
+    },
+    {
+        "id": "avatar_gloomspite_gitz",
+        "game_system": "aos",
+        "name": "Grinning Bad Moon",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
         "is_consumable": False,
         "prerequisite": None,
         "icon": "🌙",
-        "description": "The sinister cackling grin of the Clammy Hand Bad Moon.",
+        "description": "Da manic cackling visage of da Bad Moon with crooked nose and lunatic luck beaming down upon your grots.",
         "payload": {
             "avatar_icon": "🌙",
             "faction": "Gloomspite Gitz",
-            "bg_color": "#3f3f46",
-            "border_color": "#eab308"
+            "badge_color": "#eab308"
+        }
+    },
+    {
+        "id": "avatar_soulblight_gravelords",
+        "game_system": "aos",
+        "name": "Soulblight Crimson Bat Crest",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🦇",
+        "description": "Aristocratic vampiric crest with outstretched bat wings and the blood chalice of the Kastelai dynasty.",
+        "payload": {
+            "avatar_icon": "🦇",
+            "faction": "Soulblight Gravelords",
+            "badge_color": "#dc2626"
+        }
+    },
+    {
+        "id": "avatar_sylvaneth",
+        "game_system": "aos",
+        "name": "Sylvaneth Spirit-Pod Heart",
+        "wing": "avatars",
+        "slot": "active_avatar",
+        "rarity": "rare",
+        "cost_glory": 100,
+        "is_consumable": False,
+        "prerequisite": None,
+        "icon": "🍃",
+        "description": "Living ironbark soul-rune resonant with the Spirit Song of Alarielle and the pulse of the Realm of Life.",
+        "payload": {
+            "avatar_icon": "🍃",
+            "faction": "Sylvaneth",
+            "badge_color": "#22c55e"
         }
     },
 
@@ -738,6 +949,19 @@ def get_armory_catalog(user_vault: Optional[Dict[str, Any]] = None, user_crest_t
         "total_items": len(items_output)
     }
 
+ARMORY_ALIASES: Dict[str, str] = {
+    "avatar_40k_ultramarines": "avatar_adeptus_astartes",
+    "avatar_40k_world_eaters": "avatar_chaos_space_marines",
+    "avatar_40k_necrons": "avatar_necrons",
+    "avatar_40k_orks": "avatar_orks",
+    "avatar_40k_custodes": "avatar_adeptus_custodes",
+    "avatar_aos_stormcast": "avatar_stormcast_eternals",
+    "avatar_aos_gloomspite": "avatar_gloomspite_gitz"
+}
+
 def get_item_by_id(item_id: str) -> Optional[Dict[str, Any]]:
-    """Retrieve an item by its unique ID."""
-    return ARMORY_INDEX.get(item_id)
+    """Retrieve an item by its unique ID with alias resolution."""
+    if not item_id:
+        return None
+    canonical = ARMORY_ALIASES.get(item_id, item_id)
+    return ARMORY_INDEX.get(canonical) or ARMORY_INDEX.get(item_id)
