@@ -1065,16 +1065,43 @@ function renderRequestsList(requests = connectState.requestsList, myId = null) {
     }
   }
 
-  // 3. Render Accepted Conversations
+  // 3. Render Accepted Conversations & Pinned Club Squad Chat
   if (convoList) {
+    const teamObj = (typeof currentTeamHubData !== 'undefined' && currentTeamHubData) ||
+                    (typeof userTeamAffiliation !== 'undefined' && userTeamAffiliation && userTeamAffiliation.team_id ? userTeamAffiliation : null) ||
+                    { name: 'Art of War', short_tag: 'AOW', id: 'team_art_of_war' };
+    const teamName = teamObj.name || teamObj.team_name || 'Art of War';
+    const teamTag = teamObj.short_tag || 'AOW';
+
+    const squadHeaderHtml = `
+      <div class="oc-squad-channel-pinned" onclick="if(window.switchTab){window.switchTab('teams');setTimeout(()=>{if(window.switchTeamHubSubtab)window.switchTeamHubSubtab('locker');},150);if(window.toggleFloatingChat)window.toggleFloatingChat(false);}" style="background: linear-gradient(135deg, rgba(30,58,138,0.45) 0%, rgba(15,23,42,0.9) 100%); border: 1px solid rgba(56,189,248,0.45); border-radius: 10px; padding: 0.75rem 0.85rem; margin-bottom: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 15px rgba(0,0,0,0.4); transition: transform 0.15s;" title="Open ${escapeHtml(teamName)} Squad Chat in Clubhouse">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.4); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0;">
+            🛡️
+          </div>
+          <div>
+            <div style="font-weight: 800; font-size: 0.88rem; color: #fff; display: flex; align-items: center; gap: 5px;">
+              ${escapeHtml(teamName)} Squad Chat
+              <span class="badge" style="font-size: 0.65rem; background: rgba(168,85,247,0.15); color: #c084fc;">[${escapeHtml(teamTag)}]</span>
+            </div>
+            <div style="font-size: 0.72rem; color: #38bdf8;">Club Clubhouse &bull; Teammates Only</div>
+          </div>
+        </div>
+        <span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.7rem; font-weight: 700;">Club Active 💬</span>
+      </div>
+      <div style="font-size: 0.68rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin: 0.65rem 0 0.45rem; padding-left: 2px;">
+        Direct Sparring Chats (1-on-1)
+      </div>
+    `;
+
     if (acceptedConvos.length === 0) {
-      convoList.innerHTML = `
-        <div style="text-align: center; padding: 2.5rem 1rem; color: #64748b; font-size: 0.82rem;">
-          No active chats.<br>Send a chat request to any OmniTactica player or accept a pending request!
+      convoList.innerHTML = squadHeaderHtml + `
+        <div style="text-align: center; padding: 2rem 1rem; color: #64748b; font-size: 0.82rem;">
+          No direct 1-on-1 sparring chats yet.<br>Send a chat request to any player on the leaderboard!
         </div>
       `;
     } else {
-      convoList.innerHTML = acceptedConvos.map(req => {
+      convoList.innerHTML = squadHeaderHtml + acceptedConvos.map(req => {
         const isMeSender = (req.sender_id === myId);
         const otherName = isMeSender ? req.receiver_name : req.sender_name;
         const otherElo = Math.round(isMeSender ? req.receiver_elo : req.sender_elo);

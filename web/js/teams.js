@@ -141,6 +141,9 @@ function renderTeamHub(team) {
           <button type="button" class="btn btn-outline" onclick="loadTeamsView('directory')" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; border-radius: 8px; border-color: rgba(255,255,255,0.15); color: #cbd5e1;">
             🌐 Browse All Clubs
           </button>
+          <button type="button" class="btn btn-outline" onclick="switchTeamHubSubtab('locker')" style="font-size: 0.78rem; font-weight: 700; padding: 0.45rem 0.95rem; border-radius: 8px; color: #38bdf8; border-color: rgba(56,189,248,0.4);">
+            💬 Squad Chat
+          </button>
           ${isCaptain ? `
             <button type="button" class="btn btn-primary" onclick="switchTeamHubSubtab('locker')" style="font-size: 0.78rem; font-weight: 800; padding: 0.45rem 1rem; border-radius: 8px;">
               👑 Captain's Locker
@@ -210,7 +213,7 @@ function renderTeamHub(team) {
         🏆 Trophy Room
       </button>
       <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'locker' ? 'active' : ''}" onclick="switchTeamHubSubtab('locker')">
-        🔒 Locker Room
+        💬 Locker Room &amp; Squad Chat
       </button>
     </div>
   `;
@@ -785,7 +788,15 @@ function renderSubtabLockerRoom(team) {
 
       <!-- Team Message Board / Locker Room Chat -->
       <div>
-        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0 0 0.75rem;">💬 Squad Bulletin Board</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.4rem;">
+          <div>
+            <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">💬 Squad Live Chat &amp; Tactical Board</h3>
+            <div style="font-size: 0.76rem; color: #94a3b8;">Real-time communication exclusive to confirmed teammates</div>
+          </div>
+          <span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-size: 0.72rem; font-weight: 800;">
+            ● Teammates Only
+          </span>
+        </div>
         <div style="background: #090f1d; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; overflow: hidden;">
           <div id="team-locker-messages-list" style="padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; max-height: 320px; overflow-y: auto;">
             ${messages.map(m => `
