@@ -246,6 +246,70 @@ function renderTeamHub(team) {
   }
 }
 
+// --------------------------------------------------------------------------
+// CLOUD FIRESTORE REAL-TIME SQUAD CHAT SYNC
+// --------------------------------------------------------------------------
+let teamsFirestoreDb = null;
+let teamLockerSnapshotUnsub = null;
+
+function getTeamsFirestoreDb() {
+  if (teamsFirestoreDb) return teamsFirestoreDb;
+  if (typeof firebase !== 'undefined' && firebase.firestore) {
+    try {
+      if (!firebase.apps || !firebase.apps.length) {
+        firebase.initializeApp({ projectId: "eloranking-506820" });
+      }
+      teamsFirestoreDb = firebase.firestore();
+      return teamsFirestoreDb;
+    } catch (e) {
+      console.warn("Notice initializing Firestore for Teams Hub:", e);
+    }
+  }
+  return null;
+}
+
+function detachTeamLockerSnapshot() {
+  if (teamLockerSnapshotUnsub) {
+    try {
+      teamLockerSnapshotUnsub();
+    } catch (e) {}
+    teamLockerSnapshotUnsub = null;
+  }
+}
+
+function attachTeamLockerChatSnapshot(teamId) {
+  detachTeamLockerSnapshot();
+  const fsDb = getTeamsFirestoreDb();
+  if (!fsDb) return;
+
+  try {
+    const docRef = fsDb.collection('team_chats').doc(teamId);
+    teamLockerSnapshotUnsub = docRef.onSnapshot((snap) => {
+      if (!snap || !snap.exists) return;
+      const data = snap.data();
+      if (data && Array.isArray(data.messages)) {
+        const listEl = document.getElementById('team-locker-messages-list');
+        if (listEl) {
+          listEl.innerHTML = data.messages.map(m => `
+            <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.75rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                <span style="font-weight: 800; font-size: 0.82rem; color: #38bdf8;">${escapeHtml(m.sender_name)} <span style="font-size:0.68rem; color:#94a3b8; font-weight:400;">(${escapeHtml(m.role || 'Member')})</span></span>
+                <span style="font-size: 0.68rem; color: #94a3b8;">${new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+              </div>
+              <p style="font-size: 0.84rem; color: #fff; margin: 0; line-height: 1.4;">${escapeHtml(m.message)}</p>
+            </div>
+          `).join('');
+          listEl.scrollTop = listEl.scrollHeight;
+        }
+      }
+    }, (err) => {
+      console.warn("Firestore team chat snapshot notice:", err);
+    });
+  } catch (err) {
+    console.warn("Failed to attach Firestore snapshot to team chat:", err);
+  }
+}
+
 function switchTeamHubSubtab(subtabId) {
   currentTeamHubSubtab = subtabId;
   document.querySelectorAll('.team-hub-subtabs-bar .team-subtab-btn').forEach(btn => {
@@ -260,6 +324,13 @@ function switchTeamHubSubtab(subtabId) {
 
   if (subtabId === 'trajectory' && currentTeamHubData) {
     setTimeout(() => drawTeamTrajectoryCanvas(currentTeamHubData), 30);
+  }
+
+  // Real-time Cloud Firestore subscription management for Squad Chat
+  if (subtabId === 'locker' && currentTeamHubData && currentTeamHubData.id) {
+    attachTeamLockerChatSnapshot(currentTeamHubData.id);
+  } else {
+    detachTeamLockerSnapshot();
   }
 }
 
@@ -615,22 +686,55 @@ function renderSubtabWarRoom(team) {
     <div style="display: flex; flex-direction: column; gap: 1.5rem;">
       <!-- Head to Head Club Rivalries -->
       <div>
-        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0 0 0.25rem;">⚔️ Head-to-Head Club Rivalries</h3>
-        <div style="font-size: 0.76rem; color: #94a3b8; margin-bottom: 0.85rem;">Historical tournament match record against rival wargaming clubs</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0 0 0.25rem;">⚔️ Head-to-Head Club Rivalries</h3>
+            <div style="font-size: 0.76rem; color: #94a3b8;">Dual-format record: aggregating 5v5 team tournament rounds &amp; singles GT clashes</div>
+          </div>
+          <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-size: 0.72rem; font-weight: 700;">
+            🏆 Team Rounds + ⚔️ Singles GTs
+          </span>
+        </div>
+
+        <!-- Dual-Format Engine Explanation Banner -->
+        <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(56,189,248,0.2); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.85rem; font-size: 0.78rem; color: #cbd5e1; line-height: 1.45;">
+          <strong style="color: #38bdf8;">💡 Dual-Format Engine:</strong> Rivalries are calculated by combining <strong>Official 5v5 Team Tournament rounds</strong> (e.g. ATC, WTC bracket matches) and <strong>Singles Major GT encounters</strong> whenever two players wearing opposing club jerseys face each other across the table.
+        </div>
         
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.85rem;">
-          ${rivalries.map(r => `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.85rem;">
+          ${rivalries.map(r => {
+            const tr = r.team_rounds || { wins: Math.round(r.wins * 0.25), losses: Math.round(r.losses * 0.25), played: Math.max(1, Math.round(r.matches_played * 0.25)) };
+            const sc = r.singles_clashes || { wins: r.wins - tr.wins, losses: r.losses - tr.losses, played: r.matches_played - tr.played };
+            return `
             <div class="card" style="background: #090f1d; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 1rem;">
-              <div style="font-weight: 800; font-size: 1rem; color: #fff;">vs. ${escapeHtml(r.rival_team)}</div>
-              <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 0.5rem 0;">
-                <span style="font-family: var(--font-mono); font-size: 1.35rem; font-weight: 900; color: ${r.win_rate >= 50 ? '#10b981' : '#ef4444'}; font-family: var(--font-mono);">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-weight: 800; font-size: 1rem; color: #fff;">vs. ${escapeHtml(r.rival_team)}</div>
+                <span class="badge" style="font-family: var(--font-mono); font-size: 0.7rem; color: #94a3b8; background: rgba(255,255,255,0.05);">${r.matches_played} Total Clashes</span>
+              </div>
+              
+              <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 0.5rem 0 0.35rem;">
+                <span style="font-family: var(--font-mono); font-size: 1.35rem; font-weight: 900; color: ${r.win_rate >= 50 ? '#10b981' : '#ef4444'};">
                   ${r.wins}W - ${r.losses}L
                 </span>
                 <span style="font-size: 0.82rem; font-weight: 700; color: #38bdf8;">${r.win_rate}% Win%</span>
               </div>
-              <div style="font-size: 0.72rem; color: #94a3b8;">Last clash: ${escapeHtml(r.last_played || 'Recent GT')}</div>
+
+              <!-- Dual-Format Breakdown Badges -->
+              <div style="display: flex; gap: 0.4rem; margin: 0.4rem 0 0.65rem; flex-wrap: wrap;">
+                <span class="badge" style="background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px;" title="Official 5v5 Team Tournament Rounds">
+                  🏆 5v5 Team: ${tr.wins}W - ${tr.losses}L
+                </span>
+                <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px;" title="Singles GT Clashes Between Club Members">
+                  ⚔️ Singles GT: ${sc.wins}W - ${sc.losses}L
+                </span>
+              </div>
+
+              <div style="font-size: 0.72rem; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.4rem;">
+                Last clash: <span style="color: #cbd5e1; font-weight: 600;">${escapeHtml(r.last_played || 'Recent GT')}</span>
+              </div>
             </div>
-          `).join('')}
+          `;
+          }).join('')}
         </div>
       </div>
 
@@ -1188,6 +1292,33 @@ async function sendTeamLockerMessage(teamId) {
   if (!msg) return;
 
   input.value = '';
+
+  // 1. Push to Cloud Firestore for instant real-time broadcast to all teammates
+  const fsDb = getTeamsFirestoreDb();
+  if (fsDb && typeof firebase !== 'undefined' && firebase.firestore?.FieldValue) {
+    try {
+      const senderName = (typeof currentUser !== 'undefined' && currentUser && (currentUser.name || currentUser.player_name)) || 'Innes Wilson';
+      const isCaptain = (typeof currentUser !== 'undefined' && currentUser && currentTeamHubData && (currentUser.player_id === currentTeamHubData.owner_player_id || currentUser.id === currentTeamHubData.owner_player_id));
+      const role = isCaptain ? 'Captain' : 'Member';
+      fsDb.collection('team_chats').doc(teamId).set({
+        team_id: teamId,
+        updated_at: new Date().toISOString(),
+        messages: firebase.firestore.FieldValue.arrayUnion({
+          id: 'msg-' + Date.now(),
+          sender_name: senderName,
+          role: role,
+          message: msg,
+          timestamp: new Date().toISOString()
+        })
+      }, { merge: true }).catch(err => {
+        console.warn("Firestore squad chat write notice:", err);
+      });
+    } catch (e) {
+      console.warn("Firestore squad chat notice:", e);
+    }
+  }
+
+  // 2. Persist to backend database
   try {
     await window.api.postTeamMessage(teamId, msg);
     // Reload feed
@@ -1199,7 +1330,7 @@ async function sendTeamLockerMessage(teamId) {
         listEl.innerHTML = (currentTeamHubData.locker_room.messages || []).map(m => `
           <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.75rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
-              <span style="font-weight: 800; font-size: 0.82rem; color: #38bdf8;">${escapeHtml(m.sender_name)}</span>
+              <span style="font-weight: 800; font-size: 0.82rem; color: #38bdf8;">${escapeHtml(m.sender_name)} <span style="font-size:0.68rem; color:#94a3b8; font-weight:400;">(${escapeHtml(m.role || 'Member')})</span></span>
               <span style="font-size: 0.68rem; color: #94a3b8;">${new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
             </div>
             <p style="font-size: 0.84rem; color: #fff; margin: 0; line-height: 1.4;">${escapeHtml(m.message)}</p>

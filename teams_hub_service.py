@@ -282,9 +282,36 @@ def get_default_teams_seed() -> Dict[str, Any]:
                         {"enemy_faction": "Drukhari", "encounters": 12, "wins": 7, "losses": 5, "win_rate": 58.3}
                     ],
                     "club_rivalries": [
-                        {"rival_team": "Team Zero Comp", "matches_played": 22, "wins": 14, "losses": 8, "win_rate": 63.6, "last_played": "ATC 2026"},
-                        {"rival_team": "Vanguard Tactics", "matches_played": 16, "wins": 12, "losses": 4, "win_rate": 75.0, "last_played": "LVO 2026"},
-                        {"rival_team": "Team Ignite", "matches_played": 14, "wins": 11, "losses": 3, "win_rate": 78.6, "last_played": "Nova Open 2025"}
+                        {
+                            "rival_team": "Team Zero Comp",
+                            "matches_played": 22,
+                            "wins": 14,
+                            "losses": 8,
+                            "win_rate": 63.6,
+                            "last_played": "ATC 2026",
+                            "team_rounds": {"wins": 4, "losses": 2, "played": 6},
+                            "singles_clashes": {"wins": 10, "losses": 6, "played": 16}
+                        },
+                        {
+                            "rival_team": "Vanguard Tactics",
+                            "matches_played": 16,
+                            "wins": 12,
+                            "losses": 4,
+                            "win_rate": 75.0,
+                            "last_played": "LVO 2026",
+                            "team_rounds": {"wins": 2, "losses": 0, "played": 2},
+                            "singles_clashes": {"wins": 10, "losses": 4, "played": 14}
+                        },
+                        {
+                            "rival_team": "Team Ignite",
+                            "matches_played": 14,
+                            "wins": 11,
+                            "losses": 3,
+                            "win_rate": 78.6,
+                            "last_played": "Nova Open 2025",
+                            "team_rounds": {"wins": 2, "losses": 1, "played": 3},
+                            "singles_clashes": {"wins": 9, "losses": 2, "played": 11}
+                        }
                     ]
                 },
                 "trophy_room": [

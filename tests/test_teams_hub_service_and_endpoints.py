@@ -121,15 +121,17 @@ class TestTeamsHubServiceAndEndpoints(unittest.TestCase):
         self.assertEqual(indep_aff["role"], "Independent")
 
     def test_team_creation_and_messaging(self):
-        unique_name = f"Test Guard Squad {int(sys.version_info[0])}_{int(unittest.__file__.__hash__()) % 1000}"
+        import uuid
+        unique_name = f"Test Guard Squad {uuid.uuid4().hex[:8]}"
+        unique_tag = f"T{uuid.uuid4().hex[:3].upper()}"
         team = self.service.create_team(
             owner_player_id="test_capt_1",
             name=unique_name,
-            short_tag="TGS",
+            short_tag=unique_tag,
             captain_name="Captain John",
             home_venue="Local FLGS"
         )
-        self.assertEqual(team["short_tag"], "TGS")
+        self.assertEqual(team["short_tag"], unique_tag)
 
         # Post message
         msg = self.service.add_team_message(team["id"], "test_capt_1", "Captain John", "Squad tournament practice tomorrow!")
