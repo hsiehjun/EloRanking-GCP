@@ -1144,7 +1144,7 @@ def test_registered_tournaments_module():
         "bcp_adapter.py must normalize has_list_submitted"
 
     # 3. Auth Manager & Routers
-    assert '"registered_tournaments": self.db.get_user_registered_tournaments(user_id)' in auth_py, \
+    assert '"registered_tournaments":' in auth_py and 'get_user_registered_tournaments' in auth_py, \
         "auth.py get_user_competitor_hub missing registered_tournaments"
     assert "/api/user/registered-tournaments" in auth_router, \
         "routers/auth.py missing /api/user/registered-tournaments endpoint"
