@@ -147,7 +147,7 @@ async function main() {
       // 1. Switch to Teams Tab -> Team Hub (Art of War)
       console.log(`  [${vp.device}] Navigating to Teams Tab (Art of War Hub)...`);
       await client.eval(`
-        document.querySelectorAll('.modal-backdrop, .modal-overlay').forEach(m => { m.style.display = 'none'; });
+        document.querySelectorAll('.modal-backdrop').forEach(m => { m.style.display = 'none'; });
       `);
       await client.eval("switchTab('teams');");
       await sleep(1000);
@@ -177,27 +177,19 @@ async function main() {
       await sleep(400);
       await takeScreenshot(client, `team_hub_trophies_${vp.name}.png`, vp);
 
-      // 6. Club Glory Honor Modal
-      console.log(`  [${vp.device}] Opening Club Glory Honor Modal...`);
-      await client.eval("openClubGloryModal();");
-      await sleep(500);
-      await takeScreenshot(client, `team_club_glory_modal_${vp.name}.png`, vp);
-      await client.eval("closeClubGloryModal();");
-      await sleep(200);
-
-      // 7. Locker Room & Chat Subtab
+      // 6. Locker Room & Chat Subtab
       console.log(`  [${vp.device}] Switching to Locker Room Subtab...`);
       await client.eval("switchTeamHubSubtab('locker');");
       await sleep(400);
       await takeScreenshot(client, `team_hub_locker_${vp.name}.png`, vp);
 
-      // 8. Global Clubs Directory View
+      // 5. Global Clubs Directory View
       console.log(`  [${vp.device}] Switching to Global Clubs Directory View...`);
       await client.eval("loadTeamsView('directory');");
       await sleep(800);
       await takeScreenshot(client, `teams_leaderboard_directory_${vp.name}.png`, vp);
 
-      // 9. Onboarding Modal ("Claim Your Team")
+      // 6. Onboarding Modal ("Claim Your Team")
       console.log(`  [${vp.device}] Triggering 'Claim Your Team' Modal...`);
       await client.eval(`
         (async () => {
@@ -240,7 +232,7 @@ async function main() {
       await sleep(200);
     }
 
-    console.log("\n🎉 All 27 responsive screenshots captured successfully!");
+    console.log("\n🎉 All 18 responsive screenshots captured successfully!");
   } catch (err) {
     console.error("Screenshot suite failed:", err);
   } finally {
