@@ -321,7 +321,12 @@ function switchTab(tabName) {
   }
 
   // Trigger lazy loading of view data
-  if (tabName === 'leaderboard') {
+  if (tabName === 'teams' || tabName === 'team') {
+    tabName = 'teams';
+    if (typeof loadTeamsView === 'function') {
+      loadTeamsView();
+    }
+  } else if (tabName === 'leaderboard') {
     const teamsBtn = document.getElementById('lead-subtab-teams');
     if (teamsBtn && teamsBtn.classList.contains('active')) {
       if (typeof loadLeaderboardTeams === 'function') loadLeaderboardTeams();
@@ -937,6 +942,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (typeof toggleFloatingChat === 'function') {
       toggleFloatingChat(true);
     }
+  }
+
+  // Check if competitor needs to claim their official team affiliation
+  if (currentUser && typeof checkAndShowTeamOnboardingModal === 'function') {
+    setTimeout(checkAndShowTeamOnboardingModal, 1500);
   }
 });
 

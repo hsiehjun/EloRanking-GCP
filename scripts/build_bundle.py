@@ -21,6 +21,7 @@ BUNDLE_MODULES = [
     "teams.js",
     "players.js",
     "badges_ui.js",
+    "armory.js",
     "player_profile.js",
     "modals.js",
     "tournaments.js",

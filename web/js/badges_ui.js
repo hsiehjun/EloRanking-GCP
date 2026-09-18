@@ -219,6 +219,9 @@
     html.push('  <button type="button" class="hero-insignia-info-btn" onclick="window.BadgesUI && window.BadgesUI.openGuideModal();" title="Field Manual: Crests, Seals &amp; Heraldry Symbols" aria-label="Heraldry Guide">');
     html.push('    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>');
     html.push('  </button>');
+    html.push('  <button type="button" class="hero-insignia-armory-btn" onclick="window.Armory && window.Armory.openArmoryModal();" title="Retribution Armory: Requisition Skins, Dice &amp; Titles" aria-label="Retribution Armory">');
+    html.push('    <span>🏛️</span>');
+    html.push('  </button>');
     html.push('</div>');
 
     return html.join('\n');
@@ -322,12 +325,12 @@
     if (!isPublic) {
       careerStatsGroupHtml = [
         '<div class="trophy-banner-stats-group">',
-        '  <div class="trophy-stat-pill trophy-glory-pill-interactive" onclick="window.BadgesUI.openGloryCurrencyModal()" style="cursor: pointer;" title="Glory Honor: Unified Spendable Balance (Click for Field Intel)">',
+        '  <div class="trophy-stat-pill trophy-glory-pill-interactive" onclick="window.Armory ? window.Armory.openArmoryModal() : window.BadgesUI.openGloryCurrencyModal()" style="cursor: pointer;" title="Spendable Glory Honor (Click to enter Retribution Armory)">',
         '        <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem;">',
         '          <span class="trophy-stat-val" style="color: #fbbf24;">' + unifiedGlory.toLocaleString() + '</span>',
-        '          <span style="font-size: 0.68rem; opacity: 0.85;">ℹ️</span>',
+        '          <span style="font-size: 0.72rem; opacity: 0.95;">🏛️</span>',
         '        </div>',
-        '        <span class="trophy-stat-lbl">Glory Honor</span>',
+        '        <span class="trophy-stat-lbl">Glory Wallet</span>',
         '  </div>',
         '  <div class="trophy-stat-pill">',
         '    <span class="trophy-stat-val" style="color: #38bdf8;">' + badgeCount + ' / ' + totalBadges + '</span>',
@@ -358,6 +361,7 @@
       '          <h3 class="trophy-military-title">Career Milestones</h3>',
       '          <span class="trophy-rank-level-badge">Crest Tier ' + (rank.rank || 1) + ': ' + escapeHtml(rank.title || 'Initiate') + '</span>',
       '          <button type="button" class="trophy-info-btn" onclick="window.BadgesUI.openGuideModal()" title="Field Manual: Rank Borders &amp; Glory System" aria-label="Progression Guide"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>',
+          '<button type="button" class="btn btn-sm btn-outline-warning" onclick="window.Armory && window.Armory.openArmoryModal()" style="padding: 0.15rem 0.5rem; font-size: 0.72rem; font-weight: 800; border-color: rgba(245,158,11,0.5); color: #fbbf24; background: rgba(245,158,11,0.12); border-radius: 9999px; margin-left: 0.35rem; cursor: pointer;" title="Open Retribution Armory"><span>🏛️ Armory →</span></button>',
       '        </div>',
       '        <div class="trophy-banner-sub">' + escapeHtml(rank.description || '') + '</div>',
       '        <div class="trophy-next-rank-status">' + nextRankText + '</div>',

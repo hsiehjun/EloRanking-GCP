@@ -158,10 +158,10 @@ class AuthManager:
                         cur.execute("""
                         SELECT COUNT(*) FROM information_schema.columns 
                         WHERE table_schema = 'public' AND table_name = 'users' 
-                          AND column_name IN ('pinned_badges', 'badges_celebrated', 'acknowledged_badge_ids', 'role', 'bcp_id_token', 'invited_by_user_id', 'invite_code_used');
+                          AND column_name IN ('pinned_badges', 'badges_celebrated', 'acknowledged_badge_ids', 'role', 'bcp_id_token', 'invited_by_user_id', 'invite_code_used', 'armory_vault', 'glory_spent');
                         """)
                         col_cnt = cur.fetchone()
-                        if col_cnt and col_cnt[0] >= 7:
+                        if col_cnt and col_cnt[0] >= 9:
                             cur.execute("SELECT value FROM system_settings WHERE key = 'auth_schema_ready';")
                             setting = cur.fetchone()
                             if setting and setting[0] == 'true':
@@ -211,6 +211,18 @@ class AuthManager:
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS pinned_badges TEXT;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS badges_celebrated BOOLEAN DEFAULT FALSE;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS acknowledged_badge_ids TEXT;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS armory_vault TEXT;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_spent INT DEFAULT 0;
+                        CREATE TABLE IF NOT EXISTS armory_transactions (
+                            id SERIAL PRIMARY KEY,
+                            user_id VARCHAR(64) NOT NULL,
+                            item_id VARCHAR(64) NOT NULL,
+                            glory_cost INT NOT NULL,
+                            transaction_type VARCHAR(32) NOT NULL,
+                            metadata TEXT,
+                            created_at TIMESTAMPTZ DEFAULT NOW()
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_armory_transactions_user ON armory_transactions(user_id);
                         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_user_id ON users(bcp_user_id) WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_email ON users(LOWER(bcp_email)) WHERE bcp_email IS NOT NULL AND bcp_email != '';
@@ -893,6 +905,7 @@ class AuthManager:
                     SELECT u.id, u.email, u.display_name, u.role, u.player_id,
                            u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
                            u.pinned_badges, u.badges_celebrated, u.acknowledged_badge_ids,
+                           u.armory_vault, u.glory_spent,
                            COALESCE(p.player_name, pl.full_name) as competitor_name,
                            p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
                            p.top_faction, COALESCE(p.team, pl.team) as team
@@ -918,6 +931,7 @@ class AuthManager:
                         SELECT u.id, u.email, u.display_name, u.role, u.player_id,
                                u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
                                u.pinned_badges, u.badges_celebrated, u.acknowledged_badge_ids,
+                               u.armory_vault, u.glory_spent,
                                COALESCE(p.player_name, pl.full_name) as competitor_name,
                                p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
                                p.top_faction, COALESCE(p.team, pl.team) as team
@@ -982,6 +996,19 @@ class AuthManager:
                 data["acknowledged_badge_ids"] = raw_ack
             else:
                 data["acknowledged_badge_ids"] = []
+
+            raw_vault = data.get("armory_vault")
+            if raw_vault and isinstance(raw_vault, str):
+                try:
+                    data["armory_vault"] = json.loads(raw_vault)
+                except Exception:
+                    data["armory_vault"] = {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}}
+            elif isinstance(raw_vault, dict):
+                data["armory_vault"] = raw_vault
+            else:
+                data["armory_vault"] = {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}}
+
+            data["glory_spent"] = int(data.get("glory_spent") or 0)
 
             return data
         return None

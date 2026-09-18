@@ -540,6 +540,71 @@ window.api = {
     return this._fetchJson(`/api/team/${encodeURIComponent(teamName)}${qs}`);
   },
 
+  // Team Hub: Full 6-Tab Dossier
+  async getTeamHub(teamId, gameSystem = '') {
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const qs = currentSys ? `?game_system=${encodeURIComponent(currentSys)}` : '';
+    return this._fetchJson(`/api/teams/${encodeURIComponent(teamId)}${qs}`);
+  },
+
+  // Team Hub: Current User Affiliation & Team
+  async getMyTeam(gameSystem = '') {
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const qs = currentSys ? `?game_system=${encodeURIComponent(currentSys)}` : '';
+    return this._fetchJson(`/api/teams/my-team${qs}`);
+  },
+
+  // Team Hub: Detected Teams for Onboarding Modal
+  async getDetectedTeams(playerId = '') {
+    const qs = playerId ? `?player_id=${encodeURIComponent(playerId)}` : '';
+    return this._fetchJson(`/api/teams/detected-history${qs}`);
+  },
+
+  // Team Hub: Confirm Team Affiliation (From Onboarding Modal)
+  async confirmTeamAffiliation(teamId, playerId = '', playerName = '') {
+    return this._fetchJson('/api/teams/confirm-affiliation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team_id: teamId, player_id: playerId, player_name: playerName })
+    });
+  },
+
+  // Team Hub: Leave Team (Become Independent)
+  async leaveTeam(playerId = '') {
+    return this._fetchJson('/api/teams/leave', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ player_id: playerId })
+    });
+  },
+
+  // Team Hub: Create a New Team Hub
+  async createTeam(teamData) {
+    return this._fetchJson('/api/teams/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(teamData)
+    });
+  },
+
+  // Team Hub: Post Message to Locker Room
+  async postTeamMessage(teamId, message, isPinned = false) {
+    return this._fetchJson(`/api/teams/${encodeURIComponent(teamId)}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, is_pinned: isPinned })
+    });
+  },
+
+  // Team Hub: Toggle Squad Event Attendance
+  async toggleSquadEventAttendance(teamId, eventId, playerName = '') {
+    return this._fetchJson(`/api/teams/${encodeURIComponent(teamId)}/squad-events/attend`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_id: eventId, player_name: playerName })
+    });
+  },
+
   // Single Tournament Details & Pairings
   async getTournamentDetails(eventId, forceSync = false) {
     const query = forceSync ? '?force_sync=true' : '';
