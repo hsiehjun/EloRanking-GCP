@@ -1125,6 +1125,124 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"success": True, "acknowledged_badge_ids": DEV_USER["acknowledged_badge_ids"]}).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/armory/"):
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                payload = {}
+
+            if clean_path == "api/armory/purchase":
+                import armory_catalog
+                item_id = (payload.get("item_id") or "").strip()
+                item = armory_catalog.get_item_by_id(item_id)
+                if not item:
+                    self.send_response(404)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"detail": f"Item {item_id} not found in catalog"}).encode("utf-8"))
+                    return
+
+                v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}})
+                inv = v.setdefault("inventory", {})
+                cost = item.get("cost_glory", 0)
+                total_earned = 1845
+                spent = int(DEV_USER.get("glory_spent") or 0)
+                spendable = max(0, total_earned - spent)
+
+                if spendable < cost:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"detail": f"Insufficient Glory Honor. Cost {cost}, available {spendable}"}).encode("utf-8"))
+                    return
+
+                if not item.get("is_consumable") and item_id in inv:
+                    self.send_response(409)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"detail": "You already own this permanent item."}).encode("utf-8"))
+                    return
+
+                now_iso = datetime.now(timezone.utc).isoformat()
+                if item.get("is_consumable"):
+                    existing = inv.get(item_id, {}).get("quantity", 0)
+                    inv[item_id] = {
+                        "acquired_at": now_iso,
+                        "quantity": existing + item.get("bundle_count", 1),
+                        "item_name": item["name"],
+                        "wing": item["wing"]
+                    }
+                else:
+                    inv[item_id] = {
+                        "acquired_at": now_iso,
+                        "item_name": item["name"],
+                        "wing": item["wing"],
+                        "slot": item.get("slot")
+                    }
+
+                DEV_USER["glory_spent"] = spent + cost
+                new_spendable = max(0, total_earned - DEV_USER["glory_spent"])
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "message": f"Successfully requisitioned {item['name']} for {cost} Glory!",
+                    "item": item,
+                    "vault": v,
+                    "glory": {
+                        "total_earned": total_earned,
+                        "glory_spent": DEV_USER["glory_spent"],
+                        "spendable_glory": new_spendable,
+                        "crest_tier": 5
+                    }
+                }).encode("utf-8"))
+                return
+
+            if clean_path == "api/armory/equip":
+                slot = payload.get("slot")
+                item_id = payload.get("item_id")
+                v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}})
+                inv = v.setdefault("inventory", {})
+                eq = v.setdefault("equipped", {})
+
+                if item_id not in inv:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"detail": f"You do not own item '{item_id}'"}).encode("utf-8"))
+                    return
+
+                eq[slot] = item_id
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "message": f"Equipped {item_id} to {slot}",
+                    "slot": slot,
+                    "item_id": item_id,
+                    "equipped": eq
+                }).encode("utf-8"))
+                return
+
+            if clean_path == "api/armory/unequip":
+                slot = payload.get("slot")
+                v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}})
+                eq = v.setdefault("equipped", {})
+                eq[slot] = None
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "message": f"Unequipped {slot}",
+                    "slot": slot,
+                    "equipped": eq
+                }).encode("utf-8"))
+                return
+
         if clean_path == "api/tracker/room/create":
             try:
                 p_load = json.loads(body.decode("utf-8")) if body else {}
@@ -1133,6 +1251,22 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             is_aos = p_load.get("game_system") == "aos" or str(p_load.get("match_id", "")).startswith("AOS-")
             token = secrets.token_hex(4).upper()
             match_id = p_load.get("match_id") or (f"AOS-{token[:4]}-{token[4:]}" if is_aos else f"WH40K-{token[:4]}-{token[4:]}")
+            init_state = {
+                "id": match_id,
+                "match_id": match_id,
+                "game_system": "aos" if is_aos else "40k",
+                "round": 1,
+                "round_num": 1,
+                "game": {
+                    "p1Name": p_load.get("p1_name", "Player 1"),
+                    "p2Name": p_load.get("p2_name", "Player 2"),
+                    "p1Faction": p_load.get("p1_faction"),
+                    "p2Faction": p_load.get("p2_faction")
+                },
+                "p1": {"score": 0},
+                "p2": {"score": 0},
+                "is_finished": False
+            }
             res = {
                 "success": True,
                 "match_id": match_id,
@@ -1140,7 +1274,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "game_system": "aos" if is_aos else "40k",
                 "p1_name": p_load.get("p1_name", "Player 1"),
                 "p2_name": p_load.get("p2_name", "Player 2"),
-                "state": None
+                "state": init_state
             }
             ROOMS_DB[match_id] = {
                 "match_id": match_id,
@@ -1148,7 +1282,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "status": "active",
                 "version": 1,
                 "online_count": 1,
-                "state": None
+                "p1_name": p_load.get("p1_name", "Player 1"),
+                "p2_name": p_load.get("p2_name", "Player 2"),
+                "state": init_state
             }
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1410,6 +1546,115 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 }).encode("utf-8"))
                 return
 
+        try:
+            payload = json.loads(body.decode("utf-8")) if body else {}
+        except Exception:
+            payload = {}
+
+        if clean_path == "api/teams/confirm-affiliation":
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            p_id = (payload.get("player_id") or DEV_USER["user"].get("player_id") or "p_innes").strip()
+            p_name = payload.get("player_name") or DEV_USER["user"].get("display_name") or "Player"
+            t_id = (payload.get("team_id") or "").strip()
+            try:
+                aff = svc.confirm_player_affiliation(p_id, t_id, p_name)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "affiliation": aff}).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path == "api/teams/leave":
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            p_id = (payload.get("player_id") or DEV_USER["user"].get("player_id") or "p_innes").strip()
+            aff = svc.set_player_independent(p_id)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "affiliation": aff}).encode("utf-8"))
+            return
+
+        if clean_path == "api/teams/create":
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            p_id = (payload.get("owner_player_id") or DEV_USER["user"].get("player_id") or "p_innes").strip()
+            p_name = payload.get("captain_name") or DEV_USER["user"].get("display_name") or "Captain"
+            t_name = (payload.get("name") or "").strip()
+            t_tag = (payload.get("short_tag") or "").strip()
+            t_sys = (payload.get("game_system") or "40k").strip()
+            try:
+                new_team = svc.create_team(
+                    owner_player_id=p_id,
+                    name=t_name,
+                    short_tag=t_tag,
+                    game_system=t_sys,
+                    captain_name=p_name,
+                    home_venue=payload.get("home_venue", ""),
+                    home_city=payload.get("home_city", "San Diego"),
+                    home_state=payload.get("home_state", "CA"),
+                    home_country=payload.get("home_country", "USA"),
+                    bio=payload.get("bio", ""),
+                    discord_url=payload.get("discord_url", "")
+                )
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "team": new_team}).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/teams/") and clean_path.endswith("/messages"):
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            t_id = clean_path.split("/")[2]
+            msg_text = (payload.get("message") or "").strip()
+            is_pin = bool(payload.get("is_pinned", False))
+            p_id = (payload.get("sender_player_id") or DEV_USER["user"].get("player_id") or "p_innes").strip()
+            p_name = payload.get("sender_name") or DEV_USER["user"].get("display_name") or "Player"
+            role = payload.get("role", "Member")
+            try:
+                msg_obj = svc.add_team_message(t_id, p_id, p_name, msg_text, role=role, is_pinned=is_pin)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "message": msg_obj}).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/teams/") and clean_path.endswith("/squad-events/attend"):
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            t_id = clean_path.split("/")[2]
+            ev_id = (payload.get("event_id") or "").strip()
+            p_name = payload.get("player_name") or DEV_USER["user"].get("display_name") or "Innes Wilson"
+            try:
+                res_att = svc.toggle_event_attendance(t_id, ev_id, p_name)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, **res_att}).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": str(e)}).encode("utf-8"))
+            return
+
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
@@ -1507,6 +1752,53 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "is_full": False,
                     "is_finished": False
                 }).encode("utf-8"))
+            return
+
+        if clean_path == "api/armory/catalog":
+            import armory_catalog
+            v = DEV_USER.get("armory_vault") or {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}}
+            total_earned = 1845
+            spent = int(DEV_USER.get("glory_spent") or 0)
+            spendable = max(0, total_earned - spent)
+            crest_tier = 5
+            cat = armory_catalog.get_armory_catalog(user_vault=v, user_crest_tier=crest_tier)
+            cat["user_glory"] = {
+                "total_earned": total_earned,
+                "glory_spent": spent,
+                "spendable_glory": spendable,
+                "crest_tier": crest_tier
+            }
+            cat["user_vault"] = v
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(cat).encode("utf-8"))
+            return
+
+        if clean_path == "api/armory/vault":
+            v = DEV_USER.get("armory_vault") or {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}}
+            total_earned = 1845
+            spent = int(DEV_USER.get("glory_spent") or 0)
+            spendable = max(0, total_earned - spent)
+            res = {
+                "success": True,
+                "user_id": DEV_USER.get("id", "usr_dev"),
+                "vault": v,
+                "inventory": v.get("inventory", {}),
+                "equipped": v.get("equipped", {}),
+                "glory": {
+                    "total_earned": total_earned,
+                    "glory_spent": spent,
+                    "spendable_glory": spendable,
+                    "crest_tier": 5
+                }
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
         if clean_path in ("api/eventstudio/events", "api/eventstudio/events/"):
@@ -2529,84 +2821,120 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
-        if clean_path == "api/teams" or clean_path.startswith("api/teams") or "leaderboard/teams" in clean_path:
-            teams_data = [
-                {
-                    "rank": 1,
-                    "team": "Art of War",
-                    "power_rating": 2207.7,
-                    "active_roster_count": 6,
-                    "roster_count": 8,
-                    "top_player_name": "Innes Wilson",
-                    "top_player_id": "p_innes_wilson",
-                    "top_player_elo": 2375.2,
-                    "total_wins": 345,
-                    "total_losses": 62,
-                    "total_draws": 4,
-                    "team_win_rate": 84.8
-                },
-                {
-                    "rank": 2,
-                    "team": "Team Zero Comp",
-                    "power_rating": 2045.2,
-                    "active_roster_count": 5,
-                    "roster_count": 7,
-                    "top_player_name": "David Gaylard",
-                    "top_player_id": "p_david",
-                    "top_player_elo": 2280.4,
-                    "total_wins": 210,
-                    "total_losses": 48,
-                    "total_draws": 2,
-                    "team_win_rate": 81.4
-                },
-                {
-                    "rank": 3,
-                    "team": "Team Ignite",
-                    "power_rating": 1920.8,
-                    "active_roster_count": 4,
-                    "roster_count": 6,
-                    "top_player_name": "Manning Feinleib",
-                    "top_player_id": "p_manning",
-                    "top_player_elo": 2170.2,
-                    "total_wins": 180,
-                    "total_losses": 55,
-                    "total_draws": 3,
-                    "team_win_rate": 76.6
-                },
-                {
-                    "rank": 4,
-                    "team": "Down Under",
-                    "power_rating": 1855.0,
-                    "active_roster_count": 4,
-                    "roster_count": 5,
-                    "top_player_name": "Liam Hackett",
-                    "top_player_id": "p_liam",
-                    "top_player_elo": 2110.5,
-                    "total_wins": 140,
-                    "total_losses": 60,
-                    "total_draws": 1,
-                    "team_win_rate": 70.0
-                },
-                {
-                    "rank": 5,
-                    "team": "Vanguard Tactics",
-                    "power_rating": 1780.4,
-                    "active_roster_count": 4,
-                    "roster_count": 6,
-                    "top_player_name": "Stephen Box",
-                    "top_player_id": "p_box",
-                    "top_player_elo": 2040.0,
-                    "total_wins": 125,
-                    "total_losses": 65,
-                    "total_draws": 2,
-                    "team_win_rate": 65.8
-                }
-            ]
+        if clean_path == "api/teams/my-team":
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            p_id = (query_params.get("player_id", [None])[0] or DEV_USER["user"].get("player_id") or "p_innes").strip()
+            gs = (query_params.get("game_system", [None])[0] or "40k").strip().lower()
+            aff = svc.get_player_affiliation(p_id)
+            hub = None
+            if aff and aff.get("team_id"):
+                hub = svc.get_team_hub(aff["team_id"], gs)
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"teams": teams_data, "items": teams_data, "total": len(teams_data)}).encode("utf-8"))
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "has_team": bool(aff and aff.get("team_id")),
+                    "affiliation": aff,
+                    "team": hub
+                }).encode("utf-8"))
+            return
+
+        if clean_path == "api/teams/detected-history":
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            p_id = (query_params.get("player_id", [None])[0] or DEV_USER["user"].get("player_id") or "p_innes").strip()
+            history = svc.get_player_detected_history(p_id)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "detected": history}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/teams/") and not clean_path.endswith("/messages") and not clean_path.endswith("/squad-events/attend"):
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            t_id = clean_path.split("/")[2]
+            gs = (query_params.get("game_system", [None])[0] or "40k").strip().lower()
+            hub = svc.get_team_hub(t_id, gs)
+            if not hub:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps({"detail": f"Team {t_id} not found"}).encode("utf-8"))
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "team": hub}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/team/"):
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            team_target = urllib.parse.unquote(clean_path.split("/")[2])
+            gs = (query_params.get("game_system", [None])[0] or "40k").strip().lower()
+            hub = svc.get_team_hub(team_target, gs)
+            if not hub:
+                res = {"team": team_target, "roster": [], "stats": {}, "game_system": gs}
+            else:
+                res = {
+                    "team": hub["name"],
+                    "roster": hub.get("roster", []),
+                    "stats": {
+                        "roster_count": hub.get("roster_count", len(hub.get("roster", []))),
+                        "active_roster_count": hub.get("active_roster_count", len(hub.get("roster", []))),
+                        "power_rating": hub.get("power_rating", 0.0),
+                        "combat_factor": hub.get("combat_factor", 1.0),
+                        "avg_elo": hub.get("active_avg_elo", 1500.0),
+                        "active_avg_elo": hub.get("active_avg_elo", 1500.0),
+                        "top5_avg_elo": hub.get("top5_avg", 1500.0),
+                        "top_player_elo": hub.get("top_player_elo", 1500.0),
+                        "total_matches": hub.get("total_matches", 0),
+                        "total_wins": hub.get("total_wins", 0),
+                        "total_losses": hub.get("total_losses", 0),
+                        "total_draws": hub.get("total_draws", 0),
+                        "win_rate": hub.get("team_win_rate", 0.0),
+                        "is_qualified": hub.get("is_qualified", True)
+                    },
+                    "game_system": gs
+                }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path in ("api/teams", "api/teams/", "api/leaderboard/teams"):
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            p = int(query_params.get("page", [1])[0])
+            ps = int(query_params.get("page_size", [25])[0])
+            q = query_params.get("query", [None])[0] or query_params.get("search", [None])[0]
+            sb = query_params.get("sort_by", ["power_rating"])[0]
+            od = query_params.get("order", ["DESC"])[0]
+            mr = int(query_params.get("min_roster", [1])[0])
+            gs = (query_params.get("game_system", ["40k"])[0]).lower()
+            res = svc.get_teams_leaderboard(
+                game_system=gs,
+                page=p,
+                page_size=ps,
+                query=q,
+                sort_by=sb,
+                order=od,
+                min_roster=mr
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
         if "leaderboard" in clean_path or "players" in clean_path:

@@ -163,6 +163,24 @@ async function loadMyHubDashboard() {
   // Ensure local active and completed tracker matches are instantly reflected in optimistic render
   const localInitial = getLocalTrackerSessions(gs);
   if (cachedData) {
+    if (Array.isArray(cachedData.active_sessions) && cachedData.active_sessions.length > 1) {
+      const serverActiveItems = cachedData.active_sessions.filter(m => {
+        const mid = (m.match_id || m.id || '').trim();
+        return !mid.startsWith('g-') && !mid.startsWith('game-') && (!mid.startsWith('aos-') || mid.startsWith('AOS-'));
+      });
+      if (serverActiveItems.length > 0) {
+        cachedData.active_sessions = cachedData.active_sessions.filter(m => {
+          const mid = (m.match_id || m.id || '').trim();
+          const isEphemeral = mid.startsWith('g-') || mid.startsWith('game-') || (mid.startsWith('aos-') && !mid.startsWith('AOS-'));
+          if (!isEphemeral) return true;
+          const locP1 = (m.p1_name || '').trim().toLowerCase();
+          const locP2 = (m.p2_name || '').trim().toLowerCase();
+          return !serverActiveItems.some(srv => (srv.p1_name || '').trim().toLowerCase() === locP1 && (srv.p2_name || '').trim().toLowerCase() === locP2);
+        });
+        cachedData.primary_active = cachedData.active_sessions[0] || null;
+        cachedData.unfinished_sessions = cachedData.active_sessions.slice(1);
+      }
+    }
     if ((!cachedData.active_sessions || cachedData.active_sessions.length === 0) && localInitial.active.length > 0) {
       cachedData.active_sessions = localInitial.active;
       cachedData.primary_active = localInitial.active[0] || null;
@@ -224,13 +242,44 @@ async function loadMyHubDashboard() {
       : [];
 
     const activeMap = new Map();
-    localFresh.active.forEach(m => {
-      const mid = (m.match_id || m.id || '').trim();
-      if (mid && !hiddenSet.has(mid)) activeMap.set(mid, m);
-    });
+    // 1. Authoritative server active sessions
     serverActive.forEach(m => {
       const mid = (m.match_id || m.id || '').trim();
       if (mid && !hiddenSet.has(mid)) activeMap.set(mid, m);
+    });
+
+    // 2. Local sessions only if not a duplicate of an active server session
+    localFresh.active.forEach(m => {
+      const mid = (m.match_id || m.id || '').trim();
+      if (!mid || hiddenSet.has(mid)) return;
+      if (activeMap.has(mid)) return;
+
+      const isEphemeral = mid.startsWith('g-') || mid.startsWith('game-') || (mid.startsWith('aos-') && !mid.startsWith('AOS-'));
+      if (isEphemeral) {
+        const locP1 = (m.p1_name || m.game?.p1Name || '').trim().toLowerCase();
+        const locP2 = (m.p2_name || m.game?.p2Name || '').trim().toLowerCase();
+        const isDupe = Array.from(activeMap.values()).some(srv => {
+          const srvP1 = (srv.p1_name || srv.game?.p1Name || '').trim().toLowerCase();
+          const srvP2 = (srv.p2_name || srv.game?.p2Name || '').trim().toLowerCase();
+          return (srvP1 === locP1 && srvP2 === locP2);
+        });
+        if (isDupe) {
+          try {
+            const active40k = JSON.parse(localStorage.getItem('gdm-11e-tracker-state') || '{}');
+            if ((active40k.match_id || active40k.id) === mid) {
+              localStorage.removeItem('gdm-11e-tracker-state');
+            }
+          } catch(e) {}
+          try {
+            const activeAos = JSON.parse(localStorage.getItem('omni-aos-tracker-state') || '{}');
+            if ((activeAos.match_id || activeAos.id) === mid) {
+              localStorage.removeItem('omni-aos-tracker-state');
+            }
+          } catch(e) {}
+          return;
+        }
+      }
+      activeMap.set(mid, m);
     });
 
     data.active_sessions = Array.from(activeMap.values());
@@ -290,7 +339,7 @@ function switchHubSubtab(tabId) {
     });
   }
 
-  const panels = ['active', 'journey', 'trajectory', 'factions', 'matchups', 'trophies'];
+  const panels = ['active', 'journey', 'trajectory', 'factions', 'matchups', 'trophies', 'armory'];
   panels.forEach(id => {
     const el = document.getElementById(`hub-panel-${id}`);
     if (el) {
@@ -306,6 +355,12 @@ function switchHubSubtab(tabId) {
     const panel = document.getElementById('hub-panel-trophies');
     if (panel) {
       window.BadgesUI.renderTrophyRoom(panel, myHubData, true, myHubData.player && myHubData.player.player_id);
+    }
+  }
+
+  if (currentHubSubtab === 'armory') {
+    if (window.Armory && typeof window.Armory.openArmoryModal === 'function') {
+      window.Armory.openArmoryModal();
     }
   }
 }
@@ -1031,6 +1086,7 @@ function renderMyHub(data) {
             <div class="profile-name-meta">
               <div class="profile-badges-row">
                 <h1 class="profile-name-title">${escapeHtml(competitorName)}</h1>
+                <span class="hero-title-badge-slot" style="display: none;"></span>
                 ${p.player_name && p.player_name !== competitorName && p.player_name.toLowerCase() !== 'competitor' ? `<span style="font-size: 0.8rem; color: #94a3b8; font-weight: 500;">(Ranked as: ${escapeHtml(p.player_name)})</span>` : ''}
                 ${rankings.global_rank ? `<span class="tier-badge tier-S" style="font-size: 0.78rem; padding: 0.15rem 0.55rem;">World #${rankings.global_rank}</span>` : ''}
                 ${rankings.faction_rank ? `<span class="tier-badge tier-A" style="font-size: 0.78rem; padding: 0.15rem 0.55rem;">${escapeHtml(p.top_faction || '')} #${rankings.faction_rank}</span>` : ''}
@@ -1042,7 +1098,7 @@ function renderMyHub(data) {
                   : `<span class="profile-standing-badge" title="All-Time Peak Rating: ${peakElo}">Peak: ${peakElo} 👑</span>`
                 }
                 ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data, 'switchHubSubtab') : ''}
-                ${p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="openTeamModal('${escapeHtml(p.team)}')" title="Click to view ${escapeHtml(p.team)} roster">🛡️ ${escapeHtml(p.team)}</span>` : ''}
+                ${p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="switchTab('teams'); if(typeof loadTeamsView==='function') loadTeamsView('${escapeHtml(p.team)}');" title="Click to open ${escapeHtml(p.team)} Team Hub">🛡️ ${escapeHtml(p.team)} ➔</span>` : `<span class="badge" style="background:rgba(255,255,255,0.06); color:#94a3b8; border:1px solid rgba(255,255,255,0.12); cursor:pointer;" onclick="switchTab('teams')" title="Find or join a team">⚔️ Independent &bull; Join Club ➔</span>`}
               </div>
               <div style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 0.45rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
                 <span style="display: inline-flex; align-items: center; gap: 4px;">
@@ -1149,6 +1205,10 @@ function renderMyHub(data) {
       <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'trophies' ? 'active' : ''}" data-tab="trophies" onclick="switchHubSubtab('trophies')">
         <span>🏆 Trophies</span>
         <span class="profile-subtab-count">${data.badge_count || 0}/${data.total_badges || 105}</span>
+      </button>
+      <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'armory' ? 'active' : ''}" data-tab="armory" onclick="switchHubSubtab('armory')">
+        <span>🏛️ Armory</span>
+        <span class="profile-subtab-count" style="color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3);">💰 ${(data.glory_balance || 0).toLocaleString()}</span>
       </button>
     </div>
 

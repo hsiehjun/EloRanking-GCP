@@ -23,10 +23,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=72149e0828">
-  <link rel="stylesheet" href="/css/styles.css?v=72149e0828">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=72149e0828">
-  <link rel="preload" href="/js/app.bundle.min.js?v=72149e0828" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=f2aef7c316">
+  <link rel="stylesheet" href="/css/styles.css?v=f2aef7c316">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=f2aef7c316">
+  <link rel="preload" href="/js/app.bundle.min.js?v=f2aef7c316" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 
   <style>
@@ -202,6 +202,9 @@
         <button class="nav-btn" id="nav-btn-my-hub" onclick="navigateToMyHub(true)">
           🏠 My Hub
         </button>
+        <button class="nav-btn" id="nav-btn-teams" onclick="switchTab('teams')">
+          🛡️ Teams
+        </button>
         <button class="nav-btn" id="nav-btn-community" onclick="switchTab('community')">
           👥 Community Hub
         </button>
@@ -226,6 +229,7 @@
       <div class="mobile-nav-wrapper">
         <select id="mobile-nav-select" class="mobile-nav-select" style="display: none;" onchange="handleMobileNavChange(this.value)" oninput="handleMobileNavChange(this.value)" aria-label="Switch Tab">
           <option value="my-hub">🏠 My Hub</option>
+          <option value="teams">🛡️ Teams &amp; Clubs</option>
           <option value="community">👥 Community Hub</option>
           <option value="tracker">🎲 Game Tracker</option>
           <option value="leaderboard" selected>🏆 Leaderboard</option>
@@ -274,6 +278,11 @@
     <!-- TAB 1: MY COMPETITOR HUB -->
     <section id="tab-my-hub" class="tab-panel">
       <div id="my-hub-content"></div>
+    </section>
+
+    <!-- TAB: TEAMS & CLUBS HUB -->
+    <section id="tab-teams" class="tab-panel">
+      <div id="teams-view-container" style="width: 100%; max-width: 1440px; margin: 0 auto; padding: 0.5rem 1rem 3rem; box-sizing: border-box;"></div>
     </section>
 
     <!-- TAB 2: COMMUNITY HUB (LOCAL SCENES, SPARRING RADAR, TOURNAMENTS, COMPETITORS & CHAT) -->
@@ -2752,6 +2761,112 @@
     </div>
   </div>
 
+  <!-- TEAM AFFILIATION ONBOARDING MODAL ("CLAIM YOUR TEAM") -->
+  <div id="team-onboarding-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center; z-index: 10500;" onclick="if(event.target === this) closeTeamOnboardingModal()">
+    <div class="modal-window team-onboarding-window" style="max-width: 580px; width: 92%; padding: 0; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 16px; box-shadow: 0 25px 60px rgba(0,0,0,0.85), 0 0 35px rgba(56,189,248,0.15); overflow: hidden;">
+      <div class="modal-header" style="background: linear-gradient(135deg, rgba(15,23,42,0.95) 0%, rgba(30,58,138,0.3) 100%); padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.3); display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">🛡️</div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: #fff; font-family: var(--font-heading);">Claim Your Official Team</h3>
+            <div style="font-size: 0.76rem; color: #94a3b8;">Choose the club you represent on Global Leaderboards</div>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeTeamOnboardingModal()" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;" title="Close">✕</button>
+      </div>
+      <div class="modal-body" style="padding: 1.35rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; max-height: 70vh; overflow-y: auto;">
+        <p style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.5; margin: 0;">
+          OmniTactica competitors represent <strong>one official club</strong> on global leaderboards. We detected the following teams in your tournament history. Please select your official squad:
+        </p>
+        <div id="team-onboarding-detected-list" style="display: flex; flex-direction: column; gap: 0.65rem;">
+          <!-- Dynamically populated cards -->
+          <div class="empty-state" style="padding: 1.5rem;"><div class="spinner"></div><div style="margin-top:0.5rem;">Scanning your tournament records...</div></div>
+        </div>
+        <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.85rem; display: flex; flex-direction: column; gap: 0.5rem;">
+          <label style="font-size: 0.74rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Other Options</label>
+          <button type="button" class="btn btn-outline" id="btn-onboarding-opt-independent" onclick="selectOnboardingOption('independent')" style="display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 1rem; border-color: rgba(255,255,255,0.12); border-radius: 10px; color: #cbd5e1; text-align: left; background: rgba(15,23,42,0.4); cursor: pointer;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 1.1rem;">⚔️</span>
+              <div>
+                <div style="font-weight: 700; font-size: 0.86rem; color: #fff;">Compete as Independent</div>
+                <div style="font-size: 0.72rem; color: #94a3b8;">No club affiliation. Stand alone on individual rankings.</div>
+              </div>
+            </div>
+            <span class="onboarding-radio-indicator" style="font-size: 0.8rem; color: #38bdf8;">Select ➔</span>
+          </button>
+          <button type="button" class="btn btn-outline" onclick="openCreateTeamModalFromOnboarding()" style="display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 1rem; border-color: rgba(56,189,248,0.25); border-radius: 10px; color: #38bdf8; text-align: left; background: rgba(56,189,248,0.04); cursor: pointer;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 1.1rem;">➕</span>
+              <div>
+                <div style="font-weight: 700; font-size: 0.86rem; color: #38bdf8;">Found a Brand New Club</div>
+                <div style="font-size: 0.72rem; color: #94a3b8;">Create a new Team Hub for your local FLGS or squad.</div>
+              </div>
+            </div>
+            <span style="font-size: 0.8rem; color: #38bdf8;">Create ➔</span>
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer" style="background: rgba(15,23,42,0.8); padding: 1rem 1.5rem; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: flex-end; gap: 0.65rem;">
+        <button type="button" class="btn btn-outline" onclick="closeTeamOnboardingModal()" style="font-size: 0.82rem; padding: 0.5rem 1rem; border-radius: 8px;">Remind Me Later</button>
+        <button type="button" id="btn-confirm-onboarding-team" class="btn btn-primary" onclick="submitOnboardingTeamChoice()" style="font-size: 0.82rem; font-weight: 800; padding: 0.5rem 1.35rem; border-radius: 8px;" disabled>Confirm My Team</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CREATE TEAM HUB MODAL -->
+  <div id="create-team-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center; z-index: 10600;" onclick="if(event.target === this) closeCreateTeamModal()">
+    <div class="modal-window" style="max-width: 520px; width: 92%; padding: 0; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 16px; box-shadow: 0 25px 60px rgba(0,0,0,0.85); overflow: hidden;">
+      <div class="modal-header" style="background: #0f172a; padding: 1.2rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.2rem;">🛡️</span>
+          <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: #fff;">Found a New Team Hub</h3>
+        </div>
+        <button class="modal-close" onclick="closeCreateTeamModal()" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;" title="Close">✕</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.85rem;">
+        <div>
+          <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">Team / Club Name *</label>
+          <input type="text" id="create-team-name-input" class="search-input" placeholder="e.g. Art of War, Team Texas, Dicehead FLGS" style="width: 100%; box-sizing: border-box; font-size: 0.86rem;">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div>
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">Short Tag (Max 6) *</label>
+            <input type="text" id="create-team-tag-input" class="search-input" placeholder="e.g. AOW, TZC" maxlength="6" style="width: 100%; box-sizing: border-box; font-size: 0.86rem; text-transform: uppercase;">
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">Game Division</label>
+            <select id="create-team-sys-select" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 0.86rem; background: #070b14; color: #fff; border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; padding: 0.5rem 0.65rem;">
+              <option value="40k">Warhammer 40k</option>
+              <option value="aos">Age of Sigmar</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">Home FLGS / Store Venue</label>
+          <input type="text" id="create-team-venue-input" class="search-input" placeholder="e.g. At Ease Games, Firestorm Games" style="width: 100%; box-sizing: border-box; font-size: 0.86rem;">
+        </div>
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.75rem;">
+          <div>
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">City &amp; Country</label>
+            <input type="text" id="create-team-city-input" class="search-input" placeholder="e.g. San Diego, USA" style="width: 100%; box-sizing: border-box; font-size: 0.86rem;">
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">State / Region</label>
+            <input type="text" id="create-team-state-input" class="search-input" placeholder="e.g. CA" style="width: 100%; box-sizing: border-box; font-size: 0.86rem;">
+          </div>
+        </div>
+        <div>
+          <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">Team Motto / Bio</label>
+          <textarea id="create-team-bio-input" class="search-input" placeholder="A brief description of your squad, focus, and play style..." style="width: 100%; box-sizing: border-box; min-height: 60px; font-size: 0.84rem; line-height: 1.4;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="background: rgba(15,23,42,0.8); padding: 1rem 1.5rem; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: flex-end; gap: 0.65rem;">
+        <button type="button" class="btn btn-outline" onclick="closeCreateTeamModal()" style="font-size: 0.82rem; padding: 0.5rem 1rem; border-radius: 8px;">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="submitCreateTeamHub()" style="font-size: 0.82rem; font-weight: 800; padding: 0.5rem 1.25rem; border-radius: 8px;">🛡️ Found Team Hub</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Team Roster Modal -->
   <div id="team-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
     <div class="modal-window">
@@ -3127,8 +3242,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "72149e0828";</script>
-  <script src="/js/app.bundle.min.js?v=72149e0828"></script>
+  <script>window.APP_VERSION = "f2aef7c316";</script>
+  <script src="/js/app.bundle.min.js?v=f2aef7c316"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

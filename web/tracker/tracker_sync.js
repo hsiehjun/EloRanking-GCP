@@ -159,6 +159,10 @@
   function saveLocalState(st) {
     if (!st) return;
     try {
+      if (typeof st === 'object' && clientState.matchId) {
+        st.id = clientState.matchId;
+        st.match_id = clientState.matchId;
+      }
       const serialized = typeof st === 'string' ? st : JSON.stringify(st);
       originalSetItem('gdm-11e-tracker-state', serialized);
     } catch (e) {}
@@ -257,6 +261,16 @@
     let toSet = value;
     if (key === 'gdm-11e-tracker-state') {
       toSet = injectDefaultCpIntoState(value);
+      if (clientState.matchId) {
+        try {
+          const parsed = typeof toSet === 'string' ? JSON.parse(toSet) : toSet;
+          if (parsed && typeof parsed === 'object') {
+            parsed.id = clientState.matchId;
+            parsed.match_id = clientState.matchId;
+            toSet = JSON.stringify(parsed);
+          }
+        } catch(e) {}
+      }
     }
     originalSetItem(key, toSet);
     if (key === 'gdm-11e-tracker-state') {
@@ -1114,11 +1128,15 @@
         const isAosMatch = isAosMode || mid.startsWith('AOS-') || data.game_system === 'aos';
         if (isAosMatch) {
           if (data.state) {
+            data.state.id = mid;
+            data.state.match_id = mid;
             originalSetItem('omni-aos-tracker-state', JSON.stringify(data.state));
           }
           window.location.href = `/11th/tracker/aos?match_id=${encodeURIComponent(mid)}&role=player1`;
         } else {
           if (data.state) {
+            data.state.id = mid;
+            data.state.match_id = mid;
             originalSetItem('gdm-11e-tracker-state', JSON.stringify(data.state));
           }
           window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(mid)}&role=player1`;
@@ -2520,6 +2538,10 @@
     try {
       const sanitized = injectDefaultCpIntoState(incoming);
       const stateObj = typeof sanitized === 'string' ? JSON.parse(sanitized) : sanitized;
+      if (clientState.matchId && stateObj && typeof stateObj === 'object') {
+        stateObj.id = clientState.matchId;
+        stateObj.match_id = clientState.matchId;
+      }
       const oldState = originalGetItem('gdm-11e-tracker-state');
       const serialized = JSON.stringify(stateObj);
       originalSetItem('gdm-11e-tracker-state', serialized);
@@ -4246,6 +4268,7 @@ Space Marines - Gladius Task Force (2000 pts)
           <span>🎲</span>
           <span>DICE TRAY</span>
           <span style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); font-size:9px; padding:1px 5px; border-radius:4px; color:#f59e0b;">SYNCED</span>
+          <button type="button" onclick="if(window.Armory && window.Armory.openArmoryModal){ window.Armory.openArmoryModal('dice_forge'); } else if(window.parent && window.parent.Armory){ window.parent.Armory.openArmoryModal('dice_forge'); } else { alert('Visit Retribution Armory in My Hub to customize dice skins!'); }" style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.35); color:#fbbf24; border-radius:4px; font-size:9px; font-weight:700; padding:1px 6px; cursor:pointer;" title="Retribution Armory: Requisition Custom Dice Skins">🎲 Skins</button>
         </div>
         <button onclick="window.gtToggleDiceRoller()" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:0 4px;" title="Close Dice Tray">✕</button>
       </div>
@@ -4319,7 +4342,11 @@ Space Marines - Gladius Task Force (2000 pts)
           ` : ''}
 
           <!-- Grid of Clickable Dice -->
-          <div class="gt-dice-grid">
+          ${(() => {
+            const activeSkinId = (window.Armory ? window.Armory.getEquipped('active_dice') : null) || localStorage.getItem('omnitactica_active_dice') || 'dice_warpfire_plasma';
+            const skinClass = activeSkinId === 'dice_molten_magma' ? 'skin-molten-magma' : (activeSkinId === 'dice_ceramite_white' ? 'skin-ceramite-white' : 'skin-warpfire-plasma');
+            return `<div class="gt-dice-grid ${skinClass}" data-dice-skin="${activeSkinId}">`;
+          })()}
             ${totalInTray === 0 ? `
               <div style="width:100%; text-align:center; color:#64748b; font-size:11px; padding:16px 0;">
                 Tray is empty. Tap <b style="color:#f59e0b;">+5</b> or <b style="color:#f59e0b;">+10</b> above to add dice.

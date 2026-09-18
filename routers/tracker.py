@@ -155,7 +155,7 @@ def init_tracker_room_from_chat(match_id: str, chat_info: Dict[str, Any], fs_eng
     receiver_faction = chat_info.get("receiver_faction")
 
     initial_state = {
-        "id": f"g-{secrets.token_hex(4)}-{secrets.token_hex(3)}",
+        "id": match_id,
         "match_id": match_id,
         "event_id": None,
         "round_num": 1,
@@ -464,7 +464,7 @@ def init_tracker_room_from_tournament(match_id: str, fs_engine, db) -> Dict[str,
     referee_ids = list(org_info.get("referee_ids") or [])
 
     initial_state = {
-        "id": f"g-{secrets.token_hex(4)}-{secrets.token_hex(3)}",
+        "id": match_id,
         "match_id": match_id,
         "event_id": event_id,
         "round_num": round_num,
@@ -897,7 +897,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     p2_det = [payload.p2_detachment] if (payload and payload.p2_detachment) else []
     
     initial_state = {
-        "id": f"g-{secrets.token_hex(4)}-{secrets.token_hex(3)}",
+        "id": match_id,
         "match_id": match_id,
         "event_id": payload.event_id if payload else None,
         "round_num": payload.round_num if payload else 1,

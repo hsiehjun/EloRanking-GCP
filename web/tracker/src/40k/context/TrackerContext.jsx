@@ -62,8 +62,13 @@ function sanitizeLoadedState(raw) {
   const initial = createInitialGameState();
   if (!raw || typeof raw !== "object") return initial;
 
+  const urlParams = (typeof window !== "undefined" && window.location) ? new URLSearchParams(window.location.search) : null;
+  const urlMid = urlParams ? (urlParams.get("match_id") || urlParams.get("room") || urlParams.get("id")) : null;
+  const resolvedMid = urlMid || raw.match_id || (raw.id && !raw.id.startsWith("game-") && !raw.id.startsWith("g-") ? raw.id : null);
+
   const state = {
-    id: typeof raw.id === "string" && raw.id ? raw.id : initial.id,
+    id: resolvedMid || (typeof raw.id === "string" && raw.id ? raw.id : initial.id),
+    match_id: resolvedMid || raw.match_id || null,
     game: { ...initial.game, ...(raw.game || {}) },
     p1: { ...initial.p1, ...(raw.p1 || {}) },
     p2: { ...initial.p2, ...(raw.p2 || {}) },
