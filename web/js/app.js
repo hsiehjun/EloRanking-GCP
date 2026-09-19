@@ -234,6 +234,16 @@ window.closeAosTrackerModal = closeAosTrackerModal;
 window.handleTrackerNavClick = handleTrackerNavClick;
 
 function switchTab(tabName) {
+  if (!tabName) tabName = 'my-hub';
+  tabName = String(tabName).replace(/^[#/]+/, '').trim();
+  if (tabName.startsWith('40k/')) {
+    if (typeof applyGameSystem === 'function') applyGameSystem('40k', false);
+    tabName = tabName.slice(4);
+  } else if (tabName.startsWith('aos/')) {
+    if (typeof applyGameSystem === 'function') applyGameSystem('aos', false);
+    tabName = tabName.slice(4);
+  }
+
   if (typeof handleAppRoute === 'function' && handleAppRoute(tabName)) {
     return;
   }
@@ -932,6 +942,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   const params = new URLSearchParams(window.location.search);
   let targetTab = hashVal ? hashVal.replace(/^[#/]+/, '') : params.get('tab');
+  if (targetTab) {
+    if (targetTab.startsWith('40k/')) targetTab = targetTab.slice(4);
+    else if (targetTab.startsWith('aos/')) targetTab = targetTab.slice(4);
+  }
   if (targetTab === 'my_hub' || targetTab === 'myhub') targetTab = 'my-hub';
   const shouldOpenChat = (targetTab === 'chat' || targetTab === 'messages' || targetTab === 'chats');
   if (targetTab === 'tournaments' || targetTab === 'events' || targetTab === 'sparring' || targetTab === 'connect' || targetTab === 'omniconnect' || targetTab === 'radar') {
