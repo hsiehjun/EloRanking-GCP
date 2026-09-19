@@ -7518,7 +7518,8 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 # Strictly match by verified bcp_user_id, or internal user id (never assume by unverified player_id)
                 cursor.execute("""
-                    SELECT id, display_name, email, role, player_id, bcp_user_id, created_at
+                    SELECT id, display_name, email, role, player_id, bcp_user_id, created_at,
+                           armory_vault, pinned_badges, total_glory, glory_balance, glory_spent
                     FROM users
                     WHERE ((bcp_user_id IS NOT NULL AND bcp_user_id != '') AND (player_id = %s OR bcp_user_id = %s))
                        OR id = %s

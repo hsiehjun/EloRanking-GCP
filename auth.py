@@ -857,19 +857,36 @@ class AuthManager:
             try:
                 with self.db.get_connection() as conn:
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                        cur.execute("""
-                        SELECT u.id, u.email, u.display_name, u.role, u.player_id,
-                               u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
-                               COALESCE(p.player_name, pl.full_name) as competitor_name,
-                               p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
-                               p.top_faction, COALESCE(p.team, pl.team) as team
-                        FROM user_sessions s
-                        JOIN users u ON s.user_id = u.id
-                        LEFT JOIN player_ratings p ON u.player_id = p.player_id
-                        LEFT JOIN players pl ON u.player_id = pl.id
-                        WHERE s.session_token = %s AND s.expires_at > NOW();
-                        """, (session_token,))
-                        row = cur.fetchone()
+                        try:
+                            cur.execute("""
+                            SELECT u.id, u.email, u.display_name, u.role, u.player_id,
+                                   u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
+                                   u.armory_vault, u.glory_spent, u.total_glory, u.glory_balance,
+                                   COALESCE(p.player_name, pl.full_name) as competitor_name,
+                                   p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
+                                   p.top_faction, COALESCE(p.team, pl.team) as team
+                            FROM user_sessions s
+                            JOIN users u ON s.user_id = u.id
+                            LEFT JOIN player_ratings p ON u.player_id = p.player_id
+                            LEFT JOIN players pl ON u.player_id = pl.id
+                            WHERE s.session_token = %s AND s.expires_at > NOW();
+                            """, (session_token,))
+                            row = cur.fetchone()
+                        except Exception:
+                            conn.rollback()
+                            cur.execute("""
+                            SELECT u.id, u.email, u.display_name, u.role, u.player_id,
+                                   u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
+                                   COALESCE(p.player_name, pl.full_name) as competitor_name,
+                                   p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
+                                   p.top_faction, COALESCE(p.team, pl.team) as team
+                            FROM user_sessions s
+                            JOIN users u ON s.user_id = u.id
+                            LEFT JOIN player_ratings p ON u.player_id = p.player_id
+                            LEFT JOIN players pl ON u.player_id = pl.id
+                            WHERE s.session_token = %s AND s.expires_at > NOW();
+                            """, (session_token,))
+                            row = cur.fetchone()
                         if row:
                             data = dict(row)
                             data["session_token"] = session_token
@@ -881,6 +898,21 @@ class AuthManager:
                             data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
                             data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
                             data["bcp_connected"] = bool(data.get("bcp_user_id"))
+
+                            raw_vault = data.get("armory_vault")
+                            if raw_vault and isinstance(raw_vault, str):
+                                try:
+                                    data["armory_vault"] = json.loads(raw_vault)
+                                except Exception:
+                                    data["armory_vault"] = {}
+                            elif isinstance(raw_vault, dict):
+                                data["armory_vault"] = raw_vault
+                            else:
+                                data["armory_vault"] = {}
+                            data["equipped"] = data["armory_vault"].get("equipped", {})
+                            data["glory_spent"] = int(data.get("glory_spent") or 0)
+                            data["total_glory"] = int(data.get("total_glory") or 0)
+                            data["glory_balance"] = int(data.get("glory_balance") or 0)
 
                             # Touch last_active_at periodically (at most once every 5 minutes)
                             try:
@@ -1094,6 +1126,20 @@ class AuthManager:
                     updates.append("acknowledged_badge_ids = %s")
                     params.append(json.dumps(list(current_ack)))
                     updates.append("badges_celebrated = TRUE")
+
+                    target_pid = user_record.get("player_id")
+                    if target_pid:
+                        try:
+                            hub = self.get_user_competitor_hub(player_id=target_pid, user_id=user_id)
+                            new_total = int(hub.get("unified_glory") or hub.get("total_glory") or 0)
+                            cur_spent = int(user_record.get("glory_spent") or 0)
+                            new_bal = max(0, new_total - cur_spent)
+                            updates.append("total_glory = %s")
+                            params.append(new_total)
+                            updates.append("glory_balance = %s")
+                            params.append(new_bal)
+                        except Exception as e:
+                            logger.debug(f"Notice syncing glory in update_settings: {e}")
 
                 if not updates:
                     return {"success": True, "message": "No changes requested.", "user": self.get_user_by_id(user_id)}
@@ -2181,6 +2227,8 @@ class AuthManager:
             "glory_spent": int(user_info.get("glory_spent") or 0) if user_info else 0,
             "glory_40k": current_sys_glory if target_sys == "40k" else other_glory,
             "glory_aos": other_glory if target_sys == "40k" else current_sys_glory,
+            "armory_vault": user_info.get("armory_vault") if user_info else {},
+            "equipped": (user_info.get("armory_vault", {}).get("equipped", {})) if user_info else {},
             "seasonal": b_eval.get("seasonal", {}),
             "active_season": b_eval.get("active_season", "2026"),
             "rank": b_eval["rank"],

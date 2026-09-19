@@ -1172,6 +1172,12 @@
   FACTION_SVGS["avatar_40k_custodes"] = FACTION_SVGS["avatar_adeptus_custodes"];
   FACTION_SVGS["avatar_aos_stormcast"] = FACTION_SVGS["avatar_stormcast_eternals"];
   FACTION_SVGS["avatar_aos_gloomspite"] = FACTION_SVGS["avatar_gloomspite_gitz"];
+  FACTION_SVGS["avatar_sigil_tau"] = FACTION_SVGS["avatar_tau_empire"];
+  FACTION_SVGS["avatar_sigil_necron"] = FACTION_SVGS["avatar_necrons"];
+  FACTION_SVGS["avatar_sigil_custodes"] = FACTION_SVGS["avatar_adeptus_custodes"];
+  FACTION_SVGS["avatar_sigil_astartes"] = FACTION_SVGS["avatar_adeptus_astartes"];
+  FACTION_SVGS["avatar_sigil_orks"] = FACTION_SVGS["avatar_orks"];
+  FACTION_SVGS["avatar_sigil_chaos"] = FACTION_SVGS["avatar_chaos_space_marines"];
 
   function getArmoryAvatarSvg(avatarId, customClass) {
     if (!avatarId) return "";

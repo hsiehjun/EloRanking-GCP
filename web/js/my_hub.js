@@ -1081,20 +1081,43 @@ function renderMyHub(data) {
     }).join('');
   }
 
+  // Resolve equipped cosmetic loadout
+  const allEq = data.equipped || (data.armory_vault && data.armory_vault.equipped) || (window.Armory && window.Armory.getCurrentVault && window.Armory.getCurrentVault().equipped) || {};
+  const myEq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
+
+  const activeFrameId = myEq.active_card_frame;
+  const frameClass = activeFrameId ? (window.Armory && typeof window.Armory.getFrameCssClass === 'function' ? window.Armory.getFrameCssClass(activeFrameId) : activeFrameId.replace(/_/g, '-')) : '';
+
+  const activeTitleId = myEq.active_title;
+  let titleHtml = '';
+  if (activeTitleId) {
+    const tText = activeTitleId.replace(/^title_/, '').replace(/_/g, ' ');
+    const tClass = activeTitleId.includes('warp') ? 'title-badge-warp' : (activeTitleId.includes('forge') ? 'title-badge-forge' : (activeTitleId.includes('strategist') ? 'title-badge-strategist' : 'title-badge-unbroken'));
+    titleHtml = `<span class="armory-title-chip ${tClass}"><span class="title-chip-icon">🏷️</span> ${escapeHtml(tText.toUpperCase())}</span>`;
+  }
+
+  const activeAvatarId = myEq.active_avatar;
+  let avatarSigilSvg = '';
+  let avatarSigilStyle = '';
+  if (activeAvatarId) {
+    avatarSigilSvg = typeof window.getArmoryAvatarSvg === 'function' ? window.getArmoryAvatarSvg(activeAvatarId) : '';
+    avatarSigilStyle = 'border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.35), inset 0 0 14px rgba(56,189,248,0.15);';
+  }
+
   let html = `
     <div id="my-hub-container" class="my-hub-container" data-active-tab="${currentHubSubtab || 'active'}">
       <!-- Upgraded 16-Tier Competitor Hero Card with Military Rank Border -->
-      <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''}" style="margin-bottom: 1.25rem;">
+      <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''} ${frameClass}" style="margin-bottom: 1.25rem;">
         <div class="profile-hero-top">
           <div class="profile-identity-group">
-            <div class="profile-rank-crest" title="${escapeHtml(tier.name)}" data-default-icon="${escapeHtml(tier.icon)}">
-              <span class="hero-crest-default-icon">${tier.icon}</span>
-              <span class="hero-avatar-sigil-slot" style="display: none;"></span>
+            <div class="profile-rank-crest" title="${escapeHtml(tier.name)}" data-default-icon="${escapeHtml(tier.icon)}" style="${avatarSigilStyle}">
+              <span class="hero-crest-default-icon" style="${avatarSigilSvg ? 'display: none;' : ''}">${tier.icon}</span>
+              <span class="hero-avatar-sigil-slot" style="${avatarSigilSvg ? 'display: flex;' : 'display: none;'}">${avatarSigilSvg}</span>
             </div>
             <div class="profile-name-meta">
               <div class="profile-badges-row">
                 <h1 class="profile-name-title">${escapeHtml(competitorName)}</h1>
-                <span class="hero-title-badge-slot" style="display: none;"></span>
+                <span class="hero-title-badge-slot" style="${titleHtml ? 'display: inline-flex;' : 'display: none;'}">${titleHtml}</span>
                 ${p.player_name && p.player_name !== competitorName && p.player_name.toLowerCase() !== 'competitor' ? `<span style="font-size: 0.8rem; color: #94a3b8; font-weight: 500;">(Ranked as: ${escapeHtml(p.player_name)})</span>` : ''}
                 ${rankings.global_rank ? `<span class="tier-badge tier-S" style="font-size: 0.78rem; padding: 0.15rem 0.55rem;">World #${rankings.global_rank}</span>` : ''}
                 ${rankings.faction_rank ? `<span class="tier-badge tier-A" style="font-size: 0.78rem; padding: 0.15rem 0.55rem;">${escapeHtml(p.top_faction || '')} #${rankings.faction_rank}</span>` : ''}
@@ -1478,7 +1501,7 @@ function renderMyHub(data) {
 
   // Apply active equipped armory decorations (frames, sigil avatar, titles)
   if (window.Armory && typeof window.Armory.applyEquippedDecorations === 'function') {
-    window.Armory.applyEquippedDecorations();
+    window.Armory.applyEquippedDecorations(sys, myEq);
   }
 
   // Render SVG Trajectory & Load Army Lists

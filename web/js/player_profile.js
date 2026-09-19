@@ -400,19 +400,42 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
   const netCareerElo = currentElo - 1500;
   const netCareerEloStr = (netCareerElo >= 0 ? '+' : '') + netCareerElo.toFixed(1);
 
+  // Resolve equipped cosmetic loadout
+  const allEq = data.equipped || (data.armory_vault && data.armory_vault.equipped) || (data.is_self && window.Armory && window.Armory.getCurrentVault && window.Armory.getCurrentVault().equipped) || {};
+  const playerEq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
+
+  const activeFrameId = playerEq.active_card_frame;
+  const frameClass = activeFrameId ? (window.Armory && typeof window.Armory.getFrameCssClass === 'function' ? window.Armory.getFrameCssClass(activeFrameId) : activeFrameId.replace(/_/g, '-')) : '';
+
+  const activeTitleId = playerEq.active_title;
+  let titleHtml = '';
+  if (activeTitleId) {
+    const tText = activeTitleId.replace(/^title_/, '').replace(/_/g, ' ');
+    const tClass = activeTitleId.includes('warp') ? 'title-badge-warp' : (activeTitleId.includes('forge') ? 'title-badge-forge' : (activeTitleId.includes('strategist') ? 'title-badge-strategist' : 'title-badge-unbroken'));
+    titleHtml = `<span class="armory-title-chip ${tClass}"><span class="title-chip-icon">🏷️</span> ${escapeHtml(tText.toUpperCase())}</span>`;
+  }
+
+  const activeAvatarId = playerEq.active_avatar;
+  let avatarSigilSvg = '';
+  let avatarSigilStyle = '';
+  if (activeAvatarId) {
+    avatarSigilSvg = typeof window.getArmoryAvatarSvg === 'function' ? window.getArmoryAvatarSvg(activeAvatarId) : '';
+    avatarSigilStyle = 'border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.35), inset 0 0 14px rgba(56,189,248,0.15);';
+  }
+
   container.innerHTML = `
     <!-- Dynamic Hero Banner Card with Military Rank Border -->
-    <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''}">
+    <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''} ${frameClass}">
       <div class="profile-hero-top">
         <div class="profile-identity-group">
-          <div class="profile-rank-crest" title="${escapeHtml(tier.name)}" data-default-icon="${escapeHtml(tier.icon)}">
-            <span class="hero-crest-default-icon">${tier.icon}</span>
-            <span class="hero-avatar-sigil-slot" style="display: none;"></span>
+          <div class="profile-rank-crest" title="${escapeHtml(tier.name)}" data-default-icon="${escapeHtml(tier.icon)}" style="${avatarSigilStyle}">
+            <span class="hero-crest-default-icon" style="${avatarSigilSvg ? 'display: none;' : ''}">${tier.icon}</span>
+            <span class="hero-avatar-sigil-slot" style="${avatarSigilSvg ? 'display: flex;' : 'display: none;'}">${avatarSigilSvg}</span>
           </div>
           <div class="profile-name-meta">
             <div class="profile-badges-row">
               <h1 class="profile-name-title">${escapeHtml(playerName)}</h1>
-              <span class="hero-title-badge-slot" style="display: none;"></span>
+              <span class="hero-title-badge-slot" style="${titleHtml ? 'display: inline-flex;' : 'display: none;'}">${titleHtml}</span>
             </div>
             <div class="profile-badges-row" style="margin-top: 0.15rem;">
               ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(currentElo, totalMatches, { showTierName: true, size: 'lg', gameSystem: sys }) : `<span class="badge">${currentElo.toFixed(1)} Elo</span>`}
@@ -606,8 +629,8 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
   // Render Trajectory SVG in background so it's ready when tab is clicked
   setTimeout(() => renderProfileTrajectoryChart(rawHistory), 50);
 
-  if (data.is_self && window.Armory && typeof window.Armory.applyEquippedDecorations === 'function') {
-    window.Armory.applyEquippedDecorations();
+  if (window.Armory && typeof window.Armory.applyEquippedDecorations === 'function') {
+    window.Armory.applyEquippedDecorations(sys, playerEq);
   }
 }
 

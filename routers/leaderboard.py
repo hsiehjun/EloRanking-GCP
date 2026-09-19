@@ -167,11 +167,30 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
             if req:
                 data["existing_request_id"] = req["id"]
                 data["existing_request_status"] = req["status"]
+
+        raw_vault = user_row.get("armory_vault")
+        if raw_vault and isinstance(raw_vault, str):
+            try:
+                vault = json.loads(raw_vault)
+            except Exception:
+                vault = {}
+        elif isinstance(raw_vault, dict):
+            vault = raw_vault
+        else:
+            vault = {}
+        data["armory_vault"] = vault
+        data["equipped"] = vault.get("equipped", {})
     else:
         data["has_account"] = False
         data["account_user_id"] = None
         data["can_chat"] = False
         data["is_self"] = False
+        data["armory_vault"] = {}
+        data["equipped"] = {}
+
+    if data.get("is_self") and current_user and not data.get("equipped") and current_user.get("armory_vault"):
+        data["armory_vault"] = current_user.get("armory_vault", {})
+        data["equipped"] = current_user.get("armory_vault", {}).get("equipped", {})
 
     import badges
     user_pinned = user_row.get("pinned_badges") if (user_row and user_row.get("pinned_badges")) else None

@@ -2220,7 +2220,24 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 user_pinned_ids=None,
                 game_system=req_game_sys
             )
+            is_self = bool(pid == DEV_USER.get("player_id") or pid == "p_folger_pyles" or pid == DEV_USER.get("id"))
+            res["is_self"] = is_self
+            if is_self:
+                res["armory_vault"] = DEV_USER.get("armory_vault", {})
+                res["equipped"] = DEV_USER.get("armory_vault", {}).get("equipped", {})
+            else:
+                if "equipped" not in res:
+                    res["equipped"] = {
+                        "active_dice": "dice_cyber_grid",
+                        "active_card_frame": "frame_cyber_matrix",
+                        "active_title": "title_unbroken",
+                        "active_avatar": "avatar_sigil_tau"
+                    }
+                    res["armory_vault"] = {"equipped": res["equipped"]}
+
             res.update({
+                "armory_vault": res.get("armory_vault", {}),
+                "equipped": res.get("equipped", {}),
                 "badge_count": b_eval["badge_count"],
                 "total_badges": b_eval["total_badges"],
                 "completion_pct": b_eval["completion_pct"],
@@ -3700,6 +3717,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             DEV_USER["glory_balance"] = spendable
 
             res.update({
+                "armory_vault": DEV_USER.get("armory_vault", {}),
+                "equipped": DEV_USER.get("armory_vault", {}).get("equipped", {}),
                 "badge_count": b_eval["badge_count"],
                 "total_badges": b_eval["total_badges"],
                 "completion_pct": b_eval["completion_pct"],

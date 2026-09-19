@@ -62,21 +62,16 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
     if auth_mgr and (target_pid or target_uid):
         try:
             hub_40k = auth_mgr.get_user_competitor_hub(player_id=target_pid, user_id=target_uid, game_system="40k")
-            total_40k = int(hub_40k.get("glory_balance") or hub_40k.get("glory_score") or 0)
+            total_40k = int(hub_40k.get("glory_40k") or 0)
+            total_aos = int(hub_40k.get("glory_aos") or 0)
+            evaluated_glory = int(hub_40k.get("unified_glory") or hub_40k.get("total_glory") or (total_40k + total_aos))
             crest_tier = max(crest_tier, int((hub_40k.get("rank") or {}).get("rank") or 1))
             peak_elo = max(peak_elo, float((hub_40k.get("player") or {}).get("peak_elo") or 1500.0))
         except Exception as e:
-            logger.warning(f"Notice computing 40K glory for user {target_uid}: {e}")
-
-        try:
-            hub_aos = auth_mgr.get_user_competitor_hub(player_id=target_pid, user_id=target_uid, game_system="aos")
-            total_aos = int(hub_aos.get("glory_balance") or hub_aos.get("glory_score") or 0)
-            crest_tier = max(crest_tier, int((hub_aos.get("rank") or {}).get("rank") or 1))
-            peak_elo = max(peak_elo, float((hub_aos.get("player") or {}).get("peak_elo") or 1500.0))
-        except Exception as e:
-            logger.warning(f"Notice computing AoS glory for user {target_uid}: {e}")
-
-    evaluated_glory = total_40k + total_aos
+            logger.warning(f"Notice computing glory for user {target_uid}: {e}")
+            evaluated_glory = total_40k + total_aos
+    else:
+        evaluated_glory = 0
     db_total = int(user_data.get("total_glory") or 0)
     db_spent = int(user_data.get("glory_spent") or 0)
     db_balance = int(user_data.get("glory_balance") or 0)

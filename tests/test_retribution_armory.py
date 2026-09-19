@@ -236,6 +236,94 @@ class TestRetributionArmory(unittest.TestCase):
         items_2250 = {i["id"]: i for i in cat_2250["items"]}
         self.assertTrue(items_2250["frame_peak_everchosen"]["meets_prerequisite"])
 
+    def test_trophy_glory_accumulation_and_wallet_sync(self):
+        """Verifies that unlocking new badges/trophies accumulates Glory and syncs into spendable wallet."""
+        import badges
+        from unittest.mock import MagicMock
+        from routers.armory import _calculate_user_glory_state
+
+        # 1. Base player with pioneer badge only (Common: 10 glory)
+        base_player = {"player_id": "p_test_competitor", "player_name": "Test Competitor", "current_elo": 1750.0, "peak_elo": 1750.0}
+        eval_base = badges.evaluate_player_badges(player_data=base_player, history=[], tournaments=[], game_system="40k")
+        base_glory = eval_base["glory_score"]
+        self.assertGreaterEqual(base_glory, 10)
+
+        # 2. Player accomplishes new milestone: 5 tournament matches (unlocks First Blood & Veteran Campaigner)
+        matches = [
+            {"match_date": f"2026-05-0{i}", "result": "W", "round": i, "player_score": 85, "opponent_score": 60, "event_name": "GT 2026"}
+            for i in range(1, 6)
+        ]
+        eval_advanced = badges.evaluate_player_badges(player_data=base_player, history=matches, tournaments=[{"event_name": "GT 2026", "rounds": 5}], game_system="40k")
+        advanced_glory = eval_advanced["glory_score"]
+
+        # Earning new trophies MUST strictly accumulate glory honor points
+        self.assertGreater(advanced_glory, base_glory)
+        glory_delta = advanced_glory - base_glory
+        self.assertGreater(glory_delta, 0)
+
+        # 3. Verify _calculate_user_glory_state syncs newly earned points into user_data
+        mock_auth = MagicMock()
+        mock_auth.get_user_competitor_hub.return_value = {
+            "glory_40k": advanced_glory,
+            "glory_aos": 0,
+            "unified_glory": advanced_glory,
+            "total_glory": advanced_glory,
+            "glory_balance": advanced_glory,
+            "rank": {"rank": 3},
+            "player": {"peak_elo": 1750.0}
+        }
+        mock_auth.db = None  # in-memory test
+
+        user_record = {
+            "id": "u_test_competitor",
+            "player_id": "p_test_competitor",
+            "total_glory": base_glory,
+            "glory_spent": 50,
+            "glory_balance": max(0, base_glory - 50)
+        }
+        state = _calculate_user_glory_state(mock_auth, user_record)
+
+        # Newly earned trophy glory must be reflected in total_earned and spendable_glory
+        self.assertEqual(state["total_earned"], advanced_glory)
+        self.assertEqual(state["glory_spent"], 50)
+        self.assertEqual(state["spendable_glory"], advanced_glory - 50)
+        self.assertEqual(user_record["total_glory"], advanced_glory)
+        self.assertEqual(user_record["glory_balance"], advanced_glory - 50)
+
+    def test_equipped_cosmetics_persistence_across_profiles(self):
+        """Verifies equipped cosmetic loadouts persist and are returned in profile payloads."""
+        # Check vault loadout schema
+        user_vault = {
+            "inventory": {
+                "frame_astral_holofoil": {"acquired_at": "2026-09-19T00:00:00Z"},
+                "title_unbroken": {"acquired_at": "2026-09-19T00:00:00Z"},
+                "avatar_necrons": {"acquired_at": "2026-09-19T00:00:00Z"}
+            },
+            "equipped": {
+                "40k": {
+                    "active_dice": None,
+                    "active_card_frame": "frame_astral_holofoil",
+                    "active_title": "title_unbroken",
+                    "active_avatar": "avatar_necrons"
+                },
+                "active_card_frame": "frame_astral_holofoil",
+                "active_title": "title_unbroken",
+                "active_avatar": "avatar_necrons"
+            }
+        }
+        cat = armory_catalog.get_armory_catalog(user_vault=user_vault, game_system="40k")
+        equipped_items = [i for i in cat["items"] if i.get("is_equipped")]
+        equipped_ids = {i["id"] for i in equipped_items}
+
+        self.assertIn("frame_astral_holofoil", equipped_ids)
+        self.assertIn("title_unbroken", equipped_ids)
+        self.assertIn("avatar_necrons", equipped_ids)
+
+        # Ensure alias resolution works for both old and new sigil/grid identifiers
+        self.assertEqual(armory_catalog.get_item_by_id("avatar_sigil_necron")["id"], "avatar_necrons")
+        self.assertEqual(armory_catalog.get_item_by_id("avatar_sigil_tau")["id"], "avatar_tau_empire")
+        self.assertEqual(armory_catalog.get_item_by_id("frame_cyber_grid")["id"], "frame_cyber_matrix")
+
 
 if __name__ == "__main__":
     unittest.main()

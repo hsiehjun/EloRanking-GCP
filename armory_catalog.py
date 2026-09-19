@@ -3025,7 +3025,14 @@ ARMORY_ALIASES: Dict[str, str] = {
     "avatar_40k_custodes": "avatar_adeptus_custodes",
     "avatar_aos_stormcast": "avatar_stormcast_eternals",
     "avatar_aos_gloomspite": "avatar_gloomspite_gitz",
-    "frame_molten_core": "frame_peak_high_warlord"
+    "avatar_sigil_necron": "avatar_necrons",
+    "avatar_sigil_tau": "avatar_tau_empire",
+    "avatar_sigil_custodes": "avatar_adeptus_custodes",
+    "avatar_sigil_astartes": "avatar_adeptus_astartes",
+    "avatar_sigil_orks": "avatar_orks",
+    "avatar_sigil_chaos": "avatar_chaos_space_marines",
+    "frame_molten_core": "frame_peak_high_warlord",
+    "frame_cyber_grid": "frame_cyber_matrix"
 }
 
 

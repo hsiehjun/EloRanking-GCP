@@ -560,9 +560,9 @@
   /**
    * Effect Dispatcher: Applies active decorations across the entire page
    */
-  function applyEquippedDecorations(system) {
+  function applyEquippedDecorations(system, overrideEquipped) {
     var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
-    var allEq = currentVault.equipped || {};
+    var allEq = overrideEquipped || currentVault.equipped || {};
     var eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
 
     // 1. Apply Card Frame (Borders & Hologram)
@@ -589,7 +589,7 @@
       } else {
         var tItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === titleId; }) : null;
         var tText = tItem && tItem.payload ? tItem.payload.title_text : (tItem ? tItem.name : titleId.replace(/^title_/, '').replace(/_/g, ' '));
-        var tClass = tItem && tItem.payload ? tItem.payload.css_class : 'title-badge-unbroken';
+        var tClass = tItem && tItem.payload ? tItem.payload.css_class : (titleId.includes('warp') ? 'title-badge-warp' : (titleId.includes('forge') ? 'title-badge-forge' : (titleId.includes('strategist') ? 'title-badge-strategist' : 'title-badge-unbroken')));
         el.innerHTML = '<span class="armory-title-chip ' + escapeHtml(tClass) + '"><span class="title-chip-icon">🏷️</span> ' + escapeHtml(tText.toUpperCase()) + '</span>';
         el.style.display = 'inline-flex';
       }
@@ -642,11 +642,13 @@
       }
     });
 
-    // 4. Sync localStorage active_dice for real-time dice tray integration
-    if (eq && eq.active_dice) {
-      try { localStorage.setItem('omnitactica_active_dice', eq.active_dice); } catch(e) {}
-    } else {
-      try { localStorage.removeItem('omnitactica_active_dice'); } catch(e) {}
+    // 4. Sync localStorage active_dice for real-time dice tray integration (only for current user)
+    if (!overrideEquipped) {
+      if (eq && eq.active_dice) {
+        try { localStorage.setItem('omnitactica_active_dice', eq.active_dice); } catch(e) {}
+      } else {
+        try { localStorage.removeItem('omnitactica_active_dice'); } catch(e) {}
+      }
     }
 
     // 5. Dispatch Event for Live Tracker Dice Tray
@@ -1098,6 +1100,8 @@
       return null;
     },
     getVault: function() { return currentVault; },
+    getCurrentVault: function() { return currentVault; },
+    getFrameCssClass: getFrameCssClass,
     getGlory: function() { return currentGlory; }
   };
 
