@@ -211,6 +211,18 @@ class AuthManager:
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS pinned_badges TEXT;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS badges_celebrated BOOLEAN DEFAULT FALSE;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS acknowledged_badge_ids TEXT;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS armory_vault TEXT DEFAULT '{}';
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_spent INTEGER DEFAULT 0;
+                        CREATE TABLE IF NOT EXISTS armory_transactions (
+                            id SERIAL PRIMARY KEY,
+                            user_id VARCHAR(64) NOT NULL,
+                            item_id VARCHAR(64) NOT NULL,
+                            glory_cost INTEGER NOT NULL,
+                            transaction_type VARCHAR(32) NOT NULL,
+                            metadata TEXT,
+                            created_at TIMESTAMPTZ DEFAULT NOW()
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_armory_trans_user ON armory_transactions(user_id);
                         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_user_id ON users(bcp_user_id) WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_email ON users(LOWER(bcp_email)) WHERE bcp_email IS NOT NULL AND bcp_email != '';
@@ -350,6 +362,18 @@ class AuthManager:
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS pinned_badges TEXT;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS badges_celebrated BOOLEAN DEFAULT FALSE;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS acknowledged_badge_ids TEXT;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS armory_vault TEXT DEFAULT '{}';
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_spent INTEGER DEFAULT 0;
+                    CREATE TABLE IF NOT EXISTS armory_transactions (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(64) NOT NULL,
+                        item_id VARCHAR(64) NOT NULL,
+                        glory_cost INTEGER NOT NULL,
+                        transaction_type VARCHAR(32) NOT NULL,
+                        metadata TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_armory_trans_user ON armory_transactions(user_id);
                     """)
                 conn.commit()
                 logger.info("Successfully ensured modern user columns in users table.")
@@ -885,7 +909,7 @@ class AuthManager:
         import json
 
         row = None
-        # Attempt 1: Full query with badge columns
+        # Attempt 1: Full query with badge and armory columns
         try:
             with self.db.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -893,6 +917,7 @@ class AuthManager:
                     SELECT u.id, u.email, u.display_name, u.role, u.player_id,
                            u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
                            u.pinned_badges, u.badges_celebrated, u.acknowledged_badge_ids,
+                           u.armory_vault, u.glory_spent,
                            COALESCE(p.player_name, pl.full_name) as competitor_name,
                            p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
                            p.top_faction, COALESCE(p.team, pl.team) as team
@@ -918,6 +943,7 @@ class AuthManager:
                         SELECT u.id, u.email, u.display_name, u.role, u.player_id,
                                u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
                                u.pinned_badges, u.badges_celebrated, u.acknowledged_badge_ids,
+                               u.armory_vault, u.glory_spent,
                                COALESCE(p.player_name, pl.full_name) as competitor_name,
                                p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
                                p.top_faction, COALESCE(p.team, pl.team) as team
@@ -928,7 +954,7 @@ class AuthManager:
                         """, (user_id,))
                         row = cur.fetchone()
             except Exception:
-                # Attempt 3: Baseline query without badge columns (100% resilient across any legacy schema)
+                # Attempt 3: Baseline query without badge/armory columns (100% resilient across any legacy schema)
                 try:
                     with self.db.get_connection() as conn:
                         with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -982,6 +1008,18 @@ class AuthManager:
                 data["acknowledged_badge_ids"] = raw_ack
             else:
                 data["acknowledged_badge_ids"] = []
+
+            raw_vault = data.get("armory_vault")
+            if raw_vault and isinstance(raw_vault, str):
+                try:
+                    data["armory_vault"] = json.loads(raw_vault)
+                except Exception:
+                    data["armory_vault"] = {}
+            elif isinstance(raw_vault, dict):
+                data["armory_vault"] = raw_vault
+            else:
+                data["armory_vault"] = {}
+            data["glory_spent"] = int(data.get("glory_spent") or 0)
 
             return data
         return None

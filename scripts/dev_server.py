@@ -1318,6 +1318,49 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": True, "total_glory": DEV_USER["total_glory"]}).encode("utf-8"))
                 return
 
+            if clean_path == "api/armory/poke":
+                try:
+                    p_load = json.loads(body.decode("utf-8")) if body else {}
+                except Exception:
+                    p_load = {}
+                poke_id = p_load.get("poke_id", "poke_inquisition_smite")
+                target_name = p_load.get("target_name", "Opposing Commander")
+                target_pid = p_load.get("target_player_id", "p_rival")
+
+                import armory_catalog
+                item = armory_catalog.get_item_by_id(poke_id) or {
+                    "name": "Battle Poke",
+                    "icon": "👉",
+                    "payload": {"toast_message": "Poked rival commander!"}
+                }
+
+                glory_state = _get_dev_user_glory_and_stats()
+                v = glory_state["vault"]
+                inv = v.setdefault("inventory", {})
+                entry = inv.setdefault(poke_id, {"quantity": 5, "item_name": item["name"], "wing": "pokes"})
+                qty = max(0, entry.get("quantity", 5) - 1)
+                entry["quantity"] = qty
+
+                payload = item.get("payload") or {}
+                toast_msg = payload.get("toast_message", f"{item.get('icon', '👉')} Poked {target_name}!").replace("{target}", target_name)
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "message": f"Successfully poked {target_name} with {item['name']}!",
+                    "poke_id": poke_id,
+                    "poke_name": item["name"],
+                    "target_player_id": target_pid,
+                    "target_name": target_name,
+                    "charges_remaining": qty,
+                    "toast_message": toast_msg,
+                    "css_glow": payload.get("css_glow", "#38bdf8"),
+                    "icon": item.get("icon", "👉")
+                }).encode("utf-8"))
+                return
+
             if clean_path == "api/armory/reset":
                 DEV_USER.pop("total_glory", None)
                 DEV_USER["armory_vault"] = {

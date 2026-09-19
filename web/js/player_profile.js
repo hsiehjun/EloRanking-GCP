@@ -429,6 +429,11 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
           <button type="button" class="btn btn-primary" onclick="openPredictorWithPlayer('${escapeHtml(currentProfilePlayerId)}')" style="font-weight: 700; font-size: 0.85rem; padding: 0.5rem 1rem;">
             ⚔️ Predict Match
           </button>
+          ${!data.is_self ? `
+            <button type="button" class="btn btn-outline" onclick="window.Armory && typeof window.Armory.openPokeRivalModal === 'function' ? window.Armory.openPokeRivalModal('${escapeHtml(currentProfilePlayerId)}', '${escapeHtml(playerName)}') : window.Armory.pokePlayer('${escapeHtml(currentProfilePlayerId)}', 'poke_inquisition_smite', '${escapeHtml(playerName)}')" style="font-weight: 600; font-size: 0.85rem; padding: 0.5rem 0.9rem; border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;">
+              👉 Poke Rival
+            </button>
+          ` : ''}
           ${data.has_account && !data.is_self ? `
             <button type="button" class="btn btn-outline" onclick="handlePlayerChatClick('${escapeHtml(currentProfilePlayerId)}', '${escapeHtml(playerName)}', '${data.account_user_id || ''}')" style="font-weight: 600; font-size: 0.85rem; padding: 0.5rem 0.9rem;">
               💬 Message

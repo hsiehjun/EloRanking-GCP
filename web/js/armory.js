@@ -245,6 +245,90 @@
   }
 
   /**
+   * Open Poke Rival quick modal
+   */
+  async function openPokeRivalModal(targetPlayerId, targetName) {
+    var existing = document.getElementById('poke-rival-modal');
+    if (existing) existing.remove();
+
+    var tName = targetName || 'Opposing Rival';
+    var tId = targetPlayerId || 'p_rival';
+
+    if (!currentCatalog) await loadArmoryData();
+
+    var inv = currentVault.inventory || {};
+    var ownedPokes = [];
+    if (currentCatalog && currentCatalog.items) {
+      currentCatalog.items.forEach(function(item) {
+        if (item.wing === 'pokes' && inv[item.id] && (inv[item.id].quantity || 0) > 0) {
+          ownedPokes.push({
+            item: item,
+            charges: inv[item.id].quantity
+          });
+        }
+      });
+    }
+
+    var modal = document.createElement('div');
+    modal.id = 'poke-rival-modal';
+    modal.className = 'modal-backdrop active';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.zIndex = '100010';
+
+    var bodyContent = '';
+    if (ownedPokes.length > 0) {
+      bodyContent = [
+        '<div style="color:#94a3b8; font-size:0.85rem; margin-bottom:1rem;">Select a battle taunt to dispatch at <strong>' + escapeHtml(tName) + '</strong>:</div>',
+        '<div style="display:flex; flex-direction:column; gap:0.65rem;">',
+        ownedPokes.map(function(op) {
+          var it = op.item;
+          return [
+            '<button type="button" class="btn" style="display:flex; align-items:center; justify-content:space-between; padding:0.75rem 1rem; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:10px; color:#fff; text-align:left; cursor:pointer;" ',
+            '        onclick="window.Armory.pokePlayer(\'' + escapeHtml(tId) + '\', \'' + escapeHtml(it.id) + '\', \'' + escapeHtml(tName) + '\'); document.getElementById(\'poke-rival-modal\').remove();">',
+            '  <div style="display:flex; align-items:center; gap:0.75rem;">',
+            '    <span style="font-size:1.5rem;">' + (it.icon || '👉') + '</span>',
+            '    <div>',
+            '      <div style="font-weight:700; font-size:0.92rem;">' + escapeHtml(it.name) + '</div>',
+            '      <div style="font-size:0.75rem; color:#94a3b8;">' + escapeHtml(it.description || '') + '</div>',
+            '    </div>',
+            '  </div>',
+            '  <span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); font-weight:700;">' + op.charges + ' charges</span>',
+            '</button>'
+          ].join('');
+        }).join(''),
+        '</div>'
+      ].join('');
+    } else {
+      bodyContent = [
+        '<div style="text-align:center; padding:1.5rem 0;">',
+        '  <div style="font-size:2.5rem; margin-bottom:0.75rem;">👉</div>',
+        '  <h4 style="color:#fff; margin-bottom:0.5rem;">No Poke Charges Remaining</h4>',
+        '  <p style="color:#94a3b8; font-size:0.85rem; max-width:320px; margin:0 auto 1.25rem;">Requisition a 5-pack of battle pokes in the Retribution Armory for 50 Glory to taunt your rivals!</p>',
+        '  <button type="button" class="btn btn-primary" onclick="document.getElementById(\'poke-rival-modal\').remove(); window.Armory.openArmoryModal(\'pokes\');" style="font-weight:700;">',
+        '    🏛️ Requisition Pokes in Armory (50 Glory)',
+        '  </button>',
+        '</div>'
+      ].join('');
+    }
+
+    modal.innerHTML = [
+      '<div class="modal-card" style="max-width:480px; background:#0f172a; border:1px solid rgba(255,255,255,0.14); border-radius:14px; padding:1.5rem; box-shadow:0 25px 60px rgba(0,0,0,0.85);">',
+      '  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:0.75rem;">',
+      '    <div style="font-weight:800; font-size:1.1rem; color:#fff; display:flex; align-items:center; gap:0.5rem;">',
+      '      <span>👉</span> Poke Rival: ' + escapeHtml(tName),
+      '    </div>',
+      '    <button type="button" class="modal-close" onclick="document.getElementById(\'poke-rival-modal\').remove()">✕</button>',
+      '  </div>',
+      bodyContent,
+      '</div>'
+    ].join('');
+
+    document.body.appendChild(modal);
+  }
+
+  /**
    * Effect Dispatcher: Applies active decorations across the entire page
    */
   function applyEquippedDecorations(system) {
@@ -673,6 +757,7 @@
     equipItem: equipItem,
     unequipSlot: unequipSlot,
     pokePlayer: pokePlayer,
+    openPokeRivalModal: openPokeRivalModal,
     applyEquippedDecorations: applyEquippedDecorations,
     getEquipped: function(slot, system) {
       var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();

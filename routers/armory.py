@@ -20,6 +20,32 @@ logger = logging.getLogger("ArmoryRouter")
 router = APIRouter(tags=["Retribution Armory"])
 
 
+def _ensure_armory_db(auth_mgr):
+    """Ensures armory_vault and glory_spent columns and armory_transactions table exist."""
+    if not auth_mgr or not hasattr(auth_mgr, "db") or not auth_mgr.db:
+        return
+    try:
+        with auth_mgr.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS armory_vault TEXT DEFAULT '{}';
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_spent INTEGER DEFAULT 0;
+                CREATE TABLE IF NOT EXISTS armory_transactions (
+                    id SERIAL PRIMARY KEY,
+                    user_id VARCHAR(64) NOT NULL,
+                    item_id VARCHAR(64) NOT NULL,
+                    glory_cost INTEGER NOT NULL,
+                    transaction_type VARCHAR(32) NOT NULL,
+                    metadata TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_armory_trans_user ON armory_transactions(user_id);
+                """)
+            conn.commit()
+    except Exception as e:
+        logger.debug(f"Notice ensuring armory schema in db: {e}")
+
+
 def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str, Any]:
     """Calculates total earned unified glory across 40K and AoS, spent glory, and remaining spendable balance."""
     target_pid = user_data.get("player_id")
@@ -219,8 +245,11 @@ async def purchase_item(request: Request):
     new_spent = glory_state["glory_spent"] + cost
     user_data["armory_vault"] = vault
     user_data["glory_spent"] = new_spent
+    session["armory_vault"] = vault
+    session["glory_spent"] = new_spent
 
     try:
+        _ensure_armory_db(auth_mgr)
         with auth_mgr.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -228,13 +257,17 @@ async def purchase_item(request: Request):
                 SET armory_vault = %s, glory_spent = %s, updated_at = NOW()
                 WHERE id = %s;
                 """, (json.dumps(vault), new_spent, user_id))
-
-                # Log transaction
-                cur.execute("""
-                INSERT INTO armory_transactions (user_id, item_id, glory_cost, transaction_type, metadata, created_at)
-                VALUES (%s, %s, %s, 'purchase', %s, NOW());
-                """, (user_id, item_id, cost, json.dumps({"item_name": item["name"], "wing": item["wing"]})))
             conn.commit()
+
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                    INSERT INTO armory_transactions (user_id, item_id, glory_cost, transaction_type, metadata, created_at)
+                    VALUES (%s, %s, %s, 'purchase', %s, NOW());
+                    """, (user_id, item_id, cost, json.dumps({"item_name": item["name"], "wing": item["wing"]})))
+                conn.commit()
+            except Exception as te:
+                logger.debug(f"Transaction logging notice: {te}")
     except Exception as dbe:
         logger.warning(f"Database persist error in armory purchase (proceeding with session state): {dbe}")
 
@@ -289,8 +322,10 @@ async def equip_item(request: Request):
     sys_eq[slot] = item_id
     vault["equipped"][slot] = item_id
     user_data["armory_vault"] = vault
+    session["armory_vault"] = vault
 
     try:
+        _ensure_armory_db(auth_mgr)
         with auth_mgr.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
