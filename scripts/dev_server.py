@@ -2021,25 +2021,58 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/player/"):
             pid = urllib.parse.unquote(clean_path.replace("api/player/", "").strip("/"))
-            if "john" in pid.lower():
+            if any(h in pid.lower() for h in ("john", "hsieh", "9oefu25ccjqe", "mev83vfana", "p_john")):
                 res = {
                     "player": {
-                        "player_id": "p_john_doe",
-                        "player_name": "John Doe",
+                        "player_id": "9oEfu25ccjqE",
+                        "player_name": "John Hsieh",
                         "team": "Team Zero Comp",
-                        "teams_history": ["Team Zero Comp"],
-                        "top_faction": "Adeptus Astartes, Necrons",
-                        "current_elo": 1650.0,
-                        "peak_elo": 1680.0,
-                        "wins": 45,
-                        "losses": 20,
+                        "teams_history": ["Team Zero Comp", "Waaagh Boys", "San Diego Tabletop Syndicate"],
+                        "all_teams": "Team Zero Comp, Waaagh Boys, San Diego Tabletop Syndicate",
+                        "top_faction": "Necrons",
+                        "current_elo": 1888.5,
+                        "peak_elo": 1888.5,
+                        "wins": 62,
+                        "losses": 31,
                         "draws": 1,
-                        "win_rate": 68.2,
-                        "total_matches": 66
+                        "win_rate": 66.0,
+                        "total_matches": 94,
+                        "matches_played": 94
                     },
-                    "has_account": False,
-                    "longest_win_streak": 8,
-                    "history": []
+                    "player_id": "9oEfu25ccjqE",
+                    "player_name": "John Hsieh",
+                    "team": "Team Zero Comp",
+                    "teams_history": ["Team Zero Comp", "Waaagh Boys", "San Diego Tabletop Syndicate"],
+                    "all_teams": "Team Zero Comp, Waaagh Boys, San Diego Tabletop Syndicate",
+                    "has_account": True,
+                    "account_user_id": "user_john_hsieh",
+                    "is_self": True,
+                    "longest_win_streak": 7,
+                    "history": [
+                        {
+                            "match_date": "2026-07-11",
+                            "event_name": "The Riverside Classic by Green Banner Event Co.",
+                            "round": "R5",
+                            "player_name": "John Hsieh",
+                            "player_faction": "Necrons",
+                            "opponent_name": "Tyler Stone",
+                            "opponent_faction": "Adeptus Mechanicus",
+                            "opponent_team": "SDTC",
+                            "player_score": 91,
+                            "opponent_score": 80,
+                            "result": "W",
+                            "elo_change": 25.9
+                        }
+                    ],
+                    "tournaments": [
+                        {
+                            "event_name": "The Riverside Classic by Green Banner Event Co.",
+                            "event_date": "2026-07-11",
+                            "record": "4W - 1L",
+                            "elo_delta": "+25.9",
+                            "faction": "Necrons"
+                        }
+                    ]
                 }
             else:
                 # Default to Folger Pyles profile matching the user's test scenario
@@ -2504,6 +2537,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         if b_resp.status == 200:
                             b_json = json.loads(b_resp.read().decode("utf-8"))
                             loc = b_json.get("location") if isinstance(b_json.get("location"), dict) else {}
+                            b_rds = int(b_json.get("numberOfRounds") or b_json.get("numRounds") or 0)
+                            tot_p = int(b_json.get("totalPlayers") or len(b_json.get("players") or []) or 0)
+                            ev_n_lower = str(b_json.get("name") or "").lower()
+                            if b_rds <= 3 and (tot_p >= 200 or "super major" in ev_n_lower or "las vegas open" in ev_n_lower or "lvo" in ev_n_lower or "championship" in ev_n_lower):
+                                desc = str(b_json.get("eventDescriptionMarkup") or b_json.get("eventDescription") or "")
+                                desc_rds = [int(m) for m in re.findall(r'round[s]?\s+(\d+)', desc, re.IGNORECASE) if 1 <= int(m) <= 16]
+                                b_rds = max(desc_rds) if desc_rds else (10 if "lvo" in ev_n_lower or "las vegas open" in ev_n_lower else 8)
+                            if b_rds <= 0:
+                                b_rds = 3
+
                             res = {
                                 "id": ev_param,
                                 "name": b_json.get("name") or "BCP Tournament",
@@ -2513,14 +2556,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                                 "state": b_json.get("state") or loc.get("state") or "",
                                 "country": b_json.get("country") or loc.get("country") or "United States",
                                 "venue": b_json.get("venueName") or loc.get("venueName") or loc.get("name") or "",
-                                "total_players": int(b_json.get("totalPlayers") or len(b_json.get("players") or []) or 0),
-                                "num_rounds": int(b_json.get("numberOfRounds") or 3),
+                                "total_players": tot_p,
+                                "num_rounds": b_rds,
+                                "numberOfRounds": b_rds,
                                 "current_round": int(b_json.get("currentRound") or 0),
+                                "raw_json": b_json,
                             }
                             raw_end_str = str(b_json.get("endDate") or b_json.get("end_date") or "")
                             raw_start_str = str(b_json.get("eventDate") or b_json.get("event_date") or b_json.get("startDate") or "")
                             today_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                            num_rds_val = int(b_json.get("numberOfRounds") or 3)
+                            num_rds_val = b_rds
                             computed_ended = bool(b_json.get("ended") or b_json.get("isEnded"))
                             if not computed_ended:
                                 if raw_end_str and raw_end_str[:10] < today_utc_str:
@@ -2542,6 +2587,43 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             return
                 except Exception:
                     pass
+
+            if ev_param == "7ohG0RuDqC1k" or "lvo" in ev_param.lower() or "las vegas open" in ev_param.lower():
+                res = {
+                    "id": "7ohG0RuDqC1k",
+                    "name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open",
+                    "event_date": "2026-10-02",
+                    "end_date": "2026-10-05",
+                    "city": "Las Vegas",
+                    "state": "NV",
+                    "country": "United States",
+                    "venue": "Rio Hotel & Casino",
+                    "total_players": 432,
+                    "num_rounds": 10,
+                    "numberOfRounds": 10,
+                    "current_round": 0,
+                    "tier": "super_major",
+                    "is_ended": False,
+                    "ended": False,
+                    "started": False,
+                    "status": {"ended": False, "started": False},
+                    "raw_json": {
+                        "name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open",
+                        "totalPlayers": 432,
+                        "numberOfRounds": 10,
+                        "eventDate": "2026-10-02T15:00:00.000Z",
+                        "endDate": "2026-10-05T01:00:00.000Z"
+                    },
+                    "players": [],
+                    "matches": [],
+                    "team_standings": []
+                }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps(res).encode("utf-8"))
+                return
 
             if ev_param == "ev_ongoing_gt_live":
                 now_dt = datetime.now(timezone.utc)
@@ -3344,6 +3426,55 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
 
         if clean_path in ("api/user/dashboard",):
+            req_pid = query_params.get("player_id", [""])[0]
+            if req_pid in ("9oEfu25ccjqE", "p_john", "user_john_hsieh"):
+                res = {
+                    "player": {
+                        "player_id": "9oEfu25ccjqE",
+                        "player_name": "John Hsieh",
+                        "top_faction": "Necrons",
+                        "current_elo": 1888.5,
+                        "peak_elo": 1888.5,
+                        "win_rate": 66.0,
+                        "matches_played": 94,
+                        "wins": 62,
+                        "losses": 31,
+                        "draws": 1,
+                        "team": "Team Zero Comp",
+                        "teams_history": ["Team Zero Comp", "Waaagh Boys", "San Diego Tabletop Syndicate"],
+                        "all_teams": "Team Zero Comp, Waaagh Boys, San Diego Tabletop Syndicate",
+                        "is_bcp_connected": True
+                    },
+                    "teams_history": ["Team Zero Comp", "Waaagh Boys", "San Diego Tabletop Syndicate"],
+                    "all_teams": "Team Zero Comp, Waaagh Boys, San Diego Tabletop Syndicate",
+                    "rankings": {
+                        "global_rank": 82,
+                        "faction_rank": 14,
+                        "total_ranked_players": 77322
+                    },
+                    "matchup_matrix": [
+                        {"enemy_faction": "Space Marines", "total_encounters": 25, "wins": 18, "losses": 7, "draws": 0, "win_rate": 72.0},
+                        {"enemy_faction": "Aeldari", "total_encounters": 15, "wins": 10, "losses": 5, "draws": 0, "win_rate": 66.7}
+                    ],
+                    "history": [
+                        {"round": 1, "result": "W", "player_score": 91, "opponent_score": 80, "opponent_name": "Opponent Dave", "delta_elo": 14.5, "event_name": "LVO 2026", "match_date": "2026-01-20"}
+                    ],
+                    "events_attended": [{"event_name": "LVO 2026", "wins": 5, "losses": 1, "date": "2026-01-20"}],
+                    "upcoming_events": [],
+                    "registered_tournaments": [],
+                    "badge_count": 41,
+                    "total_badges": 105,
+                    "completion_pct": 39.0,
+                    "glory_score": 2930,
+                    "rank": {"title": "Grand Marshal", "css_class": "rank-grand-marshal"},
+                    "pinned_badges": []
+                }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+                return
+
             res = {
                 "player": {
                     "player_id": "p_dev_commander",
@@ -3356,8 +3487,12 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "wins": 27,
                     "losses": 13,
                     "team": "Iron Hands Veterans",
+                    "teams_history": ["Iron Hands Veterans"],
+                    "all_teams": "Iron Hands Veterans",
                     "is_bcp_connected": True
                 },
+                "teams_history": ["Iron Hands Veterans"],
+                "all_teams": "Iron Hands Veterans",
                 "rankings": {
                     "global_rank": 142,
                     "faction_rank": 18,

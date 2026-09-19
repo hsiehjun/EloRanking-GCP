@@ -732,13 +732,15 @@ let currentModalTeamName = '';
 function openFullTeamHubFromModal() {
   const target = currentModalTeamName || (document.getElementById('modal-team-title') ? document.getElementById('modal-team-title').innerText.trim() : '');
   if (target) {
-    if (typeof closeModal === 'function') {
+    if (typeof closeAllModals === 'function') {
+      closeAllModals();
+    } else if (typeof closeModal === 'function') {
       closeModal('team-modal');
     }
-    if (typeof switchTab === 'function') {
-      switchTab('teams');
-    }
-    if (typeof loadTeamsView === 'function') {
+    if (typeof openTeamProfilePage === 'function') {
+      openTeamProfilePage(target);
+    } else if (typeof loadTeamsView === 'function') {
+      if (typeof switchTab === 'function') switchTab('teams');
       loadTeamsView(target);
     }
   }

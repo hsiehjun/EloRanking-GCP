@@ -314,7 +314,7 @@ function switchTab(tabName) {
   window.scrollTo({ top: 0, behavior: 'instant' });
 
   // Update URL hash history and clean away any query parameters
-  if (tabName !== 'player-profile' && tabName !== 'event-hub' && window.history && window.history.replaceState) {
+  if (tabName !== 'player-profile' && tabName !== 'event-hub' && tabName !== 'team-profile' && window.history && window.history.replaceState) {
     let cleanPath = (window.location.pathname || '').replace(/\/+$/, '');
     if (currentGameSystem === 'aos') {
       if (!cleanPath.startsWith('/aos')) cleanPath = '/aos';
@@ -471,6 +471,17 @@ function handleAppRoute(routeStr) {
     const pid = decodeURIComponent(playerMatch[2]);
     if (typeof openPlayerProfilePage === 'function') {
       openPlayerProfilePage(pid, routeSys, { replaceUrl: true });
+      return true;
+    }
+  }
+
+  // Route: /#/aos/team/:id or /#/40k/team/:id or /#/team/:id (or /club/:id)
+  const teamMatch = clean.match(/^(?:(aos|40k)\/)?(?:team|club)\/([^/?#]+)/i);
+  if (teamMatch) {
+    const routeSys = teamMatch[1] ? teamMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const tid = decodeURIComponent(teamMatch[2]);
+    if (typeof openTeamProfilePage === 'function') {
+      openTeamProfilePage(tid, routeSys, { replaceUrl: true });
       return true;
     }
   }

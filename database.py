@@ -1498,8 +1498,13 @@ class PostgresDatabase:
                     city = EXCLUDED.city,
                     state = EXCLUDED.state,
                     country = EXCLUDED.country,
-                    total_players = EXCLUDED.total_players,
-                    num_rounds = EXCLUDED.num_rounds,
+                    total_players = GREATEST(EXCLUDED.total_players, events.total_players),
+                    num_rounds = CASE
+                        WHEN EXCLUDED.num_rounds > 0 AND (events.num_rounds <= 3 OR EXCLUDED.num_rounds >= events.num_rounds) THEN EXCLUDED.num_rounds
+                        WHEN EXCLUDED.num_rounds > 0 AND events.num_rounds > 3 AND EXCLUDED.num_rounds <= 3 THEN events.num_rounds
+                        WHEN EXCLUDED.num_rounds > 0 THEN EXCLUDED.num_rounds
+                        ELSE events.num_rounds
+                    END,
                     current_round = EXCLUDED.current_round,
                     is_ended = EXCLUDED.is_ended,
                     game_system_id = EXCLUDED.game_system_id,
@@ -3167,19 +3172,47 @@ class PostgresDatabase:
                 res["roster"] = roster_list
                 res["matches"] = matches
                 res["total_players"] = len(final_players) if final_players else (res.get("total_players") or 0)
-                res["num_rounds"] = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 0)
-                if final_players:
-                    elos = [float(p["current_elo"]) for p in final_players if p.get("current_elo") is not None]
-                    if elos:
-                        res["avg_field_elo"] = round(sum(elos) / len(elos), 1)
-                        res["top_seed_elo"] = max(elos)
-
                 raw_meta = res.get("raw_json") or {}
                 if isinstance(raw_meta, str):
                     try:
                         raw_meta = json.loads(raw_meta)
                     except Exception:
                         raw_meta = {}
+
+                raw_meta_rounds = 0
+                if isinstance(raw_meta, dict):
+                    raw_meta_rounds = int(raw_meta.get("numberOfRounds") or raw_meta.get("numRounds") or 0)
+
+                max_match_round = max([m["round"] for m in matches]) if matches else 0
+                res["num_rounds"] = max(int(res.get("num_rounds") or 0), raw_meta_rounds, max_match_round)
+
+                # Fallback sanity check for Super Major / Major tournaments (e.g. 200+ players with 0 matches)
+                if int(res.get("num_rounds") or 0) <= 3 and not matches:
+                    tp = int(res.get("total_players") or 0)
+                    ev_n = str(res.get("name") or "").lower()
+                    if tp >= 200 or "super major" in ev_n or "championship" in ev_n or "las vegas open" in ev_n or "lvo" in ev_n:
+                        desc = str(raw_meta.get("eventDescriptionMarkup") or raw_meta.get("eventDescription") or "")
+                        desc_rounds = []
+                        for m in re.findall(r'\bround\s*(\d+)\b', desc, re.IGNORECASE):
+                            desc_rounds.append(int(m))
+                        for m in re.findall(r'\brounds?\s*(\d+)\s*(?:-|–|through|to)\s*(\d+)\b', desc, re.IGNORECASE):
+                            desc_rounds.extend([int(m[0]), int(m[1])])
+                        for m in re.findall(r'\brounds?\s*(\d+(?:,\s*\d+)*(?:,?\s*and\s*\d+)?)\b', desc, re.IGNORECASE):
+                            for num in re.findall(r'\d+', m):
+                                desc_rounds.append(int(num))
+                        valid_desc = [r for r in desc_rounds if 1 <= r <= 16]
+                        if valid_desc:
+                            res["num_rounds"] = max(valid_desc)
+                        elif "lvo" in ev_n or "las vegas open" in ev_n:
+                            res["num_rounds"] = 10
+                        elif tp >= 200:
+                            res["num_rounds"] = 8
+
+                if final_players:
+                    elos = [float(p["current_elo"]) for p in final_players if p.get("current_elo") is not None]
+                    if elos:
+                        res["avg_field_elo"] = round(sum(elos) / len(elos), 1)
+                        res["top_seed_elo"] = max(elos)
 
                 # Dynamically compute whether the event has completed
                 now_utc = datetime.now(timezone.utc)

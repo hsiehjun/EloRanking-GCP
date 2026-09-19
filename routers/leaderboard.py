@@ -76,7 +76,7 @@ async def api_leaderboard(
 @router.get("/api/leaderboard/teams", include_in_schema=False)
 async def api_teams(
     page: int = Query(1, ge=1),
-    page_size: int = Query(25, ge=5, le=200),
+    page_size: int = Query(25, ge=1, le=500),
     min_roster: int = Query(1, ge=1),
     min_members: Optional[int] = Query(None),
     limit: Optional[int] = Query(None),
@@ -152,6 +152,28 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
 
     pid = player_id.strip()
     data = get_elo_engine().get_player_win_path(pid, game_system=game_system, player_name=name)
+
+    # Enrich teams_history with any known represented teams
+    try:
+        import teams_hub_service
+        svc = teams_hub_service.get_teams_hub_service()
+        detected = svc.get_player_detected_history(pid, data.get("player_name") or name or "")
+        existing = list(data.get("teams_history") or [])
+        for d in detected:
+            tname = d.get("name")
+            if tname and tname not in existing:
+                existing.append(tname)
+        data["teams_history"] = existing
+        data["all_teams"] = ", ".join(existing)
+        if "player" in data and isinstance(data["player"], dict):
+            data["player"]["teams_history"] = existing
+            data["player"]["all_teams"] = ", ".join(existing)
+            if not data["player"].get("team") and existing:
+                data["player"]["team"] = existing[0]
+        if not data.get("team") and existing:
+            data["team"] = existing[0]
+    except Exception as e:
+        logger.debug(f"Notice enriching teams_history: {e}")
 
     # Check if this player is registered on OmniTactica
     db = get_database()
@@ -1277,6 +1299,106 @@ async def api_event_details(event_id: str, force_sync: bool = False):
     # Tournament placing and live roster come strictly from BCP API (strictly zero DB writes).
     try:
         scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
+
+        # 0. Tournament metadata freshness check:
+        # For upcoming / ongoing events, explicit force_sync, or when recorded rounds <= 3
+        # for an event with a large field or Major / GT status, fetch live metadata from BCP
+        cur_num_rounds = int(event_details.get("num_rounds") or 0)
+        cur_total_players = int(event_details.get("total_players") or 0)
+        ev_name_lower = str(event_details.get("name") or "").lower()
+        is_large_or_major = (
+            cur_total_players >= 33 or
+            any(w in ev_name_lower for w in ("major", "super major", "championship", "open", "gt", "grand tournament"))
+        )
+        should_refresh_meta = (
+            force_sync or
+            not is_ended or
+            (cur_num_rounds <= 3 and is_large_or_major) or
+            not raw_ev or
+            not raw_ev.get("numberOfRounds")
+        )
+        if should_refresh_meta:
+            try:
+                bcp_meta = scraper.fetch_event_details(event_id_str)
+                if bcp_meta and isinstance(bcp_meta, dict):
+                    fresh_rounds = int(bcp_meta.get("numberOfRounds") or bcp_meta.get("numRounds") or 0)
+                    if fresh_rounds > 0:
+                        event_details["num_rounds"] = fresh_rounds
+                        event_details["numberOfRounds"] = fresh_rounds
+                    if isinstance(raw_ev, dict):
+                        raw_ev.update(bcp_meta)
+                    else:
+                        raw_ev = bcp_meta
+                    event_details["raw_json"] = raw_ev
+
+                    if bcp_meta.get("name") and bcp_meta["name"] not in ("Tournament", "Unnamed Tournament", "Tournament Details"):
+                        event_details["name"] = bcp_meta["name"]
+                    if bcp_meta.get("eventDate") or bcp_meta.get("startDate"):
+                        event_details["event_date"] = bcp_meta.get("eventDate") or bcp_meta.get("startDate")
+                    if bcp_meta.get("endDate"):
+                        event_details["end_date"] = bcp_meta["endDate"]
+                    if bcp_meta.get("totalPlayers"):
+                        event_details["total_players"] = max(int(event_details.get("total_players") or 0), int(bcp_meta["totalPlayers"]))
+
+                    loc = bcp_meta.get("location") if isinstance(bcp_meta.get("location"), dict) else {}
+                    if loc:
+                        if loc.get("city"): event_details["city"] = loc["city"]
+                        if loc.get("state"): event_details["state"] = loc["state"]
+                        if loc.get("country"): event_details["country"] = loc["country"]
+                        if bcp_meta.get("venueName") or loc.get("venueName") or loc.get("name"):
+                            event_details["venue"] = bcp_meta.get("venueName") or loc.get("venueName") or loc.get("name")
+
+                    # If rounds changed or was missing, persist updated rounds & raw_json to PostgreSQL
+                    if fresh_rounds > 0 and fresh_rounds != cur_num_rounds:
+                        try:
+                            with db.get_connection() as conn:
+                                with conn.cursor() as cur:
+                                    cur.execute("""
+                                        UPDATE events
+                                        SET num_rounds = %s,
+                                            total_players = GREATEST(total_players, %s),
+                                            raw_json = %s,
+                                            scraped_at = %s
+                                        WHERE id = %s;
+                                    """, (
+                                        fresh_rounds,
+                                        int(bcp_meta.get("totalPlayers") or 0),
+                                        json.dumps(raw_ev),
+                                        datetime.now(timezone.utc),
+                                        event_id_str
+                                    ))
+                                conn.commit()
+                        except Exception as dbe:
+                            logger.debug(f"Notice persisting updated rounds for {event_id_str}: {dbe}")
+            except Exception as fe:
+                logger.warning(f"Could not refresh live BCP metadata for {event_id_str}: {fe}")
+
+        # Fallback sanity check for Super Major / Major tournaments (e.g. 200+ players with 0 matches)
+        if int(event_details.get("num_rounds") or 0) <= 3 and not event_details.get("matches"):
+            tp = int(event_details.get("total_players") or 0)
+            if tp >= 200 or "super major" in ev_name_lower or "championship" in ev_name_lower or "las vegas open" in ev_name_lower or "lvo" in ev_name_lower:
+                desc = str(raw_ev.get("eventDescriptionMarkup") or raw_ev.get("eventDescription") or "")
+                desc_rounds = []
+                for m in re.findall(r'\bround\s*(\d+)\b', desc, re.IGNORECASE):
+                    desc_rounds.append(int(m))
+                for m in re.findall(r'\brounds?\s*(\d+)\s*(?:-|–|through|to)\s*(\d+)\b', desc, re.IGNORECASE):
+                    desc_rounds.extend([int(m[0]), int(m[1])])
+                for m in re.findall(r'\brounds?\s*(\d+(?:,\s*\d+)*(?:,?\s*and\s*\d+)?)\b', desc, re.IGNORECASE):
+                    for num in re.findall(r'\d+', m):
+                        desc_rounds.append(int(num))
+                valid_desc = [r for r in desc_rounds if 1 <= r <= 16]
+                if valid_desc:
+                    resolved_fallback = max(valid_desc)
+                elif "lvo" in ev_name_lower or "las vegas open" in ev_name_lower:
+                    resolved_fallback = 10
+                elif tp >= 200:
+                    resolved_fallback = 8
+                else:
+                    resolved_fallback = 5
+                event_details["num_rounds"] = resolved_fallback
+                event_details["numberOfRounds"] = resolved_fallback
+
+        event_details["numberOfRounds"] = event_details.get("num_rounds")
 
         # 1. Detect if event is a Team or Doubles event
         is_team_event = bool(

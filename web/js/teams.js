@@ -79,8 +79,12 @@ async function loadTeamsView(forceTeamId = null) {
 // 2. RENDER THE 6-TAB TEAM HUB (DIGITAL CLUBHOUSE)
 // --------------------------------------------------------------------------
 
-function renderTeamHub(team, isPublicView = false) {
-  const container = document.getElementById('teams-view-container');
+let currentProfileTeamId = null;
+let previousTabBeforeTeamProfile = 'search';
+
+function renderTeamHub(team, isPublicView = false, targetContainerId = null) {
+  const containerId = targetContainerId || (isPublicView ? 'team-profile-container' : 'teams-view-container');
+  const container = document.getElementById(containerId) || document.getElementById('teams-view-container');
   if (!container || !team) return;
 
   const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
@@ -225,14 +229,14 @@ function renderTeamHub(team, isPublicView = false) {
     <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.25); border-radius: 12px; padding: 0.65rem 1.15rem; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
       <div style="display: flex; align-items: center; gap: 8px;">
         <span style="font-size: 1.2rem;">🛡️</span>
-        <span style="font-size: 0.85rem; color: #cbd5e1;">Viewing Public Clubhouse Profile: <strong style="color: #fff;">${escapeHtml(team.name)}</strong></span>
+        <span style="font-size: 0.88rem; color: #cbd5e1;">Public Club Profile &bull; <strong style="color: #fff;">${escapeHtml(team.name)}</strong></span>
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
-        <button type="button" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="loadTeamsView()">
-          ⬅️ Back to My Team Hub
+        <button type="button" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="navigateBackFromTeamProfile()">
+          ⬅ Back
         </button>
-        <button type="button" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="switchTab('search'); switchSearchSubtab('teams');">
-          🔍 Search Directory
+        <button type="button" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="copyTeamProfileLink('${escapeHtml(team.name)}')">
+          🔗 Share Club
         </button>
       </div>
     </div>
@@ -244,6 +248,164 @@ function renderTeamHub(team, isPublicView = false) {
     drawTeamTrajectoryCanvas(team);
   }
 }
+
+async function openTeamProfilePage(teamNameOrId, gameSystem = '', options = {}) {
+  if (!teamNameOrId) return;
+
+  const targetSys = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
+  if (typeof currentGameSystem !== 'undefined' && targetSys !== currentGameSystem) {
+    if (typeof applyGameSystem === 'function') {
+      applyGameSystem(targetSys, false);
+    }
+  }
+
+  // Remember previous tab to return cleanly on back navigation
+  if (typeof activeTab !== 'undefined' && activeTab !== 'team-profile') {
+    previousTabBeforeTeamProfile = activeTab;
+  }
+
+  currentProfileTeamId = String(teamNameOrId).trim();
+
+  // Close modals
+  if (typeof closeAllModals === 'function') {
+    closeAllModals();
+  } else if (typeof closeModal === 'function') {
+    closeModal('team-modal');
+  }
+
+  // Switch view to team-profile tab
+  if (typeof switchTab === 'function') {
+    switchTab('team-profile');
+  } else {
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.remove('active');
+      p.style.removeProperty('display');
+    });
+    const panel = document.getElementById('tab-team-profile');
+    if (panel) {
+      panel.style.removeProperty('display');
+      panel.classList.add('active');
+    }
+  }
+  const profPanel = document.getElementById('tab-team-profile');
+  if (profPanel) {
+    profPanel.style.removeProperty('display');
+    profPanel.classList.add('active');
+  }
+
+  // Update URL hash
+  const cleanPath = (targetSys === 'aos') ? '/aos' : '';
+  const targetHash = `#/${targetSys}/team/${encodeURIComponent(currentProfileTeamId)}`;
+  if (window.history && window.history.pushState && !options.replaceUrl) {
+    window.history.pushState({ teamId: currentProfileTeamId, sys: targetSys }, '', `${cleanPath || ''}${targetHash}`);
+  } else if (window.history && window.history.replaceState) {
+    window.history.replaceState({ teamId: currentProfileTeamId, sys: targetSys }, '', `${cleanPath || ''}${targetHash}`);
+  }
+
+  const container = document.getElementById('team-profile-container');
+  if (container) {
+    container.innerHTML = '<div class="empty-state" style="padding: 3.5rem 1rem;"><div class="spinner"></div><div style="margin-top: 0.75rem;">Loading Club Profile...</div></div>';
+  }
+
+  try {
+    let hub = null;
+    // 1. Try getTeamHub
+    try {
+      const hubRes = await window.api.getTeamHub(currentProfileTeamId, targetSys);
+      if (hubRes && hubRes.team) {
+        hub = hubRes.team;
+      }
+    } catch (e) {
+      console.debug('getTeamHub notice:', e);
+    }
+
+    // 2. Fallback to getTeamRoster (matches existing PostgreSQL production endpoint)
+    if (!hub) {
+      try {
+        const rosterData = await window.api.getTeamRoster(currentProfileTeamId, targetSys);
+        if (rosterData && (rosterData.team || (rosterData.roster && rosterData.roster.length > 0))) {
+          const tmName = rosterData.team || currentProfileTeamId;
+          const st = rosterData.stats || {};
+          const rList = rosterData.roster || [];
+          hub = {
+            id: 'team_' + tmName.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+            name: tmName,
+            short_tag: tmName.split(' ').map(w => w[0]).join('').slice(0, 4).toUpperCase() || 'TEAM',
+            game_system: targetSys,
+            home_venue: 'Competitive Tabletop Circuit',
+            home_city: 'San Diego',
+            home_state: 'CA',
+            bio: `${tmName} official competitive tabletop club and tournament squad.`,
+            roster: rList,
+            roster_count: st.roster_count || rList.length,
+            active_roster_count: st.active_roster_count || rList.length,
+            power_rating: st.power_rating || 1500.0,
+            combat_factor: st.combat_factor || 1.0,
+            active_avg_elo: st.avg_elo || 1500.0,
+            top5_avg: st.top5_avg_elo || 1500.0,
+            top_player_elo: st.top_player_elo || 1500.0,
+            top_player_name: (rList[0] && rList[0].player_name) || 'Top Ace',
+            total_matches: st.total_matches || 0,
+            total_wins: st.total_wins || 0,
+            total_losses: st.total_losses || 0,
+            total_draws: st.total_draws || 0,
+            team_win_rate: st.win_rate || 0.0,
+            starting_5: rList.slice(0, 5),
+            battlefield_feed: [],
+            trophy_room: [],
+            war_room: { faction_matchups: [], club_rivalries: [] },
+            locker_room: { messages: [], squad_events: [] }
+          };
+        }
+      } catch (e) {
+        console.debug('getTeamRoster notice:', e);
+      }
+    }
+
+    if (!hub) {
+      if (container) {
+        container.innerHTML = `<div class="empty-state" style="padding: 3.5rem 1rem;">Club "${escapeHtml(currentProfileTeamId)}" not found.<div style="margin-top: 1rem;"><button class="btn btn-outline" onclick="navigateBackFromTeamProfile()">⬅ Back</button></div></div>`;
+      }
+      return;
+    }
+
+    currentTeamHubData = hub;
+    renderTeamHub(hub, true, 'team-profile-container');
+  } catch (err) {
+    console.error('Error loading team profile:', err);
+    if (container) {
+      container.innerHTML = `<div class="empty-state" style="color:var(--loss); padding: 3rem 1rem;">Error loading Club Profile: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+}
+window.openTeamProfilePage = openTeamProfilePage;
+
+function navigateBackFromTeamProfile() {
+  const target = previousTabBeforeTeamProfile || 'search';
+  if (typeof switchTab === 'function') {
+    switchTab(target);
+    if (target === 'search') {
+      if (typeof switchSearchSubtab === 'function') switchSearchSubtab('teams');
+    }
+  }
+}
+window.navigateBackFromTeamProfile = navigateBackFromTeamProfile;
+
+function copyTeamProfileLink(teamId, sys = '') {
+  const targetSys = (sys || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
+  const cleanPath = (targetSys === 'aos') ? '/aos' : '';
+  const url = `${window.location.origin}${cleanPath}#/${targetSys}/team/${encodeURIComponent(teamId)}`;
+  navigator.clipboard.writeText(url).then(() => {
+    if (typeof showToastNotification === 'function') {
+      showToastNotification('🔗 Shareable Club Profile link copied to clipboard!', 'success');
+    } else {
+      alert('Link copied to clipboard: ' + url);
+    }
+  }).catch(() => {
+    prompt('Copy this link:', url);
+  });
+}
+window.copyTeamProfileLink = copyTeamProfileLink;
 
 function switchTeamHubSubtab(subtabId) {
   currentTeamHubSubtab = subtabId;
@@ -841,7 +1003,7 @@ async function loadTeamsDirectory(forceRefresh = false) {
   }
 
   try {
-    const res = await window.api.getTeamsDirectory('', 1, 'power_rating', 'DESC', 1, 300, sys);
+    const res = await window.api.getTeamsDirectory('', 1, 'power_rating', 'DESC', 1, 100, sys);
     const allItems = (res && res.items) ? res.items : (Array.isArray(res) ? res : ((res && res.teams) ? res.teams : []));
     teamsDirectoryCache[sys] = allItems;
     filterAndRenderCachedTeams(query, minRoster, sys);
@@ -1309,3 +1471,6 @@ window.promptRemoveTeammate = promptRemoveTeammate;
 window.promptClaimInactiveCaptain = promptClaimInactiveCaptain;
 window.promptUpdateTeammateRole = promptUpdateTeammateRole;
 window.confirmLeaveTeam = confirmLeaveTeam;
+window.openTeamProfilePage = openTeamProfilePage;
+window.navigateBackFromTeamProfile = navigateBackFromTeamProfile;
+window.copyTeamProfileLink = copyTeamProfileLink;

@@ -128,8 +128,28 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
 
   const peakTier = (typeof getEloTier === 'function') ? getEloTier(peakElo, totalMatches, sys) : tier;
 
-  // Team
+  // Team History (All represented clubs)
   const teamName = (p.team && p.team.trim()) ? p.team.trim() : (data.teams_history && data.teams_history[0] ? data.teams_history[0] : '');
+  const rawProfileTeams = (Array.isArray(data.teams_history) && data.teams_history.length > 0)
+    ? data.teams_history
+    : ((Array.isArray(p.teams_history) && p.teams_history.length > 0)
+      ? p.teams_history
+      : ((data.all_teams || p.all_teams || teamName || '').split(',').map(t => t.trim()).filter(Boolean)));
+
+  const seenProfileTeams = new Set();
+  const dedupedProfileTeams = [];
+  rawProfileTeams.forEach(t => {
+    if (typeof t === 'string' && t.trim()) {
+      const lower = t.trim().toLowerCase();
+      if (!seenProfileTeams.has(lower)) {
+        seenProfileTeams.add(lower);
+        dedupedProfileTeams.push(t.trim());
+      }
+    }
+  });
+
+  const activeProfileTeam = teamName || (dedupedProfileTeams[0] || '');
+  const pastProfileTeams = dedupedProfileTeams.filter(t => t.toLowerCase() !== activeProfileTeam.toLowerCase());
 
   // Primary Faction
   const factionsList = Array.isArray(data.factions_breakdown) && data.factions_breakdown.length > 0
@@ -419,7 +439,8 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
                 : `<span class="profile-standing-badge" title="All-Time Peak Rating: ${peakElo.toFixed(1)}">Peak: ${peakElo.toFixed(1)} 👑</span>`
               }
               ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data, 'switchProfileSubtab') : ''}
-              ${teamName ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="openTeamModal('${escapeHtml(teamName)}')" title="Click to view ${escapeHtml(teamName)} roster">🛡️ ${escapeHtml(teamName)}</span>` : ''}
+              ${activeProfileTeam ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="openTeamModal('${escapeHtml(activeProfileTeam)}')" title="${escapeHtml(activeProfileTeam)} (Current Active Team) - Click to view roster">🛡️ ${escapeHtml(activeProfileTeam)}${pastProfileTeams.length > 0 ? ' <span style="font-size:0.68rem; opacity:0.85;">(Active)</span>' : ''}</span>` : ''}
+              ${pastProfileTeams.map(pt => `<span class="badge" style="background:rgba(15,23,42,0.6); color:var(--text-secondary); border:1px solid #334155; cursor:pointer;" onclick="openTeamModal('${escapeHtml(pt)}')" title="${escapeHtml(pt)} (Past Team) - Click to view roster">🛡️ ${escapeHtml(pt)} <span style="font-size:0.68rem; opacity:0.75;">(Past)</span></span>`).join('')}
             </div>
             ${window.BadgesUI ? window.BadgesUI.renderPinnedMedals(data.pinned_badges, data.badge_count, data.is_self, 'switchProfileSubtab') : ''}
           </div>

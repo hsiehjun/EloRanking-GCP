@@ -1100,7 +1100,30 @@ function renderMyHub(data) {
                   : `<span class="profile-standing-badge" title="All-Time Peak Rating: ${peakElo}">Peak: ${peakElo} 👑</span>`
                 }
                 ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data, 'switchHubSubtab') : ''}
-                ${p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="switchTab('teams'); if(typeof loadTeamsView==='function') loadTeamsView('${escapeHtml(p.team)}');" title="Click to open ${escapeHtml(p.team)} Team Hub">🛡️ ${escapeHtml(p.team)} ➔</span>` : `<span class="badge" style="background:rgba(255,255,255,0.06); color:#94a3b8; border:1px solid rgba(255,255,255,0.12); cursor:pointer;" onclick="switchTab('teams')" title="Find or join a team">⚔️ Independent &bull; Join Club ➔</span>`}
+                ${(() => {
+                  const hubAllTeams = (Array.isArray(data.teams_history) && data.teams_history.length > 0)
+                    ? data.teams_history
+                    : ((Array.isArray(p.teams_history) && p.teams_history.length > 0)
+                      ? p.teams_history
+                      : ((data.all_teams || p.all_teams || p.team || '').split ? (data.all_teams || p.all_teams || p.team || '').split(',').map(t => t.trim()).filter(Boolean) : [p.team].filter(Boolean)));
+                  const seenHubTeams = new Set();
+                  const dedupedHubTeams = [];
+                  hubAllTeams.forEach(t => {
+                    if (typeof t === 'string' && t.trim()) {
+                      const lower = t.trim().toLowerCase();
+                      if (!seenHubTeams.has(lower)) {
+                        seenHubTeams.add(lower);
+                        dedupedHubTeams.push(t.trim());
+                      }
+                    }
+                  });
+                  const activeHubTeam = p.team || (dedupedHubTeams[0] || '');
+                  const pastHubTeams = dedupedHubTeams.filter(t => t.toLowerCase() !== activeHubTeam.toLowerCase());
+                  return `
+                    ${activeHubTeam ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="switchTab('teams'); if(typeof loadTeamsView==='function') loadTeamsView('${escapeHtml(activeHubTeam)}');" title="Click to open ${escapeHtml(activeHubTeam)} Team Hub">🛡️ ${escapeHtml(activeHubTeam)}${pastHubTeams.length > 0 ? ' <span style="font-size:0.68rem; opacity:0.85;">(Active)</span>' : ''} ➔</span>` : `<span class="badge" style="background:rgba(255,255,255,0.06); color:#94a3b8; border:1px solid rgba(255,255,255,0.12); cursor:pointer;" onclick="switchTab('teams')" title="Find or join a team">⚔️ Independent &bull; Join Club ➔</span>`}
+                    ${pastHubTeams.map(pt => `<span class="badge" style="background:rgba(15,23,42,0.6); color:var(--text-secondary); border:1px solid #334155; cursor:pointer;" onclick="openTeamModal('${escapeHtml(pt)}')" title="${escapeHtml(pt)} (Past Team) - Click to view roster">🛡️ ${escapeHtml(pt)} <span style="font-size:0.68rem; opacity:0.75;">(Past)</span></span>`).join('')}
+                  `;
+                })()}
               </div>
               <div style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 0.45rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
                 <span style="display: inline-flex; align-items: center; gap: 4px;">

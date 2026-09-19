@@ -1777,7 +1777,7 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.76rem; color: #64748b; margin-top: 2px;">
           <span id="competitors-count-${escapeHtml(ev.id)}">👥 ${ev.total_players || 0} Competitor${ev.total_players === 1 ? '' : 's'}</span>
-          <span>⚔️ ${ev.num_rounds || 0} Swiss Rounds</span>
+          <span>⚔️ ${typeof getEventResolvedRounds === 'function' ? getEventResolvedRounds(ev) : (ev.numberOfRounds || ev.num_rounds || ev.raw_json?.numberOfRounds || 0)} Swiss Rounds</span>
         </div>
       </div>
 

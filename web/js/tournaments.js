@@ -253,8 +253,9 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
 
         const elPlayers = document.getElementById('event-modal-players');
         if (elPlayers) elPlayers.innerText = fresh.total_players || eventPlayersCache.length || 0;
+        const resolvedRounds = typeof getEventResolvedRounds === 'function' ? getEventResolvedRounds(fresh, eventMatchesCache) : (fresh.num_rounds || 0);
         const elRounds = document.getElementById('event-modal-rounds');
-        if (elRounds) elRounds.innerText = fresh.num_rounds || 0;
+        if (elRounds) elRounds.innerText = resolvedRounds || 0;
         const elMatches = document.getElementById('event-modal-matches');
         if (elMatches) elMatches.innerText = eventMatchesCache.length;
 
@@ -262,8 +263,7 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
         if (metaEl) {
           const loc = [fresh.city, fresh.state, fresh.country].filter(Boolean).join(', ') || 'Online / Unspecified';
           const dStr = (fresh.event_date || '').slice(0, 10);
-          const numRounds = fresh.num_rounds || (eventMatchesCache.length > 0 ? Math.max(...eventMatchesCache.map(m => m.round || 1)) : 0);
-          const roundsPart = numRounds > 0 ? ` • 🔄 ${numRounds} Rounds` : '';
+          const roundsPart = resolvedRounds > 0 ? ` • 🔄 ${resolvedRounds} Rounds` : '';
           metaEl.innerText = `📅 ${dStr} • 📍 ${loc}${roundsPart}`;
         }
 
@@ -518,8 +518,8 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       computeEventPlayerEloStats(eventPlayersCache, eventMatchesCache);
     }
 
-    const numRounds = ev.num_rounds || (eventMatchesCache.length > 0 ? Math.max(...eventMatchesCache.map(m => m.round || 1)) : 0);
-    const roundsPart = numRounds > 0 ? ` • 🔄 ${numRounds} Rounds` : '';
+    const resolvedRounds = typeof getEventResolvedRounds === 'function' ? getEventResolvedRounds(ev, eventMatchesCache) : (ev.num_rounds || 0);
+    const roundsPart = resolvedRounds > 0 ? ` • 🔄 ${resolvedRounds} Rounds` : '';
     const metaEl = document.getElementById('modal-event-meta');
     if (metaEl) metaEl.innerText = `📅 ${dStr} • 📍 ${loc}${roundsPart}`;
 
@@ -539,7 +539,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       }
     }
     const elRounds = document.getElementById('event-modal-rounds');
-    if (elRounds) elRounds.innerText = ev.num_rounds || 0;
+    if (elRounds) elRounds.innerText = resolvedRounds || 0;
     const elMatches = document.getElementById('event-modal-matches');
     if (elMatches) elMatches.innerText = eventMatchesCache.length;
 
@@ -3361,6 +3361,55 @@ function computeEventPlayerEloStats(players, matches) {
   return players;
 }
 
+function getEventResolvedRounds(ev, matches = []) {
+  const mList = Array.isArray(matches) ? matches : (Array.isArray(ev?.matches) ? ev.matches : []);
+  const maxMatchRound = mList.length > 0 ? Math.max(...mList.map(m => Number(m.round || 1))) : 0;
+  const rawRounds = Number(ev?.numberOfRounds || ev?.num_rounds || ev?.raw_json?.numberOfRounds || ev?.raw_json?.num_rounds || 0);
+  let resolved = Math.max(rawRounds, maxMatchRound);
+  const totalP = Number(ev?.total_players || ev?.totalPlayers || (Array.isArray(ev?.players) ? ev.players.length : 0));
+  const tierName = String(ev?.tier || '').toLowerCase();
+  const evName = String(ev?.name || ev?.event_name || '').toLowerCase();
+  const isSuperMajor = totalP >= 200 || tierName.includes('super') || evName.includes('super major') || evName.includes('las vegas open') || evName.includes('lvo');
+  if (resolved <= 3 && isSuperMajor && maxMatchRound === 0) {
+    const desc = String(ev?.description || ev?.raw_json?.eventDescriptionMarkup || ev?.raw_json?.eventDescription || '');
+    const roundNums = [];
+    const singleMatches = desc.match(/\bround\s*(\d+)\b/gi);
+    if (singleMatches) {
+      singleMatches.forEach(m => {
+        const n = parseInt(m.replace(/\D/g, ''), 10);
+        if (n >= 1 && n <= 16) roundNums.push(n);
+      });
+    }
+    const rangeMatches = desc.match(/\brounds?\s*(\d+)\s*(?:-|–|through|to)\s*(\d+)\b/gi);
+    if (rangeMatches) {
+      rangeMatches.forEach(m => {
+        const nums = m.match(/\d+/g);
+        if (nums) nums.forEach(n => {
+          const val = parseInt(n, 10);
+          if (val >= 1 && val <= 16) roundNums.push(val);
+        });
+      });
+    }
+    const seriesMatches = desc.match(/\brounds?\s*(\d+(?:,\s*\d+)*(?:,?\s*and\s*\d+)?)\b/gi);
+    if (seriesMatches) {
+      seriesMatches.forEach(m => {
+        const nums = m.match(/\d+/g);
+        if (nums) nums.forEach(n => {
+          const val = parseInt(n, 10);
+          if (val >= 1 && val <= 16) roundNums.push(val);
+        });
+      });
+    }
+    if (roundNums.length > 0) {
+      resolved = Math.max(...roundNums);
+    }
+    if (resolved <= 3) {
+      resolved = (evName.includes('lvo') || evName.includes('las vegas open')) ? 10 : 8;
+    }
+  }
+  return resolved || (mList.length > 0 ? maxMatchRound : 5);
+}
+
 function getEventKpiSummary(ev) {
   const players = Array.isArray(ev?.players) ? ev.players : (Array.isArray(eventPlayersCache) ? eventPlayersCache : []);
   const matches = Array.isArray(ev?.matches) ? ev.matches : (Array.isArray(eventMatchesCache) ? eventMatchesCache : []);
@@ -3369,7 +3418,7 @@ function getEventKpiSummary(ev) {
   const isDoublesEvent = Boolean(ev?.is_doubles_event);
   const totalPlayers = ev?.total_players || players.length || 0;
   const totalTeams = ev?.total_teams || teams.length || 0;
-  const numRounds = Number(ev?.num_rounds || (matches.length > 0 ? Math.max(...matches.map(m => m.round || 1)) : 5));
+  const numRounds = getEventResolvedRounds(ev, matches);
   const ended = isEventEnded(ev);
   const now = new Date();
   const todayStr = (typeof getLocalIsoDateStr === 'function')
@@ -3455,6 +3504,8 @@ function renderQuickEventModal(ev, userRegData) {
   if (Array.isArray(ev.players)) eventPlayersCache = ev.players;
   if (Array.isArray(ev.matches)) eventMatchesCache = ev.matches;
 
+  const kpi = getEventKpiSummary(ev);
+
   const nameEl = document.getElementById('modal-event-name');
   if (nameEl) nameEl.textContent = ev.name || ev.event_name || 'Tournament Details';
   const bcpLink = document.getElementById('modal-event-bcp-link');
@@ -3463,11 +3514,9 @@ function renderQuickEventModal(ev, userRegData) {
   if (metaEl) {
     const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
     const dStr = (ev.event_date || ev.start_date || '').slice(0, 10);
-    const rds = ev.num_rounds ? ` • 🔄 ${ev.num_rounds} Rounds` : '';
+    const rds = kpi.numRounds ? ` • 🔄 ${kpi.numRounds} Rounds` : (ev.num_rounds ? ` • 🔄 ${ev.num_rounds} Rounds` : '');
     metaEl.innerHTML = `<span>📅 ${escapeHtml(dStr || 'Date TBD')}</span><span> • 📍 ${escapeHtml(loc)}</span><span>${rds}</span>`;
   }
-
-  const kpi = getEventKpiSummary(ev);
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k').toLowerCase();
   const sysBadge = sys === 'aos'
     ? `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-size:0.72rem; font-weight:700;">⚡ Age of Sigmar</span>`

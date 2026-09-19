@@ -1930,6 +1930,25 @@ class AuthManager:
                     if p_stat.get("player_name") == "Competitor" or not p_stat.get("player_name"):
                         p_stat["player_name"] = display_name
 
+                # Enrich teams_history with detected tournament team history
+                try:
+                    import teams_hub_service
+                    svc = teams_hub_service.get_teams_hub_service()
+                    detected = svc.get_player_detected_history(target_pid, p_stat.get("player_name") or "")
+                    existing = list(p_stat.get("teams_history") or [])
+                    if p_stat.get("team") and p_stat["team"] not in existing:
+                        existing.append(p_stat["team"])
+                    for d in detected:
+                        tname = d.get("name")
+                        if tname and tname not in existing:
+                            existing.append(tname)
+                    p_stat["teams_history"] = existing
+                    p_stat["all_teams"] = ", ".join(existing)
+                    if not p_stat.get("team") and existing:
+                        p_stat["team"] = existing[0]
+                except Exception:
+                    pass
+
                 # Calculate Global & Faction Rank
                 cur.execute("SELECT COUNT(*) + 1 as rank FROM player_ratings WHERE current_elo > %s AND matches_played >= 3 AND COALESCE(game_system, '40k') = %s;", (p_stat["current_elo"], target_sys))
                 g_row = cur.fetchone()
@@ -2074,6 +2093,8 @@ class AuthManager:
 
         return {
             "player": p_stat,
+            "teams_history": p_stat.get("teams_history", []),
+            "all_teams": p_stat.get("all_teams", ""),
             "rankings": {
                 "global_rank": global_rank,
                 "faction_rank": faction_rank,
