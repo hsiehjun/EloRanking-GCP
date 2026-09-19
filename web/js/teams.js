@@ -800,10 +800,10 @@ function renderSubtabTrajectory(team, containerId = 'teams-view-container') {
   const curPr = Number(team.power_rating || 1952);
   const curRk = Number(team.rank || 1);
   const pts = (team.trajectory_points && team.trajectory_points.length > 0) ? team.trajectory_points : [
-    { month: 'Oct 2025', power_rating: Math.round(curPr * 0.92), rank: curRk + 2, milestone: 'Post-SoCal Open & Chicago Grand Tournament' },
-    { month: 'Nov 2025', power_rating: Math.round(curPr * 0.95), rank: curRk + 1, milestone: 'Mid-Season Roster Expansion & 180-Day Calibration' },
-    { month: 'Dec 2025', power_rating: Math.round(curPr * 0.98), rank: curRk + 1, milestone: 'Pre-LVO Boot Camp & Pariah Nexus Testing' },
-    { month: 'Jan 2026', power_rating: Math.round(curPr), rank: curRk, milestone: 'Las Vegas Open Championship Title' }
+    { month: 'Oct 2025', power_rating: Math.round(curPr * 0.92), rank: curRk + 2, milestone: 'Q4 Circuit Phase & Roster Snapshot' },
+    { month: 'Nov 2025', power_rating: Math.round(curPr * 0.95), rank: curRk + 1, milestone: 'Mid-Season Calibration & 180-Day Active Window' },
+    { month: 'Dec 2025', power_rating: Math.round(curPr * 0.98), rank: curRk + 1, milestone: 'Pre-Circuit Championship Standings' },
+    { month: 'Jan 2026', power_rating: Math.round(curPr), rank: curRk, milestone: 'Active Circuit Leaderboard Standing' }
   ];
 
   return `

@@ -409,129 +409,113 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "battlefield_feed": [
                     {
                         "id": "feed-tzc-1",
-                        "date": now_iso,
-                        "tournament": "Las Vegas Open 2026",
-                        "round": "Championship Finals",
+                        "date": "2026-09-12T17:30:00Z",
+                        "tournament": "FLG Monthly 40K RTT - September",
+                        "round": "Round 3 (Finals)",
                         "player_name": "Junior Aflleje",
-                        "faction": "Space Marines",
-                        "opponent_name": "Manning Feinleib",
-                        "opponent_team": "Team Ignite",
-                        "score": "98 - 45",
-                        "result": "win",
-                        "elo_delta": "+16.2 Elo",
+                        "faction": "Leagues of Votann",
+                        "opponent_name": "Roberto Medina",
+                        "opponent_team": "War Room Gladiator",
+                        "score": "90 - 98",
+                        "result": "loss",
+                        "elo_delta": "-4.0 Elo",
                         "is_team_round": False,
-                        "notes": "Junior Aflleje dominates table 1 with Space Marines Vanguard Spearhead to lead TZC in the finals."
+                        "notes": "Championship match battle for 1st place on Table 1; Junior secures 2nd Place overall podium finish with 274 Battle Points."
                     },
                     {
                         "id": "feed-tzc-2",
-                        "date": yesterday_iso,
-                        "tournament": "Las Vegas Open 2026",
-                        "round": "Round 5",
-                        "player_name": "John Hsieh",
-                        "faction": "Necrons",
-                        "opponent_name": "Folger Pyles",
-                        "opponent_team": "Art of War",
-                        "score": "91 - 77",
+                        "date": "2026-09-12T14:15:00Z",
+                        "tournament": "FLG Monthly 40K RTT - September",
+                        "round": "Round 2",
+                        "player_name": "Junior Aflleje",
+                        "faction": "Leagues of Votann",
+                        "opponent_name": "Aurelio Correa",
+                        "opponent_team": "Team Zero Comp",
+                        "score": "93 - 84",
                         "result": "win",
-                        "elo_delta": "+18.4 Elo",
+                        "elo_delta": "+9.2 Elo",
                         "is_team_round": False,
-                        "notes": "John Hsieh's Canoptek Court controls primary objectives against Custodes Wardens."
+                        "notes": "Intra-club showdown on Table 2; Votann edges Dark Angels in high-scoring clash."
                     },
                     {
                         "id": "feed-tzc-3",
-                        "date": last_week_iso,
-                        "tournament": "American Team Championship (ATC)",
-                        "round": "Round 5 Team Match",
-                        "match_title": "ATC Round 5: Team Zero Comp vs. Art of War (2 - 3)",
-                        "is_team_round": True,
-                        "result": "team_loss",
-                        "round_score": "2 tables to 3",
-                        "notes": "Junior Aflleje and John Hsieh secured table victories; Art of War narrowly edged the team match 3-2."
+                        "date": "2026-09-12T11:00:00Z",
+                        "tournament": "FLG Monthly 40K RTT - September",
+                        "round": "Round 1",
+                        "player_name": "Junior Aflleje",
+                        "faction": "Leagues of Votann",
+                        "opponent_name": "Brandon White",
+                        "opponent_team": "Independent",
+                        "score": "91 - 45",
+                        "result": "win",
+                        "elo_delta": "+8.4 Elo",
+                        "is_team_round": False,
+                        "notes": "Junior Aflleje dominates Table 2 with Leagues of Votann (Prioritised Target)."
                     },
                     {
                         "id": "feed-tzc-4",
-                        "date": (datetime.now(timezone.utc) - timedelta(days=14)).isoformat(),
-                        "tournament": "San Diego Citadel Masters",
-                        "round": "Round 4",
-                        "player_name": "James Carmona",
-                        "faction": "Adeptus Custodes",
-                        "opponent_name": "Derek White",
-                        "opponent_team": "Independent",
-                        "score": "100 - 64",
+                        "date": "2026-07-11T16:00:00Z",
+                        "tournament": "The Riverside Classic by Green Banner Event Co.",
+                        "round": "Round 5",
+                        "player_name": "John Hsieh",
+                        "faction": "Necrons",
+                        "opponent_name": "Tyler Stone",
+                        "opponent_team": "SDTC",
+                        "score": "91 - 80",
                         "result": "win",
-                        "elo_delta": "+12.0 Elo",
+                        "elo_delta": "+25.9 Elo",
                         "is_team_round": False,
-                        "notes": "James Carmona secures maximum secondary scoring on Table 4."
+                        "notes": "John Hsieh's Necrons secure 4W - 1L tournament record and +25.9 Elo rating gain in Round 5."
                     },
                     {
                         "id": "feed-tzc-5",
-                        "date": (datetime.now(timezone.utc) - timedelta(days=21)).isoformat(),
-                        "tournament": "SoCal Open Major",
-                        "round": "Finals",
-                        "player_name": "Junior Aflleje",
-                        "faction": "Space Marines",
-                        "opponent_name": "Jack Harpster",
-                        "opponent_team": "Art of War",
-                        "score": "95 - 62",
+                        "date": "2026-09-12T11:00:00Z",
+                        "tournament": "FLG Monthly 40K RTT - September",
+                        "round": "Round 1",
+                        "player_name": "Aurelio Correa",
+                        "faction": "Dark Angels",
+                        "opponent_name": "Ryan King",
+                        "opponent_team": "Independent",
+                        "score": "88 - 40",
                         "result": "win",
-                        "elo_delta": "+15.0 Elo",
+                        "elo_delta": "+11.5 Elo",
                         "is_team_round": False,
-                        "notes": "Championship match victory securing SoCal Open 1st Place for Team Zero Comp."
+                        "notes": "Aurelio Correa's Dark Angels Reconnaissance Company secures decisive victory on Table 4."
                     },
                     {
                         "id": "feed-tzc-6",
-                        "date": (datetime.now(timezone.utc) - timedelta(days=28)).isoformat(),
-                        "tournament": "SoCal Open Major",
+                        "date": "2026-09-12T17:30:00Z",
+                        "tournament": "FLG Monthly 40K RTT - September",
                         "round": "Round 3",
-                        "player_name": "Jake Nelson",
-                        "faction": "Blood Angels",
-                        "opponent_name": "Marcus Vance",
-                        "opponent_team": "Vanguard Tactics",
-                        "score": "88 - 60",
+                        "player_name": "Aurelio Correa",
+                        "faction": "Dark Angels",
+                        "opponent_name": "Anthony Davis",
+                        "opponent_team": "Independent",
+                        "score": "87 - 73",
                         "result": "win",
-                        "elo_delta": "+11.5 Elo",
-                        "is_team_round": False
-                    },
-                    {
-                        "id": "feed-tzc-7",
-                        "date": (datetime.now(timezone.utc) - timedelta(days=28)).isoformat(),
-                        "tournament": "SoCal Open Major",
-                        "round": "Round 4",
-                        "player_name": "Jesse Sell",
-                        "faction": "Aeldari",
-                        "opponent_name": "Eric Davis",
-                        "opponent_team": "Team Ignite",
-                        "score": "90 - 55",
-                        "result": "win",
-                        "elo_delta": "+10.8 Elo",
-                        "is_team_round": False
+                        "elo_delta": "+10.0 Elo",
+                        "is_team_round": False,
+                        "notes": "Aurelio Correa locks in 4th place tournament finish with 259 Battle Points."
                     }
                 ],
                 "war_room": {
                     "faction_matchups": [
-                        {"enemy_faction": "Space Marines (Astartes)", "encounters": 680, "wins": 442, "losses": 238, "win_rate": 65.0},
-                        {"enemy_faction": "Necrons", "encounters": 420, "wins": 285, "losses": 135, "win_rate": 67.9},
-                        {"enemy_faction": "Aeldari", "encounters": 390, "wins": 240, "losses": 150, "win_rate": 61.5},
-                        {"enemy_faction": "Orks", "encounters": 340, "wins": 238, "losses": 102, "win_rate": 70.0},
-                        {"enemy_faction": "Tyranids", "encounters": 310, "wins": 205, "losses": 105, "win_rate": 66.1},
-                        {"enemy_faction": "Adeptus Custodes", "encounters": 280, "wins": 179, "losses": 101, "win_rate": 63.9},
-                        {"enemy_faction": "World Eaters", "encounters": 240, "wins": 156, "losses": 84, "win_rate": 65.0},
-                        {"enemy_faction": "Tau Empire", "encounters": 220, "wins": 145, "losses": 75, "win_rate": 65.9},
-                        {"enemy_faction": "Chaos Space Marines", "encounters": 210, "wins": 132, "losses": 78, "win_rate": 62.9},
-                        {"enemy_faction": "Imperial Knights", "encounters": 190, "wins": 125, "losses": 65, "win_rate": 65.8}
+                        {"enemy_faction": "Aeldari", "encounters": 1, "wins": 1, "losses": 0, "win_rate": 100.0},
+                        {"enemy_faction": "World Eaters", "encounters": 1, "wins": 1, "losses": 0, "win_rate": 100.0},
+                        {"enemy_faction": "Tau Empire", "encounters": 1, "wins": 1, "losses": 0, "win_rate": 100.0},
+                        {"enemy_faction": "Adeptus Mechanicus", "encounters": 1, "wins": 1, "losses": 0, "win_rate": 100.0},
+                        {"enemy_faction": "Adepta Sororitas", "encounters": 1, "wins": 0, "losses": 1, "win_rate": 0.0}
                     ],
                     "club_rivalries": [
-                        {"rival_team": "Art of War", "matches_played": 22, "wins": 8, "losses": 14, "win_rate": 36.4, "last_played": "ATC 2026"},
-                        {"rival_team": "Team Ignite", "matches_played": 18, "wins": 11, "losses": 7, "win_rate": 61.1, "last_played": "SoCal Open 2025"},
-                        {"rival_team": "Vanguard Tactics", "matches_played": 15, "wins": 9, "losses": 6, "win_rate": 60.0, "last_played": "LVO 2026"},
-                        {"rival_team": "Warpforge Gaming", "matches_played": 12, "wins": 8, "losses": 4, "win_rate": 66.7, "last_played": "San Diego Citadel Masters"}
+                        {"rival_team": "War Room Gladiator", "matches_played": 1, "wins": 0, "losses": 1, "win_rate": 0.0, "last_played": "FLG Monthly RTT (Sep 2026)"},
+                        {"rival_team": "SDTC", "matches_played": 1, "wins": 1, "losses": 0, "win_rate": 100.0, "last_played": "The Riverside Classic (Jul 2026)"}
                     ]
                 },
                 "trophy_room": [
-                    {"id": "tr-tzc-1", "title": "2026 LVO Top Cut Finalists", "icon": "👑", "category": "Super Major Title", "awarded_date": "Jan 2026", "significance": "Junior Aflleje and John Hsieh undefeated run", "glory_points": 500},
-                    {"id": "tr-tzc-2", "title": "SoCal Open Champions", "icon": "🏆", "category": "Major GT Title", "awarded_date": "2025", "significance": "1st Place Team Overall", "glory_points": 300},
-                    {"id": "tr-tzc-3", "title": "San Diego Citadel Masters", "icon": "🥇", "category": "Regional Championship", "awarded_date": "Nov 2025", "significance": "Club sweeps Top 3 podium", "glory_points": 200},
-                    {"id": "tr-tzc-4", "title": "Centurion Squad: 2,500+ Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2026", "significance": "Over 2,900 official tournament victories", "glory_points": 150}
+                    {"id": "tr-tzc-1", "title": "FLG Monthly RTT - 2nd Place Podium", "icon": "🥈", "category": "Tournament Podium Finish", "awarded_date": "Sep 2026", "significance": "Junior Aflleje 2nd Place overall (274 Battle Points, 2W-1L with Leagues of Votann)", "glory_points": 500},
+                    {"id": "tr-tzc-2", "title": "The Riverside Classic - 4W-1L Run", "icon": "🎖️", "category": "Grand Tournament Top Finish", "awarded_date": "Jul 2026", "significance": "John Hsieh 4-1 tournament record (+25.9 Elo with Necrons)", "glory_points": 300},
+                    {"id": "tr-tzc-3", "title": "FLG Monthly RTT - Top 4 Finish", "icon": "🎖️", "category": "Tournament Placement", "awarded_date": "Sep 2026", "significance": "Aurelio Correa 4th Place overall (259 Battle Points with Dark Angels)", "glory_points": 200},
+                    {"id": "tr-tzc-4", "title": "Charter Foundation: Team Zero Comp", "icon": "📜", "category": "Club Foundation", "awarded_date": "2024", "significance": "San Diego competitive tabletop club chartered on OmniTactica", "glory_points": 150}
                 ],
                 "locker_room": {
                     "pinned_message": {
@@ -873,12 +857,35 @@ def get_default_teams_seed() -> Dict[str, Any]:
             }
         ],
         "player_affiliations": {
-            # Default dev competitor Innes Wilson is confirmed captain of Art of War
-            "p_innes": {
-                "team_id": "team_art_of_war",
-                "team_name": "Art of War",
-                "short_tag": "AOW",
+            "9oEfu25ccjqE": {
+                "team_id": "team_zero_comp",
+                "team_name": "Team Zero Comp",
+                "short_tag": "TZC",
                 "role": "Captain",
+                "status": "confirmed",
+                "confirmed_at": "2024-02-15T00:00:00Z"
+            },
+            "user_john_hsieh": {
+                "team_id": "team_zero_comp",
+                "team_name": "Team Zero Comp",
+                "short_tag": "TZC",
+                "role": "Captain",
+                "status": "confirmed",
+                "confirmed_at": "2024-02-15T00:00:00Z"
+            },
+            "p_john": {
+                "team_id": "team_zero_comp",
+                "team_name": "Team Zero Comp",
+                "short_tag": "TZC",
+                "role": "Captain",
+                "status": "confirmed",
+                "confirmed_at": "2024-02-15T00:00:00Z"
+            },
+            "p_innes": {
+                "team_id": "team_stat_check",
+                "team_name": "Stat Check",
+                "short_tag": "SCK",
+                "role": "Member",
                 "status": "confirmed",
                 "confirmed_at": "2024-01-01T00:00:00Z"
             }
@@ -1102,10 +1109,10 @@ class TeamsHubService:
                     cur_pr = hub.get("power_rating", 1950.0)
                     cur_rk = hub.get("rank", 1)
                     hub["trajectory_points"] = [
-                        {"month": f"Oct {now_yr - 1}", "power_rating": round(cur_pr * 0.92, 1), "rank": cur_rk + 2, "milestone": "Post-SoCal Open & Chicago Grand Tournament"},
-                        {"month": f"Nov {now_yr - 1}", "power_rating": round(cur_pr * 0.95, 1), "rank": cur_rk + 1, "milestone": "Mid-Season Roster Expansion & 180-Day Calibration"},
-                        {"month": f"Dec {now_yr - 1}", "power_rating": round(cur_pr * 0.98, 1), "rank": cur_rk + 1, "milestone": "Pre-LVO Boot Camp & Pariah Nexus Testing"},
-                        {"month": f"Jan {now_yr}", "power_rating": cur_pr, "rank": cur_rk, "milestone": "Las Vegas Open Championship (Undefeated 8-0 Top Cut)"}
+                        {"month": f"Oct {now_yr - 1}", "power_rating": round(cur_pr * 0.92, 1), "rank": cur_rk + 2, "milestone": "Q4 Circuit Phase & Roster Snapshot"},
+                        {"month": f"Nov {now_yr - 1}", "power_rating": round(cur_pr * 0.95, 1), "rank": cur_rk + 1, "milestone": "Mid-Season Calibration & 180-Day Active Window"},
+                        {"month": f"Dec {now_yr - 1}", "power_rating": round(cur_pr * 0.98, 1), "rank": cur_rk + 1, "milestone": "Pre-Circuit Championship Standings"},
+                        {"month": f"Jan {now_yr}", "power_rating": cur_pr, "rank": cur_rk, "milestone": "Active Circuit Leaderboard Standing"}
                     ]
                 return hub
         return None

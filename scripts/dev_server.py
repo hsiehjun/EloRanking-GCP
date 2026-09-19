@@ -3108,7 +3108,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         if clean_path == "api/teams/my-team":
             import teams_hub_service
             svc = teams_hub_service.get_teams_hub_service()
-            p_id = (query_params.get("player_id", [None])[0] or DEV_USER["user"].get("player_id") or "p_innes").strip()
+            p_id = (query_params.get("player_id", [None])[0] or "9oEfu25ccjqE").strip()
             gs = (query_params.get("game_system", [None])[0] or "40k").strip().lower()
             aff = svc.get_player_affiliation(p_id)
             hub = None
@@ -3129,8 +3129,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         if clean_path == "api/teams/detected-history":
             import teams_hub_service
             svc = teams_hub_service.get_teams_hub_service()
-            p_id = (query_params.get("player_id", [None])[0] or DEV_USER["user"].get("player_id") or "p_innes").strip()
-            p_name = (query_params.get("player_name", [None])[0] or DEV_USER["user"].get("display_name") or "Player").strip()
+            p_id = (query_params.get("player_id", [None])[0] or "9oEfu25ccjqE").strip()
+            p_name = (query_params.get("player_name", [None])[0] or "John Hsieh").strip()
             history = svc.get_player_detected_history(p_id, p_name)
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
