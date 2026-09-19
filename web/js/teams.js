@@ -88,8 +88,31 @@ function renderTeamHub(team, isPublicView = false, targetContainerId = null) {
   if (!container || !team) return;
 
   const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
-  const isCaptain = (currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id));
-  const isMember = (currentUser && team.roster && team.roster.some(p => p.player_id === currentUser.player_id || p.player_id === currentUser.id));
+
+  // Robust member and captain detection across session tokens, user IDs, and player IDs
+  const userPids = new Set([
+    currentUser?.player_id,
+    currentUser?.bcp_user_id,
+    currentUser?.id,
+    currentUser?.bcp_player_id
+  ].filter(Boolean));
+  const userName = (currentUser?.display_name || currentUser?.name || '').trim().toLowerCase();
+
+  const isAffiliatedWithTeam = Boolean(
+    (userTeamAffiliation && (userTeamAffiliation.team_id === team.id || (userTeamAffiliation.team_name && userTeamAffiliation.team_name.toLowerCase() === team.name.toLowerCase()))) ||
+    (currentUser?.team && (currentUser.team.toLowerCase() === team.name.toLowerCase() || currentUser.team === team.id))
+  );
+
+  const isCaptain = Boolean(
+    (currentUser && (userPids.has(team.owner_player_id) || (userName && team.captain_name && team.captain_name.toLowerCase() === userName))) ||
+    (userTeamAffiliation && userTeamAffiliation.role === 'Captain' && isAffiliatedWithTeam)
+  );
+
+  const isMember = Boolean(
+    isCaptain ||
+    isAffiliatedWithTeam ||
+    (currentUser && team.roster && team.roster.some(p => userPids.has(p.player_id) || (userName && p.player_name && p.player_name.toLowerCase() === userName)))
+  );
 
   const winRate = Number(team.team_win_rate || 0);
   const combatFactor = Number(team.combat_factor || 1.0).toFixed(3);
@@ -117,6 +140,7 @@ function renderTeamHub(team, isPublicView = false, targetContainerId = null) {
               <span class="badge" style="background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-size: 0.72rem; padding: 2px 8px; border-radius: 9999px;">
                 👑 #${team.rank || 1} Global (${sys.toUpperCase()})
               </span>
+              ${isMember ? `<span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">🛡️ Your Club</span>` : ''}
             </div>
             <p style="font-size: 0.84rem; color: #94a3b8; margin: 0.25rem 0 0; line-height: 1.4;">
               ${escapeHtml(team.bio || 'Official competitive tabletop club and tournament squad.')}
@@ -133,6 +157,14 @@ function renderTeamHub(team, isPublicView = false, targetContainerId = null) {
 
         <!-- Right: Actions & Switchers -->
         <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+          ${isPublicView ? `
+            <button type="button" class="btn btn-outline" onclick="navigateBackFromTeamProfile()" style="font-size: 0.78rem; font-weight: 700; padding: 0.45rem 0.85rem; border-radius: 8px; border-color: rgba(255,255,255,0.25); color: #fff;">
+              ⬅ Back
+            </button>
+          ` : ''}
+          <button type="button" class="btn btn-outline" onclick="copyTeamProfileLink('${escapeHtml(team.name)}')" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; border-radius: 8px; border-color: rgba(255,255,255,0.15); color: #cbd5e1;">
+            🔗 Share Club
+          </button>
           <button type="button" class="btn btn-outline" onclick="loadTeamsView('directory')" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; border-radius: 8px; border-color: rgba(255,255,255,0.15); color: #cbd5e1;">
             🌐 Browse All Clubs
           </button>
@@ -181,26 +213,37 @@ function renderTeamHub(team, isPublicView = false, targetContainerId = null) {
     </div>
   `;
 
+  // For non-members (public viewers), internal squad tabs (Battlefield Feed, War Room & Rivalries, Locker Room) are completely hidden
+  if (!isMember && (currentTeamHubSubtab === 'feed' || currentTeamHubSubtab === 'warroom' || currentTeamHubSubtab === 'locker')) {
+    currentTeamHubSubtab = 'roster';
+  }
+
   let subtabsNav = `
     <div class="team-hub-subtabs-bar" style="display: flex; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 1.25rem; overflow-x: auto; padding-bottom: 0.35rem;">
       <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'roster' ? 'active' : ''}" onclick="switchTeamHubSubtab('roster')">
         👥 Starting 5 &amp; Roster
       </button>
-      <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'feed' ? 'active' : ''}" onclick="switchTeamHubSubtab('feed')">
-        ⚔️ Battlefield Feed
-      </button>
+      ${isMember ? `
+        <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'feed' ? 'active' : ''}" onclick="switchTeamHubSubtab('feed')">
+          ⚔️ Battlefield Feed
+        </button>
+      ` : ''}
       <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'trajectory' ? 'active' : ''}" onclick="switchTeamHubSubtab('trajectory')">
         📈 Trajectory
       </button>
-      <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'warroom' ? 'active' : ''}" onclick="switchTeamHubSubtab('warroom')">
-        🎯 War Room &amp; Rivalries
-      </button>
+      ${isMember ? `
+        <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'warroom' ? 'active' : ''}" onclick="switchTeamHubSubtab('warroom')">
+          🎯 War Room &amp; Rivalries
+        </button>
+      ` : ''}
       <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'trophies' ? 'active' : ''}" onclick="switchTeamHubSubtab('trophies')">
         🏆 Trophy Room
       </button>
-      <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'locker' ? 'active' : ''}" onclick="switchTeamHubSubtab('locker')">
-        🔒 Locker Room
-      </button>
+      ${isMember ? `
+        <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'locker' ? 'active' : ''}" onclick="switchTeamHubSubtab('locker')">
+          ${isCaptain ? "👑 Captain's Locker" : "🔒 Locker Room"}
+        </button>
+      ` : ''}
     </div>
   `;
 
@@ -208,41 +251,30 @@ function renderTeamHub(team, isPublicView = false, targetContainerId = null) {
     <div id="team-hub-panel-roster" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'roster' ? 'block' : 'none'};">
       ${renderSubtabRoster(team)}
     </div>
-    <div id="team-hub-panel-feed" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'feed' ? 'block' : 'none'};">
-      ${renderSubtabFeed(team)}
-    </div>
+    ${isMember ? `
+      <div id="team-hub-panel-feed" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'feed' ? 'block' : 'none'};">
+        ${renderSubtabFeed(team)}
+      </div>
+    ` : ''}
     <div id="team-hub-panel-trajectory" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'trajectory' ? 'block' : 'none'};">
       ${renderSubtabTrajectory(team)}
     </div>
-    <div id="team-hub-panel-warroom" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'warroom' ? 'block' : 'none'};">
-      ${renderSubtabWarRoom(team)}
-    </div>
+    ${isMember ? `
+      <div id="team-hub-panel-warroom" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'warroom' ? 'block' : 'none'};">
+        ${renderSubtabWarRoom(team)}
+      </div>
+    ` : ''}
     <div id="team-hub-panel-trophies" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'trophies' ? 'block' : 'none'};">
       ${renderSubtabTrophies(team)}
     </div>
-    <div id="team-hub-panel-locker" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'locker' ? 'block' : 'none'};">
-      ${renderSubtabLockerRoom(team)}
-    </div>
+    ${isMember ? `
+      <div id="team-hub-panel-locker" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'locker' ? 'block' : 'none'};">
+        ${renderSubtabLockerRoom(team)}
+      </div>
+    ` : ''}
   `;
 
-  let publicBannerHtml = isPublicView ? `
-    <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.25); border-radius: 12px; padding: 0.65rem 1.15rem; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <span style="font-size: 1.2rem;">🛡️</span>
-        <span style="font-size: 0.88rem; color: #cbd5e1;">Public Club Profile &bull; <strong style="color: #fff;">${escapeHtml(team.name)}</strong></span>
-      </div>
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <button type="button" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="navigateBackFromTeamProfile()">
-          ⬅ Back
-        </button>
-        <button type="button" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="copyTeamProfileLink('${escapeHtml(team.name)}')">
-          🔗 Share Club
-        </button>
-      </div>
-    </div>
-  ` : '';
-
-  container.innerHTML = publicBannerHtml + bannerHtml + subtabsNav + contentHtml;
+  container.innerHTML = bannerHtml + subtabsNav + contentHtml;
 
   if (currentTeamHubSubtab === 'trajectory') {
     drawTeamTrajectoryCanvas(team);
@@ -1222,11 +1254,32 @@ async function submitOnboardingTeamChoice() {
     const pid = (currentUser && (currentUser.player_id || currentUser.bcp_user_id || currentUser.id)) || '';
     const pname = (currentUser && (currentUser.display_name || currentUser.name)) || '';
     const res = await window.api.confirmTeamAffiliation(selectedOnboardingTeamId, pid, pname);
+
+    const aff = (res && res.affiliation) ? res.affiliation : {
+      team_id: selectedOnboardingTeamId,
+      team_name: selectedOnboardingTeamId.replace('team_', '').replace(/_/g, ' '),
+      role: 'Member',
+      status: 'confirmed'
+    };
+
+    userTeamAffiliation = aff;
+    if (currentUser) {
+      currentUser.team = aff.team_name || selectedOnboardingTeamId;
+      try {
+        localStorage.setItem('currentUser_team', currentUser.team);
+      } catch (e) {}
+    }
+
     closeTeamOnboardingModal();
     if (typeof showToastNotification === 'function') {
       showToastNotification('🛡️ Official Team Affiliation Confirmed!', 'success');
     }
-    loadTeamsView(selectedOnboardingTeamId);
+
+    // Directly transition to teams tab and display their confirmed Clubhouse
+    if (typeof switchTab === 'function') {
+      switchTab('teams');
+    }
+    await loadTeamsView(aff.team_id || selectedOnboardingTeamId);
   } catch (err) {
     alert(`Error confirming team: ${err.message}`);
     if (btn) {

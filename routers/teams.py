@@ -104,6 +104,30 @@ async def api_teams_my_team(
     gs = (game_system or "40k").strip().lower()
 
     aff = svc.get_player_affiliation(pid)
+
+    # Fallback to current_user.team or database if not explicitly affiliated in service
+    if (not aff or not aff.get("team_id")) and current_user and current_user.get("team") and current_user["team"].lower() not in ("independent", "none", "n/a"):
+        user_team = current_user["team"]
+        hub = svc.get_team_hub(user_team, gs)
+        if hub:
+            aff = svc.confirm_player_affiliation(pid, hub["id"], current_user.get("display_name") or "Player")
+
+    # Second fallback: check player_ratings table for team tag
+    if (not aff or not aff.get("team_id")) and pid:
+        try:
+            db = get_database()
+            if hasattr(db, "get_connection"):
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT team FROM player_ratings WHERE player_id = %s AND team IS NOT NULL AND TRIM(team) != '' LIMIT 1;", (pid,))
+                        p_row = cur.fetchone()
+                        if p_row and p_row[0] and p_row[0].lower() not in ("independent", "none", "n/a", "-"):
+                            hub = svc.get_team_hub(p_row[0], gs)
+                            if hub:
+                                aff = svc.confirm_player_affiliation(pid, hub["id"], current_user.get("display_name") if current_user else "Player")
+        except Exception as e:
+            logger.debug(f"Notice querying player_ratings team for my-team: {e}")
+
     hub = None
     if aff and aff.get("team_id"):
         hub = svc.get_team_hub(aff["team_id"], gs)
@@ -125,14 +149,29 @@ async def api_teams_confirm_affiliation(payload: Dict[str, Any], request: Reques
     session_token = (request.cookies.get("session_token") if request else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     current_user = auth_mgr.get_session(session_token) if (session_token and auth_mgr) else None
 
-    t_id = payload.get("team_id")
-    pid = payload.get("player_id") or (current_user.get("player_id") if current_user else None) or (current_user.get("bcp_user_id") if current_user else None) or (current_user.get("id") if current_user else None) or "p_user"
+    t_id = (payload.get("team_id") or "").strip()
+    pid = (payload.get("player_id") or (current_user.get("player_id") if current_user else None) or (current_user.get("bcp_user_id") if current_user else None) or (current_user.get("id") if current_user else None) or "p_user").strip()
     pname = payload.get("player_name") or (current_user.get("display_name") if current_user else None) or (current_user.get("name") if current_user else None) or "Player"
 
     try:
-        res = svc.confirm_affiliation(t_id, pid, pname)
-        return res
+        aff = svc.confirm_player_affiliation(pid, t_id, pname)
+        if current_user:
+            current_user["team"] = aff.get("team_name")
+
+        # Persist team directly to Postgres users and player_ratings tables
+        try:
+            db = get_database()
+            if hasattr(db, "get_connection"):
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE users SET team = %s WHERE id = %s OR player_id = %s;", (aff.get("team_name"), pid, pid))
+                        cur.execute("UPDATE player_ratings SET team = %s WHERE player_id = %s;", (aff.get("team_name"), pid))
+        except Exception as e:
+            logger.debug(f"DB update team notice: {e}")
+
+        return {"success": True, "affiliation": aff}
     except Exception as e:
+        logger.error(f"Error confirming team affiliation: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -146,10 +185,22 @@ async def api_teams_leave(payload: Dict[str, Any] = None, request: Request = Non
     session_token = (request.cookies.get("session_token") if request else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     current_user = auth_mgr.get_session(session_token) if (session_token and auth_mgr) else None
 
-    pid = payload.get("player_id") or (current_user.get("player_id") if current_user else None) or (current_user.get("id") if current_user else None) or "p_user"
+    pid = (payload.get("player_id") or (current_user.get("player_id") if current_user else None) or (current_user.get("id") if current_user else None) or "p_user").strip()
     try:
-        res = svc.leave_team(pid)
-        return res
+        aff = svc.set_player_independent(pid)
+        if current_user:
+            current_user["team"] = None
+
+        try:
+            db = get_database()
+            if hasattr(db, "get_connection"):
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE users SET team = NULL WHERE id = %s OR player_id = %s;", (pid, pid))
+        except Exception as e:
+            logger.debug(f"DB leave team notice: {e}")
+
+        return {"success": True, "affiliation": aff}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
