@@ -331,6 +331,13 @@ function switchHubSubtab(tabId) {
   if (tabId === 'matrix') tabId = 'matchups';
   if (tabId === 'mastery') tabId = 'factions';
 
+  if (tabId === 'armory') {
+    if (window.Armory && typeof window.Armory.openArmoryModal === 'function') {
+      window.Armory.openArmoryModal('all', typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    }
+    return;
+  }
+
   currentHubSubtab = tabId || 'active';
   const bar = document.getElementById('hub-subtabs-bar');
   if (bar) {
@@ -339,7 +346,7 @@ function switchHubSubtab(tabId) {
     });
   }
 
-  const panels = ['active', 'journey', 'trajectory', 'factions', 'matchups', 'trophies', 'armory'];
+  const panels = ['active', 'journey', 'trajectory', 'factions', 'matchups', 'trophies'];
   panels.forEach(id => {
     const el = document.getElementById(`hub-panel-${id}`);
     if (el) {
@@ -355,12 +362,6 @@ function switchHubSubtab(tabId) {
     const panel = document.getElementById('hub-panel-trophies');
     if (panel) {
       window.BadgesUI.renderTrophyRoom(panel, myHubData, true, myHubData.player && myHubData.player.player_id);
-    }
-  }
-
-  if (currentHubSubtab === 'armory') {
-    if (window.Armory && typeof window.Armory.openArmoryModal === 'function') {
-      window.Armory.openArmoryModal();
     }
   }
 }
@@ -1206,9 +1207,9 @@ function renderMyHub(data) {
         <span>🏆 Trophies</span>
         <span class="profile-subtab-count">${data.badge_count || 0}/${data.total_badges || 105}</span>
       </button>
-      <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'armory' ? 'active' : ''}" data-tab="armory" onclick="switchHubSubtab('armory')">
+      <button type="button" class="profile-subtab-btn hub-subtab-armory-btn" data-tab="armory" onclick="switchHubSubtab('armory')">
         <span>🏛️ Armory</span>
-        <span class="profile-subtab-count" style="color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3);">💰 ${(data.glory_balance || 0).toLocaleString()}</span>
+        <span class="profile-subtab-count" style="color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3);">💰 ${(data.unified_glory || data.glory_balance || 0).toLocaleString()}</span>
       </button>
     </div>
 

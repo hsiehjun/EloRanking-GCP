@@ -285,7 +285,7 @@ def get_persona_user(persona):
 DEV_USER = get_persona_user("competitor")
 
 def _get_dev_user_glory_and_stats():
-    """Computes authentic Glory points and stats matching the user's Trophy Tab."""
+    """Computes authentic Unified Glory points across 40K and AoS matching the user's Trophy Tab."""
     v = DEV_USER.setdefault("armory_vault", {
         "inventory": {},
         "equipped": {
@@ -294,7 +294,9 @@ def _get_dev_user_glory_and_stats():
             "active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None
         }
     })
-    total_earned = int(DEV_USER.get("total_glory", 2930))
+    glory_40k = int(DEV_USER.get("glory_40k", 8030))
+    glory_aos = int(DEV_USER.get("glory_aos", 135))
+    total_earned = int(DEV_USER.get("total_glory") or (glory_40k + glory_aos))
     spent = int(DEV_USER.get("glory_spent") or 0)
     spendable = max(0, total_earned - spent)
     crest_tier = int(DEV_USER.get("crest_tier", 5))
@@ -303,6 +305,8 @@ def _get_dev_user_glory_and_stats():
     return {
         "vault": v,
         "total_earned": total_earned,
+        "glory_40k": glory_40k,
+        "glory_aos": glory_aos,
         "glory_spent": spent,
         "spendable_glory": spendable,
         "crest_tier": crest_tier,
@@ -3547,13 +3551,21 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             user_ack = DEV_USER.get("acknowledged_badge_ids") or []
             ack_set = set(user_ack)
             newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
+            glory_40k = int(DEV_USER.get("glory_40k", 8030))
+            glory_aos = int(DEV_USER.get("glory_aos", 135))
+            current_sys_glory = glory_aos if req_game_sys == "aos" else glory_40k
+            unified_glory = max(0, (glory_40k + glory_aos) - int(DEV_USER.get("glory_spent") or 0))
+
             res.update({
                 "badge_count": b_eval["badge_count"],
                 "total_badges": b_eval["total_badges"],
                 "completion_pct": b_eval["completion_pct"],
                 "glory_score": b_eval["glory_score"],
                 "career_glory": b_eval.get("career_glory", b_eval.get("glory_score", 0)),
-                "glory_balance": max(0, int(b_eval.get("glory_balance", b_eval.get("glory_score", 0))) - int(DEV_USER.get("glory_spent") or 0)),
+                "glory_balance": max(0, current_sys_glory - int(DEV_USER.get("glory_spent") or 0)),
+                "unified_glory": unified_glory,
+                "glory_40k": glory_40k,
+                "glory_aos": glory_aos,
                 "glory_spent": int(DEV_USER.get("glory_spent") or 0),
                 "seasonal": b_eval.get("seasonal", {}),
                 "active_season": b_eval.get("active_season", "2026"),

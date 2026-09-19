@@ -2045,6 +2045,28 @@ class AuthManager:
         ack_set = set(user_ack) if isinstance(user_ack, list) else set()
         newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
 
+        # Compute other game system glory for unified account balance
+        other_sys = "aos" if target_sys == "40k" else "40k"
+        other_glory = 0
+        try:
+            other_eval = badges.evaluate_player_badges(
+                player_data=p_stat,
+                history=history_points,
+                tournaments=events_attended,
+                faction_mastery=faction_mastery,
+                matchup_matrix=matchup_matrix,
+                game_system=other_sys,
+                tracker_sessions=tracker_history,
+                registered_tournaments=reg_tournaments,
+                armylists=user_lists
+            )
+            other_glory = int(other_eval.get("glory_balance", other_eval.get("glory_score", 0)))
+        except Exception:
+            other_glory = 0
+
+        current_sys_glory = int(b_eval.get("glory_balance", b_eval.get("glory_score", 0)))
+        unified_glory = current_sys_glory + other_glory
+
         return {
             "player": p_stat,
             "rankings": {
@@ -2065,7 +2087,10 @@ class AuthManager:
             "glory_score": b_eval["glory_score"],
             "career_glory": b_eval.get("career_glory", b_eval.get("glory_score", 0)),
             "seasonal_glory": b_eval.get("seasonal_glory", 0),
-            "glory_balance": b_eval.get("glory_balance", b_eval.get("glory_score", 0)),
+            "glory_balance": current_sys_glory,
+            "unified_glory": unified_glory,
+            "glory_40k": current_sys_glory if target_sys == "40k" else other_glory,
+            "glory_aos": other_glory if target_sys == "40k" else current_sys_glory,
             "seasonal": b_eval.get("seasonal", {}),
             "active_season": b_eval.get("active_season", "2026"),
             "rank": b_eval["rank"],

@@ -10298,6 +10298,57 @@ body.is-authenticated #floating-chat-widget {
   box-sizing: border-box;
 }
 
+/* Desktop Formatting for My Hub Subtabs Bar (does not affect mobile) */
+@media (min-width: 901px) {
+  #hub-subtabs-bar.profile-subtabs-bar {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.35rem !important;
+    padding: 0.35rem !important;
+    overflow-x: hidden !important;
+    scrollbar-width: none !important;
+  }
+  #hub-subtabs-bar.profile-subtabs-bar::-webkit-scrollbar {
+    display: none !important;
+  }
+  #hub-subtabs-bar .profile-subtab-btn {
+    flex: 1 1 0px !important;
+    min-width: 0 !important;
+    padding: 0.52rem 0.65rem !important;
+    font-size: 0.82rem !important;
+    gap: 0.35rem !important;
+    white-space: nowrap !important;
+    border-radius: 8px !important;
+  }
+  #hub-subtabs-bar .profile-subtab-btn > span:first-child {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+  #hub-subtabs-bar .profile-subtab-count {
+    font-size: 0.72rem !important;
+    padding: 0.12rem 0.45rem !important;
+    flex-shrink: 0 !important;
+  }
+  #hub-subtabs-bar .profile-subtab-btn.hub-subtab-armory-btn,
+  #hub-subtabs-bar .profile-subtab-btn[data-tab="armory"] {
+    flex: 0 0 auto !important;
+    min-width: max-content !important;
+    padding: 0.52rem 0.85rem !important;
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(217, 119, 6, 0.08) 100%) !important;
+    border: 1px solid rgba(245, 158, 11, 0.35) !important;
+    color: #fef08a !important;
+    margin-left: 0.35rem !important;
+  }
+  #hub-subtabs-bar .profile-subtab-btn.hub-subtab-armory-btn:hover,
+  #hub-subtabs-bar .profile-subtab-btn[data-tab="armory"]:hover {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.22) 0%, rgba(217, 119, 6, 0.16) 100%) !important;
+    border-color: rgba(245, 158, 11, 0.55) !important;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.25) !important;
+    color: #fff !important;
+  }
+}
+
 @media (max-width: 900px) {
   .profile-subtabs-bar {
     display: grid !important;
@@ -11667,6 +11718,22 @@ body.is-authenticated #floating-chat-widget {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   overflow-x: auto;
   white-space: nowrap;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.armory-wings-bar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+@media (min-width: 769px) {
+  .armory-wings-bar {
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+    scrollbar-width: none !important;
+  }
 }
 
 .armory-wing-pill {
@@ -12554,6 +12621,13 @@ body.is-authenticated #floating-chat-widget {
     box-sizing: border-box !important;
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+  .armory-wings-bar::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
   }
   .armory-wing-pill {
     padding: 0.3rem 0.65rem !important;

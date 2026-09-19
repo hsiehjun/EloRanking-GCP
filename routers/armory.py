@@ -21,34 +21,43 @@ router = APIRouter(tags=["Retribution Armory"])
 
 
 def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Calculates total earned glory, spent glory, and remaining spendable balance."""
-    player_id = user_data.get("player_id")
-    total_earned = 0
+    """Calculates total earned unified glory across 40K and AoS, spent glory, and remaining spendable balance."""
+    target_pid = user_data.get("player_id")
+    target_uid = user_data.get("id")
+    
+    total_40k = 0
+    total_aos = 0
     crest_tier = 1
+    peak_elo = float(user_data.get("peak_elo") or user_data.get("elo") or 1500.0)
 
-    if player_id:
+    if auth_mgr and (target_pid or target_uid):
         try:
-            db = get_database()
-            # Evaluate authentic badges to get earned glory and crest tier
-            b_eval = badges.evaluate_player_badges(db, player_id, game_system="40k")
-            total_earned = int(b_eval.get("glory_balance") or b_eval.get("glory_score") or 0)
-            crest_tier = int((b_eval.get("rank") or {}).get("rank") or 1)
+            hub_40k = auth_mgr.get_user_competitor_hub(player_id=target_pid, user_id=target_uid, game_system="40k")
+            total_40k = int(hub_40k.get("glory_balance") or hub_40k.get("glory_score") or 0)
+            crest_tier = max(crest_tier, int((hub_40k.get("rank") or {}).get("rank") or 1))
+            peak_elo = max(peak_elo, float((hub_40k.get("player") or {}).get("peak_elo") or 1500.0))
         except Exception as e:
-            logger.warning(f"Notice computing glory for player {player_id}: {e}")
-            total_earned = int(user_data.get("glory_score") or 0)
-    else:
-        total_earned = int(user_data.get("glory_score") or 0)
+            logger.warning(f"Notice computing 40K glory for user {target_uid}: {e}")
 
-    # In dev or unlinked profiles, provide standard starting balance if empty
-    if total_earned <= 0 and user_data.get("id"):
-        total_earned = 500  # Starting recruit stipend
+        try:
+            hub_aos = auth_mgr.get_user_competitor_hub(player_id=target_pid, user_id=target_uid, game_system="aos")
+            total_aos = int(hub_aos.get("glory_balance") or hub_aos.get("glory_score") or 0)
+            crest_tier = max(crest_tier, int((hub_aos.get("rank") or {}).get("rank") or 1))
+            peak_elo = max(peak_elo, float((hub_aos.get("player") or {}).get("peak_elo") or 1500.0))
+        except Exception as e:
+            logger.warning(f"Notice computing AoS glory for user {target_uid}: {e}")
+
+    total_earned = total_40k + total_aos
+    if total_earned <= 0:
+        total_earned = int(user_data.get("total_glory") or user_data.get("glory_score") or user_data.get("glory_balance") or 0)
 
     spent = int(user_data.get("glory_spent") or 0)
     spendable = max(0, total_earned - spent)
-    peak_elo = float(user_data.get("peak_elo") or user_data.get("elo") or 1500.0)
 
     return {
         "total_earned": total_earned,
+        "glory_40k": total_40k,
+        "glory_aos": total_aos,
         "glory_spent": spent,
         "spendable_glory": spendable,
         "crest_tier": crest_tier,
