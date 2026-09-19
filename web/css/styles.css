@@ -11736,6 +11736,14 @@ body.is-authenticated #floating-chat-widget {
   }
 }
 
+.wing-pill-mobile {
+  display: none;
+}
+
+.wing-pill-desktop {
+  display: inline;
+}
+
 .armory-wing-pill {
   display: inline-flex;
   align-items: center;
@@ -12613,16 +12621,22 @@ body.is-authenticated #floating-chat-widget {
   .armory-wallet-val {
     font-size: 0.95rem !important;
   }
+  .wing-pill-desktop {
+    display: none !important;
+  }
+  .wing-pill-mobile {
+    display: inline !important;
+  }
   .armory-wings-bar {
-    padding: 0.5rem 0.75rem !important;
-    gap: 0.3rem !important;
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 0.35rem !important;
+    padding: 0.6rem 0.75rem !important;
     width: 100% !important;
     max-width: 100% !important;
     box-sizing: border-box !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: none !important;
-    -ms-overflow-style: none !important;
+    white-space: normal !important;
+    overflow: visible !important;
   }
   .armory-wings-bar::-webkit-scrollbar {
     display: none !important;
@@ -12630,9 +12644,21 @@ body.is-authenticated #floating-chat-widget {
     height: 0 !important;
   }
   .armory-wing-pill {
-    padding: 0.3rem 0.65rem !important;
-    font-size: 0.74rem !important;
-    flex-shrink: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.35rem !important;
+    padding: 0.48rem 0.2rem !important;
+    font-size: 0.78rem !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    min-height: 38px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    flex-shrink: 1 !important;
   }
   .armory-modal-body {
     padding: 0 !important;
