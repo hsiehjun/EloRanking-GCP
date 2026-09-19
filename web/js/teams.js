@@ -49,7 +49,7 @@ async function loadTeamsView(forceTeamId = null) {
       const hubRes = await window.api.getTeamHub(forceTeamId, sys);
       if (hubRes && hubRes.team) {
         currentTeamHubData = hubRes.team;
-        renderTeamHub(currentTeamHubData, true);
+        renderTeamHub(currentTeamHubData, false, 'teams-view-container');
         return;
       }
     }
@@ -208,8 +208,11 @@ function renderTeamHub(team, isPublicView = false, targetContainerId = null) {
 
       <!-- Vital Stats Strip -->
       <div class="team-stats-strip" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.85rem; margin-top: 1.25rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1.15rem;">
-        <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 0.75rem; text-align: center;">
-          <div style="font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Power Rating</div>
+        <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 0.75rem; text-align: center; position: relative;">
+          <div style="font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 5px;">
+            Power Rating
+            <button type="button" onclick="openPowerRatingExplainerModal()" title="How Club Power Rating is Calculated" style="display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 9999px; background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.4); color: #38bdf8; font-size: 0.65rem; font-weight: 800; cursor: pointer; padding: 0; line-height: 1;">i</button>
+          </div>
           <div style="font-size: 1.45rem; font-weight: 900; color: #c084fc; font-family: var(--font-mono);">${Number(team.power_rating || 0).toFixed(1)}</div>
           <div style="font-size: 0.68rem; color: #38bdf8;">Top Ace: ${Number(team.top_player_elo || 1500).toFixed(1)}</div>
         </div>
@@ -512,6 +515,8 @@ function switchTeamHubSubtab(subtabId) {
 function renderSubtabRoster(team) {
   const starting5 = team.starting_5 || (team.roster ? team.roster.slice(0, 5) : []);
   const fullRoster = team.roster || [];
+  const activeRoster = fullRoster.filter(p => p.is_active !== false && !p.player_name.toLowerCase().includes('(inactive)'));
+  const inactiveRoster = fullRoster.filter(p => p.is_active === false || p.player_name.toLowerCase().includes('(inactive)'));
   const factions = team.faction_distribution || [];
 
   return `
@@ -561,10 +566,10 @@ function renderSubtabRoster(team) {
         </div>
       ` : ''}
 
-      <!-- Full Club Ladder Table -->
+      <!-- Active Club Ladder Table -->
       <div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">📋 Complete Active Club Ladder (${fullRoster.length})</h3>
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">📋 Active Club Ladder (${activeRoster.length})</h3>
           <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
             ${(typeof currentUser !== 'undefined' && currentUser && team.roster && team.roster.some(p => (p.player_id === currentUser.player_id || p.player_id === currentUser.id) && p.role !== 'Captain' && currentUser.player_id !== team.owner_player_id && currentUser.id !== team.owner_player_id)) ? `
               <button type="button" class="btn btn-outline" onclick="promptClaimInactiveCaptain('${escapeHtml(team.id)}')" style="font-size: 0.76rem; color: #fbbf24; border-color: rgba(245,158,11,0.4); padding: 0.35rem 0.85rem; border-radius: 6px;" title="Claim Captaincy if the reigning captain is AFK or inactive">
@@ -593,7 +598,7 @@ function renderSubtabRoster(team) {
               </tr>
             </thead>
             <tbody>
-              ${fullRoster.map((p, idx) => {
+              ${activeRoster.map((p, idx) => {
                 const isCapt = (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id || (team.roster && team.roster.some(m => (m.player_id === currentUser.player_id || m.player_id === currentUser.id) && m.role === 'Captain'))));
                 const canManage = isCapt || (typeof currentUser !== 'undefined' && currentUser && team.roster && team.roster.some(m => (m.player_id === currentUser.player_id || m.player_id === currentUser.id) && (m.role === 'Co-Captain' || m.role === 'Officer')));
                 return `
@@ -641,6 +646,60 @@ function renderSubtabRoster(team) {
           </table>
         </div>
       </div>
+
+      <!-- Inactive Reserves Section -->
+      ${inactiveRoster.length > 0 ? `
+        <div style="background: rgba(15,23,42,0.45); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1.15rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <h3 style="font-size: 1.05rem; font-weight: 800; color: #94a3b8; margin: 0; display: flex; align-items: center; gap: 6px;">
+                🛡️ Inactive Squad Reserves (${inactiveRoster.length})
+              </h3>
+              <div style="font-size: 0.74rem; color: #64748b; margin-top: 2px;">
+                Club members with no official tournament matches recorded in the past 180 days. Does not count toward current active Power Rating.
+              </div>
+            </div>
+          </div>
+          <div class="table-container">
+            <table class="table" style="opacity: 0.85;">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Competitor</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Faction</th>
+                  <th>Historical Elo</th>
+                  <th>Win Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${inactiveRoster.map((p, idx) => `
+                  <tr onclick="openPlayerModal('${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name.replace(' (Inactive)', ''))}')" style="cursor: pointer;">
+                    <td style="font-family: var(--font-mono); color: #64748b;">#${idx + 1}</td>
+                    <td>
+                      <span class="player-link" style="color: #94a3b8;">${escapeHtml(p.player_name.replace(' (Inactive)', ''))}</span>
+                    </td>
+                    <td>
+                      <span class="badge" style="font-size: 0.68rem; background: rgba(255,255,255,0.05); color: #94a3b8;">
+                        ${escapeHtml(p.role || 'Member')}
+                      </span>
+                    </td>
+                    <td>
+                      <span class="badge" style="font-size: 0.68rem; background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.25);">
+                        Inactive (180d+)
+                      </span>
+                    </td>
+                    <td style="font-size: 0.82rem; color: #94a3b8;">${escapeHtml(p.faction || '-')}</td>
+                    <td style="font-family: var(--font-mono); color: #94a3b8;">${Number(p.current_elo || 1500).toFixed(1)}</td>
+                    <td style="font-family: var(--font-mono); color: #94a3b8;">${Number(p.win_rate || 0)}%</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : ''}
     </div>
   `;
 }
@@ -1576,3 +1635,79 @@ window.confirmLeaveTeam = confirmLeaveTeam;
 window.openTeamProfilePage = openTeamProfilePage;
 window.navigateBackFromTeamProfile = navigateBackFromTeamProfile;
 window.copyTeamProfileLink = copyTeamProfileLink;
+
+function openPowerRatingExplainerModal() {
+  const existing = document.getElementById('power-rating-explainer-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'power-rating-explainer-modal';
+  modal.className = 'modal-backdrop active';
+  modal.style.zIndex = '100000';
+  modal.innerHTML = `
+    <div class="modal-card" style="max-width: 540px; background: #0b1324; border: 1.5px solid rgba(56,189,248,0.4); border-radius: 16px; box-shadow: 0 16px 50px rgba(0,0,0,0.8); overflow: hidden;">
+      <div style="padding: 1.25rem 1.5rem; background: linear-gradient(135deg, rgba(30,58,138,0.4) 0%, rgba(15,23,42,0.9) 100%); border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.3rem;">⚡</span>
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">How Club Power Rating is Calculated</h3>
+        </div>
+        <button type="button" onclick="document.getElementById('power-rating-explainer-modal').remove()" style="background: none; border: none; color: #94a3b8; font-size: 1.3rem; cursor: pointer;">✕</button>
+      </div>
+      <div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; font-size: 0.86rem; color: #cbd5e1; line-height: 1.5;">
+        <div style="background: rgba(15,23,42,0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 1rem;">
+          <div style="font-family: var(--font-mono); font-weight: 800; color: #38bdf8; font-size: 0.95rem; margin-bottom: 0.35rem;">
+            Power Rating = Skill Baseline × Roster Maturity % × Combat Factor
+          </div>
+          <div style="font-size: 0.76rem; color: #94a3b8;">
+            A mathematically rigorous metric evaluating tournament firepower, squad depth, active roster scale, and competitive win consistency.
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="display: flex; gap: 10px; align-items: flex-start;">
+            <span style="font-size: 1.1rem; margin-top: 1px;">⭐</span>
+            <div>
+              <strong style="color: #fff;">1. Starting 5 Anchor (40% of Baseline):</strong>
+              <div>Average Elo rating of the club's 5 highest-rated active tournament competitors.</div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: flex-start;">
+            <span style="font-size: 1.1rem; margin-top: 1px;">👥</span>
+            <div>
+              <strong style="color: #fff;">2. Squad Depth &amp; Active Roster (40% of Baseline):</strong>
+              <div>Average Elo across all active members who competed in official events in the 180-day window.</div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: flex-start;">
+            <span style="font-size: 1.1rem; margin-top: 1px;">👑</span>
+            <div>
+              <strong style="color: #fff;">3. Top Ace Factor (20% of Baseline):</strong>
+              <div>Current Elo of the club's #1 ranked competitor, rewarding peak competitive ceiling.</div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: flex-start;">
+            <span style="font-size: 1.1rem; margin-top: 1px;">📈</span>
+            <div>
+              <strong style="color: #fff;">4. Roster Maturity Multiplier:</strong>
+              <div>Logarithmic scale curve from 10% (solo competitor) up to 100% (30 active tournament competitors).</div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: flex-start;">
+            <span style="font-size: 1.1rem; margin-top: 1px;">⚔️</span>
+            <div>
+              <strong style="color: #fff;">5. Combat Record Factor:</strong>
+              <div>Tournament win rate multiplier scaling between 0.850× and 1.150× based on head-to-head match outcomes.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 1rem 1.5rem; background: rgba(15,23,42,0.8); border-top: 1px solid rgba(255,255,255,0.08); text-align: right;">
+        <button type="button" class="btn btn-primary" onclick="document.getElementById('power-rating-explainer-modal').remove()" style="padding: 0.5rem 1.25rem; font-weight: 700;">
+          Understood
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+window.openPowerRatingExplainerModal = openPowerRatingExplainerModal;
+

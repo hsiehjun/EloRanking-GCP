@@ -1074,7 +1074,7 @@ function renderRequestsList(requests = connectState.requestsList, myId = null) {
     const teamTag = teamObj.short_tag || 'AOW';
 
     const squadHeaderHtml = `
-      <div class="oc-squad-channel-pinned" onclick="if(window.switchTab){window.switchTab('teams');setTimeout(()=>{if(window.switchTeamHubSubtab)window.switchTeamHubSubtab('locker');},150);if(window.toggleFloatingChat)window.toggleFloatingChat(false);}" style="background: linear-gradient(135deg, rgba(30,58,138,0.45) 0%, rgba(15,23,42,0.9) 100%); border: 1px solid rgba(56,189,248,0.45); border-radius: 10px; padding: 0.75rem 0.85rem; margin-bottom: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 15px rgba(0,0,0,0.4); transition: transform 0.15s;" title="Open ${escapeHtml(teamName)} Squad Chat in Clubhouse">
+      <div class="oc-squad-channel-pinned" onclick="openTeamSquadChatChannel('${escapeHtml(teamObj.id || 'team_zero_comp')}');" style="background: linear-gradient(135deg, rgba(30,58,138,0.45) 0%, rgba(15,23,42,0.9) 100%); border: 1px solid rgba(56,189,248,0.45); border-radius: 10px; padding: 0.75rem 0.85rem; margin-bottom: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 15px rgba(0,0,0,0.4); transition: transform 0.15s;" title="Open ${escapeHtml(teamName)} Squad Chat in Floating Drawer">
         <div style="display: flex; align-items: center; gap: 0.65rem;">
           <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.4); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0;">
             🛡️
@@ -1648,6 +1648,8 @@ function backToChatList() {
     layout.classList.remove('is-viewing-chat');
   }
   connectState.activeRequestId = null;
+  connectState.isTeamSquadChat = false;
+  connectState.activeTeamId = null;
   if (typeof detachChatSnapshot === 'function') {
     detachChatSnapshot();
   }
@@ -1752,6 +1754,82 @@ async function selectConversation(requestId) {
     updateUnreadCountBadge();
   }
 }
+
+async function openTeamSquadChatChannel(teamId) {
+  const layout = document.querySelector('.oc-chat-layout');
+  if (layout) {
+    layout.classList.add('is-viewing-chat');
+  }
+
+  connectState.isTeamSquadChat = true;
+  connectState.activeTeamId = teamId || 'team_zero_comp';
+  connectState.activeRequestId = `team_${connectState.activeTeamId}`;
+
+  const header = document.getElementById('chat-active-header');
+  const inputForm = document.getElementById('chat-input-form');
+  if (header) header.style.display = 'flex';
+  if (inputForm) inputForm.style.display = 'flex';
+
+  const nameEl = document.getElementById('chat-active-name');
+  const eloEl = document.getElementById('chat-active-elo');
+  const subEl = document.getElementById('chat-active-sub');
+  const avatarEl = document.getElementById('chat-active-avatar');
+  
+  let teamName = 'Team Zero Comp';
+  let teamTag = 'TZC';
+  if (typeof currentTeamHubData !== 'undefined' && currentTeamHubData && (currentTeamHubData.id === teamId || currentTeamHubData.name === teamId)) {
+    teamName = currentTeamHubData.name;
+    teamTag = currentTeamHubData.short_tag || 'TZC';
+  } else if (typeof userTeamAffiliation !== 'undefined' && userTeamAffiliation) {
+    teamName = userTeamAffiliation.team_name || teamName;
+    teamTag = userTeamAffiliation.short_tag || teamTag;
+  }
+
+  if (nameEl) nameEl.innerHTML = `${escapeHtml(teamName)} Squad Chat <span class="badge" style="font-size: 0.65rem; background: rgba(168,85,247,0.15); color: #c084fc;">[${escapeHtml(teamTag)}]</span>`;
+  if (eloEl) eloEl.innerHTML = `<button type="button" onclick="if(window.switchTab){window.switchTab('teams');if(window.switchTeamHubSubtab)window.switchTeamHubSubtab('locker');if(window.toggleFloatingChat)window.toggleFloatingChat(false);}" style="background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.35); color: #38bdf8; font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; cursor: pointer;">🏛️ Clubhouse ➔</button>`;
+  if (avatarEl) avatarEl.innerHTML = '🛡️';
+  if (subEl) subEl.textContent = 'Official Squad Channel • Teammates Only';
+
+  setupChatInputViewportListeners();
+  if (window.innerWidth <= 768) {
+    handleVisualViewportResize();
+  }
+
+  await refreshTeamSquadChatMessages();
+}
+window.openTeamSquadChatChannel = openTeamSquadChatChannel;
+
+async function refreshTeamSquadChatMessages() {
+  const teamId = connectState.activeTeamId || 'team_zero_comp';
+  try {
+    const res = await window.api.getTeamMessages(teamId);
+    if (res && res.messages) {
+      const container = document.getElementById('chat-messages-container');
+      if (container) {
+        const myName = (typeof currentUser !== 'undefined' && currentUser && (currentUser.display_name || currentUser.name)) || 'John Hsieh';
+        container.innerHTML = res.messages.map(m => {
+          const isMe = (m.sender_name === myName || m.sender_player_id === (typeof currentUser !== 'undefined' && currentUser ? (currentUser.player_id || currentUser.id) : ''));
+          return `
+            <div class="oc-message-row ${isMe ? 'oc-message-me' : 'oc-message-them'}" style="display: flex; flex-direction: column; align-items: ${isMe ? 'flex-end' : 'flex-start'}; margin-bottom: 0.75rem;">
+              <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 2px; display: flex; align-items: center; gap: 4px;">
+                <strong style="color: ${isMe ? '#38bdf8' : '#c084fc'};">${escapeHtml(m.sender_name)}</strong>
+                <span style="font-size: 0.65rem; opacity: 0.75;">(${escapeHtml(m.role || 'Member')})</span>
+                <span>• ${new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+              </div>
+              <div style="background: ${isMe ? 'linear-gradient(135deg, rgba(2,132,199,0.35) 0%, rgba(14,165,233,0.2) 100%)' : 'rgba(15,23,42,0.85)'}; border: 1px solid ${isMe ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.08)'}; border-radius: ${isMe ? '12px 12px 2px 12px' : '12px 12px 12px 2px'}; padding: 0.65rem 0.85rem; font-size: 0.85rem; color: #fff; max-width: 82%; word-break: break-word; line-height: 1.45;">
+                ${escapeHtml(m.message)}
+              </div>
+            </div>
+          `;
+        }).join('');
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+  } catch (err) {
+    console.warn("Notice loading team messages:", err);
+  }
+}
+window.refreshTeamSquadChatMessages = refreshTeamSquadChatMessages;
 
 function renderChatMessages(messages, scrollOnlyIfNearBottom = true) {
   if (!connectState.activeRequestId) return;
@@ -1893,6 +1971,20 @@ async function handleSendChatMessage(e) {
   }
 
   input.value = '';
+
+  if (connectState.isTeamSquadChat) {
+    const teamId = connectState.activeTeamId || 'team_zero_comp';
+    const myId = (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id || currentUser.id)) || '9oEfu25ccjqE';
+    const myName = (typeof currentUser !== 'undefined' && currentUser && (currentUser.display_name || currentUser.name)) || 'John Hsieh';
+    const myRole = (typeof currentUser !== 'undefined' && currentUser && currentUser.role) || 'Captain';
+    try {
+      await window.api.postTeamMessage(teamId, text, false, myId, myName, myRole);
+      await refreshTeamSquadChatMessages();
+    } catch (err) {
+      console.warn("Notice posting squad chat:", err);
+    }
+    return;
+  }
 
   // Explicitly retain input focus so mobile virtual keyboard does not dismiss when sending back-to-back messages
   if (input) {

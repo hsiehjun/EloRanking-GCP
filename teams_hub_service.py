@@ -406,8 +406,127 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "heraldry_border": "rgba(251, 191, 36, 0.5)",
                 "heraldry_color": "#fbbf24",
                 "rank": 2,
-                "battlefield_feed": [],
-                "war_room": {"faction_matchups": [], "club_rivalries": []},
+                "battlefield_feed": [
+                    {
+                        "id": "feed-tzc-1",
+                        "date": now_iso,
+                        "tournament": "Las Vegas Open 2026",
+                        "round": "Championship Finals",
+                        "player_name": "Junior Aflleje",
+                        "faction": "Space Marines",
+                        "opponent_name": "Manning Feinleib",
+                        "opponent_team": "Team Ignite",
+                        "score": "98 - 45",
+                        "result": "win",
+                        "elo_delta": "+16.2 Elo",
+                        "is_team_round": False,
+                        "notes": "Junior Aflleje dominates table 1 with Space Marines Vanguard Spearhead to lead TZC in the finals."
+                    },
+                    {
+                        "id": "feed-tzc-2",
+                        "date": yesterday_iso,
+                        "tournament": "Las Vegas Open 2026",
+                        "round": "Round 5",
+                        "player_name": "John Hsieh",
+                        "faction": "Necrons",
+                        "opponent_name": "Folger Pyles",
+                        "opponent_team": "Art of War",
+                        "score": "91 - 77",
+                        "result": "win",
+                        "elo_delta": "+18.4 Elo",
+                        "is_team_round": False,
+                        "notes": "John Hsieh's Canoptek Court controls primary objectives against Custodes Wardens."
+                    },
+                    {
+                        "id": "feed-tzc-3",
+                        "date": last_week_iso,
+                        "tournament": "American Team Championship (ATC)",
+                        "round": "Round 5 Team Match",
+                        "match_title": "ATC Round 5: Team Zero Comp vs. Art of War (2 - 3)",
+                        "is_team_round": True,
+                        "result": "team_loss",
+                        "round_score": "2 tables to 3",
+                        "notes": "Junior Aflleje and John Hsieh secured table victories; Art of War narrowly edged the team match 3-2."
+                    },
+                    {
+                        "id": "feed-tzc-4",
+                        "date": (datetime.now(timezone.utc) - timedelta(days=14)).isoformat(),
+                        "tournament": "San Diego Citadel Masters",
+                        "round": "Round 4",
+                        "player_name": "James Carmona",
+                        "faction": "Adeptus Custodes",
+                        "opponent_name": "Derek White",
+                        "opponent_team": "Independent",
+                        "score": "100 - 64",
+                        "result": "win",
+                        "elo_delta": "+12.0 Elo",
+                        "is_team_round": False,
+                        "notes": "James Carmona secures maximum secondary scoring on Table 4."
+                    },
+                    {
+                        "id": "feed-tzc-5",
+                        "date": (datetime.now(timezone.utc) - timedelta(days=21)).isoformat(),
+                        "tournament": "SoCal Open Major",
+                        "round": "Finals",
+                        "player_name": "Junior Aflleje",
+                        "faction": "Space Marines",
+                        "opponent_name": "Jack Harpster",
+                        "opponent_team": "Art of War",
+                        "score": "95 - 62",
+                        "result": "win",
+                        "elo_delta": "+15.0 Elo",
+                        "is_team_round": False,
+                        "notes": "Championship match victory securing SoCal Open 1st Place for Team Zero Comp."
+                    },
+                    {
+                        "id": "feed-tzc-6",
+                        "date": (datetime.now(timezone.utc) - timedelta(days=28)).isoformat(),
+                        "tournament": "SoCal Open Major",
+                        "round": "Round 3",
+                        "player_name": "Jake Nelson",
+                        "faction": "Blood Angels",
+                        "opponent_name": "Marcus Vance",
+                        "opponent_team": "Vanguard Tactics",
+                        "score": "88 - 60",
+                        "result": "win",
+                        "elo_delta": "+11.5 Elo",
+                        "is_team_round": False
+                    },
+                    {
+                        "id": "feed-tzc-7",
+                        "date": (datetime.now(timezone.utc) - timedelta(days=28)).isoformat(),
+                        "tournament": "SoCal Open Major",
+                        "round": "Round 4",
+                        "player_name": "Jesse Sell",
+                        "faction": "Aeldari",
+                        "opponent_name": "Eric Davis",
+                        "opponent_team": "Team Ignite",
+                        "score": "90 - 55",
+                        "result": "win",
+                        "elo_delta": "+10.8 Elo",
+                        "is_team_round": False
+                    }
+                ],
+                "war_room": {
+                    "faction_matchups": [
+                        {"enemy_faction": "Space Marines (Astartes)", "encounters": 680, "wins": 442, "losses": 238, "win_rate": 65.0},
+                        {"enemy_faction": "Necrons", "encounters": 420, "wins": 285, "losses": 135, "win_rate": 67.9},
+                        {"enemy_faction": "Aeldari", "encounters": 390, "wins": 240, "losses": 150, "win_rate": 61.5},
+                        {"enemy_faction": "Orks", "encounters": 340, "wins": 238, "losses": 102, "win_rate": 70.0},
+                        {"enemy_faction": "Tyranids", "encounters": 310, "wins": 205, "losses": 105, "win_rate": 66.1},
+                        {"enemy_faction": "Adeptus Custodes", "encounters": 280, "wins": 179, "losses": 101, "win_rate": 63.9},
+                        {"enemy_faction": "World Eaters", "encounters": 240, "wins": 156, "losses": 84, "win_rate": 65.0},
+                        {"enemy_faction": "Tau Empire", "encounters": 220, "wins": 145, "losses": 75, "win_rate": 65.9},
+                        {"enemy_faction": "Chaos Space Marines", "encounters": 210, "wins": 132, "losses": 78, "win_rate": 62.9},
+                        {"enemy_faction": "Imperial Knights", "encounters": 190, "wins": 125, "losses": 65, "win_rate": 65.8}
+                    ],
+                    "club_rivalries": [
+                        {"rival_team": "Art of War", "matches_played": 22, "wins": 8, "losses": 14, "win_rate": 36.4, "last_played": "ATC 2026"},
+                        {"rival_team": "Team Ignite", "matches_played": 18, "wins": 11, "losses": 7, "win_rate": 61.1, "last_played": "SoCal Open 2025"},
+                        {"rival_team": "Vanguard Tactics", "matches_played": 15, "wins": 9, "losses": 6, "win_rate": 60.0, "last_played": "LVO 2026"},
+                        {"rival_team": "Warpforge Gaming", "matches_played": 12, "wins": 8, "losses": 4, "win_rate": 66.7, "last_played": "San Diego Citadel Masters"}
+                    ]
+                },
                 "trophy_room": [
                     {"id": "tr-tzc-1", "title": "2026 LVO Top Cut Finalists", "icon": "👑", "category": "Super Major Title", "awarded_date": "Jan 2026", "significance": "Junior Aflleje and John Hsieh undefeated run", "glory_points": 500},
                     {"id": "tr-tzc-2", "title": "SoCal Open Champions", "icon": "🏆", "category": "Major GT Title", "awarded_date": "2025", "significance": "1st Place Team Overall", "glory_points": 300},
@@ -422,8 +541,47 @@ def get_default_teams_seed() -> Dict[str, Any]:
                         "message": "📌 Official Team Zero Comp Clubhouse: Welcome squad! Tournament prep and list submissions for upcoming GTs are live.",
                         "timestamp": now_iso
                     },
-                    "messages": [],
-                    "squad_events": []
+                    "messages": [
+                        {
+                            "id": "msg-tzc-1",
+                            "sender_name": "Junior Aflleje",
+                            "role": "Top Ace",
+                            "message": "Vanguard Spearhead list is locked for the GT. Testing into Knights on Table 2 tonight at San Diego Tabletop Gaming Center.",
+                            "timestamp": yesterday_iso
+                        },
+                        {
+                            "id": "msg-tzc-2",
+                            "sender_name": "James Carmona",
+                            "role": "Core",
+                            "message": "Custodes Wardens are ready. Let me know who needs high-durability practice reps.",
+                            "timestamp": yesterday_iso
+                        },
+                        {
+                            "id": "msg-tzc-3",
+                            "sender_name": "John Hsieh",
+                            "role": "Captain",
+                            "message": "Great work at LVO squad! Make sure everyone's rosters are submitted for the upcoming team circuit by Friday.",
+                            "timestamp": now_iso
+                        }
+                    ],
+                    "squad_events": [
+                        {
+                            "event_id": "ev-lvo-2026",
+                            "event_name": "Las Vegas Open 2026 Championship",
+                            "venue": "Rio Convention Center, Las Vegas NV",
+                            "event_date": "Jan 18, 2026",
+                            "confirmed_attendees": ["John Hsieh", "Junior Aflleje", "James Carmona", "Jake Nelson", "Jesse Sell"],
+                            "notes": "Team hotel booked at the Rio. Team jerseys required on Days 1 and 2."
+                        },
+                        {
+                            "event_id": "ev-atc-2026",
+                            "event_name": "American Team Championship (ATC)",
+                            "venue": "Camp Jordan Arena, East Ridge TN",
+                            "event_date": "Jul 11, 2026",
+                            "confirmed_attendees": ["John Hsieh", "Junior Aflleje", "James Carmona", "Jake Nelson", "Jesse Sell"],
+                            "notes": "5-person team tournament format. 5 matched play tables per round."
+                        }
+                    ]
                 }
             },
             {
@@ -1215,8 +1373,9 @@ class TeamsHubService:
             "message": message.strip(),
             "timestamp": now_iso
         }
+        target = str(team_id or "").strip().lower()
         for t in self.state.get("teams", []):
-            if t["id"] == team_id:
+            if t.get("id", "").lower() == target or t.get("name", "").lower() == target or t.get("short_tag", "").lower() == target:
                 lr = t.setdefault("locker_room", {"pinned_message": None, "messages": [], "squad_events": []})
                 if is_pinned:
                     lr["pinned_message"] = msg_obj
@@ -1224,11 +1383,12 @@ class TeamsHubService:
                     lr.setdefault("messages", []).append(msg_obj)
                 self._save()
                 return msg_obj
-        raise ValueError("Team not found")
+        raise ValueError(f"Team '{team_id}' not found")
 
     def toggle_event_attendance(self, team_id: str, event_id: str, player_name: str) -> Dict[str, Any]:
+        target = str(team_id or "").strip().lower()
         for t in self.state.get("teams", []):
-            if t["id"] == team_id:
+            if t.get("id", "").lower() == target or t.get("name", "").lower() == target or t.get("short_tag", "").lower() == target:
                 lr = t.setdefault("locker_room", {"pinned_message": None, "messages": [], "squad_events": []})
                 events = lr.setdefault("squad_events", [])
                 ev = next((e for e in events if e.get("event_id") == event_id), None)

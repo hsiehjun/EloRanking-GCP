@@ -3139,6 +3139,26 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": True, "detected": history}).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/teams/") and clean_path.endswith("/messages"):
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            t_id = urllib.parse.unquote(clean_path.split("/")[2])
+            hub = svc.get_team_hub(t_id)
+            if not hub:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps({"detail": "Team not found"}).encode("utf-8"))
+                return
+            locker = hub.get("locker_room", {})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "team_id": t_id, "messages": locker.get("messages", []), "pinned_message": locker.get("pinned_message")}).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/teams/") and not clean_path.endswith("/messages") and not clean_path.endswith("/squad-events/attend"):
             import teams_hub_service
             svc = teams_hub_service.get_teams_hub_service()

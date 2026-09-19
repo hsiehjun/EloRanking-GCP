@@ -10346,7 +10346,7 @@ body.is-authenticated #floating-chat-widget {
   }
 }
 
-/* Mobile Screens (<= 640px) */
+/* Mobile Screens (<= 640px) - Non-scrolling 2-column accessible grid layout */
 @media (max-width: 640px) {
   .tab-label-full {
     display: none !important;
@@ -10355,20 +10355,43 @@ body.is-authenticated #floating-chat-widget {
     display: inline !important;
   }
   .profile-subtabs-bar {
-    gap: 0.4rem !important;
-    padding: 0.35rem 0.4rem !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.45rem !important;
+    padding: 0.45rem !important;
     margin-bottom: 1rem !important;
-    border-radius: 10px !important;
+    border-radius: 12px !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+    white-space: normal !important;
   }
   .profile-subtab-btn {
-    padding: 0.45rem 0.75rem !important;
-    font-size: 0.78rem !important;
-    gap: 0.35rem !important;
-    border-radius: 7px !important;
+    flex: none !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    padding: 0.48rem 0.5rem !important;
+    font-size: 0.76rem !important;
+    gap: 0.3rem !important;
+    border-radius: 8px !important;
+    justify-content: space-between !important;
+    box-sizing: border-box !important;
+  }
+  .profile-subtab-btn > span:first-child {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.3rem !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
   }
   .profile-subtab-count {
-    font-size: 0.68rem !important;
-    padding: 0.1rem 0.42rem !important;
+    font-size: 0.65rem !important;
+    padding: 0.1rem 0.38rem !important;
+    flex-shrink: 0 !important;
+  }
+  #hub-subtabs-bar .profile-subtab-btn:first-child {
+    grid-column: 1 / -1 !important;
+    justify-content: center !important;
   }
 }
 

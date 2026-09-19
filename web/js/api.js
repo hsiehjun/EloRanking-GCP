@@ -595,12 +595,26 @@ window.api = {
   },
 
   // Team Hub: Post Message to Locker Room
-  async postTeamMessage(teamId, message, isPinned = false) {
+  async postTeamMessage(teamId, message, isPinned = false, senderId = '', senderName = '', role = 'Member') {
+    const sId = senderId || (typeof currentUser !== 'undefined' && currentUser ? (currentUser.player_id || currentUser.id) : '') || '9oEfu25ccjqE';
+    const sName = senderName || (typeof currentUser !== 'undefined' && currentUser ? (currentUser.display_name || currentUser.name) : '') || 'John Hsieh';
+    const sRole = role || (typeof currentUser !== 'undefined' && currentUser ? (currentUser.role || 'Member') : 'Member');
     return this._fetchJson(`/api/teams/${encodeURIComponent(teamId)}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, is_pinned: isPinned })
+      body: JSON.stringify({
+        message,
+        is_pinned: isPinned,
+        sender_player_id: sId,
+        sender_name: sName,
+        role: sRole
+      })
     });
+  },
+
+  // Team Hub: Get Messages from Locker Room
+  async getTeamMessages(teamId) {
+    return this._fetchJson(`/api/teams/${encodeURIComponent(teamId)}/messages`);
   },
 
   // Team Hub: Toggle Squad Event Attendance
