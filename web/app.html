@@ -3919,6 +3919,10 @@
       <div class="mobile-nav-icon">🏆</div>
       <span class="mobile-nav-label">Standings</span>
     </button>
+    <button type="button" class="mobile-nav-item" data-tab="teams" onclick="switchTab('teams')">
+      <div class="mobile-nav-icon">🛡️</div>
+      <span class="mobile-nav-label">Teams</span>
+    </button>
     <button type="button" class="mobile-nav-item" data-tab="community" onclick="switchTab('community')">
       <div class="mobile-nav-icon">👥</div>
       <span class="mobile-nav-label">Community</span>
@@ -3952,6 +3956,14 @@
       </div>
 
       <div class="mobile-more-menu-items">
+        <button type="button" class="mobile-menu-row" onclick="closeMobileMoreSheet(); switchTab('teams');">
+          <span class="menu-icon">🛡️</span>
+          <div class="menu-text">
+            <div class="menu-title">Teams &amp; Clubs Hub</div>
+            <div class="menu-desc">Clubhouse, starting 5 &amp; squad ladder</div>
+          </div>
+          <span class="menu-chevron">›</span>
+        </button>
         <button type="button" class="mobile-menu-row" onclick="closeMobileMoreSheet(); switchTab('search');">
           <span class="menu-icon">🔍</span>
           <div class="menu-text">
