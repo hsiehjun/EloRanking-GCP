@@ -1087,8 +1087,9 @@ function renderMyHub(data) {
       <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''}" style="margin-bottom: 1.25rem;">
         <div class="profile-hero-top">
           <div class="profile-identity-group">
-            <div class="profile-rank-crest" title="${escapeHtml(tier.name)}">
-              ${tier.icon}
+            <div class="profile-rank-crest" title="${escapeHtml(tier.name)}" data-default-icon="${escapeHtml(tier.icon)}">
+              <span class="hero-crest-default-icon">${tier.icon}</span>
+              <span class="hero-avatar-sigil-slot" style="display: none;"></span>
             </div>
             <div class="profile-name-meta">
               <div class="profile-badges-row">
@@ -1474,6 +1475,11 @@ function renderMyHub(data) {
   `;
 
   container.innerHTML = html;
+
+  // Apply active equipped armory decorations (frames, sigil avatar, titles)
+  if (window.Armory && typeof window.Armory.applyEquippedDecorations === 'function') {
+    window.Armory.applyEquippedDecorations();
+  }
 
   // Render SVG Trajectory & Load Army Lists
   renderHubTrajectory(history);

@@ -8468,6 +8468,11 @@ body.is-authenticated #floating-chat-widget {
   min-width: 260px;
 }
 
+.profile-hero-card > * {
+  position: relative;
+  z-index: 2;
+}
+
 .profile-rank-crest {
   display: flex;
   align-items: center;
@@ -8482,6 +8487,32 @@ body.is-authenticated #floating-chat-widget {
   flex-shrink: 0;
   line-height: 1;
   margin-top: 4px;
+  position: relative;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.profile-rank-crest .hero-crest-default-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.profile-rank-crest .hero-avatar-sigil-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  flex-shrink: 0;
+}
+
+.profile-rank-crest .hero-avatar-sigil-slot svg,
+.profile-rank-crest .hero-avatar-sigil-slot .faction-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .profile-name-meta {

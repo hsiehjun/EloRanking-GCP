@@ -374,6 +374,7 @@ async def unequip_item(request: Request):
             vault["equipped"][sys_key][slot] = None
         vault["equipped"][slot] = None
     user_data["armory_vault"] = vault
+    session["armory_vault"] = vault
 
     try:
         with auth_mgr.db.get_connection() as conn:

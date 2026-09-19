@@ -405,12 +405,14 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''}">
       <div class="profile-hero-top">
         <div class="profile-identity-group">
-          <div class="profile-rank-crest" title="${escapeHtml(tier.name)}">
-            ${tier.icon}
+          <div class="profile-rank-crest" title="${escapeHtml(tier.name)}" data-default-icon="${escapeHtml(tier.icon)}">
+            <span class="hero-crest-default-icon">${tier.icon}</span>
+            <span class="hero-avatar-sigil-slot" style="display: none;"></span>
           </div>
           <div class="profile-name-meta">
             <div class="profile-badges-row">
               <h1 class="profile-name-title">${escapeHtml(playerName)}</h1>
+              <span class="hero-title-badge-slot" style="display: none;"></span>
             </div>
             <div class="profile-badges-row" style="margin-top: 0.15rem;">
               ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(currentElo, totalMatches, { showTierName: true, size: 'lg', gameSystem: sys }) : `<span class="badge">${currentElo.toFixed(1)} Elo</span>`}
@@ -603,6 +605,10 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
 
   // Render Trajectory SVG in background so it's ready when tab is clicked
   setTimeout(() => renderProfileTrajectoryChart(rawHistory), 50);
+
+  if (data.is_self && window.Armory && typeof window.Armory.applyEquippedDecorations === 'function') {
+    window.Armory.applyEquippedDecorations();
+  }
 }
 
 /**

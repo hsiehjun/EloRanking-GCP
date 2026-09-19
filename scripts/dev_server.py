@@ -1271,9 +1271,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 sys_eq = eq.setdefault(sys_key, {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None})
                 sys_eq[slot] = item_id
                 eq[slot] = item_id
+                DEV_USER["armory_vault"] = v
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
                 self.end_headers()
                 self.wfile.write(json.dumps({
                     "success": True,
@@ -1297,9 +1299,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 if isinstance(eq.get(sys_key), dict):
                     eq[sys_key][slot] = None
                 eq[slot] = None
+                DEV_USER["armory_vault"] = v
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
                 self.end_headers()
                 self.wfile.write(json.dumps({
                     "success": True,
@@ -1980,6 +1984,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             cat["user_vault"] = v
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps(cat).encode("utf-8"))

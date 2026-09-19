@@ -48,7 +48,10 @@
       var sys = gameSys || currentGameSystem || '40k';
       var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
       var headers = token ? { 'Authorization': 'Bearer ' + token } : {};
-      var res = await fetch('/api/armory/catalog?game_system=' + encodeURIComponent(sys), { headers: headers });
+      var res = await fetch('/api/armory/catalog?game_system=' + encodeURIComponent(sys) + '&_t=' + Date.now(), {
+        headers: headers,
+        cache: 'no-store'
+      });
       if (res.ok) {
         var data = await res.json();
         currentCatalog = data;
@@ -123,11 +126,49 @@
   }
 
   /**
+   * Toggle equip/unequip for an item
+   */
+  async function toggleEquip(slot, itemId, system) {
+    var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
+    var allEq = currentVault.equipped || {};
+    var eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
+    var currentlyEquipped = eq[slot];
+
+    if (currentlyEquipped === itemId) {
+      return await unequipSlot(slot, false, sys);
+    } else {
+      return await equipItem(slot, itemId, false, sys);
+    }
+  }
+
+  /**
    * Equip an owned item into an active slot
    */
   async function equipItem(slot, itemId, silent, system) {
+    var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
+
+    // 1. Instant optimistic in-memory update
+    if (!currentVault.equipped) currentVault.equipped = {};
+    if (!currentVault.equipped[sys] || typeof currentVault.equipped[sys] !== 'object') {
+      currentVault.equipped[sys] = { active_dice: null, active_card_frame: null, active_title: null, active_avatar: null };
+    }
+    currentVault.equipped[sys][slot] = itemId;
+    currentVault.equipped[slot] = itemId;
+
+    if (currentCatalog && currentCatalog.items) {
+      currentCatalog.items.forEach(function(i) {
+        if (i.slot === slot) {
+          i.is_equipped = (i.id === itemId);
+        }
+      });
+    }
+
+    // Immediately reflect on Armory modal grid, header, and profile card!
+    renderArmoryGrid();
+    applyEquippedDecorations(sys);
+    updateArmoryHeaderBalance();
+
     try {
-      var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
       var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
       var headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = 'Bearer ' + token;
@@ -141,7 +182,7 @@
       var data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to equip item');
 
-      currentVault.equipped = data.equipped;
+      if (data.equipped) currentVault.equipped = data.equipped;
       if (!silent) showArmoryNotification('⚔️ ' + data.message, 'success');
 
       await loadArmoryData(sys);
@@ -151,6 +192,9 @@
 
     } catch (err) {
       showArmoryNotification('❌ ' + err.message, 'error');
+      await loadArmoryData(sys);
+      renderArmoryGrid();
+      applyEquippedDecorations(sys);
     }
   }
 
@@ -158,8 +202,28 @@
    * Unequip an item slot back to default
    */
   async function unequipSlot(slot, silent, system) {
+    var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
+
+    // 1. Instant optimistic in-memory update
+    if (!currentVault.equipped) currentVault.equipped = {};
+    if (currentVault.equipped[sys] && typeof currentVault.equipped[sys] === 'object') {
+      currentVault.equipped[sys][slot] = null;
+    }
+    currentVault.equipped[slot] = null;
+
+    if (currentCatalog && currentCatalog.items) {
+      currentCatalog.items.forEach(function(i) {
+        if (i.slot === slot) {
+          i.is_equipped = false;
+        }
+      });
+    }
+
+    renderArmoryGrid();
+    applyEquippedDecorations(sys);
+    updateArmoryHeaderBalance();
+
     try {
-      var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
       var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
       var headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = 'Bearer ' + token;
@@ -173,7 +237,7 @@
       var data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to unequip slot');
 
-      currentVault.equipped = data.equipped;
+      if (data.equipped) currentVault.equipped = data.equipped;
       if (!silent) showArmoryNotification('🛡️ ' + data.message, 'info');
 
       await loadArmoryData(sys);
@@ -182,6 +246,9 @@
 
     } catch (err) {
       showArmoryNotification('❌ ' + err.message, 'error');
+      await loadArmoryData(sys);
+      renderArmoryGrid();
+      applyEquippedDecorations(sys);
     }
   }
 
@@ -473,35 +540,34 @@
     container.prepend(banner);
   }
 
+  function getFrameCssClass(frameId) {
+    if (!frameId) return '';
+    if (currentCatalog && currentCatalog.items) {
+      var it = currentCatalog.items.find(function(i) { return i.id === frameId; });
+      if (it && it.payload && it.payload.css_class) return it.payload.css_class;
+    }
+    return frameId.replace(/_/g, '-');
+  }
+
   /**
    * Effect Dispatcher: Applies active decorations across the entire page
    */
   function applyEquippedDecorations(system) {
-    var sys = (system || window.currentGameSystem || '40k').toLowerCase();
+    var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
     var allEq = currentVault.equipped || {};
     var eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
 
-    // 1. Apply Card Frame
+    // 1. Apply Card Frame (Borders & Hologram)
     var frameId = eq.active_card_frame;
-    var allFrames = [
-      'frame-astral-holofoil', 'frame-molten-core', 'frame-cyber-matrix',
-      'frame-warp-corruption', 'frame-realm-chamon', 'frame-ghur-feral',
-      'frame-shyish-obsidian', 'frame-hysh-celestial',
-      'frame-peak-veteran', 'frame-peak-captain', 'frame-peak-commander',
-      'frame-peak-dark-angels', 'frame-peak-necrons', 'frame-peak-grand-marshal',
-      'frame-peak-high-warlord', 'frame-peak-warmaster', 'frame-peak-primarch',
-      'frame-peak-everchosen'
-    ];
+    var targetCssClass = frameId ? getFrameCssClass(frameId) : null;
+
     var heroCards = document.querySelectorAll('.hero-card, .profile-hero-card, #my-hub-hero-card');
     heroCards.forEach(function(card) {
-      allFrames.forEach(function(f) { card.classList.remove(f); });
       Array.from(card.classList).forEach(function(c) {
-        if (c.startsWith('frame-')) card.classList.remove(c);
+        if (c.startsWith('frame-') || c.startsWith('frame_')) card.classList.remove(c);
       });
-      if (frameId) {
-        var item = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === frameId; }) : null;
-        var cssCls = item && item.payload ? item.payload.css_class : frameId;
-        if (cssCls) card.classList.add(cssCls);
+      if (targetCssClass) {
+        card.classList.add(targetCssClass);
       }
     });
 
@@ -514,45 +580,59 @@
         el.style.display = 'none';
       } else {
         var tItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === titleId; }) : null;
-        var tText = tItem && tItem.payload ? tItem.payload.title_text : (tItem ? tItem.name : 'The Unbroken');
+        var tText = tItem && tItem.payload ? tItem.payload.title_text : (tItem ? tItem.name : titleId.replace(/^title_/, '').replace(/_/g, ' '));
         var tClass = tItem && tItem.payload ? tItem.payload.css_class : 'title-badge-unbroken';
         el.innerHTML = '<span class="armory-title-chip ' + escapeHtml(tClass) + '"><span class="title-chip-icon">🏷️</span> ' + escapeHtml(tText.toUpperCase()) + '</span>';
         el.style.display = 'inline-flex';
       }
     });
 
-    // 3. Render Equipped Faction Avatar (Replaces the icon next to player name!)
+    // 3. Render Equipped Faction Avatar Sigil (Replaces rank crest icon!)
     var avatarId = eq.active_avatar;
-    var avatarSlots = document.querySelectorAll('.hero-avatar-sigil-slot');
-    var defaultIcons = document.querySelectorAll('.hero-crest-default-icon');
     var rankCrests = document.querySelectorAll('.profile-rank-crest');
-    if (!avatarId) {
-      avatarSlots.forEach(function(el) { el.innerHTML = ''; el.style.display = 'none'; });
-      defaultIcons.forEach(function(el) { el.style.display = ''; });
-      rankCrests.forEach(function(c) {
-        c.style.borderColor = '';
-        c.style.boxShadow = '';
-      });
-    } else {
-      var svgCode = typeof window.getArmoryAvatarSvg === 'function' ? window.getArmoryAvatarSvg(avatarId) : '';
-      var aItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === avatarId; }) : null;
-      var aColor = aItem && aItem.payload ? aItem.payload.badge_color : '#38bdf8';
-      var aFaction = aItem && aItem.payload ? aItem.payload.faction : 'Faction';
-      avatarSlots.forEach(function(el) {
-        if (svgCode) {
-          el.innerHTML = svgCode;
-        } else {
-          var aIcon = aItem && aItem.payload ? aItem.payload.avatar_icon : (aItem ? aItem.icon : '🛡️');
-          el.innerHTML = '<span class="armory-avatar-sigil" style="font-size: 2rem; filter: drop-shadow(0 0 10px ' + aColor + ');">' + aIcon + '</span>';
+    rankCrests.forEach(function(crest) {
+      var slot = crest.querySelector('.hero-avatar-sigil-slot');
+      var defIcon = crest.querySelector('.hero-crest-default-icon');
+
+      if (!slot) {
+        var origHtml = crest.innerHTML.trim();
+        var fallbackIcon = crest.getAttribute('data-default-icon') || origHtml || '🎖️';
+        crest.innerHTML = '<span class="hero-crest-default-icon">' + fallbackIcon + '</span><span class="hero-avatar-sigil-slot" style="display:none;"></span>';
+        slot = crest.querySelector('.hero-avatar-sigil-slot');
+        defIcon = crest.querySelector('.hero-crest-default-icon');
+      }
+
+      if (!avatarId) {
+        if (slot) {
+          slot.innerHTML = '';
+          slot.style.display = 'none';
         }
-        el.style.display = 'flex';
-      });
-      defaultIcons.forEach(function(el) { el.style.display = 'none'; });
-      rankCrests.forEach(function(c) {
-        c.style.borderColor = aColor;
-        c.style.boxShadow = '0 0 20px ' + aColor + '55, inset 0 0 14px ' + aColor + '22';
-      });
-    }
+        if (defIcon) {
+          defIcon.style.display = 'inline-flex';
+        }
+        crest.style.borderColor = '';
+        crest.style.boxShadow = '';
+      } else {
+        var svgCode = typeof window.getArmoryAvatarSvg === 'function' ? window.getArmoryAvatarSvg(avatarId) : '';
+        var aItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === avatarId; }) : null;
+        var aColor = (aItem && aItem.payload && aItem.payload.badge_color) ? aItem.payload.badge_color : '#38bdf8';
+
+        if (defIcon) {
+          defIcon.style.display = 'none';
+        }
+        if (slot) {
+          if (svgCode) {
+            slot.innerHTML = svgCode;
+          } else {
+            var aIcon = (aItem && aItem.payload && aItem.payload.avatar_icon) || (aItem && aItem.icon) || '🛡️';
+            slot.innerHTML = '<span class="armory-avatar-sigil" style="font-size: 2.2rem; filter: drop-shadow(0 0 10px ' + aColor + ');">' + aIcon + '</span>';
+          }
+          slot.style.display = 'flex';
+        }
+        crest.style.borderColor = aColor;
+        crest.style.boxShadow = '0 0 20px ' + aColor + '55, inset 0 0 14px ' + aColor + '22';
+      }
+    });
 
     // 4. Dispatch Event for Live Tracker Dice Tray
     if (window.dispatchEvent) {
@@ -696,14 +776,14 @@
       } else if (isOwned) {
         if (isEquipped) {
           actionBtnHtml = [
-            '<button type="button" class="btn armory-action-btn btn-equipped" onclick="window.Armory.unequipSlot(\'' + item.slot + '\')">',
+            '<button type="button" class="btn armory-action-btn btn-equipped" onclick="window.Armory.toggleEquip(\'' + item.slot + '\', \'' + item.id + '\')">',
             '  <span>✓ Equipped</span>',
             '  <span style="font-size: 0.72rem; opacity: 0.7;">(Click to Unequip)</span>',
             '</button>'
           ].join('');
         } else {
           actionBtnHtml = [
-            '<button type="button" class="btn armory-action-btn btn-equip" onclick="window.Armory.equipItem(\'' + item.slot + '\', \'' + item.id + '\')">',
+            '<button type="button" class="btn armory-action-btn btn-equip" onclick="window.Armory.toggleEquip(\'' + item.slot + '\', \'' + item.id + '\')">',
             '  <span>⚔️ Equip Item</span>',
             '</button>'
           ].join('');
@@ -969,6 +1049,7 @@
     purchaseItem: purchaseItem,
     equipItem: equipItem,
     unequipSlot: unequipSlot,
+    toggleEquip: toggleEquip,
     pokePlayer: pokePlayer,
     openPokeRivalModal: openPokeRivalModal,
     checkAndTriggerSignInPokeEffect: checkAndTriggerSignInPokeEffect,
