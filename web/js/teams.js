@@ -447,14 +447,10 @@ async function openTeamProfilePage(teamNameOrId, gameSystem = '', options = {}) 
       };
 
       // Compute faction distribution from actual roster
-      const fCounts = {};
       rList.forEach(p => {
-        const fac = p.top_faction || p.faction || 'Space Marines';
-        if (fac && fac !== 'Unknown') {
-          fCounts[fac] = (fCounts[fac] || 0) + 1;
-        }
+        p.faction = resolvePlayerPrimaryFaction(p);
       });
-      hub.faction_distribution = Object.entries(fCounts).map(([faction, count]) => ({ faction, count })).sort((a, b) => b.count - a.count);
+      hub.faction_distribution = parseRosterFactionDistribution(rList);
     } else if (hubData) {
       hub = hubData;
     }
@@ -547,15 +543,153 @@ function switchTeamHubSubtab(subtabId, containerId = null) {
 }
 
 // --------------------------------------------------------------------------
-// 3. SUBTAB RENDERERS
+// 3. SUBTAB RENDERERS & FACTION PARSING
 // --------------------------------------------------------------------------
 
-function renderSubtabRoster(team) {
-  const starting5 = team.starting_5 || (team.roster ? team.roster.slice(0, 5) : []);
+const CANONICAL_FACTION_NAMES = {
+  'leagues of votann': 'Leagues of Votann',
+  'death guard': 'Death Guard',
+  'thousand sons': 'Thousand Sons',
+  'blood angels': 'Blood Angels',
+  'dark angels': 'Dark Angels',
+  'space marines': 'Space Marines',
+  'adeptus astartes': 'Space Marines',
+  'space marines (astartes)': 'Space Marines',
+  'adeptus custodes': 'Adeptus Custodes',
+  'adepta sororitas': 'Adepta Sororitas',
+  'sisters of battle': 'Adepta Sororitas',
+  'tau empire': "T'au Empire",
+  "t'au empire": "T'au Empire",
+  'chaos space marines': 'Chaos Space Marines',
+  'world eaters': 'World Eaters',
+  'necrons': 'Necrons',
+  'chaos daemons': 'Chaos Daemons',
+  'chaos knights': 'Chaos Knights',
+  'imperial knights': 'Imperial Knights',
+  'astra militarum': 'Astra Militarum',
+  'imperial guard': 'Astra Militarum',
+  'adeptus mechanicus': 'Adeptus Mechanicus',
+  'grey knights': 'Grey Knights',
+  'black templars': 'Black Templars',
+  'aeldari': 'Aeldari',
+  'craftworlds': 'Aeldari',
+  'asuryani': 'Aeldari',
+  'ynnari': 'Aeldari',
+  'drukhari': 'Drukhari',
+  'dark eldar': 'Drukhari',
+  'tyranids': 'Tyranids',
+  'genestealer cult': 'Genestealer Cults',
+  'genestealer cults': 'Genestealer Cults',
+  'orks': 'Orks',
+  "emperor's children": "Emperor's Children",
+  'salamanders': 'Salamanders',
+  'space wolves': 'Space Wolves'
+};
+
+const FACTION_ICONS = {
+  'Space Marines': '🦅',
+  'Blood Angels': '🩸',
+  'Dark Angels': '🗡️',
+  'Black Templars': '⚔️',
+  'Space Wolves': '🐺',
+  'Adeptus Custodes': '🛡️',
+  'Adepta Sororitas': '⚜️',
+  'Adeptus Mechanicus': '⚙️',
+  'Astra Militarum': '🎖️',
+  'Imperial Knights': '👑',
+  'Chaos Space Marines': '👁️',
+  'World Eaters': '🪓',
+  'Death Guard': '☣️',
+  'Thousand Sons': '🔮',
+  "Emperor's Children": '🎸',
+  'Chaos Daemons': '😈',
+  'Chaos Knights': '💀',
+  'Necrons': '💀',
+  'Aeldari': '⚔️',
+  'Drukhari': '🦇',
+  'Orks': '🍄',
+  'Tyranids': '🪲',
+  'Genestealer Cults': '⛏️',
+  "T'au Empire": '🤖',
+  'Leagues of Votann': '⛏️',
+  'Grey Knights': '⚔️',
+  'Salamanders': '🔥'
+};
+
+const FACTION_COLORS = {
+  'Space Marines': '#38bdf8',
+  'Blood Angels': '#ef4444',
+  'Dark Angels': '#10b981',
+  'Black Templars': '#94a3b8',
+  'Space Wolves': '#60a5fa',
+  'Adeptus Custodes': '#fbbf24',
+  'Adepta Sororitas': '#f43f5e',
+  'Adeptus Mechanicus': '#ea580c',
+  'Astra Militarum': '#65a30d',
+  'Imperial Knights': '#f59e0b',
+  'Chaos Space Marines': '#f97316',
+  'World Eaters': '#dc2626',
+  'Death Guard': '#84cc16',
+  'Thousand Sons': '#06b6d4',
+  "Emperor's Children": '#d946ef',
+  'Chaos Daemons': '#e11d48',
+  'Chaos Knights': '#b91c1c',
+  'Necrons': '#22c55e',
+  'Aeldari': '#a855f7',
+  'Drukhari': '#7c3aed',
+  'Orks': '#16a34a',
+  'Tyranids': '#8b5cf6',
+  'Genestealer Cults': '#d97706',
+  "T'au Empire": '#0284c7',
+  'Leagues of Votann': '#f59e0b',
+  'Grey Knights': '#cbd5e1',
+  'Salamanders': '#ea580c'
+};
+
+function cleanFactionName(raw) {
+  if (!raw) return 'Space Marines';
+  let s = String(raw).trim();
+  s = s.replace(/\(Astartes\)/gi, '').replace(/\(astartes\)/gi, '').trim();
+  const lower = s.toLowerCase();
+  return CANONICAL_FACTION_NAMES[lower] || s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+}
+
+function resolvePlayerPrimaryFaction(p) {
+  let raw = (p.faction && p.faction !== '-' && p.faction.toLowerCase() !== 'unknown') ? p.faction : (p.top_faction || 'Space Marines');
+  if (raw.includes(',')) {
+    const parts = raw.split(',').map(x => x.trim()).filter(x => x && x !== '-' && x.toLowerCase() !== 'unknown' && x.toLowerCase() !== 'xenos');
+    if (parts.length > 0) raw = parts[0];
+  }
+  return cleanFactionName(raw);
+}
+
+function parseRosterFactionDistribution(roster) {
+  const counts = {};
+  const active = (roster || []).filter(p => p.is_active !== false && !String(p.player_name || '').toLowerCase().includes('(inactive)'));
+  active.forEach(p => {
+    const fac = resolvePlayerPrimaryFaction(p);
+    counts[fac] = (counts[fac] || 0) + 1;
+  });
+  return Object.entries(counts)
+    .map(([faction, count]) => ({ faction, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+function renderSubtabRoster(team, containerId = 'teams-view-container') {
   const fullRoster = team.roster || [];
-  const activeRoster = fullRoster.filter(p => p.is_active !== false && !p.player_name.toLowerCase().includes('(inactive)'));
-  const inactiveRoster = fullRoster.filter(p => p.is_active === false || p.player_name.toLowerCase().includes('(inactive)'));
-  const factions = team.faction_distribution || [];
+  fullRoster.forEach(p => {
+    p.faction = resolvePlayerPrimaryFaction(p);
+  });
+
+  const starting5 = team.starting_5 || fullRoster.slice(0, 5);
+  starting5.forEach(p => {
+    p.faction = resolvePlayerPrimaryFaction(p);
+  });
+
+  const activeRoster = fullRoster.filter(p => p.is_active !== false && !String(p.player_name || '').toLowerCase().includes('(inactive)'));
+  const inactiveRoster = fullRoster.filter(p => p.is_active === false || String(p.player_name || '').toLowerCase().includes('(inactive)'));
+  const factions = parseRosterFactionDistribution(activeRoster);
+  const totalSquadForces = factions.reduce((sum, f) => sum + f.count, 0) || activeRoster.length;
 
   return `
     <div style="display: flex; flex-direction: column; gap: 1.5rem;">
@@ -580,8 +714,9 @@ function renderSubtabRoster(team) {
               <div style="font-weight: 800; font-size: 0.98rem; color: #fff; margin-bottom: 0.2rem;">
                 ${escapeHtml(p.player_name)}
               </div>
-              <div style="font-size: 0.76rem; color: #38bdf8; margin-bottom: 0.5rem;">
-                ⚔️ ${escapeHtml(p.faction || 'Space Marines')}
+              <div style="font-size: 0.76rem; color: #38bdf8; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 5px;">
+                <span>${FACTION_ICONS[p.faction] || '⚔️'}</span>
+                <span>${escapeHtml(p.faction || 'Space Marines')}</span>
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.45rem; font-size: 0.78rem;">
                 <span style="color: #94a3b8;">Elo:</span>
@@ -592,15 +727,62 @@ function renderSubtabRoster(team) {
         </div>
       </div>
 
-      <!-- Faction Distribution Strip -->
+      <!-- Faction Distribution & Army Arsenal Card -->
       ${factions.length > 0 ? `
-        <div style="background: rgba(15,23,42,0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-          <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8;">Club Faction Diversity:</span>
-          ${factions.map(f => `
-            <span class="badge" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; font-size: 0.74rem; padding: 2px 8px;">
-              ${escapeHtml(f.faction)}: <strong>${f.count}</strong>
-            </span>
-          `).join('')}
+        <div class="card" style="background: #090f1d; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 1.15rem 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 1.25rem;">🛡️</span>
+              <div>
+                <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">Club Faction Diversity &amp; Army Arsenal</h3>
+                <div style="font-size: 0.74rem; color: #94a3b8; margin-top: 2px;">Active tournament forces fielded across the competitive squad</div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-size: 0.72rem; font-weight: 700;">
+                ${factions.length} Unique Armies
+              </span>
+              <span class="badge" style="background: rgba(168,85,247,0.12); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); font-size: 0.72rem; font-weight: 700;">
+                ${totalSquadForces} Fielded Forces
+              </span>
+            </div>
+          </div>
+
+          <!-- Multi-colored Proportional Progress Bar -->
+          <div style="display: flex; width: 100%; height: 7px; border-radius: 9999px; overflow: hidden; background: rgba(255,255,255,0.05); margin-bottom: 1rem;">
+            ${factions.map(f => {
+              const facColor = FACTION_COLORS[f.faction] || '#38bdf8';
+              const pctWidth = Math.max(2, (f.count / (totalSquadForces || 1)) * 100);
+              return `<div style="width: ${pctWidth}%; height: 100%; background: ${facColor};" title="${escapeHtml(f.faction)}: ${f.count} players (${Math.round((f.count / (totalSquadForces || 1)) * 100)}%)"></div>`;
+            }).join('')}
+          </div>
+
+          <!-- Grid of Faction Mini-Cards -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.55rem;">
+            ${factions.map(f => {
+              const facColor = FACTION_COLORS[f.faction] || '#38bdf8';
+              const facIcon = FACTION_ICONS[f.faction] || '⚔️';
+              const pct = Math.round((f.count / (totalSquadForces || 1)) * 100);
+              return `
+                <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-left: 3px solid ${facColor}; border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                  <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                    <span style="font-size: 1.15rem; flex-shrink: 0;">${facIcon}</span>
+                    <div style="min-width: 0;">
+                      <div style="font-size: 0.82rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(f.faction)}">
+                        ${escapeHtml(f.faction)}
+                      </div>
+                      <div style="font-size: 0.68rem; color: #94a3b8; font-family: var(--font-mono);">
+                        ${pct}% of squad
+                      </div>
+                    </div>
+                  </div>
+                  <span class="badge" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: ${facColor}; font-family: var(--font-mono); font-size: 0.74rem; font-weight: 800; padding: 2px 7px; flex-shrink: 0;">
+                    ${f.count}
+                  </span>
+                </div>
+              `;
+            }).join('')}
+          </div>
         </div>
       ` : ''}
 
