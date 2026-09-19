@@ -1871,6 +1871,64 @@ class AuthManager:
         return None
 
 
+    def get_authentic_system_glory(self, target_pid: Optional[str], game_system: str = "40k") -> int:
+        """Evaluates authentic earned glory balance for a player within a single game system from its actual matches."""
+        if not target_pid:
+            return 0
+        try:
+            from psycopg2 import extras
+            with self.db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    cur.execute("""
+                    SELECT player_id, player_name, current_elo, peak_elo,
+                           matches_played, wins, losses, draws, win_rate, top_faction, team, last_active_date, COALESCE(game_system, '40k') as game_system
+                    FROM player_ratings
+                    WHERE player_id = %s AND COALESCE(game_system, '40k') = %s;
+                    """, (target_pid, game_system))
+                    p_stat = cur.fetchone() or {
+                        "player_id": target_pid,
+                        "current_elo": 1500.0,
+                        "peak_elo": 1500.0,
+                        "matches_played": 0,
+                        "wins": 0,
+                        "losses": 0,
+                        "draws": 0,
+                        "win_rate": 0.0,
+                        "game_system": game_system
+                    }
+                    cur.execute("""
+                    SELECT rh.match_date, rh.round, rh.old_elo, rh.new_elo, rh.delta_elo,
+                           rh.result, rh.player_faction, rh.opponent_id, rh.opponent_name, rh.opponent_elo, rh.opponent_faction,
+                           rh.player_score, rh.opponent_score,
+                           e.name as event_name, e.id as event_id
+                    FROM rating_history rh
+                    LEFT JOIN events e ON rh.event_id = e.id
+                    WHERE rh.player_id = %s AND COALESCE(rh.game_system, '40k') = %s
+                    ORDER BY rh.match_date ASC NULLS FIRST, rh.id ASC;
+                    """, (target_pid, game_system))
+                    hist = [dict(r) for r in cur.fetchall()]
+
+                    cur.execute("""
+                    SELECT e.id as event_id, e.name as event_name, e.event_date,
+                           COALESCE(ep.faction, 'Unknown') as registered_faction
+                    FROM event_participants ep
+                    JOIN events e ON ep.event_id = e.id
+                    WHERE ep.player_id = %s AND COALESCE(e.game_system, '40k') = %s;
+                    """, (target_pid, game_system))
+                    events = [dict(r) for r in cur.fetchall()]
+
+            import badges
+            eval_res = badges.evaluate_player_badges(
+                player_data=p_stat,
+                history=hist,
+                tournaments=events,
+                game_system=game_system
+            )
+            return int(eval_res.get("glory_balance", eval_res.get("glory_score", 0)))
+        except Exception as e:
+            logger.debug(f"Notice computing authentic glory for {game_system}: {e}")
+            return 0
+
     def get_user_competitor_hub(self, player_id: Optional[str] = None, user_id: Optional[str] = None, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Generates comprehensive personalized Competitor Hub analytics."""
         target_pid = player_id
@@ -2083,26 +2141,10 @@ class AuthManager:
         ack_set = set(user_ack) if isinstance(user_ack, list) else set()
         newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
 
-        # Compute other game system glory for unified account balance
-        other_sys = "aos" if target_sys == "40k" else "40k"
-        other_glory = 0
-        try:
-            other_eval = badges.evaluate_player_badges(
-                player_data=p_stat,
-                history=history_points,
-                tournaments=events_attended,
-                faction_mastery=faction_mastery,
-                matchup_matrix=matchup_matrix,
-                game_system=other_sys,
-                tracker_sessions=tracker_history,
-                registered_tournaments=reg_tournaments,
-                armylists=user_lists
-            )
-            other_glory = int(other_eval.get("glory_balance", other_eval.get("glory_score", 0)))
-        except Exception:
-            other_glory = 0
-
+        # Compute other game system authentic glory from that system's actual matches
         current_sys_glory = int(b_eval.get("glory_balance", b_eval.get("glory_score", 0)))
+        other_sys = "aos" if target_sys == "40k" else "40k"
+        other_glory = self.get_authentic_system_glory(target_pid, other_sys)
         unified_glory = current_sys_glory + other_glory
 
         return {
