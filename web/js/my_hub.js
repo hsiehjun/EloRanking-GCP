@@ -1086,10 +1086,9 @@ function renderMyHub(data) {
       <div class="profile-hero-card ${tier.themeClass || ''}" style="margin-bottom: 1.25rem;">
         <div class="profile-hero-top">
           <div class="profile-identity-group">
-            <div class="profile-rank-crest" title="Click to requisition or change avatar in Armory" onclick="if(window.Armory)window.Armory.openArmoryModal('avatars')">
+            <div class="profile-rank-crest" title="${escapeHtml(tier.name)}" onclick="if(window.Armory && window.Armory.openArmoryModal) window.Armory.openArmoryModal('avatars');" style="cursor: pointer;">
               <span class="hero-avatar-sigil-slot" style="display: none; width: 100%; height: 100%; align-items: center; justify-content: center;"></span>
               <span class="hero-crest-default-icon">${tier.icon}</span>
-              <span class="avatar-edit-hint" title="Change Avatar">🏛️</span>
             </div>
             <div class="profile-name-meta">
               <div class="profile-badges-row">
