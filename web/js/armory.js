@@ -577,6 +577,14 @@
     }, 3200);
   }
 
+  function getOwnedItemsCount() {
+    if (!currentCatalog || !currentCatalog.items) return 0;
+    var sys = (currentGameSystem || '40k').toLowerCase();
+    return currentCatalog.items.filter(function(item) {
+      return (item.game_system === sys || !item.game_system) && !!item.is_owned;
+    }).length;
+  }
+
   /**
    * Filter Store by Wing
    */
@@ -619,12 +627,32 @@
       return;
     }
 
+    var countSpans = document.querySelectorAll('.backpack-count-span');
+    var bCount = getOwnedItemsCount();
+    countSpans.forEach(function(s) { s.textContent = bCount; });
+
     var items = currentCatalog.items.filter(function(item) {
+      if (activeWingFilter === 'backpack' || activeWingFilter === 'vault') {
+        return !!item.is_owned;
+      }
       if (activeWingFilter === 'all') return true;
       return item.wing === activeWingFilter;
     });
 
     if (items.length === 0) {
+      if (activeWingFilter === 'backpack' || activeWingFilter === 'vault') {
+        container.innerHTML = [
+          '<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 3rem 1.5rem;">',
+          '  <div style="font-size: 3.2rem; margin-bottom: 0.75rem;">🎒</div>',
+          '  <h3 style="color: #fff; font-size: 1.25rem; font-weight: 800; margin-bottom: 0.5rem;">Your Armory Backpack is Empty</h3>',
+          '  <p style="color: #94a3b8; font-size: 0.88rem; max-width: 440px; margin: 0 auto 1.5rem;">You haven\'t requisitioned any items for ' + (currentGameSystem === 'aos' ? 'Age of Sigmar' : 'Warhammer 40,000') + ' yet. Requisition tactical dice, frames, heraldic sigils, and titles using your Unified Glory!</p>',
+          '  <button type="button" class="btn btn-primary" onclick="window.Armory.setWingFilter(\'all\')" style="font-weight: 700; padding: 0.6rem 1.5rem;">',
+          '    🌐 Browse All Requisitions',
+          '  </button>',
+          '</div>'
+        ].join('');
+        return;
+      }
       container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 2.5rem;">No requisitions available in this wing for ' + (currentGameSystem === 'aos' ? 'Age of Sigmar' : 'Warhammer 40,000') + '.</div>';
       return;
     }
@@ -793,7 +821,44 @@
       ].join('\n');
     }).join('\n');
 
-    container.innerHTML = cardsHtml;
+    var backpackHeaderHtml = '';
+    if (activeWingFilter === 'backpack' || activeWingFilter === 'vault') {
+      var allEq = currentVault.equipped || {};
+      var eq = (allEq[currentGameSystem] && typeof allEq[currentGameSystem] === 'object') ? allEq[currentGameSystem] : allEq;
+      var activeDiceItem = currentCatalog.items.find(function(i) { return i.id === eq.active_dice; });
+      var activeFrameItem = currentCatalog.items.find(function(i) { return i.id === eq.active_card_frame; });
+      var activeAvatarItem = currentCatalog.items.find(function(i) { return i.id === eq.active_avatar; });
+      var activeTitleItem = currentCatalog.items.find(function(i) { return i.id === eq.active_title; });
+
+      backpackHeaderHtml = [
+        '<div class="armory-backpack-summary">',
+        '  <div class="backpack-summary-top">',
+        '    <div class="backpack-summary-title">',
+        '      <span style="font-size: 1.35rem;">🎒</span> My Purchased Backpack (' + items.length + ' Items Owned)',
+        '    </div>',
+        '    <div class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.35); font-weight: 700; font-size: 0.78rem;">',
+        '      ' + (currentGameSystem === 'aos' ? '⚡ AoS Loadout' : '⚔️ 40K Loadout'),
+        '    </div>',
+        '  </div>',
+        '  <div class="backpack-loadout-grid">',
+        '    <div class="backpack-slot-chip ' + (activeDiceItem ? 'is-active' : '') + '">',
+        '      <span class="slot-chip-label">🎲 Dice:</span> <strong>' + (activeDiceItem ? escapeHtml(activeDiceItem.name) : '<span style="color:#64748b;">Standard</span>') + '</strong>',
+        '    </div>',
+        '    <div class="backpack-slot-chip ' + (activeFrameItem ? 'is-active' : '') + '">',
+        '      <span class="slot-chip-label">✨ Frame:</span> <strong>' + (activeFrameItem ? escapeHtml(activeFrameItem.name) : '<span style="color:#64748b;">Standard</span>') + '</strong>',
+        '    </div>',
+        '    <div class="backpack-slot-chip ' + (activeAvatarItem ? 'is-active' : '') + '">',
+        '      <span class="slot-chip-label">🛡️ Sigil:</span> <strong>' + (activeAvatarItem ? escapeHtml(activeAvatarItem.name) : '<span style="color:#64748b;">Default</span>') + '</strong>',
+        '    </div>',
+        '    <div class="backpack-slot-chip ' + (activeTitleItem ? 'is-active' : '') + '">',
+        '      <span class="slot-chip-label">🏷️ Title:</span> <strong>' + (activeTitleItem ? escapeHtml(activeTitleItem.name) : '<span style="color:#64748b;">None</span>') + '</strong>',
+        '    </div>',
+        '  </div>',
+        '</div>'
+      ].join('\n');
+    }
+
+    container.innerHTML = backpackHeaderHtml + cardsHtml;
   }
 
   /**
@@ -848,6 +913,9 @@
       '  <div class="armory-wings-bar">',
       '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'all' ? 'active' : '') + '" data-wing="all" onclick="window.Armory.setWingFilter(\'all\')">',
       '      <span>🌐</span> <span class="wing-pill-desktop">All Wings</span><span class="wing-pill-mobile">All</span>',
+      '    </button>',
+      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'backpack' ? 'active' : '') + '" data-wing="backpack" onclick="window.Armory.setWingFilter(\'backpack\')">',
+      '      <span>🎒</span> <span class="wing-pill-desktop">My Backpack (<span class="backpack-count-span">' + getOwnedItemsCount() + '</span>)</span><span class="wing-pill-mobile">Backpack (<span class="backpack-count-span">' + getOwnedItemsCount() + '</span>)</span>',
       '    </button>',
       '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'dice_forge' ? 'active' : '') + '" data-wing="dice_forge" onclick="window.Armory.setWingFilter(\'dice_forge\')">',
       '      <span>🎲</span> <span class="wing-pill-desktop">Dice Forge</span><span class="wing-pill-mobile">Dice</span>',
