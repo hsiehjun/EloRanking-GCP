@@ -4,6 +4,11 @@
 
 let currentTeamHubData = null;
 let currentTeamHubSubtab = 'roster';
+let teamHubDataByContainer = {};
+let teamHubSubtabByContainer = {
+  'teams-view-container': 'roster',
+  'team-profile-container': 'roster'
+};
 let userTeamAffiliation = null;
 let selectedOnboardingTeamId = null;
 
@@ -191,7 +196,7 @@ function renderTeamHub(team, isPublicView = false, targetContainerId = null) {
             🌐 Browse All Clubs
           </button>
           ${isCaptain ? `
-            <button type="button" class="btn btn-primary" onclick="switchTeamHubSubtab('locker')" style="font-size: 0.78rem; font-weight: 800; padding: 0.45rem 1rem; border-radius: 8px;">
+            <button type="button" class="btn btn-primary" onclick="switchTeamHubSubtab('locker', '${containerId}')" style="font-size: 0.78rem; font-weight: 800; padding: 0.45rem 1rem; border-radius: 8px;">
               👑 Captain's Locker
             </button>
           ` : (isMember ? `
@@ -238,34 +243,41 @@ function renderTeamHub(team, isPublicView = false, targetContainerId = null) {
     </div>
   `;
 
+  // Container-scoped active subtab resolution
+  teamHubDataByContainer[containerId] = team;
+  currentTeamHubData = team;
+
+  let activeSubtab = teamHubSubtabByContainer[containerId] || 'roster';
   // For non-members (public viewers), internal squad tabs (Battlefield Feed, War Room & Rivalries, Locker Room) are completely hidden
-  if (!isMember && (currentTeamHubSubtab === 'feed' || currentTeamHubSubtab === 'warroom' || currentTeamHubSubtab === 'locker')) {
-    currentTeamHubSubtab = 'roster';
+  if (!isMember && (activeSubtab === 'feed' || activeSubtab === 'warroom' || activeSubtab === 'locker')) {
+    activeSubtab = 'roster';
+    teamHubSubtabByContainer[containerId] = 'roster';
   }
+  currentTeamHubSubtab = activeSubtab;
 
   let subtabsNav = `
     <div class="team-hub-subtabs-bar" style="display: flex; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 1.25rem; overflow-x: auto; padding-bottom: 0.35rem;">
-      <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'roster' ? 'active' : ''}" onclick="switchTeamHubSubtab('roster')">
+      <button type="button" class="team-subtab-btn ${activeSubtab === 'roster' ? 'active' : ''}" onclick="switchTeamHubSubtab('roster', '${containerId}')">
         👥 Starting 5 &amp; Roster
       </button>
       ${isMember ? `
-        <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'feed' ? 'active' : ''}" onclick="switchTeamHubSubtab('feed')">
+        <button type="button" class="team-subtab-btn ${activeSubtab === 'feed' ? 'active' : ''}" onclick="switchTeamHubSubtab('feed', '${containerId}')">
           ⚔️ Battlefield Feed
         </button>
       ` : ''}
-      <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'trajectory' ? 'active' : ''}" onclick="switchTeamHubSubtab('trajectory')">
+      <button type="button" class="team-subtab-btn ${activeSubtab === 'trajectory' ? 'active' : ''}" onclick="switchTeamHubSubtab('trajectory', '${containerId}')">
         📈 Trajectory
       </button>
       ${isMember ? `
-        <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'warroom' ? 'active' : ''}" onclick="switchTeamHubSubtab('warroom')">
+        <button type="button" class="team-subtab-btn ${activeSubtab === 'warroom' ? 'active' : ''}" onclick="switchTeamHubSubtab('warroom', '${containerId}')">
           🎯 War Room &amp; Rivalries
         </button>
       ` : ''}
-      <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'trophies' ? 'active' : ''}" onclick="switchTeamHubSubtab('trophies')">
+      <button type="button" class="team-subtab-btn ${activeSubtab === 'trophies' ? 'active' : ''}" onclick="switchTeamHubSubtab('trophies', '${containerId}')">
         🏆 Trophy Room
       </button>
       ${isMember ? `
-        <button type="button" class="team-subtab-btn ${currentTeamHubSubtab === 'locker' ? 'active' : ''}" onclick="switchTeamHubSubtab('locker')">
+        <button type="button" class="team-subtab-btn ${activeSubtab === 'locker' ? 'active' : ''}" onclick="switchTeamHubSubtab('locker', '${containerId}')">
           ${isCaptain ? "👑 Captain's Locker" : "🔒 Locker Room"}
         </button>
       ` : ''}
@@ -273,36 +285,36 @@ function renderTeamHub(team, isPublicView = false, targetContainerId = null) {
   `;
 
   let contentHtml = `
-    <div id="team-hub-panel-roster" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'roster' ? 'block' : 'none'};">
-      ${renderSubtabRoster(team)}
+    <div id="${containerId}-panel-roster" class="team-hub-panel" data-panel="roster" style="display: ${activeSubtab === 'roster' ? 'block' : 'none'};">
+      ${renderSubtabRoster(team, containerId)}
     </div>
     ${isMember ? `
-      <div id="team-hub-panel-feed" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'feed' ? 'block' : 'none'};">
-        ${renderSubtabFeed(team)}
+      <div id="${containerId}-panel-feed" class="team-hub-panel" data-panel="feed" style="display: ${activeSubtab === 'feed' ? 'block' : 'none'};">
+        ${renderSubtabFeed(team, containerId)}
       </div>
     ` : ''}
-    <div id="team-hub-panel-trajectory" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'trajectory' ? 'block' : 'none'};">
-      ${renderSubtabTrajectory(team)}
+    <div id="${containerId}-panel-trajectory" class="team-hub-panel" data-panel="trajectory" style="display: ${activeSubtab === 'trajectory' ? 'block' : 'none'};">
+      ${renderSubtabTrajectory(team, containerId)}
     </div>
     ${isMember ? `
-      <div id="team-hub-panel-warroom" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'warroom' ? 'block' : 'none'};">
-        ${renderSubtabWarRoom(team)}
+      <div id="${containerId}-panel-warroom" class="team-hub-panel" data-panel="warroom" style="display: ${activeSubtab === 'warroom' ? 'block' : 'none'};">
+        ${renderSubtabWarRoom(team, containerId)}
       </div>
     ` : ''}
-    <div id="team-hub-panel-trophies" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'trophies' ? 'block' : 'none'};">
-      ${renderSubtabTrophies(team)}
+    <div id="${containerId}-panel-trophies" class="team-hub-panel" data-panel="trophies" style="display: ${activeSubtab === 'trophies' ? 'block' : 'none'};">
+      ${renderSubtabTrophies(team, containerId)}
     </div>
     ${isMember ? `
-      <div id="team-hub-panel-locker" class="team-hub-panel" style="display: ${currentTeamHubSubtab === 'locker' ? 'block' : 'none'};">
-        ${renderSubtabLockerRoom(team)}
+      <div id="${containerId}-panel-locker" class="team-hub-panel" data-panel="locker" style="display: ${activeSubtab === 'locker' ? 'block' : 'none'};">
+        ${renderSubtabLockerRoom(team, containerId)}
       </div>
     ` : ''}
   `;
 
   container.innerHTML = bannerHtml + subtabsNav + contentHtml;
 
-  if (currentTeamHubSubtab === 'trajectory') {
-    drawTeamTrajectoryCanvas(team);
+  if (activeSubtab === 'trajectory') {
+    setTimeout(() => drawTeamTrajectoryCanvas(team, containerId), 30);
   }
 }
 
@@ -322,6 +334,7 @@ async function openTeamProfilePage(teamNameOrId, gameSystem = '', options = {}) 
   }
 
   currentProfileTeamId = String(teamNameOrId).trim();
+  teamHubSubtabByContainer['team-profile-container'] = 'roster';
 
   // Close modals
   if (typeof closeAllModals === 'function') {
@@ -491,20 +504,45 @@ function copyTeamProfileLink(teamId, sys = '') {
 }
 window.copyTeamProfileLink = copyTeamProfileLink;
 
-function switchTeamHubSubtab(subtabId) {
+function switchTeamHubSubtab(subtabId, containerId = null) {
+  let container = containerId ? document.getElementById(containerId) : null;
+  if (!container) {
+    const profTab = document.getElementById('tab-team-profile');
+    if (profTab && profTab.classList.contains('active')) {
+      container = document.getElementById('team-profile-container');
+    } else {
+      container = document.getElementById('teams-view-container');
+    }
+  }
+
+  const effectiveContainerId = container ? container.id : 'teams-view-container';
+  teamHubSubtabByContainer[effectiveContainerId] = subtabId;
   currentTeamHubSubtab = subtabId;
-  document.querySelectorAll('.team-hub-subtabs-bar .team-subtab-btn').forEach(btn => {
+
+  const root = container || document;
+
+  root.querySelectorAll('.team-hub-subtabs-bar .team-subtab-btn').forEach(btn => {
     btn.classList.remove('active');
-    if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(`'${subtabId}'`)) {
+    const oc = btn.getAttribute('onclick') || '';
+    if (oc.includes(`'${subtabId}'`)) {
       btn.classList.add('active');
     }
   });
-  document.querySelectorAll('.team-hub-panel').forEach(p => p.style.display = 'none');
-  const activePanel = document.getElementById(`team-hub-panel-${subtabId}`);
-  if (activePanel) activePanel.style.display = 'block';
 
-  if (subtabId === 'trajectory' && currentTeamHubData) {
-    setTimeout(() => drawTeamTrajectoryCanvas(currentTeamHubData), 30);
+  root.querySelectorAll('.team-hub-panel').forEach(p => p.style.display = 'none');
+
+  const activePanel = root.querySelector(`[data-panel="${subtabId}"]`) || 
+                      document.getElementById(`${effectiveContainerId}-panel-${subtabId}`) || 
+                      document.getElementById(`team-hub-panel-${subtabId}`);
+  if (activePanel) {
+    activePanel.style.display = 'block';
+  }
+
+  if (subtabId === 'trajectory') {
+    const teamData = (container && teamHubDataByContainer[container.id]) || currentTeamHubData;
+    if (teamData) {
+      setTimeout(() => drawTeamTrajectoryCanvas(teamData, effectiveContainerId), 30);
+    }
   }
 }
 
@@ -758,12 +796,14 @@ function renderSubtabFeed(team) {
   `;
 }
 
-function renderSubtabTrajectory(team) {
-  const pts = team.trajectory_points || [
-    { month: 'Oct 2025', power_rating: 1796, rank: 3, milestone: 'Post-SoCal Open & Chicago Grand Tournament' },
-    { month: 'Nov 2025', power_rating: 1854, rank: 2, milestone: 'Mid-Season Roster Expansion & 180-Day Calibration' },
-    { month: 'Dec 2025', power_rating: 1913, rank: 2, milestone: 'Pre-LVO Boot Camp & Pariah Nexus Testing' },
-    { month: 'Jan 2026', power_rating: team.power_rating || 1952, rank: 1, milestone: 'Las Vegas Open Championship Title' }
+function renderSubtabTrajectory(team, containerId = 'teams-view-container') {
+  const curPr = Number(team.power_rating || 1952);
+  const curRk = Number(team.rank || 1);
+  const pts = (team.trajectory_points && team.trajectory_points.length > 0) ? team.trajectory_points : [
+    { month: 'Oct 2025', power_rating: Math.round(curPr * 0.92), rank: curRk + 2, milestone: 'Post-SoCal Open & Chicago Grand Tournament' },
+    { month: 'Nov 2025', power_rating: Math.round(curPr * 0.95), rank: curRk + 1, milestone: 'Mid-Season Roster Expansion & 180-Day Calibration' },
+    { month: 'Dec 2025', power_rating: Math.round(curPr * 0.98), rank: curRk + 1, milestone: 'Pre-LVO Boot Camp & Pariah Nexus Testing' },
+    { month: 'Jan 2026', power_rating: Math.round(curPr), rank: curRk, milestone: 'Las Vegas Open Championship Title' }
   ];
 
   return `
@@ -785,7 +825,7 @@ function renderSubtabTrajectory(team) {
       </div>
 
       <div style="background: #090f1d; border: 1px solid rgba(56,189,248,0.25); border-radius: 12px; padding: 1.25rem; text-align: center;">
-        <canvas id="team-trajectory-canvas" width="800" height="280" style="width: 100%; max-width: 800px; height: 260px; display: block; margin: 0 auto;"></canvas>
+        <canvas id="${containerId}-trajectory-canvas" data-chart="trajectory" width="800" height="280" style="width: 100%; max-width: 800px; height: 260px; display: block; margin: 0 auto;"></canvas>
 
         <!-- Seasonal Milestones Table -->
         <div style="margin-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1rem; text-align: left;">
@@ -818,8 +858,24 @@ function renderSubtabTrajectory(team) {
   `;
 }
 
-function drawTeamTrajectoryCanvas(team) {
-  const canvas = document.getElementById('team-trajectory-canvas');
+function drawTeamTrajectoryCanvas(team, containerId = null) {
+  let container = containerId ? document.getElementById(containerId) : null;
+  if (!container) {
+    const profTab = document.getElementById('tab-team-profile');
+    if (profTab && profTab.classList.contains('active')) {
+      container = document.getElementById('team-profile-container');
+    } else {
+      container = document.getElementById('teams-view-container');
+    }
+  }
+
+  let canvas = null;
+  if (container) {
+    canvas = container.querySelector('canvas[data-chart="trajectory"]') || document.getElementById(`${container.id}-trajectory-canvas`);
+  }
+  if (!canvas) {
+    canvas = document.getElementById('team-trajectory-canvas');
+  }
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -828,11 +884,12 @@ function drawTeamTrajectoryCanvas(team) {
   const h = canvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  const pts = team.trajectory_points || [
-    { month: 'Oct 2025', power_rating: 1796 },
-    { month: 'Nov 2025', power_rating: 1854 },
-    { month: 'Dec 2025', power_rating: 1913 },
-    { month: 'Jan 2026', power_rating: team.power_rating || 1952 }
+  const curPr = Number(team.power_rating || 1952);
+  const pts = (team.trajectory_points && team.trajectory_points.length > 0) ? team.trajectory_points : [
+    { month: 'Oct 2025', power_rating: Math.round(curPr * 0.92) },
+    { month: 'Nov 2025', power_rating: Math.round(curPr * 0.95) },
+    { month: 'Dec 2025', power_rating: Math.round(curPr * 0.98) },
+    { month: 'Jan 2026', power_rating: Math.round(curPr) }
   ];
 
   const padLeft = 60;
@@ -999,7 +1056,7 @@ function renderSubtabTrophies(team) {
   `;
 }
 
-function renderSubtabLockerRoom(team) {
+function renderSubtabLockerRoom(team, containerId = 'teams-view-container') {
   const locker = team.locker_room || {};
   const pinned = locker.pinned_message;
   const messages = locker.messages || [];
@@ -1051,7 +1108,7 @@ function renderSubtabLockerRoom(team) {
       <div>
         <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0 0 0.75rem;">💬 Squad Bulletin Board</h3>
         <div style="background: #090f1d; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; overflow: hidden;">
-          <div id="team-locker-messages-list" style="padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; max-height: 320px; overflow-y: auto;">
+          <div id="${containerId}-locker-messages-list" data-role="locker-messages" style="padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; max-height: 320px; overflow-y: auto;">
             ${messages.map(m => `
               <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.75rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
@@ -1065,8 +1122,8 @@ function renderSubtabLockerRoom(team) {
 
           <!-- Message input -->
           <div style="padding: 0.85rem 1.15rem; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(15,23,42,0.5); display: flex; gap: 0.5rem;">
-            <input type="text" id="team-locker-msg-input" class="search-input" placeholder="Post a tactical update or list question..." style="flex: 1; font-size: 0.84rem;" onkeydown="if(event.key === 'Enter') sendTeamLockerMessage('${escapeHtml(team.id)}')">
-            <button type="button" class="btn btn-primary" onclick="sendTeamLockerMessage('${escapeHtml(team.id)}')" style="font-size: 0.8rem; font-weight: 800; padding: 0.45rem 1.1rem;">
+            <input type="text" id="${containerId}-locker-msg-input" data-role="locker-input" class="search-input" placeholder="Post a tactical update or list question..." style="flex: 1; font-size: 0.84rem;" onkeydown="if(event.key === 'Enter') sendTeamLockerMessage('${escapeHtml(team.id)}', '${containerId}')">
+            <button type="button" class="btn btn-primary" onclick="sendTeamLockerMessage('${escapeHtml(team.id)}', '${containerId}')" style="font-size: 0.8rem; font-weight: 800; padding: 0.45rem 1.1rem;">
               Send
             </button>
           </div>
@@ -1463,8 +1520,20 @@ async function submitCreateTeamHub() {
 // 7. LOCKER ROOM MESSAGING & SQUAD TRAVEL
 // --------------------------------------------------------------------------
 
-async function sendTeamLockerMessage(teamId) {
-  const input = document.getElementById('team-locker-msg-input');
+async function sendTeamLockerMessage(teamId, containerId = null) {
+  let container = containerId ? document.getElementById(containerId) : null;
+  if (!container) {
+    const profTab = document.getElementById('tab-team-profile');
+    if (profTab && profTab.classList.contains('active')) {
+      container = document.getElementById('team-profile-container');
+    } else {
+      container = document.getElementById('teams-view-container');
+    }
+  }
+  const root = container || document;
+  const input = root.querySelector('input[data-role="locker-input"]') || 
+                (container ? document.getElementById(`${container.id}-locker-msg-input`) : null) || 
+                document.getElementById('team-locker-msg-input');
   if (!input) return;
   const msg = input.value.trim();
   if (!msg) return;
@@ -1475,8 +1544,13 @@ async function sendTeamLockerMessage(teamId) {
     // Reload feed
     const hubRes = await window.api.getTeamHub(teamId);
     if (hubRes && hubRes.team) {
+      if (container && container.id) {
+        teamHubDataByContainer[container.id] = hubRes.team;
+      }
       currentTeamHubData = hubRes.team;
-      const listEl = document.getElementById('team-locker-messages-list');
+      const listEl = root.querySelector('[data-role="locker-messages"]') || 
+                     (container ? document.getElementById(`${container.id}-locker-messages-list`) : null) || 
+                     document.getElementById('team-locker-messages-list');
       if (listEl && currentTeamHubData.locker_room) {
         listEl.innerHTML = (currentTeamHubData.locker_room.messages || []).map(m => `
           <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.75rem;">
@@ -1495,7 +1569,7 @@ async function sendTeamLockerMessage(teamId) {
   }
 }
 
-async function toggleTeamSquadEventAttendance(teamId, eventId) {
+async function toggleTeamSquadEventAttendance(teamId, eventId, containerId = null) {
   try {
     const res = await window.api.toggleSquadEventAttendance(teamId, eventId);
     if (typeof showToastNotification === 'function') {
@@ -1503,8 +1577,11 @@ async function toggleTeamSquadEventAttendance(teamId, eventId) {
     }
     const hubRes = await window.api.getTeamHub(teamId);
     if (hubRes && hubRes.team) {
+      if (containerId) {
+        teamHubDataByContainer[containerId] = hubRes.team;
+      }
       currentTeamHubData = hubRes.team;
-      switchTeamHubSubtab('locker');
+      switchTeamHubSubtab('locker', containerId);
     }
   } catch (err) {
     alert(`Error updating attendance: ${err.message}`);
