@@ -64,6 +64,28 @@ async function loadTeamsView(forceTeamId = null) {
 
     if (affRes && affRes.has_team && affRes.team && forceTeamId !== 'directory' && forceTeamId !== 'unaffiliated') {
       currentTeamHubData = affRes.team;
+      try {
+        const tmTarget = affRes.team.name || affRes.affiliation?.team_name || affRes.team.id;
+        const liveRoster = await window.api.getTeamRoster(tmTarget, sys);
+        if (liveRoster && liveRoster.roster && liveRoster.roster.length > 0) {
+          const st = liveRoster.stats || {};
+          currentTeamHubData.roster = liveRoster.roster;
+          currentTeamHubData.roster_count = st.roster_count !== undefined ? st.roster_count : liveRoster.roster.length;
+          currentTeamHubData.active_roster_count = st.active_roster_count !== undefined ? st.active_roster_count : liveRoster.roster.filter(p => p.is_active !== false).length;
+          currentTeamHubData.power_rating = st.power_rating !== undefined ? st.power_rating : currentTeamHubData.power_rating;
+          currentTeamHubData.top5_avg = st.top5_avg_elo || currentTeamHubData.top5_avg;
+          currentTeamHubData.top_player_elo = st.top_player_elo || liveRoster.roster[0]?.current_elo;
+          currentTeamHubData.top_player_name = liveRoster.roster[0]?.player_name || currentTeamHubData.top_player_name;
+          currentTeamHubData.total_matches = st.total_matches !== undefined ? st.total_matches : currentTeamHubData.total_matches;
+          currentTeamHubData.total_wins = st.total_wins !== undefined ? st.total_wins : currentTeamHubData.total_wins;
+          currentTeamHubData.total_losses = st.total_losses !== undefined ? st.total_losses : currentTeamHubData.total_losses;
+          currentTeamHubData.total_draws = st.total_draws !== undefined ? st.total_draws : currentTeamHubData.total_draws;
+          currentTeamHubData.team_win_rate = st.win_rate !== undefined ? st.win_rate : currentTeamHubData.team_win_rate;
+          currentTeamHubData.starting_5 = liveRoster.roster.slice(0, 5);
+        }
+      } catch (e) {
+        console.debug('liveRoster sync notice:', e);
+      }
       renderTeamHub(currentTeamHubData, false);
     } else {
       // User is NOT on a team! Show clean unaffiliated empty state with options to Claim / Found / Search!
@@ -340,58 +362,85 @@ async function openTeamProfilePage(teamNameOrId, gameSystem = '', options = {}) 
   }
 
   try {
-    let hub = null;
-    // 1. Try getTeamHub
+    // 1. Fetch live authoritative database roster & power metrics first
+    let rosterData = null;
+    try {
+      rosterData = await window.api.getTeamRoster(currentProfileTeamId, targetSys);
+    } catch (e) {
+      console.debug('getTeamRoster notice:', e);
+    }
+
+    // 2. Fetch sovereign team hub metadata (trophies, war room, locker room)
+    let hubData = null;
     try {
       const hubRes = await window.api.getTeamHub(currentProfileTeamId, targetSys);
       if (hubRes && hubRes.team) {
-        hub = hubRes.team;
+        hubData = hubRes.team;
       }
     } catch (e) {
       console.debug('getTeamHub notice:', e);
     }
 
-    // 2. Fallback to getTeamRoster (matches existing PostgreSQL production endpoint)
-    if (!hub) {
-      try {
-        const rosterData = await window.api.getTeamRoster(currentProfileTeamId, targetSys);
-        if (rosterData && (rosterData.team || (rosterData.roster && rosterData.roster.length > 0))) {
-          const tmName = rosterData.team || currentProfileTeamId;
-          const st = rosterData.stats || {};
-          const rList = rosterData.roster || [];
-          hub = {
-            id: 'team_' + tmName.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
-            name: tmName,
-            short_tag: tmName.split(' ').map(w => w[0]).join('').slice(0, 4).toUpperCase() || 'TEAM',
-            game_system: targetSys,
-            home_venue: 'Competitive Tabletop Circuit',
-            home_city: 'San Diego',
-            home_state: 'CA',
-            bio: `${tmName} official competitive tabletop club and tournament squad.`,
-            roster: rList,
-            roster_count: st.roster_count || rList.length,
-            active_roster_count: st.active_roster_count || rList.length,
-            power_rating: st.power_rating || 1500.0,
-            combat_factor: st.combat_factor || 1.0,
-            active_avg_elo: st.avg_elo || 1500.0,
-            top5_avg: st.top5_avg_elo || 1500.0,
-            top_player_elo: st.top_player_elo || 1500.0,
-            top_player_name: (rList[0] && rList[0].player_name) || 'Top Ace',
-            total_matches: st.total_matches || 0,
-            total_wins: st.total_wins || 0,
-            total_losses: st.total_losses || 0,
-            total_draws: st.total_draws || 0,
-            team_win_rate: st.win_rate || 0.0,
-            starting_5: rList.slice(0, 5),
-            battlefield_feed: [],
-            trophy_room: [],
-            war_room: { faction_matchups: [], club_rivalries: [] },
-            locker_room: { messages: [], squad_events: [] }
-          };
+    let hub = null;
+    if (rosterData && (rosterData.team || (rosterData.roster && rosterData.roster.length > 0))) {
+      const tmName = rosterData.team || currentProfileTeamId;
+      const st = rosterData.stats || {};
+      const rList = (rosterData.roster && rosterData.roster.length > 0) ? rosterData.roster : (hubData?.roster || []);
+
+      hub = {
+        id: hubData?.id || ('team_' + tmName.toLowerCase().replace(/[^a-z0-9]+/g, '_')),
+        name: tmName,
+        short_tag: hubData?.short_tag || (tmName.split(' ').map(w => w[0]).join('').slice(0, 4).toUpperCase() || 'TEAM'),
+        bcp_team_id: hubData?.bcp_team_id || '',
+        owner_player_id: hubData?.owner_player_id || (rList[0]?.player_id || ''),
+        captain_name: hubData?.captain_name || (rList.find(p => p.role === 'Captain')?.player_name || rList[0]?.player_name || 'Captain'),
+        home_venue: hubData?.home_venue || 'Competitive Tabletop Circuit',
+        home_city: hubData?.home_city || 'San Diego',
+        home_state: hubData?.home_state || 'CA',
+        home_country: hubData?.home_country || 'USA',
+        game_system: targetSys,
+        logo_url: hubData?.logo_url || '/assets/badges/badge_tier1_legend.svg',
+        bio: hubData?.bio || `${tmName} official competitive tabletop club and tournament squad.`,
+        discord_url: hubData?.discord_url || '',
+        membership_mode: hubData?.membership_mode || 'approval_required',
+        created_at: hubData?.created_at || new Date().toISOString(),
+
+        // LIVE AUTHORITATIVE STATS & ROSTER FROM DATABASE:
+        roster: rList,
+        roster_count: st.roster_count !== undefined ? st.roster_count : rList.length,
+        active_roster_count: st.active_roster_count !== undefined ? st.active_roster_count : rList.filter(p => p.is_active !== false).length,
+        power_rating: st.power_rating !== undefined ? st.power_rating : (hubData?.power_rating || 1500.0),
+        combat_factor: st.combat_factor || hubData?.combat_factor || 1.0,
+        active_avg_elo: st.avg_elo || hubData?.active_avg_elo || 1500.0,
+        top5_avg: st.top5_avg_elo || hubData?.top5_avg || 1500.0,
+        top_player_elo: st.top_player_elo || rList[0]?.current_elo || 1500.0,
+        top_player_name: rList[0]?.player_name || hubData?.top_player_name || 'Top Ace',
+        total_matches: st.total_matches !== undefined ? st.total_matches : (hubData?.total_matches || 0),
+        total_wins: st.total_wins !== undefined ? st.total_wins : (hubData?.total_wins || 0),
+        total_losses: st.total_losses !== undefined ? st.total_losses : (hubData?.total_losses || 0),
+        total_draws: st.total_draws !== undefined ? st.total_draws : (hubData?.total_draws || 0),
+        team_win_rate: st.win_rate !== undefined ? st.win_rate : (hubData?.team_win_rate || 0.0),
+        starting_5: rList.slice(0, 5),
+        rank: hubData?.rank || 1,
+
+        // Sovereign clubhouse features
+        battlefield_feed: hubData?.battlefield_feed || [],
+        trophy_room: hubData?.trophy_room || [],
+        war_room: hubData?.war_room || { faction_matchups: [], club_rivalries: [] },
+        locker_room: hubData?.locker_room || { messages: [], squad_events: [] }
+      };
+
+      // Compute faction distribution from actual roster
+      const fCounts = {};
+      rList.forEach(p => {
+        const fac = p.top_faction || p.faction || 'Space Marines';
+        if (fac && fac !== 'Unknown') {
+          fCounts[fac] = (fCounts[fac] || 0) + 1;
         }
-      } catch (e) {
-        console.debug('getTeamRoster notice:', e);
-      }
+      });
+      hub.faction_distribution = Object.entries(fCounts).map(([faction, count]) => ({ faction, count })).sort((a, b) => b.count - a.count);
+    } else if (hubData) {
+      hub = hubData;
     }
 
     if (!hub) {
