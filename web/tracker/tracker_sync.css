@@ -1009,3 +1009,100 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
     display: none !important;
   }
 }
+
+/* ==========================================================================
+   RETRIBUTION ARMORY - CUSTOM DICE SKINS & CRIT VFX
+   ========================================================================== */
+
+/* 1. Warpfire Plasma Dice */
+.skin-warpfire-plasma .gt-die-pip {
+  background: radial-gradient(circle at 30% 30%, #10b981 0%, #064e3b 85%, #022c22 100%) !important;
+  color: #ecfdf5 !important;
+  border: 1.5px solid rgba(52, 211, 153, 0.5) !important;
+  text-shadow: 0 0 6px rgba(52, 211, 153, 0.9);
+  box-shadow: 0 3px 10px rgba(6, 78, 59, 0.7) !important;
+}
+.skin-warpfire-plasma .gt-die-crit {
+  background: radial-gradient(circle at 30% 30%, #34d399 0%, #059669 70%, #064e3b 100%) !important;
+  color: #ffffff !important;
+  border: 1.5px solid #a7f3d0 !important;
+  box-shadow: 0 0 18px rgba(52, 211, 153, 0.9), 0 0 6px #ffffff !important;
+  animation: plasmaCritPulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes plasmaCritPulse {
+  0% { transform: scale(1); box-shadow: 0 0 14px rgba(52, 211, 153, 0.8); }
+  100% { transform: scale(1.08); box-shadow: 0 0 24px rgba(52, 211, 153, 1), 0 0 10px #ffffff; }
+}
+
+/* 2. Molten Magma Dice */
+.skin-molten-magma .gt-die-pip {
+  background: radial-gradient(circle at 30% 30%, #f97316 0%, #7c2d12 70%, #1c1917 100%) !important;
+  color: #fef08a !important;
+  border: 1.5px solid rgba(249, 115, 22, 0.5) !important;
+  text-shadow: 0 0 6px rgba(245, 158, 11, 0.9);
+  box-shadow: 0 3px 10px rgba(124, 45, 18, 0.7) !important;
+}
+.skin-molten-magma .gt-die-crit {
+  background: radial-gradient(circle at 30% 30%, #fbbf24 0%, #ea580c 70%, #7c2d12 100%) !important;
+  color: #ffffff !important;
+  border: 1.5px solid #fef08a !important;
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.9) !important;
+  animation: magmaCritPulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes magmaCritPulse {
+  0% { transform: scale(1); box-shadow: 0 0 14px rgba(245, 158, 11, 0.8); }
+  100% { transform: scale(1.08); box-shadow: 0 0 24px rgba(249, 115, 22, 1); }
+}
+
+/* 3. Imperial Ceramite Dice */
+.skin-ceramite-white .gt-die-pip {
+  background: radial-gradient(circle at 35% 35%, #ffffff 0%, #e2e8f0 75%, #cbd5e1 100%) !important;
+  color: #0f172a !important;
+  border: 1.5px solid #94a3b8 !important;
+  text-shadow: none !important;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4) !important;
+}
+.skin-ceramite-white .gt-die-crit {
+  background: radial-gradient(circle at 35% 35%, #fef08a 0%, #facc15 70%, #eab308 100%) !important;
+  color: #713f12 !important;
+  border: 1.5px solid #ca8a04 !important;
+  box-shadow: 0 0 16px rgba(234, 179, 8, 0.8) !important;
+}
+
+/* 4. Faction Specific Dice */
+.skin-faction-custom .gt-die-pip {
+  background: var(--custom-die-bg, #1e293b) !important;
+  color: var(--custom-pip-color, #ffffff) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.6) !important;
+}
+
+.skin-faction-custom .gt-die-crit {
+  background: radial-gradient(circle at 35% 35%, #fbbf24 0%, #d97706 70%, #78350f 100%) !important;
+  color: #ffffff !important;
+  border: 1.5px solid #fde68a !important;
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.95), 0 0 8px #ffffff !important;
+  animation: factionCritPulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes factionCritPulse {
+  0% { transform: scale(1); box-shadow: 0 0 14px rgba(245, 158, 11, 0.8); }
+  100% { transform: scale(1.08); box-shadow: 0 0 24px rgba(245, 158, 11, 1), 0 0 10px #ffffff; }
+}
+
+.gt-die-faction-six-sigil {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+}
+
+.gt-die-faction-six-sigil svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
+}
+

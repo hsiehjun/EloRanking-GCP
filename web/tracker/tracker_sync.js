@@ -4344,8 +4344,24 @@ Space Marines - Gladius Task Force (2000 pts)
           <!-- Grid of Clickable Dice -->
           ${(() => {
             const activeSkinId = (window.Armory ? window.Armory.getEquipped('active_dice') : null) || localStorage.getItem('omnitactica_active_dice') || 'dice_warpfire_plasma';
-            const skinClass = activeSkinId === 'dice_molten_magma' ? 'skin-molten-magma' : (activeSkinId === 'dice_ceramite_white' ? 'skin-ceramite-white' : 'skin-warpfire-plasma');
-            return `<div class="gt-dice-grid ${skinClass}" data-dice-skin="${activeSkinId}">`;
+            let skinClass = 'skin-warpfire-plasma';
+            let customStyle = '';
+            let isCustom = false;
+            if (activeSkinId === 'dice_molten_magma') {
+              skinClass = 'skin-molten-magma';
+            } else if (activeSkinId === 'dice_ceramite_white') {
+              skinClass = 'skin-ceramite-white';
+            } else if (window.Armory && typeof window.Armory.getEquippedItem === 'function') {
+              const eqItem = window.Armory.getEquippedItem('active_dice');
+              if (eqItem && eqItem.payload) {
+                skinClass = 'skin-faction-custom';
+                isCustom = true;
+                const bg = eqItem.payload.die_bg || '#1e293b';
+                const pip = eqItem.payload.pip_color || '#ffffff';
+                customStyle = ` style="--custom-die-bg:${bg}; --custom-pip-color:${pip};"`;
+              }
+            }
+            return `<div class="gt-dice-grid ${skinClass}" data-dice-skin="${activeSkinId}" data-custom-dice="${isCustom}"${customStyle}>`;
           })()}
             ${totalInTray === 0 ? `
               <div style="width:100%; text-align:center; color:#64748b; font-size:11px; padding:16px 0;">
@@ -4364,7 +4380,16 @@ Space Marines - Gladius Task Force (2000 pts)
                 }
               }
               const selCls = die.selected ? 'selected' : 'unselected';
-              const displayVal = die.rolled ? die.val : '•';
+              let displayVal = die.rolled ? die.val : '•';
+              if (die.rolled && die.val === 6) {
+                const eqItem = window.Armory && typeof window.Armory.getEquippedItem === 'function' ? window.Armory.getEquippedItem('active_dice') : null;
+                if (eqItem && eqItem.payload && eqItem.payload.six_face_svg_id && typeof window.getArmoryAvatarSvg === 'function') {
+                  const svg = window.getArmoryAvatarSvg(eqItem.payload.six_face_svg_id);
+                  if (svg) {
+                    displayVal = `<span class="gt-die-faction-six-sigil" title="Faction Critical 6: ${escapeHtml(eqItem.payload.six_face_label || 'Faction Sigil')}">${svg}</span>`;
+                  }
+                }
+              }
               return `
                 <span class="gt-die-pip ${cls} ${selCls}" onclick="window.gtToggleDieSelection(${idx})" title="Click to ${die.selected ? 'deselect' : 'select'} (Die #${idx + 1}: ${die.rolled ? die.val : 'Unrolled'})">
                   ${displayVal}

@@ -42,7 +42,8 @@ from routers import (
     auth,
     leaderboard,
     tracker,
-    eventstudio
+    eventstudio,
+    armory
 )
 
 app = FastAPI(
@@ -229,6 +230,7 @@ app.include_router(auth.router)
 app.include_router(leaderboard.router)
 app.include_router(tracker.router)
 app.include_router(eventstudio.router)
+app.include_router(armory.router)
 
 # =========================================================================
 # NATIVE GAME TRACKER STATIC ASSET & PAGE SERVING

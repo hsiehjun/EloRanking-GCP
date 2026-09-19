@@ -8601,14 +8601,7 @@ body.is-authenticated #floating-chat-widget {
   color: #fff;
 }
 
-/* Dynamic Rank Theme Skins */
-.profile-theme-everchosen {
-  border-color: rgba(251, 191, 36, 0.7) !important;
-  background: radial-gradient(circle at top right, rgba(251, 191, 36, 0.12), transparent 50%),
-              radial-gradient(circle at bottom left, rgba(244, 63, 94, 0.1), transparent 50%),
-              var(--bg-card) !important;
-  box-shadow: 0 0 25px rgba(251, 191, 36, 0.25) !important;
-}
+/* Dynamic Rank Theme Skins - XP & Accents (Card borders controlled via Retribution Armory) */
 .profile-theme-everchosen .profile-rank-crest {
   border-color: #fbbf24;
   box-shadow: 0 0 15px rgba(251, 191, 36, 0.45);
@@ -8617,13 +8610,6 @@ body.is-authenticated #floating-chat-widget {
   background: linear-gradient(90deg, #fbbf24, #f43f5e, #c084fc);
 }
 
-.profile-theme-godbeast {
-  border-color: rgba(236, 72, 153, 0.6) !important;
-  background: radial-gradient(circle at top right, rgba(236, 72, 153, 0.14), transparent 50%),
-              radial-gradient(circle at bottom left, rgba(245, 158, 11, 0.1), transparent 50%),
-              var(--bg-card) !important;
-  box-shadow: 0 0 20px rgba(236, 72, 153, 0.2) !important;
-}
 .profile-theme-godbeast .profile-rank-crest {
   border-color: #ec4899;
   box-shadow: 0 0 15px rgba(236, 72, 153, 0.4);
@@ -8632,13 +8618,6 @@ body.is-authenticated #floating-chat-widget {
   background: linear-gradient(90deg, #f59e0b, #ec4899);
 }
 
-.profile-theme-primarch {
-  border-color: rgba(56, 189, 248, 0.6) !important;
-  background: radial-gradient(circle at top right, rgba(56, 189, 248, 0.15), transparent 50%),
-              radial-gradient(circle at bottom left, rgba(129, 140, 248, 0.1), transparent 50%),
-              var(--bg-card) !important;
-  box-shadow: 0 0 20px rgba(56, 189, 248, 0.2) !important;
-}
 .profile-theme-primarch .profile-rank-crest {
   border-color: #38bdf8;
   box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
@@ -8647,12 +8626,6 @@ body.is-authenticated #floating-chat-widget {
   background: linear-gradient(90deg, #38bdf8, #818cf8);
 }
 
-.profile-theme-ascendant {
-  border-color: rgba(217, 70, 239, 0.6) !important;
-  background: radial-gradient(circle at top right, rgba(217, 70, 239, 0.12), transparent 50%),
-              var(--bg-card) !important;
-  box-shadow: 0 0 18px rgba(217, 70, 239, 0.18) !important;
-}
 .profile-theme-ascendant .profile-rank-crest {
   border-color: #d946ef;
   box-shadow: 0 0 12px rgba(217, 70, 239, 0.35);
@@ -8661,12 +8634,6 @@ body.is-authenticated #floating-chat-widget {
   background: linear-gradient(90deg, #d946ef, #c026d3);
 }
 
-.profile-theme-warmaster {
-  border-color: rgba(244, 63, 94, 0.6) !important;
-  background: radial-gradient(circle at top right, rgba(244, 63, 94, 0.14), transparent 50%),
-              var(--bg-card) !important;
-  box-shadow: 0 0 18px rgba(244, 63, 94, 0.18) !important;
-}
 .profile-theme-warmaster .profile-rank-crest {
   border-color: #f43f5e;
   box-shadow: 0 0 12px rgba(244, 63, 94, 0.35);
@@ -8675,11 +8642,6 @@ body.is-authenticated #floating-chat-widget {
   background: linear-gradient(90deg, #f43f5e, #e11d48);
 }
 
-.profile-theme-high-warlord {
-  border-color: rgba(251, 146, 60, 0.5) !important;
-  background: radial-gradient(circle at top right, rgba(251, 146, 60, 0.1), transparent 50%),
-              var(--bg-card) !important;
-}
 .profile-theme-high-warlord .profile-rank-crest {
   border-color: #fb923c;
 }
@@ -8687,11 +8649,6 @@ body.is-authenticated #floating-chat-widget {
   background: linear-gradient(90deg, #fb923c, #f97316);
 }
 
-.profile-theme-grand-marshal {
-  border-color: rgba(192, 132, 252, 0.5) !important;
-  background: radial-gradient(circle at top right, rgba(192, 132, 252, 0.1), transparent 50%),
-              var(--bg-card) !important;
-}
 .profile-theme-grand-marshal .profile-rank-crest {
   border-color: #c084fc;
 }
@@ -8699,9 +8656,6 @@ body.is-authenticated #floating-chat-widget {
   background: linear-gradient(90deg, #c084fc, #a855f7);
 }
 
-.profile-theme-commander {
-  border-color: rgba(56, 189, 248, 0.45) !important;
-}
 .profile-theme-commander .profile-rank-crest {
   border-color: #38bdf8;
 }
@@ -8709,9 +8663,6 @@ body.is-authenticated #floating-chat-widget {
   background: #38bdf8;
 }
 
-.profile-theme-captain {
-  border-color: rgba(16, 185, 129, 0.45) !important;
-}
 .profile-theme-captain .profile-rank-crest {
   border-color: #10b981;
 }
@@ -8719,9 +8670,6 @@ body.is-authenticated #floating-chat-widget {
   background: #10b981;
 }
 
-.profile-theme-veteran {
-  border-color: rgba(250, 204, 21, 0.45) !important;
-}
 .profile-theme-veteran .profile-rank-crest {
   border-color: #facc15;
 }
@@ -8729,19 +8677,11 @@ body.is-authenticated #floating-chat-widget {
   background: #facc15;
 }
 
-.profile-theme-battle-brother,
-.profile-theme-scout {
-  border-color: rgba(148, 163, 184, 0.35) !important;
-}
 .profile-theme-battle-brother .profile-xp-fill,
 .profile-theme-scout .profile-xp-fill {
   background: #94a3b8;
 }
 
-.profile-theme-aspirant {
-  border-style: dashed !important;
-  border-color: rgba(148, 163, 184, 0.4) !important;
-}
 .profile-theme-aspirant .profile-xp-fill {
   background: #64748b;
 }
@@ -8749,35 +8689,7 @@ body.is-authenticated #floating-chat-widget {
 /* ==========================================================================
    7-TIER MILITARY RANK HERO BORDERS & TROPHY SYSTEM STYLES
    ========================================================================== */
-
-/* 7-Tier Military Rank Card Border Overrides (Zero layout shift) */
-.profile-hero-card.rank-border-initiate {
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-}
-.profile-hero-card.rank-border-veteran {
-  border: 1.5px solid rgba(100, 116, 139, 0.45) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 15px rgba(100, 116, 139, 0.08) !important;
-}
-.profile-hero-card.rank-border-centurion {
-  border: 1.5px solid rgba(217, 119, 6, 0.55) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 18px rgba(217, 119, 6, 0.12) !important;
-}
-.profile-hero-card.rank-border-commander {
-  border: 1.5px solid rgba(59, 130, 246, 0.7) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 22px rgba(59, 130, 246, 0.16) !important;
-}
-.profile-hero-card.rank-border-general {
-  border: 1.5px solid rgba(245, 158, 11, 0.75) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 26px rgba(245, 158, 11, 0.22) !important;
-}
-.profile-hero-card.rank-border-warmaster {
-  border: 1.5px solid #f59e0b !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 32px rgba(245, 158, 11, 0.28) !important;
-}
-.profile-hero-card.rank-border-everchosen {
-  border: 1.5px solid #fbbf24 !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 38px rgba(251, 191, 36, 0.38), inset 0 0 15px rgba(251, 191, 36, 0.08) !important;
-}
+/* Note: Rank borders neutralized on hero card so borders are player-chosen from Armory */
 
 /* Military Rank Badge on Profile Hero */
 .profile-rank-badge {
@@ -11527,4 +11439,1145 @@ body.is-authenticated #floating-chat-widget {
   }
 }
 
+/* ==========================================================================
+   OFFICIAL TEAMS & CLUBS SYSTEM (TEAM HUB & ONBOARDING)
+   ========================================================================== */
+
+.team-command-hero {
+  position: relative;
+  overflow: hidden;
+}
+.team-command-hero::before {
+  content: '';
+  position: absolute;
+  top: -50px;
+  right: -50px;
+  width: 250px;
+  height: 250px;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.12) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.team-stats-strip {
+  box-sizing: border-box;
+}
+
+.team-hub-subtabs-bar {
+  display: flex !important;
+  gap: 0.5rem !important;
+  overflow-x: auto !important;
+  white-space: nowrap !important;
+  -webkit-overflow-scrolling: touch !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  padding-bottom: 0.35rem !important;
+}
+.team-hub-subtabs-bar::-webkit-scrollbar {
+  display: none !important;
+}
+
+.team-subtab-btn {
+  padding: 0.5rem 0.95rem !important;
+  font-size: 0.82rem !important;
+  font-weight: 700 !important;
+  color: #94a3b8 !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  width: auto !important;
+  min-width: auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+.team-subtab-btn:hover {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+.team-subtab-btn.active {
+  color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.12) !important;
+  border-color: rgba(56, 189, 248, 0.4) !important;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.2) !important;
+}
+
+.onboarding-team-card:hover {
+  border-color: rgba(56, 189, 248, 0.4) !important;
+  background: rgba(56, 189, 248, 0.05) !important;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 768px) {
+  .team-command-hero {
+    padding: 1.1rem !important;
+  }
+  .team-hero-brand-wrap {
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    gap: 0.75rem !important;
+  }
+  .team-hero-brand-wrap h1 {
+    font-size: 1.35rem !important;
+  }
+  .team-stats-strip {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 0.65rem !important;
+  }
+  .team-hub-subtabs-bar {
+    gap: 0.4rem !important;
+  }
+  .team-hub-subtabs-bar .profile-subtab-btn {
+    padding: 0.45rem 0.85rem !important;
+    font-size: 0.76rem !important;
+    flex-shrink: 0 !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .team-stats-strip {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+
+
+
+/* ==========================================================================
+   RETRIBUTION ARMORY - STORE MODAL, EFFECT DISPATCHER & COSMETICS
+   ========================================================================== */
+
+.hero-insignia-armory-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0;
+  margin-left: 2px;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+.hero-insignia-armory-btn:hover {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: #fbbf24;
+  transform: scale(1.12);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+}
+
+/* Modal Card */
+.armory-modal-card {
+  max-width: 960px !important;
+  max-height: 90vh !important;
+  background: #090d16 !important;
+  border: 1.5px solid rgba(245, 158, 11, 0.3) !important;
+  border-radius: var(--radius-lg, 16px) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.9), 0 0 40px rgba(245, 158, 11, 0.15) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+/* Modal Header */
+.armory-modal-header {
+  padding: 1.25rem 1.5rem;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.armory-header-branding {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.armory-header-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.armory-header-kicker {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #fbbf24;
+  text-transform: uppercase;
+}
+
+.armory-header-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.armory-wallet-hud {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  margin-left: auto;
+  margin-right: 1rem;
+}
+
+.armory-wallet-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.armory-wallet-val {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #fbbf24;
+  line-height: 1.1;
+  text-shadow: 0 0 12px rgba(251, 191, 36, 0.35);
+}
+
+.armory-wallet-lbl {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  color: #94a3b8;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+/* Wing Filter Bar */
+.armory-wings-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.75rem 1.5rem;
+  background: rgba(15, 23, 42, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.armory-wing-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  flex-shrink: 0;
+}
+
+.armory-wing-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.armory-wing-pill.active {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: #fbbf24;
+  color: #fef08a;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+/* Modal Body & Products Grid */
+.armory-modal-body {
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.armory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1.1rem;
+}
+
+/* Product Card */
+.armory-product-card {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm, 10px);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.armory-product-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.armory-product-card.rarity-epic {
+  border-color: rgba(192, 132, 252, 0.35);
+}
+.armory-product-card.rarity-epic:hover {
+  border-color: rgba(192, 132, 252, 0.6);
+  box-shadow: 0 8px 24px rgba(192, 132, 252, 0.15);
+}
+
+.armory-product-card.rarity-rare {
+  border-color: rgba(56, 189, 248, 0.35);
+}
+.armory-product-card.rarity-rare:hover {
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow: 0 8px 24px rgba(56, 189, 248, 0.15);
+}
+
+.armory-product-card.is-equipped {
+  border-color: #10b981 !important;
+  background: rgba(16, 185, 129, 0.05) !important;
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.25) !important;
+}
+
+.armory-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.armory-rarity-tag {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+}
+
+.armory-equipped-indicator {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #10b981;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.armory-owned-indicator {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Preview Visual Tiles */
+.armory-card-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 90px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 0.85rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.armory-dice-preview-tile {
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+}
+
+.armory-preview-die-face {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 5px;
+  padding: 7px;
+}
+
+.armory-preview-die-face .pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.armory-dice-preview-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.faction-dice-tile {
+  position: relative;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.armory-card:hover .faction-dice-tile {
+  transform: scale(1.06);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.75);
+}
+
+.faction-face-preview {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 4px !important;
+}
+
+.die-face-six-sigil {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.die-face-six-sigil svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+
+.die-six-badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #fbbf24;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  padding: 2px 8px;
+  border-radius: 9999px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.armory-frame-preview-tile {
+  width: 140px;
+  height: 60px;
+  border-radius: 8px;
+  border: 1.5px solid #fff;
+  background: rgba(30, 41, 59, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+}
+
+.preview-mini-avatar {
+  font-size: 1.2rem;
+}
+
+.preview-mini-title {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #e2e8f0;
+  letter-spacing: 0.08em;
+}
+
+.armory-title-preview-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Card Body */
+.armory-product-title {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0 0 0.35rem 0;
+}
+
+.armory-product-desc {
+  font-size: 0.76rem;
+  color: #94a3b8;
+  line-height: 1.35;
+  margin: 0 0 0.9rem 0;
+  min-height: 38px;
+}
+
+/* Action Buttons */
+.armory-action-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+  padding: 0.55rem 0.85rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.armory-action-btn.btn-buy.affordable {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  border: 1px solid #fbbf24;
+  color: #090d16;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+.armory-action-btn.btn-buy.affordable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.45);
+}
+
+.armory-action-btn.btn-buy.unaffordable {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.armory-action-btn.btn-equip {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid #38bdf8;
+  color: #38bdf8;
+}
+.armory-action-btn.btn-equip:hover {
+  background: rgba(56, 189, 248, 0.25);
+  color: #ffffff;
+}
+
+.armory-action-btn.btn-equipped {
+  background: rgba(16, 185, 129, 0.2);
+  border: 1px solid #10b981;
+  color: #34d399;
+  cursor: pointer;
+}
+.armory-action-btn.btn-equipped:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #f87171;
+}
+
+.armory-action-btn.btn-locked {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  font-size: 0.72rem;
+  cursor: not-allowed;
+}
+
+.armory-charges-badge {
+  text-align: right;
+  font-size: 0.68rem;
+  color: #fbbf24;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+/* Modal Footer */
+.armory-modal-footer {
+  padding: 0.85rem 1.5rem;
+  background: rgba(15, 23, 42, 0.8);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.armory-footer-notice {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+/* Notification Toast */
+.armory-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 0.75rem 1.25rem;
+  background: #0f172a;
+  border: 1px solid #38bdf8;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.85);
+  z-index: 100010;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+.armory-toast.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+.armory-toast.toast-success {
+  border-color: #10b981;
+  color: #34d399;
+}
+.armory-toast.toast-error {
+  border-color: #ef4444;
+  color: #f87171;
+}
+
+/* ==========================================================================
+   EFFECT DISPATCHER COSMETICS (HERO CARD & PROFILE STYLES)
+   ========================================================================== */
+
+/* 1. Astral Holo-Foil Card Shimmer */
+.frame-astral-holofoil {
+  position: relative !important;
+  border-color: #c084fc !important;
+  box-shadow: 0 0 25px rgba(192, 132, 252, 0.45) !important;
+  overflow: hidden !important;
+}
+
+.frame-astral-holofoil::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    115deg,
+    transparent 20%,
+    rgba(255, 0, 128, 0.12) 32%,
+    rgba(0, 255, 255, 0.18) 45%,
+    rgba(255, 230, 0, 0.22) 54%,
+    rgba(0, 255, 128, 0.15) 65%,
+    transparent 78%
+  );
+  transform: rotate(-15deg);
+  animation: holofoilSweep 8s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes holofoilSweep {
+  0% { transform: translateY(-30%) rotate(-15deg); }
+  100% { transform: translateY(30%) rotate(-15deg); }
+}
+
+/* 2. Molten Core Border Aura */
+.frame-molten-core {
+  border-color: #f59e0b !important;
+  box-shadow: 0 0 22px rgba(245, 158, 11, 0.45), inset 0 0 14px rgba(245, 158, 11, 0.15) !important;
+  animation: moltenCorePulse 3.5s ease-in-out infinite alternate !important;
+}
+
+@keyframes moltenCorePulse {
+  0% { box-shadow: 0 0 16px rgba(245, 158, 11, 0.35); }
+  100% { box-shadow: 0 0 28px rgba(245, 158, 11, 0.65), inset 0 0 18px rgba(245, 158, 11, 0.25); }
+}
+
+/* 3. Tactica Neon Matrix */
+.frame-cyber-matrix {
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.4) !important;
+}
+
+/* Title Subtitle Badges */
+.armory-title-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  padding: 0.15rem 0.55rem;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+
+.title-badge-warp {
+  color: #f0abfc;
+  background: rgba(240, 171, 252, 0.14);
+  border: 1px solid rgba(240, 171, 252, 0.4);
+  box-shadow: 0 0 8px rgba(240, 171, 252, 0.25);
+}
+
+.title-badge-forge {
+  color: #fb923c;
+  background: rgba(251, 146, 60, 0.14);
+  border: 1px solid rgba(251, 146, 60, 0.4);
+  box-shadow: 0 0 8px rgba(251, 146, 60, 0.25);
+}
+
+.title-badge-strategist {
+  color: #fef08a;
+  background: rgba(254, 240, 138, 0.16);
+  border: 1px solid rgba(254, 240, 138, 0.45);
+  box-shadow: 0 0 10px rgba(254, 240, 138, 0.3);
+}
+
+.title-badge-unbroken {
+  color: #e2e8f0;
+  background: rgba(226, 232, 240, 0.12);
+  border: 1px solid rgba(226, 232, 240, 0.35);
+}
+
+/* Faction Titles */
+.title-badge-death {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.15);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.25);
+}
+
+.title-badge-chaos {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.35);
+}
+
+.title-badge-necron {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.14);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.3);
+}
+
+.title-badge-ork {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.14);
+  border: 1px solid rgba(74, 222, 128, 0.45);
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.25);
+}
+
+.title-badge-custodes {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.18);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+}
+
+.title-badge-stormcast {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.16);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+}
+
+.title-badge-everchosen {
+  color: #c084fc;
+  background: rgba(192, 132, 252, 0.16);
+  border: 1px solid rgba(192, 132, 252, 0.45);
+  box-shadow: 0 0 10px rgba(192, 132, 252, 0.3);
+}
+
+.title-badge-ghoul {
+  color: #a3e635;
+  background: rgba(163, 230, 53, 0.14);
+  border: 1px solid rgba(163, 230, 53, 0.4);
+}
+
+.title-badge-badmoon {
+  color: #facc15;
+  background: rgba(250, 204, 21, 0.16);
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  box-shadow: 0 0 10px rgba(250, 204, 21, 0.3);
+}
+
+/* Store Game System Switcher Tabs */
+.armory-system-switcher {
+  display: inline-flex;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.armory-system-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+
+.armory-system-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.armory-system-btn.active {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.4);
+}
+
+/* Avatar Preview Tile */
+.armory-avatar-preview-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1.5px solid #38bdf8;
+  border-radius: 12px;
+  padding: 0.5rem;
+  gap: 0.35rem;
+  height: 110px;
+}
+
+.avatar-preview-graphic {
+  width: 62px;
+  height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.avatar-preview-graphic .faction-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.avatar-preview-faction {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+/* Poke Preview Tile */
+.armory-poke-preview-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1.5px solid #38bdf8;
+  border-radius: 12px;
+  padding: 0.5rem;
+  gap: 0.35rem;
+}
+
+.poke-preview-icon {
+  font-size: 2.3rem;
+  line-height: 1;
+}
+
+.poke-preview-verb {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.btn-poke-action {
+  background: rgba(56, 189, 248, 0.15) !important;
+  color: #38bdf8 !important;
+  border: 1px solid rgba(56, 189, 248, 0.4) !important;
+  font-size: 0.78rem !important;
+  padding: 0.4rem 0.6rem !important;
+  border-radius: 6px !important;
+  margin-bottom: 0.25rem !important;
+  cursor: pointer !important;
+  font-weight: 700 !important;
+  transition: all 0.15s ease !important;
+}
+
+.btn-poke-action:hover {
+  background: rgba(56, 189, 248, 0.25) !important;
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.35) !important;
+}
+
+/* Rich Poke Alert Toast Banner */
+.armory-poke-toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #090f1d;
+  border: 1.5px solid #38bdf8;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  max-width: 420px;
+  z-index: 100010;
+  opacity: 0;
+  transform: translateY(20px) scale(0.95);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.armory-poke-toast.active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.poke-toast-icon {
+  font-size: 2.4rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.poke-toast-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.poke-toast-title {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #fbbf24;
+  text-transform: uppercase;
+}
+
+.poke-toast-body {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.35;
+}
+
+.poke-toast-meta {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+/* New Profile Frames */
+.frame-warp-corruption {
+  border-color: #c084fc !important;
+  box-shadow: 0 0 25px rgba(192, 132, 252, 0.55), inset 0 0 15px rgba(192, 132, 252, 0.2) !important;
+  animation: warpCorruptionPulse 4s ease-in-out infinite alternate !important;
+}
+
+@keyframes warpCorruptionPulse {
+  0% { box-shadow: 0 0 18px rgba(192, 132, 252, 0.4); }
+  100% { box-shadow: 0 0 32px rgba(192, 132, 252, 0.75), inset 0 0 20px rgba(192, 132, 252, 0.3); }
+}
+
+.frame-realm-chamon {
+  border-color: #fbbf24 !important;
+  box-shadow: 0 0 24px rgba(251, 191, 36, 0.5), inset 0 0 14px rgba(251, 191, 36, 0.2) !important;
+}
+
+.frame-ghur-feral {
+  border-color: #d97706 !important;
+  box-shadow: 0 0 22px rgba(217, 119, 6, 0.5) !important;
+}
+
+/* ==========================================================================
+   ALL-TIME PEAK ELO PRESTIGE CARD FRAMES
+   ========================================================================== */
+.frame-peak-veteran {
+  border: 1.5px solid #94a3b8 !important;
+  box-shadow: 0 0 16px rgba(148, 163, 184, 0.4), inset 0 0 8px rgba(148, 163, 184, 0.1) !important;
+}
+
+.frame-peak-captain {
+  border: 1.5px solid #10b981 !important;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.45), inset 0 0 10px rgba(16, 185, 129, 0.12) !important;
+}
+
+.frame-peak-commander {
+  border: 1.5px solid #38bdf8 !important;
+  box-shadow: 0 0 22px rgba(56, 189, 248, 0.5), inset 0 0 12px rgba(56, 189, 248, 0.15) !important;
+}
+
+.frame-peak-dark-angels {
+  border: 2px solid #22c55e !important;
+  box-shadow: 0 0 24px rgba(34, 197, 94, 0.6), inset 0 0 14px rgba(34, 197, 94, 0.2) !important;
+  animation: darkAngelsBastionPulse 3.5s ease-in-out infinite alternate !important;
+}
+
+@keyframes darkAngelsBastionPulse {
+  0% { box-shadow: 0 0 18px rgba(34, 197, 94, 0.45), inset 0 0 10px rgba(34, 197, 94, 0.15); }
+  100% { box-shadow: 0 0 30px rgba(34, 197, 94, 0.75), inset 0 0 18px rgba(34, 197, 94, 0.28); }
+}
+
+.frame-peak-necrons {
+  border: 2px solid #10b981 !important;
+  box-shadow: 0 0 26px rgba(16, 185, 129, 0.65), inset 0 0 16px rgba(52, 211, 153, 0.25) !important;
+  animation: necronGaussPulse 3s ease-in-out infinite alternate !important;
+}
+
+@keyframes necronGaussPulse {
+  0% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.5), inset 0 0 12px rgba(52, 211, 153, 0.2); }
+  100% { box-shadow: 0 0 32px rgba(16, 185, 129, 0.8), inset 0 0 20px rgba(52, 211, 153, 0.35); }
+}
+
+.frame-peak-grand-marshal {
+  border: 2px solid #c084fc !important;
+  box-shadow: 0 0 28px rgba(192, 132, 252, 0.65), inset 0 0 16px rgba(168, 85, 247, 0.25) !important;
+  animation: grandMarshalHaloPulse 3.5s ease-in-out infinite alternate !important;
+}
+
+@keyframes grandMarshalHaloPulse {
+  0% { box-shadow: 0 0 20px rgba(192, 132, 252, 0.5), inset 0 0 12px rgba(168, 85, 247, 0.2); }
+  100% { box-shadow: 0 0 34px rgba(192, 132, 252, 0.8), inset 0 0 20px rgba(168, 85, 247, 0.35); }
+}
+
+.frame-peak-high-warlord {
+  border: 2px solid #fb923c !important;
+  box-shadow: 0 0 28px rgba(251, 146, 60, 0.65), inset 0 0 16px rgba(249, 115, 22, 0.25) !important;
+  animation: highWarlordEmberPulse 3.5s ease-in-out infinite alternate !important;
+}
+
+@keyframes highWarlordEmberPulse {
+  0% { box-shadow: 0 0 20px rgba(251, 146, 60, 0.5), inset 0 0 12px rgba(249, 115, 22, 0.2); }
+  100% { box-shadow: 0 0 34px rgba(251, 146, 60, 0.8), inset 0 0 20px rgba(249, 115, 22, 0.35); }
+}
+
+.frame-peak-warmaster {
+  border: 2px solid #f43f5e !important;
+  box-shadow: 0 0 30px rgba(244, 63, 94, 0.7), inset 0 0 18px rgba(225, 29, 72, 0.3) !important;
+  animation: warmasterBloodPulse 3s ease-in-out infinite alternate !important;
+}
+
+@keyframes warmasterBloodPulse {
+  0% { box-shadow: 0 0 22px rgba(244, 63, 94, 0.55), inset 0 0 14px rgba(225, 29, 72, 0.22); }
+  100% { box-shadow: 0 0 36px rgba(244, 63, 94, 0.85), inset 0 0 22px rgba(225, 29, 72, 0.4); }
+}
+
+.frame-peak-primarch {
+  border: 2.5px solid #38bdf8 !important;
+  box-shadow: 0 0 35px rgba(56, 189, 248, 0.75), inset 0 0 18px rgba(129, 140, 248, 0.3) !important;
+  animation: primarchCoronaPulse 4s ease-in-out infinite alternate !important;
+}
+
+@keyframes primarchCoronaPulse {
+  0% { box-shadow: 0 0 24px rgba(56, 189, 248, 0.6), inset 0 0 14px rgba(129, 140, 248, 0.25); }
+  100% { box-shadow: 0 0 42px rgba(56, 189, 248, 0.9), inset 0 0 24px rgba(129, 140, 248, 0.45); }
+}
+
+.frame-peak-everchosen {
+  border: 2.5px solid #fbbf24 !important;
+  box-shadow: 0 0 40px rgba(251, 191, 36, 0.85), inset 0 0 22px rgba(244, 63, 94, 0.25) !important;
+  animation: everchosenDominionPulse 3.5s ease-in-out infinite alternate !important;
+}
+
+@keyframes everchosenDominionPulse {
+  0% { box-shadow: 0 0 26px rgba(251, 191, 36, 0.65), inset 0 0 16px rgba(244, 63, 94, 0.2); }
+  100% { box-shadow: 0 0 48px rgba(251, 191, 36, 0.95), inset 0 0 26px rgba(244, 63, 94, 0.35); }
+}
+
+
+/* Mobile Responsiveness */
+@media (max-width: 640px) {
+  .armory-modal-card {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: 94vh !important;
+    border-radius: 14px 14px 0 0 !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+  .armory-modal-header {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    padding: 0.85rem 1rem !important;
+    gap: 0.5rem !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+  }
+  .armory-header-branding {
+    flex: 1 1 auto !important;
+  }
+  .armory-header-title {
+    font-size: 1.05rem !important;
+  }
+  .armory-system-switcher {
+    order: 3 !important;
+    width: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+    margin-top: 0.25rem !important;
+  }
+  .armory-system-btn {
+    flex: 1 !important;
+    text-align: center !important;
+    padding: 0.35rem 0.5rem !important;
+    font-size: 0.72rem !important;
+  }
+  .armory-wallet-hud {
+    order: 2 !important;
+    margin-left: auto !important;
+    margin-right: 0.5rem !important;
+    gap: 0.5rem !important;
+  }
+  .armory-wallet-val {
+    font-size: 0.95rem !important;
+  }
+  .armory-wings-bar {
+    padding: 0.5rem 0.75rem !important;
+    gap: 0.3rem !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  .armory-wing-pill {
+    padding: 0.3rem 0.65rem !important;
+    font-size: 0.74rem !important;
+    flex-shrink: 0 !important;
+  }
+  .armory-modal-body {
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+  .armory-grid {
+    grid-template-columns: 1fr !important;
+    padding: 0.75rem !important;
+    gap: 0.75rem !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+  }
+  .armory-product-card {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
 
