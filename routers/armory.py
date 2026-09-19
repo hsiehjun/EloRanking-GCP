@@ -270,9 +270,14 @@ async def equip_item(request: Request):
     if not item:
         raise HTTPException(status_code=404, detail="Item metadata not found")
 
-    if item.get("slot") != slot:
-        raise HTTPException(status_code=400, detail=f"Item '{item_id}' cannot be equipped in slot '{slot}'")
+    sys_key = (body.get("game_system") or item.get("game_system") or "40k").lower().strip()
+    if sys_key not in ("40k", "aos"):
+        sys_key = "40k"
 
+    if not isinstance(vault.get("equipped"), dict):
+        vault["equipped"] = {}
+    sys_eq = vault["equipped"].setdefault(sys_key, {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None})
+    sys_eq[slot] = item_id
     vault["equipped"][slot] = item_id
     user_data["armory_vault"] = vault
 
@@ -288,9 +293,10 @@ async def equip_item(request: Request):
 
     return {
         "success": True,
-        "message": f"Equipped {item['name']} to {slot}.",
+        "message": f"Equipped {item['name']} to {slot} ({sys_key.upper()}).",
         "slot": slot,
         "item_id": item_id,
+        "game_system": sys_key,
         "equipped": vault["equipped"]
     }
 
@@ -313,8 +319,15 @@ async def unequip_item(request: Request):
     if slot not in valid_slots:
         raise HTTPException(status_code=400, detail=f"Invalid slot '{slot}'. Valid slots: {valid_slots}")
 
+    sys_key = (body.get("game_system") or "40k").lower().strip()
+    if sys_key not in ("40k", "aos"):
+        sys_key = "40k"
+
     vault = _get_or_init_vault(user_data)
-    vault["equipped"][slot] = None
+    if isinstance(vault.get("equipped"), dict):
+        if isinstance(vault["equipped"].get(sys_key), dict):
+            vault["equipped"][sys_key][slot] = None
+        vault["equipped"][slot] = None
     user_data["armory_vault"] = vault
 
     try:
@@ -329,8 +342,9 @@ async def unequip_item(request: Request):
 
     return {
         "success": True,
-        "message": f"Unequipped {slot}.",
+        "message": f"Unequipped {slot} ({sys_key.upper()}).",
         "slot": slot,
+        "game_system": sys_key,
         "equipped": vault["equipped"]
     }
 

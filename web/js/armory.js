@@ -123,10 +123,9 @@
   }
 
   /**
-   * Equip an owned item into an active slot
-   */
-  async function equipItem(slot, itemId, silent) {
+  async function equipItem(slot, itemId, silent, system) {
     try {
+      var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
       var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
       var headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = 'Bearer ' + token;
@@ -134,7 +133,7 @@
       var res = await fetch('/api/armory/equip', {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify({ slot: slot, item_id: itemId })
+        body: JSON.stringify({ slot: slot, item_id: itemId, game_system: sys })
       });
 
       var data = await res.json();
@@ -143,9 +142,9 @@
       currentVault.equipped = data.equipped;
       if (!silent) showArmoryNotification('⚔️ ' + data.message, 'success');
 
-      await loadArmoryData();
+      await loadArmoryData(sys);
       renderArmoryGrid();
-      applyEquippedDecorations();
+      applyEquippedDecorations(sys);
 
     } catch (err) {
       showArmoryNotification('❌ ' + err.message, 'error');
@@ -155,8 +154,9 @@
   /**
    * Unequip an item slot back to default
    */
-  async function unequipSlot(slot) {
+  async function unequipSlot(slot, silent, system) {
     try {
+      var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
       var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
       var headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = 'Bearer ' + token;
@@ -164,18 +164,18 @@
       var res = await fetch('/api/armory/unequip', {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify({ slot: slot })
+        body: JSON.stringify({ slot: slot, game_system: sys })
       });
 
       var data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to unequip slot');
 
       currentVault.equipped = data.equipped;
-      showArmoryNotification('🛡️ ' + data.message, 'info');
+      if (!silent) showArmoryNotification('🛡️ ' + data.message, 'info');
 
-      await loadArmoryData();
+      await loadArmoryData(sys);
       renderArmoryGrid();
-      applyEquippedDecorations();
+      applyEquippedDecorations(sys);
 
     } catch (err) {
       showArmoryNotification('❌ ' + err.message, 'error');
@@ -244,14 +244,17 @@
   /**
    * Effect Dispatcher: Applies active decorations across the entire page
    */
-  function applyEquippedDecorations() {
-    var eq = currentVault.equipped || {};
+  function applyEquippedDecorations(system) {
+    var sys = (system || window.currentGameSystem || '40k').toLowerCase();
+    var allEq = currentVault.equipped || {};
+    var eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
 
     // 1. Apply Card Frame
     var frameId = eq.active_card_frame;
     var allFrames = [
       'frame-astral-holofoil', 'frame-molten-core', 'frame-cyber-matrix',
       'frame-warp-corruption', 'frame-realm-chamon', 'frame-ghur-feral',
+      'frame-shyish-obsidian', 'frame-hysh-celestial',
       'frame-peak-veteran', 'frame-peak-captain', 'frame-peak-commander',
       'frame-peak-dark-angels', 'frame-peak-necrons', 'frame-peak-grand-marshal',
       'frame-peak-high-warlord', 'frame-peak-warmaster', 'frame-peak-primarch',
@@ -461,18 +464,34 @@
       if (item.wing === 'dice_forge') {
         var dieBg = item.payload && item.payload.die_bg ? item.payload.die_bg : '#1e293b';
         var pipCol = item.payload && item.payload.pip_color ? item.payload.pip_color : '#fff';
-        previewGraphic = [
-          '<div class="armory-dice-preview-tile" style="background: ' + dieBg + ';">',
-          '  <div class="armory-preview-die-face">',
-          '    <span class="pip" style="background:' + pipCol + ';"></span>',
-          '    <span class="pip" style="background:' + pipCol + ';"></span>',
-          '    <span class="pip" style="background:' + pipCol + ';"></span>',
-          '    <span class="pip" style="background:' + pipCol + ';"></span>',
-          '    <span class="pip" style="background:' + pipCol + ';"></span>',
-          '    <span class="pip" style="background:' + pipCol + ';"></span>',
-          '  </div>',
-          '</div>'
-        ].join('');
+        var sixSvgId = item.payload && item.payload.six_face_svg_id ? item.payload.six_face_svg_id : null;
+        var sixLabel = item.payload && item.payload.six_face_label ? item.payload.six_face_label : null;
+        if (sixSvgId) {
+          var sigilSvg = typeof window.getArmoryAvatarSvg === 'function' ? window.getArmoryAvatarSvg(sixSvgId) : '';
+          previewGraphic = [
+            '<div class="armory-dice-preview-wrapper">',
+            '  <div class="armory-dice-preview-tile faction-dice-tile" style="background: ' + dieBg + ';">',
+            '    <div class="armory-preview-die-face faction-face-preview">',
+            '      <div class="die-face-six-sigil">' + sigilSvg + '</div>',
+            '    </div>',
+            '  </div>',
+            '  <span class="die-six-badge">★ Face 6: ' + escapeHtml(sixLabel || 'Faction Sigil') + '</span>',
+            '</div>'
+          ].join('');
+        } else {
+          previewGraphic = [
+            '<div class="armory-dice-preview-tile" style="background: ' + dieBg + ';">',
+            '  <div class="armory-preview-die-face">',
+            '    <span class="pip" style="background:' + pipCol + ';"></span>',
+            '    <span class="pip" style="background:' + pipCol + ';"></span>',
+            '    <span class="pip" style="background:' + pipCol + ';"></span>',
+            '    <span class="pip" style="background:' + pipCol + ';"></span>',
+            '    <span class="pip" style="background:' + pipCol + ';"></span>',
+            '    <span class="pip" style="background:' + pipCol + ';"></span>',
+            '  </div>',
+            '</div>'
+          ].join('');
+        }
       } else if (item.wing === 'profile_forge') {
         var glow = item.payload && item.payload.border_glow ? item.payload.border_glow : 'none';
         var cls = item.payload && item.payload.css_class ? item.payload.css_class : '';
@@ -643,7 +662,22 @@
     unequipSlot: unequipSlot,
     pokePlayer: pokePlayer,
     applyEquippedDecorations: applyEquippedDecorations,
-    getEquipped: function(slot) { return (currentVault.equipped || {})[slot]; },
+    getEquipped: function(slot, system) {
+      var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
+      var allEq = currentVault.equipped || {};
+      if (allEq[sys] && typeof allEq[sys] === 'object' && allEq[sys][slot] !== undefined) {
+        return allEq[sys][slot];
+      }
+      return allEq[slot];
+    },
+    getEquippedItem: function(slot, system) {
+      var id = window.Armory.getEquipped(slot, system);
+      if (!id || !catalog) return null;
+      for (var i = 0; i < catalog.length; i++) {
+        if (catalog[i].id === id) return catalog[i];
+      }
+      return null;
+    },
     getVault: function() { return currentVault; },
     getGlory: function() { return currentGlory; }
   };

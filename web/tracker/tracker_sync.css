@@ -1068,3 +1068,41 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
   border: 1.5px solid #ca8a04 !important;
   box-shadow: 0 0 16px rgba(234, 179, 8, 0.8) !important;
 }
+
+/* 4. Faction Specific Dice */
+.skin-faction-custom .gt-die-pip {
+  background: var(--custom-die-bg, #1e293b) !important;
+  color: var(--custom-pip-color, #ffffff) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.6) !important;
+}
+
+.skin-faction-custom .gt-die-crit {
+  background: radial-gradient(circle at 35% 35%, #fbbf24 0%, #d97706 70%, #78350f 100%) !important;
+  color: #ffffff !important;
+  border: 1.5px solid #fde68a !important;
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.95), 0 0 8px #ffffff !important;
+  animation: factionCritPulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes factionCritPulse {
+  0% { transform: scale(1); box-shadow: 0 0 14px rgba(245, 158, 11, 0.8); }
+  100% { transform: scale(1.08); box-shadow: 0 0 24px rgba(245, 158, 11, 1), 0 0 10px #ffffff; }
+}
+
+.gt-die-faction-six-sigil {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+}
+
+.gt-die-faction-six-sigil svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
+}
+

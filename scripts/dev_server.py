@@ -1223,6 +1223,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             if clean_path == "api/armory/equip":
                 slot = payload.get("slot")
                 item_id = payload.get("item_id")
+                sys_key = (payload.get("game_system") or "40k").lower().strip()
+                if sys_key not in ("40k", "aos"):
+                    sys_key = "40k"
+
                 v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None}})
                 inv = v.setdefault("inventory", {})
                 eq = v.setdefault("equipped", {})
@@ -1234,31 +1238,43 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     self.wfile.write(json.dumps({"detail": f"You do not own item '{item_id}'"}).encode("utf-8"))
                     return
 
+                sys_eq = eq.setdefault(sys_key, {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None})
+                sys_eq[slot] = item_id
                 eq[slot] = item_id
+
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(json.dumps({
                     "success": True,
-                    "message": f"Equipped {item_id} to {slot}",
+                    "message": f"Equipped {item_id} to {slot} ({sys_key.upper()})",
                     "slot": slot,
                     "item_id": item_id,
+                    "game_system": sys_key,
                     "equipped": eq
                 }).encode("utf-8"))
                 return
 
             if clean_path == "api/armory/unequip":
                 slot = payload.get("slot")
+                sys_key = (payload.get("game_system") or "40k").lower().strip()
+                if sys_key not in ("40k", "aos"):
+                    sys_key = "40k"
+
                 v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None}})
                 eq = v.setdefault("equipped", {})
+                if isinstance(eq.get(sys_key), dict):
+                    eq[sys_key][slot] = None
                 eq[slot] = None
+
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(json.dumps({
                     "success": True,
-                    "message": f"Unequipped {slot}",
+                    "message": f"Unequipped {slot} ({sys_key.upper()})",
                     "slot": slot,
+                    "game_system": sys_key,
                     "equipped": eq
                 }).encode("utf-8"))
                 return
