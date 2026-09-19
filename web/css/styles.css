@@ -12655,3 +12655,213 @@ body.is-authenticated #floating-chat-widget {
   }
 }
 
+/* ==========================================================================
+   RIVAL INCURSION & SIGN-IN EFFECT STYLES (24-HOUR POKE SYSTEM)
+   ========================================================================== */
+
+/* Fullscreen Incursion Overlay */
+.armory-incursion-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 7, 15, 0.82);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.armory-incursion-backdrop.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Specific Sign-in VFX Overlays */
+.armory-incursion-backdrop.fx-warp_storm {
+  background: radial-gradient(circle, rgba(147, 51, 234, 0.35) 0%, rgba(15, 23, 42, 0.92) 80%);
+  animation: warpScreenPulse 2s ease-in-out infinite alternate;
+}
+
+.armory-incursion-backdrop.fx-dakka_barrage {
+  background: radial-gradient(circle, rgba(234, 179, 8, 0.28) 0%, rgba(15, 23, 42, 0.94) 80%);
+  animation: dakkaScreenRumble 0.15s ease-in-out 8 alternate;
+}
+
+.armory-incursion-backdrop.fx-exterminatus {
+  background: radial-gradient(circle, rgba(239, 68, 68, 0.35) 0%, rgba(15, 23, 42, 0.95) 80%);
+  animation: exterminatusSirenPulse 1.2s ease-in-out infinite alternate;
+}
+
+.armory-incursion-backdrop.fx-mindshackle {
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.28) 0%, rgba(15, 23, 42, 0.94) 80%);
+}
+
+.armory-incursion-backdrop.fx-blood_tithe {
+  background: radial-gradient(circle, rgba(185, 28, 28, 0.35) 0%, rgba(15, 23, 42, 0.94) 80%);
+  animation: bloodTitheGlow 1.8s ease-in-out infinite alternate;
+}
+
+.armory-incursion-backdrop.fx-comet_strike {
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.45) 0%, rgba(15, 23, 42, 0.94) 80%);
+  animation: cometFlashBoom 0.6s ease-out;
+}
+
+@keyframes warpScreenPulse {
+  0% { filter: hue-rotate(0deg) contrast(1); }
+  100% { filter: hue-rotate(35deg) contrast(1.25); }
+}
+
+@keyframes dakkaScreenRumble {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-3px, 2px); }
+  50% { transform: translate(3px, -2px); }
+  75% { transform: translate(-2px, -3px); }
+  100% { transform: translate(2px, 3px); }
+}
+
+@keyframes exterminatusSirenPulse {
+  0% { box-shadow: inset 0 0 50px rgba(239, 68, 68, 0.2); }
+  100% { box-shadow: inset 0 0 160px rgba(239, 68, 68, 0.6); }
+}
+
+@keyframes bloodTitheGlow {
+  0% { filter: brightness(1); }
+  100% { filter: brightness(1.35); }
+}
+
+@keyframes cometFlashBoom {
+  0% { filter: brightness(2.5); }
+  100% { filter: brightness(1); }
+}
+
+/* Incursion Announcement Card */
+.armory-incursion-card {
+  background: #090e1a;
+  border: 2px solid #38bdf8;
+  border-radius: 16px;
+  padding: 2rem 2.25rem;
+  max-width: 520px;
+  width: 90%;
+  box-shadow: 0 0 45px rgba(56, 189, 248, 0.4), 0 25px 60px rgba(0, 0, 0, 0.85);
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  transform: scale(0.92);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.armory-incursion-backdrop.active .armory-incursion-card {
+  transform: scale(1);
+}
+
+.incursion-header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.85rem;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: 999px;
+  color: #f87171;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 1.25rem;
+  animation: pulse 1.5s infinite;
+}
+
+.incursion-icon-banner {
+  font-size: 3.5rem;
+  line-height: 1;
+  margin-bottom: 0.75rem;
+  filter: drop-shadow(0 0 15px currentColor);
+}
+
+.incursion-title {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0 0 0.5rem 0;
+  line-height: 1.25;
+}
+
+.incursion-body {
+  font-size: 0.95rem;
+  color: #cbd5e1;
+  line-height: 1.5;
+  margin-bottom: 1.25rem;
+}
+
+.incursion-meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin-bottom: 1.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+}
+
+.incursion-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* Persistent Active Hex Banner */
+.armory-active-hex-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.25rem;
+  background: linear-gradient(135deg, rgba(30, 27, 75, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border: 1.5px solid #c084fc;
+  border-radius: 12px;
+  box-shadow: 0 0 20px rgba(192, 132, 252, 0.25);
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.hex-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.hex-banner-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.hex-banner-title {
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: #fff;
+}
+
+.hex-banner-sub {
+  font-size: 0.76rem;
+  color: #cbd5e1;
+}
+
+.hex-banner-timer {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #facc15;
+  background: rgba(250, 204, 21, 0.12);
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid rgba(250, 204, 21, 0.3);
+}
+

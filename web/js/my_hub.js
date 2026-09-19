@@ -313,6 +313,12 @@ async function loadMyHubDashboard() {
     } catch (e) {}
 
     renderMyHub(data);
+    if (window.Armory && typeof window.Armory.renderActiveRivalHexBanner === 'function') {
+      window.Armory.renderActiveRivalHexBanner('my-hub-content');
+    }
+    if (window.Armory && typeof window.Armory.checkAndTriggerSignInPokeEffect === 'function') {
+      window.Armory.checkAndTriggerSignInPokeEffect(data);
+    }
   } catch (err) {
     console.warn("Notice updating competitor hub from server:", err);
     if (!cachedData) {

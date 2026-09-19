@@ -5,9 +5,10 @@ equipping cosmetic loadouts (dice, card frames, titles), and vault inventory.
 """
 
 import json
+import uuid
 import logging
 from typing import Any, Dict, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from core import (
     APIRouter, HTTPException, Request, Response,
@@ -427,6 +428,41 @@ async def poke_player(request: Request):
     # Deduct 1 charge
     remaining_qty = inv_entry["quantity"] - 1
     inv_entry["quantity"] = remaining_qty
+
+    payload = item.get("payload") or {}
+    sender_name = user_data.get("display_name") or user_data.get("name") or "Innes Wilson"
+    now_dt = datetime.now(timezone.utc)
+    duration_hours = int(payload.get("hex_duration_hours", 24))
+    expires_dt = now_dt + timedelta(hours=duration_hours)
+    now_iso = now_dt.isoformat()
+    expires_iso = expires_dt.isoformat()
+    toast_msg = payload.get("toast_message", f"{item.get('icon', '👉')} Poked {target_name}!").replace("{target}", target_name)
+    banner_desc = payload.get("hex_banner_desc", f"Targeted by rival commander {sender_name}.").replace("{sender}", sender_name)
+
+    poke_event = {
+        "id": f"poke_evt_{uuid.uuid4().hex[:10]}",
+        "poke_id": poke_id,
+        "poke_name": item["name"],
+        "icon": item.get("icon", "👉"),
+        "sender_id": str(user_id),
+        "sender_name": sender_name,
+        "target_player_id": target_player_id,
+        "target_name": target_name,
+        "created_at": now_iso,
+        "expires_at": expires_iso,
+        "duration_hours": duration_hours,
+        "seen": False,
+        "sign_in_effect": payload.get("sign_in_effect", "spark"),
+        "hex_badge_title": payload.get("hex_badge_title", "Rival Hex"),
+        "hex_banner_desc": banner_desc,
+        "toast_message": toast_msg,
+        "css_glow": payload.get("css_glow", "#38bdf8")
+    }
+
+    # Store in sender's dispatched log
+    dispatched = vault.setdefault("dispatched_pokes", [])
+    dispatched.insert(0, poke_event)
+    vault["dispatched_pokes"] = dispatched[:30]
     user_data["armory_vault"] = vault
 
     try:
@@ -439,8 +475,22 @@ async def poke_player(request: Request):
     except Exception as dbe:
         logger.warning(f"Database update error in poke: {dbe}")
 
-    payload = item.get("payload") or {}
-    sender_name = user_data.get("display_name") or user_data.get("name") or "Innes Wilson"
+    # Deliver to target player's vault if target exists
+    if target_player_id and str(target_player_id) != str(user_id):
+        try:
+            target_user = auth_mgr.get_user_by_id(target_player_id)
+            if target_user:
+                target_v = _get_or_init_vault(target_user)
+                t_pokes = target_v.setdefault("received_pokes", [])
+                t_pokes.insert(0, poke_event)
+                # Keep active + recent within 48h
+                target_v["received_pokes"] = [p for p in t_pokes[:30] if p.get("expires_at", "") > (now_dt - timedelta(hours=48)).isoformat()]
+                with auth_mgr.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE users SET armory_vault = %s, updated_at = NOW() WHERE id = %s;", (json.dumps(target_v), target_player_id))
+                    conn.commit()
+        except Exception as te:
+            logger.warning(f"Notice delivering poke to target {target_player_id}: {te}")
 
     return {
         "success": True,
@@ -451,8 +501,76 @@ async def poke_player(request: Request):
         "target_player_id": target_player_id,
         "target_name": target_name,
         "charges_remaining": remaining_qty,
-        "toast_message": payload.get("toast_message", f"{item['icon']} Poked by {sender_name}!"),
+        "toast_message": toast_msg,
         "css_glow": payload.get("css_glow", "#38bdf8"),
-        "icon": item.get("icon", "👉")
+        "icon": item.get("icon", "👉"),
+        "duration_hours": duration_hours,
+        "expires_at": expires_iso,
+        "sign_in_effect": payload.get("sign_in_effect", "spark"),
+        "hex_badge_title": payload.get("hex_badge_title", "Rival Hex"),
+        "hex_banner_desc": banner_desc,
+        "poke_event": poke_event
     }
+
+
+@router.get("/api/armory/pokes/active", summary="Get active pokes and hexes received by current player")
+async def get_active_pokes(request: Request):
+    """Returns active, unexpired pokes received within the last 24 hours."""
+    session = _get_user_session_or_401(request)
+    user_id = session.get("user_id") or session.get("id")
+    auth_mgr = get_auth_manager()
+    user_data = auth_mgr.get_user_by_id(user_id) or session
+
+    vault = _get_or_init_vault(user_data)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    raw_pokes = vault.get("received_pokes") or []
+
+    # Active pokes: not expired (now < expires_at)
+    active_pokes = [p for p in raw_pokes if isinstance(p, dict) and p.get("expires_at", "") > now_iso]
+    unseen_pokes = [p for p in active_pokes if not p.get("seen")]
+
+    return {
+        "success": True,
+        "active_pokes": active_pokes,
+        "unseen_pokes": unseen_pokes,
+        "total_active": len(active_pokes),
+        "unseen_count": len(unseen_pokes)
+    }
+
+
+@router.post("/api/armory/poke/acknowledge", summary="Acknowledge incoming poke effect")
+async def acknowledge_poke(request: Request):
+    """Marks a received poke event as seen (dismisses initial sign-in animation)."""
+    session = _get_user_session_or_401(request)
+    user_id = session.get("user_id") or session.get("id")
+    auth_mgr = get_auth_manager()
+    user_data = auth_mgr.get_user_by_id(user_id) or session
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    target_evt_id = body.get("poke_event_id")
+    vault = _get_or_init_vault(user_data)
+    raw_pokes = vault.get("received_pokes") or []
+
+    modified = False
+    for p in raw_pokes:
+        if not target_evt_id or p.get("id") == target_evt_id:
+            if not p.get("seen"):
+                p["seen"] = True
+                modified = True
+
+    if modified:
+        user_data["armory_vault"] = vault
+        try:
+            with auth_mgr.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE users SET armory_vault = %s, updated_at = NOW() WHERE id = %s;", (json.dumps(vault), user_id))
+                conn.commit()
+        except Exception as dbe:
+            logger.warning(f"Database update error in acknowledge poke: {dbe}")
+
+    return {"success": True, "acknowledged": True}
 

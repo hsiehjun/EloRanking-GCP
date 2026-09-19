@@ -1342,7 +1342,43 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 entry["quantity"] = qty
 
                 payload = item.get("payload") or {}
+                sender_name = DEV_USER.get("display_name") or "Innes Wilson"
+                now_dt = datetime.now(timezone.utc)
+                duration_hours = int(payload.get("hex_duration_hours", 24))
+                expires_dt = now_dt + timedelta(hours=duration_hours)
+                now_iso = now_dt.isoformat()
+                expires_iso = expires_dt.isoformat()
                 toast_msg = payload.get("toast_message", f"{item.get('icon', '👉')} Poked {target_name}!").replace("{target}", target_name)
+                banner_desc = payload.get("hex_banner_desc", f"Targeted by rival commander {sender_name}.").replace("{sender}", sender_name)
+
+                poke_event = {
+                    "id": f"poke_evt_{secrets.token_hex(5)}",
+                    "poke_id": poke_id,
+                    "poke_name": item["name"],
+                    "icon": item.get("icon", "👉"),
+                    "sender_id": DEV_USER.get("id", "user_innes"),
+                    "sender_name": sender_name,
+                    "target_player_id": target_pid,
+                    "target_name": target_name,
+                    "created_at": now_iso,
+                    "expires_at": expires_iso,
+                    "duration_hours": duration_hours,
+                    "seen": False,
+                    "sign_in_effect": payload.get("sign_in_effect", "spark"),
+                    "hex_badge_title": payload.get("hex_badge_title", "Rival Hex"),
+                    "hex_banner_desc": banner_desc,
+                    "toast_message": toast_msg,
+                    "css_glow": payload.get("css_glow", "#38bdf8")
+                }
+
+                dispatched = v.setdefault("dispatched_pokes", [])
+                dispatched.insert(0, poke_event)
+                v["dispatched_pokes"] = dispatched[:30]
+
+                # In dev mode, also record into received_pokes so user can test and experience the sign-in effect
+                received = v.setdefault("received_pokes", [])
+                received.insert(0, poke_event)
+                v["received_pokes"] = [p for p in received[:30] if p.get("expires_at", "") > (now_dt - timedelta(hours=48)).isoformat()]
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1352,13 +1388,38 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "message": f"Successfully poked {target_name} with {item['name']}!",
                     "poke_id": poke_id,
                     "poke_name": item["name"],
+                    "sender_name": sender_name,
                     "target_player_id": target_pid,
                     "target_name": target_name,
                     "charges_remaining": qty,
                     "toast_message": toast_msg,
                     "css_glow": payload.get("css_glow", "#38bdf8"),
-                    "icon": item.get("icon", "👉")
+                    "icon": item.get("icon", "👉"),
+                    "duration_hours": duration_hours,
+                    "expires_at": expires_iso,
+                    "sign_in_effect": payload.get("sign_in_effect", "spark"),
+                    "hex_badge_title": payload.get("hex_badge_title", "Rival Hex"),
+                    "hex_banner_desc": banner_desc,
+                    "poke_event": poke_event
                 }).encode("utf-8"))
+                return
+
+            if clean_path == "api/armory/poke/acknowledge":
+                try:
+                    p_load = json.loads(body.decode("utf-8")) if body else {}
+                except Exception:
+                    p_load = {}
+                evt_id = p_load.get("poke_event_id")
+                glory_state = _get_dev_user_glory_and_stats()
+                v = glory_state["vault"]
+                rec = v.get("received_pokes") or []
+                for p in rec:
+                    if not evt_id or p.get("id") == evt_id:
+                        p["seen"] = True
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "acknowledged": True}).encode("utf-8"))
                 return
 
             if clean_path == "api/armory/reset":
@@ -1911,12 +1972,37 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "crest_tier": crest_tier,
                 "peak_elo": user_peak
             }
+            now_iso = datetime.now(timezone.utc).isoformat()
+            raw_p = v.get("received_pokes") or []
+            act_p = [p for p in raw_p if isinstance(p, dict) and p.get("expires_at", "") > now_iso]
+            cat["active_pokes"] = act_p
+            cat["unseen_pokes"] = [p for p in act_p if not p.get("seen")]
             cat["user_vault"] = v
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps(cat).encode("utf-8"))
+            return
+
+        if clean_path == "api/armory/pokes/active":
+            glory_state = _get_dev_user_glory_and_stats()
+            v = glory_state["vault"]
+            now_iso = datetime.now(timezone.utc).isoformat()
+            raw_p = v.get("received_pokes") or []
+            act_p = [p for p in raw_p if isinstance(p, dict) and p.get("expires_at", "") > now_iso]
+            unseen = [p for p in act_p if not p.get("seen")]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "active_pokes": act_p,
+                    "unseen_pokes": unseen,
+                    "total_active": len(act_p),
+                    "unseen_count": len(unseen)
+                }).encode("utf-8"))
             return
 
         if clean_path == "api/armory/vault":

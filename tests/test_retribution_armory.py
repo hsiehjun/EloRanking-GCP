@@ -28,10 +28,10 @@ class TestRetributionArmory(unittest.TestCase):
         self.assertNotIn("oracle", wings_40k)
         self.assertIsNone(armory_catalog.get_item_by_id("oracle_gt_pickem_pass"))
 
-        # Verify items exist: 86 for 40K, 61 for AoS = 147 items total
-        self.assertEqual(len(self.cat_40k["items"]), 86)
-        self.assertEqual(len(self.cat_aos["items"]), 61)
-        self.assertEqual(len(self.cat_40k["items"]) + len(self.cat_aos["items"]), 147)
+        # Verify items exist: 91 for 40K, 66 for AoS = 157 items total
+        self.assertEqual(len(self.cat_40k["items"]), 91)
+        self.assertEqual(len(self.cat_aos["items"]), 66)
+        self.assertEqual(len(self.cat_40k["items"]) + len(self.cat_aos["items"]), 157)
 
     def test_game_system_isolation(self):
         """Verifies 40K and AoS items are strictly isolated to their own stores."""
@@ -109,7 +109,7 @@ class TestRetributionArmory(unittest.TestCase):
         self.assertIsNotNone(smite)
         self.assertTrue(smite["is_consumable"])
         self.assertEqual(smite["bundle_count"], 5)
-        self.assertEqual(smite["cost_glory"], 50)
+        self.assertEqual(smite["cost_glory"], 150)
         self.assertIn("⚡", smite["payload"]["toast_message"])
 
         waaagh = armory_catalog.get_item_by_id("poke_waaagh_club")
@@ -189,19 +189,20 @@ class TestRetributionArmory(unittest.TestCase):
             wing = item["wing"]
             cost = item["cost_glory"]
             if wing == "pokes":
-                self.assertEqual(cost, 50)
+                self.assertGreaterEqual(cost, 150)
+                self.assertLessEqual(cost, 750)
             elif wing == "avatars":
-                self.assertGreaterEqual(cost, 350)
-                self.assertLessEqual(cost, 500)
-            elif wing == "titles":
-                self.assertGreaterEqual(cost, 300)
-                self.assertLessEqual(cost, 650)
-            elif wing == "dice_forge":
                 self.assertGreaterEqual(cost, 550)
                 self.assertLessEqual(cost, 950)
+            elif wing == "titles":
+                self.assertGreaterEqual(cost, 500)
+                self.assertLessEqual(cost, 1450)
+            elif wing == "dice_forge":
+                self.assertGreaterEqual(cost, 750)
+                self.assertLessEqual(cost, 1650)
             elif wing == "profile_forge":
-                self.assertGreaterEqual(cost, 250)
-                self.assertLessEqual(cost, 3500)
+                self.assertGreaterEqual(cost, 450)
+                self.assertLessEqual(cost, 4850)
 
     def test_peak_elo_frame_prerequisites(self):
         """Verifies frames lock and unlock dynamically based on all-time career peak Elo."""

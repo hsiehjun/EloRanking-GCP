@@ -328,6 +328,151 @@
     document.body.appendChild(modal);
   }
 
+  function formatHexTimeRemaining(expiresAt) {
+    if (!expiresAt) return '24h remaining';
+    var diff = new Date(expiresAt).getTime() - Date.now();
+    if (diff <= 0) return 'Expired';
+    var hours = Math.floor(diff / (1000 * 60 * 60));
+    var mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    return hours + 'h ' + mins + 'm remaining';
+  }
+
+  function getActiveHexes() {
+    var rawPokes = (currentVault && currentVault.received_pokes) || (currentCatalog && currentCatalog.active_pokes) || [];
+    var now = Date.now();
+    return rawPokes.filter(function(p) {
+      if (!p || !p.expires_at) return false;
+      return new Date(p.expires_at).getTime() > now;
+    });
+  }
+
+  /**
+   * Check and Trigger Rival Incursion Sign-in Effect
+   */
+  async function checkAndTriggerSignInPokeEffect(contextData) {
+    var unseen = (currentCatalog && currentCatalog.unseen_pokes) || [];
+    if (unseen.length === 0 && currentVault && currentVault.received_pokes) {
+      var now = Date.now();
+      unseen = currentVault.received_pokes.filter(function(p) {
+        return p && !p.seen && new Date(p.expires_at).getTime() > now;
+      });
+    }
+
+    if (unseen.length === 0) return;
+
+    var activePoke = unseen[0];
+    var existing = document.getElementById('armory-incursion-backdrop');
+    if (existing) existing.remove();
+
+    var fxClass = 'fx-' + (activePoke.sign_in_effect || 'warp_storm');
+    var overlay = document.createElement('div');
+    overlay.id = 'armory-incursion-backdrop';
+    overlay.className = 'armory-incursion-backdrop ' + fxClass;
+
+    var timerText = formatHexTimeRemaining(activePoke.expires_at);
+
+    overlay.innerHTML = [
+      '<div class="armory-incursion-card" style="border-color: ' + (activePoke.css_glow || '#38bdf8') + '; box-shadow: 0 0 45px ' + (activePoke.css_glow || '#38bdf8') + ', 0 25px 60px rgba(0,0,0,0.85);">',
+      '  <div class="incursion-header-badge" style="border-color:' + (activePoke.css_glow || '#ef4444') + '; color:' + (activePoke.css_glow || '#f87171') + ';">',
+      '    <span>⚠️</span> RIVAL INCURSION DETECTED',
+      '  </div>',
+      '  <div class="incursion-icon-banner" style="color:' + (activePoke.css_glow || '#38bdf8') + ';">',
+      '    ' + (activePoke.icon || '👉'),
+      '  </div>',
+      '  <h2 class="incursion-title">' + escapeHtml(activePoke.poke_name || 'Rival Poke') + '</h2>',
+      '  <div class="incursion-body">',
+      '    <strong>' + escapeHtml(activePoke.sender_name || 'A rival commander') + '</strong> targeted your command console!<br>',
+      '    <span style="color:#94a3b8; font-style:italic;">"' + escapeHtml(activePoke.toast_message || activePoke.hex_banner_desc || 'You have been challenged.') + '"</span>',
+      '  </div>',
+      '  <div class="incursion-meta">',
+      '    <span>⏳ <strong>Hex Duration:</strong> 24 Hours</span>',
+      '    <span>•</span>',
+      '    <span style="color:#facc15; font-family:var(--font-mono, monospace); font-weight:700;">' + timerText + '</span>',
+      '  </div>',
+      '  <div class="incursion-actions">',
+      '    <button type="button" class="btn btn-outline" id="incursion-dismiss-btn" style="font-weight:600; padding:0.6rem 1.25rem;">',
+      '      Accept Challenge',
+      '    </button>',
+      '    <button type="button" class="btn btn-primary" id="incursion-avenge-btn" style="font-weight:700; padding:0.6rem 1.4rem; background:' + (activePoke.css_glow || '#38bdf8') + '; border-color:' + (activePoke.css_glow || '#38bdf8') + '; color:#000;">',
+      '      ⚔️ Counter-Poke Rival',
+      '    </button>',
+      '  </div>',
+      '</div>'
+    ].join('');
+
+    document.body.appendChild(overlay);
+    setTimeout(function() { overlay.classList.add('active'); }, 20);
+
+    var dismiss = async function() {
+      overlay.classList.remove('active');
+      setTimeout(function() { overlay.remove(); }, 400);
+      try {
+        await fetch('/api/armory/poke/acknowledge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ poke_event_id: activePoke.id })
+        });
+        activePoke.seen = true;
+      } catch (e) {}
+    };
+
+    var dismissBtn = document.getElementById('incursion-dismiss-btn');
+    if (dismissBtn) dismissBtn.onclick = dismiss;
+
+    var avengeBtn = document.getElementById('incursion-avenge-btn');
+    if (avengeBtn) {
+      avengeBtn.onclick = async function() {
+        await dismiss();
+        if (activePoke.sender_id && activePoke.sender_id !== 'unknown') {
+          openPokeRivalModal(activePoke.sender_id, activePoke.sender_name);
+        } else {
+          openPokeRivalModal('p_rival', activePoke.sender_name);
+        }
+      };
+    }
+  }
+
+  /**
+   * Renders persistent Active Rival Hex banner across Hub / Profile
+   */
+  function renderActiveRivalHexBanner(targetContainerId) {
+    var activeHexes = getActiveHexes();
+    var existing = document.getElementById('armory-active-hex-banner');
+    if (existing) existing.remove();
+
+    if (activeHexes.length === 0) return;
+
+    var topHex = activeHexes[0];
+    var container = document.getElementById(targetContainerId || 'hub-active-hex-container') ||
+                    document.getElementById('hub-content') ||
+                    document.querySelector('.profile-hero-card');
+    if (!container) return;
+
+    var banner = document.createElement('div');
+    banner.id = 'armory-active-hex-banner';
+    banner.className = 'armory-active-hex-banner';
+    banner.style.borderColor = topHex.css_glow || '#c084fc';
+    banner.style.boxShadow = '0 0 16px ' + (topHex.css_glow || 'rgba(192, 132, 252, 0.35)');
+
+    banner.innerHTML = [
+      '<div class="hex-banner-left">',
+      '  <span class="hex-banner-icon">' + (topHex.icon || '👉') + '</span>',
+      '  <div>',
+      '    <div class="hex-banner-title">ACTIVE RIVAL HEX: ' + escapeHtml(topHex.poke_name || 'Battle Hex') + '</div>',
+      '    <div class="hex-banner-sub">' + escapeHtml(topHex.hex_banner_desc || ('Targeted by rival commander ' + topHex.sender_name)) + '</div>',
+      '  </div>',
+      '</div>',
+      '<div style="display:flex; align-items:center; gap:0.75rem;">',
+      '  <div class="hex-banner-timer">⏳ ' + formatHexTimeRemaining(topHex.expires_at) + '</div>',
+      '  <button type="button" class="btn btn-outline" onclick="window.Armory.openPokeRivalModal(\'' + escapeHtml(topHex.sender_id || 'p_rival') + '\', \'' + escapeHtml(topHex.sender_name || 'Rival Commander') + '\')" style="font-size:0.78rem; font-weight:700; padding:0.35rem 0.75rem;">',
+      '    ⚔️ Avenge',
+      '  </button>',
+      '</div>'
+    ].join('');
+
+    container.prepend(banner);
+  }
+
   /**
    * Effect Dispatcher: Applies active decorations across the entire page
    */
@@ -758,6 +903,9 @@
     unequipSlot: unequipSlot,
     pokePlayer: pokePlayer,
     openPokeRivalModal: openPokeRivalModal,
+    checkAndTriggerSignInPokeEffect: checkAndTriggerSignInPokeEffect,
+    renderActiveRivalHexBanner: renderActiveRivalHexBanner,
+    getActiveHexes: getActiveHexes,
     applyEquippedDecorations: applyEquippedDecorations,
     getEquipped: function(slot, system) {
       var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
@@ -779,13 +927,19 @@
     getGlory: function() { return currentGlory; }
   };
 
-  // Auto-init decorations when DOM is ready
+  // Auto-init decorations & poke effects when DOM is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function() {
-      loadArmoryData().then(applyEquippedDecorations);
+      loadArmoryData().then(applyEquippedDecorations).then(function() {
+        checkAndTriggerSignInPokeEffect();
+        renderActiveRivalHexBanner();
+      });
     });
   } else {
-    loadArmoryData().then(applyEquippedDecorations);
+    loadArmoryData().then(applyEquippedDecorations).then(function() {
+      checkAndTriggerSignInPokeEffect();
+      renderActiveRivalHexBanner();
+    });
   }
 
 })(window);
