@@ -110,8 +110,8 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "name": "Art of War",
                 "short_tag": "AOW",
                 "bcp_team_id": "T12UL81TWD",
-                "owner_player_id": "p_innes",
-                "captain_name": "Innes Wilson",
+                "owner_player_id": "p_richard_siegler",
+                "captain_name": "Richard Siegler",
                 "home_venue": "At Ease Games",
                 "home_city": "San Diego",
                 "home_state": "CA",
@@ -127,17 +127,17 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "total_draws": 4,
                 "roster": [
                     {
-                        "player_id": "p_innes",
-                        "player_name": "Innes Wilson",
-                        "current_elo": 2375.2,
-                        "peak_elo": 2390.0,
-                        "faction": "Dark Angels",
+                        "player_id": "p_richard_siegler",
+                        "player_name": "Richard Siegler",
+                        "current_elo": 2385.2,
+                        "peak_elo": 2410.0,
+                        "faction": "Adeptus Mechanicus",
                         "role": "Captain",
                         "status": "confirmed",
                         "is_active": True,
-                        "win_rate": 87.6,
-                        "matches_played": 137,
-                        "form": "🔥 6W Streak"
+                        "win_rate": 88.5,
+                        "matches_played": 145,
+                        "form": "🔥 7W Streak"
                     },
                     {
                         "player_id": "p_folger_pyles",
@@ -235,13 +235,13 @@ def get_default_teams_seed() -> Dict[str, Any]:
                     {
                         "id": "feed-1",
                         "date": now_iso,
-                        "tournament": "Las Vegas Open 2026",
+                        "tournament": "LVO Championship Finals",
                         "round": "Championship Finals",
-                        "player_name": "Innes Wilson",
-                        "faction": "Dark Angels",
-                        "opponent_name": "David Gaylard",
-                        "opponent_team": "Team Zero Comp",
-                        "score": "95 - 42",
+                        "player_name": "Jack Harpster",
+                        "faction": "Blood Angels",
+                        "opponent_name": "Manning Feinleib",
+                        "opponent_team": "Independent",
+                        "score": "95 - 72",
                         "result": "win",
                         "elo_delta": "+14.8 Elo",
                         "is_team_round": False
@@ -255,7 +255,7 @@ def get_default_teams_seed() -> Dict[str, Any]:
                         "is_team_round": True,
                         "result": "team_win",
                         "round_score": "3 tables to 2",
-                        "notes": "Jack Harpster, John Lennon, and Innes Wilson secured table victories to lock 1st place."
+                        "notes": "Jack Harpster, John Lennon, and Richard Siegler secured table victories to lock 1st place."
                     },
                     {
                         "id": "feed-3",
@@ -288,8 +288,8 @@ def get_default_teams_seed() -> Dict[str, Any]:
                     ]
                 },
                 "trophy_room": [
-                    {"id": "tr-1", "title": "2026 LVO Champions", "icon": "👑", "category": "Super Major Title", "awarded_date": "Jan 2026", "significance": "Undefeated 8-0 run by Innes Wilson"},
-                    {"id": "tr-2", "title": "2025 WTC Champions", "icon": "🏆", "category": "World Championship", "awarded_date": "Aug 2025", "significance": "Team USA Anchor Squad (Jack Harpster, John Lennon)"},
+                    {"id": "tr-1", "title": "2023 LVO Champions", "icon": "👑", "category": "Super Major Title", "awarded_date": "Jan 2023", "significance": "Undefeated 8-0 run by Jack Harpster (Blood Angels)"},
+                    {"id": "tr-2", "title": "2025 WTC Champions", "icon": "🏆", "category": "World Championship", "awarded_date": "Aug 2025", "significance": "Team USA Anchor Squad (Jack Harpster, John Lennon, Richard Siegler)"},
                     {"id": "tr-3", "title": "2025 Nova Open Champions", "icon": "🥇", "category": "Major GT Title", "awarded_date": "Sep 2025", "significance": "Folger Pyles 1st Place overall"},
                     {"id": "tr-4", "title": "Century Club: 300+ Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2025", "significance": "Over 300 sanctioned tournament wins under the AOW banner"},
                     {"id": "tr-5", "title": "Elite Powerhouse", "icon": "⭐", "category": "Squad Caliber", "awarded_date": "2026", "significance": "Five active competitors over 2,100 Elo"}
@@ -297,7 +297,7 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "locker_room": {
                     "pinned_message": {
                         "id": "msg-pinned",
-                        "sender_name": "Innes Wilson",
+                        "sender_name": "Richard Siegler",
                         "role": "Captain",
                         "message": "📌 Practice session this Thursday 6:30 PM at At Ease Games. Bringing Pariah Nexus Layout 2. Testing against Custodes and Necrons.",
                         "timestamp": now_iso
@@ -325,7 +325,7 @@ def get_default_teams_seed() -> Dict[str, Any]:
                             "event_date": "2026-06-14",
                             "venue": "San Jose McEnery Convention Center",
                             "city": "San Jose, CA",
-                            "confirmed_attendees": ["Innes Wilson", "Folger Pyles", "Jack Harpster", "John Lennon"],
+                            "confirmed_attendees": ["Richard Siegler", "Folger Pyles", "Jack Harpster", "John Lennon"],
                             "notes": "Carpool leaving San Diego Friday 9:00 AM."
                         }
                     ]
