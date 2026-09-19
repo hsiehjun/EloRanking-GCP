@@ -309,6 +309,38 @@ class TestTeamsHubServiceAndEndpoints(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.remove_member(t_id, actor_player_id="player_recruit", target_player_id="player_recruit")
 
+    def test_co_captain_and_claim_inactive_captaincy(self):
+        import uuid
+        t_name = f"CoCaptain Test Club {uuid.uuid4().hex[:6]}"
+        team = self.service.create_team(
+            name=t_name,
+            short_tag="CTC",
+            game_system="40k",
+            owner_player_id="capt_afk",
+            captain_name="AFK Captain"
+        )
+        t_id = team["id"]
+        self.service.invite_player(t_id, actor_player_id="capt_afk", target_player_id="member_active", target_player_name="Active Member")
+
+        # 1. Promote Active Member to Co-Captain
+        res_role = self.service.update_member_role(t_id, actor_player_id="capt_afk", target_player_id="member_active", new_role="Co-Captain")
+        self.assertEqual(res_role["new_role"], "Co-Captain")
+
+        # 2. Co-Captain has governance authority: can invite new member
+        res_inv = self.service.invite_player(t_id, actor_player_id="member_active", target_player_id="player_third", target_player_name="Third Player")
+        self.assertTrue(res_inv["success"])
+
+        # 3. AFK Captaincy succession: Active Member can claim inactive captaincy
+        res_claim = self.service.claim_inactive_captaincy(t_id, claimant_id="member_active", reason="Captain is AFK")
+        self.assertTrue(res_claim["success"])
+        self.assertEqual(res_claim["new_captain_id"], "member_active")
+
+        hub = self.service.get_team_hub(t_id)
+        self.assertEqual(hub["owner_player_id"], "member_active")
+        self.assertEqual(hub["captain_name"], "Active Member")
+        self.assertEqual(next(p for p in hub["roster"] if p["player_id"] == "capt_afk")["role"], "Officer")
+        self.assertEqual(next(p for p in hub["roster"] if p["player_id"] == "member_active")["role"], "Captain")
+
 
 if __name__ == "__main__":
     unittest.main()

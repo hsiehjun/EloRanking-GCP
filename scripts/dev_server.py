@@ -1723,6 +1723,25 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"detail": str(e)}).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/teams/") and clean_path.endswith("/captain/claim-inactive"):
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            t_id = clean_path.split("/")[2]
+            claimant_id = payload.get("claimant_id") or DEV_USER["user"].get("player_id") or "p_innes"
+            reason = payload.get("reason", "Leadership inactivity")
+            try:
+                res = svc.claim_inactive_captaincy(t_id, claimant_id, reason)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": str(e)}).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/teams/") and clean_path.endswith("/members/role"):
             import teams_hub_service
             svc = teams_hub_service.get_teams_hub_service()
@@ -2934,7 +2953,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             import teams_hub_service
             svc = teams_hub_service.get_teams_hub_service()
             p_id = (query_params.get("player_id", [None])[0] or DEV_USER["user"].get("player_id") or "p_innes").strip()
-            history = svc.get_player_detected_history(p_id)
+            p_name = (query_params.get("player_name", [None])[0] or DEV_USER["user"].get("display_name") or "Player").strip()
+            history = svc.get_player_detected_history(p_id, p_name)
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()

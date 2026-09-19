@@ -727,8 +727,27 @@ function renderTrajectoryChart(trajectory) {
 }
 
 let currentTeamRoster = [];
+let currentModalTeamName = '';
+
+function openFullTeamHubFromModal() {
+  const target = currentModalTeamName || (document.getElementById('modal-team-title') ? document.getElementById('modal-team-title').innerText.trim() : '');
+  if (target) {
+    if (typeof closeModal === 'function') {
+      closeModal('team-modal');
+    }
+    if (typeof switchTab === 'function') {
+      switchTab('teams');
+    }
+    if (typeof loadTeamsView === 'function') {
+      loadTeamsView(target);
+    }
+  }
+}
+window.openFullTeamHubFromModal = openFullTeamHubFromModal;
 
 async function openTeamModal(teamName) {
+  currentModalTeamName = teamName || '';
+  window.currentModalTeamName = currentModalTeamName;
   const modal = document.getElementById('team-modal');
   if (!modal) return;
   bringModalToFront(modal);

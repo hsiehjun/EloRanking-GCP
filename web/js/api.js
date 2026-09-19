@@ -548,15 +548,22 @@ window.api = {
   },
 
   // Team Hub: Current User Affiliation & Team
-  async getMyTeam(gameSystem = '') {
+  async getMyTeam(gameSystem = '', playerId = '') {
     const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
-    const qs = currentSys ? `?game_system=${encodeURIComponent(currentSys)}` : '';
+    const pid = playerId || (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id || currentUser.bcp_user_id || currentUser.id)) || '';
+    const params = new URLSearchParams();
+    if (currentSys) params.append('game_system', currentSys);
+    if (pid) params.append('player_id', pid);
+    const qs = params.toString() ? `?${params.toString()}` : '';
     return this._fetchJson(`/api/teams/my-team${qs}`);
   },
 
   // Team Hub: Detected Teams for Onboarding Modal
-  async getDetectedTeams(playerId = '') {
-    const qs = playerId ? `?player_id=${encodeURIComponent(playerId)}` : '';
+  async getDetectedTeams(playerId = '', playerName = '') {
+    const params = new URLSearchParams();
+    if (playerId) params.append('player_id', playerId);
+    if (playerName) params.append('player_name', playerName);
+    const qs = params.toString() ? `?${params.toString()}` : '';
     return this._fetchJson(`/api/teams/detected-history${qs}`);
   },
 
@@ -629,6 +636,15 @@ window.api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ new_captain_id: newCaptainId })
+    });
+  },
+
+  // Team Hub: Claim Inactive/AFK Captaincy (Officer/Member takeover)
+  async claimInactiveCaptaincy(teamId, claimantId = '', reason = '') {
+    return this._fetchJson(`/api/teams/${encodeURIComponent(teamId)}/captain/claim-inactive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claimant_id: claimantId, reason })
     });
   },
 

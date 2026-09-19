@@ -66,22 +66,27 @@ class TestCrossGameIsolation(unittest.TestCase):
 
     def test_live_dev_server_endpoints(self):
         """Verify live dev server on port 5177 returns isolated catalogs."""
+        port = 5178
         try:
-            req_40k = urllib.request.urlopen("http://127.0.0.1:5177/api/badges/catalog?game_system=40k", timeout=2)
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/api/badges/catalog?game_system=40k", timeout=1)
+        except Exception:
+            port = 5177
+        try:
+            req_40k = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/badges/catalog?game_system=40k", timeout=2)
             data_40k = json.loads(req_40k.read())
             self.assertEqual(data_40k["game_system"], "40k")
             self.assertEqual(data_40k["total"], 105)
             self.assertEqual(len(data_40k["badges"]), 105)
             self.assertEqual(data_40k["ranks"][4]["title"], "Chapter Master")
 
-            req_aos = urllib.request.urlopen("http://127.0.0.1:5177/api/badges/catalog?game_system=aos", timeout=2)
+            req_aos = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/badges/catalog?game_system=aos", timeout=2)
             data_aos = json.loads(req_aos.read())
             self.assertEqual(data_aos["game_system"], "aos")
             self.assertEqual(data_aos["total"], 105)
             self.assertEqual(len(data_aos["badges"]), 105)
             self.assertEqual(data_aos["ranks"][4]["title"], "Lord-Commander")
         except Exception as e:
-            self.fail(f"Dev server request failed: {e}")
+            self.fail(f"Dev server request failed on port {port}: {e}")
 
 
 if __name__ == '__main__':

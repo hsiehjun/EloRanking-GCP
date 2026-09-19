@@ -44,12 +44,12 @@ async function loadTeamsView(forceTeamId = null) {
   try {
     const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
 
-    // If specific team requested (e.g. clicked from leaderboard)
-    if (forceTeamId && forceTeamId !== 'directory') {
+    // If specific team requested (e.g. clicked from quick modal or link)
+    if (forceTeamId && forceTeamId !== 'directory' && forceTeamId !== 'unaffiliated') {
       const hubRes = await window.api.getTeamHub(forceTeamId, sys);
       if (hubRes && hubRes.team) {
         currentTeamHubData = hubRes.team;
-        renderTeamHub(currentTeamHubData);
+        renderTeamHub(currentTeamHubData, true);
         return;
       }
     }
@@ -62,13 +62,12 @@ async function loadTeamsView(forceTeamId = null) {
 
     userTeamAffiliation = affRes && affRes.affiliation ? affRes.affiliation : null;
 
-    if (affRes && affRes.has_team && affRes.team && forceTeamId !== 'directory') {
+    if (affRes && affRes.has_team && affRes.team && forceTeamId !== 'directory' && forceTeamId !== 'unaffiliated') {
       currentTeamHubData = affRes.team;
-      renderTeamHub(currentTeamHubData);
+      renderTeamHub(currentTeamHubData, false);
     } else {
-      // Show Global Clubs Directory & Discovery Hub
-      renderGlobalClubsDirectory();
-      loadTeamsDirectory();
+      // User is NOT on a team! Show clean unaffiliated empty state with options to Claim / Found / Search!
+      renderUnaffiliatedTeamsView();
     }
   } catch (err) {
     console.error('Error loading teams view:', err);
@@ -80,7 +79,7 @@ async function loadTeamsView(forceTeamId = null) {
 // 2. RENDER THE 6-TAB TEAM HUB (DIGITAL CLUBHOUSE)
 // --------------------------------------------------------------------------
 
-function renderTeamHub(team) {
+function renderTeamHub(team, isPublicView = false) {
   const container = document.getElementById('teams-view-container');
   if (!container || !team) return;
 
@@ -222,7 +221,24 @@ function renderTeamHub(team) {
     </div>
   `;
 
-  container.innerHTML = bannerHtml + subtabsNav + contentHtml;
+  let publicBannerHtml = isPublicView ? `
+    <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.25); border-radius: 12px; padding: 0.65rem 1.15rem; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 1.2rem;">🛡️</span>
+        <span style="font-size: 0.85rem; color: #cbd5e1;">Viewing Public Clubhouse Profile: <strong style="color: #fff;">${escapeHtml(team.name)}</strong></span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button type="button" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="loadTeamsView()">
+          ⬅️ Back to My Team Hub
+        </button>
+        <button type="button" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="switchTab('search'); switchSearchSubtab('teams');">
+          🔍 Search Directory
+        </button>
+      </div>
+    </div>
+  ` : '';
+
+  container.innerHTML = publicBannerHtml + bannerHtml + subtabsNav + contentHtml;
 
   if (currentTeamHubSubtab === 'trajectory') {
     drawTeamTrajectoryCanvas(team);
@@ -306,11 +322,18 @@ function renderSubtabRoster(team) {
       <div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
           <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">📋 Complete Active Club Ladder (${fullRoster.length})</h3>
-          ${(typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id)) ? `
-            <button type="button" class="btn btn-outline" onclick="promptInviteTeammate('${escapeHtml(team.id)}')" style="font-size: 0.76rem; color: #38bdf8; border-color: rgba(56,189,248,0.4); padding: 0.35rem 0.85rem; border-radius: 6px;">
-              ✉️ + Invite Teammate
-            </button>
-          ` : ''}
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            ${(typeof currentUser !== 'undefined' && currentUser && team.roster && team.roster.some(p => (p.player_id === currentUser.player_id || p.player_id === currentUser.id) && p.role !== 'Captain' && currentUser.player_id !== team.owner_player_id && currentUser.id !== team.owner_player_id)) ? `
+              <button type="button" class="btn btn-outline" onclick="promptClaimInactiveCaptain('${escapeHtml(team.id)}')" style="font-size: 0.76rem; color: #fbbf24; border-color: rgba(245,158,11,0.4); padding: 0.35rem 0.85rem; border-radius: 6px;" title="Claim Captaincy if the reigning captain is AFK or inactive">
+                👑 Claim Inactive Captaincy
+              </button>
+            ` : ''}
+            ${(typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id || (team.roster && team.roster.some(p => (p.player_id === currentUser.player_id || p.player_id === currentUser.id) && (p.role === 'Captain' || p.role === 'Co-Captain' || p.role === 'Officer'))))) ? `
+              <button type="button" class="btn btn-outline" onclick="promptInviteTeammate('${escapeHtml(team.id)}')" style="font-size: 0.76rem; color: #38bdf8; border-color: rgba(56,189,248,0.4); padding: 0.35rem 0.85rem; border-radius: 6px;">
+                ✉️ + Invite Teammate
+              </button>
+            ` : ''}
+          </div>
         </div>
         <div class="table-container">
           <table class="table">
@@ -323,12 +346,13 @@ function renderSubtabRoster(team) {
                 <th>Faction</th>
                 <th>Current Elo</th>
                 <th>Win Rate</th>
-                ${(typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id)) ? `<th>High Command</th>` : ''}
+                ${(typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id || (team.roster && team.roster.some(p => (p.player_id === currentUser.player_id || p.player_id === currentUser.id) && (p.role === 'Captain' || p.role === 'Co-Captain' || p.role === 'Officer'))))) ? `<th>High Command</th>` : ''}
               </tr>
             </thead>
             <tbody>
               ${fullRoster.map((p, idx) => {
-                const isCapt = (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id));
+                const isCapt = (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id || (team.roster && team.roster.some(m => (m.player_id === currentUser.player_id || m.player_id === currentUser.id) && m.role === 'Captain'))));
+                const canManage = isCapt || (typeof currentUser !== 'undefined' && currentUser && team.roster && team.roster.some(m => (m.player_id === currentUser.player_id || m.player_id === currentUser.id) && (m.role === 'Co-Captain' || m.role === 'Officer')));
                 return `
                 <tr onclick="openPlayerModal('${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name)}')" style="cursor: pointer;">
                   <td style="font-family: var(--font-mono); font-weight: 700; color: #94a3b8;">#${idx + 1}</td>
@@ -336,7 +360,7 @@ function renderSubtabRoster(team) {
                     <span class="player-link" style="font-weight: 700;">${escapeHtml(p.player_name)}</span>
                   </td>
                   <td>
-                    <span class="badge" style="font-size: 0.7rem; background: ${p.role === 'Captain' ? 'rgba(245,158,11,0.15)' : 'rgba(56,189,248,0.1)'}; color: ${p.role === 'Captain' ? '#f59e0b' : '#38bdf8'};">
+                    <span class="badge" style="font-size: 0.7rem; background: ${p.role === 'Captain' ? 'rgba(245,158,11,0.15)' : (p.role === 'Co-Captain' ? 'rgba(168,85,247,0.15)' : 'rgba(56,189,248,0.1)')}; color: ${p.role === 'Captain' ? '#f59e0b' : (p.role === 'Co-Captain' ? '#c084fc' : '#38bdf8')};">
                       ${escapeHtml(p.role || 'Member')}
                     </span>
                   </td>
@@ -350,16 +374,21 @@ function renderSubtabRoster(team) {
                   <td style="font-family: var(--font-mono); color: ${Number(p.win_rate || 0) >= 60 ? '#10b981' : '#cbd5e1'}; font-weight: 700;">
                     ${Number(p.win_rate || 0)}%
                   </td>
-                  ${isCapt ? `
+                  ${canManage ? `
                     <td onclick="event.stopPropagation();" style="white-space: nowrap;">
                       ${p.player_id !== team.owner_player_id ? `
-                        <button type="button" class="btn-sm" onclick="promptTransferCaptain('${escapeHtml(team.id)}', '${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name)}')" style="font-size: 0.68rem; padding: 3px 7px; background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.35); border-radius: 4px; cursor: pointer;" title="Transfer Captaincy">
-                          👑 Transfer
+                        ${isCapt ? `
+                          <button type="button" class="btn-sm" onclick="promptTransferCaptain('${escapeHtml(team.id)}', '${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name)}')" style="font-size: 0.68rem; padding: 3px 7px; background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.35); border-radius: 4px; cursor: pointer;" title="Transfer Captaincy">
+                            👑 Transfer
+                          </button>
+                        ` : ''}
+                        <button type="button" class="btn-sm" onclick="promptUpdateTeammateRole('${escapeHtml(team.id)}', '${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name)}', '${escapeHtml(p.role || 'Member')}')" style="font-size: 0.68rem; padding: 3px 7px; background: rgba(168,85,247,0.12); color: #c084fc; border: 1px solid rgba(168,85,247,0.35); border-radius: 4px; margin-left: 4px; cursor: pointer;" title="Change Squad Role">
+                          🎖️ Role
                         </button>
                         <button type="button" class="btn-sm" onclick="promptRemoveTeammate('${escapeHtml(team.id)}', '${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name)}')" style="font-size: 0.68rem; padding: 3px 7px; background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.35); border-radius: 4px; margin-left: 4px; cursor: pointer;" title="Remove teammate">
                           🚫 Remove
                         </button>
-                      ` : '<span style="font-size: 0.72rem; color: #fbbf24; font-weight: 700;">👑 Squad Leader</span>'}
+                      ` : '<span style="font-size: 0.72rem; color: #fbbf24; font-weight: 700;">👑 Sovereign Captain</span>'}
                     </td>
                   ` : ''}
                 </tr>
@@ -746,107 +775,122 @@ function renderSubtabLockerRoom(team) {
 }
 
 // --------------------------------------------------------------------------
-// 4. GLOBAL TEAMS LEADERBOARD & DIRECTORY VIEW
+// 4. UNAFFILIATED SQUAD EMPTY STATE & TEAMS DIRECTORY
 // --------------------------------------------------------------------------
 
-function renderGlobalClubsDirectory() {
+function renderUnaffiliatedTeamsView() {
   const container = document.getElementById('teams-view-container');
   if (!container) return;
 
-  const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
-
   container.innerHTML = `
-    <div style="display: flex; flex-direction: column; gap: 1.25rem;">
-      <!-- Hero Banner -->
-      <div style="background: linear-gradient(135deg, rgba(15,23,42,0.95) 0%, rgba(30,58,138,0.25) 100%); border: 1px solid rgba(56,189,248,0.3); border-radius: 16px; padding: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <div>
-          <div style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; background: rgba(56,189,248,0.12); padding: 2px 8px; border-radius: 6px; margin-bottom: 0.4rem;">
-            🛡️ OmniTactica Clubs &amp; Teams System
-          </div>
-          <h1 style="font-size: 1.6rem; font-weight: 900; color: #fff; margin: 0; font-family: var(--font-heading);">
-            Global ${sys.toUpperCase()} Club Power Rankings
-          </h1>
-          <p style="font-size: 0.84rem; color: #94a3b8; margin: 0.25rem 0 0;">
-            Clubs ranked by the Tri-Anchor Skill Baseline, 30-Player Roster Maturity Curve, and Team Combat Multipliers.
-          </p>
-        </div>
-        <button type="button" class="btn btn-primary" onclick="openCreateTeamModal()" style="font-size: 0.84rem; font-weight: 800; padding: 0.55rem 1.25rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;">
-          <span>➕</span> <span>Found a New Team Hub</span>
+    <div class="team-unaffiliated-container" style="max-width: 760px; margin: 2rem auto; text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(15,23,42,0.98) 0%, rgba(30,58,138,0.2) 100%); border: 1px solid rgba(56,189,248,0.25); border-radius: 20px; box-shadow: 0 20px 45px rgba(0,0,0,0.5);">
+      <div style="width: 76px; height: 76px; border-radius: 18px; background: rgba(56,189,248,0.12); border: 2px solid rgba(56,189,248,0.4); display: flex; align-items: center; justify-content: center; font-size: 2.6rem; margin: 0 auto 1.25rem; box-shadow: 0 0 25px rgba(56,189,248,0.25);">
+        🛡️
+      </div>
+      <h2 style="font-size: 1.7rem; font-weight: 900; color: #fff; margin: 0 0 0.65rem; font-family: var(--font-heading);">
+        No Team Affiliation
+      </h2>
+      <p style="font-size: 0.92rem; color: #94a3b8; max-width: 520px; margin: 0 auto 2rem; line-height: 1.6;">
+        You currently compete as an <strong style="color: #38bdf8;">Independent</strong> on Global Leaderboards. Compete under an official team banner to participate in squad events, coordinate war rooms, earn Glory honors, and climb the club rankings.
+      </p>
+
+      <div style="display: flex; justify-content: center; gap: 0.85rem; flex-wrap: wrap; margin-bottom: 2rem;">
+        <button type="button" class="btn btn-primary" onclick="checkAndShowTeamOnboardingModal()" style="font-size: 0.88rem; font-weight: 800; padding: 0.65rem 1.3rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px;">
+          <span>🛡️</span>
+          <span>Select Team from History</span>
+        </button>
+        <button type="button" class="btn btn-outline" onclick="openCreateTeamModal()" style="font-size: 0.88rem; font-weight: 700; padding: 0.65rem 1.3rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px;">
+          <span>➕</span>
+          <span>Found a Brand New Club</span>
+        </button>
+        <button type="button" class="btn btn-outline" onclick="switchTab('search'); switchSearchSubtab('teams');" style="font-size: 0.88rem; font-weight: 700; padding: 0.65rem 1.3rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px;">
+          <span>🔍</span>
+          <span>Browse Clubs in Search</span>
         </button>
       </div>
 
-      <!-- Filter Controls Bar -->
-      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; background: rgba(15,23,42,0.6); padding: 0.85rem 1.15rem; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px;">
-        <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 260px;">
-          <input type="text" id="teams-search-input" class="search-input" placeholder="Search clubs by name, tag, or captain..." style="width: 100%; font-size: 0.84rem;" oninput="debounceTeamsSearch()">
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <label style="font-size: 0.76rem; font-weight: 700; color: #94a3b8;">Min Roster:</label>
-          <select id="teams-min-roster-filter" class="form-input" style="font-size: 0.78rem; background: #070b14; color: #fff; border: 1px solid rgba(56,189,248,0.3); border-radius: 6px; padding: 0.35rem 0.6rem; cursor: pointer;" onchange="teamsPagination.page = 1; loadTeamsDirectory();">
-            <option value="1" selected>All Clubs (1+)</option>
-            <option value="3">Qualified (3+)</option>
-            <option value="5">Squads (5+)</option>
-            <option value="10">Major Clubs (10+)</option>
-          </select>
+      <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1.15rem 1.35rem; max-width: 560px; margin: 0 auto; text-align: left; display: flex; align-items: flex-start; gap: 0.85rem;">
+        <span style="font-size: 1.3rem; margin-top: 1px;">💡</span>
+        <div style="font-size: 0.82rem; color: #cbd5e1; line-height: 1.5;">
+          <strong style="color: #fff;">Looking for other teams?</strong>
+          Clubs can be explored and searched anytime in the <a href="javascript:void(0)" onclick="switchTab('search'); switchSearchSubtab('teams');" style="color: #38bdf8; font-weight: 700; text-decoration: underline;">Search Tab</a> or on the <a href="javascript:void(0)" onclick="switchTab('leaderboard');" style="color: #38bdf8; font-weight: 700; text-decoration: underline;">Leaderboard</a>. Clicking any club opens its quick roster modal with the option to inspect its full digital clubhouse.
         </div>
       </div>
-
-      <!-- Table Container -->
-      <div class="table-container">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Rank</th>
-              <th>Club</th>
-              <th>Power Rating</th>
-              <th>Combat Factor</th>
-              <th>Top Anchor</th>
-              <th>Active Depth</th>
-              <th>Record</th>
-              <th>Win Rate</th>
-            </tr>
-          </thead>
-          <tbody id="teams-body">
-            <tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading teams directory...</div></td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Pagination Bar -->
-      <div id="teams-pagination"></div>
     </div>
   `;
 }
 
-async function loadTeamsDirectory() {
+let teamsDirectoryCache = { '40k': null, 'aos': null };
+
+async function loadTeamsDirectory(forceRefresh = false) {
   const queryInput = document.getElementById('teams-search-input');
-  const query = queryInput ? queryInput.value.trim() : '';
+  const query = (queryInput ? queryInput.value.trim() : '').toLowerCase();
   const minRosterSelect = document.getElementById('teams-min-roster-filter');
   const minRoster = minRosterSelect ? parseInt(minRosterSelect.value, 10) : 1;
   const tbody = document.getElementById('teams-body');
+  const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+
+  // Fast in-memory filter if cached
+  if (!forceRefresh && teamsDirectoryCache[sys] && teamsDirectoryCache[sys].length > 0) {
+    filterAndRenderCachedTeams(query, minRoster, sys);
+    return;
+  }
+
+  if (tbody && (!teamsDirectoryData || teamsDirectoryData.length === 0)) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading teams directory...</div></td></tr>';
+  }
 
   try {
-    const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
-    const res = await window.api.getTeamsDirectory(
-      query, minRoster, teamsSortState.field, teamsSortState.asc ? 'ASC' : 'DESC',
-      teamsPagination.page, teamsPagination.pageSize, sys
-    );
-    if (res && res.items) {
-      teamsDirectoryData = res.items;
-      teamsPagination.total = res.total || 0;
-      teamsPagination.page = res.page || 1;
-      teamsPagination.pageSize = res.page_size || 25;
-      teamsPagination.totalPages = res.total_pages || 1;
-    } else {
-      teamsDirectoryData = Array.isArray(res) ? res : [];
-      teamsPagination.total = teamsDirectoryData.length;
-    }
-    renderTeamsDirectoryRows();
-    if (typeof renderPaginationBar === 'function') {
-      renderPaginationBar('teams-pagination', teamsPagination, 'setTeamsPage', 'setTeamsPageSize');
-    }
+    const res = await window.api.getTeamsDirectory('', 1, 'power_rating', 'DESC', 1, 300, sys);
+    const allItems = (res && res.items) ? res.items : (Array.isArray(res) ? res : ((res && res.teams) ? res.teams : []));
+    teamsDirectoryCache[sys] = allItems;
+    filterAndRenderCachedTeams(query, minRoster, sys);
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="empty-state" style="color:var(--loss);">Error loading teams: ${escapeHtml(err.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading teams directory: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function filterAndRenderCachedTeams(query, minRoster, sys) {
+  let list = teamsDirectoryCache[sys] || [];
+  if (query) {
+    list = list.filter(t => {
+      const name = (t.name || t.team || '').toLowerCase();
+      const tag = (t.short_tag || '').toLowerCase();
+      const capt = (t.captain_name || '').toLowerCase();
+      const city = (t.home_city || '').toLowerCase();
+      return name.includes(query) || tag.includes(query) || capt.includes(query) || city.includes(query);
+    });
+  }
+  if (minRoster > 1) {
+    list = list.filter(t => (t.roster_count || (t.roster ? t.roster.length : 0)) >= minRoster);
+  }
+
+  // Sort
+  const field = teamsSortState.field || 'power_rating';
+  const asc = teamsSortState.asc;
+  list.sort((a, b) => {
+    let valA = a[field];
+    let valB = b[field];
+    if (field === 'team') {
+      valA = a.name || a.team || '';
+      valB = b.name || b.team || '';
+      return asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+    }
+    valA = Number(valA != null ? valA : 0);
+    valB = Number(valB != null ? valB : 0);
+    return asc ? valA - valB : valB - valA;
+  });
+
+  teamsPagination.total = list.length;
+  teamsPagination.totalPages = Math.max(1, Math.ceil(list.length / teamsPagination.pageSize));
+  if (teamsPagination.page > teamsPagination.totalPages) teamsPagination.page = 1;
+
+  const start = (teamsPagination.page - 1) * teamsPagination.pageSize;
+  teamsDirectoryData = list.slice(start, start + teamsPagination.pageSize);
+
+  renderTeamsDirectoryRows();
+  if (typeof renderPaginationBar === 'function') {
+    renderPaginationBar('teams-pagination', teamsPagination, 'setTeamsPage', 'setTeamsPageSize');
   }
 }
 
@@ -856,24 +900,27 @@ function renderTeamsDirectoryRows() {
   tbody.innerHTML = '';
 
   if (!teamsDirectoryData || teamsDirectoryData.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No clubs found matching search criteria.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No clubs found matching search criteria.</td></tr>';
     return;
   }
 
-  teamsDirectoryData.forEach((t, idx) => {
+  teamsDirectoryData.forEach(t => {
     const tr = document.createElement('tr');
     tr.style.cursor = 'pointer';
-    tr.onclick = () => loadTeamsView(t.id || t.team);
+    const teamName = t.name || t.team || '';
+    tr.onclick = () => openTeamModal(teamName);
 
-    const rank = t.rank || (teamsPagination.page - 1) * teamsPagination.pageSize + idx + 1;
-    const cf = Number(t.combat_factor || 1.0).toFixed(3);
+    const winRate = Number(t.team_win_rate || 0);
+    const avgElo = Number(t.avg_elo || t.active_avg_elo || 1500).toFixed(1);
+    const topPlayerElo = Number(t.top_player_elo || 1500).toFixed(1);
+    const topPlayerName = t.top_player_name || 'Top Player';
+    const topPlayerId = t.top_player_id || '';
 
     tr.innerHTML = `
-      <td style="font-family: var(--font-mono); font-weight: 700; color: #94a3b8;">#${rank}</td>
       <td>
         <div style="font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.45rem;">
           <span>🛡️</span>
-          <span class="player-link" style="font-size: 0.92rem;">${escapeHtml(t.name || t.team)}</span>
+          <span class="player-link" style="font-size: 0.92rem;">${escapeHtml(teamName)}</span>
           <span class="badge" style="font-size: 0.68rem; background: rgba(168,85,247,0.12); color: #c084fc;">[${escapeHtml(t.short_tag || 'TEAM')}]</span>
         </div>
         <div style="font-size: 0.72rem; color: #94a3b8; margin-top: 2px;">📍 ${escapeHtml(t.home_city || 'San Diego')}</div>
@@ -883,26 +930,31 @@ function renderTeamsDirectoryRows() {
           ${Number(t.power_rating || 0).toFixed(1)}
         </span>
       </td>
+      <td style="font-family: var(--font-mono); font-weight: 600; color: var(--accent);">
+        ${avgElo}
+      </td>
       <td>
-        <span class="badge" style="font-family: var(--font-mono); font-size: 0.75rem; background: ${Number(cf) >= 1.0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)'}; color: ${Number(cf) >= 1.0 ? '#10b981' : '#ef4444'};">
-          ${cf}x
+        <span class="player-link" style="font-size: 0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(topPlayerId)}', '${escapeHtml(topPlayerName)}')">
+          ${escapeHtml(topPlayerName)}
+        </span>
+        <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); margin-left: 0.3rem;">
+          (${topPlayerElo})
         </span>
       </td>
-      <td>
-        <div style="font-size: 0.84rem; font-weight: 600; color: #fff;">${escapeHtml(t.top_player_name || 'Top Anchor')}</div>
-        <div style="font-size: 0.72rem; color: #94a3b8; font-family: var(--font-mono);">${Number(t.top_player_elo || 1500).toFixed(1)} Elo</div>
-      </td>
-      <td>
-        <span class="badge" style="font-size: 0.74rem; background: rgba(56,189,248,0.1); color: #38bdf8;">
-          ${t.active_roster_count != null ? t.active_roster_count : (t.roster_count || 1)} Active / ${t.roster_count || 1} Total
+      <td style="font-family: var(--font-mono); font-weight: 600;">
+        <span class="badge" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem;">
+          ${t.roster_count || (t.roster ? t.roster.length : 1)} Players
         </span>
       </td>
-      <td style="font-family: var(--font-mono); font-size: 0.84rem;">
-        <span style="color: #10b981; font-weight: 700;">${t.total_wins || 0}W</span> - 
-        <span style="color: #ef4444; font-weight: 700;">${t.total_losses || 0}L</span>
+      <td style="font-family: var(--font-mono); font-size: 0.85rem;">
+        <span style="color: var(--win); font-weight: 600;">${t.total_wins || 0}W</span> - 
+        <span style="color: var(--loss); font-weight: 600;">${t.total_losses || 0}L</span>
+        ${t.total_draws ? ` - <span style="color: var(--draw); font-weight: 600;">${t.total_draws}D</span>` : ''}
       </td>
-      <td style="font-family: var(--font-mono); font-weight: 800; color: ${Number(t.team_win_rate || 0) >= 55 ? '#10b981' : '#cbd5e1'}; font-size: 0.9rem;">
-        ${Number(t.team_win_rate || 0)}%
+      <td style="font-family: var(--font-mono); font-weight: 600;">
+        <span style="color: ${winRate >= 55 ? 'var(--win)' : (winRate >= 45 ? 'var(--accent)' : 'var(--text-secondary)')};">
+          ${winRate}%
+        </span>
       </td>
     `;
     tbody.appendChild(tr);
@@ -913,12 +965,13 @@ function renderTeamsDirectoryRows() {
 // 5. ONBOARDING MODAL LOGIC ("CLAIM YOUR TEAM")
 // --------------------------------------------------------------------------
 
-async function checkAndShowTeamOnboardingModal() {
+async function checkAndShowTeamOnboardingModal(forceOpen = false) {
   if (!currentUser) return;
 
   try {
-    const affRes = await window.api.getMyTeam();
-    if (affRes && affRes.has_team && affRes.affiliation && affRes.affiliation.confirmed_at) {
+    const pid = (currentUser && (currentUser.player_id || currentUser.bcp_user_id || currentUser.id)) || '';
+    const affRes = await window.api.getMyTeam('', pid);
+    if (!forceOpen && affRes && affRes.has_team && affRes.affiliation && affRes.affiliation.confirmed_at && affRes.affiliation.team_id) {
       return; // Already confirmed!
     }
 
@@ -931,8 +984,9 @@ async function checkAndShowTeamOnboardingModal() {
       listEl.innerHTML = '<div class="empty-state" style="padding: 1.5rem;"><div class="spinner"></div><div style="margin-top:0.5rem;">Scanning tournament records...</div></div>';
     }
 
-    const historyRes = await window.api.getDetectedTeams(currentUser.player_id);
-    const detected = (historyRes && historyRes.detected) ? historyRes.detected : [];
+    const pname = (currentUser && (currentUser.display_name || currentUser.name)) || '';
+    const historyRes = await window.api.getDetectedTeams(pid, pname);
+    const detected = (historyRes && Array.isArray(historyRes.detected)) ? historyRes.detected : [];
 
     if (listEl) {
       if (detected.length === 0) {
@@ -1003,7 +1057,9 @@ async function submitOnboardingTeamChoice() {
   }
 
   try {
-    const res = await window.api.confirmTeamAffiliation(selectedOnboardingTeamId);
+    const pid = (currentUser && (currentUser.player_id || currentUser.bcp_user_id || currentUser.id)) || '';
+    const pname = (currentUser && (currentUser.display_name || currentUser.name)) || '';
+    const res = await window.api.confirmTeamAffiliation(selectedOnboardingTeamId, pid, pname);
     closeTeamOnboardingModal();
     if (typeof showToastNotification === 'function') {
       showToastNotification('🛡️ Official Team Affiliation Confirmed!', 'success');
@@ -1191,8 +1247,46 @@ async function promptRemoveTeammate(teamId, targetId, targetName) {
   }
 }
 
+async function promptClaimInactiveCaptain(teamId) {
+  if (!confirm(`👑 Claim Sovereign Team Captaincy?\n\nIf the reigning Team Captain is inactive, AFK, or non-responsive, you may initiate High Command succession. You will assume Team Captaincy and former leadership will transition to Officer.`)) {
+    return;
+  }
+  try {
+    const pid = (currentUser && (currentUser.player_id || currentUser.bcp_user_id || currentUser.id)) || '';
+    const res = await window.api.claimInactiveCaptaincy(teamId, pid, 'Leadership inactivity');
+    if (typeof showToastNotification === 'function') {
+      showToastNotification(`👑 Succession confirmed! You are now the Team Captain.`, 'success');
+    }
+    loadTeamsView(teamId);
+  } catch (err) {
+    alert(`Error claiming captaincy: ${err.message}`);
+  }
+}
+
+async function promptUpdateTeammateRole(teamId, targetId, targetName, currentRole) {
+  const options = ['Co-Captain', 'Officer', 'Core', 'Member', 'Provisional'];
+  const newRole = prompt(`Assign squad rank/role for ${targetName}:\n(Available: ${options.join(', ')})\n\nNote: Co-Captains have full squad invite/kick/governance permissions if the Captain is unavailable.`, currentRole || 'Member');
+  if (!newRole || !newRole.trim()) return;
+  const cleanRole = newRole.trim();
+  const matched = options.find(o => o.toLowerCase() === cleanRole.toLowerCase());
+  if (!matched) {
+    alert(`Invalid role. Please choose one of: ${options.join(', ')}`);
+    return;
+  }
+  try {
+    await window.api.updateTeamMemberRole(teamId, targetId, matched);
+    if (typeof showToastNotification === 'function') {
+      showToastNotification(`🎖️ ${targetName}'s rank updated to ${matched}!`, 'success');
+    }
+    loadTeamsView(teamId);
+  } catch (err) {
+    alert(`Error updating role: ${err.message}`);
+  }
+}
+
 window.loadTeamsView = loadTeamsView;
 window.renderTeamHub = renderTeamHub;
+window.renderUnaffiliatedTeamsView = renderUnaffiliatedTeamsView;
 window.switchTeamHubSubtab = switchTeamHubSubtab;
 window.loadTeamsDirectory = loadTeamsDirectory;
 window.renderTeamsDirectoryRows = renderTeamsDirectoryRows;
@@ -1212,4 +1306,6 @@ window.toggleTeamSquadEventAttendance = toggleTeamSquadEventAttendance;
 window.promptInviteTeammate = promptInviteTeammate;
 window.promptTransferCaptain = promptTransferCaptain;
 window.promptRemoveTeammate = promptRemoveTeammate;
+window.promptClaimInactiveCaptain = promptClaimInactiveCaptain;
+window.promptUpdateTeammateRole = promptUpdateTeammateRole;
 window.confirmLeaveTeam = confirmLeaveTeam;
