@@ -1013,22 +1013,6 @@ class TeamsHubService:
                     "match_count": 32,
                     "last_played": "LVO 2026",
                     "is_current": True
-                },
-                {
-                    "team_id": "team_waaagh_boys",
-                    "name": "Waaagh Boys",
-                    "short_tag": "WB",
-                    "match_count": 18,
-                    "last_played": "SoCal Open 2025",
-                    "is_current": False
-                },
-                {
-                    "team_id": "team_san_diego_tabletop",
-                    "name": "San Diego Tabletop Syndicate",
-                    "short_tag": "SDTC",
-                    "match_count": 10,
-                    "last_played": "San Diego RTT",
-                    "is_current": False
                 }
             ]
 

@@ -78,7 +78,9 @@ async def api_teams_detected_history(
 
     combined = []
     seen = set()
-    for d in svc_detected + db_detected:
+    # Prioritize real tournament records from event_participants if present
+    source_list = db_detected if len(db_detected) > 0 else svc_detected
+    for d in source_list:
         key = (d.get("name") or d.get("team_id") or "").lower().strip()
         if key and key not in seen:
             seen.add(key)
