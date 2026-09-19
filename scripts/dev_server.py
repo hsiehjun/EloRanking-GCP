@@ -1131,15 +1131,6 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             except Exception:
                 payload = {}
 
-            if clean_path == "api/armory/reset":
-                DEV_USER["armory_vault"] = {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}}
-                DEV_USER["glory_spent"] = 0
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(json.dumps({"success": True, "message": "Armory vault reset to clean slate"}).encode("utf-8"))
-                return
-
             if clean_path == "api/armory/purchase":
                 import armory_catalog
                 item_id = (payload.get("item_id") or "").strip()
@@ -1151,10 +1142,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     self.wfile.write(json.dumps({"detail": f"Item {item_id} not found in catalog"}).encode("utf-8"))
                     return
 
-                v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}})
+                v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None}})
                 inv = v.setdefault("inventory", {})
                 cost = item.get("cost_glory", 0)
-                total_earned = 5000
+                total_earned = 1845
                 spent = int(DEV_USER.get("glory_spent") or 0)
                 spendable = max(0, total_earned - spent)
 
@@ -1164,6 +1155,26 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(json.dumps({"detail": f"Insufficient Glory Honor. Cost {cost}, available {spendable}"}).encode("utf-8"))
                     return
+
+                # Check prerequisite locks (Career Crest Tier and All-Time Peak Elo)
+                prereq = item.get("prerequisite")
+                crest_tier = 5
+                user_peak = float(DEV_USER.get("peak_elo", 1890.0))
+                if prereq:
+                    req_tier = prereq.get("career_crest_tier")
+                    if req_tier is not None and crest_tier < req_tier:
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"detail": prereq.get("label", f"Requires Crest Tier {req_tier}+")}).encode("utf-8"))
+                        return
+                    req_peak = prereq.get("peak_elo")
+                    if req_peak is not None and user_peak < req_peak:
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"detail": prereq.get("label", f"Requires All-Time Peak Elo {req_peak:.0f}+ (Your Peak: {user_peak:.0f})")}).encode("utf-8"))
+                        return
 
                 if not item.get("is_consumable") and item_id in inv:
                     self.send_response(409)
@@ -1212,7 +1223,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             if clean_path == "api/armory/equip":
                 slot = payload.get("slot")
                 item_id = payload.get("item_id")
-                v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}})
+                v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None}})
                 inv = v.setdefault("inventory", {})
                 eq = v.setdefault("equipped", {})
 
@@ -1238,7 +1249,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
             if clean_path == "api/armory/unequip":
                 slot = payload.get("slot")
-                v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}})
+                v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None}})
                 eq = v.setdefault("equipped", {})
                 eq[slot] = None
                 self.send_response(200)
@@ -1250,6 +1261,64 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "slot": slot,
                     "equipped": eq
                 }).encode("utf-8"))
+                return
+
+            if clean_path == "api/armory/poke":
+                import armory_catalog
+                poke_id = payload.get("poke_id") or "poke_inquisition_smite"
+                target_name = payload.get("target_name") or "Opposing Commander"
+                item = armory_catalog.get_item_by_id(poke_id)
+                if not item:
+                    self.send_response(404)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"detail": f"Poke item {poke_id} not found"}).encode("utf-8"))
+                    return
+
+                v = DEV_USER.setdefault("armory_vault", {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None}})
+                inv = v.setdefault("inventory", {})
+                poke_entry = inv.get(poke_id)
+                charges = poke_entry.get("quantity", 0) if poke_entry else 0
+                if charges <= 0:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"detail": f"No remaining charges of {item['name']}. Please requisition more in the Armory."}).encode("utf-8"))
+                    return
+
+                poke_entry["quantity"] = charges - 1
+                toast_msg = item.get("payload", {}).get("toast_message", f"Poked {target_name}!")
+                toast_msg = toast_msg.replace("target", target_name).replace("{target}", target_name)
+                toast_sound = item.get("payload", {}).get("sound_cue", "zap")
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "message": f"Used 1 charge of {item['name']}",
+                    "charges_remaining": poke_entry["quantity"],
+                    "toast": toast_msg,
+                    "sound": toast_sound,
+                    "vault": v
+                }).encode("utf-8"))
+                return
+
+            if clean_path == "api/armory/reset":
+                DEV_USER["armory_vault"] = {
+                    "inventory": {},
+                    "equipped": {
+                        "active_dice": None,
+                        "active_card_frame": None,
+                        "active_title": None,
+                        "active_avatar": None
+                    }
+                }
+                DEV_USER["glory_spent"] = 0
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "message": "Armory vault and Glory spent reset to zero"}).encode("utf-8"))
                 return
 
         if clean_path == "api/tracker/room/create":
@@ -1863,17 +1932,24 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path == "api/armory/catalog":
             import armory_catalog
-            v = DEV_USER.get("armory_vault") or {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}}
-            total_earned = 5000
+            v = DEV_USER.get("armory_vault") or {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None}}
+            total_earned = 1845
             spent = int(DEV_USER.get("glory_spent") or 0)
             spendable = max(0, total_earned - spent)
             crest_tier = 5
-            cat = armory_catalog.get_armory_catalog(user_vault=v, user_crest_tier=crest_tier)
+
+            parsed_url = urllib.parse.urlparse(self.path)
+            q_params = urllib.parse.parse_qs(parsed_url.query)
+            req_sys = q_params.get("game_system", ["40k"])[0]
+
+            user_peak = float(DEV_USER.get("peak_elo", 1890.0))
+            cat = armory_catalog.get_armory_catalog(user_vault=v, user_crest_tier=crest_tier, game_system=req_sys, user_peak_elo=user_peak)
             cat["user_glory"] = {
                 "total_earned": total_earned,
                 "glory_spent": spent,
                 "spendable_glory": spendable,
-                "crest_tier": crest_tier
+                "crest_tier": crest_tier,
+                "peak_elo": user_peak
             }
             cat["user_vault"] = v
             self.send_response(200)
@@ -1884,8 +1960,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path == "api/armory/vault":
-            v = DEV_USER.get("armory_vault") or {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None}}
-            total_earned = 5000
+            v = DEV_USER.get("armory_vault") or {"inventory": {}, "equipped": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None}}
+            eq = v.setdefault("equipped", {})
+            eq.setdefault("active_avatar", None)
+            total_earned = 1845
             spent = int(DEV_USER.get("glory_spent") or 0)
             spendable = max(0, total_earned - spent)
             res = {
@@ -1893,12 +1971,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "user_id": DEV_USER.get("id", "usr_dev"),
                 "vault": v,
                 "inventory": v.get("inventory", {}),
-                "equipped": v.get("equipped", {}),
+                "equipped": eq,
                 "glory": {
                     "total_earned": total_earned,
                     "glory_spent": spent,
                     "spendable_glory": spendable,
-                    "crest_tier": 5
+                    "crest_tier": 5,
+                    "peak_elo": float(DEV_USER.get("peak_elo", 1890.0))
                 }
             }
             self.send_response(200)

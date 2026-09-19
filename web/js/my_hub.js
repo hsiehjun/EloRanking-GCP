@@ -1076,12 +1076,14 @@ function renderMyHub(data) {
 
   let html = `
     <div id="my-hub-container" class="my-hub-container" data-active-tab="${currentHubSubtab || 'active'}">
-      <!-- Upgraded 16-Tier Competitor Hero Card with Military Rank Border -->
-      <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''}" style="margin-bottom: 1.25rem;">
+      <!-- Upgraded 16-Tier Competitor Hero Card (Customizable via Armory Frames) -->
+      <div class="profile-hero-card ${tier.themeClass || ''}" style="margin-bottom: 1.25rem;">
         <div class="profile-hero-top">
           <div class="profile-identity-group">
-            <div class="profile-rank-crest" title="${escapeHtml(tier.name)}">
-              ${tier.icon}
+            <div class="profile-rank-crest" title="Click to requisition or change avatar in Armory" onclick="if(window.Armory)window.Armory.openArmoryModal('avatars')">
+              <span class="hero-avatar-sigil-slot" style="display: none; width: 100%; height: 100%; align-items: center; justify-content: center;"></span>
+              <span class="hero-crest-default-icon">${tier.icon}</span>
+              <span class="avatar-edit-hint" title="Change Avatar">🏛️</span>
             </div>
             <div class="profile-name-meta">
               <div class="profile-badges-row">

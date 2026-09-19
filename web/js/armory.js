@@ -1,13 +1,14 @@
 /**
  * OmniTactica Retribution Armory
- * Client-Side Engine, Store Modal & Effect Dispatcher
+ * Client-Side Engine, Multi-System Store Modal & Effect Dispatcher
  */
 
 (function(window) {
   'use strict';
 
+  var currentGameSystem = '40k';
   var currentCatalog = null;
-  var currentVault = { inventory: {}, equipped: { active_dice: null, active_card_frame: null, active_title: null } };
+  var currentVault = { inventory: {}, equipped: { active_dice: null, active_card_frame: null, active_title: null, active_avatar: null } };
   var currentGlory = { total_earned: 0, glory_spent: 0, spendable_glory: 0, crest_tier: 1 };
   var activeWingFilter = 'all';
   var isPurchasing = false;
@@ -23,13 +24,31 @@
   }
 
   /**
+   * Switch active game system (40k vs aos)
+   */
+  async function switchGameSystem(sys) {
+    if (sys !== '40k' && sys !== 'aos') sys = '40k';
+    currentGameSystem = sys;
+
+    // Update switcher tab UI
+    var tabs = document.querySelectorAll('.armory-system-btn');
+    tabs.forEach(function(t) {
+      t.classList.toggle('active', t.getAttribute('data-sys') === sys);
+    });
+
+    await loadArmoryData(sys);
+    renderArmoryGrid();
+  }
+
+  /**
    * Fetch latest catalog & user vault from server
    */
-  async function loadArmoryData() {
+  async function loadArmoryData(gameSys) {
     try {
+      var sys = gameSys || currentGameSystem || '40k';
       var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
       var headers = token ? { 'Authorization': 'Bearer ' + token } : {};
-      var res = await fetch('/api/armory/catalog', { headers: headers });
+      var res = await fetch('/api/armory/catalog?game_system=' + encodeURIComponent(sys), { headers: headers });
       if (res.ok) {
         var data = await res.json();
         currentCatalog = data;
@@ -164,6 +183,65 @@
   }
 
   /**
+   * Poke another player (consumes 1 charge)
+   */
+  async function pokePlayer(targetPlayerId, pokeId, targetName) {
+    try {
+      var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
+      var headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+
+      var res = await fetch('/api/armory/poke', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          poke_id: pokeId,
+          target_player_id: targetPlayerId || 'p_rival',
+          target_name: targetName || 'Opposing Commander'
+        })
+      });
+
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to dispatch poke');
+
+      // Play poke banner toast
+      showArmoryPokeToast(data);
+
+      // Update local vault inventory
+      await loadArmoryData();
+      renderArmoryGrid();
+
+    } catch (err) {
+      showArmoryNotification('❌ ' + err.message, 'error');
+    }
+  }
+
+  /**
+   * Displays rich animated Poke banner
+   */
+  function showArmoryPokeToast(data) {
+    var toast = document.createElement('div');
+    toast.className = 'armory-poke-toast';
+    toast.style.borderColor = data.css_glow || '#38bdf8';
+    toast.style.boxShadow = '0 0 25px ' + (data.css_glow || '#38bdf8');
+    toast.innerHTML = [
+      '<div class="poke-toast-icon">' + (data.icon || '👉') + '</div>',
+      '<div class="poke-toast-content">',
+      '  <div class="poke-toast-title">PLAYER POKE DISPATCHED</div>',
+      '  <div class="poke-toast-body">' + escapeHtml(data.toast_message || data.message) + '</div>',
+      '  <div class="poke-toast-meta">Target: <strong>' + escapeHtml(data.target_name) + '</strong> &bull; Charges remaining: <strong>' + data.charges_remaining + '</strong></div>',
+      '</div>'
+    ].join('');
+
+    document.body.appendChild(toast);
+    setTimeout(function() { toast.classList.add('active'); }, 10);
+    setTimeout(function() {
+      toast.classList.remove('active');
+      setTimeout(function() { toast.remove(); }, 350);
+    }, 4000);
+  }
+
+  /**
    * Effect Dispatcher: Applies active decorations across the entire page
    */
   function applyEquippedDecorations() {
@@ -171,9 +249,20 @@
 
     // 1. Apply Card Frame
     var frameId = eq.active_card_frame;
+    var allFrames = [
+      'frame-astral-holofoil', 'frame-molten-core', 'frame-cyber-matrix',
+      'frame-warp-corruption', 'frame-realm-chamon', 'frame-ghur-feral',
+      'frame-peak-veteran', 'frame-peak-captain', 'frame-peak-commander',
+      'frame-peak-dark-angels', 'frame-peak-necrons', 'frame-peak-grand-marshal',
+      'frame-peak-high-warlord', 'frame-peak-warmaster', 'frame-peak-primarch',
+      'frame-peak-everchosen'
+    ];
     var heroCards = document.querySelectorAll('.hero-card, .profile-hero-card, #my-hub-hero-card');
     heroCards.forEach(function(card) {
-      card.classList.remove('frame-astral-holofoil', 'frame-molten-core', 'frame-cyber-matrix');
+      allFrames.forEach(function(f) { card.classList.remove(f); });
+      Array.from(card.classList).forEach(function(c) {
+        if (c.startsWith('frame-')) card.classList.remove(c);
+      });
       if (frameId) {
         var item = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === frameId; }) : null;
         var cssCls = item && item.payload ? item.payload.css_class : frameId;
@@ -190,14 +279,47 @@
         el.style.display = 'none';
       } else {
         var tItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === titleId; }) : null;
-        var tText = tItem && tItem.payload ? tItem.payload.title_text : 'The Unbroken';
+        var tText = tItem && tItem.payload ? tItem.payload.title_text : (tItem ? tItem.name : 'The Unbroken');
         var tClass = tItem && tItem.payload ? tItem.payload.css_class : 'title-badge-unbroken';
         el.innerHTML = '<span class="armory-title-chip ' + escapeHtml(tClass) + '"><span class="title-chip-icon">🏷️</span> ' + escapeHtml(tText.toUpperCase()) + '</span>';
         el.style.display = 'inline-flex';
       }
     });
 
-    // 3. Dispatch Event for Live Tracker Dice Tray
+    // 3. Render Equipped Faction Avatar (Replaces the icon next to player name!)
+    var avatarId = eq.active_avatar;
+    var avatarSlots = document.querySelectorAll('.hero-avatar-sigil-slot');
+    var defaultIcons = document.querySelectorAll('.hero-crest-default-icon');
+    var rankCrests = document.querySelectorAll('.profile-rank-crest');
+    if (!avatarId) {
+      avatarSlots.forEach(function(el) { el.innerHTML = ''; el.style.display = 'none'; });
+      defaultIcons.forEach(function(el) { el.style.display = ''; });
+      rankCrests.forEach(function(c) {
+        c.style.borderColor = '';
+        c.style.boxShadow = '';
+      });
+    } else {
+      var svgCode = typeof window.getArmoryAvatarSvg === 'function' ? window.getArmoryAvatarSvg(avatarId) : '';
+      var aItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === avatarId; }) : null;
+      var aColor = aItem && aItem.payload ? aItem.payload.badge_color : '#38bdf8';
+      var aFaction = aItem && aItem.payload ? aItem.payload.faction : 'Faction';
+      avatarSlots.forEach(function(el) {
+        if (svgCode) {
+          el.innerHTML = svgCode;
+        } else {
+          var aIcon = aItem && aItem.payload ? aItem.payload.avatar_icon : (aItem ? aItem.icon : '🛡️');
+          el.innerHTML = '<span class="armory-avatar-sigil" style="font-size: 2rem; filter: drop-shadow(0 0 10px ' + aColor + ');">' + aIcon + '</span>';
+        }
+        el.style.display = 'flex';
+      });
+      defaultIcons.forEach(function(el) { el.style.display = 'none'; });
+      rankCrests.forEach(function(c) {
+        c.style.borderColor = aColor;
+        c.style.boxShadow = '0 0 20px ' + aColor + '55, inset 0 0 14px ' + aColor + '22';
+      });
+    }
+
+    // 4. Dispatch Event for Live Tracker Dice Tray
     if (window.dispatchEvent) {
       window.dispatchEvent(new CustomEvent('omnitactica:armory-loadout-changed', {
         detail: { equipped: eq, vault: currentVault }
@@ -260,14 +382,14 @@
     });
 
     if (items.length === 0) {
-      container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 2.5rem;">No requisitions available in this wing.</div>';
+      container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 2.5rem;">No requisitions available in this wing for ' + (currentGameSystem === 'aos' ? 'Age of Sigmar' : 'Warhammer 40,000') + '.</div>';
       return;
     }
 
     var rarities = currentCatalog.rarity_config || {};
 
     var cardsHtml = items.map(function(item) {
-      var rMeta = rarities[item.rarity] || { label: item.rarity, color: '#94a3b8', badge_bg: 'rgba(255,255,255,0.06)' };
+      var rMeta = rarities[item.rarity] || { label: item.rarity, color: '#94a3b8', badge_bg: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.12)' };
       var isOwned = !!item.is_owned;
       var isEquipped = !!item.is_equipped;
       var meetsPrereq = item.meets_prerequisite !== false;
@@ -277,14 +399,28 @@
       var actionBtnHtml = '';
       if (item.is_consumable) {
         var charges = item.charges_remaining || 0;
-        var chargesBadge = isOwned ? '<div class="armory-charges-badge"><span>Stock: ' + charges + '</span></div>' : '';
+        var chargesBadge = isOwned ? '<div class="armory-charges-badge"><span>Stock: ' + charges + ' charges</span></div>' : '';
+        
+        var pokeAction = '';
+        if (isOwned && charges > 0) {
+          pokeAction = [
+            '<button type="button" class="btn armory-action-btn btn-poke-action" ',
+            '        onclick="window.Armory.pokePlayer(\'p_rival\', \'' + item.id + '\', \'Opposing Commander\')">',
+            '  <span>👉 Test Poke (Spend 1)</span>',
+            '</button>'
+          ].join('');
+        }
+
         actionBtnHtml = [
           chargesBadge,
-          '<button type="button" id="armory-buy-btn-' + item.id + '" class="btn armory-action-btn btn-buy ' + (affordable ? 'affordable' : 'unaffordable') + '" ',
-          '        onclick="window.Armory.purchaseItem(\'' + item.id + '\')" ' + (!affordable ? 'disabled' : '') + '>',
-          '  <span>' + (isOwned ? '+ Requisition More' : 'Requisition') + '</span>',
-          '  <span class="armory-btn-cost">💰 ' + item.cost_glory + '</span>',
-          '</button>'
+          '<div style="display: flex; gap: 0.5rem; width: 100%; flex-direction: column;">',
+          pokeAction,
+          '  <button type="button" id="armory-buy-btn-' + item.id + '" class="btn armory-action-btn btn-buy ' + (affordable ? 'affordable' : 'unaffordable') + '" ',
+          '          onclick="window.Armory.purchaseItem(\'' + item.id + '\')" ' + (!affordable ? 'disabled' : '') + '>',
+          '    <span>' + (isOwned ? '+ Requisition More (5x)' : 'Requisition (5x Pack)') + '</span>',
+          '    <span class="armory-btn-cost">💰 ' + item.cost_glory + ' Glory</span>',
+          '  </button>',
+          '</div>'
         ].join('');
       } else if (isOwned) {
         if (isEquipped) {
@@ -343,14 +479,33 @@
         previewGraphic = [
           '<div class="armory-frame-preview-tile ' + cls + '" style="box-shadow: ' + glow + ';">',
           '  <div class="preview-mini-avatar">👤</div>',
-          '  <div class="preview-mini-title">TACTICA HERO</div>',
+          '  <div class="preview-mini-title">PROFILE AURA</div>',
+          '</div>'
+        ].join('');
+      } else if (item.wing === 'avatars') {
+        var bCol = item.payload && item.payload.badge_color ? item.payload.badge_color : '#38bdf8';
+        var fName = item.payload && item.payload.faction ? item.payload.faction : item.name;
+        var svgGraphic = typeof window.getArmoryAvatarSvg === 'function' ? window.getArmoryAvatarSvg(item.id) : '';
+        previewGraphic = [
+          '<div class="armory-avatar-preview-tile" style="border-color: ' + bCol + '; box-shadow: 0 0 16px ' + bCol + '33;">',
+          '  <div class="avatar-preview-graphic">' + (svgGraphic || ('<span style="font-size:2.2rem;">' + (item.icon || '🛡️') + '</span>')) + '</div>',
+          '  <div class="avatar-preview-faction" style="color: ' + bCol + ';">' + escapeHtml(fName) + '</div>',
           '</div>'
         ].join('');
       } else if (item.wing === 'titles') {
         var tCls = item.payload && item.payload.css_class ? item.payload.css_class : '';
         previewGraphic = [
           '<div class="armory-title-preview-tile">',
-          '  <span class="armory-title-chip ' + tCls + '">🏷️ ' + escapeHtml(item.payload.title_text || item.name) + '</span>',
+          '  <span class="armory-title-chip ' + tCls + '">🏷️ ' + escapeHtml((item.payload && item.payload.title_text) || item.name) + '</span>',
+          '</div>'
+        ].join('');
+      } else if (item.wing === 'pokes') {
+        var pGlow = item.payload && item.payload.css_glow ? item.payload.css_glow : '#38bdf8';
+        var pVerb = item.payload && item.payload.verb ? item.payload.verb : 'Poke';
+        previewGraphic = [
+          '<div class="armory-poke-preview-tile" style="border-color: ' + pGlow + '; box-shadow: 0 0 14px ' + pGlow + '33;">',
+          '  <span class="poke-preview-icon">' + (item.icon || '👉') + '</span>',
+          '  <span class="poke-preview-verb" style="color: ' + pGlow + ';">' + escapeHtml(pVerb) + '</span>',
           '</div>'
         ].join('');
       } else {
@@ -385,8 +540,9 @@
   /**
    * Opens the full Retribution Armory Store Modal
    */
-  async function openArmoryModal(initialWing) {
+  async function openArmoryModal(initialWing, system) {
     if (initialWing) activeWingFilter = initialWing;
+    if (system) currentGameSystem = system;
 
     var existing = document.getElementById('retribution-armory-modal');
     if (existing) existing.remove();
@@ -407,10 +563,19 @@
       '        <h2 class="armory-header-title">Retribution Armory</h2>',
       '      </div>',
       '    </div>',
+      '    <!-- Store System Switcher Pills -->',
+      '    <div class="armory-system-switcher">',
+      '      <button type="button" class="armory-system-btn ' + (currentGameSystem === '40k' ? 'active' : '') + '" data-sys="40k" onclick="window.Armory.switchGameSystem(\'40k\')">',
+      '        ⚔️ 40K Armory',
+      '      </button>',
+      '      <button type="button" class="armory-system-btn ' + (currentGameSystem === 'aos' ? 'active' : '') + '" data-sys="aos" onclick="window.Armory.switchGameSystem(\'aos\')">',
+      '        ⚡ AoS Armory',
+      '      </button>',
+      '    </div>',
       '    <div class="armory-wallet-hud">',
       '      <div class="armory-wallet-stat">',
       '        <span class="armory-wallet-val" id="armory-spendable-balance-val">--</span>',
-      '        <span class="armory-wallet-lbl">Spendable Glory</span>',
+      '        <span class="armory-wallet-lbl">Unified Glory</span>',
       '      </div>',
       '      <div class="armory-wallet-stat desktop-only">',
       '        <span class="armory-wallet-val text-muted" id="armory-total-spent-val">0</span>',
@@ -422,7 +587,7 @@
       '  <!-- Wing Filter Nav Tabs -->',
       '  <div class="armory-wings-bar">',
       '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'all' ? 'active' : '') + '" data-wing="all" onclick="window.Armory.setWingFilter(\'all\')">',
-      '      <span>🌐</span> All Requisitions',
+      '      <span>🌐</span> All Wings',
       '    </button>',
       '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'dice_forge' ? 'active' : '') + '" data-wing="dice_forge" onclick="window.Armory.setWingFilter(\'dice_forge\')">',
       '      <span>🎲</span> Dice Forge',
@@ -430,14 +595,14 @@
       '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'profile_forge' ? 'active' : '') + '" data-wing="profile_forge" onclick="window.Armory.setWingFilter(\'profile_forge\')">',
       '      <span>✨</span> Profile Forge',
       '    </button>',
+      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'avatars' ? 'active' : '') + '" data-wing="avatars" onclick="window.Armory.setWingFilter(\'avatars\')">',
+      '      <span>👤</span> Faction Sigils',
+      '    </button>',
       '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'titles' ? 'active' : '') + '" data-wing="titles" onclick="window.Armory.setWingFilter(\'titles\')">',
       '      <span>🏷️</span> Titles',
       '    </button>',
-      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'reactions' ? 'active' : '') + '" data-wing="reactions" onclick="window.Armory.setWingFilter(\'reactions\')">',
-      '      <span>🫡</span> Salutes',
-      '    </button>',
-      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'oracle' ? 'active' : '') + '" data-wing="oracle" onclick="window.Armory.setWingFilter(\'oracle\')">',
-      '      <span>🔮</span> GT Oracle',
+      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'pokes' ? 'active' : '') + '" data-wing="pokes" onclick="window.Armory.setWingFilter(\'pokes\')">',
+      '      <span>👉</span> Player Pokes',
       '    </button>',
       '  </div>',
       '  <!-- Products Scrollable Grid -->',
@@ -446,7 +611,7 @@
       '  </div>',
       '  <!-- Footer -->',
       '  <div class="armory-modal-footer">',
-      '    <span class="armory-footer-notice">Glory Honor is earned through verified tournament matches &amp; annual campaigns. Zero real-world cash gambling.</span>',
+      '    <span class="armory-footer-notice">Glory Honor is unified across 40K &amp; AoS and earned through verified tournament clashes. Zero real-world cash gambling.</span>',
       '    <button type="button" class="btn btn-secondary" onclick="window.Armory.closeArmoryModal()">Return to Fleet</button>',
       '  </div>',
       '</div>'
@@ -455,7 +620,7 @@
     document.body.appendChild(modal);
 
     // Load data and render
-    await loadArmoryData();
+    await loadArmoryData(currentGameSystem);
     updateArmoryHeaderBalance();
     renderArmoryGrid();
   }
@@ -468,12 +633,15 @@
   // Public Interface
   window.Armory = {
     loadArmoryData: loadArmoryData,
+    switchGameSystem: switchGameSystem,
+    getGameSystem: function() { return currentGameSystem; },
     openArmoryModal: openArmoryModal,
     closeArmoryModal: closeArmoryModal,
     setWingFilter: setWingFilter,
     purchaseItem: purchaseItem,
     equipItem: equipItem,
     unequipSlot: unequipSlot,
+    pokePlayer: pokePlayer,
     applyEquippedDecorations: applyEquippedDecorations,
     getEquipped: function(slot) { return (currentVault.equipped || {})[slot]; },
     getVault: function() { return currentVault; },

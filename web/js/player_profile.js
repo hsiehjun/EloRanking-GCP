@@ -401,8 +401,8 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
   const netCareerEloStr = (netCareerElo >= 0 ? '+' : '') + netCareerElo.toFixed(1);
 
   container.innerHTML = `
-    <!-- Dynamic Hero Banner Card with Military Rank Border -->
-    <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''}">
+    <!-- Dynamic Hero Banner Card (Customizable via Armory Frames) -->
+    <div class="profile-hero-card ${tier.themeClass || ''}">
       <div class="profile-hero-top">
         <div class="profile-identity-group">
           <div class="profile-rank-crest" title="${escapeHtml(tier.name)}">

@@ -363,7 +363,10 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "battlefield_feed": [],
                 "war_room": {"faction_matchups": [], "club_rivalries": []},
                 "trophy_room": [
-                    {"id": "tr-tzc-1", "title": "2025 European Team Champions", "icon": "🏆", "category": "Major Team Title", "awarded_date": "2025", "significance": "1st Place at European Team Invitational"}
+                    {"id": "tr-tzc-1", "title": "2025 European Team Champions", "icon": "🏆", "category": "Major Team Title", "awarded_date": "2025", "significance": "1st Place at European Team Invitational", "glory_points": 500},
+                    {"id": "tr-tzc-2", "title": "2025 UK Masters Champions", "icon": "🥇", "category": "Major GT Title", "awarded_date": "Nov 2025", "significance": "David Gaylard 1st Place overall", "glory_points": 300},
+                    {"id": "tr-tzc-3", "title": "Double Century: 200+ Wins", "icon": "🎖️", "category": "Club Milestone", "awarded_date": "2025", "significance": "Over 200 tournament victories under TZC banner", "glory_points": 200},
+                    {"id": "tr-tzc-4", "title": "Elite Powerhouse", "icon": "⭐", "category": "Squad Caliber", "awarded_date": "2026", "significance": "Five active competitors over 2,100 Elo", "glory_points": 150}
                 ],
                 "locker_room": {"pinned_message": None, "messages": [], "squad_events": []}
             },
@@ -738,6 +741,72 @@ class TeamsHubService:
         team["team_win_rate"] = win_rate
         team["total_matches"] = total_matches
         team["is_qualified"] = (len(active_roster) >= 3 and total_matches >= 15)
+
+        # Calculate Club Glory Honor & Trophy Points
+        trophies = team.get("trophy_room", [])
+        if not trophies:
+            t_id = team.get("id", "club")
+            c_name = team.get("captain_name", "Captain")
+            trophies = [
+                {
+                    "id": f"tr-found-{t_id}",
+                    "title": "Club Founded",
+                    "icon": "🛡️",
+                    "category": "Foundation Milestone",
+                    "awarded_date": str(team.get("created_at", "2026-01-01"))[:10],
+                    "significance": f"Chartered on OmniTactica under captain {c_name}",
+                    "glory_points": 100
+                }
+            ]
+            team["trophy_room"] = trophies
+
+        total_glory = 0
+        for tr in trophies:
+            pts = tr.get("glory_points")
+            if pts is None:
+                cat = tr.get("category", "")
+                tit = tr.get("title", "")
+                if "World" in cat or "WTC" in cat or "WTC" in tit:
+                    pts = 1000
+                elif "Super Major" in cat:
+                    pts = 500
+                elif "National" in cat or "National" in tit:
+                    pts = 400
+                elif "Major" in cat:
+                    pts = 300
+                elif "Milestone" in cat or "Century" in tit:
+                    pts = 250
+                elif "Regional" in cat:
+                    pts = 200
+                else:
+                    pts = 150
+                tr["glory_points"] = pts
+            total_glory += int(pts)
+
+        team["glory_score"] = total_glory
+        team["team_glory_honor"] = total_glory
+
+        # Heraldic Insignia Tiers based on Club Glory Honor
+        if total_glory >= 2000:
+            team["heraldry_tier"] = "Sovereign Crown"
+            team["heraldry_badge"] = "👑 Sovereign"
+            team["heraldry_border"] = "rgba(245, 158, 11, 0.6)"
+            team["heraldry_color"] = "#f59e0b"
+        elif total_glory >= 1000:
+            team["heraldry_tier"] = "Gold Vanguard"
+            team["heraldry_badge"] = "🥇 Gold"
+            team["heraldry_border"] = "rgba(251, 191, 36, 0.5)"
+            team["heraldry_color"] = "#fbbf24"
+        elif total_glory >= 500:
+            team["heraldry_tier"] = "Silver Paragon"
+            team["heraldry_badge"] = "🥈 Silver"
+            team["heraldry_border"] = "rgba(148, 163, 184, 0.4)"
+            team["heraldry_color"] = "#94a3b8"
+        else:
+            team["heraldry_tier"] = "Bronze Standard"
+            team["heraldry_badge"] = "🛡️ Bronze"
+            team["heraldry_border"] = "rgba(180, 83, 9, 0.35)"
+            team["heraldry_color"] = "#b45309"
 
         return team
 

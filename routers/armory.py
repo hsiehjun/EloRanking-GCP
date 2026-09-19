@@ -45,12 +45,14 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
 
     spent = int(user_data.get("glory_spent") or 0)
     spendable = max(0, total_earned - spent)
+    peak_elo = float(user_data.get("peak_elo") or user_data.get("elo") or 1500.0)
 
     return {
         "total_earned": total_earned,
         "glory_spent": spent,
         "spendable_glory": spendable,
-        "crest_tier": crest_tier
+        "crest_tier": crest_tier,
+        "peak_elo": peak_elo
     }
 
 
@@ -72,7 +74,8 @@ def _get_or_init_vault(user_data: Dict[str, Any]) -> Dict[str, Any]:
         vault["equipped"] = {
             "active_dice": None,
             "active_card_frame": None,
-            "active_title": None
+            "active_title": None,
+            "active_avatar": None
         }
 
     return vault
@@ -84,7 +87,7 @@ async def get_catalog(request: Request):
     auth_mgr = get_auth_manager()
     user_vault = {"inventory": {}, "equipped": {}}
     user_crest_tier = 1
-    glory_state = {"spendable_glory": 0, "total_earned": 0, "glory_spent": 0}
+    glory_state = {"spendable_glory": 0, "total_earned": 0, "glory_spent": 0, "peak_elo": 1500.0}
 
     try:
         session = _get_user_session_or_401(request)
@@ -97,7 +100,14 @@ async def get_catalog(request: Request):
         # Unauthenticated users can still view the full catalog
         pass
 
-    catalog = armory_catalog.get_armory_catalog(user_vault=user_vault, user_crest_tier=user_crest_tier)
+    game_sys = request.query_params.get("game_system", "40k")
+    user_peak_elo = float(glory_state.get("peak_elo") or 1500.0)
+    catalog = armory_catalog.get_armory_catalog(
+        user_vault=user_vault,
+        user_crest_tier=user_crest_tier,
+        game_system=game_sys,
+        user_peak_elo=user_peak_elo
+    )
     catalog["user_glory"] = glory_state
     return catalog
 
@@ -154,14 +164,20 @@ async def purchase_item(request: Request):
             detail=f"Insufficient Glory Honor. Item costs {cost} Glory, but you only have {glory_state['spendable_glory']} available."
         )
 
-    # 2. Check prerequisite locks
+    # 2. Check prerequisite locks (Career Crest Tier & All-Time Peak Elo)
     prereq = item.get("prerequisite")
     if prereq:
-        req_tier = prereq.get("career_crest_tier", 1)
-        if glory_state["crest_tier"] < req_tier:
+        req_tier = prereq.get("career_crest_tier")
+        if req_tier is not None and glory_state["crest_tier"] < req_tier:
             raise HTTPException(
                 status_code=400,
                 detail=prereq.get("label", f"Prerequisite not met: Requires Career Crest Tier {req_tier}+")
+            )
+        req_peak = prereq.get("peak_elo")
+        if req_peak is not None and float(glory_state.get("peak_elo") or 1500.0) < req_peak:
+            raise HTTPException(
+                status_code=400,
+                detail=prereq.get("label", f"Prerequisite not met: Requires All-Time Peak Elo {req_peak:.0f}+ (Your Peak: {glory_state.get('peak_elo', 1500.0):.0f})")
             )
 
     vault = _get_or_init_vault(user_data)
@@ -240,7 +256,7 @@ async def equip_item(request: Request):
     slot = (body.get("slot") or "").strip()
     item_id = (body.get("item_id") or "").strip()
 
-    valid_slots = ("active_dice", "active_card_frame", "active_title")
+    valid_slots = ("active_dice", "active_card_frame", "active_title", "active_avatar")
     if slot not in valid_slots:
         raise HTTPException(status_code=400, detail=f"Invalid slot '{slot}'. Valid slots: {valid_slots}")
 
@@ -293,7 +309,7 @@ async def unequip_item(request: Request):
         body = {}
 
     slot = (body.get("slot") or "").strip()
-    valid_slots = ("active_dice", "active_card_frame", "active_title")
+    valid_slots = ("active_dice", "active_card_frame", "active_title", "active_avatar")
     if slot not in valid_slots:
         raise HTTPException(status_code=400, detail=f"Invalid slot '{slot}'. Valid slots: {valid_slots}")
 
@@ -317,3 +333,68 @@ async def unequip_item(request: Request):
         "slot": slot,
         "equipped": vault["equipped"]
     }
+
+
+@router.post("/api/armory/poke", summary="Poke another player with an armory poke")
+async def poke_player(request: Request):
+    """Dispatches an interactive poke to another player, consuming 1 charge."""
+    session = _get_user_session_or_401(request)
+    user_id = session.get("user_id") or session.get("id")
+    auth_mgr = get_auth_manager()
+    user_data = auth_mgr.get_user_by_id(user_id) or session
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    poke_id = (body.get("poke_id") or "").strip()
+    target_player_id = (body.get("target_player_id") or "p_dev_opponent").strip()
+    target_name = (body.get("target_name") or "Opposing Commander").strip()
+
+    if not poke_id:
+        raise HTTPException(status_code=400, detail="poke_id is required")
+
+    item = armory_catalog.get_item_by_id(poke_id)
+    if not item or item.get("wing") != "pokes":
+        raise HTTPException(status_code=404, detail=f"Poke item '{poke_id}' not found")
+
+    vault = _get_or_init_vault(user_data)
+    inventory = vault["inventory"]
+
+    inv_entry = inventory.get(poke_id)
+    if not inv_entry or inv_entry.get("quantity", 0) <= 0:
+        raise HTTPException(status_code=400, detail=f"You have no remaining charges of {item['name']}. Requisition a 5-pack in the Armory.")
+
+    # Deduct 1 charge
+    remaining_qty = inv_entry["quantity"] - 1
+    inv_entry["quantity"] = remaining_qty
+    user_data["armory_vault"] = vault
+
+    try:
+        with auth_mgr.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                UPDATE users SET armory_vault = %s, updated_at = NOW() WHERE id = %s;
+                """, (json.dumps(vault), user_id))
+            conn.commit()
+    except Exception as dbe:
+        logger.warning(f"Database update error in poke: {dbe}")
+
+    payload = item.get("payload") or {}
+    sender_name = user_data.get("display_name") or user_data.get("name") or "Innes Wilson"
+
+    return {
+        "success": True,
+        "message": f"Successfully poked {target_name} with {item['name']}!",
+        "poke_id": poke_id,
+        "poke_name": item["name"],
+        "sender_name": sender_name,
+        "target_player_id": target_player_id,
+        "target_name": target_name,
+        "charges_remaining": remaining_qty,
+        "toast_message": payload.get("toast_message", f"{item['icon']} Poked by {sender_name}!"),
+        "css_glow": payload.get("css_glow", "#38bdf8"),
+        "icon": item.get("icon", "👉")
+    }
+
