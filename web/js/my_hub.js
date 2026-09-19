@@ -335,7 +335,13 @@ function switchHubSubtab(tabId) {
   const bar = document.getElementById('hub-subtabs-bar');
   if (bar) {
     bar.querySelectorAll('.profile-subtab-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.getAttribute('data-tab') === currentHubSubtab);
+      const isActive = btn.getAttribute('data-tab') === currentHubSubtab;
+      btn.classList.toggle('active', isActive);
+      if (isActive && typeof btn.scrollIntoView === 'function') {
+        try {
+          btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        } catch (_) {}
+      }
     });
   }
 
@@ -1208,23 +1214,23 @@ function renderMyHub(data) {
     <!-- Desktop, Tablet & Mobile Sub-Tab Navigation Bar -->
     <div class="profile-subtabs-bar" id="hub-subtabs-bar">
       <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'active' ? 'active' : ''}" data-tab="active" onclick="switchHubSubtab('active')">
-        <span>⚡ Active & Rosters</span>
+        <span>⚡ <span class="tab-label-full">Active & Rosters</span><span class="tab-label-mobile">Active</span></span>
         <span class="profile-subtab-count">${(activeMatches.length || 0) + (registeredTournaments.length || 0)}</span>
       </button>
       <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'journey' ? 'active' : ''}" data-tab="journey" onclick="switchHubSubtab('journey')">
-        <span>🏆 <span class="tab-label-full">Tournament </span>Journey</span>
+        <span>🏆 <span class="tab-label-full">Tournament Journey</span><span class="tab-label-mobile">Journey</span></span>
         <span class="profile-subtab-count">${hubEventsList.length}</span>
       </button>
       <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'trajectory' ? 'active' : ''}" data-tab="trajectory" onclick="switchHubSubtab('trajectory')">
-        <span>📈 Elo Trajectory</span>
+        <span>📈 <span class="tab-label-full">Elo Trajectory</span><span class="tab-label-mobile">Trajectory</span></span>
         <span class="profile-subtab-count">${history.length}G</span>
       </button>
       <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'factions' ? 'active' : ''}" data-tab="factions" onclick="switchHubSubtab('factions')">
-        <span>🛡️ Faction Mastery</span>
+        <span>🛡️ <span class="tab-label-full">Faction Mastery</span><span class="tab-label-mobile">Factions</span></span>
         <span class="profile-subtab-count">${factionMastery.length}</span>
       </button>
       <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'matchups' ? 'active' : ''}" data-tab="matchups" onclick="switchHubSubtab('matchups')">
-        <span>🎯 Matchup Matrix</span>
+        <span>🎯 <span class="tab-label-full">Matchup Matrix</span><span class="tab-label-mobile">Matchups</span></span>
         <span class="profile-subtab-count">${matchups.length}</span>
       </button>
       <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'trophies' ? 'active' : ''}" data-tab="trophies" onclick="switchHubSubtab('trophies')">

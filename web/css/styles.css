@@ -8434,7 +8434,7 @@ body.is-authenticated #floating-chat-widget {
 .player-profile-view,
 .my-hub-container {
   width: 100%;
-  max-width: 1200px;
+  max-width: 1320px;
   margin: 0 auto;
   padding: 0.25rem 0.5rem 3rem;
   box-sizing: border-box;
@@ -10203,66 +10203,101 @@ body.is-authenticated #floating-chat-widget {
 }
 
 /* ==========================================================================
-   PUBLIC PLAYER PROFILE SUBTABS (DESKTOP & MOBILE)
+   PUBLIC PLAYER PROFILE & HUB SUBTABS (DESKTOP, TABLET & MOBILE)
    ========================================================================== */
+.tab-label-mobile {
+  display: none;
+}
+.tab-label-full {
+  display: inline;
+}
+
 .profile-subtabs-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  box-sizing: border-box;
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 0.4rem;
-  margin-bottom: 1.25rem;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.42rem !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  background: rgba(15, 23, 42, 0.85) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 12px !important;
+  padding: 0.4rem !important;
+  margin-bottom: 1.25rem !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  white-space: nowrap !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  -webkit-overflow-scrolling: touch !important;
+  scroll-snap-type: x proximity !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
+}
+
+.profile-subtabs-bar::-webkit-scrollbar {
+  display: none !important;
 }
 
 .profile-subtab-btn {
-  flex: 1;
-  min-width: 135px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  padding: 0.6rem 0.9rem;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
+  flex: 0 0 auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.45rem !important;
+  padding: 0.48rem 0.78rem !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.035) !important;
+  color: var(--text-secondary, #94a3b8) !important;
+  font-size: 0.82rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+  cursor: pointer !important;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+  scroll-snap-align: start !important;
+  user-select: none !important;
 }
 
 .profile-subtab-btn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.05);
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  transform: translateY(-1px) !important;
 }
 
 .profile-subtab-btn.active {
-  background: rgba(56, 189, 248, 0.14);
-  color: #38bdf8;
-  border-color: rgba(56, 189, 248, 0.35);
-  box-shadow: 0 2px 10px rgba(56, 189, 248, 0.12);
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.22) 0%, rgba(14, 165, 233, 0.12) 100%) !important;
+  color: #38bdf8 !important;
+  border-color: rgba(56, 189, 248, 0.5) !important;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+  font-weight: 700 !important;
+  transform: none !important;
 }
 
 .profile-subtab-count {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-muted);
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-family: var(--font-mono, monospace) !important;
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  padding: 0.1rem 0.45rem !important;
+  border-radius: 9999px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #94a3b8 !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  line-height: 1.2 !important;
+  transition: all 0.18s ease !important;
+  flex-shrink: 0 !important;
 }
 
 .profile-subtab-btn.active .profile-subtab-count {
-  background: rgba(56, 189, 248, 0.22);
-  color: #fff;
+  background: rgba(56, 189, 248, 0.28) !important;
+  color: #f0f9ff !important;
+  border-color: rgba(56, 189, 248, 0.45) !important;
 }
 
 .profile-tab-panel {
@@ -10298,53 +10333,42 @@ body.is-authenticated #floating-chat-widget {
   box-sizing: border-box;
 }
 
-@media (max-width: 900px) {
+/* Tablet & Medium Screens (<= 1024px) */
+@media (max-width: 1024px) {
   .profile-subtabs-bar {
-    display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 0.45rem !important;
-    padding: 0.45rem !important;
-    overflow: visible !important;
+    padding: 0.4rem !important;
   }
   .profile-subtab-btn {
-    min-width: 0 !important;
-    width: 100% !important;
-    padding: 0.58rem 0.7rem !important;
-    font-size: 0.8rem !important;
-    justify-content: space-between !important;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-  }
-  .profile-subtab-btn > span:first-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .profile-subtab-count {
-    flex-shrink: 0;
-  }
-  #hub-subtabs-bar .profile-subtab-btn:first-child {
-    grid-column: 1 / -1;
-    justify-content: center !important;
+    padding: 0.5rem 0.85rem !important;
+    font-size: 0.82rem !important;
+    gap: 0.45rem !important;
   }
 }
 
-@media (max-width: 480px) {
+/* Mobile Screens (<= 640px) */
+@media (max-width: 640px) {
   .tab-label-full {
-    display: none;
+    display: none !important;
+  }
+  .tab-label-mobile {
+    display: inline !important;
   }
   .profile-subtabs-bar {
-    gap: 0.38rem !important;
-    padding: 0.38rem !important;
+    gap: 0.4rem !important;
+    padding: 0.35rem 0.4rem !important;
+    margin-bottom: 1rem !important;
+    border-radius: 10px !important;
   }
   .profile-subtab-btn {
-    padding: 0.5rem 0.55rem !important;
-    font-size: 0.75rem !important;
-    gap: 0.3rem !important;
+    padding: 0.45rem 0.75rem !important;
+    font-size: 0.78rem !important;
+    gap: 0.35rem !important;
+    border-radius: 7px !important;
   }
   .profile-subtab-count {
     font-size: 0.68rem !important;
-    padding: 0.08rem 0.38rem !important;
+    padding: 0.1rem 0.42rem !important;
   }
 }
 

@@ -515,19 +515,19 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     <!-- Desktop & Mobile Sub-Tab Navigation Bar -->
     <div class="profile-subtabs-bar" id="profile-subtabs-bar">
       <button type="button" class="profile-subtab-btn active" data-tab="journey" onclick="switchProfileSubtab('journey')">
-        <span>🏆 <span class="tab-label-full">Tournament </span>Journey</span>
+        <span>🏆 <span class="tab-label-full">Tournament Journey</span><span class="tab-label-mobile">Journey</span></span>
         <span class="profile-subtab-count">${eventsList.length}</span>
       </button>
       <button type="button" class="profile-subtab-btn" data-tab="trajectory" onclick="switchProfileSubtab('trajectory')">
-        <span>📈 Elo Trajectory</span>
+        <span>📈 <span class="tab-label-full">Elo Trajectory</span><span class="tab-label-mobile">Trajectory</span></span>
         <span class="profile-subtab-count">${rawHistory.length}G</span>
       </button>
       <button type="button" class="profile-subtab-btn" data-tab="factions" onclick="switchProfileSubtab('factions')">
-        <span>🛡️ Faction Mastery</span>
+        <span>🛡️ <span class="tab-label-full">Faction Mastery</span><span class="tab-label-mobile">Factions</span></span>
         <span class="profile-subtab-count">${profileFactionMastery.length}</span>
       </button>
       <button type="button" class="profile-subtab-btn" data-tab="matchups" onclick="switchProfileSubtab('matchups')">
-        <span>🎯 Matchup Matrix</span>
+        <span>🎯 <span class="tab-label-full">Matchup Matrix</span><span class="tab-label-mobile">Matchups</span></span>
         <span class="profile-subtab-count">${profileMatchupMatrix.length}</span>
       </button>
       <button type="button" class="profile-subtab-btn" data-tab="trophies" onclick="switchProfileSubtab('trophies')">
@@ -1377,7 +1377,13 @@ function switchProfileSubtab(tabId) {
   const bar = document.getElementById('profile-subtabs-bar');
   if (bar) {
     bar.querySelectorAll('.profile-subtab-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
+      const isActive = btn.getAttribute('data-tab') === tabId;
+      btn.classList.toggle('active', isActive);
+      if (isActive && typeof btn.scrollIntoView === 'function') {
+        try {
+          btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        } catch (_) {}
+      }
     });
   }
 
