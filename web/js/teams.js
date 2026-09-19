@@ -304,7 +304,14 @@ function renderSubtabRoster(team) {
 
       <!-- Full Club Ladder Table -->
       <div>
-        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 0.75rem;">📋 Complete Active Club Ladder (${fullRoster.length})</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">📋 Complete Active Club Ladder (${fullRoster.length})</h3>
+          ${(typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id)) ? `
+            <button type="button" class="btn btn-outline" onclick="promptInviteTeammate('${escapeHtml(team.id)}')" style="font-size: 0.76rem; color: #38bdf8; border-color: rgba(56,189,248,0.4); padding: 0.35rem 0.85rem; border-radius: 6px;">
+              ✉️ + Invite Teammate
+            </button>
+          ` : ''}
+        </div>
         <div class="table-container">
           <table class="table">
             <thead>
@@ -316,10 +323,13 @@ function renderSubtabRoster(team) {
                 <th>Faction</th>
                 <th>Current Elo</th>
                 <th>Win Rate</th>
+                ${(typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id)) ? `<th>High Command</th>` : ''}
               </tr>
             </thead>
             <tbody>
-              ${fullRoster.map((p, idx) => `
+              ${fullRoster.map((p, idx) => {
+                const isCapt = (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === team.owner_player_id || currentUser.id === team.owner_player_id));
+                return `
                 <tr onclick="openPlayerModal('${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name)}')" style="cursor: pointer;">
                   <td style="font-family: var(--font-mono); font-weight: 700; color: #94a3b8;">#${idx + 1}</td>
                   <td>
@@ -340,8 +350,21 @@ function renderSubtabRoster(team) {
                   <td style="font-family: var(--font-mono); color: ${Number(p.win_rate || 0) >= 60 ? '#10b981' : '#cbd5e1'}; font-weight: 700;">
                     ${Number(p.win_rate || 0)}%
                   </td>
+                  ${isCapt ? `
+                    <td onclick="event.stopPropagation();" style="white-space: nowrap;">
+                      ${p.player_id !== team.owner_player_id ? `
+                        <button type="button" class="btn-sm" onclick="promptTransferCaptain('${escapeHtml(team.id)}', '${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name)}')" style="font-size: 0.68rem; padding: 3px 7px; background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.35); border-radius: 4px; cursor: pointer;" title="Transfer Captaincy">
+                          👑 Transfer
+                        </button>
+                        <button type="button" class="btn-sm" onclick="promptRemoveTeammate('${escapeHtml(team.id)}', '${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name)}')" style="font-size: 0.68rem; padding: 3px 7px; background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.35); border-radius: 4px; margin-left: 4px; cursor: pointer;" title="Remove teammate">
+                          🚫 Remove
+                        </button>
+                      ` : '<span style="font-size: 0.72rem; color: #fbbf24; font-weight: 700;">👑 Squad Leader</span>'}
+                    </td>
+                  ` : ''}
                 </tr>
-              `).join('')}
+              `;
+              }).join('')}
             </tbody>
           </table>
         </div>
@@ -1122,6 +1145,52 @@ async function confirmLeaveTeam() {
   }
 }
 
+async function promptInviteTeammate(teamId) {
+  const name = prompt("Enter player name or BCP username to invite to the squad:");
+  if (!name || !name.trim()) return;
+  const targetName = name.trim();
+  const targetId = "p_" + targetName.toLowerCase().replace(/[^a-z0-9]/g, "_");
+  try {
+    const res = await window.api.inviteTeamMember(teamId, targetId, targetName);
+    if (typeof showToastNotification === 'function') {
+      showToastNotification(`✉️ Official squad invitation extended to ${targetName}!`, 'success');
+    }
+    loadTeamsView(teamId);
+  } catch (err) {
+    alert(`Error inviting teammate: ${err.message}`);
+  }
+}
+
+async function promptTransferCaptain(teamId, targetId, targetName) {
+  if (!confirm(`👑 Transfer High Command Captaincy of this club to ${targetName}?\n\nYou will step down to Officer, and they will become the new sovereign Team Captain.`)) {
+    return;
+  }
+  try {
+    const res = await window.api.transferTeamCaptaincy(teamId, targetId);
+    if (typeof showToastNotification === 'function') {
+      showToastNotification(`👑 Leadership transferred to ${targetName}!`, 'success');
+    }
+    loadTeamsView(teamId);
+  } catch (err) {
+    alert(`Error transferring captaincy: ${err.message}`);
+  }
+}
+
+async function promptRemoveTeammate(teamId, targetId, targetName) {
+  if (!confirm(`🚫 Remove ${targetName} from the official squad roster?\n\nThey will be set to Independent and removed from the active lineup.`)) {
+    return;
+  }
+  try {
+    const res = await window.api.removeTeamMember(teamId, targetId);
+    if (typeof showToastNotification === 'function') {
+      showToastNotification(`🛡️ ${targetName} removed from squad roster.`, 'info');
+    }
+    loadTeamsView(teamId);
+  } catch (err) {
+    alert(`Error removing member: ${err.message}`);
+  }
+}
+
 window.loadTeamsView = loadTeamsView;
 window.renderTeamHub = renderTeamHub;
 window.switchTeamHubSubtab = switchTeamHubSubtab;
@@ -1140,4 +1209,7 @@ window.closeCreateTeamModal = closeCreateTeamModal;
 window.submitCreateTeamHub = submitCreateTeamHub;
 window.sendTeamLockerMessage = sendTeamLockerMessage;
 window.toggleTeamSquadEventAttendance = toggleTeamSquadEventAttendance;
+window.promptInviteTeammate = promptInviteTeammate;
+window.promptTransferCaptain = promptTransferCaptain;
+window.promptRemoveTeammate = promptRemoveTeammate;
 window.confirmLeaveTeam = confirmLeaveTeam;

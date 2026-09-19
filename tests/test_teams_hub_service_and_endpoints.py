@@ -253,6 +253,62 @@ class TestTeamsHubServiceAndEndpoints(unittest.TestCase):
         roster_factions = [p["faction"] for p in hub_hvg["roster"]]
         self.assertIn("Stormcast Eternals", roster_factions)
 
+    def test_captain_governance_invite_kick_transfer_roles(self):
+        """Tests captain governance: inviting teammates, promoting roles, kicking/removing, and transferring captaincy."""
+        import uuid
+        t_id_name = f"Governance Squad {uuid.uuid4().hex[:6]}"
+        team = self.service.create_team(
+            owner_player_id="capt_alex",
+            name=t_id_name,
+            short_tag="GOV",
+            captain_name="Alex Turner"
+        )
+        t_id = team["id"]
+
+        # 1. Invite a player
+        res_invite = self.service.invite_player(t_id, actor_player_id="capt_alex", target_player_id="player_recruit", target_player_name="Recruit Bob", faction="Necrons")
+        self.assertTrue(res_invite["success"])
+        hub = self.service.get_team_hub(t_id)
+        roster_ids = [p["player_id"] for p in hub["roster"]]
+        self.assertIn("player_recruit", roster_ids)
+        self.assertEqual(next(p for p in hub["roster"] if p["player_id"] == "player_recruit")["role"], "Provisional")
+
+        # Non-member cannot invite
+        with self.assertRaises(PermissionError):
+            self.service.invite_player(t_id, actor_player_id="random_intruder", target_player_id="player_c", target_player_name="Player C")
+
+        # 2. Promote player to Officer
+        res_role = self.service.update_member_role(t_id, actor_player_id="capt_alex", target_player_id="player_recruit", new_role="Officer")
+        self.assertEqual(res_role["new_role"], "Officer")
+        hub = self.service.get_team_hub(t_id)
+        self.assertEqual(next(p for p in hub["roster"] if p["player_id"] == "player_recruit")["role"], "Officer")
+
+        # 3. Transfer Captaincy
+        res_transfer = self.service.transfer_captaincy(t_id, current_captain_id="capt_alex", new_captain_id="player_recruit")
+        self.assertTrue(res_transfer["success"])
+        self.assertEqual(res_transfer["new_captain_id"], "player_recruit")
+        hub = self.service.get_team_hub(t_id)
+        self.assertEqual(hub["owner_player_id"], "player_recruit")
+        self.assertEqual(hub["captain_name"], "Recruit Bob")
+        self.assertEqual(next(p for p in hub["roster"] if p["player_id"] == "capt_alex")["role"], "Officer")
+        self.assertEqual(next(p for p in hub["roster"] if p["player_id"] == "player_recruit")["role"], "Captain")
+
+        # 4. Remove/Kick Member (New captain removes former captain)
+        res_remove = self.service.remove_member(t_id, actor_player_id="player_recruit", target_player_id="capt_alex")
+        self.assertTrue(res_remove["success"])
+        hub = self.service.get_team_hub(t_id)
+        roster_ids = [p["player_id"] for p in hub["roster"]]
+        self.assertNotIn("capt_alex", roster_ids)
+
+        # Removed player is now independent
+        aff = self.service.get_player_affiliation("capt_alex")
+        self.assertEqual(aff["role"], "Independent")
+        self.assertIsNone(aff["team_id"])
+
+        # Cannot kick reigning captain
+        with self.assertRaises(ValueError):
+            self.service.remove_member(t_id, actor_player_id="player_recruit", target_player_id="player_recruit")
+
 
 if __name__ == "__main__":
     unittest.main()

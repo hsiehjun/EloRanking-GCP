@@ -1664,6 +1664,85 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"detail": str(e)}).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/teams/") and clean_path.endswith("/members/remove"):
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            t_id = clean_path.split("/")[2]
+            actor_id = payload.get("actor_player_id") or DEV_USER["user"].get("player_id") or "p_innes"
+            target_id = payload.get("target_player_id")
+            try:
+                res = svc.remove_member(t_id, actor_id, target_id)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/teams/") and clean_path.endswith("/members/invite"):
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            t_id = clean_path.split("/")[2]
+            actor_id = payload.get("actor_player_id") or DEV_USER["user"].get("player_id") or "p_innes"
+            target_id = payload.get("target_player_id")
+            target_name = payload.get("target_player_name", "Teammate")
+            faction = payload.get("faction", "Space Marines")
+            try:
+                res = svc.invite_player(t_id, actor_id, target_id, target_name, faction)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/teams/") and clean_path.endswith("/captain/transfer"):
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            t_id = clean_path.split("/")[2]
+            cur_capt_id = payload.get("current_captain_id") or DEV_USER["user"].get("player_id") or "p_innes"
+            new_capt_id = payload.get("new_captain_id")
+            try:
+                res = svc.transfer_captaincy(t_id, cur_capt_id, new_capt_id)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/teams/") and clean_path.endswith("/members/role"):
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            t_id = clean_path.split("/")[2]
+            actor_id = payload.get("actor_player_id") or DEV_USER["user"].get("player_id") or "p_innes"
+            target_id = payload.get("target_player_id")
+            new_role = payload.get("new_role", "Member")
+            try:
+                res = svc.update_member_role(t_id, actor_id, target_id, new_role)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": str(e)}).encode("utf-8"))
+            return
+
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()

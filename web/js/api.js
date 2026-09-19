@@ -605,6 +605,42 @@ window.api = {
     });
   },
 
+  // Team Hub: Remove/Kick Teammate (Captain/Officer only)
+  async removeTeamMember(teamId, targetPlayerId) {
+    return this._fetchJson(`/api/teams/${encodeURIComponent(teamId)}/members/remove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_player_id: targetPlayerId })
+    });
+  },
+
+  // Team Hub: Invite Teammate to Squad
+  async inviteTeamMember(teamId, targetPlayerId, targetPlayerName, faction = 'Space Marines') {
+    return this._fetchJson(`/api/teams/${encodeURIComponent(teamId)}/members/invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_player_id: targetPlayerId, target_player_name: targetPlayerName, faction })
+    });
+  },
+
+  // Team Hub: Transfer Captaincy
+  async transferTeamCaptaincy(teamId, newCaptainId) {
+    return this._fetchJson(`/api/teams/${encodeURIComponent(teamId)}/captain/transfer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_captain_id: newCaptainId })
+    });
+  },
+
+  // Team Hub: Update Member Role (Officer, Core, Member, Provisional)
+  async updateTeamMemberRole(teamId, targetPlayerId, newRole) {
+    return this._fetchJson(`/api/teams/${encodeURIComponent(teamId)}/members/role`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_player_id: targetPlayerId, new_role: newRole })
+    });
+  },
+
   // Single Tournament Details & Pairings
   async getTournamentDetails(eventId, forceSync = false) {
     const query = forceSync ? '?force_sync=true' : '';

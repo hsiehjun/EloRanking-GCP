@@ -1039,6 +1039,207 @@ class TeamsHubService:
                 return {"attending": attending, "attendees": attendees}
         raise ValueError("Team not found")
 
+    def remove_member(self, team_id: str, actor_player_id: str, target_player_id: str) -> Dict[str, Any]:
+        """Removes a player from the team roster. Only Captains and Officers can remove members."""
+        target_team = None
+        for t in self.state.get("teams", []):
+            if t["id"] == team_id or t["name"].lower() == team_id.lower():
+                target_team = t
+                break
+
+        if not target_team:
+            raise ValueError(f"Team not found: {team_id}")
+
+        is_owner = (target_team.get("owner_player_id") == actor_player_id)
+        actor_member = next((p for p in target_team.get("roster", []) if p.get("player_id") == actor_player_id), None)
+        is_officer = (actor_member and actor_member.get("role") in ("Captain", "Officer"))
+
+        if not is_owner and not is_officer:
+            raise PermissionError("Only the Team Captain or an Officer can remove members from the squad.")
+
+        if target_player_id == target_team.get("owner_player_id"):
+            raise ValueError("The Team Captain cannot be removed from the squad. Transfer captaincy first.")
+
+        target_member = next((p for p in target_team.get("roster", []) if p.get("player_id") == target_player_id), None)
+        target_name = target_member.get("player_name", "Teammate") if target_member else "Teammate"
+
+        target_team["roster"] = [p for p in target_team.get("roster", []) if p.get("player_id") != target_player_id]
+
+        self.state.setdefault("player_affiliations", {})[target_player_id] = {
+            "team_id": None,
+            "team_name": "Independent",
+            "short_tag": "",
+            "role": "Independent",
+            "status": "confirmed",
+            "confirmed_at": datetime.now(timezone.utc).isoformat()
+        }
+
+        self._recalculate_team(target_team)
+
+        actor_name = actor_member.get("player_name", "Captain") if actor_member else "Captain"
+        self.add_team_message(
+            team_id=target_team["id"],
+            sender_player_id=actor_player_id,
+            sender_name="System",
+            message=f"🛡️ {target_name} has departed the squad roster (removed by {actor_name}).",
+            role="System"
+        )
+
+        self._save()
+        return {"success": True, "removed_player_id": target_player_id, "removed_player_name": target_name, "team": target_team}
+
+    def invite_player(self, team_id: str, actor_player_id: str, target_player_id: str, target_player_name: str, faction: str = "Space Marines") -> Dict[str, Any]:
+        """Invites a player to join the team roster."""
+        target_team = None
+        for t in self.state.get("teams", []):
+            if t["id"] == team_id or t["name"].lower() == team_id.lower():
+                target_team = t
+                break
+
+        if not target_team:
+            raise ValueError(f"Team not found: {team_id}")
+
+        is_owner = (target_team.get("owner_player_id") == actor_player_id)
+        actor_member = next((p for p in target_team.get("roster", []) if p.get("player_id") == actor_player_id), None)
+        is_officer = (actor_member and actor_member.get("role") in ("Captain", "Officer"))
+
+        if not is_owner and not is_officer:
+            raise PermissionError("Only the Team Captain or an Officer can invite players to the squad.")
+
+        existing = next((p for p in target_team.get("roster", []) if p.get("player_id") == target_player_id), None)
+        if existing:
+            return {"success": True, "already_member": True, "message": f"{target_player_name} is already on the roster."}
+
+        target_team.setdefault("roster", []).append({
+            "player_id": target_player_id,
+            "player_name": target_player_name,
+            "current_elo": 1850.0,
+            "peak_elo": 1850.0,
+            "faction": faction,
+            "role": "Provisional",
+            "status": "provisional",
+            "is_active": True,
+            "win_rate": 60.0,
+            "matches_played": 10,
+            "form": "Invited"
+        })
+
+        presets = self.state.setdefault("detected_history_presets", {})
+        player_presets = presets.setdefault(target_player_id, [])
+        if not any(p.get("team_id") == target_team["id"] for p in player_presets):
+            player_presets.insert(0, {
+                "team_id": target_team["id"],
+                "name": target_team["name"],
+                "short_tag": target_team["short_tag"],
+                "match_count": 0,
+                "last_played": "Official Invite",
+                "is_current": True
+            })
+
+        self._recalculate_team(target_team)
+
+        actor_name = actor_member.get("player_name", "Captain") if actor_member else "Captain"
+        self.add_team_message(
+            team_id=target_team["id"],
+            sender_player_id=actor_player_id,
+            sender_name="System",
+            message=f"✉️ An official squad invitation has been extended to {target_player_name} by {actor_name}.",
+            role="System"
+        )
+
+        self._save()
+        return {"success": True, "invited_player_id": target_player_id, "invited_player_name": target_player_name, "team": target_team}
+
+    def transfer_captaincy(self, team_id: str, current_captain_id: str, new_captain_id: str) -> Dict[str, Any]:
+        """Transfers the official Captaincy role and High Command authority to another confirmed teammate."""
+        target_team = None
+        for t in self.state.get("teams", []):
+            if t["id"] == team_id or t["name"].lower() == team_id.lower():
+                target_team = t
+                break
+
+        if not target_team:
+            raise ValueError(f"Team not found: {team_id}")
+
+        if target_team.get("owner_player_id") != current_captain_id:
+            raise PermissionError("Only the reigning Team Captain can transfer squad captaincy.")
+
+        if current_captain_id == new_captain_id:
+            return {"success": True, "message": "Player is already the Team Captain."}
+
+        new_captain_member = next((p for p in target_team.get("roster", []) if p.get("player_id") == new_captain_id), None)
+        if not new_captain_member:
+            raise ValueError("The new captain must be a confirmed member of the team roster.")
+
+        old_captain_member = next((p for p in target_team.get("roster", []) if p.get("player_id") == current_captain_id), None)
+
+        new_captain_member["role"] = "Captain"
+        if old_captain_member:
+            old_captain_member["role"] = "Officer"
+
+        new_captain_name = new_captain_member.get("player_name", "New Captain")
+        old_captain_name = old_captain_member.get("player_name", "Old Captain") if old_captain_member else "Former Captain"
+
+        target_team["owner_player_id"] = new_captain_id
+        target_team["captain_name"] = new_captain_name
+
+        affs = self.state.setdefault("player_affiliations", {})
+        if new_captain_id in affs:
+            affs[new_captain_id]["role"] = "Captain"
+        if current_captain_id in affs:
+            affs[current_captain_id]["role"] = "Officer"
+
+        self.add_team_message(
+            team_id=target_team["id"],
+            sender_player_id=new_captain_id,
+            sender_name="High Command",
+            message=f"👑 SQUAD LEADERSHIP NOTICE: Captaincy of {target_team['name']} has been transferred from {old_captain_name} to {new_captain_name}.",
+            role="Captain",
+            is_pinned=True
+        )
+
+        self._save()
+        return {
+            "success": True,
+            "team_id": target_team["id"],
+            "new_captain_id": new_captain_id,
+            "new_captain_name": new_captain_name,
+            "former_captain_id": current_captain_id
+        }
+
+    def update_member_role(self, team_id: str, actor_player_id: str, target_player_id: str, new_role: str) -> Dict[str, Any]:
+        """Promotes or demotes a teammate to Officer, Core, Member, or Provisional."""
+        valid_roles = ("Officer", "Core", "Member", "Provisional")
+        if new_role not in valid_roles:
+            raise ValueError(f"Invalid role '{new_role}'. Must be one of: {', '.join(valid_roles)}")
+
+        target_team = None
+        for t in self.state.get("teams", []):
+            if t["id"] == team_id or t["name"].lower() == team_id.lower():
+                target_team = t
+                break
+
+        if not target_team:
+            raise ValueError(f"Team not found: {team_id}")
+
+        if target_team.get("owner_player_id") != actor_player_id:
+            raise PermissionError("Only the Team Captain can assign squad ranks and roles.")
+
+        if target_player_id == target_team.get("owner_player_id"):
+            raise ValueError("Cannot change the role of the reigning Captain. Transfer captaincy instead.")
+
+        target_member = next((p for p in target_team.get("roster", []) if p.get("player_id") == target_player_id), None)
+        if not target_member:
+            raise ValueError("Target player is not on the team roster.")
+
+        target_member["role"] = new_role
+        affs = self.state.setdefault("player_affiliations", {})
+        if target_player_id in affs:
+            affs[target_player_id]["role"] = new_role
+
+        self._save()
+        return {"success": True, "player_id": target_player_id, "player_name": target_member.get("player_name"), "new_role": new_role}
+
 
 # Singleton accessor
 _service_instance = None
