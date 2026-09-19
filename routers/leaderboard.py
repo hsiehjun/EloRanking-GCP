@@ -1261,45 +1261,15 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         except Exception:
             raw_ev = {}
 
-    # Self-healing round count: Prioritize authentic BCP numberOfRounds / numRounds
+    # Take authentic BCP numberOfRounds / numRounds directly as the source of truth (strictly zero DB writes on read path)
     bcp_rounds = int(
         raw_ev.get("numberOfRounds") or
         raw_ev.get("numRounds") or
         ((raw_ev.get("raw_json") or {}).get("numberOfRounds") if isinstance(raw_ev.get("raw_json"), dict) else 0) or
+        ((raw_ev.get("raw_json") or {}).get("numRounds") if isinstance(raw_ev.get("raw_json"), dict) else 0) or
         0
     )
-    curr_rds = int(event_details.get("num_rounds") or 0)
-    total_pl = int(event_details.get("total_players") or len(event_details.get("players") or []) or 0)
-
-    # If BCP rounds is missing or <=3 for large events, or force_sync requested, fetch fresh event metadata from BCP
-    if not is_native_studio and (bcp_rounds <= 0 or (curr_rds <= 3 and total_pl >= 30) or force_sync):
-        try:
-            scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
-            fresh_bcp_ev = scraper.fetch_event_details(event_id_str)
-            if fresh_bcp_ev and isinstance(fresh_bcp_ev, dict):
-                fresh_rds = int(fresh_bcp_ev.get("numberOfRounds") or fresh_bcp_ev.get("numRounds") or 0)
-                if fresh_rds > 0:
-                    bcp_rounds = fresh_rds
-                    event_details["num_rounds"] = fresh_rds
-                    if isinstance(raw_ev, dict):
-                        raw_ev.update(fresh_bcp_ev)
-                        event_details["raw_json"] = raw_ev
-                    # Self-heal PostgreSQL database record if database is connected
-                    try:
-                        with db.get_connection() as conn:
-                            with conn.cursor() as cur:
-                                cur.execute("""
-                                    UPDATE events 
-                                    SET num_rounds = GREATEST(COALESCE(num_rounds, 0), %s),
-                                        raw_json = COALESCE(raw_json, '{}'::jsonb) || %s::jsonb
-                                    WHERE id = %s;
-                                """, (fresh_rds, json.dumps(fresh_bcp_ev), event_id_str))
-                    except Exception as upe:
-                        logger.warning(f"Notice persisting self-healed num_rounds for {event_id_str}: {upe}")
-        except Exception as fe:
-            logger.warning(f"Notice fetching fresh BCP metadata for {event_id_str}: {fe}")
-
-    if bcp_rounds > 0 and (curr_rds == 0 or bcp_rounds > curr_rds or curr_rds <= 3):
+    if bcp_rounds > 0:
         event_details["num_rounds"] = bcp_rounds
 
     is_ended = bool(

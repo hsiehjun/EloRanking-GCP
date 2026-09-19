@@ -443,17 +443,7 @@ class PostgresDatabase:
                   AND jsonb_typeof(raw_json->'location'->'coordinate') = 'array' 
                   AND jsonb_array_length(raw_json->'location'->'coordinate') = 2;
 
-                UPDATE events
-                SET num_rounds = (raw_json->>'numberOfRounds')::int
-                WHERE (raw_json->>'numberOfRounds') ~ '^[0-9]+$'
-                  AND (raw_json->>'numberOfRounds')::int > 0
-                  AND (raw_json->>'numberOfRounds')::int > COALESCE(num_rounds, 0);
 
-                UPDATE events
-                SET num_rounds = (raw_json->>'numRounds')::int
-                WHERE (raw_json->>'numRounds') ~ '^[0-9]+$'
-                  AND (raw_json->>'numRounds')::int > 0
-                  AND (raw_json->>'numRounds')::int > COALESCE(num_rounds, 0);
 
                 CREATE TABLE IF NOT EXISTS players (
                     id VARCHAR(64) PRIMARY KEY,

@@ -4,12 +4,17 @@ import asyncio
 import json
 
 class TestBcpEventRoundsResolution(unittest.TestCase):
-    def test_api_event_details_heals_stale_rounds_from_bcp_metadata(self):
-        """Verify api_event_details detects stale rounds (e.g. 3 for a 434-player event) and self-heals from BCP."""
+    def test_api_event_details_reads_bcp_rounds_as_source_of_truth_without_db_write(self):
+        """Verify api_event_details takes BCP numberOfRounds as source of truth with strictly zero DB writes."""
         from routers import leaderboard
 
         mock_db = MagicMock()
-        # Stale DB record with 3 rounds and 434 players (like LVO before fix)
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+
+        # DB record with 3 rounds but raw_json from BCP has authentic 10 rounds
         mock_db.get_event_details.return_value = {
             "id": "7ohG0RuDqC1k",
             "name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open",
@@ -17,28 +22,23 @@ class TestBcpEventRoundsResolution(unittest.TestCase):
             "num_rounds": 3,
             "matches": [],
             "players": [],
-            "raw_json": {}
+            "raw_json": {"numberOfRounds": 10, "totalPlayers": 434}
         }
 
         with patch("routers.leaderboard.get_database", return_value=mock_db), \
              patch("routers.leaderboard.BestCoastPairingsScraper") as MockScraperClass:
             mock_scraper_inst = MagicMock()
-            # BCP API reports authentic 10 rounds
-            mock_scraper_inst.fetch_event_details.return_value = {
-                "id": "7ohG0RuDqC1k",
-                "name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open",
-                "numberOfRounds": 10,
-                "totalPlayers": 434,
-                "eventDate": "2026-10-02T16:00:00.000Z"
-            }
             mock_scraper_inst.fetch_event_players.return_value = []
-            mock_scraper_inst.fetch_event_teams.return_value = []
             MockScraperClass.return_value = mock_scraper_inst
 
             res = asyncio.run(leaderboard.api_event_details("7ohG0RuDqC1k"))
 
-            self.assertEqual(res["num_rounds"], 10, "api_event_details must heal num_rounds to 10 from BCP API")
+            self.assertEqual(res["num_rounds"], 10, "api_event_details must prioritize BCP numberOfRounds as source of truth")
             self.assertEqual(res["total_players"], 434)
+            # Verify strictly zero UPDATE queries were executed on events table
+            for call_item in mock_cur.execute.call_args_list:
+                sql_text = str(call_item[0][0])
+                self.assertNotIn("UPDATE events", sql_text, "api_event_details must perform zero database writes on read path")
 
     def test_api_event_details_prioritizes_raw_json_number_of_rounds(self):
         """Verify api_event_details prioritizes raw_json.numberOfRounds over stale num_rounds in DB."""
@@ -109,11 +109,11 @@ class TestBcpEventRoundsResolution(unittest.TestCase):
         self.assertEqual(details["num_rounds"], 10, "get_event_details must elevate num_rounds to 10 from raw_json")
 
     def test_tournaments_js_get_event_num_rounds_logic(self):
-        """Verify the JavaScript getEventNumRounds logic across Swiss competitive tiers."""
+        """Verify the JavaScript getEventNumRounds logic takes BCP data directly as source of truth."""
         def get_event_num_rounds(ev, matches=None):
             matches = matches or []
             if not ev:
-                return 5
+                return 0
             raw_bcp = int(
                 ev.get("numberOfRounds") or
                 ev.get("numRounds") or
@@ -125,29 +125,19 @@ class TestBcpEventRoundsResolution(unittest.TestCase):
                 return raw_bcp
 
             match_rounds = max([int(m.get("round", 1)) for m in matches]) if matches else 0
-            db_rounds = int(ev.get("num_rounds") or ev.get("rounds") or 0)
-
-            total_comp = int(ev.get("total_players") or len(ev.get("players") or []) or 0)
-            if (db_rounds <= 3 or not db_rounds) and total_comp >= 28:
-                if total_comp >= 256:
-                    return max(match_rounds, 9)
-                if total_comp >= 60:
-                    return max(match_rounds, 6)
-                return max(match_rounds, 5)
-
-            return max(db_rounds, match_rounds, 0)
+            if match_rounds > 0:
+                return match_rounds
+            return int(ev.get("num_rounds") or ev.get("rounds") or 0)
 
         # 1. Authentic BCP numberOfRounds
         self.assertEqual(get_event_num_rounds({"numberOfRounds": 10, "total_players": 434}), 10)
-        # 2. Authentic raw_json.numberOfRounds
+        # 2. Authentic BCP numRounds
+        self.assertEqual(get_event_num_rounds({"numRounds": 6, "total_players": 80}), 6)
+        # 3. Authentic raw_json.numberOfRounds from BCP metadata
         self.assertEqual(get_event_num_rounds({"raw_json": {"numberOfRounds": 10}, "total_players": 434, "num_rounds": 3}), 10)
-        # 3. Super Major fallback if rounds erroneously set to 3 for 431 players
-        self.assertEqual(get_event_num_rounds({"num_rounds": 3, "total_players": 431}), 9)
-        # 4. Major fallback if rounds set to 3 for 120 players
-        self.assertEqual(get_event_num_rounds({"num_rounds": 3, "total_players": 120}), 6)
-        # 5. Grand Tournament fallback if rounds set to 3 for 40 players
-        self.assertEqual(get_event_num_rounds({"num_rounds": 3, "total_players": 40}), 5)
-        # 6. Local RTT legitimate 3 rounds
+        # 4. Fallback to match pairings max round
+        self.assertEqual(get_event_num_rounds({"num_rounds": 0}, [{"round": 1}, {"round": 5}]), 5)
+        # 5. Stored num_rounds when no BCP metadata
         self.assertEqual(get_event_num_rounds({"num_rounds": 3, "total_players": 16}), 3)
 
 

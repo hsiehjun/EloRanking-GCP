@@ -3139,7 +3139,8 @@ let currentEventParsedRoster = null;
 let currentEventArmyListViewMode = 'text';
 
 function getEventNumRounds(ev, matches = []) {
-  if (!ev) return 5;
+  if (!ev) return 0;
+  // 1. Take authentic BCP round count directly as primary source of truth
   const rawBcp = Number(
     ev.numberOfRounds ||
     ev.numRounds ||
@@ -3149,21 +3150,14 @@ function getEventNumRounds(ev, matches = []) {
   );
   if (rawBcp > 0) return rawBcp;
 
+  // 2. Fall back to max round observed in actual match pairings
   const matchRounds = (Array.isArray(matches) && matches.length > 0)
     ? Math.max(...matches.map(m => Number(m.round || 1)))
     : 0;
+  if (matchRounds > 0) return matchRounds;
 
-  const dbRounds = Number(ev.num_rounds || ev.rounds || 0);
-
-  // Swiss tournament sanity check: if DB rounds is <= 3 or 0, but competitor count is massive (Super Major / Major / GT)
-  const totalCompetitors = Number(ev.total_players || (Array.isArray(ev.players) ? ev.players.length : 0));
-  if ((dbRounds <= 3 || !dbRounds) && totalCompetitors >= 28) {
-    if (totalCompetitors >= 256) return Math.max(matchRounds, 9); // Super Major (LVO, AdeptiCon)
-    if (totalCompetitors >= 60) return Math.max(matchRounds, 6);  // Major
-    return Math.max(matchRounds, 5); // Grand Tournament
-  }
-
-  return Math.max(dbRounds, matchRounds, 0);
+  // 3. Fall back to stored num_rounds
+  return Number(ev.num_rounds || ev.rounds || 0);
 }
 
 function isEventEnded(ev, regData = null) {
