@@ -443,6 +443,18 @@ class PostgresDatabase:
                   AND jsonb_typeof(raw_json->'location'->'coordinate') = 'array' 
                   AND jsonb_array_length(raw_json->'location'->'coordinate') = 2;
 
+                UPDATE events
+                SET num_rounds = (raw_json->>'numberOfRounds')::int
+                WHERE (raw_json->>'numberOfRounds') ~ '^[0-9]+$'
+                  AND (raw_json->>'numberOfRounds')::int > 0
+                  AND (raw_json->>'numberOfRounds')::int > COALESCE(num_rounds, 0);
+
+                UPDATE events
+                SET num_rounds = (raw_json->>'numRounds')::int
+                WHERE (raw_json->>'numRounds') ~ '^[0-9]+$'
+                  AND (raw_json->>'numRounds')::int > 0
+                  AND (raw_json->>'numRounds')::int > COALESCE(num_rounds, 0);
+
                 CREATE TABLE IF NOT EXISTS players (
                     id VARCHAR(64) PRIMARY KEY,
                     first_name TEXT,
@@ -1476,7 +1488,7 @@ class PostgresDatabase:
             now_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             end_val_str = str(event_data.get("endDate") or event_data.get("end_date") or "")[:10]
             ev_val_str = str(event_data.get("eventDate") or event_data.get("event_date") or "")[:10]
-            num_rds_val = int(event_data.get("numberOfRounds") or event_data.get("num_rounds") or 0)
+            num_rds_val = int(event_data.get("numberOfRounds") or event_data.get("numRounds") or event_data.get("num_rounds") or event_data.get("rounds") or 0)
             if end_val_str and end_val_str < now_utc_str:
                 is_ended_calc = True
             elif ev_val_str and ev_val_str < now_utc_str and (num_rds_val <= 3 or not end_val_str):
@@ -1498,8 +1510,8 @@ class PostgresDatabase:
                     city = EXCLUDED.city,
                     state = EXCLUDED.state,
                     country = EXCLUDED.country,
-                    total_players = EXCLUDED.total_players,
-                    num_rounds = EXCLUDED.num_rounds,
+                    total_players = GREATEST(COALESCE(events.total_players, 0), EXCLUDED.total_players),
+                    num_rounds = GREATEST(COALESCE(events.num_rounds, 0), EXCLUDED.num_rounds),
                     current_round = EXCLUDED.current_round,
                     is_ended = EXCLUDED.is_ended,
                     game_system_id = EXCLUDED.game_system_id,
@@ -1520,8 +1532,8 @@ class PostgresDatabase:
                     event_data.get("city") or loc_obj.get("city"),
                     event_data.get("state") or loc_obj.get("state"),
                     event_data.get("country") or loc_obj.get("country"),
-                    event_data.get("totalPlayers", event_data.get("total_players", 0)),
-                    event_data.get("numberOfRounds", event_data.get("num_rounds", 0)),
+                    int(event_data.get("totalPlayers") or event_data.get("total_players") or 0),
+                    num_rds_val,
                     event_data.get("currentRound", event_data.get("current_round", 0)),
                     is_ended_calc,
                     game_sys_id,
@@ -3167,13 +3179,6 @@ class PostgresDatabase:
                 res["roster"] = roster_list
                 res["matches"] = matches
                 res["total_players"] = len(final_players) if final_players else (res.get("total_players") or 0)
-                res["num_rounds"] = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 0)
-                if final_players:
-                    elos = [float(p["current_elo"]) for p in final_players if p.get("current_elo") is not None]
-                    if elos:
-                        res["avg_field_elo"] = round(sum(elos) / len(elos), 1)
-                        res["top_seed_elo"] = max(elos)
-
                 raw_meta = res.get("raw_json") or {}
                 if isinstance(raw_meta, str):
                     try:
@@ -3181,11 +3186,30 @@ class PostgresDatabase:
                     except Exception:
                         raw_meta = {}
 
+                bcp_meta_rounds = 0
+                if isinstance(raw_meta, dict):
+                    bcp_meta_rounds = int(raw_meta.get("numberOfRounds") or raw_meta.get("numRounds") or 0)
+
+                max_match_round = max([m["round"] for m in matches]) if matches else 0
+                db_rounds = int(res.get("num_rounds") or 0)
+
+                # Prioritize authentic BCP round metadata over stale fallback
+                if bcp_meta_rounds > 0:
+                    res["num_rounds"] = max(bcp_meta_rounds, max_match_round)
+                else:
+                    res["num_rounds"] = max(db_rounds, max_match_round)
+
+                if final_players:
+                    elos = [float(p["current_elo"]) for p in final_players if p.get("current_elo") is not None]
+                    if elos:
+                        res["avg_field_elo"] = round(sum(elos) / len(elos), 1)
+                        res["top_seed_elo"] = max(elos)
+
                 # Dynamically compute whether the event has completed
                 now_utc = datetime.now(timezone.utc)
                 end_dt = res.get("end_date") or (raw_meta.get("endDate") if isinstance(raw_meta, dict) else None) or (raw_meta.get("end_date") if isinstance(raw_meta, dict) else None)
                 ev_dt = res.get("event_date") or (raw_meta.get("eventDate") if isinstance(raw_meta, dict) else None) or (raw_meta.get("startDate") if isinstance(raw_meta, dict) else None) or (raw_meta.get("event_date") if isinstance(raw_meta, dict) else None)
-                num_rds = int(res.get("num_rounds") or (raw_meta.get("numberOfRounds") if isinstance(raw_meta, dict) else 0) or 0)
+                num_rds = int(res.get("num_rounds") or 0)
                 cur_rd = int(res.get("current_round") or (raw_meta.get("currentRound") if isinstance(raw_meta, dict) else 0) or 0)
 
                 status_meta = raw_meta.get("status") if isinstance(raw_meta, dict) and isinstance(raw_meta.get("status"), dict) else {}
@@ -3422,7 +3446,7 @@ class PostgresDatabase:
                             pass
 
                     # Tier strictly based on number of rounds: <=3 RTT/Local, 4-6 GT, >=7 Major
-                    rounds = int(r.get("num_rounds") or 0)
+                    rounds = int(r.get("num_rounds") or r.get("numberOfRounds") or r.get("numRounds") or 0)
                     if rounds == 0:
                         name_lower = (r.get("name") or "").lower()
                         if "major" in name_lower or "super major" in name_lower or "championship" in name_lower:
@@ -5544,9 +5568,21 @@ class PostgresDatabase:
         postal_code = event_data.get("postal_code") or event_data.get("postalCode") or ""
         latitude = event_data.get("latitude") if event_data.get("latitude") is not None else event_data.get("lat")
         longitude = event_data.get("longitude") if event_data.get("longitude") is not None else event_data.get("lng")
-        place_id = event_data.get("place_id") or ""
-        total_players = int(event_data.get("total_players") or len(event_data.get("roster") or []) or 0)
-        num_rounds = int(event_data.get("num_rounds") or event_data.get("rounds") or 5)
+        raw_json_dict = event_data.get("raw_json") or {}
+        if isinstance(raw_json_dict, str):
+            try: raw_json_dict = json.loads(raw_json_dict)
+            except Exception: raw_json_dict = {}
+
+        total_players = int(event_data.get("total_players") or event_data.get("totalPlayers") or len(event_data.get("roster") or []) or (raw_json_dict.get("totalPlayers") if isinstance(raw_json_dict, dict) else 0) or 0)
+        num_rounds = int(
+            event_data.get("numberOfRounds") or
+            event_data.get("numRounds") or
+            event_data.get("num_rounds") or
+            event_data.get("rounds") or
+            (raw_json_dict.get("numberOfRounds") if isinstance(raw_json_dict, dict) else 0) or
+            (raw_json_dict.get("numRounds") if isinstance(raw_json_dict, dict) else 0) or
+            5
+        )
         current_round = int(event_data.get("current_round") or 1)
         points = int(event_data.get("points") or 2000)
         capacity = int(event_data.get("capacity") or 32)
@@ -5613,8 +5649,8 @@ class PostgresDatabase:
                     state = EXCLUDED.state,
                     country = EXCLUDED.country,
                     venue = EXCLUDED.venue,
-                    total_players = EXCLUDED.total_players,
-                    num_rounds = EXCLUDED.num_rounds,
+                    total_players = GREATEST(COALESCE(events.total_players, 0), EXCLUDED.total_players),
+                    num_rounds = GREATEST(COALESCE(events.num_rounds, 0), EXCLUDED.num_rounds),
                     current_round = EXCLUDED.current_round,
                     points = EXCLUDED.points,
                     capacity = EXCLUDED.capacity,
@@ -6073,7 +6109,7 @@ class PostgresDatabase:
                     checked_in = bool(ev.get("checked_in") or ev.get("checkedIn") or False)
                     dropped = bool(ev.get("dropped") or False)
                     points_limit = int(ev.get("points_limit") or ev.get("points") or 2000)
-                    rounds = int(ev.get("rounds") or ev.get("numberOfRounds") or ev.get("numRounds") or 5)
+                    rounds = int(ev.get("numberOfRounds") or ev.get("numRounds") or ev.get("rounds") or ev.get("num_rounds") or 5)
                     total_players = int(ev.get("total_players") or ev.get("totalPlayers") or ev.get("capacity") or 0)
                     player_id_to_use = str(ev.get("player_id") or target_pid or user_id).strip()
                     bcp_pid_cand = str(ev.get("bcp_player_id") or ev.get("player_id") or "").strip()
@@ -6088,7 +6124,10 @@ class PostgresDatabase:
                         %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s
                     )
-                    ON CONFLICT (id) DO NOTHING;
+                    ON CONFLICT (id) DO UPDATE SET
+                        num_rounds = GREATEST(COALESCE(events.num_rounds, 0), EXCLUDED.num_rounds),
+                        total_players = GREATEST(COALESCE(events.total_players, 0), EXCLUDED.total_players),
+                        name = COALESCE(NULLIF(EXCLUDED.name, ''), events.name);
                     """, (
                         bcp_event_id, event_name, event_date, end_date, city, state, country,
                         venue_name, venue_name, rounds, points_limit, total_players
@@ -6216,7 +6255,7 @@ class PostgresDatabase:
         checked_in = bool(event_data.get("checked_in") or event_data.get("checkedIn") or False)
         dropped = bool(event_data.get("dropped") or False)
         points_limit = int(event_data.get("points_limit") or event_data.get("points") or 2000)
-        rounds = int(event_data.get("rounds") or event_data.get("numberOfRounds") or event_data.get("numRounds") or event_data.get("num_rounds") or 5)
+        rounds = int(event_data.get("numberOfRounds") or event_data.get("numRounds") or event_data.get("rounds") or event_data.get("num_rounds") or 5)
         total_players = int(event_data.get("total_players") or event_data.get("totalPlayers") or event_data.get("capacity") or 0)
         player_id_to_use = str(event_data.get("player_id") or target_pid or user_id).strip()
         bcp_pid_cand = str(event_data.get("bcp_player_id") or event_data.get("player_id") or "").strip()
@@ -6232,7 +6271,10 @@ class PostgresDatabase:
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s
                 )
-                ON CONFLICT (id) DO NOTHING;
+                ON CONFLICT (id) DO UPDATE SET
+                    num_rounds = GREATEST(COALESCE(events.num_rounds, 0), EXCLUDED.num_rounds),
+                    total_players = GREATEST(COALESCE(events.total_players, 0), EXCLUDED.total_players),
+                    name = COALESCE(NULLIF(EXCLUDED.name, ''), events.name);
                 """, (
                     bcp_event_id, event_name, event_date, end_date, city, state, country,
                     venue_name, venue_name, rounds, points_limit, total_players

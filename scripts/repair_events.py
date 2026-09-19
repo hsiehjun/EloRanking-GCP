@@ -53,6 +53,8 @@ WHERE raw_json IS NOT NULL
       (name IN ('Tournament', 'Unnamed Tournament', 'Tournament Details') AND raw_json->>'name' NOT IN ('Tournament', 'Unnamed Tournament', 'Tournament Details'))
       OR (is_ended = FALSE AND (raw_json->>'ended' = 'true' OR raw_json->>'isEnded' = 'true' OR raw_json->'status'->>'ended' = 'true'))
       OR ((total_players IS NULL OR total_players = 0) AND (raw_json->>'totalPlayers') ~ '^[0-9]+$' AND (raw_json->>'totalPlayers')::int > 0)
+      OR ((raw_json->>'numberOfRounds') ~ '^[0-9]+$' AND (raw_json->>'numberOfRounds')::int > COALESCE(num_rounds, 0))
+      OR ((raw_json->>'numRounds') ~ '^[0-9]+$' AND (raw_json->>'numRounds')::int > COALESCE(num_rounds, 0))
   );
 """
 

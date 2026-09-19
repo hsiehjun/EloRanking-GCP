@@ -200,7 +200,7 @@ function renderEventsRows() {
       <td style="font-family:var(--font-mono); color:var(--text-secondary); font-size:0.85rem;">${dateStr}</td>
       <td style="color:var(--text-secondary); font-size:0.85rem;">${escapeHtml(location)}</td>
       <td style="font-family:var(--font-mono); font-weight:600;">${ev.total_players || 0}</td>
-      <td style="font-family:var(--font-mono);">${ev.num_rounds || 0}</td>
+      <td style="font-family:var(--font-mono);">${ev.numberOfRounds || ev.num_rounds || (ev.raw_json && ev.raw_json.numberOfRounds) || 0}</td>
       <td style="font-family:var(--font-mono); color:var(--accent); font-weight:600;">${ev.match_count || 0}</td>
     `;
     tbody.appendChild(tr);
@@ -252,9 +252,10 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
         eventPlayersCache = fresh.players || [];
 
         const elPlayers = document.getElementById('event-modal-players');
+        const eventRounds = getEventNumRounds(fresh, eventMatchesCache);
         if (elPlayers) elPlayers.innerText = fresh.total_players || eventPlayersCache.length || 0;
         const elRounds = document.getElementById('event-modal-rounds');
-        if (elRounds) elRounds.innerText = fresh.num_rounds || 0;
+        if (elRounds) elRounds.innerText = eventRounds || 0;
         const elMatches = document.getElementById('event-modal-matches');
         if (elMatches) elMatches.innerText = eventMatchesCache.length;
 
@@ -262,8 +263,7 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
         if (metaEl) {
           const loc = [fresh.city, fresh.state, fresh.country].filter(Boolean).join(', ') || 'Online / Unspecified';
           const dStr = (fresh.event_date || '').slice(0, 10);
-          const numRounds = fresh.num_rounds || (eventMatchesCache.length > 0 ? Math.max(...eventMatchesCache.map(m => m.round || 1)) : 0);
-          const roundsPart = numRounds > 0 ? ` • 🔄 ${numRounds} Rounds` : '';
+          const roundsPart = eventRounds > 0 ? ` • 🔄 ${eventRounds} Rounds` : '';
           metaEl.innerText = `📅 ${dStr} • 📍 ${loc}${roundsPart}`;
         }
 
@@ -518,8 +518,8 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       computeEventPlayerEloStats(eventPlayersCache, eventMatchesCache);
     }
 
-    const numRounds = ev.num_rounds || (eventMatchesCache.length > 0 ? Math.max(...eventMatchesCache.map(m => m.round || 1)) : 0);
-    const roundsPart = numRounds > 0 ? ` • 🔄 ${numRounds} Rounds` : '';
+    const eventRounds = getEventNumRounds(ev, eventMatchesCache);
+    const roundsPart = eventRounds > 0 ? ` • 🔄 ${eventRounds} Rounds` : '';
     const metaEl = document.getElementById('modal-event-meta');
     if (metaEl) metaEl.innerText = `📅 ${dStr} • 📍 ${loc}${roundsPart}`;
 
@@ -539,7 +539,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       }
     }
     const elRounds = document.getElementById('event-modal-rounds');
-    if (elRounds) elRounds.innerText = ev.num_rounds || 0;
+    if (elRounds) elRounds.innerText = eventRounds || 0;
     const elMatches = document.getElementById('event-modal-matches');
     if (elMatches) elMatches.innerText = eventMatchesCache.length;
 
@@ -3138,6 +3138,34 @@ let currentEventArmyListText = '';
 let currentEventParsedRoster = null;
 let currentEventArmyListViewMode = 'text';
 
+function getEventNumRounds(ev, matches = []) {
+  if (!ev) return 5;
+  const rawBcp = Number(
+    ev.numberOfRounds ||
+    ev.numRounds ||
+    ev.raw_json?.numberOfRounds ||
+    ev.raw_json?.numRounds ||
+    0
+  );
+  if (rawBcp > 0) return rawBcp;
+
+  const matchRounds = (Array.isArray(matches) && matches.length > 0)
+    ? Math.max(...matches.map(m => Number(m.round || 1)))
+    : 0;
+
+  const dbRounds = Number(ev.num_rounds || ev.rounds || 0);
+
+  // Swiss tournament sanity check: if DB rounds is <= 3 or 0, but competitor count is massive (Super Major / Major / GT)
+  const totalCompetitors = Number(ev.total_players || (Array.isArray(ev.players) ? ev.players.length : 0));
+  if ((dbRounds <= 3 || !dbRounds) && totalCompetitors >= 28) {
+    if (totalCompetitors >= 256) return Math.max(matchRounds, 9); // Super Major (LVO, AdeptiCon)
+    if (totalCompetitors >= 60) return Math.max(matchRounds, 6);  // Major
+    return Math.max(matchRounds, 5); // Grand Tournament
+  }
+
+  return Math.max(dbRounds, matchRounds, 0);
+}
+
 function isEventEnded(ev, regData = null) {
   if (!ev && !regData) return false;
 
@@ -3166,10 +3194,10 @@ function isEventEnded(ev, regData = null) {
   }
 
   // 2. Structural Round & Match Context
-  const numRounds = Number(ev?.num_rounds || ev?.numberOfRounds || ev?.raw_json?.numberOfRounds || ev?.raw_json?.num_rounds || 0);
-  const currentRound = Number(ev?.current_round || ev?.currentRound || ev?.raw_json?.currentRound || 0);
   const matches = Array.isArray(ev?.matches) ? ev.matches : (Array.isArray(eventMatchesCache) ? eventMatchesCache : []);
   const players = Array.isArray(ev?.players) ? ev.players : (Array.isArray(eventPlayersCache) ? eventPlayersCache : []);
+  const numRounds = getEventNumRounds(ev, matches);
+  const currentRound = Number(ev?.current_round || ev?.currentRound || ev?.raw_json?.currentRound || 0);
   const hasMatches = matches.length > 0 || players.some(p => (p.event_wins || p.wins || 0) > 0 || (p.event_losses || p.losses || 0) > 0 || (p.placement && p.placement > 0));
 
   const hasActiveMatches = matches.some(m =>
@@ -3369,7 +3397,7 @@ function getEventKpiSummary(ev) {
   const isDoublesEvent = Boolean(ev?.is_doubles_event);
   const totalPlayers = ev?.total_players || players.length || 0;
   const totalTeams = ev?.total_teams || teams.length || 0;
-  const numRounds = Number(ev?.num_rounds || (matches.length > 0 ? Math.max(...matches.map(m => m.round || 1)) : 5));
+  const numRounds = getEventNumRounds(ev, matches) || 5;
   const ended = isEventEnded(ev);
   const now = new Date();
   const todayStr = (typeof getLocalIsoDateStr === 'function')
@@ -3455,6 +3483,7 @@ function renderQuickEventModal(ev, userRegData) {
   if (Array.isArray(ev.players)) eventPlayersCache = ev.players;
   if (Array.isArray(ev.matches)) eventMatchesCache = ev.matches;
 
+  const kpi = getEventKpiSummary(ev);
   const nameEl = document.getElementById('modal-event-name');
   if (nameEl) nameEl.textContent = ev.name || ev.event_name || 'Tournament Details';
   const bcpLink = document.getElementById('modal-event-bcp-link');
@@ -3463,11 +3492,9 @@ function renderQuickEventModal(ev, userRegData) {
   if (metaEl) {
     const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
     const dStr = (ev.event_date || ev.start_date || '').slice(0, 10);
-    const rds = ev.num_rounds ? ` • 🔄 ${ev.num_rounds} Rounds` : '';
+    const rds = kpi.numRounds ? ` • 🔄 ${kpi.numRounds} Rounds` : '';
     metaEl.innerHTML = `<span>📅 ${escapeHtml(dStr || 'Date TBD')}</span><span> • 📍 ${escapeHtml(loc)}</span><span>${rds}</span>`;
   }
-
-  const kpi = getEventKpiSummary(ev);
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k').toLowerCase();
   const sysBadge = sys === 'aos'
     ? `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-size:0.72rem; font-weight:700;">⚡ Age of Sigmar</span>`

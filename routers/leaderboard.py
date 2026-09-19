@@ -648,7 +648,7 @@ async def api_events_recommended(
                 pass
 
         # Tier strictly based on number of rounds: <=3 RTT/Local, 4-6 GT, >=7 Major
-        rounds = int(ev.get("numberOfRounds") or ev.get("numRounds") or ev.get("numberOf_rounds") or ev.get("rounds") or 0)
+        rounds = int(ev.get("num_rounds") or ev.get("numberOfRounds") or ev.get("numRounds") or ev.get("numberOf_rounds") or ev.get("rounds") or 0)
         if rounds == 0:
             name_lower = ev_name.lower()
             if "major" in name_lower or "super major" in name_lower or "championship" in name_lower:
@@ -1261,6 +1261,47 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         except Exception:
             raw_ev = {}
 
+    # Self-healing round count: Prioritize authentic BCP numberOfRounds / numRounds
+    bcp_rounds = int(
+        raw_ev.get("numberOfRounds") or
+        raw_ev.get("numRounds") or
+        ((raw_ev.get("raw_json") or {}).get("numberOfRounds") if isinstance(raw_ev.get("raw_json"), dict) else 0) or
+        0
+    )
+    curr_rds = int(event_details.get("num_rounds") or 0)
+    total_pl = int(event_details.get("total_players") or len(event_details.get("players") or []) or 0)
+
+    # If BCP rounds is missing or <=3 for large events, or force_sync requested, fetch fresh event metadata from BCP
+    if not is_native_studio and (bcp_rounds <= 0 or (curr_rds <= 3 and total_pl >= 30) or force_sync):
+        try:
+            scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
+            fresh_bcp_ev = scraper.fetch_event_details(event_id_str)
+            if fresh_bcp_ev and isinstance(fresh_bcp_ev, dict):
+                fresh_rds = int(fresh_bcp_ev.get("numberOfRounds") or fresh_bcp_ev.get("numRounds") or 0)
+                if fresh_rds > 0:
+                    bcp_rounds = fresh_rds
+                    event_details["num_rounds"] = fresh_rds
+                    if isinstance(raw_ev, dict):
+                        raw_ev.update(fresh_bcp_ev)
+                        event_details["raw_json"] = raw_ev
+                    # Self-heal PostgreSQL database record if database is connected
+                    try:
+                        with db.get_connection() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute("""
+                                    UPDATE events 
+                                    SET num_rounds = GREATEST(COALESCE(num_rounds, 0), %s),
+                                        raw_json = COALESCE(raw_json, '{}'::jsonb) || %s::jsonb
+                                    WHERE id = %s;
+                                """, (fresh_rds, json.dumps(fresh_bcp_ev), event_id_str))
+                    except Exception as upe:
+                        logger.warning(f"Notice persisting self-healed num_rounds for {event_id_str}: {upe}")
+        except Exception as fe:
+            logger.warning(f"Notice fetching fresh BCP metadata for {event_id_str}: {fe}")
+
+    if bcp_rounds > 0 and (curr_rds == 0 or bcp_rounds > curr_rds or curr_rds <= 3):
+        event_details["num_rounds"] = bcp_rounds
+
     is_ended = bool(
         event_details.get("is_ended") or
         event_details.get("ended") or
@@ -1307,7 +1348,8 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             ev_gs = event_details.get("game_system") or "40k"
             formatted_players = format_bcp_roster_to_players(bcp_players, existing_players, db=db, game_system=ev_gs, is_ended=is_ended)
             event_details["players"] = formatted_players
-            event_details["total_players"] = len(formatted_players)
+            if formatted_players:
+                event_details["total_players"] = len(formatted_players)
             elos = [float(p["current_elo"]) for p in formatted_players if p.get("current_elo") is not None]
             if elos:
                 event_details["avg_field_elo"] = round(sum(elos) / len(elos), 1)
@@ -1661,6 +1703,10 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             raw_ev = json.loads(raw_ev)
         except Exception:
             raw_ev = {}
+
+    post_bcp_rds = int(raw_ev.get("numberOfRounds") or raw_ev.get("numRounds") or 0)
+    if post_bcp_rds > 0 and int(event_details.get("num_rounds") or 0) < post_bcp_rds:
+        event_details["num_rounds"] = post_bcp_rds
 
     # Event Name Safeguard: Restore authentic name if DB row has generic placeholder
     if event_details.get("name") in ("Tournament", "Unnamed Tournament", "Tournament Details", None, ""):
