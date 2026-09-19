@@ -299,16 +299,21 @@ def _get_dev_user_glory_and_stats():
     total_earned = int(DEV_USER.get("total_glory") or (glory_40k + glory_aos))
     spent = int(DEV_USER.get("glory_spent") or 0)
     spendable = max(0, total_earned - spent)
+    DEV_USER["total_glory"] = total_earned
+    DEV_USER["glory_balance"] = spendable
+    DEV_USER["glory_spent"] = spent
     crest_tier = int(DEV_USER.get("crest_tier", 5))
     peak_elo = float(DEV_USER.get("peak_elo", 1890.0))
 
     return {
         "vault": v,
         "total_earned": total_earned,
+        "total_glory": total_earned,
         "glory_40k": glory_40k,
         "glory_aos": glory_aos,
         "glory_spent": spent,
         "spendable_glory": spendable,
+        "glory_balance": spendable,
         "crest_tier": crest_tier,
         "peak_elo": peak_elo
     }
@@ -3688,7 +3693,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             glory_40k = int(DEV_USER.get("glory_40k", 8030))
             glory_aos = int(DEV_USER.get("glory_aos", 135))
             current_sys_glory = glory_aos if req_game_sys == "aos" else glory_40k
-            unified_glory = max(0, (glory_40k + glory_aos) - int(DEV_USER.get("glory_spent") or 0))
+            total_earned = glory_40k + glory_aos
+            spent = int(DEV_USER.get("glory_spent") or 0)
+            spendable = max(0, total_earned - spent)
+            DEV_USER["total_glory"] = total_earned
+            DEV_USER["glory_balance"] = spendable
 
             res.update({
                 "badge_count": b_eval["badge_count"],
@@ -3696,11 +3705,14 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "completion_pct": b_eval["completion_pct"],
                 "glory_score": b_eval["glory_score"],
                 "career_glory": b_eval.get("career_glory", b_eval.get("glory_score", 0)),
-                "glory_balance": max(0, current_sys_glory - int(DEV_USER.get("glory_spent") or 0)),
-                "unified_glory": unified_glory,
+                "glory_balance": spendable,
+                "spendable_glory": spendable,
+                "unified_glory": spendable,
+                "total_glory": total_earned,
+                "total_earned": total_earned,
                 "glory_40k": glory_40k,
                 "glory_aos": glory_aos,
-                "glory_spent": int(DEV_USER.get("glory_spent") or 0),
+                "glory_spent": spent,
                 "seasonal": b_eval.get("seasonal", {}),
                 "active_season": b_eval.get("active_season", "2026"),
                 "rank": b_eval["rank"],

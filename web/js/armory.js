@@ -682,16 +682,26 @@
    */
   function updateArmoryHeaderBalance() {
     var balEl = document.getElementById('armory-spendable-balance-val');
-    if (balEl) balEl.textContent = Number(currentGlory.spendable_glory || 0).toLocaleString();
+    var spendable = Number(currentGlory.spendable_glory != null ? currentGlory.spendable_glory : (currentGlory.glory_balance || 0));
+    if (balEl) balEl.textContent = spendable.toLocaleString();
+
     var spentEl = document.getElementById('armory-total-spent-val');
     if (spentEl) spentEl.textContent = Number(currentGlory.glory_spent || 0).toLocaleString();
+
     var subEl = document.getElementById('armory-glory-breakdown-sub');
     if (subEl) {
-      if (currentGlory.glory_40k || currentGlory.glory_aos) {
-        subEl.textContent = '(' + Number(currentGlory.glory_40k || 0).toLocaleString() + ' 40K + ' + Number(currentGlory.glory_aos || 0).toLocaleString() + ' AoS)';
+      var total = Number(currentGlory.total_glory || currentGlory.total_earned || 0);
+      if (total > 0) {
+        subEl.textContent = '(' + total.toLocaleString() + ' Lifetime: ' + Number(currentGlory.glory_40k || 0).toLocaleString() + ' 40K + ' + Number(currentGlory.glory_aos || 0).toLocaleString() + ' AoS)';
       } else {
         subEl.textContent = '';
       }
+    }
+
+    // Synchronize the My Hub tab button in real-time
+    var hubCounter = document.getElementById('hub-armory-balance-count');
+    if (hubCounter) {
+      hubCounter.textContent = spendable.toLocaleString();
     }
   }
 
@@ -979,12 +989,12 @@
       '    <div class="armory-wallet-hud">',
       '      <div class="armory-wallet-stat">',
       '        <span class="armory-wallet-val" id="armory-spendable-balance-val">--</span>',
-      '        <span class="armory-wallet-lbl">Unified Glory</span>',
+      '        <span class="armory-wallet-lbl">Spendable Glory</span>',
       '        <span class="armory-wallet-sub" id="armory-glory-breakdown-sub" style="font-size: 0.65rem; color: #94a3b8; font-family: var(--font-mono, monospace);"></span>',
       '      </div>',
       '      <div class="armory-wallet-stat desktop-only">',
       '        <span class="armory-wallet-val text-muted" id="armory-total-spent-val">0</span>',
-      '        <span class="armory-wallet-lbl">Requisitioned</span>',
+      '        <span class="armory-wallet-lbl">Total Requisitioned</span>',
       '      </div>',
       '    </div>',
       '    <button type="button" class="modal-close" onclick="window.Armory.closeArmoryModal()" aria-label="Close">✕</button>',

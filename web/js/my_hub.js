@@ -1214,9 +1214,9 @@ function renderMyHub(data) {
         <span>🏆 Trophies</span>
         <span class="profile-subtab-count">${data.badge_count || 0}/${data.total_badges || 105}</span>
       </button>
-      <button type="button" class="profile-subtab-btn hub-subtab-armory-btn" data-tab="armory" onclick="switchHubSubtab('armory')">
+      <button type="button" class="profile-subtab-btn hub-subtab-armory-btn" data-tab="armory" onclick="switchHubSubtab('armory')" title="${(data.spendable_glory != null ? data.spendable_glory : (data.glory_balance != null ? data.glory_balance : 0)).toLocaleString()} Spendable Glory Points Remaining">
         <span>🏛️ Armory</span>
-        <span class="profile-subtab-count" style="color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3);">💰 ${(data.unified_glory || data.glory_balance || 0).toLocaleString()}</span>
+        <span class="profile-subtab-count" style="color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 800;">💰 <span id="hub-armory-balance-count">${(data.spendable_glory != null ? data.spendable_glory : (data.glory_balance != null ? data.glory_balance : 0)).toLocaleString()}</span> Left</span>
       </button>
     </div>
 

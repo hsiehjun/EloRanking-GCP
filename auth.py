@@ -213,6 +213,8 @@ class AuthManager:
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS acknowledged_badge_ids TEXT;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS armory_vault TEXT DEFAULT '{}';
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_spent INTEGER DEFAULT 0;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS total_glory INTEGER DEFAULT 0;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_balance INTEGER DEFAULT 0;
                         CREATE TABLE IF NOT EXISTS armory_transactions (
                             id SERIAL PRIMARY KEY,
                             user_id VARCHAR(64) NOT NULL,
@@ -364,6 +366,8 @@ class AuthManager:
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS acknowledged_badge_ids TEXT;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS armory_vault TEXT DEFAULT '{}';
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_spent INTEGER DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS total_glory INTEGER DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_balance INTEGER DEFAULT 0;
                     CREATE TABLE IF NOT EXISTS armory_transactions (
                         id SERIAL PRIMARY KEY,
                         user_id VARCHAR(64) NOT NULL,
@@ -917,7 +921,7 @@ class AuthManager:
                     SELECT u.id, u.email, u.display_name, u.role, u.player_id,
                            u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
                            u.pinned_badges, u.badges_celebrated, u.acknowledged_badge_ids,
-                           u.armory_vault, u.glory_spent,
+                           u.armory_vault, u.glory_spent, u.total_glory, u.glory_balance,
                            COALESCE(p.player_name, pl.full_name) as competitor_name,
                            p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
                            p.top_faction, COALESCE(p.team, pl.team) as team
@@ -943,7 +947,7 @@ class AuthManager:
                         SELECT u.id, u.email, u.display_name, u.role, u.player_id,
                                u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
                                u.pinned_badges, u.badges_celebrated, u.acknowledged_badge_ids,
-                               u.armory_vault, u.glory_spent,
+                               u.armory_vault, u.glory_spent, u.total_glory, u.glory_balance,
                                COALESCE(p.player_name, pl.full_name) as competitor_name,
                                p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
                                p.top_faction, COALESCE(p.team, pl.team) as team
@@ -1020,6 +1024,8 @@ class AuthManager:
             else:
                 data["armory_vault"] = {}
             data["glory_spent"] = int(data.get("glory_spent") or 0)
+            data["total_glory"] = int(data.get("total_glory") or 0)
+            data["glory_balance"] = int(data.get("glory_balance") or 0)
 
             return data
         return None
@@ -2167,8 +2173,12 @@ class AuthManager:
             "glory_score": b_eval["glory_score"],
             "career_glory": b_eval.get("career_glory", b_eval.get("glory_score", 0)),
             "seasonal_glory": b_eval.get("seasonal_glory", 0),
-            "glory_balance": current_sys_glory,
+            "glory_balance": max(0, unified_glory - (int(user_info.get("glory_spent") or 0) if user_info else 0)),
+            "spendable_glory": max(0, unified_glory - (int(user_info.get("glory_spent") or 0) if user_info else 0)),
             "unified_glory": unified_glory,
+            "total_glory": unified_glory,
+            "total_earned": unified_glory,
+            "glory_spent": int(user_info.get("glory_spent") or 0) if user_info else 0,
             "glory_40k": current_sys_glory if target_sys == "40k" else other_glory,
             "glory_aos": other_glory if target_sys == "40k" else current_sys_glory,
             "seasonal": b_eval.get("seasonal", {}),

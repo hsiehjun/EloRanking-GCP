@@ -31,6 +31,8 @@ def _ensure_armory_db(auth_mgr):
                 cur.execute("""
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS armory_vault TEXT DEFAULT '{}';
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_spent INTEGER DEFAULT 0;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS total_glory INTEGER DEFAULT 0;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_balance INTEGER DEFAULT 0;
                 CREATE TABLE IF NOT EXISTS armory_transactions (
                     id SERIAL PRIMARY KEY,
                     user_id VARCHAR(64) NOT NULL,
@@ -74,19 +76,48 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
         except Exception as e:
             logger.warning(f"Notice computing AoS glory for user {target_uid}: {e}")
 
-    total_earned = total_40k + total_aos
-    if total_earned <= 0:
-        total_earned = int(user_data.get("total_glory") or user_data.get("glory_score") or user_data.get("glory_balance") or 0)
+    evaluated_glory = total_40k + total_aos
+    db_total = int(user_data.get("total_glory") or 0)
+    db_spent = int(user_data.get("glory_spent") or 0)
+    db_balance = int(user_data.get("glory_balance") or 0)
 
-    spent = int(user_data.get("glory_spent") or 0)
-    spendable = max(0, total_earned - spent)
+    # Sync and persist: If evaluated_glory is greater than db_total, award new points!
+    if evaluated_glory > db_total:
+        db_total = evaluated_glory
+        db_balance = max(0, db_total - db_spent)
+        user_data["total_glory"] = db_total
+        user_data["glory_balance"] = db_balance
+        if auth_mgr and hasattr(auth_mgr, "db") and auth_mgr.db and target_uid:
+            try:
+                _ensure_armory_db(auth_mgr)
+                with auth_mgr.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                        UPDATE users SET total_glory = %s, glory_balance = %s, updated_at = NOW() WHERE id = %s;
+                        """, (db_total, db_balance, target_uid))
+                    conn.commit()
+            except Exception as e:
+                logger.debug(f"Notice persisting synced glory balance: {e}")
+    elif db_total > 0 and evaluated_glory == 0:
+        # Transient disconnect or timeout: fall back to persistent database values!
+        evaluated_glory = db_total
+        db_balance = max(0, db_total - db_spent)
+    elif db_balance == 0 and db_total > 0:
+        db_balance = max(0, db_total - db_spent)
+    elif db_total == 0 and evaluated_glory > 0:
+        db_total = evaluated_glory
+        db_balance = max(0, db_total - db_spent)
+        user_data["total_glory"] = db_total
+        user_data["glory_balance"] = db_balance
 
     return {
-        "total_earned": total_earned,
+        "total_earned": db_total or evaluated_glory,
+        "total_glory": db_total or evaluated_glory,
         "glory_40k": total_40k,
         "glory_aos": total_aos,
-        "glory_spent": spent,
-        "spendable_glory": spendable,
+        "glory_spent": db_spent,
+        "spendable_glory": db_balance,
+        "glory_balance": db_balance,
         "crest_tier": crest_tier,
         "peak_elo": peak_elo
     }
@@ -244,10 +275,13 @@ async def purchase_item(request: Request):
 
     # 5. Persist to database
     new_spent = glory_state["glory_spent"] + cost
+    new_balance = max(0, glory_state["spendable_glory"] - cost)
     user_data["armory_vault"] = vault
     user_data["glory_spent"] = new_spent
+    user_data["glory_balance"] = new_balance
     session["armory_vault"] = vault
     session["glory_spent"] = new_spent
+    session["glory_balance"] = new_balance
 
     try:
         _ensure_armory_db(auth_mgr)
@@ -255,9 +289,9 @@ async def purchase_item(request: Request):
             with conn.cursor() as cur:
                 cur.execute("""
                 UPDATE users
-                SET armory_vault = %s, glory_spent = %s, updated_at = NOW()
+                SET armory_vault = %s, glory_spent = %s, glory_balance = %s, updated_at = NOW()
                 WHERE id = %s;
-                """, (json.dumps(vault), new_spent, user_id))
+                """, (json.dumps(vault), new_spent, new_balance, user_id))
             conn.commit()
 
             try:
