@@ -155,6 +155,10 @@
     currentVault.equipped[sys][slot] = itemId;
     currentVault.equipped[slot] = itemId;
 
+    if (slot === 'active_dice') {
+      try { localStorage.setItem('omnitactica_active_dice', itemId); } catch(e) {}
+    }
+
     if (currentCatalog && currentCatalog.items) {
       currentCatalog.items.forEach(function(i) {
         if (i.slot === slot) {
@@ -210,6 +214,10 @@
       currentVault.equipped[sys][slot] = null;
     }
     currentVault.equipped[slot] = null;
+
+    if (slot === 'active_dice') {
+      try { localStorage.removeItem('omnitactica_active_dice'); } catch(e) {}
+    }
 
     if (currentCatalog && currentCatalog.items) {
       currentCatalog.items.forEach(function(i) {
@@ -634,7 +642,14 @@
       }
     });
 
-    // 4. Dispatch Event for Live Tracker Dice Tray
+    // 4. Sync localStorage active_dice for real-time dice tray integration
+    if (eq && eq.active_dice) {
+      try { localStorage.setItem('omnitactica_active_dice', eq.active_dice); } catch(e) {}
+    } else {
+      try { localStorage.removeItem('omnitactica_active_dice'); } catch(e) {}
+    }
+
+    // 5. Dispatch Event for Live Tracker Dice Tray
     if (window.dispatchEvent) {
       window.dispatchEvent(new CustomEvent('omnitactica:armory-loadout-changed', {
         detail: { equipped: eq, vault: currentVault }
@@ -1076,9 +1091,9 @@
     },
     getEquippedItem: function(slot, system) {
       var id = window.Armory.getEquipped(slot, system);
-      if (!id || !catalog) return null;
-      for (var i = 0; i < catalog.length; i++) {
-        if (catalog[i].id === id) return catalog[i];
+      if (!id || !currentCatalog || !currentCatalog.items) return null;
+      for (var i = 0; i < currentCatalog.items.length; i++) {
+        if (currentCatalog.items[i].id === id) return currentCatalog.items[i];
       }
       return null;
     },

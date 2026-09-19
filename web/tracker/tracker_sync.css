@@ -1042,6 +1042,9 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
   text-shadow: 0 0 6px rgba(245, 158, 11, 0.9);
   box-shadow: 0 3px 10px rgba(124, 45, 18, 0.7) !important;
 }
+.skin-molten-magma .gt-die-pip.selected {
+  box-shadow: 0 4px 14px rgba(249, 115, 22, 0.65), 0 0 0 2px #f59e0b !important;
+}
 .skin-molten-magma .gt-die-crit {
   background: radial-gradient(circle at 30% 30%, #fbbf24 0%, #ea580c 70%, #7c2d12 100%) !important;
   color: #ffffff !important;

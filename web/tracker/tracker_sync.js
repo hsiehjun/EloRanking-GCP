@@ -4343,7 +4343,7 @@ Space Marines - Gladius Task Force (2000 pts)
 
           <!-- Grid of Clickable Dice -->
           ${(() => {
-            const activeSkinId = (window.Armory ? window.Armory.getEquipped('active_dice') : null) || localStorage.getItem('omnitactica_active_dice') || 'dice_warpfire_plasma';
+            const activeSkinId = (window.Armory && typeof window.Armory.getEquipped === 'function' ? window.Armory.getEquipped('active_dice') : null) || localStorage.getItem('omnitactica_active_dice') || 'dice_warpfire_plasma';
             let skinClass = 'skin-warpfire-plasma';
             let customStyle = '';
             let isCustom = false;
@@ -4351,8 +4351,10 @@ Space Marines - Gladius Task Force (2000 pts)
               skinClass = 'skin-molten-magma';
             } else if (activeSkinId === 'dice_ceramite_white') {
               skinClass = 'skin-ceramite-white';
-            } else if (window.Armory && typeof window.Armory.getEquippedItem === 'function') {
-              const eqItem = window.Armory.getEquippedItem('active_dice');
+            } else if (activeSkinId === 'dice_warpfire_plasma') {
+              skinClass = 'skin-warpfire-plasma';
+            } else if (activeSkinId) {
+              const eqItem = window.Armory && typeof window.Armory.getEquippedItem === 'function' ? window.Armory.getEquippedItem('active_dice') : null;
               if (eqItem && eqItem.payload) {
                 skinClass = 'skin-faction-custom';
                 isCustom = true;
@@ -5294,11 +5296,27 @@ Space Marines - Gladius Task Force (2000 pts)
     }
   };
 
+  // Real-time Armory Dice Skin Sync Listener
+  if (typeof window !== 'undefined') {
+    window.addEventListener('omnitactica:armory-loadout-changed', function(e) {
+      if (typeof renderDiceRollerContent === 'function') {
+        renderDiceRollerContent();
+      }
+    });
+  }
+
   // Hook into startup
   const origInit = init;
   init = async function() {
     await origInit();
     setTimeout(loadRoomArmyLists, 100);
+    if (window.Armory && typeof window.Armory.loadArmoryData === 'function') {
+      window.Armory.loadArmoryData().then(function() {
+        if (typeof renderDiceRollerContent === 'function') {
+          renderDiceRollerContent();
+        }
+      });
+    }
   };
 
   // Auto-init on load
