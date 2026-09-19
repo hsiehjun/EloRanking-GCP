@@ -123,9 +123,11 @@
   }
 
   /**
+   * Equip an item into a slot
+   */
   async function equipItem(slot, itemId, silent, system) {
     try {
-      var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
+      var sys = (typeof system === 'string' ? system : (currentGameSystem || window.currentGameSystem || '40k')).toLowerCase();
       var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
       var headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = 'Bearer ' + token;
@@ -156,7 +158,7 @@
    */
   async function unequipSlot(slot, silent, system) {
     try {
-      var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
+      var sys = (typeof system === 'string' ? system : (currentGameSystem || window.currentGameSystem || '40k')).toLowerCase();
       var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
       var headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = 'Bearer ' + token;
@@ -245,7 +247,7 @@
    * Effect Dispatcher: Applies active decorations across the entire page
    */
   function applyEquippedDecorations(system) {
-    var sys = (system || window.currentGameSystem || '40k').toLowerCase();
+    var sys = (typeof system === 'string' ? system : (window.currentGameSystem || '40k')).toLowerCase();
     var allEq = currentVault.equipped || {};
     var eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
 
@@ -663,7 +665,7 @@
     pokePlayer: pokePlayer,
     applyEquippedDecorations: applyEquippedDecorations,
     getEquipped: function(slot, system) {
-      var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
+      var sys = (typeof system === 'string' ? system : (currentGameSystem || window.currentGameSystem || '40k')).toLowerCase();
       var allEq = currentVault.equipped || {};
       if (allEq[sys] && typeof allEq[sys] === 'object' && allEq[sys][slot] !== undefined) {
         return allEq[sys][slot];
@@ -685,10 +687,10 @@
   // Auto-init decorations when DOM is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function() {
-      loadArmoryData().then(applyEquippedDecorations);
+      loadArmoryData().then(function() { applyEquippedDecorations(); });
     });
   } else {
-    loadArmoryData().then(applyEquippedDecorations);
+    loadArmoryData().then(function() { applyEquippedDecorations(); });
   }
 
 })(window);

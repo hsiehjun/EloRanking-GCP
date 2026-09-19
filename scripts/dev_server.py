@@ -3142,7 +3142,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         if clean_path.startswith("api/teams/") and not clean_path.endswith("/messages") and not clean_path.endswith("/squad-events/attend"):
             import teams_hub_service
             svc = teams_hub_service.get_teams_hub_service()
-            t_id = clean_path.split("/")[2]
+            t_id = urllib.parse.unquote(clean_path.split("/")[2])
             gs = (query_params.get("game_system", [None])[0] or "40k").strip().lower()
             hub = svc.get_team_hub(t_id, gs)
             if not hub:

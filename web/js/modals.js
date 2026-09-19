@@ -726,8 +726,8 @@ function renderTrajectoryChart(trajectory) {
   });
 }
 
-let currentTeamRoster = [];
-let currentModalTeamName = '';
+var currentTeamRoster = [];
+var currentModalTeamName = (typeof window !== 'undefined' && window.currentModalTeamName) || '';
 
 function openFullTeamHubFromModal() {
   const target = currentModalTeamName || (document.getElementById('modal-team-title') ? document.getElementById('modal-team-title').innerText.trim() : '');
