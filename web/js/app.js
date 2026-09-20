@@ -179,12 +179,12 @@ function switchGameSystem(sys) {
       if (typeof loadPlayersDirectory === 'function') loadPlayersDirectory();
     }
   } else if (activeTab === 'player-profile') {
-    if (typeof openPlayerProfilePage === 'function' && typeof currentProfilePlayerId !== 'undefined' && currentProfilePlayerId) {
-      openPlayerProfilePage(currentProfilePlayerId, sys);
+    if (typeof openPlayerProfilePage === 'function' && typeof window !== 'undefined' && window.currentProfilePlayerId) {
+      openPlayerProfilePage(window.currentProfilePlayerId, sys);
     }
   } else if (activeTab === 'event-hub') {
-    if (typeof openEventHubPage === 'function' && typeof currentOpenEventId !== 'undefined' && currentOpenEventId) {
-      openEventHubPage(currentOpenEventId, sys);
+    if (typeof openEventHubPage === 'function' && typeof window !== 'undefined' && window.currentOpenEventId) {
+      openEventHubPage(window.currentOpenEventId, sys);
     }
   } else if (activeTab === 'team-profile') {
     if (typeof openTeamProfilePage === 'function' && typeof currentProfileTeamName !== 'undefined' && currentProfileTeamName) {
@@ -382,9 +382,10 @@ function switchTab(tabName) {
  */
 function navigateToMyHub(forceRefresh = true) {
   if (typeof closeAllModals === 'function') closeAllModals();
-  if (typeof resetMyHubToProfile === 'function') resetMyHubToProfile();
-  if (typeof currentProfilePlayerId !== 'undefined') window.currentProfilePlayerId = null;
-  if (typeof currentOpenEventId !== 'undefined') window.currentOpenEventId = null;
+  if (typeof window !== 'undefined') {
+    window.currentProfilePlayerId = null;
+    window.currentOpenEventId = null;
+  }
 
   const wasMyHub = (activeTab === 'my-hub');
   activeTab = '';

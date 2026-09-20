@@ -339,11 +339,157 @@ def get_rank_for_badge_count(badge_count: int, game_system: str = "40k") -> Dict
         "badge_color": current_rank["badge_color"],
         "icon": current_rank["icon"],
         "description": current_rank["description"],
-        "badge_count": count,
         "next_rank_title": next_rank["title"] if next_rank else None,
         "next_rank_min": next_rank["min_badges"] if next_rank else None,
         "badges_needed_for_next": badges_needed,
         "progress_pct": progress_pct
+    }
+
+
+def extract_tournament_championships(
+    tournaments: Optional[List[Dict[str, Any]]] = None,
+    history: Optional[List[Dict[str, Any]]] = None,
+    game_system: str = "40k"
+) -> Dict[str, Any]:
+    """Extracts verified 1st place tournament victories from career BCP history.
+    
+    Classifies events into RTT (3 rounds, >=8 players), GT (5+ rounds, >=28 players),
+    Major (100+ players or 6+ rounds), or Super Major (200+ players / Worlds),
+    calculating Glory bounties, silverware models, and undefeated badges.
+    """
+    tournaments = tournaments or []
+    history = history or []
+
+    ev_matches: Dict[str, List[Dict[str, Any]]] = {}
+    for m in history:
+        eid = str(m.get("event_id") or m.get("event_name") or "")
+        if eid:
+            ev_matches.setdefault(eid, []).append(m)
+
+    championships = []
+    seen_event_ids = set()
+
+    for t in tournaments:
+        eid = str(t.get("event_id") or t.get("id") or "")
+        ename = str(t.get("event_name") or t.get("name") or "Tournament").strip()
+        date_str = str(t.get("event_date") or t.get("date") or "")[:10]
+        total_p = _safe_int(t.get("total_players") or t.get("players_count") or 0)
+        num_r = _safe_int(t.get("num_rounds") or t.get("rounds") or 0)
+        placement = _safe_int(t.get("placement") or t.get("finish") or 0)
+        wins = _safe_int(t.get("wins"))
+        losses = _safe_int(t.get("losses"))
+        draws = _safe_int(t.get("draws"))
+        faction = str(t.get("registered_faction") or t.get("faction") or "Unknown").strip()
+
+        m_list = ev_matches.get(eid, [])
+        if m_list:
+            if not wins:
+                wins = len([m for m in m_list if str(m.get("result", "")).upper() == "W"])
+            if not losses:
+                losses = len([m for m in m_list if str(m.get("result", "")).upper() == "L"])
+            if not draws:
+                draws = len([m for m in m_list if str(m.get("result", "")).upper() == "D"])
+            if not num_r:
+                num_r = max([_safe_round(m.get("round")) for m in m_list if _safe_round(m.get("round")) > 0] + [len(m_list)])
+            if not faction or faction == "Unknown":
+                m_fac = next((m.get("player_faction") or m.get("faction") for m in m_list if m.get("player_faction") or m.get("faction")), None)
+                if m_fac:
+                    faction = str(m_fac).strip()
+
+        is_winner = False
+        if placement == 1:
+            is_winner = True
+        elif placement == 0 and wins >= 3 and losses == 0 and (total_p >= 8 or len(m_list) >= 3):
+            is_winner = True
+
+        if not is_winner:
+            continue
+
+        dedup_key = eid or f"{ename}_{date_str}"
+        if dedup_key in seen_event_ids:
+            continue
+        seen_event_ids.add(dedup_key)
+
+        ename_lower = ename.lower()
+        is_super = total_p >= 200 or "lvo" in ename_lower or "adepticon" in ename_lower or "world championship" in ename_lower or "super major" in ename_lower
+        is_major = not is_super and (total_p >= 100 or num_r >= 6)
+        is_gt = not is_super and not is_major and (num_r >= 5 or total_p >= 28)
+        is_rtt = not is_super and not is_major and not is_gt and (total_p >= 8 or num_r >= 3)
+
+        if is_super:
+            tier = "super_major"
+            tier_title = "Super Major / Worlds"
+            icon = "👑"
+            trophy_type = "astral_obsidian_crown"
+            glory_bonus = 3000
+        elif is_major:
+            tier = "major"
+            tier_title = "Major Championship"
+            icon = "🥇"
+            trophy_type = "aquila_relic_sword"
+            glory_bonus = 1250
+        elif is_gt:
+            tier = "gt"
+            tier_title = "Grand Tournament"
+            icon = "🥈"
+            trophy_type = "silver_winged_chalice"
+            glory_bonus = 500
+        else:
+            tier = "rtt"
+            tier_title = "Rogue Trader Tournament"
+            icon = "🥉"
+            trophy_type = "bronze_laurel_plaque"
+            glory_bonus = 150
+
+        undefeated = (losses == 0 and draws == 0)
+        record_str = f"{wins}-0" if undefeated else f"{wins}-{losses}"
+        if draws > 0:
+            record_str += f"-{draws}"
+
+        championships.append({
+            "event_id": eid,
+            "event_name": ename,
+            "event_date": date_str or "2026",
+            "tier": tier,
+            "tier_title": tier_title,
+            "trophy_type": trophy_type,
+            "icon": icon,
+            "total_players": total_p,
+            "num_rounds": num_r,
+            "faction": faction,
+            "record": record_str,
+            "undefeated": undefeated,
+            "glory_bonus": glory_bonus,
+            "placing": 1
+        })
+
+    tier_weights = {"super_major": 4, "major": 3, "gt": 2, "rtt": 1}
+    championships.sort(key=lambda x: (tier_weights.get(x["tier"], 0), x.get("event_date", "")), reverse=True)
+
+    major_count = len([c for c in championships if c["tier"] in ("major", "super_major")])
+    gt_count = len([c for c in championships if c["tier"] == "gt"])
+    rtt_count = len([c for c in championships if c["tier"] == "rtt"])
+    total_champs = len(championships)
+    total_glory = sum(c["glory_bonus"] for c in championships)
+
+    pill_parts = []
+    if major_count > 0:
+        pill_parts.append(f"{major_count} Major" if major_count == 1 else f"{major_count} Majors")
+    if gt_count > 0:
+        pill_parts.append(f"{gt_count} GT" if gt_count == 1 else f"{gt_count} GTs")
+    if not pill_parts and rtt_count > 0:
+        pill_parts.append(f"{rtt_count} RTT" if rtt_count == 1 else f"{rtt_count} RTTs")
+
+    pill_text = f"🏆 {total_champs}x Champion ({', '.join(pill_parts)})" if total_champs > 0 else None
+
+    return {
+        "total": total_champs,
+        "major_wins": major_count,
+        "gt_wins": gt_count,
+        "rtt_wins": rtt_count,
+        "championship_glory": total_glory,
+        "championship_pill": pill_text,
+        "items": championships
     }
 
 
@@ -528,6 +674,12 @@ def _evaluate_40k_player_badges(
     events_count = len(events_set) or len(tournaments)
 
     # ── Precomputed Tournament Performance Metrics ──
+    championships = extract_tournament_championships(tournaments, history, "40k")
+    gt_wins = championships.get("gt_wins", 0)
+    major_wins = championships.get("major_wins", 0)
+    rtt_wins = championships.get("rtt_wins", 0)
+    total_championships = championships.get("total", 0)
+
     gt_5_0_runs = len([t for t in tournaments if t.get("wins", 0) >= 5 and t.get("losses", 0) == 0 and t.get("matches_played", 0) >= 5])
     gt_4_1_runs = len([t for t in tournaments if t.get("wins", 0) >= 4 and t.get("matches_played", 0) >= 5])
     gt_3_2_runs = len([t for t in tournaments if t.get("wins", 0) >= 3 and t.get("matches_played", 0) >= 5])
@@ -639,20 +791,22 @@ def _evaluate_40k_player_badges(
                 provenance = "Achieved 4-1 (or better) finishes across multiple Grand Tournaments"
 
         elif b_id == "grand_champion":
-            unlocked = gt_5_0_runs >= 1 or best_streak >= 5
-            progress = {"current": gt_5_0_runs or (1 if best_streak >= 5 else 0), "target": 1, "unit": "5-0 GT runs"}
+            unlocked = gt_5_0_runs >= 1 or best_streak >= 5 or gt_wins >= 1 or major_wins >= 1
+            progress = {"current": max(gt_wins + major_wins, gt_5_0_runs, (1 if best_streak >= 5 else 0)), "target": 1, "unit": "GT/Major wins"}
             if unlocked:
-                provenance = "Achieved flawless 5-0-0 undefeated Grand Tournament championship run"
+                provenance = "Achieved 1st place Grand Tournament championship run"
 
         elif b_id == "the_undefeated":
-            unlocked = gt_5_0_runs >= 1 or best_streak >= 5
-            progress = {"current": gt_5_0_runs or (1 if best_streak >= 5 else 0), "target": 1, "unit": "5-0 GT runs"}
+            unlocked = gt_5_0_runs >= 1 or best_streak >= 5 or any(c.get("undefeated") and c.get("num_rounds", 0) >= 5 for c in championships["items"])
+            progress = {"current": gt_5_0_runs or (1 if any(c.get("undefeated") and c.get("num_rounds", 0) >= 5 for c in championships["items"]) else (1 if best_streak >= 5 else 0)), "target": 1, "unit": "undefeated GTs"}
             if unlocked:
-                provenance = f"Undefeated 5-0 tournament record (Streak: {best_streak})"
+                provenance = f"Undefeated tournament record (Streak: {best_streak})"
 
         elif b_id == "super_major_conqueror":
-            unlocked = best_streak >= 8 or any(t.get("wins", 0) >= 6 and t.get("losses", 0) == 0 for t in tournaments)
-            progress = {"current": min(best_streak, 8), "target": 8, "unit": "streak"}
+            unlocked = major_wins >= 1 or best_streak >= 8 or any(t.get("wins", 0) >= 6 and t.get("losses", 0) == 0 for t in tournaments)
+            progress = {"current": max(major_wins, min(best_streak, 8) if best_streak >= 8 else 0, (1 if any(t.get("wins", 0) >= 6 and t.get("losses", 0) == 0 for t in tournaments) else 0)), "target": 1, "unit": "Major wins"}
+            if unlocked:
+                provenance = "Claimed championship victory in Major tournament competition (100+ competitors)"
 
         elif b_id == "double_crown":
             unlocked = best_streak >= 10
@@ -1134,7 +1288,8 @@ def _evaluate_40k_player_badges(
         "rank": rank_meta,
         "pinned_badges": pinned_badges,
         "badges": evaluated_badges,
-        "categories": CATEGORIES
+        "categories": CATEGORIES,
+        "championships": championships
     }
 
 MASTER_BADGES = BADGE_CATALOG
@@ -1191,7 +1346,12 @@ def evaluate_player_badges(
         game_system=target_sys
     )
 
-    career_glory = res.get("glory_score", 0)
+    champs = res.get("championships") or extract_tournament_championships(tournaments, history, target_sys)
+    res["championships"] = champs
+    champ_glory = champs.get("championship_glory", 0)
+    res["championship_glory"] = champ_glory
+
+    career_glory = res.get("glory_score", 0) + champ_glory
     seasonal_glory = season_eval.get("glory_score", 0)
     total_glory = career_glory + seasonal_glory
 

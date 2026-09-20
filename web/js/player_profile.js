@@ -2,9 +2,13 @@
    PLAYER_PROFILE.JS - Dedicated Public Player Profile View & Tournament Journey
    ========================================================================== */
 
-let currentProfilePlayerId = null;
-let currentProfileData = null;
-let previousTabBeforeProfile = 'leaderboard';
+var currentProfilePlayerId = null;
+var currentProfileData = null;
+var previousTabBeforeProfile = 'leaderboard';
+if (typeof window !== 'undefined') {
+  window.currentProfilePlayerId = null;
+  window.currentProfileData = null;
+}
 
 /**
  * Open the dedicated, full-screen player profile page
@@ -423,6 +427,14 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     avatarSigilStyle = 'border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.35), inset 0 0 14px rgba(56,189,248,0.15);';
   }
 
+  // Resolve tournament championships laurel badge
+  const champs = data.championships || {};
+  let champPillHtml = '';
+  if (champs && champs.total > 0) {
+    const pillText = champs.championship_pill || `🏆 ${champs.total}x Champion`;
+    champPillHtml = `<span class="profile-standing-badge champ-laurel-pill" onclick="switchProfileSubtab('trophies'); setTimeout(() => { const el = document.getElementById('hall-of-champions-showcase'); if(el) el.scrollIntoView({behavior:'smooth', block:'center'}); }, 100);" title="Verified Tournament Championships (${champs.total} Titles: ${champs.major_wins || 0} Major, ${champs.gt_wins || 0} GT, ${champs.rtt_wins || 0} RTT)">${escapeHtml(pillText)}</span>`;
+  }
+
   container.innerHTML = `
     <!-- Dynamic Hero Banner Card with Military Rank Border -->
     <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''} ${frameClass}">
@@ -444,6 +456,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
                 : `<span class="profile-standing-badge" title="All-Time Peak Rating: ${peakElo.toFixed(1)}">Peak: ${peakElo.toFixed(1)} 👑</span>`
               }
               ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data, 'switchProfileSubtab') : ''}
+              ${champPillHtml}
               ${teamName ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="openTeamModal('${escapeHtml(teamName)}')" title="Click to view ${escapeHtml(teamName)} roster">🛡️ ${escapeHtml(teamName)}</span>` : ''}
             </div>
             ${window.BadgesUI ? window.BadgesUI.renderPinnedMedals(data.pinned_badges, data.badge_count, data.is_self, 'switchProfileSubtab') : ''}

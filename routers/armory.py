@@ -67,11 +67,14 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
             evaluated_glory = int(hub_40k.get("unified_glory") or hub_40k.get("total_glory") or (total_40k + total_aos))
             crest_tier = max(crest_tier, int((hub_40k.get("rank") or {}).get("rank") or 1))
             peak_elo = max(peak_elo, float((hub_40k.get("player") or {}).get("peak_elo") or 1500.0))
+            user_championships = hub_40k.get("championships", {})
         except Exception as e:
             logger.warning(f"Notice computing glory for user {target_uid}: {e}")
             evaluated_glory = total_40k + total_aos
+            user_championships = {}
     else:
         evaluated_glory = 0
+        user_championships = {}
     db_total = int(user_data.get("total_glory") or 0)
     db_spent = int(user_data.get("glory_spent") or 0)
     db_balance = int(user_data.get("glory_balance") or 0)
@@ -114,7 +117,8 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
         "spendable_glory": db_balance,
         "glory_balance": db_balance,
         "crest_tier": crest_tier,
-        "peak_elo": peak_elo
+        "peak_elo": peak_elo,
+        "championships": user_championships
     }
 
 
@@ -164,11 +168,13 @@ async def get_catalog(request: Request):
 
     game_sys = request.query_params.get("game_system", "40k")
     user_peak_elo = float(glory_state.get("peak_elo") or 1500.0)
+    user_champs = glory_state.get("championships")
     catalog = armory_catalog.get_armory_catalog(
         user_vault=user_vault,
         user_crest_tier=user_crest_tier,
         game_system=game_sys,
-        user_peak_elo=user_peak_elo
+        user_peak_elo=user_peak_elo,
+        user_championships=user_champs
     )
     catalog["user_glory"] = glory_state
     return catalog

@@ -28,10 +28,10 @@ class TestRetributionArmory(unittest.TestCase):
         self.assertNotIn("oracle", wings_40k)
         self.assertIsNone(armory_catalog.get_item_by_id("oracle_gt_pickem_pass"))
 
-        # Verify items exist: 91 for 40K, 66 for AoS = 157 items total
-        self.assertEqual(len(self.cat_40k["items"]), 91)
+        # Verify items exist: 94 for 40K (including 3 championship unlocks), 66 for AoS = 160 items total
+        self.assertEqual(len(self.cat_40k["items"]), 94)
         self.assertEqual(len(self.cat_aos["items"]), 66)
-        self.assertEqual(len(self.cat_40k["items"]) + len(self.cat_aos["items"]), 157)
+        self.assertEqual(len(self.cat_40k["items"]) + len(self.cat_aos["items"]), 160)
 
     def test_game_system_isolation(self):
         """Verifies 40K and AoS items are strictly isolated to their own stores."""
@@ -188,6 +188,10 @@ class TestRetributionArmory(unittest.TestCase):
         for item in all_items:
             wing = item["wing"]
             cost = item["cost_glory"]
+            if cost == 0:
+                # Championship victory unlocks are free prestige rewards
+                self.assertTrue(bool(item.get("prerequisite", {}).get("championship_gt") or item.get("prerequisite", {}).get("championship_major")))
+                continue
             if wing == "pokes":
                 self.assertGreaterEqual(cost, 150)
                 self.assertLessEqual(cost, 750)
@@ -323,6 +327,88 @@ class TestRetributionArmory(unittest.TestCase):
         self.assertEqual(armory_catalog.get_item_by_id("avatar_sigil_necron")["id"], "avatar_necrons")
         self.assertEqual(armory_catalog.get_item_by_id("avatar_sigil_tau")["id"], "avatar_tau_empire")
         self.assertEqual(armory_catalog.get_item_by_id("frame_cyber_grid")["id"], "frame_cyber_matrix")
+
+    def test_tournament_championships_detection_and_glory_bounties(self):
+        """Verifies tournament wins are extracted by tier, award correct Glory bounties, and auto-unlock Armory rewards."""
+        import badges
+        tournaments = [
+            {
+                "event_id": "ev_lvo_2026",
+                "event_name": "LVO 2026 Super Major Champs",
+                "total_players": 256,
+                "num_rounds": 8,
+                "placement": 1,
+                "wins": 8,
+                "losses": 0,
+                "draws": 0,
+                "registered_faction": "Adeptus Custodes",
+                "event_date": "2026-01-20"
+            },
+            {
+                "event_id": "ev_tacoma_2026",
+                "event_name": "US Open Tacoma Major",
+                "total_players": 128,
+                "num_rounds": 7,
+                "placement": 1,
+                "wins": 7,
+                "losses": 0,
+                "draws": 0,
+                "registered_faction": "Adeptus Custodes",
+                "event_date": "2026-09-02"
+            },
+            {
+                "event_id": "ev_pnw_gt_2026",
+                "event_name": "Pacific Northwest GT",
+                "total_players": 56,
+                "num_rounds": 5,
+                "placement": 1,
+                "wins": 5,
+                "losses": 0,
+                "draws": 0,
+                "registered_faction": "Necrons",
+                "event_date": "2026-06-15"
+            },
+            {
+                "event_id": "ev_dicehead_rtt_2026",
+                "event_name": "Dicehead Spring RTT",
+                "total_players": 24,
+                "num_rounds": 3,
+                "placement": 1,
+                "wins": 3,
+                "losses": 0,
+                "draws": 0,
+                "registered_faction": "Space Marines",
+                "event_date": "2026-03-22"
+            }
+        ]
+
+        champs = badges.extract_tournament_championships(tournaments, [], "40k")
+        self.assertEqual(champs["total"], 4)
+        self.assertEqual(champs["major_wins"], 2)  # 1 Super Major + 1 Major
+        self.assertEqual(champs["gt_wins"], 1)
+        self.assertEqual(champs["rtt_wins"], 1)
+
+        # Expected glory: 3000 (Super) + 1250 (Major) + 500 (GT) + 150 (RTT) = 4900 Glory
+        self.assertEqual(champs["championship_glory"], 4900)
+        self.assertIn("4x Champion", champs["championship_pill"])
+
+        # Check full badge evaluation accrues championship glory into wallet
+        player_mock = {"player_id": "p_champion", "player_name": "Tournament Champion", "current_elo": 2050.0}
+        eval_res = badges.evaluate_player_badges(player_data=player_mock, history=[], tournaments=tournaments, game_system="40k")
+
+        self.assertGreaterEqual(eval_res["glory_score"], 4900)
+        self.assertEqual(eval_res["championship_glory"], 4900)
+        self.assertEqual(eval_res["championships"]["total"], 4)
+
+        # Verify Armory auto-unlocks GT/Major victory rewards for this champion
+        cat = armory_catalog.get_armory_catalog(user_vault={"inventory": {}, "equipped": {}}, user_crest_tier=6, game_system="40k", user_peak_elo=2050.0, user_championships=champs)
+        items_by_id = {i["id"]: i for i in cat["items"]}
+
+        # GT Champion title & Major Conqueror title & Champion Laurel Frame must be owned
+        self.assertTrue(items_by_id["title_gt_champion"]["is_owned"])
+        self.assertTrue(items_by_id["title_gt_champion"]["meets_prerequisite"])
+        self.assertTrue(items_by_id["title_major_conqueror"]["is_owned"])
+        self.assertTrue(items_by_id["frame_champion_laurel"]["is_owned"])
 
 
 if __name__ == "__main__":

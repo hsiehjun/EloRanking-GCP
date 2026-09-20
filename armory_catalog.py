@@ -877,6 +877,24 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         }
     },
     {
+        "id": "frame_champion_laurel",
+        "name": "Champion's Golden Laurel",
+        "game_system": "40k",
+        "wing": "profile_forge",
+        "slot": "active_card_frame",
+        "rarity": "legendary",
+        "cost_glory": 0,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": {"championship_gt": 1, "label": "Requires 1st Place Tournament Championship"},
+        "icon": "🌿",
+        "description": "Gilded Roman laurel wreaths framing your hero card, forged exclusively for tournament champions.",
+        "payload": {
+            "css_class": "frame-champion-laurel",
+            "border_glow": "0 0 25px rgba(251, 191, 36, 0.55)"
+        }
+    },
+    {
         "id": "frame_cyber_matrix",
         "name": "Tactica Cyber-Matrix",
         "game_system": "40k",
@@ -1395,6 +1413,36 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         "icon": "🏷️",
         "description": "Awarded to seasoned tournament strategists with comprehensive tactical battlefield mastery.",
         "payload": {"css_class": "title-badge-strategist", "title_text": "Grand Strategist"}
+    },
+    {
+        "id": "title_gt_champion",
+        "name": "Grand Tournament Champion",
+        "game_system": "40k",
+        "wing": "titles",
+        "slot": "active_title",
+        "rarity": "legendary",
+        "cost_glory": 0,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": {"championship_gt": 1, "label": "Requires 1st Place Grand Tournament Championship"},
+        "icon": "🏆",
+        "description": "Bestowed upon victors who have conquered an official 5+ round Grand Tournament.",
+        "payload": {"css_class": "title-badge-gold", "title_text": "GT Champion"}
+    },
+    {
+        "id": "title_major_conqueror",
+        "name": "Major Tournament Conqueror",
+        "game_system": "40k",
+        "wing": "titles",
+        "slot": "active_title",
+        "rarity": "mythic",
+        "cost_glory": 0,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": {"championship_major": 1, "label": "Requires 1st Place Major Tournament Championship"},
+        "icon": "👑",
+        "description": "Anointed champion of a major competitive arena with 100+ players.",
+        "payload": {"css_class": "title-badge-gold", "title_text": "Major Conqueror"}
     },
     {
         "id": "title_unbroken",
@@ -3040,7 +3088,8 @@ def get_armory_catalog(
     user_vault: Optional[Dict[str, Any]] = None,
     user_crest_tier: int = 1,
     game_system: str = "40k",
-    user_peak_elo: float = 1500.0
+    user_peak_elo: float = 1500.0,
+    user_championships: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Returns the game-specific Armory catalog with user ownership flags, equipped status, and affordability."""
     vault = user_vault or {"inventory": {}, "equipped": {}}
@@ -3066,7 +3115,7 @@ def get_armory_catalog(
         if slot and equipped.get(slot) == item_id:
             is_equipped = True
 
-        # Check prerequisite (Crest Tier and All-Time Peak Elo)
+        # Check prerequisite (Crest Tier, Peak Elo, and Championships)
         prereq = item.get("prerequisite")
         meets_prereq = True
         prereq_reason = None
@@ -3080,6 +3129,24 @@ def get_armory_catalog(
             if req_peak is not None and user_peak_elo < req_peak:
                 meets_prereq = False
                 prereq_reason = prereq.get("label", f"Requires All-Time Peak Elo {req_peak:.0f}+ (Your Peak: {user_peak_elo:.0f})")
+
+            req_champ_gt = prereq.get("championship_gt")
+            if req_champ_gt is not None:
+                c_gt = (user_championships.get("gt_wins", 0) + user_championships.get("major_wins", 0)) if user_championships else 0
+                if c_gt < req_champ_gt:
+                    meets_prereq = False
+                    prereq_reason = prereq.get("label", "Requires 1st Place Tournament Championship")
+                elif item.get("cost_glory") == 0:
+                    is_owned = True
+
+            req_champ_maj = prereq.get("championship_major")
+            if req_champ_maj is not None:
+                c_maj = user_championships.get("major_wins", 0) if user_championships else 0
+                if c_maj < req_champ_maj:
+                    meets_prereq = False
+                    prereq_reason = prereq.get("label", "Requires 1st Place Major Tournament Championship")
+                elif item.get("cost_glory") == 0:
+                    is_owned = True
 
         item_copy = dict(item)
         item_copy["is_owned"] = is_owned

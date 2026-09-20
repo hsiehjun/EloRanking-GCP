@@ -282,7 +282,72 @@ def get_persona_user(persona):
         }
     }
 
+DEV_EVENTS_ATTENDED = [
+    {
+        "event_id": "ev_tacoma_2026",
+        "event_name": "US Open Tacoma Major 2026",
+        "event_date": "2026-09-02",
+        "date": "2026-09-02",
+        "num_rounds": 7,
+        "rounds": 7,
+        "placement": 1,
+        "finish": 1,
+        "total_players": 128,
+        "wins": 7,
+        "losses": 0,
+        "draws": 0,
+        "registered_faction": "Adeptus Custodes",
+        "faction": "Adeptus Custodes",
+        "is_gt": True
+    },
+    {
+        "event_id": "ev_pnw_gt_2026",
+        "event_name": "Pacific Northwest GT 2026",
+        "event_date": "2026-06-15",
+        "date": "2026-06-15",
+        "num_rounds": 5,
+        "rounds": 5,
+        "placement": 1,
+        "finish": 1,
+        "total_players": 56,
+        "wins": 5,
+        "losses": 0,
+        "draws": 0,
+        "registered_faction": "Necrons",
+        "faction": "Necrons",
+        "is_gt": True
+    },
+    {
+        "event_id": "ev_dicehead_rtt_2026",
+        "event_name": "Dicehead Spring RTT 2026",
+        "event_date": "2026-03-22",
+        "date": "2026-03-22",
+        "num_rounds": 3,
+        "rounds": 3,
+        "placement": 1,
+        "finish": 1,
+        "total_players": 24,
+        "wins": 3,
+        "losses": 0,
+        "draws": 0,
+        "registered_faction": "Space Marines",
+        "faction": "Space Marines",
+        "is_gt": False
+    },
+    {
+        "event_id": "ev_active_lvo_2026",
+        "event_name": "LVO 2026 Warhammer 40K Champs",
+        "event_date": "2026-01-18",
+        "date": "2026-01-18",
+        "rounds": 5,
+        "finish": 4,
+        "total_players": 128,
+        "is_gt": True
+    }
+]
+
 DEV_USER = get_persona_user("competitor")
+DEV_USER["events_attended"] = DEV_EVENTS_ATTENDED
 
 def _get_dev_user_glory_and_stats():
     """Computes authentic Unified Glory points across 40K and AoS matching the user's Trophy Tab."""
@@ -1973,7 +2038,15 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             q_params = urllib.parse.parse_qs(parsed_url.query)
             req_sys = q_params.get("game_system", ["40k"])[0]
 
-            cat = armory_catalog.get_armory_catalog(user_vault=v, user_crest_tier=crest_tier, game_system=req_sys, user_peak_elo=user_peak)
+            import badges
+            dev_champs = badges.extract_tournament_championships(DEV_USER.get("events_attended", []), [], req_sys)
+            cat = armory_catalog.get_armory_catalog(
+                user_vault=v,
+                user_crest_tier=crest_tier,
+                game_system=req_sys,
+                user_peak_elo=user_peak,
+                user_championships=dev_champs
+            )
             cat["user_glory"] = {
                 "total_earned": total_earned,
                 "glory_spent": spent,
@@ -2209,19 +2282,22 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         }
                     ]
                 }
+            is_self = bool(pid == DEV_USER.get("player_id") or pid == "p_folger_pyles" or pid == DEV_USER.get("id"))
+            res["is_self"] = is_self
+            tournaments_list = DEV_USER.get("events_attended", []) if is_self else (res.get("tournaments") or [])
+            res["tournaments"] = tournaments_list
+
             import badges
             req_game_sys = query_params.get("game_system", ["40k"])[0].lower() if "query_params" in locals() else "40k"
             b_eval = badges.evaluate_player_badges(
                 player_data=res.get("player") or res,
                 history=res.get("history") or [],
-                tournaments=res.get("tournaments") or [],
+                tournaments=tournaments_list,
                 faction_mastery=res.get("faction_mastery") or [],
                 matchup_matrix=res.get("matchup_matrix") or [],
                 user_pinned_ids=None,
                 game_system=req_game_sys
             )
-            is_self = bool(pid == DEV_USER.get("player_id") or pid == "p_folger_pyles" or pid == DEV_USER.get("id"))
-            res["is_self"] = is_self
             if is_self:
                 res["armory_vault"] = DEV_USER.get("armory_vault", {})
                 res["equipped"] = DEV_USER.get("armory_vault", {}).get("equipped", {})
@@ -2251,7 +2327,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "pinned_badges": b_eval["pinned_badges"],
                 "badges_celebrated": bool(DEV_USER.get("badges_celebrated", False)),
                 "badges": b_eval["badges"],
-                "categories": b_eval["categories"]
+                "categories": b_eval["categories"],
+                "championships": b_eval.get("championships", {}),
+                "championship_glory": b_eval.get("championship_glory", 0),
+                "championship_pill": (b_eval.get("championships") or {}).get("championship_pill")
             })
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -3669,6 +3748,57 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "active_sessions": [],
                 "events_attended": [
                     {
+                        "event_id": "ev_tacoma_2026",
+                        "event_name": "US Open Tacoma Major 2026",
+                        "event_date": "2026-09-02",
+                        "date": "2026-09-02",
+                        "num_rounds": 7,
+                        "rounds": 7,
+                        "placement": 1,
+                        "finish": 1,
+                        "total_players": 128,
+                        "wins": 7,
+                        "losses": 0,
+                        "draws": 0,
+                        "registered_faction": "Adeptus Custodes",
+                        "faction": "Adeptus Custodes",
+                        "is_gt": True
+                    },
+                    {
+                        "event_id": "ev_pnw_gt_2026",
+                        "event_name": "Pacific Northwest GT 2026",
+                        "event_date": "2026-06-15",
+                        "date": "2026-06-15",
+                        "num_rounds": 5,
+                        "rounds": 5,
+                        "placement": 1,
+                        "finish": 1,
+                        "total_players": 56,
+                        "wins": 5,
+                        "losses": 0,
+                        "draws": 0,
+                        "registered_faction": "Necrons",
+                        "faction": "Necrons",
+                        "is_gt": True
+                    },
+                    {
+                        "event_id": "ev_dicehead_rtt_2026",
+                        "event_name": "Dicehead Spring RTT 2026",
+                        "event_date": "2026-03-22",
+                        "date": "2026-03-22",
+                        "num_rounds": 3,
+                        "rounds": 3,
+                        "placement": 1,
+                        "finish": 1,
+                        "total_players": 24,
+                        "wins": 3,
+                        "losses": 0,
+                        "draws": 0,
+                        "registered_faction": "Space Marines",
+                        "faction": "Space Marines",
+                        "is_gt": False
+                    },
+                    {
                         "event_id": "ev_active_lvo_2026",
                         "event_name": "LVO 2026 Warhammer 40K Champs",
                         "event_date": "2026-01-18",
@@ -3750,7 +3880,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "acknowledged_badge_ids": list(ack_set),
                 "newly_unlocked_badges": newly_unlocked,
                 "badges": b_eval["badges"],
-                "categories": b_eval["categories"]
+                "categories": b_eval["categories"],
+                "championships": b_eval.get("championships", {}),
+                "championship_glory": b_eval.get("championship_glory", 0),
+                "championship_pill": (b_eval.get("championships") or {}).get("championship_pill")
             })
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")

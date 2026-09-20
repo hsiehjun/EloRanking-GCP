@@ -313,6 +313,9 @@
     var seasonalGlory = sData ? (sData.glory_score || 0) : 0;
     var unifiedGlory = data.glory_balance != null ? data.glory_balance : (gloryScore + seasonalGlory);
 
+    var championships = data.championships || { total: 0, items: [] };
+    var champShelfHtml = renderHallOfChampions(championships, isSelf, isPublic);
+
     var nextRankText = rank.next_rank_title
       ? rank.badges_needed_for_next + ' more honors needed for <strong>' + escapeHtml(rank.next_rank_title) + '</strong>'
       : 'Pinnacle Everchosen Status Attained';
@@ -467,6 +470,7 @@
         '<div class="trophy-room-wrapper">',
         scopeBarHtml,
         careerBannerAndProgressHtml,
+        champShelfHtml,
         showcaseHeaderHtml,
         '  <!-- 5. Trophies Grid (Public Showcase) -->',
         '  <div class="trophy-grid" id="profile-trophy-grid-container">',
@@ -631,6 +635,7 @@
       '<div class="trophy-room-wrapper">',
       scopeBarHtml,
       careerBannerAndProgressHtml,
+      champShelfHtml,
       '  <!-- 3. Category Filter Chips (Hub Personal) -->',
       '  <div class="trophy-categories-bar" id="hub-trophy-categories-bar">',
       chipsHtml,
@@ -1600,6 +1605,155 @@
     if (modal) modal.remove();
   }
 
+  function getTrophySvg(type) {
+    if (type === 'aquila_relic_sword' || type === 'major') {
+      return '<svg width="54" height="54" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="champ-svg-trophy svg-major"><circle cx="32" cy="32" r="28" fill="url(#goldGrad)" opacity="0.15"/><path d="M32 4L34 20L32 48L30 20Z" fill="#fbbf24"/><path d="M22 22L42 22L36 26L28 26Z" fill="#f59e0b"/><path d="M26 48L38 48L36 54L28 54Z" fill="#d97706"/><circle cx="32" cy="18" r="3" fill="#fef08a"/><path d="M18 20L22 22L18 28L14 24Z" fill="#fbbf24"/><path d="M46 20L42 22L46 28L50 24Z" fill="#fbbf24"/><defs><radialGradient id="goldGrad" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#fbbf24"/><stop offset="100%" stop-color="transparent"/></radialGradient></defs></svg>';
+    }
+    if (type === 'silver_winged_chalice' || type === 'gt') {
+      return '<svg width="54" height="54" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="champ-svg-trophy svg-gt"><circle cx="32" cy="32" r="28" fill="url(#silverGrad)" opacity="0.15"/><path d="M22 12H42V28C42 34 38 40 32 42C26 40 22 34 22 28V12Z" fill="#e2e8f0"/><path d="M30 42H34V52H30Z" fill="#94a3b8"/><path d="M24 52H40V56H24Z" fill="#64748b"/><path d="M16 16C12 20 12 26 16 30L22 26V20L16 16Z" fill="#cbd5e1"/><path d="M48 16C52 20 52 26 48 30L42 26V20L48 16Z" fill="#cbd5e1"/><circle cx="32" cy="24" r="4" fill="#38bdf8"/><defs><radialGradient id="silverGrad" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#94a3b8"/><stop offset="100%" stop-color="transparent"/></radialGradient></defs></svg>';
+    }
+    if (type === 'astral_obsidian_crown' || type === 'super_major') {
+      return '<svg width="54" height="54" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="champ-svg-trophy svg-super"><circle cx="32" cy="32" r="28" fill="url(#crownGrad)" opacity="0.25"/><path d="M14 42L18 20L28 32L32 14L36 32L46 20L50 42H14Z" fill="#c084fc"/><path d="M12 42H52V48H12Z" fill="#7e22ce"/><circle cx="32" cy="14" r="3" fill="#fef08a"/><circle cx="18" cy="20" r="2.5" fill="#f43f5e"/><circle cx="46" cy="20" r="2.5" fill="#38bdf8"/><defs><radialGradient id="crownGrad" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#c084fc"/><stop offset="100%" stop-color="transparent"/></radialGradient></defs></svg>';
+    }
+    return '<svg width="54" height="54" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="champ-svg-trophy svg-rtt"><circle cx="32" cy="32" r="24" fill="#b45309" stroke="#f59e0b" stroke-width="2"/><circle cx="32" cy="32" r="18" fill="#78350f"/><path d="M26 34L32 24L38 34L32 30Z" fill="#fbbf24"/><path d="M18 28C16 36 22 44 32 46C24 44 20 36 20 28Z" fill="#d97706"/><path d="M46 28C48 36 42 44 32 46C40 44 44 36 44 28Z" fill="#d97706"/></svg>';
+  }
+
+  function renderHallOfChampions(championships, isSelf, isPublic) {
+    championships = championships || { total: 0, items: [] };
+    var total = championships.total || 0;
+    var items = championships.items || [];
+
+    if (total === 0) {
+      return [
+        '<div class="champ-reliquary-wrap is-empty" id="hall-of-champions-showcase">',
+        '  <div class="champ-empty-pedestal">',
+        '    <span class="champ-empty-icon">🏛️</span>',
+        '    <div class="champ-empty-info">',
+        '      <span class="champ-empty-title">Championship Reliquary</span>',
+        '      <span class="champ-empty-sub">Tournament silverware is enshrined here. Win an official RTT, GT, or Major to claim your place in the Hall of Champions.</span>',
+        '    </div>',
+        '  </div>',
+        '</div>'
+      ].join('\n');
+    }
+
+    var cardsHtml = items.map(function(item) {
+      var tierClass = 'tier-' + (item.tier || 'rtt').replace(/_/g, '-');
+      var ribbonHtml = item.undefeated
+        ? '<div class="champ-trophy-ribbon" title="Flawless Undefeated Championship Run">⭐ UNDEFEATED</div>'
+        : '';
+      var trophySvg = getTrophySvg(item.trophy_type || 'bronze_laurel_plaque');
+
+      return [
+        '<div class="champ-trophy-card ' + tierClass + '" onclick="window.BadgesUI.openVictoryChronicle(\'' + escapeHtml(item.event_id || '') + '\', \'' + escapeHtml(item.event_name || '') + '\', \'' + escapeHtml(item.tier_title || '') + '\', \'' + escapeHtml(item.record || '') + '\', \'' + escapeHtml(item.faction || '') + '\', \'' + escapeHtml(item.event_date || '') + '\', ' + (item.total_players || 0) + ', ' + (item.num_rounds || 0) + ', ' + (item.glory_bonus || 0) + ')" title="Click to inspect Victory Chronicle">',
+        ribbonHtml,
+        '  <div class="champ-trophy-icon-wrap">' + trophySvg + '</div>',
+        '  <div class="champ-trophy-tier-tag">' + escapeHtml((item.tier_title || 'Champion').toUpperCase()) + '</div>',
+        '  <div class="champ-trophy-name" title="' + escapeHtml(item.event_name) + '">' + escapeHtml(item.event_name) + '</div>',
+        '  <div class="champ-trophy-meta">',
+        '    <span class="champ-meta-record">' + escapeHtml(item.record) + '</span>',
+        '    <span class="champ-meta-dot">&bull;</span>',
+        '    <span class="champ-meta-players">' + (item.total_players ? (item.total_players + ' Players') : (item.num_rounds + ' Rnds')) + '</span>',
+        '  </div>',
+        '  <div class="champ-trophy-footer">',
+        '    <span class="champ-meta-faction">' + escapeHtml(item.faction || 'General') + '</span>',
+        '    <span class="champ-meta-glory">+' + (item.glory_bonus || 0) + ' Glory</span>',
+        '  </div>',
+        '</div>'
+      ].join('\n');
+    }).join('\n');
+
+    return [
+      '<div class="champ-reliquary-wrap" id="hall-of-champions-showcase">',
+      '  <div class="champ-reliquary-header">',
+      '    <div class="champ-header-left">',
+      '      <span class="champ-header-icon">🏛️</span>',
+      '      <div>',
+      '        <h4 class="champ-reliquary-heading">Hall of Champions</h4>',
+      '        <div class="champ-reliquary-sub">Official BCP Tournament Silverware &amp; Championship Trophies</div>',
+      '      </div>',
+      '    </div>',
+      '    <div class="champ-header-right">',
+      '      <div class="champ-count-pill" title="Total Championship Victories">',
+      '        <span class="champ-count-val">🏆 ' + total + '</span>',
+      '        <span class="champ-count-lbl">' + (total === 1 ? 'Championship' : 'Championships') + '</span>',
+      '      </div>',
+      '    </div>',
+      '  </div>',
+      '  <div class="champ-trophies-track">',
+      cardsHtml,
+      '  </div>',
+      '</div>'
+    ].join('\n');
+  }
+
+  function openVictoryChronicle(eventId, eventName, tierTitle, record, faction, eventDate, totalPlayers, numRounds, gloryBonus) {
+    var existing = document.getElementById('badges-victory-chronicle-modal');
+    if (existing) existing.remove();
+
+    var modal = document.createElement('div');
+    modal.id = 'badges-victory-chronicle-modal';
+    modal.className = 'modal-backdrop active';
+    modal.style.zIndex = '100003';
+    modal.innerHTML = [
+      '<div class="modal-card champ-chronicle-card" style="max-width: 500px; background: #0f172a; border-radius: var(--radius-lg); border: 1.5px solid rgba(245, 158, 11, 0.75); box-shadow: 0 10px 40px rgba(0,0,0,0.9), 0 0 35px rgba(245, 158, 11, 0.25); overflow: hidden;">',
+      '  <div style="padding: 1.5rem 1.5rem 1.15rem; text-align: center; background: radial-gradient(circle at top, rgba(245, 158, 11, 0.25), transparent 75%); border-bottom: 1px solid rgba(255,255,255,0.08); position: relative;">',
+      '    <button type="button" class="modal-close" onclick="window.BadgesUI.closeVictoryChronicle()" style="position: absolute; top: 1rem; right: 1rem; background: none; border: none; font-size: 1.4rem; color: #94a3b8; cursor: pointer;">✕</button>',
+      '    <div style="font-size: 2.8rem; margin-bottom: 0.35rem;">🏆</div>',
+      '    <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.08em; background: rgba(245, 158, 11, 0.15); padding: 0.25rem 0.75rem; border-radius: 9999px; border: 1px solid rgba(245, 158, 11, 0.3); margin-bottom: 0.45rem;">' + escapeHtml(tierTitle) + ' &bull; 1st Place Champion</div>',
+      '    <h2 style="font-size: 1.4rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem; letter-spacing: -0.01em;">' + escapeHtml(eventName) + '</h2>',
+      '    <div style="font-size: 0.82rem; color: #94a3b8;">Official Tournament Chronicle &bull; ' + escapeHtml(eventDate || '2026') + '</div>',
+      '  </div>',
+      '  <div style="padding: 1.25rem 1.5rem;">',
+      '    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.65rem; margin-bottom: 1.1rem;">',
+      '      <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-sm); padding: 0.65rem 0.5rem; text-align: center;">',
+      '        <div style="font-size: 1.2rem; font-weight: 800; color: #fbbf24; font-family: var(--font-mono);">' + escapeHtml(record) + '</div>',
+      '        <div style="font-size: 0.66rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; margin-top: 0.15rem;">Record</div>',
+      '      </div>',
+      '      <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-sm); padding: 0.65rem 0.5rem; text-align: center;">',
+      '        <div style="font-size: 1.2rem; font-weight: 800; color: #38bdf8; font-family: var(--font-mono);">' + (totalPlayers || numRounds || 0) + '</div>',
+      '        <div style="font-size: 0.66rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; margin-top: 0.15rem;">' + (totalPlayers ? 'Competitors' : 'Rounds') + '</div>',
+      '      </div>',
+      '      <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-sm); padding: 0.65rem 0.5rem; text-align: center;">',
+      '        <div style="font-size: 1.2rem; font-weight: 800; color: #10b981; font-family: var(--font-mono);">+' + gloryBonus + '</div>',
+      '        <div style="font-size: 0.66rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; margin-top: 0.15rem;">Glory Bounty</div>',
+      '      </div>',
+      '    </div>',
+      '    <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-sm); padding: 0.85rem 1rem; margin-bottom: 1.1rem; display: flex; align-items: center; justify-content: space-between;">',
+      '      <div>',
+      '        <span style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Winning Army:</span>',
+      '        <div style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-top: 0.1rem;">🛡️ ' + escapeHtml(faction || 'General') + '</div>',
+      '      </div>',
+      '      <span class="badge badge-win" style="font-size: 0.74rem; font-weight: 700; padding: 0.25rem 0.65rem;">1st Place Podium</span>',
+      '    </div>',
+      '    <div style="display: flex; gap: 0.65rem;">',
+      '      <button type="button" class="btn btn-primary" style="flex: 1; padding: 0.65rem 1rem; font-weight: 700;" onclick="window.BadgesUI.shareVictorySnippet(\'' + escapeHtml(eventName) + '\', \'' + escapeHtml(tierTitle) + '\', \'' + escapeHtml(record) + '\', \'' + escapeHtml(faction || '') + '\')">📋 Copy Victory Card</button>',
+      '      <button type="button" class="btn btn-secondary" style="padding: 0.65rem 1.1rem;" onclick="window.BadgesUI.closeVictoryChronicle()">Close</button>',
+      '    </div>',
+      '  </div>',
+      '</div>'
+    ].join('\n');
+
+    document.body.appendChild(modal);
+  }
+
+  function closeVictoryChronicle() {
+    var modal = document.getElementById('badges-victory-chronicle-modal');
+    if (modal) modal.remove();
+  }
+
+  function shareVictorySnippet(eventName, tierTitle, record, faction) {
+    var text = '🏆 Tournament Champion! Won 1st Place at ' + eventName + ' (' + tierTitle + ') with ' + faction + ' [' + record + '] on OmniTactica!';
+    if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() {
+        if (typeof showToast === 'function') showToast('Victory summary copied to clipboard! 🏆');
+        else alert('Victory summary copied to clipboard! 🏆');
+      });
+    } else {
+      prompt('Copy tournament victory card:', text);
+    }
+  }
+
   // Export public API
   window.BadgesUI = {
     renderRankBadge: renderRankBadge,
@@ -1607,6 +1761,11 @@
     navigateToScope: navigateToScope,
     renderPinnedMedals: renderPinnedMedals,
     renderTrophyRoom: renderTrophyRoom,
+    renderHallOfChampions: renderHallOfChampions,
+    openVictoryChronicle: openVictoryChronicle,
+    closeVictoryChronicle: closeVictoryChronicle,
+    shareVictorySnippet: shareVictorySnippet,
+    getTrophySvg: getTrophySvg,
     renderTrophyCards: renderTrophyCards,
     renderSeasonalTrophyCards: renderSeasonalTrophyCards,
     renderPublicTrophyCards: renderPublicTrophyCards,

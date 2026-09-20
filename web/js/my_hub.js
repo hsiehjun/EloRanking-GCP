@@ -396,10 +396,8 @@ function resetMyHubToProfile() {
   });
 
   // 3. Reset profile inspection pointers
-  if (typeof currentProfilePlayerId !== 'undefined') {
+  if (typeof window !== 'undefined') {
     window.currentProfilePlayerId = null;
-  }
-  if (typeof currentOpenEventId !== 'undefined') {
     window.currentOpenEventId = null;
   }
 
@@ -1104,6 +1102,14 @@ function renderMyHub(data) {
     avatarSigilStyle = 'border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.35), inset 0 0 14px rgba(56,189,248,0.15);';
   }
 
+  // Resolve tournament championships laurel badge
+  const champs = data.championships || {};
+  let champPillHtml = '';
+  if (champs && champs.total > 0) {
+    const pillText = champs.championship_pill || `🏆 ${champs.total}x Champion`;
+    champPillHtml = `<span class="profile-standing-badge champ-laurel-pill" onclick="switchHubSubtab('trophies'); setTimeout(() => { const el = document.getElementById('hall-of-champions-showcase'); if(el) el.scrollIntoView({behavior:'smooth', block:'center'}); }, 100);" title="Verified Tournament Championships (${champs.total} Titles: ${champs.major_wins || 0} Major, ${champs.gt_wins || 0} GT, ${champs.rtt_wins || 0} RTT)">${escapeHtml(pillText)}</span>`;
+  }
+
   let html = `
     <div id="my-hub-container" class="my-hub-container" data-active-tab="${currentHubSubtab || 'active'}">
       <!-- Upgraded 16-Tier Competitor Hero Card with Military Rank Border -->
@@ -1129,6 +1135,7 @@ function renderMyHub(data) {
                   : `<span class="profile-standing-badge" title="All-Time Peak Rating: ${peakElo}">Peak: ${peakElo} 👑</span>`
                 }
                 ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data, 'switchHubSubtab') : ''}
+                ${champPillHtml}
                 ${p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="switchTab('teams'); if(typeof loadTeamsView==='function') loadTeamsView('${escapeHtml(p.team)}');" title="Click to open ${escapeHtml(p.team)} Team Hub">🛡️ ${escapeHtml(p.team)} ➔</span>` : `<span class="badge" style="background:rgba(255,255,255,0.06); color:#94a3b8; border:1px solid rgba(255,255,255,0.12); cursor:pointer;" onclick="switchTab('teams')" title="Find or join a team">⚔️ Independent &bull; Join Club ➔</span>`}
               </div>
               <div style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 0.45rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">

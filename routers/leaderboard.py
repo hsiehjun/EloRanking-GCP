@@ -216,6 +216,9 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
     data["pinned_badges"] = b_eval["pinned_badges"]
     data["badges"] = b_eval["badges"]
     data["categories"] = b_eval["categories"]
+    data["championships"] = b_eval.get("championships", {})
+    data["championship_glory"] = b_eval.get("championship_glory", 0)
+    data["championship_pill"] = (b_eval.get("championships") or {}).get("championship_pill")
 
     return data
 
