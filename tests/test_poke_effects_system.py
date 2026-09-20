@@ -23,8 +23,8 @@ class TestPokeEffectsSystem(unittest.TestCase):
         for p in pokes:
             self.assertTrue(p["is_consumable"])
             self.assertIn(p["bundle_count"], (3, 5))
-            self.assertGreaterEqual(p["cost_glory"], 150)
-            self.assertLessEqual(p["cost_glory"], 750)
+            self.assertGreaterEqual(p["cost_glory"], 300)
+            self.assertLessEqual(p["cost_glory"], 1500)
             payload = p.get("payload") or {}
             self.assertIn("toast_message", payload)
             # Duration must be 24 hours

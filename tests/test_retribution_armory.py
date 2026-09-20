@@ -109,7 +109,7 @@ class TestRetributionArmory(unittest.TestCase):
         self.assertIsNotNone(smite)
         self.assertTrue(smite["is_consumable"])
         self.assertEqual(smite["bundle_count"], 5)
-        self.assertEqual(smite["cost_glory"], 150)
+        self.assertEqual(smite["cost_glory"], 300)
         self.assertIn("⚡", smite["payload"]["toast_message"])
 
         waaagh = armory_catalog.get_item_by_id("poke_waaagh_club")
@@ -193,20 +193,20 @@ class TestRetributionArmory(unittest.TestCase):
                 self.assertTrue(bool(item.get("prerequisite", {}).get("championship_gt") or item.get("prerequisite", {}).get("championship_major")))
                 continue
             if wing == "pokes":
-                self.assertGreaterEqual(cost, 150)
-                self.assertLessEqual(cost, 750)
+                self.assertGreaterEqual(cost, 300)
+                self.assertLessEqual(cost, 1500)
             elif wing == "avatars":
-                self.assertGreaterEqual(cost, 550)
-                self.assertLessEqual(cost, 950)
+                self.assertGreaterEqual(cost, 1100)
+                self.assertLessEqual(cost, 1900)
             elif wing == "titles":
-                self.assertGreaterEqual(cost, 500)
-                self.assertLessEqual(cost, 1450)
+                self.assertGreaterEqual(cost, 1000)
+                self.assertLessEqual(cost, 2900)
             elif wing == "dice_forge":
-                self.assertGreaterEqual(cost, 750)
-                self.assertLessEqual(cost, 1650)
+                self.assertGreaterEqual(cost, 1500)
+                self.assertLessEqual(cost, 3300)
             elif wing == "profile_forge":
-                self.assertGreaterEqual(cost, 450)
-                self.assertLessEqual(cost, 4850)
+                self.assertGreaterEqual(cost, 900)
+                self.assertLessEqual(cost, 9700)
 
     def test_peak_elo_frame_prerequisites(self):
         """Verifies frames lock and unlock dynamically based on all-time career peak Elo."""
