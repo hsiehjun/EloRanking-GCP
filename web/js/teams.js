@@ -123,3 +123,693 @@ function renderTeamsDirectoryRows() {
     tbody.appendChild(tr);
   });
 }
+
+/* ==========================================================================
+   DEDICATED PUBLIC TEAM PROFILE PAGE
+   ========================================================================== */
+
+let currentProfileTeamName = null;
+let currentProfileTeamData = null;
+let previousTabBeforeTeamProfile = 'leaderboard';
+let currentTeamProfileSubtab = 'overview';
+
+function getCleanPreviousTab(tab) {
+  if (!tab) return 'leaderboard';
+  const clean = String(tab).trim().toLowerCase().replace(/^(?:40k|aos)\//, '').replace(/^#\/?(?:40k|aos)\//, '').replace(/^#\/?/, '');
+  if (clean.includes('search')) return 'search';
+  if (clean.includes('leaderboard')) return 'leaderboard';
+  if (clean.includes('community')) return 'community';
+  if (clean.includes('my-hub') || clean.includes('hub')) return 'my-hub';
+  if (clean.includes('meta')) return 'meta-intel';
+  if (clean.includes('player')) return 'player-profile';
+  if (clean.includes('event')) return 'event-hub';
+  return 'leaderboard';
+}
+
+function formatPreviousTabName(tab) {
+  const t = getCleanPreviousTab(tab);
+  if (t === 'search') return 'Directory';
+  if (t === 'leaderboard') return 'Leaderboard';
+  if (t === 'community') return 'Tournaments';
+  if (t === 'my-hub') return 'My Hub';
+  if (t === 'meta-intel') return 'Meta Intel';
+  if (t === 'player-profile') return 'Player Profile';
+  if (t === 'event-hub') return 'Event Hub';
+  return 'Leaderboard';
+}
+
+function navigateBackFromTeamProfile() {
+  const target = getCleanPreviousTab(previousTabBeforeTeamProfile);
+  if (typeof switchTab === 'function') {
+    switchTab(target);
+  }
+}
+
+/**
+ * Open the dedicated, full-screen team profile page
+ */
+async function openTeamProfilePage(teamName, gameSystem = '', options = {}) {
+  if (!teamName) return;
+
+  const safeName = String(teamName).trim();
+  const targetSys = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
+  if (typeof currentGameSystem !== 'undefined' && targetSys !== currentGameSystem) {
+    if (typeof applyGameSystem === 'function') {
+      applyGameSystem(targetSys, false);
+    }
+  }
+
+  // Remember previous tab to return cleanly on back navigation
+  if (typeof activeTab !== 'undefined' && activeTab !== 'team-profile') {
+    previousTabBeforeTeamProfile = activeTab;
+  }
+
+  currentProfileTeamName = safeName;
+
+  // Switch view to team-profile tab
+  if (typeof switchTab === 'function') {
+    switchTab('team-profile');
+  } else {
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.remove('active');
+      p.style.removeProperty('display');
+    });
+    const panel = document.getElementById('tab-team-profile');
+    if (panel) {
+      panel.style.removeProperty('display');
+      panel.classList.add('active');
+    }
+  }
+  const teamPanel = document.getElementById('tab-team-profile');
+  if (teamPanel) {
+    teamPanel.style.removeProperty('display');
+    teamPanel.classList.add('active');
+  }
+
+  // Update URL hash
+  const cleanPath = (targetSys === 'aos') ? '/aos' : '';
+  const targetHash = `#/${targetSys}/team/${encodeURIComponent(safeName)}`;
+  if (window.history && window.history.pushState && !options.replaceUrl) {
+    window.history.pushState({ teamName: safeName, sys: targetSys }, '', `${cleanPath || ''}${targetHash}`);
+  } else if (window.history && window.history.replaceState) {
+    window.history.replaceState({ teamName: safeName, sys: targetSys }, '', `${cleanPath || ''}${targetHash}`);
+  }
+
+  const container = document.getElementById('team-profile-container');
+  if (container) {
+    container.innerHTML = `
+      <div class="empty-state" style="padding: 4rem 1rem;">
+        <div class="spinner"></div>
+        <div style="margin-top: 1rem; font-weight: 600; color: var(--text-secondary);">Loading club dossier for ${escapeHtml(safeName)}...</div>
+      </div>
+    `;
+  }
+
+  try {
+    const data = await window.api.getTeamRoster(safeName, targetSys);
+    currentProfileTeamData = data;
+    renderTeamProfilePage(data, targetSys);
+  } catch (err) {
+    if (container) {
+      container.innerHTML = `
+        <div class="profile-hero-card" style="text-align: center; padding: 3rem 1.5rem;">
+          <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">🛡️</div>
+          <h2 style="font-size: 1.4rem; font-weight: 800; color: #fff; margin-bottom: 0.5rem;">Club Not Found</h2>
+          <p style="color: var(--text-secondary); max-width: 500px; margin: 0 auto 1.5rem;">
+            Unable to load roster records for "${escapeHtml(safeName)}" under ${targetSys.toUpperCase()}.
+          </p>
+          <button type="button" class="btn btn-primary" onclick="navigateBackFromTeamProfile()">
+            ← Return to ${formatPreviousTabName(previousTabBeforeTeamProfile)}
+          </button>
+        </div>
+      `;
+    }
+  }
+}
+
+function renderTeamProfilePage(data, sys) {
+  const container = document.getElementById('team-profile-container');
+  if (!container) return;
+
+  const teamName = data.team || currentProfileTeamName || 'Club Profile';
+  const stats = data.stats || {};
+  const roster = Array.isArray(data.roster) ? data.roster : [];
+  const feed = Array.isArray(data.battlefield_feed) ? data.battlefield_feed : [];
+  const starting5 = Array.isArray(data.starting_5) && data.starting_5.length > 0
+    ? data.starting_5
+    : roster.slice(0, 5);
+
+  const activeCount = stats.active_roster_count != null ? stats.active_roster_count : roster.length;
+  const totalCount = stats.roster_count || roster.length;
+  const powerRating = stats.power_rating || 0;
+  const top5Avg = stats.top5_avg_elo || stats.top5_avg || 1500;
+  const winRate = stats.win_rate != null ? stats.win_rate : (stats.total_matches > 0 ? ((stats.total_wins / stats.total_matches) * 100).toFixed(1) : 0);
+  const matches = stats.total_matches || 0;
+  const wins = stats.total_wins || 0;
+  const losses = stats.total_losses || 0;
+  const draws = stats.total_draws || 0;
+  const isAos = sys === 'aos';
+  const systemLabel = isAos ? '⚡ Age of Sigmar' : '⚔️ Warhammer 40,000';
+  const tierName = isAos ? '💠 LORD-CELESTANT' : '🔥 HIGH WARLORD';
+
+  container.innerHTML = `
+    <!-- Cohesive Hero Card -->
+    <div class="profile-hero-card team-hero-card" style="margin-bottom: 1.25rem;">
+      <div class="profile-hero-top team-hero-top">
+        <div class="profile-identity-group team-hero-identity">
+          <div class="profile-rank-crest team-rank-crest" style="background: rgba(15, 23, 42, 0.95); border: 2px solid ${isAos ? 'rgba(245, 158, 11, 0.45)' : 'rgba(56, 189, 248, 0.45)'}; box-shadow: 0 0 20px ${isAos ? 'rgba(245, 158, 11, 0.2)' : 'rgba(56, 189, 248, 0.2)'};">
+            <span>🛡️</span>
+          </div>
+          <div class="profile-name-meta">
+            <div class="profile-badges-row" style="margin-bottom: 0.35rem;">
+              <span class="badge" style="background: ${isAos ? 'rgba(245, 158, 11, 0.16)' : 'rgba(56, 189, 248, 0.15)'}; color: ${isAos ? '#fbbf24' : '#38bdf8'}; border: 1px solid ${isAos ? 'rgba(245, 158, 11, 0.35)' : 'rgba(56, 189, 248, 0.35)'}; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;">
+                ${systemLabel}
+              </span>
+              <span class="badge" style="background: rgba(168, 85, 247, 0.14); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 0.72rem; font-weight: 700;">
+                OFFICIAL CLUB
+              </span>
+            </div>
+            <h1 class="profile-name-title" style="font-size: 1.6rem; margin: 0 0 0.35rem 0;">${escapeHtml(teamName)}</h1>
+            <div class="profile-badges-row" style="font-size: 0.84rem; color: var(--text-secondary); gap: 0.6rem;">
+              <span>👥 <strong style="color: #10b981;">${activeCount} Active Competitors</strong></span>
+              <span>•</span>
+              <span style="color: var(--text-muted);">${totalCount} Total Registered</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4 Native KPI Cards (Number-first, uncluttered, fits all screens) -->
+      <div class="profile-kpi-grid team-kpi-grid" style="margin-top: 1.25rem;">
+        <div class="profile-kpi-card team-kpi-card-pr">
+          <div class="profile-kpi-label" style="display: flex; align-items: center; justify-content: space-between;">
+            <span>🛡️ Power Rating</span>
+            <button class="info-circle-btn" onclick="openPowerRatingInfoModal(event)" title="How Team Power Rating is computed" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.82rem; padding: 0;">ⓘ</button>
+          </div>
+          <div class="profile-kpi-value" style="margin-top: 0.2rem;">
+            <span style="font-family: var(--font-mono); font-size: 1.35rem; font-weight: 800; color: var(--accent);">${Number(powerRating).toFixed(1)}</span>
+          </div>
+          <div class="profile-kpi-sub">${isAos ? '💠 Lord-Celestant' : '🔥 High Warlord'} · Verified</div>
+        </div>
+
+        <div class="profile-kpi-card team-kpi-card-top5">
+          <div class="profile-kpi-label">⭐ Starting 5 Avg</div>
+          <div class="profile-kpi-value" style="margin-top: 0.2rem;">
+            <span style="font-family: var(--font-mono); font-size: 1.35rem; font-weight: 800; color: #facc15;">${Number(top5Avg).toFixed(1)}</span>
+          </div>
+          <div class="profile-kpi-sub">Top 5 Anchor Average</div>
+        </div>
+
+        <div class="profile-kpi-card team-kpi-card-record">
+          <div class="profile-kpi-label">⚔️ Sanctioned Record</div>
+          <div class="profile-kpi-value profile-kpi-value-record" style="font-family: var(--font-mono); font-size: 1.05rem; font-weight: 800; margin-top: 0.25rem; white-space: nowrap;">
+            <span style="color: var(--win);">${wins.toLocaleString()}W</span> - <span style="color: var(--loss);">${losses.toLocaleString()}L</span>
+          </div>
+          <div class="profile-kpi-sub">${matches.toLocaleString()} Sanctioned Games</div>
+        </div>
+
+        <div class="profile-kpi-card team-kpi-card-winrate">
+          <div class="profile-kpi-label">🏆 Club Win Rate</div>
+          <div class="profile-kpi-value" style="font-family: var(--font-mono); font-size: 1.35rem; font-weight: 800; color: ${Number(winRate) >= 55 ? 'var(--win)' : (Number(winRate) >= 45 ? 'var(--accent)' : '#fff')}; margin-top: 0.2rem;">
+            ${Number(winRate).toFixed(1)}%
+          </div>
+          <div class="profile-kpi-sub">Combat Factor: ${stats.combat_factor ? Number(stats.combat_factor).toFixed(2) + 'x' : '1.00x'}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Symmetrical 3-Column Subtabs Bar (Single clean row on mobile & desktop) -->
+    <div class="profile-subtabs-bar team-profile-subtabs-bar" style="margin-bottom: 1.25rem;">
+      <button type="button" class="profile-subtab-btn ${currentTeamProfileSubtab === 'overview' ? 'active' : ''}" onclick="switchTeamProfileSubtab('overview')" id="team-subtab-btn-overview">
+        <span>🛡️ <span class="tab-label-full">Club Overview</span><span class="tab-label-mobile">Overview</span></span>
+      </button>
+      <button type="button" class="profile-subtab-btn ${currentTeamProfileSubtab === 'roster' ? 'active' : ''}" onclick="switchTeamProfileSubtab('roster')" id="team-subtab-btn-roster">
+        <span>👥 <span class="tab-label-full">Squad Roster</span><span class="tab-label-mobile">Roster</span></span>
+        <span class="profile-subtab-count">${roster.length}</span>
+      </button>
+      <button type="button" class="profile-subtab-btn ${currentTeamProfileSubtab === 'matches' ? 'active' : ''}" onclick="switchTeamProfileSubtab('matches')" id="team-subtab-btn-matches">
+        <span>⚔️ <span class="tab-label-full">Tournament Ledger</span><span class="tab-label-mobile">Matches</span></span>
+        <span class="profile-subtab-count">${feed.length}</span>
+      </button>
+    </div>
+
+    <!-- Subtab 1: Overview Panel -->
+    <div id="team-panel-overview" class="profile-tab-panel ${currentTeamProfileSubtab === 'overview' ? 'active' : ''}">
+      <!-- Starting 5 Core Anchors Showcase -->
+      <div class="profile-hero-card" style="padding: 1.25rem; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+              <span>⭐</span>
+              <span>The Starting 5 (Club Anchors)</span>
+            </h3>
+            <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.2rem;">
+              The top 5 active competitors carrying the club's banner into major tournament competition.
+            </div>
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" onclick="switchTeamProfileSubtab('roster')" style="font-size: 0.76rem; font-weight: 700; padding: 0.35rem 0.75rem;">
+            View Full Roster (${roster.length}) →
+          </button>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.75rem;">
+          ${renderStarting5Cards(starting5, sys)}
+        </div>
+      </div>
+
+      <!-- Power Rating Calibration & Maturity -->
+      <div class="profile-hero-card" style="padding: 1.25rem; margin-bottom: 0;">
+        <h4 style="font-size: 0.95rem; font-weight: 700; color: #fff; margin: 0 0 0.85rem 0; display: flex; align-items: center; gap: 0.45rem;">
+          <span>⚖️</span>
+          <span>Power Rating Calibration & Maturity Curve</span>
+        </h4>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; font-size: 0.82rem;">
+          <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="color: var(--text-secondary); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; margin-bottom: 0.25rem;">Skill Baseline (Weighted)</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: var(--accent); font-family: var(--font-mono);">${stats.skill_baseline ? Number(stats.skill_baseline).toFixed(1) : (stats.top5_avg_elo ? Number(stats.top5_avg_elo).toFixed(1) : '-')}</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">40% Top 5 Core + 40% Active + 20% Top Ace</div>
+          </div>
+          <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="color: var(--text-secondary); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; margin-bottom: 0.25rem;">Active Roster Maturity</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: #fff; font-family: var(--font-mono);">${activeCount >= 30 ? '100% (30+ Full Cap)' : Math.min(100, Math.round((activeCount / 30) * 100)) + '%'}</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">${activeCount} competitors active in last 180 days</div>
+          </div>
+          <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="color: var(--text-secondary); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; margin-bottom: 0.25rem;">Combat Record Factor</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: #10b981; font-family: var(--font-mono);">${stats.combat_factor ? Number(stats.combat_factor).toFixed(3) + 'x' : '1.000x'}</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">Performance multiplier based on win rate</div>
+          </div>
+          <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.85rem 1rem;">
+            <div style="color: var(--text-secondary); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; margin-bottom: 0.25rem;">Sovereign Club Rating</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: #fff; font-family: var(--font-mono);">${Number(powerRating).toFixed(1)}</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">Official leaderboard sorting metric</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Subtab 2: Full Roster Panel -->
+    <div id="team-panel-roster" class="profile-tab-panel ${currentTeamProfileSubtab === 'roster' ? 'active' : ''}">
+      <div class="profile-hero-card" style="padding: 1.25rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">Squad Roster Ladder</h3>
+            <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.2rem;">
+              ${roster.length} registered competitors • Tap any player to open tactical dossier
+            </div>
+          </div>
+          <div class="team-roster-filter-container" style="display: flex; align-items: center; gap: 0.5rem; width: 100%; max-width: 260px;">
+            <input type="text" id="team-roster-filter-input" placeholder="Search members or factions..." oninput="filterTeamProfileRoster(this.value)" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 0.45rem 0.8rem; border-radius: 6px; font-size: 0.8rem; width: 100%;" />
+          </div>
+        </div>
+
+        <!-- Desktop View Table (> 768px) -->
+        <div class="table-container desktop-only" style="max-height: 600px; overflow-y: auto;">
+          <table class="table" style="width: 100%;">
+            <thead>
+              <tr>
+                <th style="width: 45px; text-align: center;">#</th>
+                <th>Competitor</th>
+                <th>Elo Rating</th>
+                <th>Status</th>
+                <th>Primary Faction</th>
+                <th>Matches</th>
+                <th>Win Rate</th>
+              </tr>
+            </thead>
+            <tbody id="team-profile-roster-tbody">
+              ${renderTeamProfileRosterRows(roster, sys)}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Mobile View Competitor Cards (<= 768px) -->
+        <div id="team-profile-mobile-roster" class="mobile-only" style="display: flex; flex-direction: column; gap: 0.5rem;">
+          ${renderMobileRosterCards(roster, sys)}
+        </div>
+      </div>
+    </div>
+
+    <!-- Subtab 3: Battlefield Matches Panel -->
+    <div id="team-panel-matches" class="profile-tab-panel ${currentTeamProfileSubtab === 'matches' ? 'active' : ''}">
+      <div class="profile-hero-card" style="padding: 1.25rem;">
+        <div style="margin-bottom: 1rem;">
+          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span>⚔️</span>
+            <span>Tournament Battle Ledger</span>
+          </h3>
+          <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.2rem;">
+            Sanctioned match outcomes and round results for ${escapeHtml(teamName)} competitors.
+          </div>
+        </div>
+
+        <!-- Desktop View Table (> 768px) -->
+        <div class="desktop-only">
+          ${renderTeamBattleLedger(feed)}
+        </div>
+
+        <!-- Mobile View Clean Match Cards (<= 768px) -->
+        <div class="mobile-only" style="display: flex; flex-direction: column; gap: 0.5rem;">
+          ${renderMobileMatchesCards(feed)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderStarting5Cards(players, sys) {
+  if (!players || players.length === 0) {
+    return `<div style="grid-column: 1 / -1; padding: 1.5rem; text-align: center; color: var(--text-muted);">No core anchor records available.</div>`;
+  }
+  return players.map((p, idx) => {
+    const safeName = p.player_name || p.full_name || 'Competitor';
+    const cleanJsName = String(safeName).replace(/'/g, "\\'");
+    const elo = Number(p.current_elo || 1500);
+    const badgeHtml = (typeof renderEloBadgePill === 'function')
+      ? renderEloBadgePill(elo, Number(p.matches_played || 10), { showTierName: false, size: 'sm', gameSystem: sys })
+      : `<span style="font-family: var(--font-mono); font-weight: 700; color: var(--accent);">${elo.toFixed(1)}</span>`;
+    const faction = p.top_faction || p.faction || 'Unassigned';
+    const cleanFaction = faction.split(',')[0].trim();
+    const rankLabel = idx === 0 ? '👑 Top Ace' : `#${idx + 1} Anchor`;
+
+    return `
+      <div class="profile-spotlight-card" style="cursor: pointer; transition: transform 0.15s ease, border-color 0.15s ease;" onclick="openPlayerModal('${escapeHtml(p.player_id || '')}', '${cleanJsName}')" onmouseover="this.style.borderColor='rgba(56,189,248,0.5)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.08)'" title="Scout ${escapeHtml(safeName)}">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+          <span style="font-size: 0.68rem; font-weight: 800; color: ${idx === 0 ? '#f59e0b' : '#94a3b8'}; text-transform: uppercase;">${rankLabel}</span>
+          ${badgeHtml}
+        </div>
+        <div style="font-size: 0.95rem; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          ${escapeHtml(safeName)}
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.4rem; font-size: 0.74rem; color: var(--text-secondary); gap: 0.5rem;">
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;">🛡️ ${escapeHtml(cleanFaction)}</span>
+          <span style="font-family: var(--font-mono); font-weight: 600; color: ${Number(p.win_rate || 0) >= 55 ? 'var(--win)' : '#94a3b8'}; flex-shrink: 0;">${Number(p.win_rate || 0).toFixed(0)}% WR</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderTeamProfileRosterRows(roster, sys) {
+  if (!roster || roster.length === 0) {
+    return '<tr><td colspan="7" class="empty-state">No competitor records registered under this club.</td></tr>';
+  }
+
+  return roster.map((p, idx) => {
+    const safeName = p.player_name || p.full_name || 'Competitor';
+    const cleanJsName = String(safeName).replace(/'/g, "\\'");
+    const elo = Number(p.current_elo || 1500);
+    const matches = Number(p.matches_played || (Number(p.wins || 0) + Number(p.losses || 0) + Number(p.draws || 0)) || 0);
+    const badgeHtml = (typeof renderEloBadgePill === 'function')
+      ? renderEloBadgePill(elo, matches, { showTierName: true, size: 'sm', gameSystem: sys })
+      : `<span style="font-family: var(--font-mono); font-weight: 700; color: var(--accent);">${elo.toFixed(1)}</span>`;
+
+    const faction = p.top_faction || p.faction || 'Unassigned';
+    const cleanFaction = faction.split(',')[0].trim();
+    const isActive = p.is_active !== false;
+    const winRate = Number(p.win_rate != null ? p.win_rate : (matches > 0 ? ((Number(p.wins || 0) / matches) * 100) : 0));
+
+    return `
+      <tr style="cursor: pointer;" onclick="openPlayerModal('${escapeHtml(p.player_id || '')}', '${cleanJsName}')" title="Click to scout ${escapeHtml(safeName)}">
+        <td style="text-align: center; font-weight: 700; color: ${idx < 5 ? 'var(--accent)' : 'var(--text-muted)'}; font-family: var(--font-mono); font-size: 0.82rem;">
+          #${idx + 1}
+        </td>
+        <td>
+          <div style="font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
+            <span class="player-link">${escapeHtml(safeName)}</span>
+            ${idx === 0 ? '<span title="Club Top Ace" style="font-size: 0.75rem;">👑</span>' : ''}
+          </div>
+        </td>
+        <td>${badgeHtml}</td>
+        <td>
+          <span class="badge" style="background: ${isActive ? 'rgba(16,185,129,0.12)' : 'rgba(148,163,184,0.1)'}; color: ${isActive ? '#10b981' : '#94a3b8'}; border: 1px solid ${isActive ? 'rgba(16,185,129,0.3)' : 'rgba(148,163,184,0.2)'}; font-size: 0.68rem; font-weight: 700;">
+            ${isActive ? 'Active' : 'Reserve'}
+          </span>
+        </td>
+        <td>
+          <span style="color: var(--text-secondary); font-size: 0.82rem;">🛡️ ${escapeHtml(cleanFaction)}</span>
+        </td>
+        <td style="font-family: var(--font-mono); font-size: 0.82rem;">
+          <span style="color: #fff; font-weight: 600;">${matches}</span>
+          <span style="color: var(--text-muted); font-size: 0.75rem;">(${p.wins || 0}W-${p.losses || 0}L)</span>
+        </td>
+        <td style="font-family: var(--font-mono); font-weight: 700; font-size: 0.84rem; color: ${winRate >= 55 ? 'var(--win)' : (winRate >= 45 ? 'var(--accent)' : 'var(--text-secondary)')};">
+          ${winRate.toFixed(1)}%
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderMobileRosterCards(roster, sys) {
+  if (!roster || roster.length === 0) {
+    return '<div style="text-align: center; padding: 2rem 1rem; color: var(--text-muted);">No competitor records registered under this club.</div>';
+  }
+
+  return roster.map((p, idx) => {
+    const safeName = p.player_name || p.full_name || 'Competitor';
+    const cleanJsName = String(safeName).replace(/'/g, "\\'");
+    const elo = Number(p.current_elo || 1500);
+    const matches = Number(p.matches_played || (Number(p.wins || 0) + Number(p.losses || 0) + Number(p.draws || 0)) || 0);
+    const faction = p.top_faction || p.faction || 'Unassigned';
+    const cleanFaction = faction.split(',')[0].trim();
+    const isActive = p.is_active !== false;
+    const winRate = Number(p.win_rate != null ? p.win_rate : (matches > 0 ? ((Number(p.wins || 0) / matches) * 100) : 0));
+    const isTop5 = idx < 5;
+
+    return `
+      <div class="mobile-competitor-card ${isTop5 ? 'top5' : ''}" onclick="openPlayerModal('${escapeHtml(p.player_id || '')}', '${cleanJsName}')">
+        <!-- Row 1: Rank, Name, Badges, Elo -->
+        <div class="mobile-roster-row-top">
+          <div class="mobile-roster-player-info">
+            <span class="mobile-roster-rank ${isTop5 ? 'top5' : ''}">#${idx + 1}</span>
+            <span class="mobile-roster-name">${escapeHtml(safeName)}</span>
+            ${idx === 0 ? '<span class="mobile-roster-crown" title="Club Top Ace">👑</span>' : ''}
+            ${!isActive ? '<span class="mobile-roster-reserve-badge">Reserve</span>' : ''}
+          </div>
+          <div class="mobile-roster-rating">
+            <span class="mobile-roster-elo-num">${elo.toFixed(1)}</span>
+          </div>
+        </div>
+
+        <!-- Row 2: Faction & Tactical Record -->
+        <div class="mobile-roster-row-bottom">
+          <div class="mobile-roster-faction">
+            <span>🛡️ ${escapeHtml(cleanFaction)}</span>
+          </div>
+          <div class="mobile-roster-stats">
+            <span class="mobile-roster-wr ${winRate >= 55 ? 'win' : ''}">${winRate.toFixed(0)}% WR</span>
+            <span class="mobile-roster-sep">·</span>
+            <span class="mobile-roster-games">${matches} Games</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderTeamBattleLedger(feed) {
+  if (!feed || feed.length === 0) {
+    return `
+      <div style="padding: 3rem 1rem; text-align: center;">
+        <div style="font-size: 2.2rem; margin-bottom: 0.5rem;">⚔️</div>
+        <div style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.25rem;">No Sanctioned Matches Recorded</div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); max-width: 440px; margin: 0 auto;">
+          Battlefield matches will appear here automatically when club members participate in verified tournaments.
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="table-container" style="max-height: 600px; overflow-y: auto;">
+      <table class="table team-ledger-table" style="width: 100%; table-layout: fixed;">
+        <thead>
+          <tr>
+            <th style="width: 95px;">Date</th>
+            <th style="width: 32%;">Tournament Event</th>
+            <th style="width: 120px;">Round</th>
+            <th style="width: 20%;">Club Competitor</th>
+            <th style="width: 20%;">Opponent</th>
+            <th style="text-align: center; width: 75px;">Score</th>
+            <th style="text-align: center; width: 85px;">Result</th>
+            <th style="text-align: right; width: 80px;">Delta</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${feed.map(item => {
+            const isWin = item.result === 'win';
+            const resultColor = isWin ? 'var(--win)' : 'var(--loss)';
+            const resultLabel = isWin ? 'VICTORY' : 'DEFEAT';
+            const formattedDate = item.date ? new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent';
+            const delta = item.elo_delta || '';
+            const isPositive = delta.startsWith('+');
+
+            return `
+              <tr>
+                <td style="color: var(--text-muted); font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${formattedDate}</td>
+                <td style="overflow: hidden; text-overflow: ellipsis;">
+                  <div style="font-weight: 700; color: #fff; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.tournament || '')}">${escapeHtml(item.tournament || 'Tournament Match')}</div>
+                  ${item.notes ? `<div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.notes)}">${escapeHtml(item.notes)}</div>` : ''}
+                </td>
+                <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span class="badge" style="font-size: 0.68rem; background: rgba(255,255,255,0.06); color: var(--text-secondary); border: 1px solid rgba(255,255,255,0.1); white-space: nowrap;">
+                    ${escapeHtml(item.round || 'Sanctioned')}
+                  </span>
+                </td>
+                <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <strong style="color: #fff; font-size: 0.84rem;">${escapeHtml(item.player_name || 'Club Member')}</strong>
+                  ${item.faction ? `<div style="color: var(--text-secondary); font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.faction)}</div>` : ''}
+                </td>
+                <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span style="color: var(--text-secondary); font-size: 0.84rem;">${escapeHtml(item.opponent_name || 'Opponent')}</span>
+                  ${item.opponent_team ? `<div style="margin-top: 2px;"><span class="badge" style="background: rgba(168,85,247,0.1); color: #c084fc; border: 1px solid rgba(168,85,247,0.25); font-size: 0.65rem;">🛡️ ${escapeHtml(item.opponent_team)}</span></div>` : ''}
+                </td>
+                <td style="text-align: center; font-family: var(--font-mono); font-weight: 700; color: #fff; font-size: 0.84rem; white-space: nowrap;">
+                  ${escapeHtml(item.score || '-')}
+                </td>
+                <td style="text-align: center; white-space: nowrap;">
+                  <span class="badge" style="background: ${isWin ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}; color: ${resultColor}; border: 1px solid ${isWin ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}; font-size: 0.72rem; font-weight: 800;">
+                    ${resultLabel}
+                  </span>
+                </td>
+                <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; font-size: 0.84rem; color: ${isPositive ? 'var(--win)' : 'var(--loss)'}; white-space: nowrap;">
+                  ${escapeHtml(delta || '-')}
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMobileMatchesCards(feed) {
+  if (!feed || feed.length === 0) {
+    return '<div style="text-align: center; padding: 2rem 1rem; color: var(--text-muted);">No recent sanctioned tournament matches recorded for this club.</div>';
+  }
+
+  return feed.map(item => {
+    const isWin = item.result === 'win';
+    const resBadge = isWin ? 'VICTORY' : 'DEFEAT';
+    const dateStr = item.date ? new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent';
+    const delta = item.elo_delta || '';
+    const scoreParts = String(item.score || '').split('-').map(s => s.trim());
+    const clubScore = scoreParts[0] || '-';
+    const oppScore = scoreParts[1] || '-';
+
+    return `
+      <div class="mobile-match-card ${isWin ? 'match-win' : 'match-loss'}">
+        <!-- Top: Event Name, Round, Date -->
+        <div class="mobile-match-header">
+          <div class="mobile-match-event" title="${escapeHtml(item.tournament || '')}">
+            <span class="mobile-match-tourney">${escapeHtml(item.tournament || 'Sanctioned Tournament')}</span>
+            <span class="mobile-match-round-pill">${escapeHtml(item.round || 'Round')}</span>
+          </div>
+          <span class="mobile-match-date">${dateStr}</span>
+        </div>
+
+        <!-- Competitors 2-Row Scoreboard -->
+        <div class="mobile-match-scoreboard">
+          <div class="mobile-match-team-row ${isWin ? 'winner' : ''}">
+            <div class="mobile-match-player-meta">
+              <span class="mobile-match-marker">🛡️</span>
+              <span class="mobile-match-player-name">${escapeHtml(item.player_name || 'Club Member')}</span>
+              ${item.faction ? `<span class="mobile-match-faction-tag">${escapeHtml(item.faction)}</span>` : ''}
+            </div>
+            <div class="mobile-match-score-num">${escapeHtml(clubScore)}</div>
+          </div>
+
+          <div class="mobile-match-team-row ${!isWin ? 'winner' : ''}">
+            <div class="mobile-match-player-meta">
+              <span class="mobile-match-marker">⚔️</span>
+              <span class="mobile-match-player-name">${escapeHtml(item.opponent_name || 'Opponent')}</span>
+              ${item.opponent_team ? `<span class="mobile-match-opp-team-tag">${escapeHtml(item.opponent_team)}</span>` : ''}
+            </div>
+            <div class="mobile-match-score-num">${escapeHtml(oppScore)}</div>
+          </div>
+        </div>
+
+        <!-- Footer: Outcome Badge, Delta, Notes -->
+        <div class="mobile-match-footer">
+          <div class="mobile-match-badges-left">
+            <span class="mobile-match-result-pill ${isWin ? 'win' : 'loss'}">${resBadge}</span>
+            ${delta ? `
+              <span class="mobile-match-delta ${delta.startsWith('+') ? 'positive' : 'negative'}">
+                ${delta.startsWith('+') ? '📈' : '📉'} ${escapeHtml(delta)}
+              </span>
+            ` : ''}
+          </div>
+          ${item.notes ? `
+            <div class="mobile-match-notes" title="${escapeHtml(item.notes)}">
+              ${escapeHtml(item.notes)}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function switchTeamProfileSubtab(subtab) {
+  currentTeamProfileSubtab = subtab;
+  document.querySelectorAll('.team-profile-subtabs-bar .profile-subtab-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  const activeBtn = document.getElementById(`team-subtab-btn-${subtab}`);
+  if (activeBtn) activeBtn.classList.add('active');
+
+  ['overview', 'roster', 'matches'].forEach(s => {
+    const p = document.getElementById(`team-panel-${s}`);
+    if (p) {
+      p.classList.toggle('active', s === subtab);
+      p.style.display = s === subtab ? 'block' : 'none';
+    }
+  });
+}
+
+function copyTeamShareLink() {
+  const url = window.location.href;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => {
+      if (typeof showToast === 'function') {
+        showToast('Club profile link copied to clipboard!');
+      } else {
+        alert('Club profile link copied to clipboard!');
+      }
+    });
+  }
+}
+
+function filterTeamProfileRoster(query) {
+  if (!currentProfileTeamData) return;
+  const q = (query || '').trim().toLowerCase();
+  const roster = currentProfileTeamData.roster || [];
+  const tbody = document.getElementById('team-profile-roster-tbody');
+  const mobList = document.getElementById('team-profile-mobile-roster');
+  const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+
+  if (!q) {
+    if (tbody) tbody.innerHTML = renderTeamProfileRosterRows(roster, sys);
+    if (mobList) mobList.innerHTML = renderMobileRosterCards(roster, sys);
+    return;
+  }
+
+  const filtered = roster.filter(p => {
+    const name = (p.player_name || p.full_name || '').toLowerCase();
+    const faction = (p.top_faction || p.faction || '').toLowerCase();
+    return name.includes(q) || faction.includes(q);
+  });
+  if (tbody) tbody.innerHTML = renderTeamProfileRosterRows(filtered, sys);
+  if (mobList) mobList.innerHTML = renderMobileRosterCards(filtered, sys);
+}
+
+window.openTeamProfilePage = openTeamProfilePage;
+window.renderTeamProfilePage = renderTeamProfilePage;
+window.switchTeamProfileSubtab = switchTeamProfileSubtab;
+window.copyTeamShareLink = copyTeamShareLink;
+window.filterTeamProfileRoster = filterTeamProfileRoster;
+window.navigateBackFromTeamProfile = navigateBackFromTeamProfile;
+
+

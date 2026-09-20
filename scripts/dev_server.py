@@ -3112,7 +3112,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         if clean_path.startswith("api/teams/") and not clean_path.endswith("/messages") and not clean_path.endswith("/squad-events/attend"):
             import teams_hub_service
             svc = teams_hub_service.get_teams_hub_service()
-            t_id = clean_path.split("/")[2]
+            t_id = urllib.parse.unquote(clean_path.split("/")[2])
             gs = (query_params.get("game_system", [None])[0] or "40k").strip().lower()
             hub = svc.get_team_hub(t_id, gs)
             if not hub:
@@ -3140,6 +3140,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 res = {
                     "team": hub["name"],
+                    "id": hub.get("id"),
+                    "short_tag": hub.get("short_tag"),
+                    "captain_name": hub.get("captain_name"),
+                    "home_city": hub.get("home_city"),
+                    "home_state": hub.get("home_state"),
+                    "home_country": hub.get("home_country"),
+                    "logo_url": hub.get("logo_url"),
+                    "heraldry_tier": hub.get("heraldry_tier"),
+                    "starting_5": hub.get("starting_5", []),
+                    "battlefield_feed": hub.get("battlefield_feed", []),
                     "roster": hub.get("roster", []),
                     "stats": {
                         "roster_count": hub.get("roster_count", len(hub.get("roster", []))),

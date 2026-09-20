@@ -36,9 +36,10 @@ function initGameSystem() {
   } catch (e) {}
 
   let initialSys = '40k';
-  if (path.startsWith('/aos')) {
+  const hash = (window.location.hash || '').toLowerCase();
+  if (path.startsWith('/aos') || hash.startsWith('#/aos') || hash.includes('/aos/')) {
     initialSys = 'aos';
-  } else if (path.startsWith('/40k')) {
+  } else if (path.startsWith('/40k') || hash.startsWith('#/40k') || hash.includes('/40k/')) {
     initialSys = '40k';
   } else if (querySys === 'aos' || querySys === '40k') {
     initialSys = querySys;
@@ -184,6 +185,10 @@ function switchGameSystem(sys) {
   } else if (activeTab === 'event-hub') {
     if (typeof openEventHubPage === 'function' && typeof currentOpenEventId !== 'undefined' && currentOpenEventId) {
       openEventHubPage(currentOpenEventId, sys);
+    }
+  } else if (activeTab === 'team-profile') {
+    if (typeof openTeamProfilePage === 'function' && typeof currentProfileTeamName !== 'undefined' && currentProfileTeamName) {
+      openTeamProfilePage(currentProfileTeamName, sys);
     }
   }
 
@@ -478,6 +483,17 @@ function handleAppRoute(routeStr) {
     } catch (e) {}
     if (typeof openEventHubPage === 'function') {
       openEventHubPage(eid, routeSys, { replaceUrl: true, initialTab: subtab || undefined });
+      return true;
+    }
+  }
+
+  // Route: /#/aos/team/:name or /#/40k/team/:name or /#/team/:name
+  const teamMatch = clean.match(/^(?:(aos|40k)\/)?team\/([^/?#]+)/i);
+  if (teamMatch) {
+    const routeSys = teamMatch[1] ? teamMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const tname = decodeURIComponent(teamMatch[2]);
+    if (typeof openTeamProfilePage === 'function') {
+      openTeamProfilePage(tname, routeSys, { replaceUrl: true });
       return true;
     }
   }

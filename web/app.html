@@ -23,10 +23,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=0683cdc035">
-  <link rel="stylesheet" href="/css/styles.css?v=0683cdc035">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=0683cdc035">
-  <link rel="preload" href="/js/app.bundle.min.js?v=0683cdc035" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=5e6ba1c17d">
+  <link rel="stylesheet" href="/css/styles.css?v=5e6ba1c17d">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=5e6ba1c17d">
+  <link rel="preload" href="/js/app.bundle.min.js?v=5e6ba1c17d" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 
   <style>
@@ -611,6 +611,16 @@
         <div class="empty-state">
           <div class="spinner"></div>
           <div style="margin-top: 0.75rem;">Loading player profile...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: DEDICATED PUBLIC TEAM PROFILE -->
+    <section id="tab-team-profile" class="tab-panel">
+      <div id="team-profile-container" class="player-profile-view team-profile-view">
+        <div class="empty-state">
+          <div class="spinner"></div>
+          <div style="margin-top: 0.75rem;">Loading team profile...</div>
         </div>
       </div>
     </section>
@@ -2872,10 +2882,15 @@
     <div class="modal-window">
       <div class="modal-header">
         <div>
-          <h2 id="modal-team-title" style="font-size: 1.35rem; font-weight: 700; color: #fff;">Team Roster</h2>
+          <h2 id="modal-team-title" style="font-size: 1.35rem; font-weight: 700; color: #fff; cursor: pointer;" onclick="openDedicatedTeamProfileFromModal()" title="Click to view full team profile">Team Roster</h2>
           <div id="modal-team-subtitle" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.2rem;"></div>
         </div>
-        <button class="modal-close" onclick="closeModal('team-modal')">✕</button>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <button type="button" class="btn btn-primary btn-sm" id="btn-modal-open-full-team-profile" onclick="openDedicatedTeamProfileFromModal()" title="Open dedicated, full-page team profile">
+            <span>↗ Full Profile</span>
+          </button>
+          <button class="modal-close" onclick="closeModal('team-modal')">✕</button>
+        </div>
       </div>
 
       <div class="modal-body">
@@ -3242,8 +3257,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "0683cdc035";</script>
-  <script src="/js/app.bundle.min.js?v=0683cdc035"></script>
+  <script>window.APP_VERSION = "5e6ba1c17d";</script>
+  <script src="/js/app.bundle.min.js?v=5e6ba1c17d"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

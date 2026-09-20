@@ -727,8 +727,24 @@ function renderTrajectoryChart(trajectory) {
 }
 
 let currentTeamRoster = [];
+let currentModalTeamName = '';
+
+function openDedicatedTeamProfileFromModal() {
+  if (typeof currentModalTeamName !== 'undefined' && currentModalTeamName) {
+    if (typeof closeAllModals === 'function') {
+      closeAllModals();
+    } else if (typeof closeModal === 'function') {
+      closeModal('team-modal');
+    }
+    if (typeof openTeamProfilePage === 'function') {
+      openTeamProfilePage(currentModalTeamName);
+    }
+  }
+}
+window.openDedicatedTeamProfileFromModal = openDedicatedTeamProfileFromModal;
 
 async function openTeamModal(teamName) {
+  currentModalTeamName = (teamName || '').trim();
   const modal = document.getElementById('team-modal');
   if (!modal) return;
   bringModalToFront(modal);
