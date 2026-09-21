@@ -427,12 +427,16 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     avatarSigilStyle = 'border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.35), inset 0 0 14px rgba(56,189,248,0.15);';
   }
 
-  // Resolve tournament championships laurel badge
+  // Resolve tournament championships laurel badge & public reliquary
   const champs = data.championships || {};
   let champPillHtml = '';
+  let champReliquaryHtml = '';
   if (champs && champs.total > 0) {
     const pillText = champs.championship_pill || `🏆 ${champs.total}x Champion`;
-    champPillHtml = `<span class="profile-standing-badge champ-laurel-pill" onclick="switchProfileSubtab('trophies'); setTimeout(() => { const el = document.getElementById('hall-of-champions-showcase'); if(el) el.scrollIntoView({behavior:'smooth', block:'center'}); }, 100);" title="Verified Tournament Championships (${champs.total} Titles: ${champs.major_wins || 0} Major, ${champs.gt_wins || 0} GT, ${champs.rtt_wins || 0} RTT)">${escapeHtml(pillText)}</span>`;
+    champPillHtml = `<span class="profile-standing-badge champ-laurel-pill" onclick="const el = document.getElementById('hall-of-champions-showcase'); if(el) el.scrollIntoView({behavior:'smooth', block:'center'}); else switchProfileSubtab('trophies');" title="Verified Tournament Championships (${champs.total} Titles: ${champs.major_wins || 0} Major, ${champs.gt_wins || 0} GT, ${champs.rtt_wins || 0} RTT)">${escapeHtml(pillText)}</span>`;
+    if (window.BadgesUI && typeof window.BadgesUI.renderHallOfChampions === 'function') {
+      champReliquaryHtml = window.BadgesUI.renderHallOfChampions(champs, !!data.is_self, true);
+    }
   }
 
   container.innerHTML = `
@@ -533,6 +537,9 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
 
     <!-- Optional H2H vs Viewing Player -->
     ${h2hHtml}
+
+    <!-- Championship Reliquary Silverware Shelf (prominently featured on Public Profile) -->
+    ${champReliquaryHtml}
 
     <!-- Desktop & Mobile Sub-Tab Navigation Bar -->
     <div class="profile-subtabs-bar" id="profile-subtabs-bar">
@@ -641,6 +648,16 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
 
   // Render Trajectory SVG in background so it's ready when tab is clicked
   setTimeout(() => renderProfileTrajectoryChart(rawHistory), 50);
+
+  // Pre-render Trophies & Honors panel in background
+  if (window.BadgesUI && typeof window.BadgesUI.renderTrophyRoom === 'function') {
+    setTimeout(() => {
+      const trEl = document.getElementById('profile-panel-trophies');
+      if (trEl) {
+        window.BadgesUI.renderTrophyRoom(trEl, data, !!data.is_self, currentProfilePlayerId);
+      }
+    }, 60);
+  }
 
   if (window.Armory && typeof window.Armory.applyEquippedDecorations === 'function') {
     window.Armory.applyEquippedDecorations(sys, playerEq);

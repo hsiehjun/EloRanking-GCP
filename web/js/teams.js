@@ -132,6 +132,7 @@ let currentProfileTeamName = null;
 let currentProfileTeamData = null;
 let previousTabBeforeTeamProfile = 'leaderboard';
 let currentTeamProfileSubtab = 'overview';
+let currentTeamProfileRosterStatus = 'all';
 
 function getCleanPreviousTab(tab) {
   if (!tab) return 'leaderboard';
@@ -415,11 +416,24 @@ function renderTeamProfilePage(data, sys) {
           <div>
             <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">Squad Roster Ladder</h3>
             <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.2rem;">
-              ${roster.length} registered competitors • Tap any player to open tactical dossier
+              <strong style="color: #10b981;">${activeCount} Active</strong> • <strong style="color: #fbbf24;">${totalCount - activeCount} Inactive</strong> • ${totalCount} Registered Competitors
             </div>
           </div>
-          <div class="team-roster-filter-container" style="display: flex; align-items: center; gap: 0.5rem; width: 100%; max-width: 260px;">
-            <input type="text" id="team-roster-filter-input" placeholder="Search members or factions..." oninput="filterTeamProfileRoster(this.value)" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 0.45rem 0.8rem; border-radius: 6px; font-size: 0.8rem; width: 100%;" />
+          <div class="team-roster-controls" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <div class="team-roster-status-tabs" style="display: inline-flex; background: rgba(0,0,0,0.35); border-radius: 6px; padding: 2px; border: 1px solid rgba(255,255,255,0.08);">
+              <button type="button" class="team-status-tab-btn ${currentTeamProfileRosterStatus === 'all' ? 'active' : ''}" onclick="setTeamProfileRosterStatus('all')" id="team-roster-filter-all">
+                All (${totalCount})
+              </button>
+              <button type="button" class="team-status-tab-btn ${currentTeamProfileRosterStatus === 'active' ? 'active' : ''}" onclick="setTeamProfileRosterStatus('active')" id="team-roster-filter-active">
+                Active (${activeCount})
+              </button>
+              <button type="button" class="team-status-tab-btn ${currentTeamProfileRosterStatus === 'inactive' ? 'active' : ''}" onclick="setTeamProfileRosterStatus('inactive')" id="team-roster-filter-inactive">
+                Inactive (${totalCount - activeCount})
+              </button>
+            </div>
+            <div class="team-roster-filter-container" style="display: flex; align-items: center; gap: 0.5rem; width: 100%; max-width: 220px;">
+              <input type="text" id="team-roster-filter-input" placeholder="Search members or factions..." oninput="filterTeamProfileRoster(this.value)" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 0.45rem 0.8rem; border-radius: 6px; font-size: 0.8rem; width: 100%;" />
+            </div>
           </div>
         </div>
 
@@ -510,12 +524,14 @@ function renderStarting5Cards(players, sys) {
   }).join('');
 }
 
-function renderTeamProfileRosterRows(roster, sys) {
+function renderTeamProfileRosterRows(roster, sys, statusFilter = null) {
   if (!roster || roster.length === 0) {
     return '<tr><td colspan="7" class="empty-state">No competitor records registered under this club.</td></tr>';
   }
 
-  return roster.map((p, idx) => {
+  const effectiveFilter = statusFilter || currentTeamProfileRosterStatus || 'all';
+
+  function createPlayerRow(p, displayRank, isInactive = false) {
     const safeName = p.player_name || p.full_name || 'Competitor';
     const cleanJsName = String(safeName).replace(/'/g, "\\'");
     const elo = Number(p.current_elo || 1500);
@@ -526,26 +542,28 @@ function renderTeamProfileRosterRows(roster, sys) {
 
     const faction = p.top_faction || p.faction || 'Unassigned';
     const cleanFaction = faction.split(',')[0].trim();
-    const isActive = p.is_active !== false;
     const winRate = Number(p.win_rate != null ? p.win_rate : (matches > 0 ? ((Number(p.wins || 0) / matches) * 100) : 0));
 
+    const isAce = !isInactive && displayRank === 1;
+    const isCore = !isInactive && displayRank <= 5;
+
+    let statusBadge = isInactive
+      ? `<span class="roster-inactive-badge" title="Inactive (>180 days without match play) • Excluded from Team Power Rating">Inactive</span>`
+      : `<span class="badge" style="background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-size: 0.68rem; font-weight: 700;">Active</span>`;
+
     return `
-      <tr style="cursor: pointer;" onclick="openPlayerModal('${escapeHtml(p.player_id || '')}', '${cleanJsName}')" title="Click to scout ${escapeHtml(safeName)}">
-        <td style="text-align: center; font-weight: 700; color: ${idx < 5 ? 'var(--accent)' : 'var(--text-muted)'}; font-family: var(--font-mono); font-size: 0.82rem;">
-          #${idx + 1}
+      <tr class="${isInactive ? 'roster-row-inactive' : ''}" style="cursor: pointer; ${isInactive ? 'opacity: 0.72;' : ''}" onclick="openPlayerModal('${escapeHtml(p.player_id || '')}', '${cleanJsName}')" title="Click to scout ${escapeHtml(safeName)}">
+        <td style="text-align: center; font-weight: 700; color: ${isCore ? 'var(--accent)' : 'var(--text-muted)'}; font-family: var(--font-mono); font-size: 0.82rem;">
+          #${displayRank}
         </td>
         <td>
           <div style="font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
             <span class="player-link">${escapeHtml(safeName)}</span>
-            ${idx === 0 ? '<span title="Club Top Ace" style="font-size: 0.75rem;">👑</span>' : ''}
+            ${isAce ? '<span title="Club Top Ace" style="font-size: 0.75rem;">👑</span>' : ''}
           </div>
         </td>
         <td>${badgeHtml}</td>
-        <td>
-          <span class="badge" style="background: ${isActive ? 'rgba(16,185,129,0.12)' : 'rgba(148,163,184,0.1)'}; color: ${isActive ? '#10b981' : '#94a3b8'}; border: 1px solid ${isActive ? 'rgba(16,185,129,0.3)' : 'rgba(148,163,184,0.2)'}; font-size: 0.68rem; font-weight: 700;">
-            ${isActive ? 'Active' : 'Reserve'}
-          </span>
-        </td>
+        <td>${statusBadge}</td>
         <td>
           <span style="color: var(--text-secondary); font-size: 0.82rem;">🛡️ ${escapeHtml(cleanFaction)}</span>
         </td>
@@ -558,37 +576,98 @@ function renderTeamProfileRosterRows(roster, sys) {
         </td>
       </tr>
     `;
+  }
+
+  const activePlayers = roster.filter(p => p.is_active !== false).sort((a, b) => Number(b.current_elo || 1500) - Number(a.current_elo || 1500));
+  const inactivePlayers = roster.filter(p => p.is_active === false).sort((a, b) => Number(b.current_elo || 1500) - Number(a.current_elo || 1500));
+
+  if (effectiveFilter === 'active') {
+    if (activePlayers.length === 0) return '<tr><td colspan="7" class="empty-state">No active competitors currently registered in this club.</td></tr>';
+    return activePlayers.map((p, idx) => createPlayerRow(p, idx + 1, false)).join('');
+  }
+
+  if (effectiveFilter === 'inactive') {
+    if (inactivePlayers.length === 0) return '<tr><td colspan="7" class="empty-state">No inactive competitors on hiatus in this club.</td></tr>';
+    return inactivePlayers.map((p, idx) => createPlayerRow(p, idx + 1, true)).join('');
+  }
+
+  // 'all' mode: Group active competitors first with Active Depth divider, then Inactive divider & players
+  let html = activePlayers.map((p, idx) => {
+    let rowHtml = createPlayerRow(p, idx + 1, false);
+    if (idx === 4 && activePlayers.length > 5) {
+      const remainingActive = activePlayers.length - 5;
+      rowHtml += `
+        <tr class="roster-divider-row">
+          <td colspan="7">
+            <div class="roster-divider-content">
+              <div class="roster-divider-left">
+                <span class="roster-divider-icon">👥</span>
+                <span class="roster-divider-title">Active Club Depth</span>
+                <span class="roster-divider-count">(${remainingActive} additional active competitors)</span>
+              </div>
+              <div class="roster-divider-right">
+                <span>Contributes to 40% Club Average</span>
+              </div>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+    return rowHtml;
   }).join('');
+
+  if (inactivePlayers.length > 0) {
+    html += `
+      <tr class="roster-divider-row roster-inactive-divider-row">
+        <td colspan="7">
+          <div class="roster-divider-content">
+            <div class="roster-divider-left">
+              <span class="roster-divider-icon">💤</span>
+              <span class="roster-divider-title">Inactive Roster</span>
+              <span class="roster-divider-count">(${inactivePlayers.length} on hiatus • >180 days without match play)</span>
+            </div>
+            <div class="roster-divider-right">
+              <span>Excluded from Team Power Rating</span>
+            </div>
+          </div>
+        </td>
+      </tr>
+    `;
+    html += inactivePlayers.map((p, idx) => createPlayerRow(p, activePlayers.length + idx + 1, true)).join('');
+  }
+
+  return html;
 }
 
-function renderMobileRosterCards(roster, sys) {
+function renderMobileRosterCards(roster, sys, statusFilter = null) {
   if (!roster || roster.length === 0) {
     return '<div style="text-align: center; padding: 2rem 1rem; color: var(--text-muted);">No competitor records registered under this club.</div>';
   }
 
-  return roster.map((p, idx) => {
+  const effectiveFilter = statusFilter || currentTeamProfileRosterStatus || 'all';
+
+  function createMobileCard(p, displayRank, isInactive = false) {
     const safeName = p.player_name || p.full_name || 'Competitor';
     const cleanJsName = String(safeName).replace(/'/g, "\\'");
     const elo = Number(p.current_elo || 1500);
     const matches = Number(p.matches_played || (Number(p.wins || 0) + Number(p.losses || 0) + Number(p.draws || 0)) || 0);
     const faction = p.top_faction || p.faction || 'Unassigned';
     const cleanFaction = faction.split(',')[0].trim();
-    const isActive = p.is_active !== false;
     const winRate = Number(p.win_rate != null ? p.win_rate : (matches > 0 ? ((Number(p.wins || 0) / matches) * 100) : 0));
-    const isTop5 = idx < 5;
+    const isTop5 = !isInactive && displayRank <= 5;
 
     return `
-      <div class="mobile-competitor-card ${isTop5 ? 'top5' : ''}" onclick="openPlayerModal('${escapeHtml(p.player_id || '')}', '${cleanJsName}')">
+      <div class="mobile-competitor-card ${isTop5 ? 'top5' : ''} ${isInactive ? 'mobile-card-inactive' : ''}" onclick="openPlayerModal('${escapeHtml(p.player_id || '')}', '${cleanJsName}')" style="${isInactive ? 'opacity: 0.72; border-color: rgba(255,255,255,0.05);' : ''}">
         <!-- Row 1: Rank, Name, Badges, Elo -->
         <div class="mobile-roster-row-top">
           <div class="mobile-roster-player-info">
-            <span class="mobile-roster-rank ${isTop5 ? 'top5' : ''}">#${idx + 1}</span>
+            <span class="mobile-roster-rank ${isTop5 ? 'top5' : ''}">#${displayRank}</span>
             <span class="mobile-roster-name">${escapeHtml(safeName)}</span>
-            ${idx === 0 ? '<span class="mobile-roster-crown" title="Club Top Ace">👑</span>' : ''}
-            ${!isActive ? '<span class="mobile-roster-reserve-badge">Reserve</span>' : ''}
+            ${!isInactive && displayRank === 1 ? '<span class="mobile-roster-crown" title="Club Top Ace">👑</span>' : ''}
+            ${isInactive ? '<span class="mobile-roster-reserve-badge">Inactive</span>' : ''}
           </div>
           <div class="mobile-roster-rating">
-            <span class="mobile-roster-elo-num">${elo.toFixed(1)}</span>
+            <span class="mobile-roster-elo-num" style="${isInactive ? 'color: var(--text-muted);' : ''}">${elo.toFixed(1)}</span>
           </div>
         </div>
 
@@ -605,7 +684,40 @@ function renderMobileRosterCards(roster, sys) {
         </div>
       </div>
     `;
-  }).join('');
+  }
+
+  const activePlayers = roster.filter(p => p.is_active !== false).sort((a, b) => Number(b.current_elo || 1500) - Number(a.current_elo || 1500));
+  const inactivePlayers = roster.filter(p => p.is_active === false).sort((a, b) => Number(b.current_elo || 1500) - Number(a.current_elo || 1500));
+
+  if (effectiveFilter === 'active') {
+    if (activePlayers.length === 0) return '<div style="text-align: center; padding: 2rem 1rem; color: var(--text-muted);">No active competitors registered under this club.</div>';
+    return activePlayers.map((p, idx) => createMobileCard(p, idx + 1, false)).join('');
+  }
+
+  if (effectiveFilter === 'inactive') {
+    if (inactivePlayers.length === 0) return '<div style="text-align: center; padding: 2rem 1rem; color: var(--text-muted);">No inactive competitors on hiatus in this club.</div>';
+    return inactivePlayers.map((p, idx) => createMobileCard(p, idx + 1, true)).join('');
+  }
+
+  let html = activePlayers.map((p, idx) => createMobileCard(p, idx + 1, false)).join('');
+
+  if (inactivePlayers.length > 0) {
+    html += `
+      <div class="mobile-roster-divider mobile-roster-inactive-divider">
+        <div class="mobile-roster-divider-left">
+          <span style="font-size: 1.15rem;">💤</span>
+          <div>
+            <div style="font-weight: 800; color: #fbbf24; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;">Inactive Roster (${inactivePlayers.length})</div>
+            <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 1px;">Hiatus • >180 days without match play</div>
+          </div>
+        </div>
+        <span class="mobile-roster-divider-tag" style="font-size: 0.65rem; color: #94a3b8; background: rgba(255,255,255,0.06); padding: 0.15rem 0.45rem; border-radius: 4px; white-space: nowrap;">Excluded from PR</span>
+      </div>
+    `;
+    html += inactivePlayers.map((p, idx) => createMobileCard(p, activePlayers.length + idx + 1, true)).join('');
+  }
+
+  return html;
 }
 
 function renderTeamBattleLedger(feed) {
@@ -622,18 +734,18 @@ function renderTeamBattleLedger(feed) {
   }
 
   return `
-    <div class="table-container" style="max-height: 600px; overflow-y: auto;">
-      <table class="table team-ledger-table" style="width: 100%; table-layout: fixed;">
+    <div class="table-container" style="max-height: 600px; overflow-x: auto; overflow-y: auto;">
+      <table class="table team-ledger-table" style="width: 100%; min-width: 820px;">
         <thead>
           <tr>
-            <th style="width: 95px;">Date</th>
-            <th style="width: 32%;">Tournament Event</th>
+            <th style="width: 100px;">Date</th>
+            <th style="min-width: 200px;">Tournament Event</th>
             <th style="width: 120px;">Round</th>
-            <th style="width: 20%;">Club Competitor</th>
-            <th style="width: 20%;">Opponent</th>
-            <th style="text-align: center; width: 75px;">Score</th>
-            <th style="text-align: center; width: 85px;">Result</th>
-            <th style="text-align: right; width: 80px;">Delta</th>
+            <th style="min-width: 140px;">Club Competitor</th>
+            <th style="min-width: 140px;">Opponent</th>
+            <th style="text-align: center; width: 80px;">Score</th>
+            <th style="text-align: center; width: 90px;">Result</th>
+            <th style="text-align: right; width: 85px;">Delta</th>
           </tr>
         </thead>
         <tbody>
@@ -790,19 +902,26 @@ function filterTeamProfileRoster(query) {
   const mobList = document.getElementById('team-profile-mobile-roster');
   const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
 
-  if (!q) {
-    if (tbody) tbody.innerHTML = renderTeamProfileRosterRows(roster, sys);
-    if (mobList) mobList.innerHTML = renderMobileRosterCards(roster, sys);
-    return;
+  let filtered = roster;
+  if (q) {
+    filtered = filtered.filter(p => {
+      const name = (p.player_name || p.full_name || '').toLowerCase();
+      const faction = (p.top_faction || p.faction || '').toLowerCase();
+      return name.includes(q) || faction.includes(q);
+    });
   }
 
-  const filtered = roster.filter(p => {
-    const name = (p.player_name || p.full_name || '').toLowerCase();
-    const faction = (p.top_faction || p.faction || '').toLowerCase();
-    return name.includes(q) || faction.includes(q);
-  });
-  if (tbody) tbody.innerHTML = renderTeamProfileRosterRows(filtered, sys);
-  if (mobList) mobList.innerHTML = renderMobileRosterCards(filtered, sys);
+  if (tbody) tbody.innerHTML = renderTeamProfileRosterRows(filtered, sys, currentTeamProfileRosterStatus);
+  if (mobList) mobList.innerHTML = renderMobileRosterCards(filtered, sys, currentTeamProfileRosterStatus);
+}
+
+function setTeamProfileRosterStatus(status) {
+  currentTeamProfileRosterStatus = status || 'all';
+  document.querySelectorAll('.team-status-tab-btn').forEach(b => b.classList.remove('active'));
+  const activeBtn = document.getElementById(`team-roster-filter-${currentTeamProfileRosterStatus}`);
+  if (activeBtn) activeBtn.classList.add('active');
+  const input = document.getElementById('team-roster-filter-input');
+  filterTeamProfileRoster(input ? input.value : '');
 }
 
 window.openTeamProfilePage = openTeamProfilePage;
@@ -810,6 +929,7 @@ window.renderTeamProfilePage = renderTeamProfilePage;
 window.switchTeamProfileSubtab = switchTeamProfileSubtab;
 window.copyTeamShareLink = copyTeamShareLink;
 window.filterTeamProfileRoster = filterTeamProfileRoster;
+window.setTeamProfileRosterStatus = setTeamProfileRosterStatus;
 window.navigateBackFromTeamProfile = navigateBackFromTeamProfile;
 
 

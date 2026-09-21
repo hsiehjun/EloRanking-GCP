@@ -1136,7 +1136,7 @@ function renderMyHub(data) {
                 }
                 ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data, 'switchHubSubtab') : ''}
                 ${champPillHtml}
-                ${p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="switchTab('teams'); if(typeof loadTeamsView==='function') loadTeamsView('${escapeHtml(p.team)}');" title="Click to open ${escapeHtml(p.team)} Team Hub">🛡️ ${escapeHtml(p.team)} ➔</span>` : `<span class="badge" style="background:rgba(255,255,255,0.06); color:#94a3b8; border:1px solid rgba(255,255,255,0.12); cursor:pointer;" onclick="switchTab('teams')" title="Find or join a team">⚔️ Independent &bull; Join Club ➔</span>`}
+                ${p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="if(typeof openTeamModal==='function') openTeamModal('${escapeHtml(p.team)}');" title="Click to view ${escapeHtml(p.team)} roster">🛡️ ${escapeHtml(p.team)} ➔</span>` : `<span class="badge" style="background:rgba(255,255,255,0.06); color:#94a3b8; border:1px solid rgba(255,255,255,0.12); cursor:pointer;" onclick="if(typeof switchTab==='function') switchTab('leaderboard');" title="Find or join a team">⚔️ Independent &bull; Join Club ➔</span>`}
               </div>
               <div style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 0.45rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
                 <span style="display: inline-flex; align-items: center; gap: 4px;">

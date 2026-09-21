@@ -314,7 +314,7 @@
     var unifiedGlory = data.glory_balance != null ? data.glory_balance : (gloryScore + seasonalGlory);
 
     var championships = data.championships || { total: 0, items: [] };
-    var champShelfHtml = renderHallOfChampions(championships, isSelf, isPublic);
+    var champShelfHtml = isPublic ? '' : renderHallOfChampions(championships, isSelf, isPublic);
 
     var nextRankText = rank.next_rank_title
       ? rank.badges_needed_for_next + ' more honors needed for <strong>' + escapeHtml(rank.next_rank_title) + '</strong>'

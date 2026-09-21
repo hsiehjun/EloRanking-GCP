@@ -10502,6 +10502,53 @@ table.desktop-only,
   color: var(--text-muted);
 }
 
+/* Team Roster Status Filter Tabs */
+.team-status-tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 0.28rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.team-status-tab-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+.team-status-tab-btn.active {
+  background: var(--accent, #0284c7) !important;
+  color: #fff !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+/* Mobile Inactive Roster Divider */
+.mobile-roster-divider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 0.4rem 0 0.2rem 0;
+  box-sizing: border-box;
+}
+.mobile-roster-inactive-divider {
+  border-left: 3px solid #f59e0b;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.1) 0%, rgba(15, 23, 42, 0.7) 100%);
+}
+.mobile-roster-divider-left {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
 /* Mobile Match Cards (Matches Tab) */
 .mobile-match-card {
   background: rgba(15, 23, 42, 0.75);
