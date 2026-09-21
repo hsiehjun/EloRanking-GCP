@@ -1047,7 +1047,6 @@
       '  <!-- Footer -->',
       '  <div class="armory-modal-footer">',
       '    <span class="armory-footer-notice">Glory Honor is unified across 40K &amp; AoS and earned through verified tournament clashes. Zero real-world cash gambling.</span>',
-      '    <button type="button" class="btn btn-secondary" onclick="window.Armory.closeArmoryModal()">Return to Fleet</button>',
       '  </div>',
       '</div>'
     ].join('\n');
