@@ -610,3 +610,129 @@ async def acknowledge_poke(request: Request):
 
     return {"success": True, "acknowledged": True}
 
+
+@router.get("/api/armory/transactions", summary="Get auditable Glory transactions (earned and spent)")
+async def get_armory_transactions(request: Request):
+    """Returns detailed history of all Glory points earned and spent for verification and auditing."""
+    auth_mgr = get_auth_manager()
+    try:
+        session = _get_user_session_or_401(request)
+        user_id = session.get("user_id") or session.get("id")
+        user_data = auth_mgr.get_user_by_id(user_id) or session
+    except Exception:
+        return {"success": True, "debits": [], "credits": [], "summary": {}}
+
+    vault = _get_or_init_vault(user_data)
+    glory_state = _calculate_user_glory_state(auth_mgr, user_data)
+
+    db_txs = []
+    if auth_mgr and hasattr(auth_mgr, "db") and auth_mgr.db:
+        try:
+            with auth_mgr.db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    cur.execute("""
+                    SELECT id, item_id, glory_cost, transaction_type, metadata, created_at
+                    FROM armory_transactions
+                    WHERE user_id = %s
+                    ORDER BY created_at DESC;
+                    """, (user_id,))
+                    db_txs = [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.debug(f"Notice fetching db armory transactions: {e}")
+
+    debits = []
+    seen_items = set()
+    for tx in db_txs:
+        meta = tx.get("metadata") or {}
+        if isinstance(meta, str):
+            try: meta = json.loads(meta)
+            except Exception: meta = {}
+        debits.append({
+            "id": f"tx_{tx.get('id')}",
+            "type": "debit",
+            "item_id": tx.get("item_id"),
+            "name": meta.get("item_name") or tx.get("item_id"),
+            "wing": meta.get("wing") or "Armory Requisition",
+            "cost": int(tx.get("glory_cost") or 0),
+            "date": tx.get("created_at").isoformat() if hasattr(tx.get("created_at"), "isoformat") else str(tx.get("created_at") or "")
+        })
+        seen_items.add(tx.get("item_id"))
+
+    inv = vault.get("inventory", {})
+    for item_id, inv_item in inv.items():
+        if item_id in seen_items:
+            continue
+        c_item = armory_catalog.get_item_by_id(item_id) or {}
+        cost = int(c_item.get("cost") or (inv_item.get("cost") if isinstance(inv_item, dict) else 0) or 0)
+        acquired = inv_item.get("purchased_at") if isinstance(inv_item, dict) else ""
+        debits.append({
+            "id": f"inv_{item_id}",
+            "type": "debit",
+            "item_id": item_id,
+            "name": c_item.get("name") or (inv_item.get("name") if isinstance(inv_item, dict) else item_id),
+            "wing": c_item.get("wing") or (inv_item.get("wing") if isinstance(inv_item, dict) else "Armory Requisition"),
+            "cost": cost,
+            "date": acquired or ""
+        })
+
+    credits = []
+    target_pid = user_data.get("player_id")
+    if auth_mgr and (target_pid or user_id):
+        try:
+            hub = auth_mgr.get_user_competitor_hub(player_id=target_pid, user_id=user_id, game_system="40k")
+            champs = (hub.get("championships") or {}).get("items", [])
+            for c in champs:
+                credits.append({
+                    "id": f"champ_{c.get('event_id')}",
+                    "type": "credit",
+                    "category": "Tournament Silverware",
+                    "name": f"🏆 {c.get('event_name')}",
+                    "detail": f"{c.get('tier_title')} • Record: {c.get('record')}",
+                    "amount": int(c.get("glory_bonus") or 0),
+                    "date": str(c.get("event_date") or "")
+                })
+
+            badges_list = hub.get("badges", [])
+            for b in badges_list:
+                if b.get("unlocked") and int(b.get("glory") or b.get("glory_bounty") or 0) > 0:
+                    credits.append({
+                        "id": f"badge_{b.get('id')}",
+                        "type": "credit",
+                        "category": "Battlefield Honor",
+                        "name": f"🎖️ {b.get('name')}",
+                        "detail": f"{b.get('tier_name', 'Honor')} • {b.get('provenance') or b.get('description') or ''}",
+                        "amount": int(b.get("glory") or b.get("glory_bounty") or 0),
+                        "date": ""
+                    })
+
+            if hub.get("glory_aos") and int(hub.get("glory_aos")) > 0:
+                credits.append({
+                    "id": "cross_sys_aos",
+                    "type": "credit",
+                    "category": "Cross-Game System",
+                    "name": "⚡ Age of Sigmar Competitive Honor",
+                    "detail": "Match play & verified tournament performance in AoS",
+                    "amount": int(hub.get("glory_aos")),
+                    "date": ""
+                })
+        except Exception as he:
+            logger.debug(f"Notice building glory credits: {he}")
+
+    total_earned = glory_state.get("total_earned", 0)
+    total_spent = glory_state.get("glory_spent", 0)
+    spendable = glory_state.get("spendable_glory", 0)
+
+    return {
+        "success": True,
+        "summary": {
+            "total_earned": total_earned,
+            "total_spent": total_spent,
+            "spendable_glory": spendable,
+            "glory_40k": glory_state.get("glory_40k", 0),
+            "glory_aos": glory_state.get("glory_aos", 0),
+            "is_balanced": (total_earned - total_spent) == spendable
+        },
+        "debits": debits,
+        "credits": credits
+    }
+

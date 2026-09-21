@@ -2108,6 +2108,51 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
+        if clean_path == "api/armory/transactions":
+            glory_state = _get_dev_user_glory_and_stats()
+            v = glory_state["vault"]
+            inv = v.get("inventory", {})
+            import armory_catalog
+            debits = []
+            for item_id, inv_item in inv.items():
+                c_item = armory_catalog.get_item_by_id(item_id) or {}
+                cost = int(c_item.get("cost") or (inv_item.get("cost") if isinstance(inv_item, dict) else 0) or 0)
+                debits.append({
+                    "id": f"inv_{item_id}",
+                    "type": "debit",
+                    "item_id": item_id,
+                    "name": c_item.get("name") or (inv_item.get("name") if isinstance(inv_item, dict) else item_id),
+                    "wing": c_item.get("wing") or (inv_item.get("wing") if isinstance(inv_item, dict) else "Armory Requisition"),
+                    "cost": cost,
+                    "date": "2026-09-20"
+                })
+            credits = [
+                {"id": "champ_1", "type": "credit", "category": "Tournament Silverware", "name": "🏆 US Open Tacoma Major 2026", "detail": "Major Championship (7-0 Undefeated)", "amount": 1250, "date": "2026-09-12"},
+                {"id": "champ_2", "type": "credit", "category": "Tournament Silverware", "name": "🏆 Pacific Northwest GT 2026", "detail": "Grand Tournament (5-0 Undefeated)", "amount": 500, "date": "2026-08-28"},
+                {"id": "champ_3", "type": "credit", "category": "Tournament Silverware", "name": "🏆 Dicehead Spring RTT 2026", "detail": "Rogue Trader Tournament (3-0 Undefeated)", "amount": 150, "date": "2026-04-14"},
+                {"id": "badge_sovereign", "type": "credit", "category": "Battlefield Honor", "name": "🎖️ The Grand Sovereign", "detail": "65%+ win rate with faction across 50+ games", "amount": 100, "date": "2026-08-01"},
+                {"id": "badge_kingslayer", "type": "credit", "category": "Battlefield Honor", "name": "🎖️ The Kingslayer", "detail": "Defeat an elite competitor rated 2,000+ Elo", "amount": 100, "date": "2026-07-20"},
+                {"id": "badge_gauntlet", "type": "credit", "category": "Battlefield Honor", "name": "🎖️ The Apex Gauntlet", "detail": "4-1+ record where all opponents were 1,800+ Elo", "amount": 150, "date": "2026-06-15"}
+            ]
+            total_earned = glory_state["total_earned"]
+            total_spent = glory_state["glory_spent"]
+            spendable = glory_state["spendable_glory"]
+            res = {
+                "success": True,
+                "summary": {
+                    "total_earned": total_earned,
+                    "total_spent": total_spent,
+                    "spendable_glory": spendable,
+                    "glory_40k": glory_state.get("glory_40k", total_earned),
+                    "glory_aos": glory_state.get("glory_aos", 0),
+                    "is_balanced": (total_earned - total_spent) == spendable
+                },
+                "debits": debits,
+                "credits": credits
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps(res).encode("utf-8"))
             return

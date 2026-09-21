@@ -350,7 +350,7 @@ function renderTeamProfilePage(data, sys) {
       </button>
       <button type="button" class="profile-subtab-btn ${currentTeamProfileSubtab === 'matches' ? 'active' : ''}" onclick="switchTeamProfileSubtab('matches')" id="team-subtab-btn-matches">
         <span>⚔️ <span class="tab-label-full">Tournament Ledger</span><span class="tab-label-mobile">Matches</span></span>
-        <span class="profile-subtab-count">${feed.length}</span>
+        <span class="profile-subtab-count">${matches > 0 ? matches.toLocaleString() : feed.length}</span>
       </button>
     </div>
 
@@ -474,6 +474,10 @@ function renderTeamProfilePage(data, sys) {
           </h3>
           <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.2rem;">
             Sanctioned match outcomes and round results for ${escapeHtml(teamName)} competitors.
+            <span style="color: var(--accent); font-weight: 600;">(Showing ${feed.length} verified tournament matches of ${matches > 0 ? matches.toLocaleString() : feed.length} total club games)</span>
+          </div>
+          <div style="margin-top: 0.75rem;">
+            <input type="text" id="team-matches-filter-input" class="form-control" placeholder="Search matches by competitor, opponent, tournament, or faction..." oninput="filterTeamBattleLedger(this.value)" style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0.45rem 0.85rem; font-size: 0.8rem; color: #fff; width: 100%; max-width: 460px;">
           </div>
         </div>
 
@@ -924,6 +928,20 @@ function setTeamProfileRosterStatus(status) {
   filterTeamProfileRoster(input ? input.value : '');
 }
 
+function filterTeamBattleLedger(query) {
+  const q = (query || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('.team-ledger-table tbody tr');
+  rows.forEach(r => {
+    const text = r.innerText.toLowerCase();
+    r.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+  const cards = document.querySelectorAll('#team-panel-matches .mobile-match-card');
+  cards.forEach(c => {
+    const text = c.innerText.toLowerCase();
+    c.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+}
+
 function navigateToUserTeam() {
   const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
   let teamName = null;
@@ -980,5 +998,6 @@ window.filterTeamProfileRoster = filterTeamProfileRoster;
 window.setTeamProfileRosterStatus = setTeamProfileRosterStatus;
 window.navigateBackFromTeamProfile = navigateBackFromTeamProfile;
 window.navigateToUserTeam = navigateToUserTeam;
+window.filterTeamBattleLedger = filterTeamBattleLedger;
 
 

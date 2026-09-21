@@ -13818,3 +13818,259 @@ table.desktop-only,
   }
 }
 
+/* Glory Honor Audit Ledger Styles */
+.armory-ledger-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.armory-ledger-hero-card {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.ledger-hero-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.1rem;
+}
+
+.ledger-crest-icon {
+  font-size: 1.8rem;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 10px;
+  padding: 0.35rem 0.65rem;
+}
+
+.ledger-hero-title {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #fff;
+  margin: 0;
+}
+
+.ledger-hero-sub {
+  font-size: 0.76rem;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.ledger-status-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.3rem 0.75rem;
+  border-radius: 20px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.ledger-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.85rem;
+}
+
+.ledger-metric-box {
+  background: rgba(10, 14, 23, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+}
+
+.ledger-metric-lbl {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-bottom: 0.3rem;
+}
+
+.ledger-metric-val {
+  font-size: 1.4rem;
+  font-weight: 900;
+  font-family: var(--font-mono, monospace);
+  line-height: 1.2;
+}
+
+.ledger-metric-sub {
+  font-size: 0.68rem;
+  color: #64748b;
+  margin-top: 0.25rem;
+}
+
+.ledger-math-formula {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 8px;
+  padding: 0.65rem 1rem;
+  margin-top: 0.85rem;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+}
+
+.ledger-controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.ledger-tabs-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.ledger-tab-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ledger-tab-btn.active, .ledger-tab-btn:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #fff;
+}
+
+.ledger-search-input {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.8rem;
+  outline: none;
+  min-width: 220px;
+  transition: border-color 0.15s ease;
+}
+
+.ledger-search-input:focus {
+  border-color: rgba(56, 189, 248, 0.5);
+}
+
+.ledger-records-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.ledger-record-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.15s ease;
+}
+
+.ledger-record-row:hover {
+  background: rgba(20, 30, 55, 0.8);
+  border-color: rgba(56, 189, 248, 0.2);
+}
+
+.ledger-record-left {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.ledger-entry-type-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.25rem 0.55rem;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.ledger-entry-type-pill.badge-credit {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.ledger-entry-type-pill.badge-debit {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.ledger-record-info {
+  min-width: 0;
+}
+
+.ledger-record-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ledger-record-meta {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.ledger-record-right {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.ledger-record-amount {
+  font-size: 0.95rem;
+  font-weight: 800;
+  font-family: var(--font-mono, monospace);
+}
+
+.ledger-record-amount.amt-credit {
+  color: #10b981;
+}
+
+.ledger-record-amount.amt-debit {
+  color: #ef4444;
+}
+
+.ledger-row-date {
+  font-size: 0.68rem;
+  color: #64748b;
+  font-family: var(--font-mono, monospace);
+  display: block;
+  margin-top: 2px;
+}
+
+.ledger-empty-msg {
+  text-align: center;
+  color: #94a3b8;
+  padding: 2.5rem 1rem;
+  font-size: 0.88rem;
+}
+
+
+

@@ -277,6 +277,7 @@ function switchTab(tabName) {
   });
 
   const matchingBtn = document.getElementById(`nav-btn-${tabName}`) ||
+                      ((tabName === 'team-profile' || tabName === 'teams') ? document.getElementById('nav-btn-team') : null) ||
                       document.querySelector(`.nav-btn[onclick*="'${tabName}'"]`);
   if (matchingBtn) matchingBtn.classList.add('active');
 

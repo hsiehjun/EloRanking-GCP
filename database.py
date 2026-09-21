@@ -4137,7 +4137,7 @@ class PostgresDatabase:
                     }
                 }
                 roster_pids = [p["player_id"] for p in roster if p.get("player_id")]
-                feed = self.get_team_matches(team_name, limit=50, game_system=system, player_ids=roster_pids)
+                feed = self.get_team_matches(team_name, limit=250, game_system=system, player_ids=roster_pids)
                 if not feed and roster:
                     try:
                         import teams_hub_service
@@ -4148,7 +4148,7 @@ class PostgresDatabase:
                 PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
                 return res
 
-    def get_team_matches(self, team_name: str, limit: int = 50, game_system: Optional[str] = "40k", player_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    def get_team_matches(self, team_name: str, limit: int = 250, game_system: Optional[str] = "40k", player_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """Returns verified tournament matches for competitors playing under this team."""
         team_name = (team_name or "").strip()
         system = (game_system or "40k").strip().lower()
