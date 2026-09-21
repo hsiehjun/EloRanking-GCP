@@ -177,6 +177,7 @@ async def get_catalog(request: Request):
         user_championships=user_champs
     )
     catalog["user_glory"] = glory_state
+    catalog["user_vault"] = user_vault
     return catalog
 
 

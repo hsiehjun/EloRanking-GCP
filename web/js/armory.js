@@ -48,17 +48,56 @@
       var sys = gameSys || currentGameSystem || '40k';
       var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
       var headers = token ? { 'Authorization': 'Bearer ' + token } : {};
-      var res = await fetch('/api/armory/catalog?game_system=' + encodeURIComponent(sys) + '&_t=' + Date.now(), {
+
+      var catPromise = fetch('/api/armory/catalog?game_system=' + encodeURIComponent(sys) + '&_t=' + Date.now(), {
         headers: headers,
+        credentials: 'include',
         cache: 'no-store'
       });
-      if (res.ok) {
-        var data = await res.json();
+      var vaultPromise = fetch('/api/armory/vault?_t=' + Date.now(), {
+        headers: headers,
+        credentials: 'include',
+        cache: 'no-store'
+      }).catch(function() { return null; });
+
+      var results = await Promise.all([catPromise, vaultPromise]);
+      var catRes = results[0];
+      var vaultRes = results[1];
+
+      if (vaultRes && vaultRes.ok) {
+        try {
+          var vData = await vaultRes.json();
+          if (vData.vault) currentVault = vData.vault;
+          if (vData.glory) currentGlory = vData.glory;
+        } catch (ve) {}
+      }
+
+      if (catRes.ok) {
+        var data = await catRes.json();
         currentCatalog = data;
         if (data.user_glory) currentGlory = data.user_glory;
         if (data.user_vault) currentVault = data.user_vault;
-        return data;
       }
+
+      // Self-healing synchronization:
+      // Ensure currentVault.equipped is initialized and populated for the current game system
+      if (!currentVault) currentVault = { inventory: {}, equipped: {} };
+      if (!currentVault.equipped) currentVault.equipped = {};
+      if (!currentVault.equipped[sys] || typeof currentVault.equipped[sys] !== 'object') {
+        currentVault.equipped[sys] = { active_dice: null, active_card_frame: null, active_title: null, active_avatar: null };
+      }
+
+      // If catalog items have is_equipped === true, reflect them into currentVault.equipped
+      if (currentCatalog && Array.isArray(currentCatalog.items)) {
+        currentCatalog.items.forEach(function(item) {
+          if (item.is_equipped && item.slot) {
+            currentVault.equipped[sys][item.slot] = item.id;
+            currentVault.equipped[item.slot] = item.id;
+          }
+        });
+      }
+
+      return currentCatalog;
     } catch (e) {
       console.warn('Notice loading armory catalog:', e);
     }
@@ -87,6 +126,7 @@
       var res = await fetch('/api/armory/purchase', {
         method: 'POST',
         headers: headers,
+        credentials: 'include',
         body: JSON.stringify({ item_id: itemId })
       });
 
@@ -180,6 +220,7 @@
       var res = await fetch('/api/armory/equip', {
         method: 'POST',
         headers: headers,
+        credentials: 'include',
         body: JSON.stringify({ slot: slot, item_id: itemId, game_system: sys })
       });
 
@@ -239,6 +280,7 @@
       var res = await fetch('/api/armory/unequip', {
         method: 'POST',
         headers: headers,
+        credentials: 'include',
         body: JSON.stringify({ slot: slot, game_system: sys })
       });
 
@@ -272,6 +314,7 @@
       var res = await fetch('/api/armory/poke', {
         method: 'POST',
         headers: headers,
+        credentials: 'include',
         body: JSON.stringify({
           poke_id: pokeId,
           target_player_id: targetPlayerId || 'p_rival',
@@ -485,6 +528,7 @@
         await fetch('/api/armory/poke/acknowledge', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ poke_event_id: activePoke.id })
         });
         activePoke.seen = true;
@@ -937,10 +981,23 @@
     if (activeWingFilter === 'backpack' || activeWingFilter === 'vault') {
       var allEq = currentVault.equipped || {};
       var eq = (allEq[currentGameSystem] && typeof allEq[currentGameSystem] === 'object') ? allEq[currentGameSystem] : allEq;
-      var activeDiceItem = currentCatalog.items.find(function(i) { return i.id === eq.active_dice; });
-      var activeFrameItem = currentCatalog.items.find(function(i) { return i.id === eq.active_card_frame; });
-      var activeAvatarItem = currentCatalog.items.find(function(i) { return i.id === eq.active_avatar; });
-      var activeTitleItem = currentCatalog.items.find(function(i) { return i.id === eq.active_title; });
+      var activeDiceItem = currentCatalog.items.find(function(i) {
+        return (eq && i.id === eq.active_dice) || (i.slot === 'active_dice' && i.is_equipped && (i.game_system === currentGameSystem || !i.game_system));
+      });
+      var activeFrameItem = currentCatalog.items.find(function(i) {
+        return (eq && i.id === eq.active_card_frame) || (i.slot === 'active_card_frame' && i.is_equipped && (i.game_system === currentGameSystem || !i.game_system));
+      });
+      var activeAvatarItem = currentCatalog.items.find(function(i) {
+        return (eq && i.id === eq.active_avatar) || (i.slot === 'active_avatar' && i.is_equipped && (i.game_system === currentGameSystem || !i.game_system));
+      });
+      var activeTitleItem = currentCatalog.items.find(function(i) {
+        return (eq && i.id === eq.active_title) || (i.slot === 'active_title' && i.is_equipped && (i.game_system === currentGameSystem || !i.game_system));
+      });
+
+      if (activeDiceItem && eq) eq.active_dice = activeDiceItem.id;
+      if (activeFrameItem && eq) eq.active_card_frame = activeFrameItem.id;
+      if (activeAvatarItem && eq) eq.active_avatar = activeAvatarItem.id;
+      if (activeTitleItem && eq) eq.active_title = activeTitleItem.id;
 
       backpackHeaderHtml = [
         '<div class="armory-backpack-summary">',
@@ -1381,10 +1438,19 @@
     getEquipped: function(slot, system) {
       var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
       var allEq = currentVault.equipped || {};
-      if (allEq[sys] && typeof allEq[sys] === 'object' && allEq[sys][slot] !== undefined) {
+      if (allEq[sys] && typeof allEq[sys] === 'object' && allEq[sys][slot] !== undefined && allEq[sys][slot] !== null) {
         return allEq[sys][slot];
       }
-      return allEq[slot];
+      if (allEq[slot] !== undefined && allEq[slot] !== null) {
+        return allEq[slot];
+      }
+      if (currentCatalog && currentCatalog.items) {
+        var found = currentCatalog.items.find(function(it) {
+          return it.is_equipped && it.slot === slot && (it.game_system === sys || !it.game_system);
+        });
+        if (found) return found.id;
+      }
+      return null;
     },
     getEquippedItem: function(slot, system) {
       var id = window.Armory.getEquipped(slot, system);

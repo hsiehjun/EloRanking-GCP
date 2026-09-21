@@ -352,11 +352,26 @@ DEV_USER["events_attended"] = DEV_EVENTS_ATTENDED
 def _get_dev_user_glory_and_stats():
     """Computes authentic Unified Glory points across 40K and AoS matching the user's Trophy Tab."""
     v = DEV_USER.setdefault("armory_vault", {
-        "inventory": {},
+        "inventory": {
+            "dice_molten_magma": {"id": "dice_molten_magma", "purchased_at": "2026-09-15T12:00:00Z"},
+            "dice_sanctified_ceramite": {"id": "dice_sanctified_ceramite", "purchased_at": "2026-09-10T12:00:00Z"},
+            "dice_dark_angels_caliban": {"id": "dice_dark_angels_caliban", "purchased_at": "2026-09-12T12:00:00Z"},
+            "frame_peak_high_warlord": {"id": "frame_peak_high_warlord", "purchased_at": "2026-09-14T12:00:00Z"},
+            "avatar_dark_angels": {"id": "avatar_dark_angels", "purchased_at": "2026-09-08T12:00:00Z"},
+            "title_gt_champion": {"id": "title_gt_champion", "purchased_at": "2026-09-12T12:00:00Z"}
+        },
         "equipped": {
-            "40k": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None},
+            "40k": {
+                "active_dice": "dice_molten_magma",
+                "active_card_frame": "frame_peak_high_warlord",
+                "active_title": "title_gt_champion",
+                "active_avatar": "avatar_dark_angels"
+            },
             "aos": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None},
-            "active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None
+            "active_dice": "dice_molten_magma",
+            "active_card_frame": "frame_peak_high_warlord",
+            "active_title": "title_gt_champion",
+            "active_avatar": "avatar_dark_angels"
         }
     })
     glory_40k = int(DEV_USER.get("glory_40k", 8030))
