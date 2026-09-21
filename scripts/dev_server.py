@@ -4290,6 +4290,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     {"opponent_faction": "Adeptus Custodes", "total_matches": 12, "wins": 4, "losses": 8, "draws": 0, "win_rate": 33.3}
                 ]
             }
+            res["stats"]["total_matches"] = sum(m.get("total_matches", 0) for m in res["matchups"])
+            res["total_matches"] = res["stats"]["total_matches"]
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()

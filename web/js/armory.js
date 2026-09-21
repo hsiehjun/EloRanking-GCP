@@ -1200,12 +1200,7 @@
       ].join('\n');
 
       subnavHtml = '';
-
-      footerHtml = [
-        '<div class="armory-modal-footer" style="display: flex; justify-content: space-between; align-items: center;">',
-        '  <span class="armory-footer-notice">Glory Honor is unified across 40K &amp; AoS and earned through verified tournament clashes. Zero real-world cash gambling.</span>',
-        '</div>'
-      ].join('\n');
+      footerHtml = '';
     } else {
       headerHtml = [
         '<div class="armory-modal-header">',
@@ -1259,12 +1254,7 @@
         '</div>'
       ].join('\n');
 
-      footerHtml = [
-        '<div class="armory-modal-footer" style="display: flex; justify-content: space-between; align-items: center;">',
-        '  <button type="button" class="armory-back-vault-btn" onclick="window.Armory.setArmoryMode(\'vault\')" style="padding: 0.35rem 0.85rem; font-size: 0.78rem;">← Return to Armory</button>',
-        '  <span class="armory-footer-notice">Glory Honor is unified across 40K &amp; AoS and earned through verified tournament clashes. Zero real-world cash gambling.</span>',
-        '</div>'
-      ].join('\n');
+      footerHtml = '';
     }
 
     modal.innerHTML = [
@@ -1274,7 +1264,6 @@
       '  <div class="armory-modal-body">',
       '    <div id="armory-products-grid" class="armory-grid"></div>',
       '  </div>',
-      footerHtml,
       '</div>'
     ].join('\n');
 

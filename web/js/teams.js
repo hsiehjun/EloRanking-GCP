@@ -290,9 +290,16 @@ function renderTeamProfilePage(data, sys) {
   const stats = data.stats || {};
   const roster = Array.isArray(data.roster) ? data.roster : [];
   const feed = Array.isArray(data.battlefield_feed) ? data.battlefield_feed : [];
-  const starting5 = Array.isArray(data.starting_5) && data.starting_5.length > 0
-    ? data.starting_5
-    : roster.slice(0, 5);
+
+  // Starting 5 MUST strictly only include ACTIVE competitors carrying the club banner!
+  const activeRoster = roster.filter(p => p.is_active === true || p.is_active === 'true' || p.is_active === 1)
+    .sort((a, b) => Number(b.current_elo || 1500) - Number(a.current_elo || 1500));
+  const candidateStarting5 = (Array.isArray(data.starting_5) && data.starting_5.length > 0)
+    ? data.starting_5.filter(p => p.is_active !== false && p.is_active !== 'false' && p.is_active !== 0)
+    : [];
+  const starting5 = (candidateStarting5.length >= 5 || (activeRoster.length < 5 && candidateStarting5.length > 0))
+    ? candidateStarting5.slice(0, 5)
+    : (activeRoster.length > 0 ? activeRoster.slice(0, 5) : roster.slice(0, 5));
 
   const activeCount = stats.active_roster_count != null ? stats.active_roster_count : roster.length;
   const totalCount = stats.roster_count || roster.length;

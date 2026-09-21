@@ -1072,11 +1072,22 @@ function applyFactionModalData(data, sys, tf) {
 
   const tfLabels = { '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
   const sysLabel = sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K';
+
+  // Calculate total games across all faction matchups in this window
+  const totalGamesInMatchups = matchups.reduce((acc, m) => acc + (Number(m.total_matches) || 0), 0);
+  const totalMatchesCount = (data.stats && data.stats.total_matches) || data.total_matches || totalGamesInMatchups || matches.length;
+
   const subEl = document.getElementById('modal-faction-subtitle');
-  if (subEl) subEl.innerText = `${sysLabel} Competitive Meta • ${tfLabels[tf] || '1 Year'} window • ${matches.length} matches analyzed`;
+  if (subEl) {
+    if (totalMatchesCount > matches.length) {
+      subEl.innerText = `${sysLabel} Competitive Meta • ${tfLabels[tf] || '1 Year'} window • ${totalMatchesCount.toLocaleString()} matches analyzed across ${matchups.length} faction matchups`;
+    } else {
+      subEl.innerText = `${sysLabel} Competitive Meta • ${tfLabels[tf] || '1 Year'} window • ${matches.length} matches analyzed across ${matchups.length} faction matchups`;
+    }
+  }
 
   const mCount = document.getElementById('faction-tab-matches-count');
-  if (mCount) mCount.innerText = matches.length;
+  if (mCount) mCount.innerText = totalMatchesCount > matches.length ? totalMatchesCount.toLocaleString() : matches.length;
   const pCount = document.getElementById('faction-tab-players-count');
   if (pCount) pCount.innerText = topPlayers.length;
   const muCount = document.getElementById('faction-tab-matchups-count');

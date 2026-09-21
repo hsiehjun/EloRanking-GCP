@@ -3990,6 +3990,7 @@ class PostgresDatabase:
 
                 res = {
                     "team": team_name,
+                    "starting_5": active_roster[:5],
                     "roster": roster,
                     "stats": {
                         "roster_count": roster_count,
@@ -4935,17 +4936,30 @@ class PostgresDatabase:
         total_l = sum(1 for m in recent_matches if m.get("outcome") == "L")
         total_d = sum(1 for m in recent_matches if m.get("outcome") == "D")
 
+        total_faction_matches = sum(m.get("total_matches", 0) for m in matchups) if matchups else total_m
+        total_faction_wins = sum(m.get("wins", 0) for m in matchups) if matchups else total_w
+        total_faction_losses = sum(m.get("losses", 0) for m in matchups) if matchups else total_l
+        total_faction_draws = sum(m.get("draws", 0) for m in matchups) if matchups else total_d
+        faction_win_rate = round((total_faction_wins * 100.0 / total_faction_matches), 1) if total_faction_matches > 0 else 0.0
+
         res = {
             "faction": faction_name,
             "game_system": system,
             "timeframe": tf,
             "stats": {
+                "total_matches": total_faction_matches,
                 "total_recent_sample": total_m,
                 "recent_wins": total_w,
                 "recent_losses": total_l,
                 "recent_draws": total_d,
+                "total_wins": total_faction_wins,
+                "total_losses": total_faction_losses,
+                "total_draws": total_faction_draws,
+                "win_rate": faction_win_rate,
+                "opponent_factions_count": len(matchups),
                 "top_player_count": len(top_players)
             },
+            "total_matches": total_faction_matches,
             "top_players": top_players,
             "matches": recent_matches,
             "matchups": matchups
