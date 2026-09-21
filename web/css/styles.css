@@ -14975,6 +14975,142 @@ table.desktop-only,
     color: #64748b !important;
     font-weight: 300 !important;
   }
+
+  /* =========================================================================
+     COMMUNITY GAME STORES SEARCH: MOBILE OPTIMIZED TOOLBAR (<= 768px)
+     ========================================================================= */
+  .comm-subview-toolbar.comm-stores-toolbar {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.45rem !important;
+    padding: 0.5rem 0.65rem !important;
+    margin-bottom: 0.65rem !important;
+    background: rgba(15, 23, 42, 0.85) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 10px !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+  }
+
+  /* Row 1: Search Input */
+  .comm-stores-toolbar .comm-toolbar-search-row {
+    width: 100% !important;
+    order: 1 !important;
+    margin: 0 !important;
+  }
+
+  .comm-stores-toolbar #stores-search-input {
+    width: 100% !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    background: rgba(7, 11, 20, 0.85) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 8px !important;
+    padding-left: 36px !important;
+    padding-right: 32px !important;
+    font-size: 0.8rem !important;
+    color: #fff !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Row 2: View Mode Toggles & Refresh */
+  .comm-stores-toolbar .comm-toolbar-row {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.45rem !important;
+    order: 2 !important;
+    margin: 0 !important;
+  }
+
+  .comm-stores-toolbar .comm-toolbar-right {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.4rem !important;
+    margin: 0 !important;
+    order: 1 !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .comm-stores-toolbar .comm-scene-toggles-bar {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    display: flex !important;
+    gap: 3px !important;
+    margin: 0 !important;
+    background: rgba(7, 11, 20, 0.9) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    padding: 2px !important;
+  }
+
+  .comm-stores-toolbar .comm-scene-toggles-bar .comm-toggle-btn {
+    flex: 1 1 0 !important;
+    justify-content: center !important;
+    padding: 0.25rem 0.35rem !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    border-radius: 6px !important;
+    white-space: nowrap !important;
+  }
+
+  .comm-stores-toolbar .comm-toolbar-btn {
+    height: 32px !important;
+    min-height: 32px !important;
+    padding: 0.25rem 0.6rem !important;
+    font-size: 0.74rem !important;
+    flex-shrink: 0 !important;
+    border-radius: 6px !important;
+  }
+
+  /* Row 3: Swipeable Filter Chips */
+  .comm-stores-toolbar .comm-store-filters {
+    width: 100% !important;
+    order: 2 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.35rem !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    padding: 0.1rem 0 !important;
+    margin: 0 !important;
+    flex-wrap: nowrap !important;
+  }
+  .comm-stores-toolbar .comm-store-filters::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .comm-stores-toolbar .comm-filter-chip {
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    padding: 0.28rem 0.65rem !important;
+    border-radius: 16px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    color: #94a3b8 !important;
+  }
+
+  .comm-stores-toolbar .comm-filter-chip.active {
+    background: rgba(56, 189, 248, 0.2) !important;
+    color: #38bdf8 !important;
+    border-color: rgba(56, 189, 248, 0.45) !important;
+  }
 }
 
 
