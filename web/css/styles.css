@@ -2316,36 +2316,100 @@ input, select, textarea {
     display: none !important;
   }
 
-  /* Compact Community Banner on mobile */
+  /* Reorganized Mobile Community Header Controls */
   .comm-header-banner {
-    padding: 0.45rem 0.65rem !important;
+    padding: 0.55rem 0.65rem !important;
     margin-bottom: 0.65rem !important;
-    gap: 0.45rem !important;
+    background: rgba(15, 23, 42, 0.75) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 12px !important;
+    box-sizing: border-box !important;
   }
 
   .comm-header-controls {
     width: 100% !important;
-    display: flex !important;
-    justify-content: flex-start !important;
-    align-items: center !important;
-    gap: 0.4rem !important;
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    scrollbar-width: none;
-  }
-  .comm-header-controls::-webkit-scrollbar {
-    display: none;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 110px !important;
+    align-items: stretch !important;
+    gap: 0.45rem !important;
+    overflow-x: visible !important;
+    flex-wrap: wrap !important;
   }
 
   .comm-header-controls > * {
     flex-shrink: 0 !important;
   }
 
+  /* Location button: Row 1, Left */
+  .comm-location-btn,
+  .comm-header-controls > button[onclick*="openCommunityLocationModal"] {
+    grid-column: 1 / 2 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 6px !important;
+    padding: 0.45rem 0.65rem !important;
+    font-size: 0.78rem !important;
+    background: rgba(56, 189, 248, 0.06) !important;
+    border: 1px solid rgba(56, 189, 248, 0.3) !important;
+    border-radius: 8px !important;
+    box-sizing: border-box !important;
+    order: 1 !important;
+  }
+
+  .comm-location-btn span:last-child {
+    margin-left: auto !important;
+  }
+
+  #user-location-text {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    max-width: 175px !important;
+    display: inline-block !important;
+    vertical-align: middle !important;
+  }
+
+  /* Radius dropdown: Row 1, Right */
+  .comm-radius-control-box,
+  .comm-header-controls > div {
+    grid-column: 2 / 3 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    width: 110px !important;
+    box-sizing: border-box !important;
+    order: 1 !important;
+  }
+
+  #comm-radius-select {
+    width: 110px !important;
+    min-width: 110px !important;
+    height: 100% !important;
+    min-height: 36px !important;
+    font-size: 0.76rem !important;
+    padding: 0.42rem 0.5rem !important;
+    border-radius: 8px !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Status Toggle: Row 2, Full Width */
   #btn-toggle-lfg,
-  #comm-radius-select,
-  #comm-btn-gps {
-    font-size: 0.72rem !important;
-    padding: 0.35rem 0.55rem !important;
+  .comm-status-btn {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    min-height: 38px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    font-size: 0.8rem !important;
+    font-weight: 700 !important;
+    padding: 0.45rem 0.85rem !important;
+    border-radius: 8px !important;
+    box-sizing: border-box !important;
+    order: 2 !important;
   }
 
   /* Main Container with Mobile Bottom Nav Clearance */
@@ -2731,7 +2795,6 @@ input, select, textarea {
   }
 
   /* Sticky subtabs inside mobile main view */
-  .comm-subtabs,
   .subtabs-bar {
     position: sticky;
     top: 0;
@@ -2749,13 +2812,11 @@ input, select, textarea {
     gap: 0.35rem !important;
     width: 100% !important;
   }
-  .comm-subtabs::-webkit-scrollbar,
   .subtabs-bar::-webkit-scrollbar {
     display: none !important;
   }
 
-  .subtab-btn,
-  .comm-subtab-btn {
+  .subtab-btn {
     padding: 0.4rem 0.8rem !important;
     font-size: 0.8rem !important;
     white-space: nowrap !important;
@@ -2763,6 +2824,92 @@ input, select, textarea {
     display: inline-flex;
     align-items: center !important;
     justify-content: center !important;
+  }
+
+  /* Dedicated Mobile 2x2 Segmented Grid for Community Hub Subtabs */
+  .comm-subtabs {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 0.5rem !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: visible !important;
+    white-space: normal !important;
+    padding: 0 !important;
+    margin-bottom: 0.85rem !important;
+    position: static !important;
+  }
+
+  .comm-subtabs::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .comm-subtab-btn {
+    width: 100% !important;
+    min-height: 52px !important;
+    padding: 0.5rem 0.65rem !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    gap: 0.5rem !important;
+    border-radius: 10px !important;
+    font-size: 0.78rem !important;
+    font-weight: 700 !important;
+    line-height: 1.25 !important;
+    white-space: normal !important;
+    flex-shrink: 0 !important;
+    box-sizing: border-box !important;
+    background: rgba(15, 23, 42, 0.75) !important;
+    border: 1px solid rgba(255, 255, 255, 0.09) !important;
+    color: #94a3b8 !important;
+    cursor: pointer !important;
+    transition: all 0.18s ease !important;
+  }
+
+  .comm-subtab-btn:hover {
+    background: rgba(30, 41, 59, 0.85) !important;
+    border-color: rgba(56, 189, 248, 0.35) !important;
+    color: #f1f5f9 !important;
+  }
+
+  .comm-subtab-btn.active {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.22) 0%, rgba(14, 165, 233, 0.12) 100%) !important;
+    border-color: #38bdf8 !important;
+    color: #38bdf8 !important;
+    font-weight: 800 !important;
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.28), inset 0 0 10px rgba(56, 189, 248, 0.1) !important;
+    transform: translateY(-1px) !important;
+  }
+
+  .comm-subtab-btn .comm-subtab-icon {
+    font-size: 1.25rem !important;
+    line-height: 1 !important;
+    flex-shrink: 0 !important;
+  }
+
+  .comm-subtab-btn .comm-subtab-label {
+    flex: 1 !important;
+    display: inline-flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    text-align: left !important;
+    line-height: 1.2 !important;
+  }
+
+  .comm-subtab-btn .oc-badge {
+    margin-left: auto !important;
+    flex-shrink: 0 !important;
+  }
+
+  .subtab-desktop-text {
+    display: none !important;
+  }
+
+  .subtab-mobile-text {
+    display: inline !important;
   }
 
   .subtab-btn[style*="display: none"],
@@ -12352,11 +12499,13 @@ table.desktop-only,
   }
 }
 
-.wing-pill-mobile {
+.wing-pill-mobile,
+.subtab-mobile-text {
   display: none;
 }
 
-.wing-pill-desktop {
+.wing-pill-desktop,
+.subtab-desktop-text {
   display: inline;
 }
 

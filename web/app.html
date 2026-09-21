@@ -298,13 +298,13 @@
           <!-- Status, Location, Radius & GPS Controls -->
           <div class="comm-header-controls">
             <!-- Status Toggle -->
-            <button id="btn-toggle-lfg" onclick="toggleUserLfgStatus()" class="btn" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.35); font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.85rem; cursor: pointer; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;" title="Toggle your Sparring Radar game availability">
+            <button id="btn-toggle-lfg" onclick="toggleUserLfgStatus()" class="btn comm-status-btn" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.35); font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.85rem; cursor: pointer; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;" title="Toggle your Sparring Radar game availability">
               <span id="user-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 7px #10b981;"></span>
               <span id="user-status-text">Available</span>
             </button>
 
             <!-- Location Pill -->
-            <button onclick="openCommunityLocationModal()" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; border-color: rgba(56,189,248,0.35); color: #f8fafc; background: rgba(56,189,248,0.06); cursor: pointer;" title="Change search city or venue">
+            <button onclick="openCommunityLocationModal()" class="btn btn-outline comm-location-btn" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; border-color: rgba(56,189,248,0.35); color: #f8fafc; background: rgba(56,189,248,0.06); cursor: pointer;" title="Change search city or venue">
               <span>📍</span>
               <span id="user-location-text" style="font-weight: 600;">Your Location</span>
               <span style="font-size: 0.7rem; color: #38bdf8; font-weight: 700;">✏️ Set</span>
@@ -320,7 +320,7 @@
             </script>
 
             <!-- Radius Dropdown -->
-            <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+            <div class="comm-radius-control-box" style="display: inline-flex; align-items: center; gap: 0.35rem;">
               <select id="comm-radius-select" class="form-input" style="font-size: 0.78rem; font-weight: 700; color: #fff; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.4rem 0.7rem; cursor: pointer;" onchange="changeCommunityRadius(this.value)">
                 <option value="25">25 Miles</option>
                 <option value="50" selected>50 Miles</option>
@@ -338,22 +338,36 @@
           </div>
         </div>
 
-        <!-- Unified Community Hub Subtabs Bar -->
+        <!-- Unified Community Hub Subtabs Bar (2x2 Grid on Mobile, Row on Desktop) -->
         <div class="comm-subtabs">
           <button class="comm-subtab-btn active" id="comm-subtab-btn-radar" data-subtab="radar" onclick="switchCommunitySubtab('radar')">
-            <span>🎯</span> <span>Sparring Radar</span>
-            <span id="badge-players-count" class="oc-badge" style="margin-left: 5px;">0</span>
+            <span class="comm-subtab-icon">🎯</span>
+            <span class="comm-subtab-label">
+              <span>Sparring Radar</span>
+            </span>
+            <span id="badge-players-count" class="oc-badge" style="margin-left: 4px;">0</span>
           </button>
           <button class="comm-subtab-btn" id="comm-subtab-btn-tournaments" data-subtab="tournaments" onclick="switchCommunitySubtab('tournaments')">
-            <span>🏆</span> <span>Tournaments &amp; Events</span>
-            <span id="badge-events-count" class="oc-badge" style="margin-left: 5px; display: none;">0</span>
+            <span class="comm-subtab-icon">🏆</span>
+            <span class="comm-subtab-label">
+              <span>Tournaments &amp; Events</span>
+            </span>
+            <span id="badge-events-count" class="oc-badge" style="margin-left: 4px; display: none;">0</span>
           </button>
           <button class="comm-subtab-btn" id="comm-subtab-btn-stores" data-subtab="stores" onclick="switchCommunitySubtab('stores')">
-            <span>🏪</span> <span>Game Stores</span>
-            <span id="badge-stores-count" class="oc-badge" style="margin-left: 5px; display: none;">0</span>
+            <span class="comm-subtab-icon">🏪</span>
+            <span class="comm-subtab-label">
+              <span class="subtab-desktop-text">Game Stores</span>
+              <span class="subtab-mobile-text">Local Game Stores</span>
+            </span>
+            <span id="badge-stores-count" class="oc-badge" style="margin-left: 4px; display: none;">0</span>
           </button>
           <button class="comm-subtab-btn" id="comm-subtab-btn-scene" data-subtab="scene" onclick="switchCommunitySubtab('scene')">
-            <span>👑</span> <span>Local Leaderboard &amp; Competitors</span>
+            <span class="comm-subtab-icon">👑</span>
+            <span class="comm-subtab-label">
+              <span class="subtab-desktop-text">Local Leaderboard &amp; Competitors</span>
+              <span class="subtab-mobile-text">Local Scene &amp; Rankings</span>
+            </span>
           </button>
         </div>
 
