@@ -3860,34 +3860,24 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 try:
                     cursor.execute("""
-                    WITH team_pids AS (
-                        SELECT DISTINCT ep.player_id
-                        FROM event_participants ep
-                        INNER JOIN events e ON ep.event_id = e.id
-                        WHERE ep.team ILIKE %(team)s
-                          AND COALESCE(e.game_system, '40k') = %(system)s
-                    )
                     SELECT 
-                        pr.player_id, 
-                        COALESCE(pr.player_name, 'Player') as player_name,
-                        COALESCE(pr.current_elo, 1500.0) as current_elo,
-                        COALESCE(pr.peak_elo, 1500.0) as peak_elo,
-                        COALESCE(pr.top_faction, 'Unknown') as top_faction,
-                        COALESCE(pr.matches_played, 0) as matches_played,
-                        COALESCE(pr.wins, 0) as wins,
-                        COALESCE(pr.losses, 0) as losses,
+                        player_id, 
+                        COALESCE(player_name, 'Player') as player_name,
+                        COALESCE(current_elo, 1500.0) as current_elo,
+                        COALESCE(peak_elo, 1500.0) as peak_elo,
+                        COALESCE(top_faction, 'Unknown') as top_faction,
+                        COALESCE(matches_played, 0) as matches_played,
+                        COALESCE(wins, 0) as wins,
+                        COALESCE(losses, 0) as losses,
                         COALESCE(draws, 0) as draws,
                         COALESCE(win_rate, 0.0) as win_rate,
-                        pr.last_active_date
-                    FROM player_ratings pr
-                    WHERE COALESCE(pr.matches_played, 0) > 0
-                      AND COALESCE(pr.game_system, '40k') = %(system)s
-                      AND (
-                          TRIM(pr.team) ILIKE %(team)s
-                          OR pr.player_id IN (SELECT player_id FROM team_pids)
-                      )
-                    ORDER BY pr.current_elo DESC NULLS LAST;
-                    """, {"team": team_name, "system": system})
+                        last_active_date
+                    FROM player_ratings
+                    WHERE COALESCE(matches_played, 0) > 0
+                      AND TRIM(team) ILIKE %s
+                      AND COALESCE(game_system, '40k') = %s
+                    ORDER BY current_elo DESC NULLS LAST;
+                    """, (team_name, system))
                     roster = [dict(r) for r in cursor.fetchall()]
                 except Exception as e:
                     conn.rollback()

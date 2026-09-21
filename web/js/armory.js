@@ -1153,21 +1153,9 @@
         '  </div>',
         '</div>'
       ].join('\n');
-
-      storeBannerHtml = [
-        '<div class="armory-home-banner" style="grid-column: 1/-1;">',
-        '  <div class="armory-home-banner-text">',
-        '    <div class="armory-home-banner-title">Looking to requisition more battlefield cosmetics?</div>',
-        '    <div style="font-size: 0.85rem; color: #94a3b8;">Browse the full Quartermaster catalog: custom faction dice, animated holo-foil card finishes, rare borders, and prestigious titles.</div>',
-        '  </div>',
-        '  <button type="button" class="armory-store-cta-btn" onclick="window.Armory.setArmoryMode(\'store\')">',
-        '    <span>🛒</span> Enter Requisition Store Depot ➔',
-        '  </button>',
-        '</div>'
-      ].join('\n');
     }
 
-    container.innerHTML = backpackHeaderHtml + cardsHtml + storeBannerHtml;
+    container.innerHTML = backpackHeaderHtml + cardsHtml;
   }
 
   /**
@@ -1204,42 +1192,29 @@
         '      <span class="armory-wallet-audit-badge" title="Audit Verified">📜</span>',
         '    </span>',
         '  </button>',
-        '  <button type="button" class="armory-store-cta-btn" onclick="window.Armory.setArmoryMode(\'store\')" title="Enter Requisition Store Depot">',
-        '    <span>🛒</span> Requisition Store ➔',
+        '  <button type="button" class="armory-store-cta-btn" onclick="window.Armory.setArmoryMode(\'store\')" title="Enter Retribution Store">',
+        '    <span>🛒</span> Retribution Store ➔',
         '  </button>',
         '  <button type="button" class="modal-close" onclick="window.Armory.closeArmoryModal()" aria-label="Close">✕</button>',
         '</div>'
       ].join('\n');
 
-      subnavHtml = [
-        '<div class="armory-wings-bar vault-subtabs-bar">',
-        '  <button type="button" class="armory-wing-pill ' + (activeVaultTab === 'backpack' ? 'active' : '') + '" onclick="window.Armory.setVaultTab(\'backpack\')">',
-        '    <span>🎒</span> <span class="wing-pill-desktop">My Purchased Armory (<span class="backpack-count-span">' + getOwnedItemsCount() + '</span> Items)</span><span class="wing-pill-mobile">My Vault (<span class="backpack-count-span">' + getOwnedItemsCount() + '</span>)</span>',
-        '  </button>',
-        '  <button type="button" class="armory-wing-pill ' + (activeVaultTab === 'ledger' ? 'active' : '') + '" onclick="window.Armory.setVaultTab(\'ledger\')">',
-        '    <span>📜</span> <span class="wing-pill-desktop">Glory Points Audit &amp; History</span><span class="wing-pill-mobile">Glory Ledger</span>',
-        '  </button>',
-        '  <div style="margin-left: auto; display: flex; align-items: center;">',
-        '    <button type="button" class="armory-store-cta-btn" style="padding: 0.32rem 0.85rem; font-size: 0.74rem;" onclick="window.Armory.setArmoryMode(\'store\')">🛒 Browse Store Depot ➔</button>',
-        '  </div>',
-        '</div>'
-      ].join('\n');
+      subnavHtml = '';
 
       footerHtml = [
         '<div class="armory-modal-footer" style="display: flex; justify-content: space-between; align-items: center;">',
         '  <span class="armory-footer-notice">Glory Honor is unified across 40K &amp; AoS and earned through verified tournament clashes. Zero real-world cash gambling.</span>',
-        '  <button type="button" class="armory-store-cta-btn" onclick="window.Armory.setArmoryMode(\'store\')">🛒 Requisition Store ➔</button>',
         '</div>'
       ].join('\n');
     } else {
       headerHtml = [
         '<div class="armory-modal-header">',
-        '  <button type="button" class="armory-back-vault-btn" onclick="window.Armory.setArmoryMode(\'vault\')">← Back to My Vault</button>',
+        '  <button type="button" class="armory-back-vault-btn" onclick="window.Armory.setArmoryMode(\'vault\')">← Back to Armory</button>',
         '  <div class="armory-header-branding">',
         '    <div class="armory-header-icon">🛒</div>',
         '    <div>',
         '      <div class="armory-header-kicker">OMNITACTICA QUARTERMASTER CATALOG</div>',
-        '      <h2 class="armory-header-title">Requisition Store Depot</h2>',
+        '      <h2 class="armory-header-title">Retribution Store</h2>',
         '    </div>',
         '  </div>',
         '  <div class="armory-system-switcher">',
@@ -1286,7 +1261,7 @@
 
       footerHtml = [
         '<div class="armory-modal-footer" style="display: flex; justify-content: space-between; align-items: center;">',
-        '  <button type="button" class="armory-back-vault-btn" onclick="window.Armory.setArmoryMode(\'vault\')" style="padding: 0.35rem 0.85rem; font-size: 0.78rem;">← Return to My Armory Vault</button>',
+        '  <button type="button" class="armory-back-vault-btn" onclick="window.Armory.setArmoryMode(\'vault\')" style="padding: 0.35rem 0.85rem; font-size: 0.78rem;">← Return to Armory</button>',
         '  <span class="armory-footer-notice">Glory Honor is unified across 40K &amp; AoS and earned through verified tournament clashes. Zero real-world cash gambling.</span>',
         '</div>'
       ].join('\n');
@@ -1354,7 +1329,7 @@
     if (initialWing === 'store') {
       currentArmoryMode = 'store';
       activeWingFilter = 'all';
-    } else if (['dice_forge', 'profile_forge', 'card_finishes', 'avatars', 'titles', 'pokes', 'all'].indexOf(initialWing) !== -1) {
+    } else if (['dice_forge', 'profile_forge', 'card_finishes', 'avatars', 'titles', 'pokes'].indexOf(initialWing) !== -1) {
       currentArmoryMode = 'store';
       activeWingFilter = initialWing;
     } else if (initialWing === 'ledger') {

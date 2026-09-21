@@ -339,7 +339,7 @@ function switchHubSubtab(tabId) {
 
   if (tabId === 'armory') {
     if (window.Armory && typeof window.Armory.openArmoryModal === 'function') {
-      window.Armory.openArmoryModal('all', typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+      window.Armory.openArmoryModal('backpack', typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     }
     return;
   }
