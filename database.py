@@ -3189,6 +3189,20 @@ class PostgresDatabase:
                 else:
                     res["num_rounds"] = max(db_rounds, max_match_round)
 
+                # Swiss competitive tiers safeguard for major events with stale or unconfigured rounds
+                tot_p = int(res.get("total_players") or len(final_players) or 0)
+                ev_name_lower = (res.get("name") or "").lower()
+                is_super = tot_p >= 200 or "lvo" in ev_name_lower or "adepticon" in ev_name_lower or "super major" in ev_name_lower or "world championship" in ev_name_lower
+                if int(res.get("num_rounds") or 0) <= 3 and tot_p >= 28:
+                    if is_super or tot_p >= 250:
+                        res["num_rounds"] = 10 if "lvo" in ev_name_lower else max(max_match_round, 9)
+                    elif tot_p >= 60 or "major" in ev_name_lower:
+                        res["num_rounds"] = max(max_match_round, 6)
+                    else:
+                        res["num_rounds"] = max(max_match_round, 5)
+
+                res["numberOfRounds"] = res["num_rounds"]
+
                 if final_players:
                     elos = [float(p["current_elo"]) for p in final_players if p.get("current_elo") is not None]
                     if elos:

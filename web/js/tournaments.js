@@ -3157,7 +3157,22 @@ function getEventNumRounds(ev, matches = []) {
   if (matchRounds > 0) return matchRounds;
 
   // 3. Fall back to stored num_rounds
-  return Number(ev.num_rounds || ev.rounds || 0);
+  const storedRounds = Number(ev.num_rounds || ev.rounds || 0);
+
+  // 4. Swiss competitive tiers safeguard:
+  // If an event has 28+ competitors (GT / Major / Super Major) but rounds is <= 3,
+  // it is mathematically impossible for Swiss pairings to conclude in 3 rounds.
+  const totalPlayers = Number(ev.total_players || (ev.players && ev.players.length) || 0);
+  const eventName = (ev.name || ev.event_name || '').toLowerCase();
+  const isSuperMajor = totalPlayers >= 200 || eventName.includes('lvo') || eventName.includes('adepticon') || eventName.includes('super major') || eventName.includes('world championship');
+
+  if (storedRounds <= 3 && totalPlayers >= 28) {
+    if (isSuperMajor || totalPlayers >= 250) return Math.max(matchRounds, eventName.includes('lvo') ? 10 : 9);
+    if (totalPlayers >= 60 || eventName.includes('major')) return Math.max(matchRounds, 6);
+    return Math.max(matchRounds, 5);
+  }
+
+  return storedRounds;
 }
 
 function isEventEnded(ev, regData = null) {
