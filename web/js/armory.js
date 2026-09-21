@@ -710,8 +710,13 @@
     if (!overrideEquipped) {
       if (eq && eq.active_dice) {
         try { localStorage.setItem('omnitactica_active_dice', eq.active_dice); } catch(e) {}
-      } else {
-        try { localStorage.removeItem('omnitactica_active_dice'); } catch(e) {}
+      } else if (eq && !eq.active_dice) {
+        var savedDice = null;
+        try { savedDice = localStorage.getItem('omnitactica_active_dice'); } catch(e) {}
+        if (savedDice) {
+          eq.active_dice = savedDice;
+          allEq.active_dice = savedDice;
+        }
       }
     }
 
@@ -1471,6 +1476,12 @@
       if (allEq[slot] !== undefined && allEq[slot] !== null) {
         return allEq[slot];
       }
+      if (slot === 'active_dice') {
+        try {
+          var savedDice = localStorage.getItem('omnitactica_active_dice');
+          if (savedDice) return savedDice;
+        } catch(e) {}
+      }
       if (currentCatalog && currentCatalog.items) {
         var found = currentCatalog.items.find(function(it) {
           return it.is_equipped && it.slot === slot && (it.game_system === sys || !it.game_system);
@@ -1479,11 +1490,22 @@
       }
       return null;
     },
-    getEquippedItem: function(slot, system) {
-      var id = window.Armory.getEquipped(slot, system);
-      if (!id || !currentCatalog || !currentCatalog.items) return null;
-      for (var i = 0; i < currentCatalog.items.length; i++) {
-        if (currentCatalog.items[i].id === id) return currentCatalog.items[i];
+    getEquippedItem: function(slotOrId, system) {
+      var id = window.Armory.getEquipped(slotOrId, system);
+      if (!id && typeof slotOrId === 'string' && slotOrId.startsWith('dice_')) {
+        id = slotOrId;
+      }
+      if (!id && slotOrId === 'active_dice') {
+        try { id = localStorage.getItem('omnitactica_active_dice'); } catch(e) {}
+      }
+      if (!id) return null;
+      if (currentCatalog && currentCatalog.items) {
+        for (var i = 0; i < currentCatalog.items.length; i++) {
+          if (currentCatalog.items[i].id === id) return currentCatalog.items[i];
+        }
+      }
+      if (typeof getFallbackDiceMetadata === 'function') {
+        return getFallbackDiceMetadata(id);
       }
       return null;
     },

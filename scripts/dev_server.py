@@ -355,7 +355,8 @@ def _get_dev_user_glory_and_stats():
         "inventory": {
             "dice_molten_magma": {"id": "dice_molten_magma", "purchased_at": "2026-09-15T12:00:00Z"},
             "dice_sanctified_ceramite": {"id": "dice_sanctified_ceramite", "purchased_at": "2026-09-10T12:00:00Z"},
-            "dice_dark_angels_caliban": {"id": "dice_dark_angels_caliban", "purchased_at": "2026-09-12T12:00:00Z"},
+            "dice_40k_dark_angels": {"id": "dice_40k_dark_angels", "purchased_at": "2026-09-12T12:00:00Z"},
+            "dice_dark_angels_caliban": {"id": "dice_40k_dark_angels", "purchased_at": "2026-09-12T12:00:00Z"},
             "frame_peak_high_warlord": {"id": "frame_peak_high_warlord", "purchased_at": "2026-09-14T12:00:00Z"},
             "avatar_dark_angels": {"id": "avatar_dark_angels", "purchased_at": "2026-09-08T12:00:00Z"},
             "title_gt_champion": {"id": "title_gt_champion", "purchased_at": "2026-09-12T12:00:00Z"},
@@ -363,14 +364,14 @@ def _get_dev_user_glory_and_stats():
         },
         "equipped": {
             "40k": {
-                "active_dice": "dice_molten_magma",
+                "active_dice": "dice_40k_dark_angels",
                 "active_card_frame": "frame_peak_high_warlord",
                 "active_card_finish": "frame_astral_holofoil",
                 "active_title": "title_gt_champion",
                 "active_avatar": "avatar_dark_angels"
             },
             "aos": {"active_dice": None, "active_card_frame": None, "active_card_finish": None, "active_title": None, "active_avatar": None},
-            "active_dice": "dice_molten_magma",
+            "active_dice": "dice_40k_dark_angels",
             "active_card_frame": "frame_peak_high_warlord",
             "active_card_finish": "frame_astral_holofoil",
             "active_title": "title_gt_champion",
@@ -1349,14 +1350,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 inv = v.setdefault("inventory", {})
                 eq = v.setdefault("equipped", {})
 
-                if item_id not in inv:
+                import armory_catalog
+                canon_id = getattr(armory_catalog, "ARMORY_ALIASES", {}).get(item_id, item_id)
+                if item_id not in inv and canon_id not in inv and not any(getattr(armory_catalog, "ARMORY_ALIASES", {}).get(k) == canon_id for k in inv.keys()):
                     self.send_response(400)
                     self.send_header("Content-Type", "application/json; charset=utf-8")
                     self.end_headers()
                     self.wfile.write(json.dumps({"detail": f"You do not own item '{item_id}'"}).encode("utf-8"))
                     return
 
-                sys_eq = eq.setdefault(sys_key, {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None})
+                sys_eq = eq.setdefault(sys_key, {"active_dice": None, "active_card_frame": None, "active_card_finish": None, "active_title": None, "active_avatar": None})
                 sys_eq[slot] = item_id
                 eq[slot] = item_id
                 DEV_USER["armory_vault"] = v

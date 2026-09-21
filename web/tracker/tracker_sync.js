@@ -4246,6 +4246,65 @@ Space Marines - Gladius Task Force (2000 pts)
     renderDiceRollerContent();
   }
 
+  const FACTION_DICE_METADATA = {
+    'dice_40k_dark_angels': { name: 'Dark Angels Caliban Dice', die_bg: 'linear-gradient(135deg, #022c22 0%, #064e3b 100%)', pip_color: '#fef08a', six_face_svg_id: 'avatar_dark_angels', six_face_label: 'Winged Sword' },
+    'dice_dark_angels_caliban': { name: 'Dark Angels Caliban Dice', die_bg: 'linear-gradient(135deg, #022c22 0%, #064e3b 100%)', pip_color: '#fef08a', six_face_svg_id: 'avatar_dark_angels', six_face_label: 'Winged Sword' },
+    'dice_dark_angels': { name: 'Dark Angels Caliban Dice', die_bg: 'linear-gradient(135deg, #022c22 0%, #064e3b 100%)', pip_color: '#fef08a', six_face_svg_id: 'avatar_dark_angels', six_face_label: 'Winged Sword' },
+    'dice_40k_ultramarines': { name: 'Ultramarines Macragge Dice', die_bg: 'linear-gradient(135deg, #1e3a8a 0%, #172554 100%)', pip_color: '#fde047', six_face_svg_id: 'avatar_adeptus_astartes', six_face_label: 'Imperial Aquila' },
+    'dice_40k_necrons': { name: 'Necron Dynastic Gauss Dice', die_bg: 'linear-gradient(135deg, #022c22 0%, #052e16 100%)', pip_color: '#4ade80', six_face_svg_id: 'avatar_necrons', six_face_label: 'Triarch Ankh' },
+    'dice_40k_chaos': { name: 'Chaos Undivided Warp Dice', die_bg: 'linear-gradient(135deg, #450a0a 0%, #1c1917 100%)', pip_color: '#f87171', six_face_svg_id: 'avatar_chaos_space_marines', six_face_label: 'Chaos Star' },
+    'dice_40k_orks': { name: "Ork WAAAGH! Krumpin' Dice", die_bg: 'linear-gradient(135deg, #14532d 0%, #365314 100%)', pip_color: '#facc15', six_face_svg_id: 'avatar_orks', six_face_label: 'Iron Gob' },
+    'dice_40k_blood_angels': { name: 'Blood Angels Baal Crimson Dice', die_bg: 'linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%)', pip_color: '#fef08a', six_face_svg_id: 'avatar_blood_angels', six_face_label: 'Winged Blood Drop' },
+    'dice_40k_black_templars': { name: 'Black Templars Crusade Dice', die_bg: 'linear-gradient(135deg, #0f172a 0%, #020617 100%)', pip_color: '#ffffff', six_face_svg_id: 'avatar_black_templars', six_face_label: 'Maltese Cross' },
+    'dice_40k_custodes': { name: 'Adeptus Custodes Auramite Dice', die_bg: 'linear-gradient(135deg, #78350f 0%, #451a03 100%)', pip_color: '#fde047', six_face_svg_id: 'avatar_adeptus_custodes', six_face_label: 'Custodes Raptor' },
+    'dice_40k_space_wolves': { name: 'Space Wolves Fenrisian Frost Dice', die_bg: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', pip_color: '#93c5fd', six_face_svg_id: 'avatar_space_wolves', six_face_label: 'Iron Wolf' },
+    'dice_40k_tyranids': { name: 'Tyranid Hive Mind Synapse Dice', die_bg: 'linear-gradient(135deg, #3b0764 0%, #1e1b4b 100%)', pip_color: '#e9d5ff', six_face_svg_id: 'avatar_tyranids', six_face_label: 'Synapse Carapace' },
+    'dice_40k_tau': { name: "T'au Empire Sept Enclave Dice", die_bg: 'linear-gradient(135deg, #7c2d12 0%, #431407 100%)', pip_color: '#fed7aa', six_face_svg_id: 'avatar_tau_empire', six_face_label: 'Fire Caste Mark' },
+    'dice_40k_aeldari': { name: 'Aeldari Spirit-Stone Amber Dice', die_bg: 'linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%)', pip_color: '#fde047', six_face_svg_id: 'avatar_aeldari', six_face_label: 'Rune of Ulthwé' },
+    'dice_40k_mechanicus': { name: 'Adeptus Mechanicus Mars Cog Dice', die_bg: 'linear-gradient(135deg, #881337 0%, #4c0519 100%)', pip_color: '#ffffff', six_face_svg_id: 'avatar_adeptus_mechanicus', six_face_label: 'Opus Machina' },
+    'dice_40k_death_guard': { name: 'Death Guard Plague Rot Dice', die_bg: 'linear-gradient(135deg, #365314 0%, #1a2e05 100%)', pip_color: '#d9f99d', six_face_svg_id: 'avatar_death_guard', six_face_label: 'Corroded Helm' },
+    'dice_40k_world_eaters': { name: 'World Eaters Skull-Brass Dice', die_bg: 'linear-gradient(135deg, #450a0a 0%, #1c1917 100%)', pip_color: '#fbbf24', six_face_svg_id: 'avatar_world_eaters', six_face_label: 'Khorne Skull Maw' },
+    'dice_40k_grey_knights': { name: 'Grey Knights Sanctified Silver Dice', die_bg: 'linear-gradient(135deg, #334155 0%, #1e293b 100%)', pip_color: '#38bdf8', six_face_svg_id: 'avatar_grey_knights', six_face_label: 'Nemesis Sword & Tome' },
+    'dice_40k_sororitas': { name: 'Adepta Sororitas Fleur-de-Lis Dice', die_bg: 'linear-gradient(135deg, #0f172a 0%, #020617 100%)', pip_color: '#ef4444', six_face_svg_id: 'avatar_adepta_sororitas', six_face_label: 'Sacred Fleur-de-lis' },
+    'dice_40k_astramilitarum': { name: 'Astra Militarum Cadia Green Dice', die_bg: 'linear-gradient(135deg, #14532d 0%, #052e16 100%)', pip_color: '#ffffff', six_face_svg_id: 'avatar_astra_militarum', six_face_label: 'Cadian Gate' },
+    'dice_40k_votann': { name: 'Leagues of Votann Magma Core Dice', die_bg: 'linear-gradient(135deg, #451a03 0%, #1c1917 100%)', pip_color: '#fb923c', six_face_svg_id: 'avatar_leagues_of_votann', six_face_label: 'Ancestor Core' },
+    'dice_40k_drukhari': { name: 'Drukhari Soul-Flayer Dice', die_bg: 'linear-gradient(135deg, #134e4a 0%, #042f2e 100%)', pip_color: '#2dd4bf', six_face_svg_id: 'avatar_drukhari', six_face_label: 'Soul-Talon Blade' },
+    'dice_40k_genestealercults': { name: 'Genestealer Cults Wyrm Hazard Dice', die_bg: 'linear-gradient(135deg, #3b0764 0%, #1e1b4b 100%)', pip_color: '#facc15', six_face_svg_id: 'avatar_genestealer_cults', six_face_label: 'Wyrm Claw' },
+    'dice_40k_thousandsons': { name: 'Thousand Sons Rubric Sorcery Dice', die_bg: 'linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)', pip_color: '#fde047', six_face_svg_id: 'avatar_thousand_sons', six_face_label: 'Eye of Magnus' },
+    'dice_aos_stormcast': { name: 'Stormcast Eternals Azyrite Dice', die_bg: 'linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)', pip_color: '#fbbf24', six_face_svg_id: 'avatar_stormcast_eternals', six_face_label: 'Twin-Tailed Comet' },
+    'dice_aos_khorne': { name: 'Blades of Khorne Blood-Brass Dice', die_bg: 'linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%)', pip_color: '#fde047', six_face_svg_id: 'avatar_khorne_bloodbound', six_face_label: 'Khorne Skull Rune' },
+    'dice_aos_gloomspite': { name: 'Gloomspite Gitz Bad Moon Dice', die_bg: 'linear-gradient(135deg, #14532d 0%, #1e1b4b 100%)', pip_color: '#facc15', six_face_svg_id: 'avatar_gloomspite_gitz', six_face_label: 'Grinning Bad Moon' },
+    'dice_aos_soulblight': { name: 'Soulblight Gravelords Blood Dice', die_bg: 'linear-gradient(135deg, #450a0a 0%, #18181b 100%)', pip_color: '#f87171', six_face_svg_id: 'avatar_soulblight_gravelords', six_face_label: 'Crimson Bat Crest' },
+    'dice_aos_sylvaneth': { name: 'Sylvaneth Wyldwood Bark Dice', die_bg: 'linear-gradient(135deg, #14532d 0%, #052e16 100%)', pip_color: '#86efac', six_face_svg_id: 'avatar_sylvaneth', six_face_label: 'Spirit-Pod Heart' },
+    'dice_aos_skaven': { name: 'Skaven Warpstone Toxic Dice', die_bg: 'linear-gradient(135deg, #14532d 0%, #022c22 100%)', pip_color: '#22c55e', six_face_svg_id: 'avatar_skaven', six_face_label: 'Horned Rat Rune' },
+    'dice_aos_bonereapers': { name: 'Ossiarch Nadirite Legion Dice', die_bg: 'linear-gradient(135deg, #44403c 0%, #1c1917 100%)', pip_color: '#38bdf8', six_face_svg_id: 'avatar_ossiarch_bonereapers', six_face_label: 'Nadirite Seal' },
+    'dice_aos_seraphon': { name: 'Seraphon Solar Star-Glyph Dice', die_bg: 'linear-gradient(135deg, #0e7490 0%, #155e75 100%)', pip_color: '#fde047', six_face_svg_id: 'avatar_seraphon', six_face_label: 'Solar Sun-Glyph' },
+    'dice_aos_maggotkin': { name: 'Maggotkin of Nurgle Slime Dice', die_bg: 'linear-gradient(135deg, #3f6212 0%, #1a2e05 100%)', pip_color: '#bef264', six_face_svg_id: 'avatar_maggotkin_of_nurgle', six_face_label: 'Tri-Globe Crest' },
+    'dice_aos_ironjawz': { name: 'Ironjawz Megaboss Yellow Dice', die_bg: 'linear-gradient(135deg, #ca8a04 0%, #713f12 100%)', pip_color: '#fef08a', six_face_svg_id: 'avatar_orruk_warclans', six_face_label: 'Iron Jaw Tusk' },
+    'dice_aos_slavestodarkness': { name: 'Slaves to Darkness Iron Star Dice', die_bg: 'linear-gradient(135deg, #18181b 0%, #09090b 100%)', pip_color: '#ef4444', six_face_svg_id: 'avatar_slaves_to_darkness', six_face_label: 'Chaos Ascendant Star' },
+    'dice_aos_nighthaunt': { name: 'Nighthaunt Spectral Mist Dice', die_bg: 'linear-gradient(135deg, #0f766e 0%, #042f2e 100%)', pip_color: '#99f6e4', six_face_svg_id: 'avatar_nighthaunt', six_face_label: 'Spectral Veiled Skull' },
+    'dice_aos_daughtersofkhaine': { name: 'Daughters of Khaine Dagger Dice', die_bg: 'linear-gradient(135deg, #831843 0%, #500724 100%)', pip_color: '#fbcfe8', six_face_svg_id: 'avatar_daughters_of_khaine', six_face_label: 'Khaine Sacrifice Dagger' },
+    'dice_aos_citiesofsigmar': { name: 'Cities of Sigmar Freeguild Dice', die_bg: 'linear-gradient(135deg, #1e3a8a 0%, #1e1b4b 100%)', pip_color: '#fbbf24', six_face_svg_id: 'avatar_cities_of_sigmar', six_face_label: 'Freeguild Lion' },
+    'dice_aos_kharadron': { name: 'Kharadron Aether-Gold Dice', die_bg: 'linear-gradient(135deg, #854d0e 0%, #451a03 100%)', pip_color: '#fef08a', six_face_svg_id: 'avatar_kharadron_overlords', six_face_label: 'Aether Compass' },
+    'dice_aos_fyreslayers': { name: 'Fyreslayers Ur-Gold Forge Dice', die_bg: 'linear-gradient(135deg, #9a3412 0%, #431407 100%)', pip_color: '#fdba74', six_face_svg_id: 'avatar_fyreslayers', six_face_label: 'Grimnir Greataxe' },
+    'dice_aos_idoneth': { name: 'Idoneth Deepkin Abyssal Pearl Dice', die_bg: 'linear-gradient(135deg, #0369a1 0%, #082f49 100%)', pip_color: '#e0f2fe', six_face_svg_id: 'avatar_idoneth_deepkin', six_face_label: 'Isharann Wave' },
+    'dice_aos_lumineth': { name: 'Lumineth Sunmetal Prism Dice', die_bg: 'linear-gradient(135deg, #f8fafc 0%, #cbd5e1 100%)', pip_color: '#0284c7', six_face_svg_id: 'avatar_lumineth_realm_lords', six_face_label: 'Twin Sun Crescent' },
+    'dice_aos_flesheater': { name: 'Flesh-eater Courts Bone Chalice Dice', die_bg: 'linear-gradient(135deg, #450a0a 0%, #262626 100%)', pip_color: '#fecdd3', six_face_svg_id: 'avatar_flesh_eater_courts', six_face_label: 'Bone Chalice' }
+  };
+
+  function getFallbackDiceMetadata(skinId) {
+    if (!skinId) return null;
+    const entry = FACTION_DICE_METADATA[skinId];
+    if (entry) {
+      return {
+        id: skinId,
+        name: entry.name,
+        payload: entry
+      };
+    }
+    return null;
+  }
+
   function renderDiceRollerContent() {
     const modal = document.getElementById('gt-dice-roller-modal');
     if (!modal || !diceRollerState.visible) return;
@@ -4354,7 +4413,7 @@ Space Marines - Gladius Task Force (2000 pts)
             } else if (activeSkinId === 'dice_warpfire_plasma') {
               skinClass = 'skin-warpfire-plasma';
             } else if (activeSkinId) {
-              const eqItem = window.Armory && typeof window.Armory.getEquippedItem === 'function' ? window.Armory.getEquippedItem('active_dice') : null;
+              const eqItem = (window.Armory && typeof window.Armory.getEquippedItem === 'function' ? (window.Armory.getEquippedItem('active_dice') || window.Armory.getEquippedItem(activeSkinId)) : null) || getFallbackDiceMetadata(activeSkinId);
               if (eqItem && eqItem.payload) {
                 skinClass = 'skin-faction-custom';
                 isCustom = true;
@@ -4384,11 +4443,13 @@ Space Marines - Gladius Task Force (2000 pts)
               const selCls = die.selected ? 'selected' : 'unselected';
               let displayVal = die.rolled ? die.val : '•';
               if (die.rolled && die.val === 6) {
-                const eqItem = window.Armory && typeof window.Armory.getEquippedItem === 'function' ? window.Armory.getEquippedItem('active_dice') : null;
-                if (eqItem && eqItem.payload && eqItem.payload.six_face_svg_id && typeof window.getArmoryAvatarSvg === 'function') {
-                  const svg = window.getArmoryAvatarSvg(eqItem.payload.six_face_svg_id);
+                const activeSkin = (window.Armory && typeof window.Armory.getEquipped === 'function' ? window.Armory.getEquipped('active_dice') : null) || localStorage.getItem('omnitactica_active_dice') || 'dice_warpfire_plasma';
+                const eqItem = (window.Armory && typeof window.Armory.getEquippedItem === 'function' ? (window.Armory.getEquippedItem('active_dice') || window.Armory.getEquippedItem(activeSkin)) : null) || getFallbackDiceMetadata(activeSkin);
+                const svgId = eqItem && eqItem.payload ? eqItem.payload.six_face_svg_id : null;
+                if (svgId && typeof window.getArmoryAvatarSvg === 'function') {
+                  const svg = window.getArmoryAvatarSvg(svgId);
                   if (svg) {
-                    displayVal = `<span class="gt-die-faction-six-sigil" title="Faction Critical 6: ${escapeHtml(eqItem.payload.six_face_label || 'Faction Sigil')}">${svg}</span>`;
+                    displayVal = `<span class="gt-die-faction-six-sigil" title="Faction Critical 6: ${escapeHtml((eqItem.payload && eqItem.payload.six_face_label) || 'Faction Sigil')}">${svg}</span>`;
                   }
                 }
               }
@@ -5301,6 +5362,13 @@ Space Marines - Gladius Task Force (2000 pts)
     window.addEventListener('omnitactica:armory-loadout-changed', function(e) {
       if (typeof renderDiceRollerContent === 'function') {
         renderDiceRollerContent();
+      }
+    });
+    window.addEventListener('storage', function(e) {
+      if (e.key === 'omnitactica_active_dice') {
+        if (typeof renderDiceRollerContent === 'function') {
+          renderDiceRollerContent();
+        }
       }
     });
   }

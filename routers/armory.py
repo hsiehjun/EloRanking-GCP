@@ -343,12 +343,13 @@ async def equip_item(request: Request):
     vault = _get_or_init_vault(user_data)
     inventory = vault["inventory"]
 
-    if item_id not in inventory:
-        raise HTTPException(status_code=400, detail=f"You do not own item '{item_id}'. Please requisition it first.")
-
     item = armory_catalog.get_item_by_id(item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item metadata not found")
+
+    canon_id = item["id"]
+    if item_id not in inventory and canon_id not in inventory and not any(getattr(armory_catalog, "ARMORY_ALIASES", {}).get(k) == canon_id for k in inventory.keys()):
+        raise HTTPException(status_code=400, detail=f"You do not own item '{item_id}'. Please requisition it first.")
 
     sys_key = (body.get("game_system") or item.get("game_system") or "40k").lower().strip()
     if sys_key not in ("40k", "aos"):

@@ -3081,7 +3081,9 @@ ARMORY_ALIASES: Dict[str, str] = {
     "avatar_sigil_chaos": "avatar_chaos_space_marines",
     "frame_molten_core": "frame_peak_high_warlord",
     "frame_cyber_grid": "frame_cyber_matrix",
-    "finish_astral_holofoil": "frame_astral_holofoil"
+    "finish_astral_holofoil": "frame_astral_holofoil",
+    "dice_dark_angels_caliban": "dice_40k_dark_angels",
+    "dice_dark_angels": "dice_40k_dark_angels"
 }
 
 
@@ -3110,12 +3112,19 @@ def get_armory_catalog(
     items_output = []
     for item in system_items:
         item_id = item["id"]
-        is_owned = item_id in inventory
+        is_owned = (
+            item_id in inventory
+            or any(ARMORY_ALIASES.get(k) == item_id for k in inventory.keys())
+            or (item_id == "dice_40k_dark_angels" and ("dice_dark_angels_caliban" in inventory or "dice_dark_angels" in inventory))
+        )
         is_equipped = False
         slot = item.get("slot")
-        if slot and equipped.get(slot) == item_id:
-            is_equipped = True
-        elif item_id in ("frame_astral_holofoil", "finish_astral_holofoil") and (
+        if slot:
+            eq_val = equipped.get(slot)
+            canon_eq = ARMORY_ALIASES.get(eq_val, eq_val)
+            if eq_val == item_id or canon_eq == item_id:
+                is_equipped = True
+        if not is_equipped and item_id in ("frame_astral_holofoil", "finish_astral_holofoil") and (
             equipped.get("active_card_finish") == item_id or equipped.get("active_card_frame") == item_id
         ):
             is_equipped = True

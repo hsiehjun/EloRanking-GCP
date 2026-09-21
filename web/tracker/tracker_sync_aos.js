@@ -595,7 +595,19 @@
                 }
               }
               const selCls = die.selected ? 'selected' : 'unselected';
-              return `<span class="gt-die-pip ${cls} ${selCls}" onclick="window.gtToggleDieSelection(${idx})">${die.rolled ? die.val : '•'}</span>`;
+              let displayVal = die.rolled ? die.val : '•';
+              if (die.rolled && die.val === 6) {
+                const activeSkin = (window.Armory && typeof window.Armory.getEquipped === 'function' ? window.Armory.getEquipped('active_dice', 'aos') : null) || localStorage.getItem('omnitactica_active_dice');
+                const eqItem = (window.Armory && typeof window.Armory.getEquippedItem === 'function' ? (window.Armory.getEquippedItem('active_dice', 'aos') || window.Armory.getEquippedItem(activeSkin, 'aos')) : null) || (window.getFallbackDiceMetadata ? window.getFallbackDiceMetadata(activeSkin) : null);
+                const svgId = eqItem && eqItem.payload ? eqItem.payload.six_face_svg_id : null;
+                if (svgId && typeof window.getArmoryAvatarSvg === 'function') {
+                  const svg = window.getArmoryAvatarSvg(svgId);
+                  if (svg) {
+                    displayVal = `<span class="gt-die-faction-six-sigil" title="Faction Critical 6: ${escapeHtml((eqItem.payload && eqItem.payload.six_face_label) || 'Faction Sigil')}">${svg}</span>`;
+                  }
+                }
+              }
+              return `<span class="gt-die-pip ${cls} ${selCls}" onclick="window.gtToggleDieSelection(${idx})">${displayVal}</span>`;
             }).join('')}
           </div>
         </div>
