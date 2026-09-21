@@ -13,8 +13,8 @@ if (typeof window !== 'undefined') {
 /**
  * Open the dedicated, full-screen player profile page
  */
-async function openPlayerProfilePage(playerId, gameSystem = '', options = {}) {
-  if (!playerId) return;
+async function openPlayerProfilePage(playerId, gameSystem = '', options = {}, playerName = '') {
+  if (!playerId && !playerName) return;
 
   const targetSys = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
   if (typeof currentGameSystem !== 'undefined' && targetSys !== currentGameSystem) {
@@ -28,7 +28,7 @@ async function openPlayerProfilePage(playerId, gameSystem = '', options = {}) {
     previousTabBeforeProfile = activeTab;
   }
 
-  currentProfilePlayerId = String(playerId).trim();
+  currentProfilePlayerId = String(playerId || '').trim();
 
   // Switch view to player-profile tab
   if (typeof switchTab === 'function') {
@@ -52,7 +52,7 @@ async function openPlayerProfilePage(playerId, gameSystem = '', options = {}) {
 
   // Update URL hash without re-triggering hashchange loop
   const cleanPath = (targetSys === 'aos') ? '/aos' : '';
-  const targetHash = `#/${targetSys}/player/${encodeURIComponent(currentProfilePlayerId)}`;
+  const targetHash = `#/${targetSys}/player/${encodeURIComponent(currentProfilePlayerId || playerName)}`;
   if (window.history && window.history.pushState && !options.replaceUrl) {
     window.history.pushState({ playerId: currentProfilePlayerId, sys: targetSys }, '', `${cleanPath || ''}${targetHash}`);
   } else if (window.history && window.history.replaceState) {
@@ -72,9 +72,18 @@ async function openPlayerProfilePage(playerId, gameSystem = '', options = {}) {
   }
 
   try {
-    const data = await window.api.getPlayerProfile(currentProfilePlayerId, targetSys);
+    const data = await window.api.getPlayerProfile(currentProfilePlayerId || 'unknown', targetSys, playerName);
     if (!data || data.error) {
       throw new Error(data?.error || 'Player profile not found');
+    }
+    const p = data.player || data || {};
+    const actualId = p.player_id || p.id;
+    if (actualId && actualId !== currentProfilePlayerId) {
+      currentProfilePlayerId = actualId;
+      const targetHashActual = `#/${targetSys}/player/${encodeURIComponent(actualId)}`;
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState({ playerId: actualId, sys: targetSys }, '', `${cleanPath || ''}${targetHashActual}`);
+      }
     }
     currentProfileData = data;
     renderDedicatedPlayerProfile(data, targetSys);
@@ -875,13 +884,15 @@ function openPredictorWithPlayers(p1Id, p2Id) {
  * Called from Modal to switch to full page view
  */
 function openDedicatedPlayerProfileFromModal() {
-  if (typeof currentModalPlayerId !== 'undefined' && currentModalPlayerId) {
+  const pid = (typeof window.currentModalPlayerId !== 'undefined' && window.currentModalPlayerId) ? window.currentModalPlayerId : (typeof currentModalPlayerId !== 'undefined' ? currentModalPlayerId : '');
+  const pname = (typeof window.currentModalPlayerName !== 'undefined' && window.currentModalPlayerName) ? window.currentModalPlayerName : (typeof currentModalPlayerName !== 'undefined' ? currentModalPlayerName : '');
+  if (pid || pname) {
     if (typeof closeAllModals === 'function') {
       closeAllModals();
     } else if (typeof closeModal === 'function') {
       closeModal('player-modal');
     }
-    openPlayerProfilePage(currentModalPlayerId);
+    openPlayerProfilePage(pid, '', {}, pname);
   }
 }
 

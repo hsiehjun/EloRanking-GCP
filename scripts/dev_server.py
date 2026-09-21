@@ -2231,7 +2231,81 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/player/"):
             pid = urllib.parse.unquote(clean_path.replace("api/player/", "").strip("/"))
-            if "john" in pid.lower() or pid == "MEV83VFANA" or "hsieh" in pid.lower():
+            req_name = (query_params.get("name", [None])[0] or "").strip().lower()
+            if pid == "Te1Q9lp3By" or "junior" in pid.lower() or "aflleje" in pid.lower() or "junior" in req_name or "aflleje" in req_name:
+                import badges
+                junior_tourneys = [
+                    {'event_id': 'ev_lone_star_2026', 'event_name': 'Lone Star Open 2026 - Warhammer 40k Champs', 'event_date': '2026-08-01', 'total_players': 336, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_lvtt_2026', 'event_name': 'Las Vegas Teams Tournament - LVTT 2026', 'event_date': '2026-02-14', 'total_players': 265, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_lone_star_2025', 'event_name': 'Lone Star Open 2025 - 40k Champs', 'event_date': '2025-07-20', 'total_players': 322, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Death Guard'},
+                    {'event_id': 'ev_ctc_2025', 'event_name': 'California Team Championships by Best Coast Pairings', 'event_date': '2025-06-15', 'total_players': 215, 'num_rounds': 5, 'wins': 4, 'losses': 0, 'draws': 1, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_ctc_v', 'event_name': 'California Team Championships V by BCP', 'event_date': '2024-06-23', 'total_players': 190, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_lvtt_2025', 'event_name': 'Frontline Gaming Las Vegas Team Tournament 2025', 'event_date': '2025-01-18', 'total_players': 290, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_socal_2025', 'event_name': 'SoCal Open 2025 - Warhammer 40k Major', 'event_date': '2025-10-24', 'total_players': 164, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Space Marines'},
+                    {'event_id': 'ev_tacoma_2025', 'event_name': 'US Open Tacoma Major 2025', 'event_date': '2025-08-22', 'total_players': 148, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_sd_open_2025', 'event_name': 'San Diego Open Major 2025', 'event_date': '2025-04-18', 'total_players': 156, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_socal_2024', 'event_name': 'SoCal Open 2024 - Warhammer 40k Major', 'event_date': '2024-10-26', 'total_players': 172, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_flg_lso_gt', 'event_name': 'FLG Lone Star Open 2025 GT', 'event_date': '2025-07-19', 'total_players': 72, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Space Marines'},
+                    {'event_id': 'ev_hammer_bolter_gt', 'event_name': 'Hammer & Bolter GT 2025', 'event_date': '2025-05-11', 'total_players': 48, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Space Marines'},
+                    {'event_id': 'ev_crucible_2024', 'event_name': 'Crucible GT 2024', 'event_date': '2024-09-15', 'total_players': 64, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_pnw_2025', 'event_name': 'Pacific Northwest GT 2025', 'event_date': '2025-06-14', 'total_players': 58, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_armory_2024', 'event_name': 'Battle for the Armory GT 2024', 'event_date': '2024-11-10', 'total_players': 52, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_bugeater_2024', 'event_name': 'Bugeater GT 2024', 'event_date': '2024-06-09', 'total_players': 68, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_socal_spring_gt', 'event_name': 'SoCal Spring GT 2025', 'event_date': '2025-03-23', 'total_players': 44, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_cal_winter_gt', 'event_name': 'California Winter GT 2025', 'event_date': '2025-01-12', 'total_players': 46, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_sd_smackdown', 'event_name': 'SD Summer Smackdown RTT 2025', 'event_date': '2025-08-03', 'total_players': 20, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_flg_rtt_aug_26', 'event_name': 'FLG Monthly 40K RTT - August 2026', 'event_date': '2026-08-15', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_flg_rtt_jul_26', 'event_name': 'FLG Monthly 40K RTT - July 2026', 'event_date': '2026-07-18', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_flg_rtt_jun_26', 'event_name': 'FLG Monthly 40K RTT - June 2026', 'event_date': '2026-06-20', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_flg_rtt_may_26', 'event_name': 'FLG Monthly 40K RTT - May 2026', 'event_date': '2026-05-16', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_sdt_rtt_apr_26', 'event_name': 'San Diego Tabletop RTT - April 2026', 'event_date': '2026-04-18', 'total_players': 14, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_sdt_rtt_mar_26', 'event_name': 'San Diego Tabletop RTT - March 2026', 'event_date': '2026-03-21', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_sdt_rtt_feb_26', 'event_name': 'San Diego Tabletop RTT - February 2026', 'event_date': '2026-02-21', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_aeg_rtt_jan_26', 'event_name': 'At Ease Games RTT - January 2026', 'event_date': '2026-01-17', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_aeg_rtt_dec_25', 'event_name': 'At Ease Games RTT - December 2025', 'event_date': '2025-12-20', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_aeg_rtt_nov_25', 'event_name': 'At Ease Games RTT - November 2025', 'event_date': '2025-11-15', 'total_players': 14, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_sdt_rtt_aug_24', 'event_name': 'San Diego Summer RTT 2024', 'event_date': '2024-08-17', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_sdt_rtt_apr_24', 'event_name': 'San Diego Spring RTT 2024', 'event_date': '2024-04-13', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_tcg_rtt_mar_24', 'event_name': 'TCG Bully 40k RTT 2024', 'event_date': '2024-03-09', 'total_players': 14, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_tcg_rtt_jan_24', 'event_name': 'TCG Bully Winter RTT 2024', 'event_date': '2024-01-20', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_bb_rtt_may_24', 'event_name': 'Battle Brothers RTT 2024', 'event_date': '2024-05-18', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_bb_rtt_sep_24', 'event_name': 'Battle Brothers Fall RTT 2024', 'event_date': '2024-09-21', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_bb_rtt_dec_23', 'event_name': 'Battle Brothers Winter RTT 2023', 'event_date': '2023-12-16', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_bb_rtt_nov_23', 'event_name': 'Battle Brothers November RTT 2023', 'event_date': '2023-11-18', 'total_players': 14, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'}
+                ]
+                j_champs = badges.extract_tournament_championships(junior_tourneys, [], "40k")
+                res = {
+                    "player": {
+                        "player_id": "Te1Q9lp3By",
+                        "player_name": "Junior Aflleje",
+                        "team": "Team Zero Comp",
+                        "teams_history": ["Team Zero Comp", "San Diego Tabletop", "Battle Brothers"],
+                        "top_faction": "Leagues of Votann, Death Guard, Thousand Sons",
+                        "current_elo": 2190.8,
+                        "peak_elo": 2190.8,
+                        "wins": 362,
+                        "losses": 68,
+                        "draws": 4,
+                        "win_rate": 83.4,
+                        "total_matches": 434
+                    },
+                    "has_account": False,
+                    "longest_win_streak": 17,
+                    "current_streak": 5,
+                    "tournaments": junior_tourneys,
+                    "events_attended": junior_tourneys,
+                    "championships": j_champs,
+                    "championship_pill": j_champs.get("championship_pill"),
+                    "championship_glory": j_champs.get("championship_glory", 0),
+                    "history": [
+                        {"match_date": "2026-09-12", "event_name": "FLG Monthly 40K RTT - September", "round": 3, "result": "W", "player_score": 100, "opponent_score": 62, "player_faction": "Leagues of Votann", "opponent_name": "Aurelio Correa", "opponent_faction": "Space Marines", "opponent_elo": 1820.0, "delta_elo": 3.0, "new_elo": 2190.8},
+                        {"match_date": "2026-09-12", "event_name": "FLG Monthly 40K RTT - September", "round": 2, "result": "W", "player_score": 83, "opponent_score": 64, "player_faction": "Leagues of Votann", "opponent_name": "Robert Buechele", "opponent_faction": "Imperium", "opponent_elo": 1780.0, "delta_elo": 2.6, "new_elo": 2187.8},
+                        {"match_date": "2026-09-12", "event_name": "FLG Monthly 40K RTT - September", "round": 1, "result": "W", "player_score": 91, "opponent_score": 51, "player_faction": "Leagues of Votann", "opponent_name": "Keith French", "opponent_faction": "Chaos", "opponent_elo": 1690.0, "delta_elo": 0.3, "new_elo": 2185.2},
+                        {"match_date": "2026-08-01", "event_name": "Lone Star Open 2026 - Warhammer 40k Champs", "round": 6, "result": "W", "player_score": 100, "opponent_score": 69, "player_faction": "Leagues of Votann", "opponent_name": "Thomas Greer", "opponent_faction": "Orks", "opponent_elo": 1940.0, "delta_elo": 10.7, "new_elo": 2184.9},
+                        {"match_date": "2026-08-01", "event_name": "Lone Star Open 2026 - Warhammer 40k Champs", "round": 5, "result": "W", "player_score": 91, "opponent_score": 75, "player_faction": "Leagues of Votann", "opponent_name": "Trevor Bauchou", "opponent_faction": "Necrons", "opponent_elo": 1890.0, "delta_elo": 4.5, "new_elo": 2174.2}
+                    ]
+                }
+            elif "john" in pid.lower() or pid == "MEV83VFANA" or pid == "9oEfu25ccjqE" or "hsieh" in pid.lower() or "john" in req_name or "hsieh" in req_name:
                 res = {
                     "player": {
                         "player_id": "MEV83VFANA",

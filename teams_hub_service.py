@@ -352,7 +352,7 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "total_losses": 1569,
                 "total_draws": 142,
                 "roster": [
-                    {"player_id": "p_junior_a", "player_name": "Junior Aflleje", "current_elo": 2190.8, "peak_elo": 2190.8, "faction": "Space Marines", "role": "Top Ace", "status": "confirmed", "is_active": True, "win_rate": 83.4, "matches_played": 362, "wins": 362, "losses": 68, "draws": 4, "form": "🔥 Top Ace"},
+                    {"player_id": "Te1Q9lp3By", "player_name": "Junior Aflleje", "current_elo": 2190.8, "peak_elo": 2190.8, "faction": "Leagues of Votann", "role": "Top Ace", "status": "confirmed", "is_active": True, "win_rate": 83.4, "matches_played": 434, "wins": 362, "losses": 68, "draws": 4, "form": "🔥 Top Ace"},
                     {"player_id": "p_james_c", "player_name": "James Carmona", "current_elo": 1939.5, "peak_elo": 2014.9, "faction": "Adeptus Custodes", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 69.5, "matches_played": 141, "wins": 98, "losses": 40, "draws": 3, "form": "Core 5"},
                     {"player_id": "9oEfu25ccjqE", "player_name": "John Hsieh", "current_elo": 1888.5, "peak_elo": 1888.5, "faction": "Necrons", "role": "Captain", "status": "confirmed", "is_active": True, "win_rate": 66.0, "matches_played": 94, "wins": 62, "losses": 31, "draws": 1, "form": "Captain"},
                     {"player_id": "p_jake_n", "player_name": "Jake Nelson", "current_elo": 1865.7, "peak_elo": 1957.9, "faction": "Blood Angels", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 73.4, "matches_played": 425, "wins": 312, "losses": 99, "draws": 14, "form": "Core 5"},
@@ -389,7 +389,7 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "top5_avg": 1949.2,
                 "top_player_elo": 2190.8,
                 "top_player_name": "Junior Aflleje",
-                "top_player_id": "p_junior_a",
+                "top_player_id": "Te1Q9lp3By",
                 "active_avg_elo": 1780.0,
                 "active_roster_count": 22,
                 "roster_count": 29,
@@ -1180,296 +1180,96 @@ class TeamsHubService:
 
         # 1. Sovereign curated silverware for flagship teams
         if "zero" in team_id or "zero" in team_name:
-            raw_championships = [
-                {
-                    "event_id": "ev_tacoma_2026",
-                    "event_name": "US Open Tacoma Major 2026",
-                    "event_date": "2026-09-02",
-                    "tier": "major",
-                    "tier_title": "Major Championship",
-                    "trophy_type": "aquila_relic_sword",
-                    "icon": "🥇",
-                    "total_players": 128,
-                    "num_rounds": 7,
-                    "faction": "Adeptus Custodes",
-                    "record": "7-0",
-                    "undefeated": True,
-                    "glory_bonus": 1250,
-                    "placing": 1,
-                    "player_name": "John Hsieh",
-                    "player_id": "9oEfu25ccjqE"
-                },
-                {
-                    "event_id": "ev_socal_open_2025",
-                    "event_name": "SoCal Open 2025 - Warhammer 40k Major",
-                    "event_date": "2025-10-24",
-                    "tier": "major",
-                    "tier_title": "Major Championship",
-                    "trophy_type": "aquila_relic_sword",
-                    "icon": "🥇",
-                    "total_players": 164,
-                    "num_rounds": 6,
-                    "faction": "Space Marines",
-                    "record": "6-0",
-                    "undefeated": True,
-                    "glory_bonus": 1250,
-                    "placing": 1,
-                    "player_name": "Junior Aflleje",
-                    "player_id": "p_junior_a"
-                },
-                {
-                    "event_id": "ev_pnw_gt_2026",
-                    "event_name": "Pacific Northwest GT 2026",
-                    "event_date": "2026-06-15",
-                    "tier": "gt",
-                    "tier_title": "Grand Tournament",
-                    "trophy_type": "silver_winged_chalice",
-                    "icon": "🥈",
-                    "total_players": 56,
-                    "num_rounds": 5,
-                    "faction": "Necrons",
-                    "record": "5-0",
-                    "undefeated": True,
-                    "glory_bonus": 500,
-                    "placing": 1,
-                    "player_name": "John Hsieh",
-                    "player_id": "9oEfu25ccjqE"
-                },
-                {
-                    "event_id": "ev_flg_lone_star_2025",
-                    "event_name": "FLG Lone Star Open 2025",
-                    "event_date": "2025-07-19",
-                    "tier": "gt",
-                    "tier_title": "Grand Tournament",
-                    "trophy_type": "silver_winged_chalice",
-                    "icon": "🥈",
-                    "total_players": 72,
-                    "num_rounds": 5,
-                    "faction": "Space Marines",
-                    "record": "5-0",
-                    "undefeated": True,
-                    "glory_bonus": 500,
-                    "placing": 1,
-                    "player_name": "Junior Aflleje",
-                    "player_id": "p_junior_a"
-                },
-                {
-                    "event_id": "ev_crucible_gt_2025",
-                    "event_name": "Crucible GT 2025",
-                    "event_date": "2025-09-14",
-                    "tier": "gt",
-                    "tier_title": "Grand Tournament",
-                    "trophy_type": "silver_winged_chalice",
-                    "icon": "🥈",
-                    "total_players": 60,
-                    "num_rounds": 5,
-                    "faction": "Adeptus Custodes",
-                    "record": "5-0",
-                    "undefeated": True,
-                    "glory_bonus": 500,
-                    "placing": 1,
-                    "player_name": "James Carmona",
-                    "player_id": "p_james_c"
-                },
-                {
-                    "event_id": "ev_bugeater_gt_2025",
-                    "event_name": "Bugeater GT 2025",
-                    "event_date": "2025-06-08",
-                    "tier": "gt",
-                    "tier_title": "Grand Tournament",
-                    "trophy_type": "silver_winged_chalice",
-                    "icon": "🥈",
-                    "total_players": 68,
-                    "num_rounds": 5,
-                    "faction": "Blood Angels",
-                    "record": "5-0",
-                    "undefeated": True,
-                    "glory_bonus": 500,
-                    "placing": 1,
-                    "player_name": "Jake Nelson",
-                    "player_id": "p_jake_n"
-                },
-                {
-                    "event_id": "ev_battle_armory_gt_2025",
-                    "event_name": "Battle for the Armory GT 2025",
-                    "event_date": "2025-11-09",
-                    "tier": "gt",
-                    "tier_title": "Grand Tournament",
-                    "trophy_type": "silver_winged_chalice",
-                    "icon": "🥈",
-                    "total_players": 52,
-                    "num_rounds": 5,
-                    "faction": "Aeldari",
-                    "record": "5-0",
-                    "undefeated": True,
-                    "glory_bonus": 500,
-                    "placing": 1,
-                    "player_name": "Jesse Sell",
-                    "player_id": "p_jesse_s"
-                },
-                {
-                    "event_id": "ev_hammer_bolter_gt_2025",
-                    "event_name": "Hammer & Bolter GT 2025",
-                    "event_date": "2025-05-11",
-                    "tier": "gt",
-                    "tier_title": "Grand Tournament",
-                    "trophy_type": "silver_winged_chalice",
-                    "icon": "🥈",
-                    "total_players": 48,
-                    "num_rounds": 5,
-                    "faction": "Space Marines",
-                    "record": "5-0",
-                    "undefeated": True,
-                    "glory_bonus": 500,
-                    "placing": 1,
-                    "player_name": "Junior Aflleje",
-                    "player_id": "p_junior_a"
-                },
-                {
-                    "event_id": "ev_angron_rtt_march",
-                    "event_name": "Angron's Book Club RTT: March",
-                    "event_date": "2024-03-15",
-                    "tier": "rtt",
-                    "tier_title": "Rogue Trader Tournament",
-                    "trophy_type": "bronze_laurel_plaque",
-                    "icon": "🥉",
-                    "total_players": 16,
-                    "num_rounds": 3,
-                    "faction": "Necrons",
-                    "record": "3-0",
-                    "undefeated": True,
-                    "glory_bonus": 150,
-                    "placing": 1,
-                    "player_name": "John Hsieh",
-                    "player_id": "9oEfu25ccjqE"
-                },
-                {
-                    "event_id": "ev_laughing_dragon_oct",
-                    "event_name": "Laughing Dragon 2024 October RTT",
-                    "event_date": "2024-10-12",
-                    "tier": "rtt",
-                    "tier_title": "Rogue Trader Tournament",
-                    "trophy_type": "bronze_laurel_plaque",
-                    "icon": "🥉",
-                    "total_players": 14,
-                    "num_rounds": 3,
-                    "faction": "Necrons",
-                    "record": "3-0",
-                    "undefeated": True,
-                    "glory_bonus": 150,
-                    "placing": 1,
-                    "player_name": "John Hsieh",
-                    "player_id": "9oEfu25ccjqE"
-                },
-                {
-                    "event_id": "ev_laughing_dragon_apr",
-                    "event_name": "Laughing Dragon 2024 April RTT",
-                    "event_date": "2024-04-20",
-                    "tier": "rtt",
-                    "tier_title": "Rogue Trader Tournament",
-                    "trophy_type": "bronze_laurel_plaque",
-                    "icon": "🥉",
-                    "total_players": 16,
-                    "num_rounds": 3,
-                    "faction": "Necrons",
-                    "record": "3-0",
-                    "undefeated": True,
-                    "glory_bonus": 150,
-                    "placing": 1,
-                    "player_name": "John Hsieh",
-                    "player_id": "9oEfu25ccjqE"
-                },
-                {
-                    "event_id": "ev_sd_smackdown_2025",
-                    "event_name": "SD Summer Smackdown RTT 2025",
-                    "event_date": "2025-08-03",
-                    "tier": "rtt",
-                    "tier_title": "Rogue Trader Tournament",
-                    "trophy_type": "bronze_laurel_plaque",
-                    "icon": "🥉",
-                    "total_players": 20,
-                    "num_rounds": 3,
-                    "faction": "Leagues of Votann",
-                    "record": "3-0",
-                    "undefeated": True,
-                    "glory_bonus": 150,
-                    "placing": 1,
-                    "player_name": "Junior Aflleje",
-                    "player_id": "p_junior_a"
-                },
-                {
-                    "event_id": "ev_hammer_anvil_rtt_2025",
-                    "event_name": "Hammer & Anvil RTT 2025",
-                    "event_date": "2025-04-12",
-                    "tier": "rtt",
-                    "tier_title": "Rogue Trader Tournament",
-                    "trophy_type": "bronze_laurel_plaque",
-                    "icon": "🥉",
-                    "total_players": 18,
-                    "num_rounds": 3,
-                    "faction": "Adeptus Custodes",
-                    "record": "3-0",
-                    "undefeated": True,
-                    "glory_bonus": 150,
-                    "placing": 1,
-                    "player_name": "James Carmona",
-                    "player_id": "p_james_c"
-                },
-                {
-                    "event_id": "ev_midwest_conquest_rtt_2025",
-                    "event_name": "Midwest Conquest RTT 2025",
-                    "event_date": "2025-02-22",
-                    "tier": "rtt",
-                    "tier_title": "Rogue Trader Tournament",
-                    "trophy_type": "bronze_laurel_plaque",
-                    "icon": "🥉",
-                    "total_players": 22,
-                    "num_rounds": 3,
-                    "faction": "Blood Angels",
-                    "record": "3-0",
-                    "undefeated": True,
-                    "glory_bonus": 150,
-                    "placing": 1,
-                    "player_name": "Jake Nelson",
-                    "player_id": "p_jake_n"
-                },
-                {
-                    "event_id": "ev_prospero_burns_rtt_2025",
-                    "event_name": "Prospero Burns RTT 2025",
-                    "event_date": "2025-03-29",
-                    "tier": "rtt",
-                    "tier_title": "Rogue Trader Tournament",
-                    "trophy_type": "bronze_laurel_plaque",
-                    "icon": "🥉",
-                    "total_players": 16,
-                    "num_rounds": 3,
-                    "faction": "Thousand Sons",
-                    "record": "3-0",
-                    "undefeated": True,
-                    "glory_bonus": 150,
-                    "placing": 1,
-                    "player_name": "Marcus Alvarez",
-                    "player_id": "p_tzc_6"
-                },
-                {
-                    "event_id": "ev_blood_god_brawls_rtt_2025",
-                    "event_name": "Blood God Brawls RTT 2025",
-                    "event_date": "2025-08-16",
-                    "tier": "rtt",
-                    "tier_title": "Rogue Trader Tournament",
-                    "trophy_type": "bronze_laurel_plaque",
-                    "icon": "🥉",
-                    "total_players": 18,
-                    "num_rounds": 3,
-                    "faction": "World Eaters",
-                    "record": "3-0",
-                    "undefeated": True,
-                    "glory_bonus": 150,
-                    "placing": 1,
-                    "player_name": "Brandon Taylor",
-                    "player_id": "p_tzc_7"
-                }
+            import badges
+            junior_tourneys = [
+                {'event_id': 'ev_lone_star_2026', 'event_name': 'Lone Star Open 2026 - Warhammer 40k Champs', 'event_date': '2026-08-01', 'total_players': 336, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_lvtt_2026', 'event_name': 'Las Vegas Teams Tournament - LVTT 2026', 'event_date': '2026-02-14', 'total_players': 265, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_lone_star_2025', 'event_name': 'Lone Star Open 2025 - 40k Champs', 'event_date': '2025-07-20', 'total_players': 322, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Death Guard'},
+                {'event_id': 'ev_ctc_2025', 'event_name': 'California Team Championships by Best Coast Pairings', 'event_date': '2025-06-15', 'total_players': 215, 'num_rounds': 5, 'wins': 4, 'losses': 0, 'draws': 1, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_ctc_v', 'event_name': 'California Team Championships V by BCP', 'event_date': '2024-06-23', 'total_players': 190, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_lvtt_2025', 'event_name': 'Frontline Gaming Las Vegas Team Tournament 2025', 'event_date': '2025-01-18', 'total_players': 290, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_socal_2025', 'event_name': 'SoCal Open 2025 - Warhammer 40k Major', 'event_date': '2025-10-24', 'total_players': 164, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Space Marines'},
+                {'event_id': 'ev_tacoma_2025', 'event_name': 'US Open Tacoma Major 2025', 'event_date': '2025-08-22', 'total_players': 148, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_sd_open_2025', 'event_name': 'San Diego Open Major 2025', 'event_date': '2025-04-18', 'total_players': 156, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_socal_2024', 'event_name': 'SoCal Open 2024 - Warhammer 40k Major', 'event_date': '2024-10-26', 'total_players': 172, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_flg_lso_gt', 'event_name': 'FLG Lone Star Open 2025 GT', 'event_date': '2025-07-19', 'total_players': 72, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Space Marines'},
+                {'event_id': 'ev_hammer_bolter_gt', 'event_name': 'Hammer & Bolter GT 2025', 'event_date': '2025-05-11', 'total_players': 48, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Space Marines'},
+                {'event_id': 'ev_crucible_2024', 'event_name': 'Crucible GT 2024', 'event_date': '2024-09-15', 'total_players': 64, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_pnw_2025', 'event_name': 'Pacific Northwest GT 2025', 'event_date': '2025-06-14', 'total_players': 58, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_armory_2024', 'event_name': 'Battle for the Armory GT 2024', 'event_date': '2024-11-10', 'total_players': 52, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_bugeater_2024', 'event_name': 'Bugeater GT 2024', 'event_date': '2024-06-09', 'total_players': 68, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_socal_spring_gt', 'event_name': 'SoCal Spring GT 2025', 'event_date': '2025-03-23', 'total_players': 44, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_cal_winter_gt', 'event_name': 'California Winter GT 2025', 'event_date': '2025-01-12', 'total_players': 46, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_sd_smackdown', 'event_name': 'SD Summer Smackdown RTT 2025', 'event_date': '2025-08-03', 'total_players': 20, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_flg_rtt_aug_26', 'event_name': 'FLG Monthly 40K RTT - August 2026', 'event_date': '2026-08-15', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_flg_rtt_jul_26', 'event_name': 'FLG Monthly 40K RTT - July 2026', 'event_date': '2026-07-18', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_flg_rtt_jun_26', 'event_name': 'FLG Monthly 40K RTT - June 2026', 'event_date': '2026-06-20', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_flg_rtt_may_26', 'event_name': 'FLG Monthly 40K RTT - May 2026', 'event_date': '2026-05-16', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_sdt_rtt_apr_26', 'event_name': 'San Diego Tabletop RTT - April 2026', 'event_date': '2026-04-18', 'total_players': 14, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_sdt_rtt_mar_26', 'event_name': 'San Diego Tabletop RTT - March 2026', 'event_date': '2026-03-21', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_sdt_rtt_feb_26', 'event_name': 'San Diego Tabletop RTT - February 2026', 'event_date': '2026-02-21', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_aeg_rtt_jan_26', 'event_name': 'At Ease Games RTT - January 2026', 'event_date': '2026-01-17', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_aeg_rtt_dec_25', 'event_name': 'At Ease Games RTT - December 2025', 'event_date': '2025-12-20', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_aeg_rtt_nov_25', 'event_name': 'At Ease Games RTT - November 2025', 'event_date': '2025-11-15', 'total_players': 14, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_sdt_rtt_aug_24', 'event_name': 'San Diego Summer RTT 2024', 'event_date': '2024-08-17', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_sdt_rtt_apr_24', 'event_name': 'San Diego Spring RTT 2024', 'event_date': '2024-04-13', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_tcg_rtt_mar_24', 'event_name': 'TCG Bully 40k RTT 2024', 'event_date': '2024-03-09', 'total_players': 14, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_tcg_rtt_jan_24', 'event_name': 'TCG Bully Winter RTT 2024', 'event_date': '2024-01-20', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_bb_rtt_may_24', 'event_name': 'Battle Brothers RTT 2024', 'event_date': '2024-05-18', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_bb_rtt_sep_24', 'event_name': 'Battle Brothers Fall RTT 2024', 'event_date': '2024-09-21', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_bb_rtt_dec_23', 'event_name': 'Battle Brothers Winter RTT 2023', 'event_date': '2023-12-16', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_bb_rtt_nov_23', 'event_name': 'Battle Brothers November RTT 2023', 'event_date': '2023-11-18', 'total_players': 14, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'}
             ]
+            john_tourneys = [
+                {'event_id': 'ev_tacoma_2026', 'event_name': 'US Open Tacoma Major 2026', 'event_date': '2026-09-02', 'total_players': 128, 'num_rounds': 7, 'wins': 7, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Adeptus Custodes'},
+                {'event_id': 'ev_pnw_gt_2026', 'event_name': 'Pacific Northwest GT 2026', 'event_date': '2026-06-15', 'total_players': 56, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Necrons'},
+                {'event_id': 'ev_angron_rtt_march', 'event_name': "Angron's Book Club RTT: March", 'event_date': '2024-03-15', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Necrons'},
+                {'event_id': 'ev_laughing_dragon_oct', 'event_name': 'Laughing Dragon 2024 October RTT', 'event_date': '2024-10-12', 'total_players': 14, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Necrons'},
+                {'event_id': 'ev_laughing_dragon_apr', 'event_name': 'Laughing Dragon 2024 April RTT', 'event_date': '2024-04-20', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Necrons'},
+                {'event_id': 'ev_laughing_dragon_spring', 'event_name': 'Laughing Dragon April RTT', 'event_date': '2024-04-06', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Necrons'},
+                {'event_id': 'ev_dicehead_rtt_2026', 'event_name': 'Dicehead Spring RTT 2026', 'event_date': '2026-03-22', 'total_players': 24, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Space Marines'}
+            ]
+            tzc_teammates = [
+                ('James Carmona', 'p_james_c', [
+                    {'event_id': 'ev_crucible_gt_2025', 'event_name': 'Crucible GT 2025', 'event_date': '2025-09-14', 'total_players': 60, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Adeptus Custodes'},
+                    {'event_id': 'ev_hammer_anvil_rtt_2025', 'event_name': 'Hammer & Anvil RTT 2025', 'event_date': '2025-04-12', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Adeptus Custodes'}
+                ]),
+                ('Jake Nelson', 'p_jake_n', [
+                    {'event_id': 'ev_bugeater_gt_2025', 'event_name': 'Bugeater GT 2025', 'event_date': '2025-06-08', 'total_players': 68, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Blood Angels'},
+                    {'event_id': 'ev_midwest_conquest_rtt_2025', 'event_name': 'Midwest Conquest RTT 2025', 'event_date': '2025-02-22', 'total_players': 22, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Blood Angels'}
+                ]),
+                ('Jesse Sell', 'p_jesse_s', [
+                    {'event_id': 'ev_battle_armory_gt_2025', 'event_name': 'Battle for the Armory GT 2025', 'event_date': '2025-11-09', 'total_players': 52, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Aeldari'}
+                ]),
+                ('Brandon Taylor', 'p_tzc_7', [
+                    {'event_id': 'ev_blood_god_brawls_rtt_2025', 'event_name': 'Blood God Brawls RTT 2025', 'event_date': '2025-08-16', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'World Eaters'}
+                ]),
+                ('Marcus Alvarez', 'p_tzc_6', [
+                    {'event_id': 'ev_prospero_burns_rtt_2025', 'event_name': 'Prospero Burns RTT 2025', 'event_date': '2025-03-29', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Thousand Sons'}
+                ])
+            ]
+
+            j_res = badges.extract_tournament_championships(junior_tourneys, [], "40k")
+            for c in j_res.get("items", []):
+                item = dict(c)
+                item["player_name"] = "Junior Aflleje"
+                item["player_id"] = "Te1Q9lp3By"
+                raw_championships.append(item)
+
+            john_res = badges.extract_tournament_championships(john_tourneys, [], "40k")
+            for c in john_res.get("items", []):
+                item = dict(c)
+                item["player_name"] = "John Hsieh"
+                item["player_id"] = "9oEfu25ccjqE"
+                raw_championships.append(item)
+
+            for t_name, t_pid, t_tourneys in tzc_teammates:
+                t_res = badges.extract_tournament_championships(t_tourneys, [], "40k")
+                for c in t_res.get("items", []):
+                    item = dict(c)
+                    item["player_name"] = t_name
+                    item["player_id"] = t_pid
+                    raw_championships.append(item)
         elif "art" in team_id or "art" in team_name:
             raw_championships = [
                 {
@@ -1896,7 +1696,20 @@ class TeamsHubService:
                 "team_id": "team_zero_comp",
                 "team_name": "Team Zero Comp",
                 "short_tag": "TZC",
-                "role": "Member",
+                "role": "Captain",
+                "status": "confirmed",
+                "confirmed_at": "2024-01-01T00:00:00Z"
+            }
+            affs[player_id] = aff
+            return aff
+
+        # Default confirmed affiliation for Junior Aflleje
+        if any(h in pid_clean for h in ("te1q9lp3by", "aflleje", "p_junior")):
+            aff = {
+                "team_id": "team_zero_comp",
+                "team_name": "Team Zero Comp",
+                "short_tag": "TZC",
+                "role": "Top Ace",
                 "status": "confirmed",
                 "confirmed_at": "2024-01-01T00:00:00Z"
             }

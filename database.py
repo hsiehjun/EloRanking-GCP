@@ -4018,44 +4018,140 @@ class PostgresDatabase:
                         logger.debug(f"Dev fallback feed notice: {e}")
                 res["battlefield_feed"] = feed or []
 
-                # Consolidated Hall of Champions silverware
+                # Consolidated Hall of Champions silverware computed from real player awards
                 try:
-                    import teams_hub_service
-                    svc = teams_hub_service.get_teams_hub_service()
-                    hub_champs = svc.get_team_hub(team_name, system)
-                    if hub_champs and hub_champs.get("championships"):
-                        res["championships"] = hub_champs["championships"]
-                    else:
-                        res["championships"] = self.get_team_championships(team_name, system, roster=roster)
+                    res["championships"] = self.get_team_championships(team_name, system, roster=roster)
                 except Exception as e:
                     logger.debug(f"Team championships resolution notice: {e}")
-                    res["championships"] = self.get_team_championships(team_name, system, roster=roster)
+                    res["championships"] = {
+                        "total": 0, "super_major_wins": 0, "major_wins": 0, "gt_wins": 0, "rtt_wins": 0,
+                        "undefeated_count": 0, "championship_glory": 0, "championship_pill": None,
+                        "top_champions": [], "factions_distribution": [], "items": []
+                    }
 
                 PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
                 return res
 
     def get_team_championships(self, team_name: str, game_system: str = "40k", roster: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-        """Returns consolidated championship trophies won across all squad members."""
-        try:
-            import teams_hub_service
-            svc = teams_hub_service.get_teams_hub_service()
-            hub = svc.get_team_hub(team_name, game_system)
-            if hub and hub.get("championships"):
-                return hub["championships"]
-        except Exception:
-            pass
+        """Consolidates all actual tournament championships and silverware won across squad members."""
+        import badges
+        system = (game_system or "40k").strip().lower()
+
+        if roster is None:
+            team_data = self.get_team_roster(team_name, game_system=system)
+            roster = team_data.get("roster", []) if team_data else []
+
+        all_team_championships: List[Dict[str, Any]] = []
+        player_champs_map: Dict[str, Dict[str, Any]] = {}
+        seen_event_player = set()
+
+        if roster:
+            for p in roster:
+                pid = str(p.get("player_id") or "").strip()
+                pname = str(p.get("player_name") or "Competitor").strip()
+                if not pid or int(p.get("matches_played") or 0) <= 0:
+                    continue
+
+                try:
+                    tournaments = self.get_player_tournaments(pid, game_system=system)
+                except Exception as e:
+                    logger.debug(f"Error fetching tournaments for {pname} ({pid}): {e}")
+                    tournaments = []
+
+                if not tournaments:
+                    continue
+
+                p_champs = badges.extract_tournament_championships(tournaments, [], system)
+                p_items = p_champs.get("items", [])
+                if p_items:
+                    player_champs_map[pid] = {
+                        "player_name": pname,
+                        "player_id": pid,
+                        "role": p.get("role") or ("Top Ace" if p.get("is_ace") else ("Core" if p.get("is_core") else "Member")),
+                        "current_elo": float(p.get("current_elo") or 1500.0),
+                        "titles_count": len(p_items),
+                        "super_majors": len([c for c in p_items if c.get("tier") == "super_major"]),
+                        "majors": len([c for c in p_items if c.get("tier") == "major"]),
+                        "gts": len([c for c in p_items if c.get("tier") == "gt"]),
+                        "rtts": len([c for c in p_items if c.get("tier") == "rtt"]),
+                        "glory_contributed": sum(c.get("glory_bonus", 0) for c in p_items),
+                        "primary_faction": p.get("top_faction") or p.get("faction") or (p_items[0].get("faction") if p_items else "Unknown")
+                    }
+
+                    for item in p_items:
+                        dedup_key = f"{item.get('event_id') or item.get('event_name')}_{pid}"
+                        if dedup_key in seen_event_player:
+                            continue
+                        seen_event_player.add(dedup_key)
+
+                        enriched_item = dict(item)
+                        enriched_item["player_name"] = pname
+                        enriched_item["player_id"] = pid
+                        all_team_championships.append(enriched_item)
+
+        # Fallback only if no DB events exist (e.g. offline dev mock environment)
+        if not all_team_championships:
+            try:
+                import teams_hub_service
+                svc = teams_hub_service.get_teams_hub_service()
+                hub = svc.get_team_hub(team_name, system)
+                if hub and hub.get("championships") and hub["championships"].get("items"):
+                    return hub["championships"]
+            except Exception:
+                pass
+
+        tier_weights = {"super_major": 4, "major": 3, "gt": 2, "rtt": 1}
+        all_team_championships.sort(key=lambda x: (tier_weights.get(x.get("tier"), 0), x.get("event_date", "")), reverse=True)
+
+        total_titles = len(all_team_championships)
+        super_majors = len([c for c in all_team_championships if c.get("tier") == "super_major"])
+        majors = len([c for c in all_team_championships if c.get("tier") == "major"])
+        gts = len([c for c in all_team_championships if c.get("tier") == "gt"])
+        rtts = len([c for c in all_team_championships if c.get("tier") == "rtt"])
+        undefeated_runs = len([c for c in all_team_championships if c.get("undefeated")])
+        total_glory = sum(c.get("glory_bonus", 0) for c in all_team_championships)
+
+        top_champions = sorted(
+            player_champs_map.values(),
+            key=lambda x: (x["titles_count"], x["super_majors"] * 4 + x["majors"] * 3 + x["gts"] * 2 + x["rtts"], x["glory_contributed"]),
+            reverse=True
+        )
+
+        fac_counts: Dict[str, Dict[str, Any]] = {}
+        for c in all_team_championships:
+            f = c.get("faction") or "Unknown"
+            if f not in fac_counts:
+                fac_counts[f] = {"faction": f, "count": 0, "glory": 0}
+            fac_counts[f]["count"] += 1
+            fac_counts[f]["glory"] += c.get("glory_bonus", 0)
+        factions_distribution = sorted(fac_counts.values(), key=lambda x: x["count"], reverse=True)
+
+        pill_parts = []
+        if super_majors > 0:
+            pill_parts.append(f"{super_majors} Worlds" if super_majors == 1 else f"{super_majors} Worlds")
+        if majors > 0:
+            pill_parts.append(f"{majors} Major" if majors == 1 else f"{majors} Majors")
+        if gts > 0:
+            pill_parts.append(f"{gts} GT" if gts == 1 else f"{gts} GTs")
+        if not pill_parts and rtts > 0:
+            pill_parts.append(f"{rtts} RTT" if rtts == 1 else f"{rtts} RTTs")
+
+        pill_text = f"🏆 {total_titles}x Titles ({', '.join(pill_parts)})" if total_titles > 0 else None
+
         return {
-            "total": 0,
-            "super_major_wins": 0,
-            "major_wins": 0,
-            "gt_wins": 0,
-            "rtt_wins": 0,
-            "undefeated_count": 0,
-            "championship_glory": 0,
-            "championship_pill": None,
-            "top_champions": [],
-            "factions_distribution": [],
-            "items": []
+            "total": total_titles,
+            "super_major_wins": super_majors,
+            "major_wins": majors,
+            "gt_wins": gts,
+            "rtt_wins": rtts,
+            "undefeated_count": undefeated_runs,
+            "championship_glory": total_glory,
+            "championship_pill": pill_text,
+            "top_champion_name": top_champions[0]["player_name"] if top_champions else None,
+            "top_champion_titles": top_champions[0]["titles_count"] if top_champions else 0,
+            "top_champions": top_champions,
+            "factions_distribution": factions_distribution,
+            "items": all_team_championships
         }
 
     def get_team_matches(self, team_name: str, limit: int = 250, game_system: Optional[str] = "40k", player_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:

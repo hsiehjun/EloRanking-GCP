@@ -208,8 +208,13 @@ async function openPlayerModal(playerId, playerName = '') {
     const data = await window.api.getPlayerProfile(targetId || 'unknown', sys, targetName);
     const p = data.player || data || {};
     const resolvedName = (p.player_name && p.player_name !== 'Unknown') ? p.player_name : (p.full_name || targetName || 'Player Profile');
+    const resolvedId = p.player_id || p.id || data.player_id || targetId;
     currentModalPlayerName = resolvedName;
     window.currentModalPlayerName = currentModalPlayerName;
+    if (resolvedId) {
+      currentModalPlayerId = resolvedId;
+      window.currentModalPlayerId = currentModalPlayerId;
+    }
     if (nameEl) {
       nameEl.innerText = resolvedName;
       nameEl.style.cursor = 'pointer';
