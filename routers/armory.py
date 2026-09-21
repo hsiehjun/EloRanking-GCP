@@ -141,7 +141,8 @@ def _get_or_init_vault(user_data: Dict[str, Any]) -> Dict[str, Any]:
             "active_dice": None,
             "active_card_frame": None,
             "active_title": None,
-            "active_avatar": None
+            "active_avatar": None,
+            "active_card_finish": None
         }
 
     return vault
@@ -335,7 +336,7 @@ async def equip_item(request: Request):
     slot = (body.get("slot") or "").strip()
     item_id = (body.get("item_id") or "").strip()
 
-    valid_slots = ("active_dice", "active_card_frame", "active_title", "active_avatar")
+    valid_slots = ("active_dice", "active_card_frame", "active_title", "active_avatar", "active_card_finish")
     if slot not in valid_slots:
         raise HTTPException(status_code=400, detail=f"Invalid slot '{slot}'. Valid slots: {valid_slots}")
 
@@ -355,7 +356,7 @@ async def equip_item(request: Request):
 
     if not isinstance(vault.get("equipped"), dict):
         vault["equipped"] = {}
-    sys_eq = vault["equipped"].setdefault(sys_key, {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None})
+    sys_eq = vault["equipped"].setdefault(sys_key, {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None, "active_card_finish": None})
     sys_eq[slot] = item_id
     vault["equipped"][slot] = item_id
     user_data["armory_vault"] = vault
@@ -396,7 +397,7 @@ async def unequip_item(request: Request):
         body = {}
 
     slot = (body.get("slot") or "").strip()
-    valid_slots = ("active_dice", "active_card_frame", "active_title", "active_avatar")
+    valid_slots = ("active_dice", "active_card_frame", "active_title", "active_avatar", "active_card_finish")
     if slot not in valid_slots:
         raise HTTPException(status_code=400, detail=f"Invalid slot '{slot}'. Valid slots: {valid_slots}")
 

@@ -601,6 +601,18 @@
     return frameId.replace(/_/g, '-');
   }
 
+  function getFinishCssClass(finishId) {
+    if (!finishId) return '';
+    if (finishId === 'frame_astral_holofoil' || finishId.includes('holofoil')) {
+      return 'finish-astral-holofoil';
+    }
+    if (currentCatalog && currentCatalog.items) {
+      var it = currentCatalog.items.find(function(i) { return i.id === finishId; });
+      if (it && it.payload && it.payload.css_class) return it.payload.css_class;
+    }
+    return finishId.replace(/_/g, '-');
+  }
+
   /**
    * Effect Dispatcher: Applies active decorations across the entire page
    */
@@ -609,17 +621,25 @@
     var allEq = overrideEquipped || currentVault.equipped || {};
     var eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
 
-    // 1. Apply Card Frame (Borders & Hologram)
+    // 1. Apply Card Frame (Border)
     var frameId = eq.active_card_frame;
     var targetCssClass = frameId ? getFrameCssClass(frameId) : null;
+
+    // 1b. Apply Card Finish (Astral Holo-Foil Finish)
+    var finishId = eq.active_card_finish;
+    var targetFinishClass = finishId ? getFinishCssClass(finishId) : null;
 
     var heroCards = document.querySelectorAll('.hero-card, .profile-hero-card, #my-hub-hero-card');
     heroCards.forEach(function(card) {
       Array.from(card.classList).forEach(function(c) {
         if (c.startsWith('frame-') || c.startsWith('frame_')) card.classList.remove(c);
+        if (c.startsWith('finish-') || c.startsWith('finish_')) card.classList.remove(c);
       });
       if (targetCssClass) {
         card.classList.add(targetCssClass);
+      }
+      if (targetFinishClass) {
+        card.classList.add(targetFinishClass);
       }
     });
 
@@ -987,6 +1007,9 @@
       var activeFrameItem = currentCatalog.items.find(function(i) {
         return (eq && i.id === eq.active_card_frame) || (i.slot === 'active_card_frame' && i.is_equipped && (i.game_system === currentGameSystem || !i.game_system));
       });
+      var activeFinishItem = currentCatalog.items.find(function(i) {
+        return (eq && i.id === eq.active_card_finish) || (i.slot === 'active_card_finish' && i.is_equipped && (i.game_system === currentGameSystem || !i.game_system));
+      });
       var activeAvatarItem = currentCatalog.items.find(function(i) {
         return (eq && i.id === eq.active_avatar) || (i.slot === 'active_avatar' && i.is_equipped && (i.game_system === currentGameSystem || !i.game_system));
       });
@@ -996,6 +1019,7 @@
 
       if (activeDiceItem && eq) eq.active_dice = activeDiceItem.id;
       if (activeFrameItem && eq) eq.active_card_frame = activeFrameItem.id;
+      if (activeFinishItem && eq) eq.active_card_finish = activeFinishItem.id;
       if (activeAvatarItem && eq) eq.active_avatar = activeAvatarItem.id;
       if (activeTitleItem && eq) eq.active_title = activeTitleItem.id;
 
@@ -1014,7 +1038,10 @@
         '      <span class="slot-chip-label">🎲 Dice:</span> <strong>' + (activeDiceItem ? escapeHtml(activeDiceItem.name) : '<span style="color:#64748b;">Standard</span>') + '</strong>',
         '    </div>',
         '    <div class="backpack-slot-chip ' + (activeFrameItem ? 'is-active' : '') + '">',
-        '      <span class="slot-chip-label">✨ Frame:</span> <strong>' + (activeFrameItem ? escapeHtml(activeFrameItem.name) : '<span style="color:#64748b;">Standard</span>') + '</strong>',
+        '      <span class="slot-chip-label">✨ Border:</span> <strong>' + (activeFrameItem ? escapeHtml(activeFrameItem.name) : '<span style="color:#64748b;">Standard</span>') + '</strong>',
+        '    </div>',
+        '    <div class="backpack-slot-chip ' + (activeFinishItem ? 'is-active' : '') + '">',
+        '      <span class="slot-chip-label">🌈 Finish:</span> <strong>' + (activeFinishItem ? escapeHtml(activeFinishItem.name) : '<span style="color:#64748b;">None</span>') + '</strong>',
         '    </div>',
         '    <div class="backpack-slot-chip ' + (activeAvatarItem ? 'is-active' : '') + '">',
         '      <span class="slot-chip-label">🛡️ Sigil:</span> <strong>' + (activeAvatarItem ? escapeHtml(activeAvatarItem.name) : '<span style="color:#64748b;">Default</span>') + '</strong>',
@@ -1463,6 +1490,7 @@
     getVault: function() { return currentVault; },
     getCurrentVault: function() { return currentVault; },
     getFrameCssClass: getFrameCssClass,
+    getFinishCssClass: getFinishCssClass,
     getGlory: function() { return currentGlory; }
   };
 

@@ -1086,6 +1086,9 @@ function renderMyHub(data) {
   const activeFrameId = myEq.active_card_frame;
   const frameClass = activeFrameId ? (window.Armory && typeof window.Armory.getFrameCssClass === 'function' ? window.Armory.getFrameCssClass(activeFrameId) : activeFrameId.replace(/_/g, '-')) : '';
 
+  const activeFinishId = myEq.active_card_finish;
+  const finishClass = activeFinishId ? (window.Armory && typeof window.Armory.getFinishCssClass === 'function' ? window.Armory.getFinishCssClass(activeFinishId) : (activeFinishId === 'frame_astral_holofoil' || activeFinishId.includes('holofoil') ? 'finish-astral-holofoil' : activeFinishId.replace(/_/g, '-'))) : '';
+
   const activeTitleId = myEq.active_title;
   let titleHtml = '';
   if (activeTitleId) {
@@ -1113,7 +1116,7 @@ function renderMyHub(data) {
   let html = `
     <div id="my-hub-container" class="my-hub-container" data-active-tab="${currentHubSubtab || 'active'}">
       <!-- Upgraded 16-Tier Competitor Hero Card with Military Rank Border -->
-      <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''} ${frameClass}" style="margin-bottom: 1.25rem;">
+      <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''} ${frameClass} ${finishClass}" style="margin-bottom: 1.25rem;">
         <div class="profile-hero-top">
           <div class="profile-identity-group">
             <div class="profile-rank-crest" title="${escapeHtml(tier.name)}" data-default-icon="${escapeHtml(tier.icon)}" style="${avatarSigilStyle}">

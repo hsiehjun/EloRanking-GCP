@@ -863,17 +863,17 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         "name": "Astral Holo-Foil Finish",
         "game_system": "40k",
         "wing": "profile_forge",
-        "slot": "active_card_frame",
+        "slot": "active_card_finish",
         "rarity": "master_crafted",
         "cost_glory": 3700,
         "is_consumable": False,
         "bundle_count": 1,
         "prerequisite": None,
         "icon": "✨",
-        "description": "Shimmering prismatic diffraction sheen across your Hero Profile Card. Bends ambient light as you tilt or inspect.",
+        "description": "Shimmering prismatic diffraction sheen across your Hero Profile Card. Overlays ambient light refraction atop your card frame and border.",
         "payload": {
-            "css_class": "frame-astral-holofoil",
-            "border_glow": "0 0 25px rgba(236, 72, 153, 0.45)"
+            "css_class": "finish-astral-holofoil",
+            "finish_type": "holofoil"
         }
     },
     {
@@ -3080,7 +3080,8 @@ ARMORY_ALIASES: Dict[str, str] = {
     "avatar_sigil_orks": "avatar_orks",
     "avatar_sigil_chaos": "avatar_chaos_space_marines",
     "frame_molten_core": "frame_peak_high_warlord",
-    "frame_cyber_grid": "frame_cyber_matrix"
+    "frame_cyber_grid": "frame_cyber_matrix",
+    "finish_astral_holofoil": "frame_astral_holofoil"
 }
 
 
@@ -3113,6 +3114,10 @@ def get_armory_catalog(
         is_equipped = False
         slot = item.get("slot")
         if slot and equipped.get(slot) == item_id:
+            is_equipped = True
+        elif item_id in ("frame_astral_holofoil", "finish_astral_holofoil") and (
+            equipped.get("active_card_finish") == item_id or equipped.get("active_card_frame") == item_id
+        ):
             is_equipped = True
 
         # Check prerequisite (Crest Tier, Peak Elo, and Championships)

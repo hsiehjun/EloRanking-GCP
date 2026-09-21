@@ -411,6 +411,9 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
   const activeFrameId = playerEq.active_card_frame;
   const frameClass = activeFrameId ? (window.Armory && typeof window.Armory.getFrameCssClass === 'function' ? window.Armory.getFrameCssClass(activeFrameId) : activeFrameId.replace(/_/g, '-')) : '';
 
+  const activeFinishId = playerEq.active_card_finish;
+  const finishClass = activeFinishId ? (window.Armory && typeof window.Armory.getFinishCssClass === 'function' ? window.Armory.getFinishCssClass(activeFinishId) : (activeFinishId === 'frame_astral_holofoil' || activeFinishId.includes('holofoil') ? 'finish-astral-holofoil' : activeFinishId.replace(/_/g, '-'))) : '';
+
   const activeTitleId = playerEq.active_title;
   let titleHtml = '';
   if (activeTitleId) {
@@ -437,7 +440,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
 
   container.innerHTML = `
     <!-- Dynamic Hero Banner Card with Military Rank Border -->
-    <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''} ${frameClass}">
+    <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''} ${frameClass} ${finishClass}">
       <div class="profile-hero-top">
         <div class="profile-identity-group">
           <div class="profile-rank-crest" title="${escapeHtml(tier.name)}" data-default-icon="${escapeHtml(tier.icon)}" style="${avatarSigilStyle}">

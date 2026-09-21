@@ -358,18 +358,21 @@ def _get_dev_user_glory_and_stats():
             "dice_dark_angels_caliban": {"id": "dice_dark_angels_caliban", "purchased_at": "2026-09-12T12:00:00Z"},
             "frame_peak_high_warlord": {"id": "frame_peak_high_warlord", "purchased_at": "2026-09-14T12:00:00Z"},
             "avatar_dark_angels": {"id": "avatar_dark_angels", "purchased_at": "2026-09-08T12:00:00Z"},
-            "title_gt_champion": {"id": "title_gt_champion", "purchased_at": "2026-09-12T12:00:00Z"}
+            "title_gt_champion": {"id": "title_gt_champion", "purchased_at": "2026-09-12T12:00:00Z"},
+            "frame_astral_holofoil": {"id": "frame_astral_holofoil", "purchased_at": "2026-09-18T12:00:00Z"}
         },
         "equipped": {
             "40k": {
                 "active_dice": "dice_molten_magma",
                 "active_card_frame": "frame_peak_high_warlord",
+                "active_card_finish": "frame_astral_holofoil",
                 "active_title": "title_gt_champion",
                 "active_avatar": "avatar_dark_angels"
             },
-            "aos": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None},
+            "aos": {"active_dice": None, "active_card_frame": None, "active_card_finish": None, "active_title": None, "active_avatar": None},
             "active_dice": "dice_molten_magma",
             "active_card_frame": "frame_peak_high_warlord",
+            "active_card_finish": "frame_astral_holofoil",
             "active_title": "title_gt_champion",
             "active_avatar": "avatar_dark_angels"
         }

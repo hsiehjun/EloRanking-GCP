@@ -12626,15 +12626,15 @@ table.desktop-only,
    EFFECT DISPATCHER COSMETICS (HERO CARD & PROFILE STYLES)
    ========================================================================== */
 
-/* 1. Astral Holo-Foil Card Shimmer */
-.frame-astral-holofoil {
+/* 1. Astral Holo-Foil Card Finish Overlay */
+.frame-astral-holofoil,
+.finish-astral-holofoil {
   position: relative !important;
-  border-color: #c084fc !important;
-  box-shadow: 0 0 25px rgba(192, 132, 252, 0.45) !important;
   overflow: hidden !important;
 }
 
-.frame-astral-holofoil::before {
+.frame-astral-holofoil::before,
+.finish-astral-holofoil::before {
   content: "";
   position: absolute;
   top: -50%;
@@ -12644,16 +12644,20 @@ table.desktop-only,
   background: linear-gradient(
     115deg,
     transparent 20%,
-    rgba(255, 0, 128, 0.12) 32%,
-    rgba(0, 255, 255, 0.18) 45%,
-    rgba(255, 230, 0, 0.22) 54%,
-    rgba(0, 255, 128, 0.15) 65%,
+    rgba(255, 0, 128, 0.16) 32%,
+    rgba(0, 255, 255, 0.22) 45%,
+    rgba(255, 230, 0, 0.26) 54%,
+    rgba(0, 255, 128, 0.18) 65%,
     transparent 78%
   );
   transform: rotate(-15deg);
   animation: holofoilSweep 8s ease-in-out infinite alternate;
   pointer-events: none;
-  z-index: 1;
+  z-index: 2;
+}
+
+.finish-astral-holofoil:not([class*="frame-"]) {
+  box-shadow: 0 0 25px rgba(192, 132, 252, 0.35) !important;
 }
 
 @keyframes holofoilSweep {
