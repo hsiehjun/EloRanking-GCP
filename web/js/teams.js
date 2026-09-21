@@ -1048,11 +1048,55 @@ function navigateToUserTeam() {
    CONSOLIDATED TEAM HALL OF CHAMPIONS
    ========================================================================== */
 
-let currentTeamSilverwareFilter = 'all';
+let teamReliquaryState = {
+  filter: 'all',
+  sort: 'tier_desc', // 'tier_desc', 'date_desc', 'players_desc', 'player_asc'
+  searchQuery: '',
+  currentPage: 1,
+  pageSize: 12,
+  isPaginated: true,
+  isMvpExpanded: false,
+  isMvpSectionCollapsed: false,
+  isReliquaryCollapsed: false
+};
+
+function toggleTeamMvpSection() {
+  teamReliquaryState.isMvpSectionCollapsed = !teamReliquaryState.isMvpSectionCollapsed;
+  const body = document.getElementById('team-mvp-section-body');
+  const btn = document.getElementById('team-mvp-section-toggle-btn');
+  if (body) body.style.display = teamReliquaryState.isMvpSectionCollapsed ? 'none' : 'block';
+  if (btn) {
+    btn.innerHTML = `<span>${teamReliquaryState.isMvpSectionCollapsed ? '▶ Expand Section' : '─ Collapse Section'}</span>`;
+  }
+}
+
+function toggleTeamMvpExpand() {
+  teamReliquaryState.isMvpExpanded = !teamReliquaryState.isMvpExpanded;
+  const extraCards = document.querySelectorAll('#team-mvp-grid .team-mvp-extra-card');
+  extraCards.forEach(c => {
+    c.style.display = teamReliquaryState.isMvpExpanded ? 'block' : 'none';
+  });
+  const btn = document.getElementById('team-mvp-expand-btn');
+  if (btn) {
+    const totalCount = document.querySelectorAll('#team-mvp-grid .profile-spotlight-card').length;
+    btn.innerHTML = `<span>${teamReliquaryState.isMvpExpanded ? '▲ Show Top 3 Only' : `▼ View All ${totalCount} Decorated Champions (${totalCount - 3} More)`}</span>`;
+  }
+}
+
+function toggleTeamReliquarySection() {
+  teamReliquaryState.isReliquaryCollapsed = !teamReliquaryState.isReliquaryCollapsed;
+  const body = document.getElementById('team-reliquary-section-body');
+  const btn = document.getElementById('team-reliquary-section-toggle-btn');
+  if (body) body.style.display = teamReliquaryState.isReliquaryCollapsed ? 'none' : 'block';
+  if (btn) {
+    btn.innerHTML = `<span>${teamReliquaryState.isReliquaryCollapsed ? '▶ Expand Reliquary' : '─ Collapse Reliquary'}</span>`;
+  }
+}
 
 function setTeamSilverwareFilter(tier) {
-  currentTeamSilverwareFilter = tier;
-  const filterBtns = ['all', 'major', 'gt', 'rtt', 'undefeated'];
+  teamReliquaryState.filter = tier;
+  teamReliquaryState.currentPage = 1;
+  const filterBtns = ['all', 'major', 'gt', 'rtt'];
   filterBtns.forEach(f => {
     const btn = document.getElementById(`team-trophy-filter-btn-${f}`);
     if (btn) {
@@ -1062,49 +1106,187 @@ function setTeamSilverwareFilter(tier) {
       btn.style.borderColor = isActive ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.1)';
     }
   });
-  filterTeamSilverwareGrid();
+  renderTeamReliquaryGridAndPagination();
+}
+
+function setTeamSilverwareSort(sortMode) {
+  teamReliquaryState.sort = sortMode;
+  teamReliquaryState.currentPage = 1;
+  renderTeamReliquaryGridAndPagination();
+}
+
+function setTeamSilverwarePage(pageNum) {
+  teamReliquaryState.currentPage = pageNum;
+  renderTeamReliquaryGridAndPagination();
+  const reliquarySection = document.getElementById('team-reliquary-section-body');
+  if (reliquarySection && reliquarySection.getBoundingClientRect().top < 0) {
+    reliquarySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function toggleTeamSilverwarePagination() {
+  teamReliquaryState.isPaginated = !teamReliquaryState.isPaginated;
+  teamReliquaryState.currentPage = 1;
+  const toggleBtn = document.getElementById('team-trophies-page-toggle-btn');
+  if (toggleBtn) {
+    toggleBtn.innerHTML = `<span>${teamReliquaryState.isPaginated ? '📄 12 Per Page' : '📜 Showing All'}</span>`;
+  }
+  renderTeamReliquaryGridAndPagination();
 }
 
 function filterTeamSilverwareGrid() {
   const searchInput = document.getElementById('team-trophies-search-input');
-  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
-  const cards = document.querySelectorAll('#team-trophies-grid .team-trophy-card');
-  let visibleCount = 0;
+  teamReliquaryState.searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  teamReliquaryState.currentPage = 1;
+  renderTeamReliquaryGridAndPagination();
+}
 
-  cards.forEach(card => {
-    const cardTier = card.getAttribute('data-tier') || '';
-    const isUndefeated = card.getAttribute('data-undefeated') === 'true';
-    const player = card.getAttribute('data-player') || '';
-    const evName = card.getAttribute('data-event') || '';
-    const faction = card.getAttribute('data-faction') || '';
+function getFilteredAndSortedTeamSilverware(items) {
+  let list = Array.isArray(items) ? items.slice() : [];
 
-    let matchesTier = true;
-    if (currentTeamSilverwareFilter === 'major') {
-      matchesTier = (cardTier === 'major' || cardTier === 'super_major');
-    } else if (currentTeamSilverwareFilter === 'gt') {
-      matchesTier = (cardTier === 'gt');
-    } else if (currentTeamSilverwareFilter === 'rtt') {
-      matchesTier = (cardTier === 'rtt');
-    } else if (currentTeamSilverwareFilter === 'undefeated') {
-      matchesTier = isUndefeated;
-    }
+  // 1. Tier filter
+  if (teamReliquaryState.filter === 'major') {
+    list = list.filter(c => c.tier === 'major' || c.tier === 'super_major');
+  } else if (teamReliquaryState.filter === 'gt') {
+    list = list.filter(c => c.tier === 'gt');
+  } else if (teamReliquaryState.filter === 'rtt') {
+    list = list.filter(c => c.tier === 'rtt');
+  }
 
-    let matchesSearch = true;
-    if (query) {
-      matchesSearch = evName.includes(query) || player.includes(query) || faction.includes(query);
-    }
+  // 2. Search filter
+  if (teamReliquaryState.searchQuery) {
+    const q = teamReliquaryState.searchQuery;
+    list = list.filter(c => {
+      const ev = (c.event_name || '').toLowerCase();
+      const pl = (c.player_name || '').toLowerCase();
+      const fa = (c.faction || '').toLowerCase();
+      return ev.includes(q) || pl.includes(q) || fa.includes(q);
+    });
+  }
 
-    if (matchesTier && matchesSearch) {
-      card.style.display = '';
-      visibleCount++;
-    } else {
-      card.style.display = 'none';
-    }
-  });
+  // 3. Sorting
+  const tierWeights = { 'super_major': 4, 'major': 3, 'gt': 2, 'rtt': 1 };
+  if (teamReliquaryState.sort === 'tier_desc') {
+    list.sort((a, b) => {
+      const wa = tierWeights[a.tier] || 0;
+      const wb = tierWeights[b.tier] || 0;
+      if (wb !== wa) return wb - wa;
+      return String(b.event_date || '').localeCompare(String(a.event_date || ''));
+    });
+  } else if (teamReliquaryState.sort === 'date_desc') {
+    list.sort((a, b) => String(b.event_date || '').localeCompare(String(a.event_date || '')));
+  } else if (teamReliquaryState.sort === 'players_desc') {
+    list.sort((a, b) => (Number(b.total_players || 0) - Number(a.total_players || 0)) || (Number(b.num_rounds || 0) - Number(a.num_rounds || 0)));
+  } else if (teamReliquaryState.sort === 'player_asc') {
+    list.sort((a, b) => String(a.player_name || '').localeCompare(String(b.player_name || '')));
+  }
 
+  return list;
+}
+
+function renderSingleTrophyCardHtml(item) {
+  const tierClass = 'tier-' + (item.tier || 'rtt').replace(/_/g, '-');
+  const ribbonHtml = item.undefeated
+    ? '<div class="champ-trophy-ribbon" title="Flawless Undefeated Championship Run">⭐ UNDEFEATED</div>'
+    : '';
+  const trophySvg = (window.BadgesUI && window.BadgesUI.getTrophySvg)
+    ? window.BadgesUI.getTrophySvg(item.trophy_type || 'bronze_laurel_plaque')
+    : '🏆';
+  const itemEncoded = encodeURIComponent(JSON.stringify(item));
+  const cleanPlayer = item.player_name || 'Squad Member';
+
+  return `
+    <div class="champ-trophy-card ${tierClass} team-trophy-card" data-chronicle="${itemEncoded}" data-tier="${escapeHtml(item.tier || 'rtt')}" data-undefeated="${item.undefeated ? 'true' : 'false'}" data-player="${escapeHtml(cleanPlayer.toLowerCase())}" data-event="${escapeHtml((item.event_name || '').toLowerCase())}" data-faction="${escapeHtml((item.faction || '').toLowerCase())}" onclick="window.BadgesUI.openVictoryChronicleFromElement(this)" title="Click to inspect Victory Chronicle for ${escapeHtml(item.event_name)}">
+      ${ribbonHtml}
+      <div class="champ-trophy-icon-wrap">${trophySvg}</div>
+      <div class="champ-trophy-tier-tag">${escapeHtml((item.tier_title || 'Champion').toUpperCase())}</div>
+      <div class="champ-trophy-name" title="${escapeHtml(item.event_name)}">${escapeHtml(item.event_name)}</div>
+      <div class="champ-trophy-player-pill" style="font-size:0.75rem; color:#38bdf8; font-weight:700; margin: 0.2rem 0 0.35rem; display: flex; align-items: center; justify-content: center; gap: 0.25rem;">
+        <span>👤</span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Won by ${escapeHtml(cleanPlayer)}</span>
+      </div>
+      <div class="champ-trophy-meta">
+        <span class="champ-meta-record">${escapeHtml(item.record || '')}</span>
+        <span class="champ-meta-dot">&bull;</span>
+        <span class="champ-meta-players">${item.total_players ? `${item.total_players} Players` : `${item.num_rounds || 3} Rnds`}</span>
+      </div>
+      <div class="champ-trophy-footer">
+        <span class="champ-meta-faction" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">🛡️ ${escapeHtml(item.faction || 'General')}</span>
+        <span class="champ-meta-glory">+${item.glory_bonus || 0} Glory</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderTeamReliquaryGridAndPagination() {
+  if (!currentProfileTeamData) return;
+  const championships = currentProfileTeamData.championships || { items: [] };
+  const allItems = Array.isArray(championships.items) ? championships.items : [];
+  const filtered = getFilteredAndSortedTeamSilverware(allItems);
+
+  const grid = document.getElementById('team-trophies-grid');
   const emptyMsg = document.getElementById('team-trophies-empty-filter');
-  if (emptyMsg) {
-    emptyMsg.style.display = visibleCount === 0 ? 'block' : 'none';
+  const pagin = document.getElementById('team-trophies-pagination');
+  if (!grid) return;
+
+  if (filtered.length === 0) {
+    grid.innerHTML = '';
+    if (emptyMsg) emptyMsg.style.display = 'block';
+    if (pagin) pagin.style.display = 'none';
+    return;
+  }
+  if (emptyMsg) emptyMsg.style.display = 'none';
+
+  const pageSize = teamReliquaryState.pageSize || 12;
+  const totalPages = Math.ceil(filtered.length / pageSize);
+  if (teamReliquaryState.currentPage > totalPages) {
+    teamReliquaryState.currentPage = Math.max(1, totalPages);
+  }
+  const currentPage = teamReliquaryState.currentPage;
+
+  const startIdx = teamReliquaryState.isPaginated ? (currentPage - 1) * pageSize : 0;
+  const endIdx = teamReliquaryState.isPaginated ? Math.min(startIdx + pageSize, filtered.length) : filtered.length;
+  const pageItems = filtered.slice(startIdx, endIdx);
+
+  grid.innerHTML = pageItems.map(item => renderSingleTrophyCardHtml(item)).join('\n');
+
+  if (pagin) {
+    if (!teamReliquaryState.isPaginated || totalPages <= 1) {
+      pagin.style.display = 'flex';
+      pagin.innerHTML = `
+        <div style="font-size: 0.78rem; color: var(--text-secondary); width: 100%; text-align: center; padding: 0.5rem 0;">
+          Showing all <strong style="color: var(--accent);">${filtered.length}</strong> of ${allItems.length} trophies
+        </div>
+      `;
+    } else {
+      pagin.style.display = 'flex';
+      let pagePills = '';
+      for (let p = 1; p <= totalPages; p++) {
+        const isCurrent = p === currentPage;
+        pagePills += `
+          <button type="button" class="btn ${isCurrent ? 'btn-primary' : 'btn-outline'} btn-sm" onclick="setTeamSilverwarePage(${p})" style="font-size: 0.74rem; padding: 0.25rem 0.6rem; min-width: 32px; ${isCurrent ? 'font-weight: 800;' : ''}">
+            ${p}
+          </button>
+        `;
+      }
+
+      pagin.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 0.75rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 0.5rem;">
+          <div style="font-size: 0.78rem; color: var(--text-secondary);">
+            Showing <strong style="color: #fff;">${startIdx + 1}–${endIdx}</strong> of <strong style="color: var(--accent);">${filtered.length}</strong> Trophies (Page ${currentPage} of ${totalPages})
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="setTeamSilverwarePage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''} style="font-size: 0.74rem; padding: 0.25rem 0.65rem;">
+              « Prev
+            </button>
+            ${pagePills}
+            <button type="button" class="btn btn-outline btn-sm" onclick="setTeamSilverwarePage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''} style="font-size: 0.74rem; padding: 0.25rem 0.65rem;">
+              Next »
+            </button>
+          </div>
+        </div>
+      `;
+    }
   }
 }
 
@@ -1113,13 +1295,12 @@ function renderTeamTrophiesPanel(data, sys) {
   const championships = data.championships || { total: 0, items: [], top_champions: [], factions_distribution: [] };
   const items = Array.isArray(championships.items) ? championships.items : [];
   const topChamps = Array.isArray(championships.top_champions) ? championships.top_champions : [];
+  const factionsDist = Array.isArray(championships.factions_distribution) ? championships.factions_distribution : [];
 
   const totalTitles = championships.total || items.length;
   const majorWins = (championships.major_wins != null ? championships.major_wins : 0) + (championships.super_major_wins != null ? championships.super_major_wins : 0);
   const gtWins = championships.gt_wins != null ? championships.gt_wins : items.filter(c => c.tier === 'gt').length;
   const rttWins = championships.rtt_wins != null ? championships.rtt_wins : items.filter(c => c.tier === 'rtt').length;
-  const undefeatedCount = championships.undefeated_count != null ? championships.undefeated_count : items.filter(c => c.undefeated).length;
-  const totalGlory = championships.championship_glory != null ? championships.championship_glory : items.reduce((acc, c) => acc + (c.glory_bonus || 0), 0);
 
   const topAce = topChamps.length > 0 ? topChamps[0] : null;
 
@@ -1136,9 +1317,15 @@ function renderTeamTrophiesPanel(data, sys) {
     `;
   }
 
-  // 4 KPI Cards
+  // 4 Core KPI Cards (Real, authentic tournament wargaming metrics)
+  const rosterCount = (data.roster && data.roster.length) || 29;
+  const champsCount = topChamps.length;
+  const champsPct = rosterCount > 0 ? Math.round((champsCount / rosterCount) * 100) : 0;
+  const topFactionsSummary = factionsDist.slice(0, 3).map(f => f.faction).join(', ') + (factionsDist.length > 3 ? ` +${factionsDist.length - 3} more` : '');
+
   const kpisHtml = `
     <div class="profile-kpi-grid team-kpi-grid" style="margin-bottom: 1.25rem;">
+      <!-- KPI 1: Total Championships -->
       <div class="profile-kpi-card" style="border-color: rgba(245, 158, 11, 0.4); background: radial-gradient(circle at top, rgba(245, 158, 11, 0.12), rgba(15, 23, 42, 0.95));">
         <div class="profile-kpi-label">🏆 Total Championships</div>
         <div class="profile-kpi-value" style="font-family: var(--font-mono); font-size: 1.45rem; font-weight: 800; color: #fbbf24; margin-top: 0.2rem;">
@@ -1147,28 +1334,31 @@ function renderTeamTrophiesPanel(data, sys) {
         <div class="profile-kpi-sub" style="color: #cbd5e1;">${majorWins > 0 ? `${majorWins} Major${majorWins > 1 ? 's' : ''} • ` : ''}${gtWins} GTs • ${rttWins} RTTs</div>
       </div>
 
-      <div class="profile-kpi-card" style="border-color: rgba(16, 185, 129, 0.4); background: radial-gradient(circle at top, rgba(16, 185, 129, 0.12), rgba(15, 23, 42, 0.95));">
-        <div class="profile-kpi-label">⭐ Flawless Undefeated</div>
-        <div class="profile-kpi-value" style="font-family: var(--font-mono); font-size: 1.45rem; font-weight: 800; color: #10b981; margin-top: 0.2rem;">
-          ${undefeatedCount} <span style="font-size: 0.82rem; font-weight: 700; color: #a7f3d0;">Runs</span>
+      <!-- KPI 2: Squad Champion Breadth (replacing Flawless Undefeated) -->
+      <div class="profile-kpi-card" style="border-color: rgba(168, 85, 247, 0.4); background: radial-gradient(circle at top, rgba(168, 85, 247, 0.12), rgba(15, 23, 42, 0.95));">
+        <div class="profile-kpi-label">🎖️ Titled Champions</div>
+        <div class="profile-kpi-value" style="font-family: var(--font-mono); font-size: 1.45rem; font-weight: 800; color: #c084fc; margin-top: 0.2rem;">
+          ${champsCount} <span style="font-size: 0.82rem; font-weight: 700; color: #e9d5ff;">Winners</span>
         </div>
-        <div class="profile-kpi-sub" style="color: #cbd5e1;">0 Tournament Losses</div>
+        <div class="profile-kpi-sub" style="color: #cbd5e1;">${champsPct}% of Squad Decorated (${champsCount} of ${rosterCount} Competitors)</div>
       </div>
 
-      <div class="profile-kpi-card" style="border-color: rgba(250, 204, 21, 0.4); background: radial-gradient(circle at top, rgba(250, 204, 21, 0.12), rgba(15, 23, 42, 0.95));">
-        <div class="profile-kpi-label">💰 Squad Glory Harvest</div>
-        <div class="profile-kpi-value" style="font-family: var(--font-mono); font-size: 1.45rem; font-weight: 800; color: #facc15; margin-top: 0.2rem;">
-          +${Number(totalGlory).toLocaleString()}
-        </div>
-        <div class="profile-kpi-sub" style="color: #cbd5e1;">Glory Honor Harvested</div>
-      </div>
-
+      <!-- KPI 3: Winning Army Factions (replacing Squad Glory Harvest) -->
       <div class="profile-kpi-card" style="border-color: rgba(56, 189, 248, 0.4); background: radial-gradient(circle at top, rgba(56, 189, 248, 0.12), rgba(15, 23, 42, 0.95));">
+        <div class="profile-kpi-label">🛡️ Winning Armies</div>
+        <div class="profile-kpi-value" style="font-family: var(--font-mono); font-size: 1.45rem; font-weight: 800; color: #38bdf8; margin-top: 0.2rem;">
+          ${factionsDist.length} <span style="font-size: 0.82rem; font-weight: 700; color: #bae6fd;">Factions</span>
+        </div>
+        <div class="profile-kpi-sub" style="color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(topFactionsSummary)}">${escapeHtml(topFactionsSummary)}</div>
+      </div>
+
+      <!-- KPI 4: All-Time Trophy Leader -->
+      <div class="profile-kpi-card" style="border-color: rgba(234, 179, 8, 0.4); background: radial-gradient(circle at top, rgba(234, 179, 8, 0.12), rgba(15, 23, 42, 0.95));">
         <div class="profile-kpi-label">👑 Squad Trophy Leader</div>
-        <div class="profile-kpi-value" style="font-size: 1.05rem; font-weight: 800; color: #38bdf8; margin-top: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+        <div class="profile-kpi-value" style="font-size: 1.15rem; font-weight: 800; color: #fde047; margin-top: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
           ${topAce ? escapeHtml(topAce.player_name) : '-'}
         </div>
-        <div class="profile-kpi-sub" style="color: #cbd5e1;">${topAce ? `${topAce.titles_count} Championships Won` : 'Squad Anchors'}</div>
+        <div class="profile-kpi-sub" style="color: #cbd5e1;">${topAce ? `${topAce.titles_count} Championships Won • ${escapeHtml(topAce.role || 'Top Ace')}` : 'Squad Anchors'}</div>
       </div>
     </div>
   `;
@@ -1185,8 +1375,12 @@ function renderTeamTrophiesPanel(data, sys) {
       if (tc.gts > 0) breakdown.push(`<span style="color: #e2e8f0; font-weight: 700;">${tc.gts} GT${tc.gts > 1 ? 's' : ''}</span>`);
       if (tc.rtts > 0) breakdown.push(`<span style="color: #d97706; font-weight: 700;">${tc.rtts} RTT${tc.rtts > 1 ? 's' : ''}</span>`);
 
+      const isExtra = idx >= 3;
+      const extraClass = isExtra ? 'team-mvp-extra-card' : '';
+      const extraStyle = isExtra ? (teamReliquaryState.isMvpExpanded ? 'display: block;' : 'display: none;') : '';
+
       return `
-        <div class="profile-spotlight-card" style="cursor: pointer; ${borderGlow} transition: transform 0.15s ease, border-color 0.15s ease; padding: 0.85rem 1rem;" onclick="openPlayerModal('${escapeHtml(tc.player_id || '')}', '${cleanJsName}')" onmouseover="this.style.borderColor='rgba(56,189,248,0.5)'" onmouseout="this.style.borderColor='${idx === 0 ? 'rgba(245,158,11,0.6)' : 'rgba(255,255,255,0.08)'}'" title="Scout ${escapeHtml(tc.player_name)}">
+        <div class="profile-spotlight-card ${extraClass}" style="${extraStyle} cursor: pointer; ${borderGlow} transition: transform 0.15s ease, border-color 0.15s ease; padding: 0.85rem 1rem;" onclick="openPlayerModal('${escapeHtml(tc.player_id || '')}', '${cleanJsName}')" onmouseover="this.style.borderColor='rgba(56,189,248,0.5)'" onmouseout="this.style.borderColor='${idx === 0 ? 'rgba(245,158,11,0.6)' : 'rgba(255,255,255,0.08)'}'" title="Scout ${escapeHtml(tc.player_name)}">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
             <div style="display: flex; align-items: center; gap: 0.4rem;">
               <span style="font-size: 1.05rem;">${rankIcon}</span>
@@ -1204,75 +1398,54 @@ function renderTeamTrophiesPanel(data, sys) {
           </div>
           <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.74rem; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.35rem; margin-top: 0.2rem;">
             <span>🛡️ ${escapeHtml(tc.primary_faction || 'General')}</span>
-            <span style="color: #facc15; font-weight: 700; font-family: var(--font-mono);">+${Number(tc.glory_contributed || 0).toLocaleString()} Glory</span>
+            <span style="color: #38bdf8; font-weight: 700;">Scout Profile →</span>
           </div>
         </div>
       `;
     }).join('');
 
+    const hasMoreThan3 = topChamps.length > 3;
+    const expandBtnHtml = hasMoreThan3 ? `
+      <div style="text-align: center; margin-top: 0.85rem;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="toggleTeamMvpExpand()" id="team-mvp-expand-btn" style="font-size: 0.78rem; font-weight: 700; padding: 0.4rem 1.1rem; border-color: rgba(255,255,255,0.15); border-radius: 6px;">
+          <span>${teamReliquaryState.isMvpExpanded ? '▲ Show Top 3 Only' : `▼ View All ${topChamps.length} Decorated Champions (${topChamps.length - 3} More)`}</span>
+        </button>
+      </div>
+    ` : '';
+
     podiumHtml = `
       <div class="profile-hero-card" style="padding: 1.25rem; margin-bottom: 1.25rem;">
-        <div style="margin-bottom: 0.85rem;">
-          <h4 style="font-size: 0.98rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.45rem;">
-            <span>👑</span>
-            <span>Club MVP Champions (Most Titles Won)</span>
-          </h4>
-          <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.2rem;">
-            Competitors who have brought the most tournament silverware home to the clubhouse.
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <h4 style="font-size: 0.98rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.45rem;">
+              <span>👑</span>
+              <span>Club MVP Champions (Most Titles Won)</span>
+            </h4>
+            <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.2rem;">
+              Competitors who have brought the most tournament silverware home to the clubhouse.
+            </div>
+          </div>
+          <div>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="toggleTeamMvpSection()" id="team-mvp-section-toggle-btn" style="font-size: 0.76rem; padding: 0.3rem 0.65rem; color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;">
+              <span>${teamReliquaryState.isMvpSectionCollapsed ? '▶ Expand Section' : '─ Collapse Section'}</span>
+            </button>
           </div>
         </div>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.75rem;">
-          ${podiumCards}
+
+        <div id="team-mvp-section-body" style="${teamReliquaryState.isMvpSectionCollapsed ? 'display: none;' : 'display: block;'}">
+          <div id="team-mvp-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.75rem;">
+            ${podiumCards}
+          </div>
+          ${expandBtnHtml}
         </div>
       </div>
     `;
   }
 
-  // Silverware Reliquary Cards Grid
-  const cardsHtml = items.map((item) => {
-    const tierClass = 'tier-' + (item.tier || 'rtt').replace(/_/g, '-');
-    const ribbonHtml = item.undefeated
-      ? '<div class="champ-trophy-ribbon" title="Flawless Undefeated Championship Run">⭐ UNDEFEATED</div>'
-      : '';
-    const trophySvg = (window.BadgesUI && window.BadgesUI.getTrophySvg)
-      ? window.BadgesUI.getTrophySvg(item.trophy_type || 'bronze_laurel_plaque')
-      : '🏆';
-    const itemEncoded = encodeURIComponent(JSON.stringify(item));
-    const cleanPlayer = item.player_name || 'Squad Member';
-
-    return `
-      <div class="champ-trophy-card ${tierClass} team-trophy-card" data-chronicle="${itemEncoded}" data-tier="${escapeHtml(item.tier || 'rtt')}" data-undefeated="${item.undefeated ? 'true' : 'false'}" data-player="${escapeHtml(cleanPlayer.toLowerCase())}" data-event="${escapeHtml((item.event_name || '').toLowerCase())}" data-faction="${escapeHtml((item.faction || '').toLowerCase())}" onclick="window.BadgesUI.openVictoryChronicleFromElement(this)" title="Click to inspect Victory Chronicle for ${escapeHtml(item.event_name)}">
-        ${ribbonHtml}
-        <div class="champ-trophy-icon-wrap">${trophySvg}</div>
-        <div class="champ-trophy-tier-tag">${escapeHtml((item.tier_title || 'Champion').toUpperCase())}</div>
-        <div class="champ-trophy-name" title="${escapeHtml(item.event_name)}">${escapeHtml(item.event_name)}</div>
-        <div class="champ-trophy-player-pill" style="font-size:0.75rem; color:#38bdf8; font-weight:700; margin: 0.2rem 0 0.35rem; display: flex; align-items: center; justify-content: center; gap: 0.25rem;">
-          <span>👤</span>
-          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Won by ${escapeHtml(cleanPlayer)}</span>
-        </div>
-        <div class="champ-trophy-meta">
-          <span class="champ-meta-record">${escapeHtml(item.record || '')}</span>
-          <span class="champ-meta-dot">&bull;</span>
-          <span class="champ-meta-players">${item.total_players ? `${item.total_players} Players` : `${item.num_rounds || 3} Rnds`}</span>
-        </div>
-        <div class="champ-trophy-footer">
-          <span class="champ-meta-faction" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">🛡️ ${escapeHtml(item.faction || 'General')}</span>
-          <span class="champ-meta-glory">+${item.glory_bonus || 0} Glory</span>
-        </div>
-      </div>
-    `;
-  }).join('\n');
-
-  return `
-    <!-- Top KPI Stats Grid -->
-    ${kpisHtml}
-
-    <!-- MVP Champions Podium -->
-    ${podiumHtml}
-
-    <!-- Filter & Reliquary Grid Container -->
+  // Silverware Reliquary Section
+  const reliquaryHtml = `
     <div class="profile-hero-card" style="padding: 1.25rem;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
         <div>
           <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.5rem;">
             <span>🏛️</span>
@@ -1280,50 +1453,91 @@ function renderTeamTrophiesPanel(data, sys) {
           </h3>
           <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.2rem;">
             All sanctioned tournament victories and 1st place finishes claimed under the club banner.
-            <span style="color: var(--accent); font-weight: 600;">(Click any trophy to inspect the official tournament chronicle)</span>
+            <span style="color: var(--accent); font-weight: 600;">(Click any trophy to inspect the official chronicle)</span>
           </div>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; width: 100%; max-width: 480px;">
-          <input type="text" id="team-trophies-search-input" class="form-control" placeholder="Search by tournament, player, or faction..." oninput="filterTeamSilverwareGrid()" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 0.45rem 0.8rem; font-size: 0.8rem; color: #fff; width: 100%;" />
+        <div>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="toggleTeamReliquarySection()" id="team-reliquary-section-toggle-btn" style="font-size: 0.76rem; padding: 0.3rem 0.65rem; color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;">
+            <span>${teamReliquaryState.isReliquaryCollapsed ? '▶ Expand Reliquary' : '─ Collapse Reliquary'}</span>
+          </button>
         </div>
       </div>
 
-      <!-- Quick Filter Pills -->
-      <div style="display: flex; align-items: center; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.65rem; margin-bottom: 0.85rem;" class="team-trophy-filters">
-        <button type="button" class="badge active" id="team-trophy-filter-btn-all" onclick="setTeamSilverwareFilter('all')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: rgba(56,189,248,0.2); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4);">
-          All Silverware (${items.length})
-        </button>
-        ${majorWins > 0 ? `
-          <button type="button" class="badge" id="team-trophy-filter-btn-major" onclick="setTeamSilverwareFilter('major')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: rgba(255,255,255,0.04); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);">
-            🥇 Majors (${majorWins})
-          </button>
-        ` : ''}
-        ${gtWins > 0 ? `
-          <button type="button" class="badge" id="team-trophy-filter-btn-gt" onclick="setTeamSilverwareFilter('gt')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: rgba(255,255,255,0.04); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);">
-            🥈 Grand Tournaments (${gtWins})
-          </button>
-        ` : ''}
-        ${rttWins > 0 ? `
-          <button type="button" class="badge" id="team-trophy-filter-btn-rtt" onclick="setTeamSilverwareFilter('rtt')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: rgba(255,255,255,0.04); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);">
-            🥉 RTTs (${rttWins})
-          </button>
-        ` : ''}
-        ${undefeatedCount > 0 ? `
-          <button type="button" class="badge" id="team-trophy-filter-btn-undefeated" onclick="setTeamSilverwareFilter('undefeated')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: rgba(255,255,255,0.04); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);">
-            ⭐ Undefeated Only (${undefeatedCount})
-          </button>
-        ` : ''}
-      </div>
+      <div id="team-reliquary-section-body" style="${teamReliquaryState.isReliquaryCollapsed ? 'display: none;' : 'display: block;'}">
+        <!-- Control Bar: Search, Sort Selector & View Mode Toggle -->
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.6rem;">
+          <div style="flex: 1 1 220px; max-width: 380px;">
+            <input type="text" id="team-trophies-search-input" class="form-control" placeholder="Search by tournament, player, or faction..." oninput="filterTeamSilverwareGrid()" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 0.42rem 0.8rem; font-size: 0.8rem; color: #fff; width: 100%;" />
+          </div>
 
-      <!-- Trophies Grid -->
-      <div id="team-trophies-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.85rem;">
-        ${cardsHtml}
-      </div>
-      <div id="team-trophies-empty-filter" style="display: none; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
-        No tournament silverware matches your search filter.
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.3rem;">
+              <span style="font-size: 0.74rem; color: var(--text-muted);">Sort:</span>
+              <select id="team-trophies-sort-select" onchange="setTeamSilverwareSort(this.value)" class="form-control" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.12); color: #fff; border-radius: 6px; padding: 0.4rem 0.6rem; font-size: 0.78rem; cursor: pointer;">
+                <option value="tier_desc" ${teamReliquaryState.sort === 'tier_desc' ? 'selected' : ''}>⭐ Highest Tier First</option>
+                <option value="date_desc" ${teamReliquaryState.sort === 'date_desc' ? 'selected' : ''}>📅 Most Recent First</option>
+                <option value="players_desc" ${teamReliquaryState.sort === 'players_desc' ? 'selected' : ''}>👥 Largest Events First</option>
+                <option value="player_asc" ${teamReliquaryState.sort === 'player_asc' ? 'selected' : ''}>👤 Champion Name (A-Z)</option>
+              </select>
+            </div>
+
+            <button type="button" class="btn btn-outline btn-sm" onclick="toggleTeamSilverwarePagination()" id="team-trophies-page-toggle-btn" style="font-size: 0.76rem; padding: 0.4rem 0.7rem; border-color: rgba(255,255,255,0.12); white-space: nowrap;">
+              <span>${teamReliquaryState.isPaginated ? '📄 12 Per Page' : '📜 Showing All'}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Tier Filter Pills -->
+        <div style="display: flex; align-items: center; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.65rem; margin-bottom: 0.85rem;" class="team-trophy-filters">
+          <button type="button" class="badge ${teamReliquaryState.filter === 'all' ? 'active' : ''}" id="team-trophy-filter-btn-all" onclick="setTeamSilverwareFilter('all')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: ${teamReliquaryState.filter === 'all' ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.04)'}; color: ${teamReliquaryState.filter === 'all' ? '#38bdf8' : '#94a3b8'}; border: 1px solid ${teamReliquaryState.filter === 'all' ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.1)'};">
+            All Silverware (${items.length})
+          </button>
+          ${majorWins > 0 ? `
+            <button type="button" class="badge ${teamReliquaryState.filter === 'major' ? 'active' : ''}" id="team-trophy-filter-btn-major" onclick="setTeamSilverwareFilter('major')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: ${teamReliquaryState.filter === 'major' ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.04)'}; color: ${teamReliquaryState.filter === 'major' ? '#38bdf8' : '#94a3b8'}; border: 1px solid ${teamReliquaryState.filter === 'major' ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.1)'};">
+              🥇 Majors & Worlds (${majorWins})
+            </button>
+          ` : ''}
+          ${gtWins > 0 ? `
+            <button type="button" class="badge ${teamReliquaryState.filter === 'gt' ? 'active' : ''}" id="team-trophy-filter-btn-gt" onclick="setTeamSilverwareFilter('gt')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: ${teamReliquaryState.filter === 'gt' ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.04)'}; color: ${teamReliquaryState.filter === 'gt' ? '#38bdf8' : '#94a3b8'}; border: 1px solid ${teamReliquaryState.filter === 'gt' ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.1)'};">
+              🥈 Grand Tournaments (${gtWins})
+            </button>
+          ` : ''}
+          ${rttWins > 0 ? `
+            <button type="button" class="badge ${teamReliquaryState.filter === 'rtt' ? 'active' : ''}" id="team-trophy-filter-btn-rtt" onclick="setTeamSilverwareFilter('rtt')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: ${teamReliquaryState.filter === 'rtt' ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.04)'}; color: ${teamReliquaryState.filter === 'rtt' ? '#38bdf8' : '#94a3b8'}; border: 1px solid ${teamReliquaryState.filter === 'rtt' ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.1)'};">
+              🥉 RTTs (${rttWins})
+            </button>
+          ` : ''}
+        </div>
+
+        <!-- Trophies Grid -->
+        <div id="team-trophies-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.85rem;"></div>
+
+        <!-- Empty Filter State -->
+        <div id="team-trophies-empty-filter" style="display: none; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+          No tournament silverware matches your search filter.
+        </div>
+
+        <!-- Pagination Bar -->
+        <div id="team-trophies-pagination" style="margin-top: 1rem;"></div>
       </div>
     </div>
+  `;
+
+  // Delayed rendering of grid and pagination after DOM is ready
+  setTimeout(() => {
+    renderTeamReliquaryGridAndPagination();
+  }, 10);
+
+  return `
+    <!-- Top 4 KPI Stats Grid -->
+    ${kpisHtml}
+
+    <!-- MVP Champions Podium (Expandable / Collapsible) -->
+    ${podiumHtml}
+
+    <!-- Silverware Reliquary (Paginated / Sortable / Collapsible) -->
+    ${reliquaryHtml}
   `;
 }
 
@@ -1338,7 +1552,15 @@ window.navigateToUserTeam = navigateToUserTeam;
 window.filterTeamBattleLedger = filterTeamBattleLedger;
 window.renderTeamTrophiesPanel = renderTeamTrophiesPanel;
 window.setTeamSilverwareFilter = setTeamSilverwareFilter;
+window.setTeamSilverwareSort = setTeamSilverwareSort;
+window.setTeamSilverwarePage = setTeamSilverwarePage;
+window.toggleTeamSilverwarePagination = toggleTeamSilverwarePagination;
+window.toggleTeamMvpExpand = toggleTeamMvpExpand;
+window.toggleTeamMvpSection = toggleTeamMvpSection;
+window.toggleTeamReliquarySection = toggleTeamReliquarySection;
 window.filterTeamSilverwareGrid = filterTeamSilverwareGrid;
+window.renderTeamReliquaryGridAndPagination = renderTeamReliquaryGridAndPagination;
+
 
 
 
