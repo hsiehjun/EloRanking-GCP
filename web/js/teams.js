@@ -313,6 +313,10 @@ function renderTeamProfilePage(data, sys) {
   const isAos = sys === 'aos';
   const systemLabel = isAos ? '⚡ Age of Sigmar' : '⚔️ Warhammer 40,000';
   const tierName = isAos ? '💠 LORD-CELESTANT' : '🔥 HIGH WARLORD';
+  const championships = data.championships || { total: 0, items: [], top_champions: [], factions_distribution: [] };
+  const champCount = championships.total || (Array.isArray(championships.items) ? championships.items.length : 0);
+
+  const formattedMatchCount = matches >= 1000 ? (matches / 1000).toFixed(1) + 'k' : (matches > 0 ? matches : feed.length);
 
   container.innerHTML = `
     <!-- Cohesive Hero Card -->
@@ -380,7 +384,7 @@ function renderTeamProfilePage(data, sys) {
       </div>
     </div>
 
-    <!-- Symmetrical 3-Column Subtabs Bar (Single clean row on mobile & desktop) -->
+    <!-- Symmetrical 4-Column Subtabs Bar (Single clean row on mobile & desktop) -->
     <div class="profile-subtabs-bar team-profile-subtabs-bar" style="margin-bottom: 1.25rem;">
       <button type="button" class="profile-subtab-btn ${currentTeamProfileSubtab === 'overview' ? 'active' : ''}" onclick="switchTeamProfileSubtab('overview')" id="team-subtab-btn-overview">
         <span>🛡️ <span class="tab-label-full">Club Overview</span><span class="tab-label-mobile">Overview</span></span>
@@ -389,9 +393,13 @@ function renderTeamProfilePage(data, sys) {
         <span>👥 <span class="tab-label-full">Squad Roster</span><span class="tab-label-mobile">Roster</span></span>
         <span class="profile-subtab-count">${roster.length}</span>
       </button>
+      <button type="button" class="profile-subtab-btn ${currentTeamProfileSubtab === 'trophies' ? 'active' : ''}" onclick="switchTeamProfileSubtab('trophies')" id="team-subtab-btn-trophies">
+        <span>🏆 <span class="tab-label-full">Hall of Champions</span><span class="tab-label-mobile">Titles</span></span>
+        <span class="profile-subtab-count">${champCount}</span>
+      </button>
       <button type="button" class="profile-subtab-btn ${currentTeamProfileSubtab === 'matches' ? 'active' : ''}" onclick="switchTeamProfileSubtab('matches')" id="team-subtab-btn-matches">
-        <span>⚔️ <span class="tab-label-full">Tournament Ledger</span><span class="tab-label-mobile">Matches</span></span>
-        <span class="profile-subtab-count">${matches > 0 ? matches.toLocaleString() : feed.length}</span>
+        <span>⚔️ <span class="tab-label-full">Tournament Ledger</span><span class="tab-label-mobile">Ledger</span></span>
+        <span class="profile-subtab-count">${formattedMatchCount}</span>
       </button>
     </div>
 
@@ -505,7 +513,12 @@ function renderTeamProfilePage(data, sys) {
       </div>
     </div>
 
-    <!-- Subtab 3: Battlefield Matches Panel -->
+    <!-- Subtab 3: Consolidated Hall of Champions Panel -->
+    <div id="team-panel-trophies" class="profile-tab-panel ${currentTeamProfileSubtab === 'trophies' ? 'active' : ''}">
+      ${renderTeamTrophiesPanel(data, sys)}
+    </div>
+
+    <!-- Subtab 4: Battlefield Matches Panel -->
     <div id="team-panel-matches" class="profile-tab-panel ${currentTeamProfileSubtab === 'matches' ? 'active' : ''}">
       <div class="profile-hero-card" style="padding: 1.25rem;">
         <div style="margin-bottom: 1rem;">
@@ -917,7 +930,7 @@ function switchTeamProfileSubtab(subtab) {
   const activeBtn = document.getElementById(`team-subtab-btn-${subtab}`);
   if (activeBtn) activeBtn.classList.add('active');
 
-  ['overview', 'roster', 'matches'].forEach(s => {
+  ['overview', 'roster', 'trophies', 'matches'].forEach(s => {
     const p = document.getElementById(`team-panel-${s}`);
     if (p) {
       p.classList.toggle('active', s === subtab);
@@ -1031,6 +1044,289 @@ function navigateToUserTeam() {
   }
 }
 
+/* ==========================================================================
+   CONSOLIDATED TEAM HALL OF CHAMPIONS
+   ========================================================================== */
+
+let currentTeamSilverwareFilter = 'all';
+
+function setTeamSilverwareFilter(tier) {
+  currentTeamSilverwareFilter = tier;
+  const filterBtns = ['all', 'major', 'gt', 'rtt', 'undefeated'];
+  filterBtns.forEach(f => {
+    const btn = document.getElementById(`team-trophy-filter-btn-${f}`);
+    if (btn) {
+      const isActive = f === tier;
+      btn.style.background = isActive ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.04)';
+      btn.style.color = isActive ? '#38bdf8' : '#94a3b8';
+      btn.style.borderColor = isActive ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.1)';
+    }
+  });
+  filterTeamSilverwareGrid();
+}
+
+function filterTeamSilverwareGrid() {
+  const searchInput = document.getElementById('team-trophies-search-input');
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  const cards = document.querySelectorAll('#team-trophies-grid .team-trophy-card');
+  let visibleCount = 0;
+
+  cards.forEach(card => {
+    const cardTier = card.getAttribute('data-tier') || '';
+    const isUndefeated = card.getAttribute('data-undefeated') === 'true';
+    const player = card.getAttribute('data-player') || '';
+    const evName = card.getAttribute('data-event') || '';
+    const faction = card.getAttribute('data-faction') || '';
+
+    let matchesTier = true;
+    if (currentTeamSilverwareFilter === 'major') {
+      matchesTier = (cardTier === 'major' || cardTier === 'super_major');
+    } else if (currentTeamSilverwareFilter === 'gt') {
+      matchesTier = (cardTier === 'gt');
+    } else if (currentTeamSilverwareFilter === 'rtt') {
+      matchesTier = (cardTier === 'rtt');
+    } else if (currentTeamSilverwareFilter === 'undefeated') {
+      matchesTier = isUndefeated;
+    }
+
+    let matchesSearch = true;
+    if (query) {
+      matchesSearch = evName.includes(query) || player.includes(query) || faction.includes(query);
+    }
+
+    if (matchesTier && matchesSearch) {
+      card.style.display = '';
+      visibleCount++;
+    } else {
+      card.style.display = 'none';
+    }
+  });
+
+  const emptyMsg = document.getElementById('team-trophies-empty-filter');
+  if (emptyMsg) {
+    emptyMsg.style.display = visibleCount === 0 ? 'block' : 'none';
+  }
+}
+
+function renderTeamTrophiesPanel(data, sys) {
+  const teamName = data.team || currentProfileTeamName || 'Club';
+  const championships = data.championships || { total: 0, items: [], top_champions: [], factions_distribution: [] };
+  const items = Array.isArray(championships.items) ? championships.items : [];
+  const topChamps = Array.isArray(championships.top_champions) ? championships.top_champions : [];
+
+  const totalTitles = championships.total || items.length;
+  const majorWins = (championships.major_wins != null ? championships.major_wins : 0) + (championships.super_major_wins != null ? championships.super_major_wins : 0);
+  const gtWins = championships.gt_wins != null ? championships.gt_wins : items.filter(c => c.tier === 'gt').length;
+  const rttWins = championships.rtt_wins != null ? championships.rtt_wins : items.filter(c => c.tier === 'rtt').length;
+  const undefeatedCount = championships.undefeated_count != null ? championships.undefeated_count : items.filter(c => c.undefeated).length;
+  const totalGlory = championships.championship_glory != null ? championships.championship_glory : items.reduce((acc, c) => acc + (c.glory_bonus || 0), 0);
+
+  const topAce = topChamps.length > 0 ? topChamps[0] : null;
+
+  if (totalTitles === 0) {
+    return `
+      <div class="profile-hero-card" style="padding: 3.5rem 1.5rem; text-align: center;">
+        <div style="font-size: 3rem; margin-bottom: 0.75rem;">🏛️</div>
+        <h3 style="font-size: 1.25rem; font-weight: 800; color: #fff; margin-bottom: 0.35rem;">Sanctioned Reliquary Empty</h3>
+        <p style="color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem; font-size: 0.88rem; line-height: 1.5;">
+          No verified tournament championships have been recorded yet for ${escapeHtml(teamName)}.
+          When squad competitors place 1st in official RTTs, GTs, or Majors, their trophies will be enshrined here automatically.
+        </p>
+      </div>
+    `;
+  }
+
+  // 4 KPI Cards
+  const kpisHtml = `
+    <div class="profile-kpi-grid team-kpi-grid" style="margin-bottom: 1.25rem;">
+      <div class="profile-kpi-card" style="border-color: rgba(245, 158, 11, 0.4); background: radial-gradient(circle at top, rgba(245, 158, 11, 0.12), rgba(15, 23, 42, 0.95));">
+        <div class="profile-kpi-label">🏆 Total Championships</div>
+        <div class="profile-kpi-value" style="font-family: var(--font-mono); font-size: 1.45rem; font-weight: 800; color: #fbbf24; margin-top: 0.2rem;">
+          ${totalTitles} <span style="font-size: 0.82rem; font-weight: 700; color: #fef08a;">Titles</span>
+        </div>
+        <div class="profile-kpi-sub" style="color: #cbd5e1;">${majorWins > 0 ? `${majorWins} Major${majorWins > 1 ? 's' : ''} • ` : ''}${gtWins} GTs • ${rttWins} RTTs</div>
+      </div>
+
+      <div class="profile-kpi-card" style="border-color: rgba(16, 185, 129, 0.4); background: radial-gradient(circle at top, rgba(16, 185, 129, 0.12), rgba(15, 23, 42, 0.95));">
+        <div class="profile-kpi-label">⭐ Flawless Undefeated</div>
+        <div class="profile-kpi-value" style="font-family: var(--font-mono); font-size: 1.45rem; font-weight: 800; color: #10b981; margin-top: 0.2rem;">
+          ${undefeatedCount} <span style="font-size: 0.82rem; font-weight: 700; color: #a7f3d0;">Runs</span>
+        </div>
+        <div class="profile-kpi-sub" style="color: #cbd5e1;">0 Tournament Losses</div>
+      </div>
+
+      <div class="profile-kpi-card" style="border-color: rgba(250, 204, 21, 0.4); background: radial-gradient(circle at top, rgba(250, 204, 21, 0.12), rgba(15, 23, 42, 0.95));">
+        <div class="profile-kpi-label">💰 Squad Glory Harvest</div>
+        <div class="profile-kpi-value" style="font-family: var(--font-mono); font-size: 1.45rem; font-weight: 800; color: #facc15; margin-top: 0.2rem;">
+          +${Number(totalGlory).toLocaleString()}
+        </div>
+        <div class="profile-kpi-sub" style="color: #cbd5e1;">Glory Honor Harvested</div>
+      </div>
+
+      <div class="profile-kpi-card" style="border-color: rgba(56, 189, 248, 0.4); background: radial-gradient(circle at top, rgba(56, 189, 248, 0.12), rgba(15, 23, 42, 0.95));">
+        <div class="profile-kpi-label">👑 Squad Trophy Leader</div>
+        <div class="profile-kpi-value" style="font-size: 1.05rem; font-weight: 800; color: #38bdf8; margin-top: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          ${topAce ? escapeHtml(topAce.player_name) : '-'}
+        </div>
+        <div class="profile-kpi-sub" style="color: #cbd5e1;">${topAce ? `${topAce.titles_count} Championships Won` : 'Squad Anchors'}</div>
+      </div>
+    </div>
+  `;
+
+  // Top Champions Podium / MVP Ranking
+  let podiumHtml = '';
+  if (topChamps.length > 0) {
+    const podiumCards = topChamps.map((tc, idx) => {
+      const cleanJsName = String(tc.player_name || '').replace(/'/g, "\\'");
+      const rankIcon = idx === 0 ? '👑' : (idx === 1 ? '🥈' : (idx === 2 ? '🥉' : `#${idx + 1}`));
+      const borderGlow = idx === 0 ? 'border: 1.5px solid rgba(245, 158, 11, 0.6); box-shadow: 0 0 16px rgba(245, 158, 11, 0.18);' : 'border: 1px solid rgba(255, 255, 255, 0.08);';
+      const breakdown = [];
+      if (tc.majors > 0) breakdown.push(`<span style="color: #fbbf24; font-weight: 700;">${tc.majors} Major${tc.majors > 1 ? 's' : ''}</span>`);
+      if (tc.gts > 0) breakdown.push(`<span style="color: #e2e8f0; font-weight: 700;">${tc.gts} GT${tc.gts > 1 ? 's' : ''}</span>`);
+      if (tc.rtts > 0) breakdown.push(`<span style="color: #d97706; font-weight: 700;">${tc.rtts} RTT${tc.rtts > 1 ? 's' : ''}</span>`);
+
+      return `
+        <div class="profile-spotlight-card" style="cursor: pointer; ${borderGlow} transition: transform 0.15s ease, border-color 0.15s ease; padding: 0.85rem 1rem;" onclick="openPlayerModal('${escapeHtml(tc.player_id || '')}', '${cleanJsName}')" onmouseover="this.style.borderColor='rgba(56,189,248,0.5)'" onmouseout="this.style.borderColor='${idx === 0 ? 'rgba(245,158,11,0.6)' : 'rgba(255,255,255,0.08)'}'" title="Scout ${escapeHtml(tc.player_name)}">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <span style="font-size: 1.05rem;">${rankIcon}</span>
+              <span style="font-size: 0.72rem; font-weight: 800; color: ${idx === 0 ? '#fbbf24' : '#94a3b8'}; text-transform: uppercase; letter-spacing: 0.04em;">${escapeHtml(tc.role || 'Competitor')}</span>
+            </div>
+            <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-size: 0.72rem; font-weight: 800; font-family: var(--font-mono);">
+              🏆 ${tc.titles_count} ${tc.titles_count === 1 ? 'Title' : 'Titles'}
+            </span>
+          </div>
+          <div style="font-size: 1rem; font-weight: 800; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 0.25rem;">
+            ${escapeHtml(tc.player_name)}
+          </div>
+          <div style="font-size: 0.74rem; color: var(--text-secondary); margin-bottom: 0.35rem;">
+            ${breakdown.join(' • ')}
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.74rem; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.35rem; margin-top: 0.2rem;">
+            <span>🛡️ ${escapeHtml(tc.primary_faction || 'General')}</span>
+            <span style="color: #facc15; font-weight: 700; font-family: var(--font-mono);">+${Number(tc.glory_contributed || 0).toLocaleString()} Glory</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    podiumHtml = `
+      <div class="profile-hero-card" style="padding: 1.25rem; margin-bottom: 1.25rem;">
+        <div style="margin-bottom: 0.85rem;">
+          <h4 style="font-size: 0.98rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.45rem;">
+            <span>👑</span>
+            <span>Club MVP Champions (Most Titles Won)</span>
+          </h4>
+          <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.2rem;">
+            Competitors who have brought the most tournament silverware home to the clubhouse.
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.75rem;">
+          ${podiumCards}
+        </div>
+      </div>
+    `;
+  }
+
+  // Silverware Reliquary Cards Grid
+  const cardsHtml = items.map((item) => {
+    const tierClass = 'tier-' + (item.tier || 'rtt').replace(/_/g, '-');
+    const ribbonHtml = item.undefeated
+      ? '<div class="champ-trophy-ribbon" title="Flawless Undefeated Championship Run">⭐ UNDEFEATED</div>'
+      : '';
+    const trophySvg = (window.BadgesUI && window.BadgesUI.getTrophySvg)
+      ? window.BadgesUI.getTrophySvg(item.trophy_type || 'bronze_laurel_plaque')
+      : '🏆';
+    const itemEncoded = encodeURIComponent(JSON.stringify(item));
+    const cleanPlayer = item.player_name || 'Squad Member';
+
+    return `
+      <div class="champ-trophy-card ${tierClass} team-trophy-card" data-chronicle="${itemEncoded}" data-tier="${escapeHtml(item.tier || 'rtt')}" data-undefeated="${item.undefeated ? 'true' : 'false'}" data-player="${escapeHtml(cleanPlayer.toLowerCase())}" data-event="${escapeHtml((item.event_name || '').toLowerCase())}" data-faction="${escapeHtml((item.faction || '').toLowerCase())}" onclick="window.BadgesUI.openVictoryChronicleFromElement(this)" title="Click to inspect Victory Chronicle for ${escapeHtml(item.event_name)}">
+        ${ribbonHtml}
+        <div class="champ-trophy-icon-wrap">${trophySvg}</div>
+        <div class="champ-trophy-tier-tag">${escapeHtml((item.tier_title || 'Champion').toUpperCase())}</div>
+        <div class="champ-trophy-name" title="${escapeHtml(item.event_name)}">${escapeHtml(item.event_name)}</div>
+        <div class="champ-trophy-player-pill" style="font-size:0.75rem; color:#38bdf8; font-weight:700; margin: 0.2rem 0 0.35rem; display: flex; align-items: center; justify-content: center; gap: 0.25rem;">
+          <span>👤</span>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Won by ${escapeHtml(cleanPlayer)}</span>
+        </div>
+        <div class="champ-trophy-meta">
+          <span class="champ-meta-record">${escapeHtml(item.record || '')}</span>
+          <span class="champ-meta-dot">&bull;</span>
+          <span class="champ-meta-players">${item.total_players ? `${item.total_players} Players` : `${item.num_rounds || 3} Rnds`}</span>
+        </div>
+        <div class="champ-trophy-footer">
+          <span class="champ-meta-faction" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">🛡️ ${escapeHtml(item.faction || 'General')}</span>
+          <span class="champ-meta-glory">+${item.glory_bonus || 0} Glory</span>
+        </div>
+      </div>
+    `;
+  }).join('\n');
+
+  return `
+    <!-- Top KPI Stats Grid -->
+    ${kpisHtml}
+
+    <!-- MVP Champions Podium -->
+    ${podiumHtml}
+
+    <!-- Filter & Reliquary Grid Container -->
+    <div class="profile-hero-card" style="padding: 1.25rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+        <div>
+          <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span>🏛️</span>
+            <span>Silverware Reliquary</span>
+          </h3>
+          <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.2rem;">
+            All sanctioned tournament victories and 1st place finishes claimed under the club banner.
+            <span style="color: var(--accent); font-weight: 600;">(Click any trophy to inspect the official tournament chronicle)</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; width: 100%; max-width: 480px;">
+          <input type="text" id="team-trophies-search-input" class="form-control" placeholder="Search by tournament, player, or faction..." oninput="filterTeamSilverwareGrid()" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 0.45rem 0.8rem; font-size: 0.8rem; color: #fff; width: 100%;" />
+        </div>
+      </div>
+
+      <!-- Quick Filter Pills -->
+      <div style="display: flex; align-items: center; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.65rem; margin-bottom: 0.85rem;" class="team-trophy-filters">
+        <button type="button" class="badge active" id="team-trophy-filter-btn-all" onclick="setTeamSilverwareFilter('all')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: rgba(56,189,248,0.2); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4);">
+          All Silverware (${items.length})
+        </button>
+        ${majorWins > 0 ? `
+          <button type="button" class="badge" id="team-trophy-filter-btn-major" onclick="setTeamSilverwareFilter('major')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: rgba(255,255,255,0.04); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);">
+            🥇 Majors (${majorWins})
+          </button>
+        ` : ''}
+        ${gtWins > 0 ? `
+          <button type="button" class="badge" id="team-trophy-filter-btn-gt" onclick="setTeamSilverwareFilter('gt')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: rgba(255,255,255,0.04); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);">
+            🥈 Grand Tournaments (${gtWins})
+          </button>
+        ` : ''}
+        ${rttWins > 0 ? `
+          <button type="button" class="badge" id="team-trophy-filter-btn-rtt" onclick="setTeamSilverwareFilter('rtt')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: rgba(255,255,255,0.04); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);">
+            🥉 RTTs (${rttWins})
+          </button>
+        ` : ''}
+        ${undefeatedCount > 0 ? `
+          <button type="button" class="badge" id="team-trophy-filter-btn-undefeated" onclick="setTeamSilverwareFilter('undefeated')" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.74rem; font-weight: 700; background: rgba(255,255,255,0.04); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);">
+            ⭐ Undefeated Only (${undefeatedCount})
+          </button>
+        ` : ''}
+      </div>
+
+      <!-- Trophies Grid -->
+      <div id="team-trophies-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.85rem;">
+        ${cardsHtml}
+      </div>
+      <div id="team-trophies-empty-filter" style="display: none; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+        No tournament silverware matches your search filter.
+      </div>
+    </div>
+  `;
+}
+
 window.openTeamProfilePage = openTeamProfilePage;
 window.renderTeamProfilePage = renderTeamProfilePage;
 window.switchTeamProfileSubtab = switchTeamProfileSubtab;
@@ -1040,5 +1336,9 @@ window.setTeamProfileRosterStatus = setTeamProfileRosterStatus;
 window.navigateBackFromTeamProfile = navigateBackFromTeamProfile;
 window.navigateToUserTeam = navigateToUserTeam;
 window.filterTeamBattleLedger = filterTeamBattleLedger;
+window.renderTeamTrophiesPanel = renderTeamTrophiesPanel;
+window.setTeamSilverwareFilter = setTeamSilverwareFilter;
+window.filterTeamSilverwareGrid = filterTeamSilverwareGrid;
+
 
 

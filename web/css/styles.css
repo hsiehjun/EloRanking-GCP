@@ -10517,15 +10517,22 @@ body.is-authenticated #floating-chat-widget {
   }
   .team-profile-subtabs-bar {
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 0.35rem !important;
-    padding: 0.35rem !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 0.2rem !important;
+    padding: 0.22rem !important;
   }
   .team-profile-subtabs-bar .profile-subtab-btn {
-    padding: 0.52rem 0.3rem !important;
-    font-size: 0.76rem !important;
+    padding: 0.44rem 0.12rem !important;
+    font-size: 0.70rem !important;
     justify-content: center !important;
-    gap: 0.25rem !important;
+    gap: 0.15rem !important;
+  }
+  .team-profile-subtabs-bar .profile-subtab-count {
+    font-size: 0.62rem !important;
+    padding: 0.08rem 0.28rem !important;
+    margin-left: 0.08rem !important;
+    border-radius: 9999px !important;
+    line-height: 1 !important;
   }
 }
 
@@ -11083,20 +11090,33 @@ table.desktop-only,
   }
   .team-profile-subtabs-bar.profile-subtabs-bar {
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 0.35rem !important;
-    padding: 0.35rem !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 0.2rem !important;
+    padding: 0.22rem !important;
     overflow: visible !important;
   }
   .team-profile-subtabs-bar .profile-subtab-btn {
     min-width: 0 !important;
     width: 100% !important;
-    padding: 0.52rem 0.25rem !important;
-    font-size: 0.76rem !important;
+    padding: 0.44rem 0.12rem !important;
+    font-size: 0.70rem !important;
     justify-content: center !important;
-    gap: 0.25rem !important;
+    gap: 0.15rem !important;
   }
-  .profile-subtab-btn > span:first-child {
+  .team-profile-subtabs-bar .profile-subtab-btn > span:first-child {
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: nowrap !important;
+  }
+  .team-profile-subtabs-bar .profile-subtab-count {
+    font-size: 0.60rem !important;
+    padding: 0.08rem 0.24rem !important;
+    margin-left: 0.08rem !important;
+    border-radius: 9999px !important;
+    line-height: 1 !important;
+    flex-shrink: 0 !important;
+  }
+  .profile-subtab-btn:not(.team-profile-subtabs-bar .profile-subtab-btn) > span:first-child {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

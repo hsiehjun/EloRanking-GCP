@@ -3414,6 +3414,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "heraldry_tier": hub.get("heraldry_tier"),
                     "starting_5": hub.get("starting_5", []),
                     "battlefield_feed": hub.get("battlefield_feed", []),
+                    "championships": hub.get("championships", {}),
                     "roster": hub.get("roster", []),
                     "stats": {
                         "roster_count": hub.get("roster_count", len(hub.get("roster", []))),

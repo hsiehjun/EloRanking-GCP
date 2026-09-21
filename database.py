@@ -4017,8 +4017,46 @@ class PostgresDatabase:
                     except Exception as e:
                         logger.debug(f"Dev fallback feed notice: {e}")
                 res["battlefield_feed"] = feed or []
+
+                # Consolidated Hall of Champions silverware
+                try:
+                    import teams_hub_service
+                    svc = teams_hub_service.get_teams_hub_service()
+                    hub_champs = svc.get_team_hub(team_name, system)
+                    if hub_champs and hub_champs.get("championships"):
+                        res["championships"] = hub_champs["championships"]
+                    else:
+                        res["championships"] = self.get_team_championships(team_name, system, roster=roster)
+                except Exception as e:
+                    logger.debug(f"Team championships resolution notice: {e}")
+                    res["championships"] = self.get_team_championships(team_name, system, roster=roster)
+
                 PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
                 return res
+
+    def get_team_championships(self, team_name: str, game_system: str = "40k", roster: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """Returns consolidated championship trophies won across all squad members."""
+        try:
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            hub = svc.get_team_hub(team_name, game_system)
+            if hub and hub.get("championships"):
+                return hub["championships"]
+        except Exception:
+            pass
+        return {
+            "total": 0,
+            "super_major_wins": 0,
+            "major_wins": 0,
+            "gt_wins": 0,
+            "rtt_wins": 0,
+            "undefeated_count": 0,
+            "championship_glory": 0,
+            "championship_pill": None,
+            "top_champions": [],
+            "factions_distribution": [],
+            "items": []
+        }
 
     def get_team_matches(self, team_name: str, limit: int = 250, game_system: Optional[str] = "40k", player_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """Returns verified tournament matches for competitors playing under this team (indexed, sub-50ms)."""

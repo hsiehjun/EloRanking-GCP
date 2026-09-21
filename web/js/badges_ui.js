@@ -1644,13 +1644,15 @@
         ? '<div class="champ-trophy-ribbon" title="Flawless Undefeated Championship Run">⭐ UNDEFEATED</div>'
         : '';
       var trophySvg = getTrophySvg(item.trophy_type || 'bronze_laurel_plaque');
+      var itemEncoded = encodeURIComponent(JSON.stringify(item));
 
       return [
-        '<div class="champ-trophy-card ' + tierClass + '" onclick="window.BadgesUI.openVictoryChronicle(\'' + escapeHtml(item.event_id || '') + '\', \'' + escapeHtml(item.event_name || '') + '\', \'' + escapeHtml(item.tier_title || '') + '\', \'' + escapeHtml(item.record || '') + '\', \'' + escapeHtml(item.faction || '') + '\', \'' + escapeHtml(item.event_date || '') + '\', ' + (item.total_players || 0) + ', ' + (item.num_rounds || 0) + ', ' + (item.glory_bonus || 0) + ')" title="Click to inspect Victory Chronicle">',
+        '<div class="champ-trophy-card ' + tierClass + '" data-chronicle="' + itemEncoded + '" onclick="window.BadgesUI.openVictoryChronicleFromElement(this)" title="Click to inspect Victory Chronicle">',
         ribbonHtml,
         '  <div class="champ-trophy-icon-wrap">' + trophySvg + '</div>',
         '  <div class="champ-trophy-tier-tag">' + escapeHtml((item.tier_title || 'Champion').toUpperCase()) + '</div>',
         '  <div class="champ-trophy-name" title="' + escapeHtml(item.event_name) + '">' + escapeHtml(item.event_name) + '</div>',
+        item.player_name ? '  <div class="champ-trophy-player-pill" style="font-size:0.72rem; color:#38bdf8; font-weight:700; margin-bottom:0.25rem;">👤 ' + escapeHtml(item.player_name) + '</div>' : '',
         '  <div class="champ-trophy-meta">',
         '    <span class="champ-meta-record">' + escapeHtml(item.record) + '</span>',
         '    <span class="champ-meta-dot">&bull;</span>',
@@ -1688,7 +1690,30 @@
     ].join('\n');
   }
 
-  function openVictoryChronicle(eventId, eventName, tierTitle, record, faction, eventDate, totalPlayers, numRounds, gloryBonus) {
+  function openVictoryChronicleFromElement(el) {
+    if (!el) return;
+    try {
+      var raw = el.getAttribute('data-chronicle');
+      if (!raw) return;
+      var item = JSON.parse(decodeURIComponent(raw));
+      openVictoryChronicle(
+        item.event_id,
+        item.event_name,
+        item.tier_title,
+        item.record,
+        item.faction,
+        item.event_date,
+        item.total_players,
+        item.num_rounds,
+        item.glory_bonus,
+        item.player_name
+      );
+    } catch (err) {
+      console.error('Error opening victory chronicle from element:', err);
+    }
+  }
+
+  function openVictoryChronicle(eventId, eventName, tierTitle, record, faction, eventDate, totalPlayers, numRounds, gloryBonus, playerName) {
     var existing = document.getElementById('badges-victory-chronicle-modal');
     if (existing) existing.remove();
 
@@ -1696,14 +1721,33 @@
     modal.id = 'badges-victory-chronicle-modal';
     modal.className = 'modal-backdrop active';
     modal.style.zIndex = '100003';
+    var chronicleData = {
+      event_id: eventId,
+      event_name: eventName,
+      tier_title: tierTitle,
+      record: record,
+      faction: faction,
+      event_date: eventDate,
+      total_players: totalPlayers,
+      num_rounds: numRounds,
+      glory_bonus: gloryBonus,
+      player_name: playerName
+    };
+    modal.setAttribute('data-chronicle', encodeURIComponent(JSON.stringify(chronicleData)));
+
+    var championSubtitle = playerName
+      ? '<div style="font-size: 0.85rem; color: #38bdf8; font-weight: 700; margin-top: 0.2rem;">👤 Champion: ' + escapeHtml(playerName) + '</div>'
+      : '';
+
     modal.innerHTML = [
       '<div class="modal-card champ-chronicle-card" style="max-width: 500px; background: #0f172a; border-radius: var(--radius-lg); border: 1.5px solid rgba(245, 158, 11, 0.75); box-shadow: 0 10px 40px rgba(0,0,0,0.9), 0 0 35px rgba(245, 158, 11, 0.25); overflow: hidden;">',
       '  <div style="padding: 1.5rem 1.5rem 1.15rem; text-align: center; background: radial-gradient(circle at top, rgba(245, 158, 11, 0.25), transparent 75%); border-bottom: 1px solid rgba(255,255,255,0.08); position: relative;">',
       '    <button type="button" class="modal-close" onclick="window.BadgesUI.closeVictoryChronicle()" style="position: absolute; top: 1rem; right: 1rem; background: none; border: none; font-size: 1.4rem; color: #94a3b8; cursor: pointer;">✕</button>',
       '    <div style="font-size: 2.8rem; margin-bottom: 0.35rem;">🏆</div>',
-      '    <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.08em; background: rgba(245, 158, 11, 0.15); padding: 0.25rem 0.75rem; border-radius: 9999px; border: 1px solid rgba(245, 158, 11, 0.3); margin-bottom: 0.45rem;">' + escapeHtml(tierTitle) + ' &bull; 1st Place Champion</div>',
+      '    <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.08em; background: rgba(245, 158, 11, 0.15); padding: 0.25rem 0.75rem; border-radius: 9999px; border: 1px solid rgba(245, 158, 11, 0.3); margin-bottom: 0.45rem;">' + escapeHtml(tierTitle || 'Champion') + ' &bull; 1st Place Champion</div>',
       '    <h2 style="font-size: 1.4rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem; letter-spacing: -0.01em;">' + escapeHtml(eventName) + '</h2>',
-      '    <div style="font-size: 0.82rem; color: #94a3b8;">Official Tournament Chronicle &bull; ' + escapeHtml(eventDate || '2026') + '</div>',
+      championSubtitle,
+      '    <div style="font-size: 0.82rem; color: #94a3b8; margin-top: 0.25rem;">Official Tournament Chronicle &bull; ' + escapeHtml(eventDate || '2026') + '</div>',
       '  </div>',
       '  <div style="padding: 1.25rem 1.5rem;">',
       '    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.65rem; margin-bottom: 1.1rem;">',
@@ -1728,7 +1772,7 @@
       '      <span class="badge badge-win" style="font-size: 0.74rem; font-weight: 700; padding: 0.25rem 0.65rem;">1st Place Podium</span>',
       '    </div>',
       '    <div style="display: flex; gap: 0.65rem;">',
-      '      <button type="button" class="btn btn-primary" style="flex: 1; padding: 0.65rem 1rem; font-weight: 700;" onclick="window.BadgesUI.shareVictorySnippet(\'' + escapeHtml(eventName) + '\', \'' + escapeHtml(tierTitle) + '\', \'' + escapeHtml(record) + '\', \'' + escapeHtml(faction || '') + '\')">📋 Copy Victory Card</button>',
+      '      <button type="button" class="btn btn-primary" style="flex: 1; padding: 0.65rem 1rem; font-weight: 700;" onclick="window.BadgesUI.shareVictorySnippetFromModal()">📋 Copy Victory Card</button>',
       '      <button type="button" class="btn btn-secondary" style="padding: 0.65rem 1.1rem;" onclick="window.BadgesUI.closeVictoryChronicle()">Close</button>',
       '    </div>',
       '  </div>',
@@ -1743,8 +1787,22 @@
     if (modal) modal.remove();
   }
 
-  function shareVictorySnippet(eventName, tierTitle, record, faction) {
-    var text = '🏆 Tournament Champion! Won 1st Place at ' + eventName + ' (' + tierTitle + ') with ' + faction + ' [' + record + '] on OmniTactica!';
+  function shareVictorySnippetFromModal() {
+    var modal = document.getElementById('badges-victory-chronicle-modal');
+    if (!modal) return;
+    try {
+      var raw = modal.getAttribute('data-chronicle');
+      if (!raw) return;
+      var item = JSON.parse(decodeURIComponent(raw));
+      shareVictorySnippet(item.event_name, item.tier_title, item.record, item.faction, item.player_name);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function shareVictorySnippet(eventName, tierTitle, record, faction, playerName) {
+    var championPrefix = playerName ? (playerName + ' is Tournament Champion! ') : '🏆 Tournament Champion! ';
+    var text = championPrefix + 'Won 1st Place at ' + eventName + ' (' + tierTitle + ') with ' + faction + ' [' + record + '] on OmniTactica!';
     if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function() {
         if (typeof showToast === 'function') showToast('Victory summary copied to clipboard! 🏆');
@@ -1764,8 +1822,10 @@
     renderTrophyRoom: renderTrophyRoom,
     renderHallOfChampions: renderHallOfChampions,
     openVictoryChronicle: openVictoryChronicle,
+    openVictoryChronicleFromElement: openVictoryChronicleFromElement,
     closeVictoryChronicle: closeVictoryChronicle,
     shareVictorySnippet: shareVictorySnippet,
+    shareVictorySnippetFromModal: shareVictorySnippetFromModal,
     getTrophySvg: getTrophySvg,
     renderTrophyCards: renderTrophyCards,
     renderSeasonalTrophyCards: renderSeasonalTrophyCards,
