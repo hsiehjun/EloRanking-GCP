@@ -2130,25 +2130,107 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/player/"):
             pid = urllib.parse.unquote(clean_path.replace("api/player/", "").strip("/"))
-            if "john" in pid.lower():
+            if "john" in pid.lower() or pid == "MEV83VFANA" or "hsieh" in pid.lower():
                 res = {
                     "player": {
-                        "player_id": "p_john_doe",
-                        "player_name": "John Doe",
+                        "player_id": "MEV83VFANA",
+                        "player_name": "John Hsieh",
                         "team": "Team Zero Comp",
                         "teams_history": ["Team Zero Comp"],
-                        "top_faction": "Adeptus Astartes, Necrons",
-                        "current_elo": 1650.0,
-                        "peak_elo": 1680.0,
-                        "wins": 45,
-                        "losses": 20,
+                        "top_faction": "Necrons, Dark Angels",
+                        "current_elo": 1888.5,
+                        "peak_elo": 1888.5,
+                        "wins": 62,
+                        "losses": 31,
                         "draws": 1,
-                        "win_rate": 68.2,
-                        "total_matches": 66
+                        "win_rate": 66.0,
+                        "total_matches": 94
                     },
-                    "has_account": False,
-                    "longest_win_streak": 8,
-                    "history": []
+                    "has_account": True,
+                    "account_user_id": "u_john_hsieh",
+                    "longest_win_streak": 7,
+                    "current_streak": 3,
+                    "tournaments": [
+                        {
+                            "event_id": "ev_angron_rtt_march",
+                            "event_name": "Angron's Book Club RTT: March",
+                            "event_date": "2024-03-15",
+                            "tier": "rtt",
+                            "tier_title": "Rogue Trader Tournament",
+                            "trophy_type": "bronze_laurel_plaque",
+                            "total_players": 16,
+                            "num_rounds": 3,
+                            "placement": 1,
+                            "wins": 3,
+                            "losses": 0,
+                            "draws": 0,
+                            "record": "3-0",
+                            "undefeated": True,
+                            "faction": "Necrons",
+                            "glory_bonus": 150
+                        },
+                        {
+                            "event_id": "ev_laughing_dragon_oct",
+                            "event_name": "Laughing Dragon 2024 October RTT",
+                            "event_date": "2024-10-12",
+                            "tier": "rtt",
+                            "tier_title": "Rogue Trader Tournament",
+                            "trophy_type": "bronze_laurel_plaque",
+                            "total_players": 14,
+                            "num_rounds": 3,
+                            "placement": 1,
+                            "wins": 3,
+                            "losses": 0,
+                            "draws": 0,
+                            "record": "3-0",
+                            "undefeated": True,
+                            "faction": "Necrons",
+                            "glory_bonus": 150
+                        },
+                        {
+                            "event_id": "ev_laughing_dragon_apr",
+                            "event_name": "Laughing Dragon 2024 April RTT",
+                            "event_date": "2024-04-20",
+                            "tier": "rtt",
+                            "tier_title": "Rogue Trader Tournament",
+                            "trophy_type": "bronze_laurel_plaque",
+                            "total_players": 16,
+                            "num_rounds": 3,
+                            "placement": 1,
+                            "wins": 3,
+                            "losses": 0,
+                            "draws": 0,
+                            "record": "3-0",
+                            "undefeated": True,
+                            "faction": "Necrons",
+                            "glory_bonus": 150
+                        },
+                        {
+                            "event_id": "ev_laughing_dragon_spring",
+                            "event_name": "Laughing Dragon April RTT",
+                            "event_date": "2024-04-06",
+                            "tier": "rtt",
+                            "tier_title": "Rogue Trader Tournament",
+                            "trophy_type": "bronze_laurel_plaque",
+                            "total_players": 16,
+                            "num_rounds": 3,
+                            "placement": 1,
+                            "wins": 3,
+                            "losses": 0,
+                            "draws": 0,
+                            "record": "3-0",
+                            "undefeated": True,
+                            "faction": "Necrons",
+                            "glory_bonus": 150
+                        }
+                    ],
+                    "history": [
+                        {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 1, "result": "W", "player_score": 100, "opponent_score": 64, "player_faction": "Necrons", "opponent_name": "Tyler Adams", "opponent_faction": "Space Marines", "opponent_elo": 1720.0, "delta_elo": 11.2, "new_elo": 1888.5},
+                        {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 2, "result": "W", "player_score": 91, "opponent_score": 77, "player_faction": "Necrons", "opponent_name": "Victor Baker", "opponent_faction": "Aeldari", "opponent_elo": 1750.0, "delta_elo": 10.5, "new_elo": 1877.3},
+                        {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 3, "result": "W", "player_score": 100, "opponent_score": 75, "player_faction": "Necrons", "opponent_name": "Ryan Scott", "opponent_faction": "Votann", "opponent_elo": 1690.0, "delta_elo": 9.8, "new_elo": 1866.8},
+                        {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 4, "result": "L", "player_score": 48, "opponent_score": 100, "player_faction": "Necrons", "opponent_name": "Junior Aflleje", "opponent_faction": "Space Marines", "opponent_elo": 2180.0, "delta_elo": -5.2, "new_elo": 1857.0},
+                        {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 5, "result": "W", "player_score": 91, "opponent_score": 80, "player_faction": "Necrons", "opponent_name": "James Carmona", "opponent_faction": "Custodes", "opponent_elo": 1940.0, "delta_elo": 12.4, "new_elo": 1862.2}
+                    ]
                 }
             else:
                 # Default to Folger Pyles profile matching the user's test scenario
@@ -2283,8 +2365,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     ]
                 }
             is_self = bool(pid == DEV_USER.get("player_id") or pid == "p_folger_pyles" or pid == DEV_USER.get("id"))
-            res["is_self"] = is_self
-            tournaments_list = DEV_USER.get("events_attended", []) if is_self else (res.get("tournaments") or [])
+            tournaments_list = (res.get("tournaments") or []) or (DEV_USER.get("events_attended", []) if is_self else [])
             res["tournaments"] = tournaments_list
 
             import badges

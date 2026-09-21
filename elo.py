@@ -1384,6 +1384,8 @@ class EloEngine:
             "history": history,
             "win_path": history,
             "trajectory": trajectory,
+            "tournaments": self.db.get_player_tournaments(player_id, game_system=game_system) if hasattr(self.db, "get_player_tournaments") else [],
+            "events_attended": self.db.get_player_tournaments(player_id, game_system=game_system) if hasattr(self.db, "get_player_tournaments") else [],
             "player": {
                 **player_meta,
                 "team": latest_team,

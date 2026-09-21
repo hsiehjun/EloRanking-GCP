@@ -4134,16 +4134,25 @@ class PostgresDatabase:
                         "total_draws": total_draws,
                         "win_rate": win_rate,
                         "is_qualified": (active_count >= 5 and total_matches >= 25)
-                    },
-                    "battlefield_feed": self.get_team_matches(team_name, limit=50, game_system=system)
+                    }
                 }
+                roster_pids = [p["player_id"] for p in roster if p.get("player_id")]
+                feed = self.get_team_matches(team_name, limit=50, game_system=system, player_ids=roster_pids)
+                if not feed and roster:
+                    try:
+                        import teams_hub_service
+                        feed = teams_hub_service._generate_team_battlefield_feed(res)
+                    except Exception as e:
+                        logger.debug(f"Dev fallback feed notice: {e}")
+                res["battlefield_feed"] = feed or []
                 PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
                 return res
 
-    def get_team_matches(self, team_name: str, limit: int = 50, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
+    def get_team_matches(self, team_name: str, limit: int = 50, game_system: Optional[str] = "40k", player_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """Returns verified tournament matches for competitors playing under this team."""
         team_name = (team_name or "").strip()
         system = (game_system or "40k").strip().lower()
+        pids = [str(pid).strip() for pid in (player_ids or []) if pid] or ["__no_pids__"]
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 try:
@@ -4154,51 +4163,126 @@ class PostgresDatabase:
                         COALESCE(e.name, 'Sanctioned Tournament') as tournament,
                         CONCAT('Round ', COALESCE(m.round, 1)) as round,
                         CASE 
-                            WHEN COALESCE(ep1.team, pr1.team) ILIKE %s THEN m.player1_name
+                            WHEN (m.player1_id = ANY(%(pids)s) OR COALESCE(ep1.team, pr1.team) ILIKE %(team)s) THEN m.player1_name
                             ELSE m.player2_name
                         END as player_name,
                         CASE 
-                            WHEN COALESCE(ep1.team, pr1.team) ILIKE %s THEN COALESCE(m.player1_faction, pr1.top_faction)
+                            WHEN (m.player1_id = ANY(%(pids)s) OR COALESCE(ep1.team, pr1.team) ILIKE %(team)s) THEN COALESCE(m.player1_faction, pr1.top_faction)
                             ELSE COALESCE(m.player2_faction, pr2.top_faction)
                         END as faction,
                         CASE 
-                            WHEN COALESCE(ep1.team, pr1.team) ILIKE %s THEN m.player2_name
+                            WHEN (m.player1_id = ANY(%(pids)s) OR COALESCE(ep1.team, pr1.team) ILIKE %(team)s) THEN m.player2_name
                             ELSE m.player1_name
                         END as opponent_name,
                         CASE 
-                            WHEN COALESCE(ep1.team, pr1.team) ILIKE %s THEN COALESCE(ep2.team, pr2.team, 'Independent')
+                            WHEN (m.player1_id = ANY(%(pids)s) OR COALESCE(ep1.team, pr1.team) ILIKE %(team)s) THEN COALESCE(ep2.team, pr2.team, 'Independent')
                             ELSE COALESCE(ep1.team, pr1.team, 'Independent')
                         END as opponent_team,
                         CONCAT(COALESCE(m.player1_score, 0), ' - ', COALESCE(m.player2_score, 0)) as score,
                         CASE 
-                            WHEN (COALESCE(ep1.team, pr1.team) ILIKE %s AND m.winner_id = m.player1_id) 
-                              OR (COALESCE(ep2.team, pr2.team) ILIKE %s AND m.winner_id = m.player2_id) THEN 'win'
+                            WHEN ((m.player1_id = ANY(%(pids)s) OR COALESCE(ep1.team, pr1.team) ILIKE %(team)s) AND m.winner_id = m.player1_id) 
+                              OR ((m.player2_id = ANY(%(pids)s) OR COALESCE(ep2.team, pr2.team) ILIKE %(team)s) AND m.winner_id = m.player2_id) THEN 'win'
                             ELSE 'loss'
                         END as result,
                         COALESCE(
-                            CONCAT(CASE WHEN rh.elo_after >= rh.elo_before THEN '+' ELSE '' END, 
-                                   ROUND((rh.elo_after - rh.elo_before)::numeric, 1), ' Elo'),
+                            CONCAT(CASE WHEN rh.delta_elo >= 0 THEN '+' ELSE '' END, 
+                                   ROUND(rh.delta_elo::numeric, 1), ' Elo'),
                             ''
                         ) as elo_delta,
-                        COALESCE(m.notes, '') as notes
+                        '' as notes
                     FROM matches m
                     INNER JOIN events e ON m.event_id = e.id
                     LEFT JOIN event_participants ep1 ON ep1.event_id = m.event_id AND ep1.player_id = m.player1_id
                     LEFT JOIN event_participants ep2 ON ep2.event_id = m.event_id AND ep2.player_id = m.player2_id
-                    LEFT JOIN player_ratings pr1 ON pr1.player_id = m.player1_id
-                    LEFT JOIN player_ratings pr2 ON pr2.player_id = m.player2_id
+                    LEFT JOIN player_ratings pr1 ON pr1.player_id = m.player1_id AND COALESCE(pr1.game_system, '40k') = %(system)s
+                    LEFT JOIN player_ratings pr2 ON pr2.player_id = m.player2_id AND COALESCE(pr2.game_system, '40k') = %(system)s
                     LEFT JOIN rating_history rh ON rh.match_id = m.id AND rh.player_id = (
-                        CASE WHEN COALESCE(ep1.team, pr1.team) ILIKE %s THEN m.player1_id ELSE m.player2_id END
+                        CASE WHEN (m.player1_id = ANY(%(pids)s) OR COALESCE(ep1.team, pr1.team) ILIKE %(team)s) THEN m.player1_id ELSE m.player2_id END
                     )
-                    WHERE (COALESCE(ep1.team, pr1.team) ILIKE %s OR COALESCE(ep2.team, pr2.team) ILIKE %s)
-                      AND COALESCE(m.game_system, e.game_system, '40k') = %s
+                    WHERE (
+                        m.player1_id = ANY(%(pids)s) OR m.player2_id = ANY(%(pids)s)
+                        OR COALESCE(ep1.team, pr1.team) ILIKE %(team)s 
+                        OR COALESCE(ep2.team, pr2.team) ILIKE %(team)s
+                    )
+                      AND COALESCE(e.game_system, '40k') = %(system)s
                     ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC
-                    LIMIT %s;
-                    """, (team_name, team_name, team_name, team_name, team_name, team_name, team_name, team_name, team_name, system, limit))
+                    LIMIT %(limit)s;
+                    """, {"team": team_name, "pids": pids, "system": system, "limit": limit})
                     return [dict(r) for r in cursor.fetchall()]
                 except Exception as e:
+                    conn.rollback()
                     logger.warning(f"Error fetching team matches in get_team_matches: {e}")
                     return []
+
+    def get_player_tournaments(self, player_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
+        """Returns verified tournament attendances, records, and placements for a competitor."""
+        player_id = (player_id or "").strip()
+        system = (game_system or "40k").strip().lower()
+        if not player_id:
+            return []
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                try:
+                    cursor.execute("""
+                    SELECT 
+                        e.id as event_id, e.name as event_name, e.event_date, e.city, e.state, e.country,
+                        e.total_players, e.num_rounds,
+                        COALESCE(ep.faction, 'Unknown') as registered_faction,
+                        COALESCE(ep.placement, 0) as placement,
+                        COALESCE(m_stat.cnt, 0) as matches_played,
+                        COALESCE(m_stat.wins, 0) as wins,
+                        COALESCE(m_stat.losses, 0) as losses,
+                        COALESCE(m_stat.draws, 0) as draws,
+                        COALESCE(m_stat.battle_points, 0) as total_battle_points
+                    FROM event_participants ep
+                    JOIN events e ON ep.event_id = e.id
+                    LEFT JOIN (
+                        SELECT 
+                            event_id,
+                            COUNT(*) as cnt,
+                            SUM(CASE WHEN winner_id = %s THEN 1 ELSE 0 END) as wins,
+                            SUM(CASE WHEN loser_id = %s THEN 1 ELSE 0 END) as losses,
+                            SUM(CASE WHEN is_draw THEN 1 ELSE 0 END) as draws,
+                            SUM(CASE WHEN player1_id = %s THEN COALESCE(player1_score, 0) ELSE COALESCE(player2_score, 0) END) as battle_points
+                        FROM matches
+                        WHERE (player1_id = %s OR player2_id = %s) AND COALESCE(game_system, '40k') = %s
+                        GROUP BY event_id
+                    ) m_stat ON e.id = m_stat.event_id
+                    WHERE ep.player_id = %s AND COALESCE(e.game_system, '40k') = %s
+                    ORDER BY e.event_date DESC NULLS LAST;
+                    """, (player_id, player_id, player_id, player_id, player_id, system, player_id, system))
+                    rows = [dict(r) for r in cursor.fetchall()]
+                    if rows:
+                        return rows
+                except Exception as e:
+                    conn.rollback()
+                    logger.debug(f"Notice in get_player_tournaments: {e}")
+
+                # Fallback: aggregate directly from matches if event_participants record is absent
+                try:
+                    cursor.execute("""
+                    SELECT 
+                        e.id as event_id, e.name as event_name, e.event_date, e.city, e.state, e.country,
+                        COALESCE(e.total_players, 0) as total_players, COALESCE(e.num_rounds, 0) as num_rounds,
+                        COALESCE(MAX(CASE WHEN m.player1_id = %s THEN m.player1_faction ELSE m.player2_faction END), 'Unknown') as registered_faction,
+                        0 as placement,
+                        COUNT(m.id) as matches_played,
+                        SUM(CASE WHEN m.winner_id = %s THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN m.loser_id = %s THEN 1 ELSE 0 END) as losses,
+                        SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) as draws,
+                        SUM(CASE WHEN m.player1_id = %s THEN COALESCE(m.player1_score, 0) ELSE COALESCE(m.player2_score, 0) END) as total_battle_points
+                    FROM matches m
+                    JOIN events e ON m.event_id = e.id
+                    WHERE (m.player1_id = %s OR m.player2_id = %s) AND COALESCE(e.game_system, '40k') = %s
+                    GROUP BY e.id, e.name, e.event_date, e.city, e.state, e.country, e.total_players, e.num_rounds
+                    ORDER BY e.event_date DESC NULLS LAST;
+                    """, (player_id, player_id, player_id, player_id, player_id, player_id, system))
+                    return [dict(r) for r in cursor.fetchall()]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback get_player_tournaments error: {e}")
+                    return []
+
 
     def get_faction_meta_stats(self, start_date: Optional[str] = None, end_date: Optional[str] = None, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns overall faction balance metrics, timeline trends, and tier ratings (instant cached)."""

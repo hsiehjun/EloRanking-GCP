@@ -2118,37 +2118,9 @@ class AuthManager:
                 """, (target_pid, target_sys))
                 matchup_matrix = [dict(r) for r in cur.fetchall()]
 
-                # 5. Tournaments Attended & Performance Summary (Optimized Subquery Join)
-                cur.execute("""
-                SELECT 
-                    e.id as event_id, e.name as event_name, e.event_date, e.city, e.state, e.country,
-                    e.total_players, e.num_rounds,
-                    COALESCE(ep.faction, 'Unknown') as registered_faction,
-                    COALESCE(ep.placement, 0) as placement,
-                    COALESCE(m_stat.cnt, 0) as matches_played,
-                    COALESCE(m_stat.wins, 0) as wins,
-                    COALESCE(m_stat.losses, 0) as losses,
-                    COALESCE(m_stat.draws, 0) as draws,
-                    COALESCE(m_stat.battle_points, 0) as total_battle_points
-                FROM event_participants ep
-                JOIN events e ON ep.event_id = e.id
-                LEFT JOIN (
-                    SELECT 
-                        event_id,
-                        COUNT(*) as cnt,
-                        SUM(CASE WHEN winner_id = %s THEN 1 ELSE 0 END) as wins,
-                        SUM(CASE WHEN loser_id = %s THEN 1 ELSE 0 END) as losses,
-                        SUM(CASE WHEN is_draw THEN 1 ELSE 0 END) as draws,
-                        SUM(CASE WHEN player1_id = %s THEN COALESCE(player1_score, 0) ELSE COALESCE(player2_score, 0) END) as battle_points
-                    FROM matches
-                    WHERE (player1_id = %s OR player2_id = %s) AND COALESCE(game_system, '40k') = %s
-                    GROUP BY event_id
-                ) m_stat ON e.id = m_stat.event_id
-                WHERE ep.player_id = %s AND COALESCE(e.game_system, '40k') = %s
-                ORDER BY e.event_date DESC NULLS LAST;
-                """, (target_pid, target_pid, target_pid, target_pid, target_pid, target_sys, target_pid, target_sys))
-                events_attended = [dict(r) for r in cur.fetchall()]
-                conn.commit()
+                # 5. Tournaments Attended & Performance Summary
+                events_attended = self.db.get_player_tournaments(target_pid, game_system=target_sys)
+
 
         upcoming_events = []
         for ev in events_attended:

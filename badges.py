@@ -366,6 +366,33 @@ def extract_tournament_championships(
         if eid:
             ev_matches.setdefault(eid, []).append(m)
 
+    if not tournaments and ev_matches:
+        synthesized = []
+        for eid, m_list in ev_matches.items():
+            first_m = m_list[0]
+            w_cnt = len([m for m in m_list if str(m.get("result", "")).upper() == "W"])
+            l_cnt = len([m for m in m_list if str(m.get("result", "")).upper() == "L"])
+            d_cnt = len([m for m in m_list if str(m.get("result", "")).upper() == "D"])
+            ename = str(first_m.get("event_name") or eid or "Tournament").strip()
+            total_p = 16
+            if "gt" in ename.lower():
+                total_p = 32
+            elif "major" in ename.lower():
+                total_p = 120
+            synthesized.append({
+                "event_id": eid,
+                "event_name": ename,
+                "event_date": first_m.get("match_date") or "",
+                "total_players": total_p,
+                "num_rounds": len(m_list),
+                "placement": 1 if (w_cnt >= 3 and l_cnt == 0) else 0,
+                "wins": w_cnt,
+                "losses": l_cnt,
+                "draws": d_cnt,
+                "faction": first_m.get("player_faction") or "Unknown"
+            })
+        tournaments = synthesized
+
     championships = []
     seen_event_ids = set()
 

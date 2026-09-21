@@ -314,7 +314,7 @@
     var unifiedGlory = data.glory_balance != null ? data.glory_balance : (gloryScore + seasonalGlory);
 
     var championships = data.championships || { total: 0, items: [] };
-    var champShelfHtml = isPublic ? '' : renderHallOfChampions(championships, isSelf, isPublic);
+    var champShelfHtml = renderHallOfChampions(championships, isSelf, isPublic);
 
     var nextRankText = rank.next_rank_title
       ? rank.badges_needed_for_next + ' more honors needed for <strong>' + escapeHtml(rank.next_rank_title) + '</strong>'
@@ -1618,14 +1618,15 @@
     return '<svg width="54" height="54" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="champ-svg-trophy svg-rtt"><circle cx="32" cy="32" r="24" fill="#b45309" stroke="#f59e0b" stroke-width="2"/><circle cx="32" cy="32" r="18" fill="#78350f"/><path d="M26 34L32 24L38 34L32 30Z" fill="#fbbf24"/><path d="M18 28C16 36 22 44 32 46C24 44 20 36 20 28Z" fill="#d97706"/><path d="M46 28C48 36 42 44 32 46C40 44 44 36 44 28Z" fill="#d97706"/></svg>';
   }
 
-  function renderHallOfChampions(championships, isSelf, isPublic) {
+  function renderHallOfChampions(championships, isSelf, isPublic, customId) {
     championships = championships || { total: 0, items: [] };
     var total = championships.total || 0;
     var items = championships.items || [];
+    var showcaseId = customId || 'hall-of-champions-showcase';
 
     if (total === 0) {
       return [
-        '<div class="champ-reliquary-wrap is-empty" id="hall-of-champions-showcase">',
+        '<div class="champ-reliquary-wrap is-empty" id="' + showcaseId + '">',
         '  <div class="champ-empty-pedestal">',
         '    <span class="champ-empty-icon">🏛️</span>',
         '    <div class="champ-empty-info">',
@@ -1664,7 +1665,7 @@
     }).join('\n');
 
     return [
-      '<div class="champ-reliquary-wrap" id="hall-of-champions-showcase">',
+      '<div class="champ-reliquary-wrap" id="' + showcaseId + '">',
       '  <div class="champ-reliquary-header">',
       '    <div class="champ-header-left">',
       '      <span class="champ-header-icon">🏛️</span>',

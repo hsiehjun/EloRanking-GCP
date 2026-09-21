@@ -193,11 +193,17 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
         data["equipped"] = current_user.get("armory_vault", {}).get("equipped", {})
 
     import badges
+    events_attended = db.get_player_tournaments(actual_pid, game_system=game_system)
+    if not events_attended and pid != actual_pid:
+        events_attended = db.get_player_tournaments(pid, game_system=game_system)
+    data["tournaments"] = events_attended or data.get("tournaments") or []
+    data["events_attended"] = data["tournaments"]
+
     user_pinned = user_row.get("pinned_badges") if (user_row and user_row.get("pinned_badges")) else None
     b_eval = badges.evaluate_player_badges(
         player_data=data.get("player") or data,
         history=data.get("history") or [],
-        tournaments=data.get("tournaments") or [],
+        tournaments=data["tournaments"],
         faction_mastery=data.get("faction_mastery") or [],
         matchup_matrix=data.get("matchup_matrix") or [],
         user_pinned_ids=user_pinned,
