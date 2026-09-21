@@ -924,6 +924,54 @@ function setTeamProfileRosterStatus(status) {
   filterTeamProfileRoster(input ? input.value : '');
 }
 
+function navigateToUserTeam() {
+  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  let teamName = null;
+
+  if (window.currentUser && window.currentUser.team && window.currentUser.team.trim()) {
+    teamName = window.currentUser.team.trim();
+  }
+
+  if (!teamName && window.myHubData && window.myHubData.player && window.myHubData.player.team) {
+    teamName = window.myHubData.player.team.trim();
+  }
+
+  if (!teamName) {
+    try {
+      const cached = localStorage.getItem(`my_hub_cache_${gs}`) || localStorage.getItem('my_hub_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        teamName = (parsed?.player?.team || parsed?.team || '').trim();
+      }
+    } catch (e) {}
+  }
+
+  if (!teamName) {
+    try {
+      const userStr = localStorage.getItem('currentUser');
+      if (userStr) {
+        const u = JSON.parse(userStr);
+        teamName = (u?.team || '').trim();
+      }
+    } catch (e) {}
+  }
+
+  if (!teamName && window.currentProfileData && window.currentProfileData.player && window.currentProfileData.player.team) {
+    teamName = window.currentProfileData.player.team.trim();
+  }
+
+  if (teamName && typeof openTeamProfilePage === 'function') {
+    openTeamProfilePage(teamName, gs);
+    return;
+  }
+
+  if (typeof openTeamProfilePage === 'function') {
+    openTeamProfilePage('Team Zero Comp', gs);
+  } else if (typeof switchTab === 'function') {
+    switchTab('teams');
+  }
+}
+
 window.openTeamProfilePage = openTeamProfilePage;
 window.renderTeamProfilePage = renderTeamProfilePage;
 window.switchTeamProfileSubtab = switchTeamProfileSubtab;
@@ -931,5 +979,6 @@ window.copyTeamShareLink = copyTeamShareLink;
 window.filterTeamProfileRoster = filterTeamProfileRoster;
 window.setTeamProfileRosterStatus = setTeamProfileRosterStatus;
 window.navigateBackFromTeamProfile = navigateBackFromTeamProfile;
+window.navigateToUserTeam = navigateToUserTeam;
 
 

@@ -294,7 +294,11 @@ function switchTab(tabName) {
   // Synchronize modern mobile bottom navigation bar
   document.querySelectorAll('.mobile-bottom-nav .mobile-nav-item').forEach(item => {
     const t = item.getAttribute('data-tab');
-    const isAct = (t === tabName) || (t === 'community' && tabName === 'community');
+    const isAct = (t === tabName) || 
+                  (t === 'team' && (tabName === 'team-profile' || tabName === 'teams')) ||
+                  (t === 'leaderboard' && (tabName === 'leaderboard' || tabName === 'player-profile')) ||
+                  (t === 'my-hub' && tabName === 'my-hub') ||
+                  (t === 'community' && tabName === 'community');
     item.classList.toggle('active', isAct);
   });
 

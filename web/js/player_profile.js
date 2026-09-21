@@ -427,16 +427,12 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     avatarSigilStyle = 'border-color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.35), inset 0 0 14px rgba(56,189,248,0.15);';
   }
 
-  // Resolve tournament championships laurel badge & public reliquary
+  // Resolve tournament championships laurel badge
   const champs = data.championships || {};
   let champPillHtml = '';
-  let champReliquaryHtml = '';
   if (champs && champs.total > 0) {
     const pillText = champs.championship_pill || `🏆 ${champs.total}x Champion`;
     champPillHtml = `<span class="profile-standing-badge champ-laurel-pill" onclick="switchProfileSubtab('trophies'); setTimeout(() => { const el = document.getElementById('hall-of-champions-showcase'); if(el) el.scrollIntoView({behavior:'smooth', block:'center'}); }, 100);" title="Verified Tournament Championships (${champs.total} Titles: ${champs.major_wins || 0} Major, ${champs.gt_wins || 0} GT, ${champs.rtt_wins || 0} RTT)">${escapeHtml(pillText)}</span>`;
-    if (window.BadgesUI && typeof window.BadgesUI.renderHallOfChampions === 'function') {
-      champReliquaryHtml = window.BadgesUI.renderHallOfChampions(champs, !!data.is_self, true, 'hall-of-champions-journey-showcase');
-    }
   }
 
   container.innerHTML = `
@@ -564,7 +560,6 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
 
     <!-- TAB PANEL 1: Tournament Journey Accordion -->
     <div id="profile-panel-journey" class="profile-tab-panel active">
-      ${champReliquaryHtml}
       <div class="profile-journey-section">
         <div class="profile-journey-header">
           <div style="display: flex; flex-direction: column; gap: 2px;">
