@@ -14645,5 +14645,338 @@ table.desktop-only,
   font-size: 0.88rem;
 }
 
+/* =========================================================================
+   SILVERWARE RELIQUARY: MOBILE OPTIMIZED TOURNAMENT WINS LIST (<= 768px)
+   ========================================================================= */
+
+@media (max-width: 768px) {
+  /* Toolbar & Search Controls */
+  .team-trophies-controls-inner {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.5rem !important;
+    width: 100% !important;
+  }
+
+  .team-trophies-search-wrap {
+    max-width: 100% !important;
+    width: 100% !important;
+    flex: none !important;
+    height: auto !important;
+    position: relative !important;
+  }
+
+  .team-trophies-actions-row {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.5rem !important;
+  }
+
+  /* Filter Chips Bar (Smooth Horizontal Swipe) */
+  .team-trophy-filters {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.4rem !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    padding: 0.1rem 0 0.5rem !important;
+    margin-top: 0.5rem !important;
+    margin-bottom: 0.5rem !important;
+  }
+
+  .team-trophy-filters::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .team-trophy-filter-chip {
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+    font-size: 0.74rem !important;
+    font-weight: 700 !important;
+    text-transform: none !important;
+    padding: 0.32rem 0.72rem !important;
+    border-radius: 20px !important;
+    cursor: pointer !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    color: #94a3b8 !important;
+    transition: all 0.15s ease !important;
+  }
+
+  .team-trophy-filter-chip.active {
+    background: rgba(56, 189, 248, 0.18) !important;
+    color: #38bdf8 !important;
+    border-color: rgba(56, 189, 248, 0.45) !important;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.15) !important;
+  }
+
+  /* List Layout for Championship Wins */
+  #team-trophies-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.5rem !important;
+    width: 100% !important;
+  }
+
+  /* Mobile Championship Trophy Row Card */
+  .champ-trophy-card.team-trophy-card {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0.6rem 0.75rem !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    text-align: left !important;
+    border-radius: 10px !important;
+    background: linear-gradient(90deg, rgba(30, 41, 59, 0.75) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+    margin-bottom: 0 !important;
+    min-height: 72px !important;
+    position: relative !important;
+    overflow: hidden !important;
+    cursor: pointer !important;
+    transition: background 0.15s ease, border-color 0.15s ease !important;
+  }
+
+  .champ-trophy-card.team-trophy-card:active {
+    transform: scale(0.99) !important;
+    background: rgba(30, 41, 59, 0.98) !important;
+  }
+
+  /* Left Tier Accent Borders & Glows */
+  .champ-trophy-card.tier-super-major {
+    border-left: 3.5px solid #c084fc !important;
+    box-shadow: 0 2px 10px rgba(192, 132, 252, 0.12) !important;
+  }
+  .champ-trophy-card.tier-major {
+    border-left: 3.5px solid #fbbf24 !important;
+    box-shadow: 0 2px 10px rgba(251, 191, 36, 0.12) !important;
+  }
+  .champ-trophy-card.tier-gt {
+    border-left: 3.5px solid #94a3b8 !important;
+    box-shadow: 0 2px 8px rgba(148, 163, 184, 0.1) !important;
+  }
+  .champ-trophy-card.tier-rtt {
+    border-left: 3.5px solid #d97706 !important;
+    box-shadow: 0 2px 8px rgba(217, 119, 6, 0.1) !important;
+  }
+
+  /* Hide Desktop Diagonal Ribbon */
+  .champ-trophy-card .champ-trophy-ribbon {
+    display: none !important;
+  }
+
+  /* Mobile 44px Glowing Emblem */
+  .champ-mob-icon-wrap {
+    width: 44px !important;
+    height: 44px !important;
+    flex-shrink: 0 !important;
+    border-radius: 8px !important;
+    background: rgba(15, 23, 42, 0.9) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.12) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: relative !important;
+  }
+  .champ-mob-icon-wrap.tier-super-major {
+    border-color: rgba(192, 132, 252, 0.6) !important;
+    background: linear-gradient(135deg, rgba(192, 132, 252, 0.18) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+  }
+  .champ-mob-icon-wrap.tier-major {
+    border-color: rgba(251, 191, 36, 0.6) !important;
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.18) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+  }
+  .champ-mob-icon-wrap.tier-gt {
+    border-color: rgba(148, 163, 184, 0.6) !important;
+    background: linear-gradient(135deg, rgba(148, 163, 184, 0.18) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+  }
+  .champ-mob-icon-wrap.tier-rtt {
+    border-color: rgba(217, 119, 6, 0.6) !important;
+    background: linear-gradient(135deg, rgba(217, 119, 6, 0.18) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+  }
+
+  .champ-mob-trophy-svg {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .champ-mob-trophy-svg svg {
+    width: 26px !important;
+    height: 26px !important;
+  }
+
+  .champ-mob-star-badge {
+    position: absolute !important;
+    top: -4px !important;
+    right: -4px !important;
+    width: 14px !important;
+    height: 14px !important;
+    border-radius: 50% !important;
+    background: #f59e0b !important;
+    color: #0f172a !important;
+    font-size: 9px !important;
+    font-weight: 900 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: 0 0 4px rgba(245, 158, 11, 0.8) !important;
+  }
+
+  /* Content Column */
+  .champ-mob-content {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.15rem !important;
+    overflow: hidden !important;
+  }
+
+  .champ-mob-topline {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.3rem !important;
+    font-size: 0.64rem !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+  }
+
+  .champ-mob-tier-pill {
+    padding: 0.08rem 0.32rem !important;
+    border-radius: 4px !important;
+    letter-spacing: 0.03em !important;
+    font-size: 0.60rem !important;
+    font-weight: 800 !important;
+    flex-shrink: 0 !important;
+  }
+  .champ-mob-tier-pill.tier-super-major {
+    background: rgba(192, 132, 252, 0.2) !important;
+    color: #c084fc !important;
+  }
+  .champ-mob-tier-pill.tier-major {
+    background: rgba(251, 191, 36, 0.2) !important;
+    color: #fbbf24 !important;
+  }
+  .champ-mob-tier-pill.tier-gt {
+    background: rgba(148, 163, 184, 0.2) !important;
+    color: #cbd5e1 !important;
+  }
+  .champ-mob-tier-pill.tier-rtt {
+    background: rgba(217, 119, 6, 0.2) !important;
+    color: #f59e0b !important;
+  }
+
+  .champ-mob-date {
+    color: #94a3b8 !important;
+    font-size: 0.66rem !important;
+    font-weight: 500 !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+
+  .champ-mob-undefeated-badge {
+    color: #34d399 !important;
+    font-size: 0.56rem !important;
+    font-weight: 800 !important;
+    background: rgba(52, 211, 153, 0.12) !important;
+    padding: 0.06rem 0.28rem !important;
+    border-radius: 4px !important;
+    letter-spacing: 0.02em !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+
+  .champ-mob-name {
+    font-size: 0.82rem !important;
+    font-weight: 700 !important;
+    color: #f8fafc !important;
+    line-height: 1.22 !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .champ-mob-byline {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.35rem !important;
+    font-size: 0.70rem !important;
+    color: #94a3b8 !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+  }
+
+  .champ-mob-player {
+    color: #38bdf8 !important;
+    font-weight: 600 !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+
+  .champ-mob-dot {
+    color: #475569 !important;
+    flex-shrink: 0 !important;
+  }
+
+  .champ-mob-faction {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    color: #cbd5e1 !important;
+    flex: 1 !important;
+    min-width: 0 !important;
+  }
+
+  /* Right Side Meta Column */
+  .champ-mob-meta {
+    flex-shrink: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    gap: 0.12rem !important;
+    position: relative !important;
+    padding-right: 0.75rem !important;
+  }
+
+  .champ-mob-record {
+    font-size: 0.84rem !important;
+    font-weight: 800 !important;
+    color: #34d399 !important;
+    font-family: var(--font-mono, monospace) !important;
+    line-height: 1 !important;
+  }
+
+  .champ-mob-players {
+    font-size: 0.68rem !important;
+    color: #94a3b8 !important;
+    font-weight: 600 !important;
+  }
+
+  .champ-mob-glory {
+    font-size: 0.65rem !important;
+    font-weight: 700 !important;
+    color: #f59e0b !important;
+  }
+
+  .champ-mob-chevron {
+    position: absolute !important;
+    right: -2px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    font-size: 1.05rem !important;
+    color: #64748b !important;
+    font-weight: 300 !important;
+  }
+}
+
+
 
 
