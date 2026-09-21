@@ -1186,7 +1186,7 @@ class TeamsHubService:
                 {'event_id': 'ev_lvtt_2026', 'event_name': 'Las Vegas Teams Tournament - LVTT 2026', 'event_date': '2026-02-14', 'total_players': 265, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
                 {'event_id': 'ev_lone_star_2025', 'event_name': 'Lone Star Open 2025 - 40k Champs', 'event_date': '2025-07-20', 'total_players': 322, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Death Guard'},
                 {'event_id': 'ev_ctc_2025', 'event_name': 'California Team Championships by Best Coast Pairings', 'event_date': '2025-06-15', 'total_players': 215, 'num_rounds': 5, 'wins': 4, 'losses': 0, 'draws': 1, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
-                {'event_id': 'ev_ctc_v', 'event_name': 'California Team Championships V by BCP', 'event_date': '2024-06-23', 'total_players': 190, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                {'event_id': 'ev_ctc_v', 'event_name': 'California Team Championships V by Dicehammer', 'event_date': '2024-06-23', 'total_players': 190, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
                 {'event_id': 'ev_lvtt_2025', 'event_name': 'Frontline Gaming Las Vegas Team Tournament 2025', 'event_date': '2025-01-18', 'total_players': 290, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
                 {'event_id': 'ev_socal_2025', 'event_name': 'SoCal Open 2025 - Warhammer 40k Major', 'event_date': '2025-10-24', 'total_players': 164, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Space Marines'},
                 {'event_id': 'ev_tacoma_2025', 'event_name': 'US Open Tacoma Major 2025', 'event_date': '2025-08-22', 'total_players': 148, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
@@ -1525,6 +1525,12 @@ class TeamsHubService:
                     "player_id": sec_pid
                 }
             ]
+
+        # Enforce strict championship rule: ONLY undefeated runs with zero draws qualify (no 4-0-1, 3-0-2, etc.)
+        raw_championships = [
+            c for c in raw_championships
+            if c.get("undefeated") and (c.get("draws", 0) == 0) and (c.get("losses", 0) == 0) and not any(k in str(c.get("record")) for k in ["-0-1", "-0-2", "-1-", "-2-", "-3-"])
+        ]
 
         # Sort and deduplicate
         tier_weights = {"super_major": 4, "major": 3, "gt": 2, "rtt": 1}

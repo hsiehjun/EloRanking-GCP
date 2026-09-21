@@ -1620,8 +1620,18 @@
 
   function renderHallOfChampions(championships, isSelf, isPublic, customId) {
     championships = championships || { total: 0, items: [] };
-    var total = championships.total || 0;
-    var items = championships.items || [];
+    var rawItems = championships.items || [];
+    // Strict qualification: ONLY undefeated runs with zero draws qualify
+    var items = rawItems.filter(function(c) {
+      var d = Number(c.draws || 0);
+      var l = Number(c.losses || 0);
+      var rec = String(c.record || '');
+      if (d > 0 || l > 0) return false;
+      if (rec.includes('-0-1') || rec.includes('-0-2') || rec.includes('-1-') || rec.includes('-2-')) return false;
+      if (c.undefeated === false) return false;
+      return true;
+    });
+    var total = items.length;
     var showcaseId = customId || 'hall-of-champions-showcase';
 
     if (total === 0) {
@@ -1645,13 +1655,14 @@
         : '';
       var trophySvg = getTrophySvg(item.trophy_type || 'bronze_laurel_plaque');
       var itemEncoded = encodeURIComponent(JSON.stringify(item));
+      var safeNameAttr = escapeHtml(item.event_name || '').replace(/'/g, "\\'");
 
       return [
         '<div class="champ-trophy-card ' + tierClass + '" data-chronicle="' + itemEncoded + '" onclick="window.BadgesUI.openVictoryChronicleFromElement(this)" title="Click to inspect Victory Chronicle">',
         ribbonHtml,
         '  <div class="champ-trophy-icon-wrap">' + trophySvg + '</div>',
         '  <div class="champ-trophy-tier-tag">' + escapeHtml((item.tier_title || 'Champion').toUpperCase()) + '</div>',
-        '  <div class="champ-trophy-name" title="' + escapeHtml(item.event_name) + '">' + escapeHtml(item.event_name) + '</div>',
+        '  <div class="champ-trophy-name" onclick="event.stopPropagation(); window.openEventModalFromChampionship(\'' + escapeHtml(item.event_id || '') + '\', \'' + safeNameAttr + '\')" title="Click to view Tournament Standings for ' + escapeHtml(item.event_name) + '" style="cursor: pointer; text-decoration: underline; text-decoration-color: rgba(56,189,248,0.4); text-underline-offset: 2px;">' + escapeHtml(item.event_name) + ' <span style="font-size:0.72rem; color:#38bdf8;">↗</span></div>',
         item.player_name ? '  <div class="champ-trophy-player-pill" style="font-size:0.72rem; color:#38bdf8; font-weight:700; margin-bottom:0.25rem;">👤 ' + escapeHtml(item.player_name) + '</div>' : '',
         '  <div class="champ-trophy-meta">',
         '    <span class="champ-meta-record">' + escapeHtml(item.record) + '</span>',
@@ -1739,13 +1750,14 @@
       ? '<div style="font-size: 0.85rem; color: #38bdf8; font-weight: 700; margin-top: 0.2rem;">👤 Champion: ' + escapeHtml(playerName) + '</div>'
       : '';
 
+    var safeEventName = escapeHtml(eventName || '').replace(/'/g, "\\'");
     modal.innerHTML = [
       '<div class="modal-card champ-chronicle-card" style="max-width: 500px; background: #0f172a; border-radius: var(--radius-lg); border: 1.5px solid rgba(245, 158, 11, 0.75); box-shadow: 0 10px 40px rgba(0,0,0,0.9), 0 0 35px rgba(245, 158, 11, 0.25); overflow: hidden;">',
       '  <div style="padding: 1.5rem 1.5rem 1.15rem; text-align: center; background: radial-gradient(circle at top, rgba(245, 158, 11, 0.25), transparent 75%); border-bottom: 1px solid rgba(255,255,255,0.08); position: relative;">',
       '    <button type="button" class="modal-close" onclick="window.BadgesUI.closeVictoryChronicle()" style="position: absolute; top: 1rem; right: 1rem; background: none; border: none; font-size: 1.4rem; color: #94a3b8; cursor: pointer;">✕</button>',
       '    <div style="font-size: 2.8rem; margin-bottom: 0.35rem;">🏆</div>',
       '    <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.08em; background: rgba(245, 158, 11, 0.15); padding: 0.25rem 0.75rem; border-radius: 9999px; border: 1px solid rgba(245, 158, 11, 0.3); margin-bottom: 0.45rem;">' + escapeHtml(tierTitle || 'Champion') + ' &bull; 1st Place Champion</div>',
-      '    <h2 style="font-size: 1.4rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem; letter-spacing: -0.01em;">' + escapeHtml(eventName) + '</h2>',
+      '    <h2 style="font-size: 1.4rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem; letter-spacing: -0.01em; cursor: pointer;" onclick="window.openEventModalFromChampionship(\'' + escapeHtml(eventId || '') + '\', \'' + safeEventName + '\')" title="Click to view Tournament Standings">' + escapeHtml(eventName) + ' <span style="font-size:0.85rem; color:#38bdf8;">↗</span></h2>',
       championSubtitle,
       '    <div style="font-size: 0.82rem; color: #94a3b8; margin-top: 0.25rem;">Official Tournament Chronicle &bull; ' + escapeHtml(eventDate || '2026') + '</div>',
       '  </div>',
@@ -1771,8 +1783,11 @@
       '      </div>',
       '      <span class="badge badge-win" style="font-size: 0.74rem; font-weight: 700; padding: 0.25rem 0.65rem;">1st Place Podium</span>',
       '    </div>',
+      '    <div style="display: flex; gap: 0.65rem; margin-bottom: 0.6rem;">',
+      '      <button type="button" class="btn btn-primary" style="flex: 1; padding: 0.65rem 1rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #0369a1); border: 1px solid #38bdf8;" onclick="window.openEventModalFromChampionship(\'' + escapeHtml(eventId || '') + '\', \'' + safeEventName + '\')">⚔️ View Tournament Standings &amp; Pairings ↗</button>',
+      '    </div>',
       '    <div style="display: flex; gap: 0.65rem;">',
-      '      <button type="button" class="btn btn-primary" style="flex: 1; padding: 0.65rem 1rem; font-weight: 700;" onclick="window.BadgesUI.shareVictorySnippetFromModal()">📋 Copy Victory Card</button>',
+      '      <button type="button" class="btn btn-secondary" style="flex: 1; padding: 0.65rem 1rem; font-weight: 700;" onclick="window.BadgesUI.shareVictorySnippetFromModal()">📋 Copy Victory Card</button>',
       '      <button type="button" class="btn btn-secondary" style="padding: 0.65rem 1.1rem;" onclick="window.BadgesUI.closeVictoryChronicle()">Close</button>',
       '    </div>',
       '  </div>',
@@ -1786,6 +1801,24 @@
     var modal = document.getElementById('badges-victory-chronicle-modal');
     if (modal) modal.remove();
   }
+
+  function openEventModalFromChampionship(eventId, eventName) {
+    if (typeof closeVictoryChronicle === 'function') {
+      closeVictoryChronicle();
+    }
+    if (typeof window.openEventModal === 'function') {
+      if (eventId) {
+        window.openEventModal(eventId, false, 'results');
+      } else {
+        console.warn('openEventModalFromChampionship: No eventId provided for', eventName);
+      }
+    } else if (typeof openEventModal === 'function') {
+      openEventModal(eventId, false, 'results');
+    } else {
+      console.warn('openEventModal is not available');
+    }
+  }
+  window.openEventModalFromChampionship = openEventModalFromChampionship;
 
   function shareVictorySnippetFromModal() {
     var modal = document.getElementById('badges-victory-chronicle-modal');
@@ -1824,6 +1857,7 @@
     openVictoryChronicle: openVictoryChronicle,
     openVictoryChronicleFromElement: openVictoryChronicleFromElement,
     closeVictoryChronicle: closeVictoryChronicle,
+    openEventModalFromChampionship: openEventModalFromChampionship,
     shareVictorySnippet: shareVictorySnippet,
     shareVictorySnippetFromModal: shareVictorySnippetFromModal,
     getTrophySvg: getTrophySvg,

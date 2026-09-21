@@ -316,7 +316,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     eventsHtml = eventsList.map((ev, idx) => {
       const isExpanded = false;
       const recordStr = `${ev.wins}W - ${ev.losses}L${ev.draws > 0 ? ` - ${ev.draws}D` : ''}`;
-      const isFlawless = (ev.losses === 0 && ev.wins >= 3);
+      const isFlawless = (ev.losses === 0 && (!ev.draws || ev.draws === 0) && ev.wins >= 3);
       const eloDelta = ev.totalEloDelta;
       const eloSign = eloDelta > 0 ? `+${eloDelta.toFixed(1)}` : eloDelta.toFixed(1);
       const eloColor = eloDelta > 0 ? 'var(--win)' : (eloDelta < 0 ? 'var(--loss)' : 'var(--text-muted)');

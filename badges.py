@@ -405,7 +405,7 @@ def extract_tournament_championships(
                 "event_date": m_date,
                 "total_players": 0,
                 "num_rounds": r_cnt,
-                "placement": 1 if (w_cnt >= 3 and l_cnt == 0) else 0,
+                "placement": 1 if (w_cnt >= 3 and l_cnt == 0 and d_cnt == 0) else 0,
                 "wins": w_cnt,
                 "losses": l_cnt,
                 "draws": d_cnt,
@@ -427,11 +427,14 @@ def extract_tournament_championships(
         draws = _safe_int(t.get("draws"))
         faction = str(t.get("registered_faction") or t.get("faction") or "Unknown").strip()
 
-        # Check for championship (1st place) or flawless undefeated tournament run (0 losses, 3+ wins)
+        # Strict championship rule: ONLY undefeated runs with zero draws qualify (no 4-0-1, 3-0-2, etc.)
+        if losses > 0 or draws > 0 or wins < 1:
+            continue
+
         is_winner = False
         if placement == 1:
             is_winner = True
-        elif losses == 0 and wins >= 3:
+        elif losses == 0 and draws == 0 and wins >= 3:
             is_winner = True
 
         if not is_winner:

@@ -1453,6 +1453,17 @@ function filterTeamSilverwareGrid() {
 function getFilteredAndSortedTeamSilverware(items) {
   let list = Array.isArray(items) ? items.slice() : [];
 
+  // Strict qualification: ONLY undefeated runs with zero draws qualify (no 4-0-1 or 3-0-2)
+  list = list.filter(c => {
+    const d = Number(c.draws || 0);
+    const l = Number(c.losses || 0);
+    const rec = String(c.record || '');
+    if (d > 0 || l > 0) return false;
+    if (rec.includes('-0-1') || rec.includes('-0-2') || rec.includes('-1-') || rec.includes('-2-')) return false;
+    if (c.undefeated === false) return false;
+    return true;
+  });
+
   // 1. Tier filter
   if (teamReliquaryState.filter === 'major') {
     list = list.filter(c => c.tier === 'major' || c.tier === 'super_major');
@@ -1521,6 +1532,8 @@ function renderSingleTrophyCardHtml(item) {
     }
   }
 
+  const safeEventName = escapeHtml(item.event_name || '').replace(/'/g, "\\'");
+
   return `
     <div class="champ-trophy-card ${tierClass} team-trophy-card" data-chronicle="${itemEncoded}" data-tier="${escapeHtml(item.tier || 'rtt')}" data-undefeated="${item.undefeated ? 'true' : 'false'}" data-player="${escapeHtml(cleanPlayer.toLowerCase())}" data-event="${escapeHtml((item.event_name || '').toLowerCase())}" data-faction="${escapeHtml((item.faction || '').toLowerCase())}" onclick="window.BadgesUI.openVictoryChronicleFromElement(this)" title="Click to inspect Victory Chronicle for ${escapeHtml(item.event_name)}">
       
@@ -1529,7 +1542,7 @@ function renderSingleTrophyCardHtml(item) {
         ${ribbonHtml}
         <div class="champ-trophy-icon-wrap">${trophySvg}</div>
         <div class="champ-trophy-tier-tag">${escapeHtml(tierTitle)}</div>
-        <div class="champ-trophy-name" title="${escapeHtml(item.event_name)}">${escapeHtml(item.event_name)}</div>
+        <div class="champ-trophy-name" onclick="event.stopPropagation(); window.openEventModalFromChampionship('${escapeHtml(item.event_id || '')}', '${safeEventName}')" title="Click to view Tournament Standings for ${escapeHtml(item.event_name)}" style="cursor: pointer; text-decoration: underline; text-decoration-color: rgba(56,189,248,0.4); text-underline-offset: 2px;">${escapeHtml(item.event_name)} <span style="font-size: 0.72rem; color: #38bdf8;">↗</span></div>
         <div class="champ-trophy-player-pill" style="font-size:0.75rem; color:#38bdf8; font-weight:700; margin: 0.2rem 0 0.35rem; display: flex; align-items: center; justify-content: center; gap: 0.25rem;">
           <span>👤</span>
           <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Won by ${escapeHtml(cleanPlayer)}</span>
@@ -1560,7 +1573,7 @@ function renderSingleTrophyCardHtml(item) {
             ${formattedDate ? `<span class="champ-mob-date">${escapeHtml(formattedDate)}</span>` : ''}
             ${item.undefeated ? '<span class="champ-mob-undefeated-badge">⭐ Undefeated</span>' : ''}
           </div>
-          <div class="champ-mob-name" title="${escapeHtml(item.event_name)}">${escapeHtml(item.event_name)}</div>
+          <div class="champ-mob-name" onclick="event.stopPropagation(); window.openEventModalFromChampionship('${escapeHtml(item.event_id || '')}', '${safeEventName}')" title="Click to view Tournament Standings for ${escapeHtml(item.event_name)}" style="cursor: pointer; text-decoration: underline; text-decoration-color: rgba(56,189,248,0.4); text-underline-offset: 2px;">${escapeHtml(item.event_name)} <span style="font-size: 0.72rem; color: #38bdf8;">↗</span></div>
           <div class="champ-mob-byline">
             <span class="champ-mob-player">👤 ${escapeHtml(cleanPlayer)}</span>
             <span class="champ-mob-dot">&bull;</span>
@@ -1656,14 +1669,24 @@ function renderTeamReliquaryGridAndPagination() {
 function renderTeamTrophiesPanel(data, sys) {
   const teamName = data.team || currentProfileTeamName || 'Club';
   const championships = data.championships || { total: 0, items: [], top_champions: [], factions_distribution: [] };
-  const items = Array.isArray(championships.items) ? championships.items : [];
+  const rawItems = Array.isArray(championships.items) ? championships.items : [];
+  // Strict qualification: ONLY undefeated runs with zero draws qualify
+  const items = rawItems.filter(c => {
+    const d = Number(c.draws || 0);
+    const l = Number(c.losses || 0);
+    const rec = String(c.record || '');
+    if (d > 0 || l > 0) return false;
+    if (rec.includes('-0-1') || rec.includes('-0-2') || rec.includes('-1-') || rec.includes('-2-')) return false;
+    if (c.undefeated === false) return false;
+    return true;
+  });
   const topChamps = Array.isArray(championships.top_champions) ? championships.top_champions : [];
   const factionsDist = Array.isArray(championships.factions_distribution) ? championships.factions_distribution : [];
 
-  const totalTitles = championships.total || items.length;
-  const majorWins = (championships.major_wins != null ? championships.major_wins : 0) + (championships.super_major_wins != null ? championships.super_major_wins : 0);
-  const gtWins = championships.gt_wins != null ? championships.gt_wins : items.filter(c => c.tier === 'gt').length;
-  const rttWins = championships.rtt_wins != null ? championships.rtt_wins : items.filter(c => c.tier === 'rtt').length;
+  const totalTitles = items.length;
+  const majorWins = items.filter(c => c.tier === 'major' || c.tier === 'super_major').length;
+  const gtWins = items.filter(c => c.tier === 'gt').length;
+  const rttWins = items.filter(c => c.tier === 'rtt').length;
 
   const topAce = topChamps.length > 0 ? topChamps[0] : null;
 

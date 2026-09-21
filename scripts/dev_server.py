@@ -2239,7 +2239,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     {'event_id': 'ev_lvtt_2026', 'event_name': 'Las Vegas Teams Tournament - LVTT 2026', 'event_date': '2026-02-14', 'total_players': 265, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
                     {'event_id': 'ev_lone_star_2025', 'event_name': 'Lone Star Open 2025 - 40k Champs', 'event_date': '2025-07-20', 'total_players': 322, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Death Guard'},
                     {'event_id': 'ev_ctc_2025', 'event_name': 'California Team Championships by Best Coast Pairings', 'event_date': '2025-06-15', 'total_players': 215, 'num_rounds': 5, 'wins': 4, 'losses': 0, 'draws': 1, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
-                    {'event_id': 'ev_ctc_v', 'event_name': 'California Team Championships V by BCP', 'event_date': '2024-06-23', 'total_players': 190, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
+                    {'event_id': 'ev_ctc_v', 'event_name': 'California Team Championships V by Dicehammer', 'event_date': '2024-06-23', 'total_players': 190, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
                     {'event_id': 'ev_lvtt_2025', 'event_name': 'Frontline Gaming Las Vegas Team Tournament 2025', 'event_date': '2025-01-18', 'total_players': 290, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
                     {'event_id': 'ev_socal_2025', 'event_name': 'SoCal Open 2025 - Warhammer 40k Major', 'event_date': '2025-10-24', 'total_players': 164, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Space Marines'},
                     {'event_id': 'ev_tacoma_2025', 'event_name': 'US Open Tacoma Major 2025', 'event_date': '2025-08-22', 'total_players': 148, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
@@ -3267,6 +3267,118 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         }
                     ],
                     "team_standings": []
+                }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps(res).encode("utf-8"))
+                return
+
+            is_ctc = "ctc" in ev_param.lower() or "california" in ev_param.lower() or "dicehammer" in ev_param.lower()
+            if is_ctc:
+                res = {
+                    "id": "ev_ctc_v",
+                    "name": "California Team Championships V by Dicehammer",
+                    "event_date": "2024-06-23",
+                    "end_date": "2024-06-24",
+                    "city": "Burbank",
+                    "state": "CA",
+                    "country": "United States",
+                    "venue": "Burbank Marriott Convention Center",
+                    "total_players": 190,
+                    "num_rounds": 5,
+                    "current_round": 5,
+                    "is_ended": True,
+                    "ended": True,
+                    "started": True,
+                    "status": {"ended": True, "isEnded": True, "started": True},
+                    "players": [
+                        {
+                            "player_id": "Te1Q9lp3By",
+                            "full_name": "Junior Aflleje",
+                            "faction": "Leagues of Votann",
+                            "detachment": "Prioritised Target",
+                            "team": "Team Zero Comp",
+                            "placement": 1,
+                            "event_wins": 5,
+                            "event_losses": 0,
+                            "event_draws": 0,
+                            "event_battle_points": 485,
+                            "current_elo": 2190.8,
+                            "event_net_elo": 32.5,
+                            "has_list": True,
+                            "army_list": "++ Leagues of Votann - Prioritised Target [2,000 pts] ++\nCharacters:\nKâhl [90 pts]: Appraising Glare (Warlord)\nEinhyr Champion [80 pts]: Grim Demeanour\nBattleline:\n10x Hearthkyn Warriors [100 pts]\n10x Hearthkyn Warriors [100 pts]\nVehicles & Exosuits:\n6x Einhyr Hearthguard [320 pts]: Volkanite disintegrators\n6x Einhyr Hearthguard [320 pts]: Concussion gauntlets\n3x Hernkyn Pioneers [90 pts]\n3x Hernkyn Pioneers [90 pts]\nHekaton Land Fortress [225 pts]: Heavy magna-rail cannon\nHekaton Land Fortress [225 pts]: SP conversion beamer"
+                        },
+                        {
+                            "player_id": "9oEfu25ccjqE",
+                            "full_name": "John Hsieh",
+                            "faction": "Necrons",
+                            "detachment": "Canoptek Court",
+                            "team": "Team Zero Comp",
+                            "placement": 2,
+                            "event_wins": 5,
+                            "event_losses": 0,
+                            "event_draws": 0,
+                            "event_battle_points": 472,
+                            "current_elo": 1968.4,
+                            "event_net_elo": 28.0,
+                            "has_list": True
+                        },
+                        {
+                            "player_id": "p_james_c",
+                            "full_name": "James Carmona",
+                            "faction": "Adeptus Custodes",
+                            "detachment": "Shield Host",
+                            "team": "Team Zero Comp",
+                            "placement": 3,
+                            "event_wins": 5,
+                            "event_losses": 0,
+                            "event_draws": 0,
+                            "event_battle_points": 465,
+                            "current_elo": 1845.0,
+                            "event_net_elo": 24.5,
+                            "has_list": True
+                        },
+                        {
+                            "player_id": "p_jake_n",
+                            "full_name": "Jake Nelson",
+                            "faction": "Blood Angels",
+                            "detachment": "Sons of Sanguinius",
+                            "team": "Team Zero Comp",
+                            "placement": 4,
+                            "event_wins": 5,
+                            "event_losses": 0,
+                            "event_draws": 0,
+                            "event_battle_points": 458,
+                            "current_elo": 1820.0,
+                            "event_net_elo": 22.0,
+                            "has_list": True
+                        },
+                        {
+                            "player_id": "p_jesse_s",
+                            "full_name": "Jesse Sell",
+                            "faction": "Aeldari",
+                            "detachment": "Battle Host",
+                            "team": "Team Zero Comp",
+                            "placement": 5,
+                            "event_wins": 5,
+                            "event_losses": 0,
+                            "event_draws": 0,
+                            "event_battle_points": 450,
+                            "current_elo": 1810.0,
+                            "event_net_elo": 20.0,
+                            "has_list": True
+                        }
+                    ],
+                    "team_standings": [
+                        {"team_name": "Team Zero Comp", "placement": 1, "wins": 5, "losses": 0, "draws": 0, "battle_points": 2330},
+                        {"team_name": "Art of War", "placement": 2, "wins": 4, "losses": 1, "draws": 0, "battle_points": 2210},
+                        {"team_name": "Stat Check", "placement": 3, "wins": 4, "losses": 1, "draws": 0, "battle_points": 2180}
+                    ],
+                    "matches": [
+                        {"id": "m_ctc_1", "round": 5, "table_number": 1, "table": 1, "player1_id": "Te1Q9lp3By", "player1_name": "Junior Aflleje", "player1_faction": "Leagues of Votann", "player1_score": 98, "player2_id": "p_jack_h", "player2_name": "Jack Harpster", "player2_faction": "Blood Angels", "player2_score": 75, "winner_id": "Te1Q9lp3By", "is_done": True, "status": "finished"}
+                    ]
                 }
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
