@@ -469,7 +469,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
               }
               ${window.BadgesUI ? window.BadgesUI.renderRankBadge(data, 'switchProfileSubtab') : ''}
               ${champPillHtml}
-              ${teamName ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="openTeamModal('${escapeHtml(teamName)}')" title="Click to view ${escapeHtml(teamName)} roster">🛡️ ${escapeHtml(teamName)}</span>` : ''}
+              ${teamName ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="if(typeof openTeamProfilePage === 'function'){ openTeamProfilePage('${escapeHtml(teamName)}', '${sys}'); } else if(typeof openTeamModal === 'function') { openTeamModal('${escapeHtml(teamName)}'); }" title="Click to view ${escapeHtml(teamName)} hub & roster">🛡️ ${escapeHtml(teamName)}</span>` : ''}
             </div>
             ${window.BadgesUI ? window.BadgesUI.renderPinnedMedals(data.pinned_badges, data.badge_count, data.is_self, 'switchProfileSubtab') : ''}
           </div>

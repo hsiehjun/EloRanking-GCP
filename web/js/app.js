@@ -494,14 +494,22 @@ function handleAppRoute(routeStr) {
     }
   }
 
-  // Route: /#/aos/team/:name or /#/40k/team/:name or /#/team/:name
-  const teamMatch = clean.match(/^(?:(aos|40k)\/)?team\/([^/?#]+)/i);
+  // Route: /#/aos/team/:name or /#/40k/team/:name or /#/team/:name or bare /#/40k/team/ or /#/team/ or /#/team
+  const teamMatch = clean.match(/^(?:(aos|40k)\/)?team(?:\/(.*))?$/i);
   if (teamMatch) {
     const routeSys = teamMatch[1] ? teamMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
-    const tname = decodeURIComponent(teamMatch[2]);
-    if (typeof openTeamProfilePage === 'function') {
-      openTeamProfilePage(tname, routeSys, { replaceUrl: true });
-      return true;
+    const rawName = (teamMatch[2] || '').trim();
+    const tname = rawName ? decodeURIComponent(rawName).trim() : '';
+    if (tname) {
+      if (typeof openTeamProfilePage === 'function') {
+        openTeamProfilePage(tname, routeSys, { replaceUrl: true });
+        return true;
+      }
+    } else {
+      if (typeof navigateToUserTeam === 'function') {
+        navigateToUserTeam(routeSys);
+        return true;
+      }
     }
   }
   return false;

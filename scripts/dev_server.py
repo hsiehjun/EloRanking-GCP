@@ -2305,7 +2305,68 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         {"match_date": "2026-08-01", "event_name": "Lone Star Open 2026 - Warhammer 40k Champs", "round": 5, "result": "W", "player_score": 91, "opponent_score": 75, "player_faction": "Leagues of Votann", "opponent_name": "Trevor Bauchou", "opponent_faction": "Necrons", "opponent_elo": 1890.0, "delta_elo": 4.5, "new_elo": 2174.2}
                     ]
                 }
-            elif "john" in pid.lower() or pid == "MEV83VFANA" or pid == "9oEfu25ccjqE" or "hsieh" in pid.lower() or "john" in req_name or "hsieh" in req_name:
+            elif "lennon" in pid.lower() or "lennon" in req_name:
+                res = {
+                    "player": {
+                        "player_id": "p_john_lennon",
+                        "player_name": "John Lennon",
+                        "team": "Art of War",
+                        "teams_history": ["Art of War", "Team USA"],
+                        "top_faction": "Space Marines, Ultramarines, Adeptus Custodes",
+                        "current_elo": 2482.5,
+                        "peak_elo": 2499.7,
+                        "wins": 441,
+                        "losses": 49,
+                        "draws": 5,
+                        "win_rate": 89.1,
+                        "total_matches": 495
+                    },
+                    "has_account": False,
+                    "longest_win_streak": 40,
+                    "current_streak": 12,
+                    "tournaments": [
+                        {
+                            "event_id": "ev_lvo_2025",
+                            "event_name": "Las Vegas Open 2025 - Warhammer 40k Champs",
+                            "event_date": "2025-01-26",
+                            "tier": "super_major",
+                            "tier_title": "Super Major / Worlds",
+                            "trophy_type": "astral_obsidian_crown",
+                            "total_players": 412,
+                            "placement": 1,
+                            "wins": 9,
+                            "losses": 0,
+                            "draws": 0,
+                            "record": "9-0",
+                            "undefeated": True,
+                            "faction": "Ultramarines",
+                            "glory_bonus": 3000,
+                            "team": "Art of War"
+                        },
+                        {
+                            "event_id": "ev_tacoma_2026",
+                            "event_name": "The Challengers Cup 2026",
+                            "event_date": "2026-09-11",
+                            "tier": "major",
+                            "tier_title": "Major Championship",
+                            "trophy_type": "winged_chalice",
+                            "total_players": 128,
+                            "placement": 1,
+                            "wins": 6,
+                            "losses": 0,
+                            "draws": 0,
+                            "record": "6-0",
+                            "undefeated": True,
+                            "faction": "Space Marines",
+                            "glory_bonus": 1250,
+                            "team": "Art of War"
+                        }
+                    ],
+                    "history": [
+                        {"match_date": "2026-09-11", "event_name": "The Challengers Cup 2026", "round": 1, "result": "W", "player_score": 100, "opponent_score": 42, "player_faction": "Space Marines", "opponent_name": "Colin Sherman", "opponent_faction": "Chaos", "opponent_elo": 1910.0, "delta_elo": 10.2, "new_elo": 2482.5, "team": "Art of War"}
+                    ]
+                }
+            elif "hsieh" in pid.lower() or pid == "MEV83VFANA" or pid == "9oEfu25ccjqE" or "hsieh" in req_name or ("john" in req_name and "lennon" not in req_name):
                 res = {
                     "player": {
                         "player_id": "MEV83VFANA",

@@ -996,52 +996,360 @@ function filterTeamBattleLedger(query) {
   });
 }
 
-function navigateToUserTeam() {
-  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
-  let teamName = null;
-
-  if (window.currentUser && window.currentUser.team && window.currentUser.team.trim()) {
-    teamName = window.currentUser.team.trim();
-  }
-
-  if (!teamName && window.myHubData && window.myHubData.player && window.myHubData.player.team) {
-    teamName = window.myHubData.player.team.trim();
-  }
-
-  if (!teamName) {
-    try {
-      const cached = localStorage.getItem(`my_hub_cache_${gs}`) || localStorage.getItem('my_hub_cache');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        teamName = (parsed?.player?.team || parsed?.team || '').trim();
+function detectTeamFromMatchHistory(gs = '40k') {
+  // 1. Inspect window.myHubData
+  if (window.myHubData) {
+    const p = window.myHubData.player;
+    if (p) {
+      if (p.team && p.team.trim()) return p.team.trim();
+      if (Array.isArray(p.teams_history) && p.teams_history.length > 0 && p.teams_history[0]) {
+        return String(p.teams_history[0]).trim();
       }
-    } catch (e) {}
+    }
+    const events = window.myHubData.events_attended || window.myHubData.tournaments || [];
+    for (const ev of events) {
+      const t = (ev.team || ev.team_name || ev.player_team || '').trim();
+      if (t) return t;
+    }
+    const matches = window.myHubData.history || [];
+    for (const m of matches) {
+      const t = (m.team || m.team_name || m.player_team || '').trim();
+      if (t) return t;
+    }
   }
 
-  if (!teamName) {
-    try {
-      const userStr = localStorage.getItem('currentUser');
-      if (userStr) {
-        const u = JSON.parse(userStr);
-        teamName = (u?.team || '').trim();
+  // 2. Inspect localStorage cached my_hub
+  try {
+    const cached = localStorage.getItem(`my_hub_cache_${gs}`) || localStorage.getItem('my_hub_cache');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      const p = parsed?.player;
+      if (p?.team && p.team.trim()) return p.team.trim();
+      if (Array.isArray(p?.teams_history) && p.teams_history[0]) return String(p.teams_history[0]).trim();
+      const events = parsed?.events_attended || parsed?.tournaments || [];
+      for (const ev of events) {
+        const t = (ev.team || ev.team_name || ev.player_team || '').trim();
+        if (t) return t;
       }
-    } catch (e) {}
+    }
+  } catch (e) {}
+
+  // 3. Inspect active profile if viewing self
+  if (window.currentProfileData && window.currentProfileData.is_self && window.currentProfileData.player) {
+    const p = window.currentProfileData.player;
+    if (p.team && p.team.trim()) return p.team.trim();
+    if (Array.isArray(p.teams_history) && p.teams_history[0]) return String(p.teams_history[0]).trim();
   }
 
-  if (!teamName && window.currentProfileData && window.currentProfileData.player && window.currentProfileData.player.team) {
-    teamName = window.currentProfileData.player.team.trim();
+  return null;
+}
+
+function resolveUserTeamName(gs = '40k') {
+  // Priority 1: Direct currentUser team
+  if (window.currentUser) {
+    if (window.currentUser.team && window.currentUser.team.trim()) {
+      return window.currentUser.team.trim();
+    }
+    if (Array.isArray(window.currentUser.teams_history) && window.currentUser.teams_history.length > 0 && window.currentUser.teams_history[0]) {
+      return String(window.currentUser.teams_history[0]).trim();
+    }
   }
+
+  // Priority 2: Stored in localStorage
+  try {
+    const userStr = localStorage.getItem('currentUser') || localStorage.getItem('native_user_profile');
+    if (userStr) {
+      const u = JSON.parse(userStr);
+      if (u.team && u.team.trim()) return u.team.trim();
+      if (u.claimed_team && u.claimed_team.trim()) return u.claimed_team.trim();
+      if (Array.isArray(u.teams_history) && u.teams_history.length > 0 && u.teams_history[0]) {
+        return String(u.teams_history[0]).trim();
+      }
+    }
+  } catch (e) {}
+
+  // Priority 3: Match history / My Hub detection
+  const detected = detectTeamFromMatchHistory(gs);
+  if (detected) return detected;
+
+  return null;
+}
+
+function navigateToUserTeam(gameSystem = '') {
+  const gs = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
+  const teamName = resolveUserTeamName(gs);
 
   if (teamName && typeof openTeamProfilePage === 'function') {
     openTeamProfilePage(teamName, gs);
     return;
   }
 
-  if (typeof openTeamProfilePage === 'function') {
-    openTeamProfilePage('Team Zero Comp', gs);
-  } else if (typeof switchTab === 'function') {
-    switchTab('teams');
+  // If user has no active team, render the informative "How Teams Work & How to Join" section!
+  renderUnaffiliatedTeamHub(gs);
+}
+
+function confirmAndSetActiveTeam(teamName, gs = '40k') {
+  if (!teamName) return;
+  const safeName = String(teamName).trim();
+  if (window.currentUser) {
+    window.currentUser.team = safeName;
   }
+  try {
+    const userStr = localStorage.getItem('currentUser') || localStorage.getItem('native_user_profile');
+    const u = userStr ? JSON.parse(userStr) : {};
+    u.team = safeName;
+    localStorage.setItem('currentUser', JSON.stringify(u));
+    localStorage.setItem('native_user_profile', JSON.stringify(u));
+  } catch (e) {}
+
+  if (typeof showToastNotification === 'function') {
+    showToastNotification(`🛡️ Team set to ${safeName}!`, 'success');
+  }
+  openTeamProfilePage(safeName, gs);
+}
+
+function promptManualTeamJoin(gs = '40k') {
+  const current = (window.currentUser && window.currentUser.team) || '';
+  const chosen = prompt('Enter your club or team name (as registered on BCP):', current);
+  if (chosen && chosen.trim()) {
+    confirmAndSetActiveTeam(chosen.trim(), gs);
+  }
+}
+
+function renderUnaffiliatedTeamHub(gameSystem = '40k') {
+  const gs = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
+
+  // Switch to team-profile tab view
+  if (typeof switchTab === 'function') {
+    switchTab('team-profile');
+  } else {
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.remove('active');
+      p.style.removeProperty('display');
+    });
+    const panel = document.getElementById('tab-team-profile');
+    if (panel) {
+      panel.classList.add('active');
+      panel.style.display = 'block';
+    }
+  }
+
+  // Update URL to bare team route without hardcoding any specific team
+  try {
+    history.replaceState(null, '', `/#/${gs}/team/`);
+  } catch (e) {}
+
+  // Update top and mobile nav items active states
+  document.querySelectorAll('.nav-btn, .mobile-nav-item').forEach(b => {
+    if (b.id === 'nav-btn-team' || b.getAttribute('data-tab') === 'team') {
+      b.classList.add('active');
+    }
+  });
+
+  const container = document.getElementById('team-profile-container');
+  if (!container) return;
+
+  const detectedTeam = detectTeamFromMatchHistory(gs);
+
+  const featuredClubs = [
+    {
+      name: 'Art of War',
+      tag: 'AOW',
+      captain: 'Jack Harpster',
+      tier: 'Everchosen Apex',
+      powerRating: 2465.0,
+      rosterCount: 16,
+      championshipsCount: 49,
+      icon: '👑',
+      accent: '#c084fc',
+      desc: 'World Champions and premier tactical coaching squad fielding Everchosen competitors across international circuits.'
+    },
+    {
+      name: 'Team Zero Comp',
+      tag: 'TZC',
+      captain: 'John Hsieh',
+      tier: 'High Warlord',
+      powerRating: 1949.5,
+      rosterCount: 29,
+      championshipsCount: 51,
+      icon: '🛡️',
+      accent: '#38bdf8',
+      desc: 'California competitive powerhouse dominating West Coast circuits, Lone Star Open, and Las Vegas Open.'
+    },
+    {
+      name: 'Stat Check',
+      tag: 'STAT',
+      captain: 'Innes Wilson',
+      tier: 'High Warlord',
+      powerRating: 2185.0,
+      rosterCount: 14,
+      championshipsCount: 28,
+      icon: '📊',
+      accent: '#f59e0b',
+      desc: 'Elite competitive analytics, statistical modeling, and international tournament circuit contenders.'
+    },
+    {
+      name: 'Team USA',
+      tag: 'USA',
+      captain: 'National Squad',
+      tier: 'Everchosen Apex',
+      powerRating: 2420.0,
+      rosterCount: 20,
+      championshipsCount: 65,
+      icon: '🦅',
+      accent: '#ef4444',
+      desc: 'United States national representative squad competing in the World Championships of Warhammer.'
+    }
+  ];
+
+  const clubsCardsHtml = featuredClubs.map(c => `
+    <div class="profile-hero-card" style="padding: 1.15rem; display: flex; flex-direction: column; justify-content: space-between; border-left: 3.5px solid ${c.accent};">
+      <div>
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.65rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <div style="width: 40px; height: 40px; border-radius: 8px; background: rgba(15,23,42,0.8); border: 1.5px solid ${c.accent}; display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+              ${c.icon}
+            </div>
+            <div>
+              <h4 style="font-size: 0.98rem; font-weight: 800; color: #fff; margin: 0;">${escapeHtml(c.name)}</h4>
+              <span style="font-size: 0.7rem; color: ${c.accent}; font-weight: 700; text-transform: uppercase;">${escapeHtml(c.tier)} • ${escapeHtml(c.tag)}</span>
+            </div>
+          </div>
+          <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.72rem; font-weight: 700;">
+            🏆 ${c.championshipsCount} Titles
+          </span>
+        </div>
+        <p style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.45; margin: 0 0 0.85rem;">
+          ${escapeHtml(c.desc)}
+        </p>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06);">
+        <div>
+          <span style="font-size: 0.68rem; color: var(--text-muted); display: block;">Starting 5 Rating</span>
+          <strong style="font-size: 0.95rem; color: #fff; font-family: var(--font-mono);">${c.powerRating.toFixed(1)}</strong>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="openTeamProfilePage('${escapeHtml(c.name)}', '${gs}')" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; font-weight: 700;">
+          <span>Inspect Club Hub &rarr;</span>
+        </button>
+      </div>
+    </div>
+  `).join('');
+
+  container.innerHTML = `
+    <!-- Top Hero Banner: Unaffiliated Competitor / Clubs & Squads -->
+    <div class="team-command-hero" style="margin-bottom: 1.25rem;">
+      <div class="team-hero-identity">
+        <div class="team-crest-shield heraldry-tier-rookie" style="width: 72px; height: 72px; font-size: 2.2rem; display: flex; align-items: center; justify-content: center; background: rgba(15,23,42,0.9); border: 2px dashed rgba(148,163,184,0.4); border-radius: 12px; flex-shrink: 0;">
+          🛡️
+        </div>
+        <div class="team-hero-titles">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span class="badge" style="background: rgba(148,163,184,0.15); color: #94a3b8; font-weight: 700; font-size: 0.72rem; padding: 0.2rem 0.55rem; border-radius: 6px;">
+              ${gs.toUpperCase()} CLUBS & SQUADS
+            </span>
+            <span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; font-weight: 700; font-size: 0.72rem; padding: 0.2rem 0.55rem; border-radius: 6px;">
+              ⚠️ No Active Club Affiliation
+            </span>
+          </div>
+          <h1 style="font-size: 1.55rem; font-weight: 900; color: #fff; margin: 0.25rem 0 0.35rem;">Tabletop Teams & Wargaming Clubs</h1>
+          <div style="font-size: 0.84rem; color: var(--text-secondary); max-width: 680px; line-height: 1.45;">
+            Compete under a unified club banner, aggregate tournament silverware into your club reliquary, establish your Starting 5 Power Rating, and climb the seasonal circuit leaderboard.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Interactive Auto-Affiliation & Join Card -->
+    <div class="profile-hero-card" style="margin-bottom: 1.25rem; border: 1.5px solid rgba(56,189,248,0.3); background: linear-gradient(135deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.85) 100%); padding: 1.25rem;">
+      <div style="display: flex; align-items: flex-start; gap: 0.85rem; flex-wrap: wrap;">
+        <div style="font-size: 2rem; line-height: 1;">⚡</div>
+        <div style="flex: 1; min-width: 260px;">
+          <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0 0 0.35rem;">How Team Affiliation Works</h3>
+          <p style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.5; margin: 0 0 0.85rem;">
+            In sanctioned tournament play (via Best Coast Pairings), your club affiliation is <strong>automatically captured from your latest match submission</strong> and the team name listed on your event registration roster.
+          </p>
+
+          ${detectedTeam ? `
+            <!-- Detected Team from Match Record -->
+            <div style="background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.85rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.65rem;">
+              <div>
+                <div style="font-size: 0.72rem; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">Recent Team Found in Tournament History</div>
+                <div style="font-size: 1.1rem; font-weight: 800; color: #fff;">🛡️ ${escapeHtml(detectedTeam)}</div>
+              </div>
+              <button type="button" class="btn btn-primary btn-sm" onclick="confirmAndSetActiveTeam('${escapeHtml(detectedTeam)}', '${gs}')" style="font-weight: 700;">
+                <span>🛡️ Set As My Active Team</span>
+              </button>
+            </div>
+          ` : `
+            <!-- Action buttons for user without detected team -->
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+              <button type="button" class="btn btn-primary btn-sm" onclick="openBcpLinkModal()" style="font-size: 0.78rem; font-weight: 700;">
+                <span>🔗 Link BCP Account to Auto-Detect Team</span>
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="promptManualTeamJoin('${gs}')" style="font-size: 0.78rem;">
+                <span>✏️ Set Club Name Manually</span>
+              </button>
+            </div>
+          `}
+        </div>
+      </div>
+    </div>
+
+    <!-- How Clubs Work: 4 Highlight Features -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.85rem; margin-bottom: 1.25rem;">
+      <div class="profile-hero-card" style="padding: 1rem;">
+        <div style="font-size: 1.5rem; margin-bottom: 0.35rem;">🛡️</div>
+        <h4 style="font-size: 0.92rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem;">The Starting 5 & Power Rating</h4>
+        <p style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.45; margin: 0;">
+          Clubs field full active rosters. The top 5 ranked active competitors form the squad's "Starting 5", whose average Elo establishes the team's official Power Rating on the circuit.
+        </p>
+      </div>
+
+      <div class="profile-hero-card" style="padding: 1rem;">
+        <div style="font-size: 1.5rem; margin-bottom: 0.35rem;">🏆</div>
+        <h4 style="font-size: 0.92rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem;">Silverware Reliquary</h4>
+        <p style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.45; margin: 0;">
+          Every 1st place championship victory across Worlds, Majors, GTs, and RTTs won by any squad member is automatically consolidated into the club's trophy reliquary and honors ledger.
+        </p>
+      </div>
+
+      <div class="profile-hero-card" style="padding: 1rem;">
+        <div style="font-size: 1.5rem; margin-bottom: 0.35rem;">⚔️</div>
+        <h4 style="font-size: 0.92rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem;">Live Battlefield Ledger</h4>
+        <p style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.45; margin: 0;">
+          Every tournament round played by any squad member streams into a live team ledger, tracking match records, opponent ratings, victory margins, and faction matchups.
+        </p>
+      </div>
+
+      <div class="profile-hero-card" style="padding: 1rem;">
+        <div style="font-size: 1.5rem; margin-bottom: 0.35rem;">👑</div>
+        <h4 style="font-size: 0.92rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem;">Club Leaderboards & Circuit</h4>
+        <p style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.45; margin: 0;">
+          Clubs compete for seasonal circuit podium honors, regional wargaming dominance, and the #1 Team in the World trophy.
+        </p>
+      </div>
+    </div>
+
+    <!-- Explore Top Registered Clubs Showcase -->
+    <div class="profile-hero-card" style="padding: 1.25rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div>
+          <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">Explore Registered Clubs & Squads</h3>
+          <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.2rem;">
+            Inspect active team dossiers, member rosters, silverware reliquaries, and battlefield ledgers.
+          </div>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="switchTab('leaderboard'); if (typeof switchLeaderboardSubtab === 'function') switchLeaderboardSubtab('teams');" style="font-size: 0.76rem;">
+          <span>🏆 View Full Team Leaderboard &rarr;</span>
+        </button>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.85rem;">
+        ${clubsCardsHtml}
+      </div>
+    </div>
+  `;
 }
 
 /* ==========================================================================
@@ -1609,6 +1917,11 @@ window.filterTeamProfileRoster = filterTeamProfileRoster;
 window.setTeamProfileRosterStatus = setTeamProfileRosterStatus;
 window.navigateBackFromTeamProfile = navigateBackFromTeamProfile;
 window.navigateToUserTeam = navigateToUserTeam;
+window.resolveUserTeamName = resolveUserTeamName;
+window.detectTeamFromMatchHistory = detectTeamFromMatchHistory;
+window.renderUnaffiliatedTeamHub = renderUnaffiliatedTeamHub;
+window.confirmAndSetActiveTeam = confirmAndSetActiveTeam;
+window.promptManualTeamJoin = promptManualTeamJoin;
 window.filterTeamBattleLedger = filterTeamBattleLedger;
 window.renderTeamTrophiesPanel = renderTeamTrophiesPanel;
 window.setTeamSilverwareFilter = setTeamSilverwareFilter;
@@ -1620,6 +1933,7 @@ window.toggleTeamMvpSection = toggleTeamMvpSection;
 window.toggleTeamReliquarySection = toggleTeamReliquarySection;
 window.filterTeamSilverwareGrid = filterTeamSilverwareGrid;
 window.renderTeamReliquaryGridAndPagination = renderTeamReliquaryGridAndPagination;
+
 
 
 
