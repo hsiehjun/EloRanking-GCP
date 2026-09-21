@@ -2959,25 +2959,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             tot_p = int(b_json.get("totalPlayers") or len(b_json.get("players") or []) or 0)
                             ev_name = b_json.get("name") or "BCP Tournament"
                             ev_name_lower = ev_name.lower()
-                            raw_rds = int(b_json.get("numberOfRounds") or b_json.get("numRounds") or 0)
-                            if raw_rds <= 0:
-                                if tot_p >= 200 or "lvo" in ev_name_lower or "adepticon" in ev_name_lower:
-                                    resolved_rds = 10 if "lvo" in ev_name_lower else 9
-                                elif tot_p >= 60 or "major" in ev_name_lower:
-                                    resolved_rds = 6
-                                elif tot_p >= 28:
-                                    resolved_rds = 5
-                                else:
-                                    resolved_rds = 3
-                            elif raw_rds <= 3 and tot_p >= 28:
-                                if tot_p >= 200 or "lvo" in ev_name_lower or "adepticon" in ev_name_lower:
-                                    resolved_rds = 10 if "lvo" in ev_name_lower else 9
-                                elif tot_p >= 60 or "major" in ev_name_lower:
-                                    resolved_rds = 6
-                                else:
-                                    resolved_rds = 5
-                            else:
-                                resolved_rds = raw_rds
+                            resolved_rds = int(b_json.get("numberOfRounds") or b_json.get("numRounds") or 0)
 
                             res = {
                                 "id": ev_param,

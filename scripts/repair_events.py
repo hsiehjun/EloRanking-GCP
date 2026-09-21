@@ -33,12 +33,6 @@ SET
         WHEN (raw_json->>'numRounds') ~ '^[0-9]+$' 
              AND (raw_json->>'numRounds')::int > 0
         THEN (raw_json->>'numRounds')::int
-        WHEN total_players >= 200 OR LOWER(name) LIKE '%lvo%' OR LOWER(name) LIKE '%adepticon%'
-        THEN CASE WHEN LOWER(name) LIKE '%lvo%' THEN 10 ELSE 9 END
-        WHEN total_players >= 60 OR LOWER(name) LIKE '%major%'
-        THEN 6
-        WHEN total_players >= 28
-        THEN 5
         ELSE num_rounds
     END,
     is_ended = CASE 

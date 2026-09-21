@@ -1249,105 +1249,83 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         event_details["sync_in_progress"] = False
         return event_details
 
-    # Check if existing DB event details has stale rounds (<=3 rounds for a 28+ player event) or force_sync requested
-    raw_ev = event_details.get("raw_json") or {} if event_details else {}
-    if isinstance(raw_ev, str):
-        try:
-            raw_ev = json.loads(raw_ev)
-        except Exception:
-            raw_ev = {}
+    # For BCP events: Query BCP API directly as the source of truth for event metadata
+    # Rule: NEVER write or update BCP-related data in our backend DB from the read path.
+    # DB writes/updates are strictly reserved for scheduled jobs (scraper, elo tournament, player sync).
+    scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
+    bcp_ev_data = None
+    try:
+        bcp_ev_data = scraper.fetch_event_details(event_id_str)
+    except Exception as e:
+        logger.warning(f"Notice fetching live BCP details for event {event_id_str}: {e}")
 
-    existing_bcp_rds = int(
-        raw_ev.get("numberOfRounds") or
-        raw_ev.get("numRounds") or
-        ((raw_ev.get("raw_json") or {}).get("numberOfRounds") if isinstance(raw_ev.get("raw_json"), dict) else 0) or
-        0
-    )
-    existing_players_cnt = int(event_details.get("total_players") or 0) if event_details else 0
-    stale_rounds_detected = event_details and (
-        (int(event_details.get("num_rounds") or 0) <= 3 and existing_players_cnt >= 28) or
-        (existing_bcp_rds <= 3 and existing_players_cnt >= 28)
-    )
+    if not event_details and not bcp_ev_data:
+        raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found on Best Coast Pairings")
 
-    # If event is not yet in DB, force_sync requested, or stale rounds detected, fetch details directly from BCP API
-    if (not event_details or force_sync or stale_rounds_detected) and not is_native_studio:
-        try:
-            scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
-            ev_data = scraper.fetch_event_details(event_id_str)
-            if ev_data and isinstance(ev_data, dict):
-                raw_ev = ev_data
-                fresh_bcp_rounds = int(ev_data.get("numberOfRounds") or ev_data.get("numRounds") or 0)
-                if event_details:
-                    event_details["raw_json"] = ev_data
-                    if fresh_bcp_rounds > 0:
-                        event_details["num_rounds"] = fresh_bcp_rounds
-                    if ev_data.get("totalPlayers"):
-                        event_details["total_players"] = int(ev_data["totalPlayers"])
-                    if ev_data.get("eventDate"):
-                        event_details["event_date"] = ev_data["eventDate"]
-                    if ev_data.get("endDate") or ev_data.get("eventEndDate"):
-                        event_details["end_date"] = ev_data.get("endDate") or ev_data.get("eventEndDate")
-                else:
-                    loc = ev_data.get("location") or {}
-                    event_details = {
-                        "id": event_id_str,
-                        "name": ev_data.get("name") or "Tournament Details",
-                        "event_date": ev_data.get("eventDate") or ev_data.get("startDate") or "",
-                        "end_date": ev_data.get("endDate") or ev_data.get("eventEndDate") or "",
-                        "city": loc.get("city") or "",
-                        "state": loc.get("state") or "",
-                        "country": loc.get("country") or "United States",
-                        "total_players": ev_data.get("totalPlayers") or 0,
-                        "num_rounds": fresh_bcp_rounds,
-                        "current_round": ev_data.get("currentRound") or 0,
-                        "status": ev_data.get("status") if isinstance(ev_data.get("status"), dict) else {},
-                        "is_ended": bool(ev_data.get("ended") or ev_data.get("isEnded") or (isinstance(ev_data.get("status"), dict) and ev_data["status"].get("ended"))),
-                        "pairings_status": ev_data.get("pairingsStatus", "draft"),
-                        "raw_json": ev_data,
-                        "matches": [],
-                        "players": [],
-                        "roster": []
-                    }
-        except Exception as e:
-            logger.warning(f"Failed to fetch BCP details for event {event_id_str}: {e}")
+    if not event_details:
+        loc = (bcp_ev_data.get("location") or {}) if isinstance(bcp_ev_data, dict) else {}
+        bcp_rds = int(bcp_ev_data.get("numberOfRounds") or bcp_ev_data.get("numRounds") or 0)
+        event_details = {
+            "id": event_id_str,
+            "name": bcp_ev_data.get("name") or "Tournament Details",
+            "event_date": bcp_ev_data.get("eventDate") or bcp_ev_data.get("startDate") or "",
+            "end_date": bcp_ev_data.get("endDate") or bcp_ev_data.get("eventEndDate") or "",
+            "city": loc.get("city") or "",
+            "state": loc.get("state") or "",
+            "country": loc.get("country") or "United States",
+            "total_players": bcp_ev_data.get("totalPlayers") or 0,
+            "num_rounds": bcp_rds,
+            "numberOfRounds": bcp_rds,
+            "current_round": bcp_ev_data.get("currentRound") or 0,
+            "status": bcp_ev_data.get("status") if isinstance(bcp_ev_data.get("status"), dict) else {},
+            "is_ended": bool(bcp_ev_data.get("ended") or bcp_ev_data.get("isEnded") or (isinstance(bcp_ev_data.get("status"), dict) and bcp_ev_data["status"].get("ended"))),
+            "pairings_status": bcp_ev_data.get("pairingsStatus", "draft"),
+            "raw_json": bcp_ev_data,
+            "matches": [],
+            "players": [],
+            "roster": []
+        }
 
-        if not event_details:
-            raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found on Best Coast Pairings")
-
-    # Canonical ended status check
-    raw_ev = event_details.get("raw_json") or {}
-    if isinstance(raw_ev, str):
-        try:
-            raw_ev = json.loads(raw_ev)
-        except Exception:
-            raw_ev = {}
-
-    # Take authentic BCP numberOfRounds / numRounds directly as the source of truth (strictly zero DB writes on read path)
-    bcp_rounds = int(
-        raw_ev.get("numberOfRounds") or
-        raw_ev.get("numRounds") or
-        ((raw_ev.get("raw_json") or {}).get("numberOfRounds") if isinstance(raw_ev.get("raw_json"), dict) else 0) or
-        ((raw_ev.get("raw_json") or {}).get("numRounds") if isinstance(raw_ev.get("raw_json"), dict) else 0) or
-        0
-    )
-    if bcp_rounds > 0:
-        event_details["num_rounds"] = bcp_rounds
-
-    # Swiss competitive tiers safeguard:
-    # If a tournament has 28+ competitors (GT/Major/Super Major), it is mathematically impossible to conclude in <= 3 rounds
-    tot_p = int(event_details.get("total_players") or 0)
-    ev_name_lower = (event_details.get("name") or "").lower()
-    is_super = tot_p >= 200 or "lvo" in ev_name_lower or "adepticon" in ev_name_lower or "super major" in ev_name_lower or "world championship" in ev_name_lower
-    cur_rds = int(event_details.get("num_rounds") or 0)
-    if cur_rds <= 3 and tot_p >= 28:
-        if is_super or tot_p >= 250:
-            event_details["num_rounds"] = 10 if "lvo" in ev_name_lower else max(cur_rds, 9)
-        elif tot_p >= 60 or "major" in ev_name_lower:
-            event_details["num_rounds"] = max(cur_rds, 6)
+    # If the live BCP API call succeeded, use it directly as the source of truth for event metadata in memory
+    if bcp_ev_data and isinstance(bcp_ev_data, dict):
+        event_details["raw_json"] = bcp_ev_data
+        bcp_rds = int(bcp_ev_data.get("numberOfRounds") or bcp_ev_data.get("numRounds") or 0)
+        if bcp_rds > 0:
+            event_details["num_rounds"] = bcp_rds
+            event_details["numberOfRounds"] = bcp_rds
+        if bcp_ev_data.get("name") and bcp_ev_data.get("name") not in ("Tournament", "Unnamed Tournament", "Tournament Details"):
+            event_details["name"] = bcp_ev_data["name"]
+        if bcp_ev_data.get("totalPlayers"):
+            event_details["total_players"] = int(bcp_ev_data["totalPlayers"])
+        if bcp_ev_data.get("eventDate"):
+            event_details["event_date"] = bcp_ev_data["eventDate"]
+        if bcp_ev_data.get("endDate") or bcp_ev_data.get("eventEndDate"):
+            event_details["end_date"] = bcp_ev_data.get("endDate") or bcp_ev_data.get("eventEndDate")
+        loc = bcp_ev_data.get("location") if isinstance(bcp_ev_data.get("location"), dict) else {}
+        if loc.get("city"): event_details["city"] = loc["city"]
+        if loc.get("state"): event_details["state"] = loc["state"]
+        if loc.get("country"): event_details["country"] = loc["country"]
+        if bcp_ev_data.get("venueName") or loc.get("venueName") or loc.get("name"):
+            event_details["venue_name"] = bcp_ev_data.get("venueName") or loc.get("venueName") or loc.get("name")
+        raw_ev = bcp_ev_data
+    else:
+        raw_ev = event_details.get("raw_json") or {}
+        if isinstance(raw_ev, str):
+            try:
+                raw_ev = json.loads(raw_ev)
+            except Exception:
+                raw_ev = {}
+        bcp_rounds = int(
+            raw_ev.get("numberOfRounds") or
+            raw_ev.get("numRounds") or
+            ((raw_ev.get("raw_json") or {}).get("numberOfRounds") if isinstance(raw_ev.get("raw_json"), dict) else 0) or
+            0
+        )
+        if bcp_rounds > 0:
+            event_details["num_rounds"] = bcp_rounds
+            event_details["numberOfRounds"] = bcp_rounds
         else:
-            event_details["num_rounds"] = max(cur_rds, 5)
-
-    event_details["numberOfRounds"] = event_details["num_rounds"]
+            event_details["numberOfRounds"] = event_details.get("num_rounds") or 0
 
     is_ended = bool(
         event_details.get("is_ended") or
