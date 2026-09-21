@@ -11,6 +11,8 @@
   var currentVault = { inventory: {}, equipped: { active_dice: null, active_card_frame: null, active_title: null, active_avatar: null } };
   var currentGlory = { total_earned: 0, glory_spent: 0, spendable_glory: 0, crest_tier: 1 };
   var activeWingFilter = 'all';
+  var currentArmoryMode = 'vault'; // 'vault' (Command Home) or 'store' (Requisition Depot)
+  var activeVaultTab = 'backpack'; // 'backpack' or 'ledger'
   var isPurchasing = false;
 
   function escapeHtml(str) {
@@ -601,8 +603,68 @@
     return frameId.replace(/_/g, '-');
   }
 
+  var FACTION_FINISH_MAP = {
+    'frame_astral_holofoil': 'finish-astral-holofoil',
+    'finish_astral_holofoil': 'finish-astral-holofoil',
+    'finish_aos_astral_holofoil': 'finish-astral-holofoil',
+    'finish_40k_dark_angels': 'finish-caliban-emerald-sheen',
+    'finish_40k_necrons': 'finish-dynastic-gauss-sheen',
+    'finish_40k_adeptus_astartes': 'finish-macragge-auric-glaze',
+    'finish_40k_chaos_space_marines': 'finish-warpfire-prism',
+    'finish_40k_orks': 'finish-waaagh-dakka-foil',
+    'finish_40k_black_templars': 'finish-crusader-relic-silver',
+    'finish_40k_blood_angels': 'finish-baal-ruby-radiance',
+    'finish_40k_space_wolves': 'finish-fenrisian-frost-glaze',
+    'finish_40k_adeptus_custodes': 'finish-solar-auramite-leaf',
+    'finish_40k_adeptus_mechanicus': 'finish-mechanicus-rad-luminescence',
+    'finish_40k_tyranids': 'finish-hive-bio-chitin',
+    'finish_40k_tau': 'finish-sept-plasma-telemetry',
+    'finish_40k_aeldari': 'finish-wraithbone-spirit-veil',
+    'finish_40k_death_guard': 'finish-nurgle-plague-patina',
+    'finish_40k_adepta_sororitas': 'finish-sororitas-miracle-radiance',
+    'finish_40k_astra_militarum': 'finish-cadia-flak-camo-foil',
+    'finish_40k_chaos_daemons': 'finish-warp-rift-chroma',
+    'finish_40k_chaos_knights': 'finish-dread-warp-patina',
+    'finish_40k_deathwatch': 'finish-xenomortis-silver',
+    'finish_40k_drukhari': 'finish-commorragh-soul-shard',
+    'finish_40k_emperors_children': 'finish-slaanesh-ecstatic-sheen',
+    'finish_40k_genestealer_cults': 'finish-gsc-void-mining-holo',
+    'finish_40k_grey_knights': 'finish-titan-aegis-sanctification',
+    'finish_40k_imperial_agents': 'finish-inquisition-rosette-gilt',
+    'finish_40k_imperial_knights': 'finish-knights-chivalric-heraldry',
+    'finish_40k_leagues_of_votann': 'finish-votann-plasma-forge',
+    'finish_40k_space_marines': 'finish-astartes-honor-foil',
+    'finish_40k_thousand_sons': 'finish-rubric-tzaangor-sorcery',
+    'finish_40k_world_eaters': 'finish-khorne-blood-slick',
+    'finish_aos_stormcast_eternals': 'finish-azyrite-lightning-sheen',
+    'finish_aos_blades_of_khorne': 'finish-blood-god-brass-sheen',
+    'finish_aos_gloomspite_gitz': 'finish-bad-moon-loontide-sheen',
+    'finish_aos_soulblight_gravelords': 'finish-crimson-court-blood-foil',
+    'finish_aos_sylvaneth': 'finish-life-bloom-jade-sheen',
+    'finish_aos_beasts_of_chaos': 'finish-wild-herdstone-blood-sheen',
+    'finish_aos_cities_of_sigmar': 'finish-freeguild-banner-foil',
+    'finish_aos_daughters_of_khaine': 'finish-morathi-shadow-blade-foil',
+    'finish_aos_disciples_of_tzeentch': 'finish-fateweaver-kaleidoscope',
+    'finish_aos_flesh_eater_courts': 'finish-grand-illusion-chivalric-sheen',
+    'finish_aos_fyreslayers': 'finish-ur-gold-volcano-ember',
+    'finish_aos_hedonites_of_slaanesh': 'finish-excess-opalescent-sheen',
+    'finish_aos_idoneth_deepkin': 'finish-ethersea-abyssal-current',
+    'finish_aos_kharadron_overlords': 'finish-aether-gold-burnish',
+    'finish_aos_lumineth_realm_lords': 'finish-aelementor-zenith-glaze',
+    'finish_aos_maggotkin_of_nurgle': 'finish-rotbringer-bile-glaze',
+    'finish_aos_nighthaunt': 'finish-spectral-ectoplasm-veil',
+    'finish_aos_ogor_mawtribes': 'finish-everwinter-blizzard-frost',
+    'finish_aos_orruk_warclans': 'finish-ironjawz-crusher-glaze',
+    'finish_aos_ossiarch_bonereapers': 'finish-mortisan-bone-lacquer',
+    'finish_aos_seraphon': 'finish-celestial-constellation-foil',
+    'finish_aos_skaven': 'finish-warpstone-mutagenic-sheen',
+    'finish_aos_slaves_to_darkness': 'finish-varanite-corrupted-chrome',
+    'finish_aos_sons_of_behemat': 'finish-colossal-megagargant-crag'
+  };
+
   function getFinishCssClass(finishId) {
     if (!finishId) return '';
+    if (FACTION_FINISH_MAP[finishId]) return FACTION_FINISH_MAP[finishId];
     if (finishId === 'frame_astral_holofoil' || finishId.includes('holofoil')) {
       return 'finish-astral-holofoil';
     }
@@ -755,7 +817,24 @@
    * Filter Store by Wing
    */
   function setWingFilter(wingId) {
+    if (wingId === 'ledger') {
+      openGloryLedgerModal();
+      return;
+    }
+    if (wingId === 'backpack' || wingId === 'vault') {
+      currentArmoryMode = 'vault';
+      activeVaultTab = 'backpack';
+      renderArmoryModalShell();
+      return;
+    }
     activeWingFilter = wingId;
+    if (['all', 'dice_forge', 'profile_forge', 'card_finishes', 'avatars', 'titles', 'pokes'].indexOf(wingId) !== -1) {
+      if (currentArmoryMode !== 'store') {
+        currentArmoryMode = 'store';
+        renderArmoryModalShell();
+        return;
+      }
+    }
     var pills = document.querySelectorAll('.armory-wing-pill');
     pills.forEach(function(p) {
       p.classList.toggle('active', p.getAttribute('data-wing') === wingId);
@@ -798,7 +877,7 @@
     var container = document.getElementById('armory-products-grid');
     if (!container) return;
 
-    if (activeWingFilter === 'ledger') {
+    if (currentArmoryMode === 'vault' && activeVaultTab === 'ledger') {
       renderArmoryLedger(container);
       return;
     }
@@ -812,23 +891,27 @@
     var bCount = getOwnedItemsCount();
     countSpans.forEach(function(s) { s.textContent = bCount; });
 
-    var items = currentCatalog.items.filter(function(item) {
-      if (activeWingFilter === 'backpack' || activeWingFilter === 'vault') {
+    var items = [];
+    if (currentArmoryMode === 'vault') {
+      items = currentCatalog.items.filter(function(item) {
         return !!item.is_owned;
-      }
-      if (activeWingFilter === 'all') return true;
-      return item.wing === activeWingFilter;
-    });
+      });
+    } else {
+      items = currentCatalog.items.filter(function(item) {
+        if (activeWingFilter === 'all') return true;
+        return item.wing === activeWingFilter;
+      });
+    }
 
     if (items.length === 0) {
-      if (activeWingFilter === 'backpack' || activeWingFilter === 'vault') {
+      if (currentArmoryMode === 'vault') {
         container.innerHTML = [
           '<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 3rem 1.5rem;">',
           '  <div style="font-size: 3.2rem; margin-bottom: 0.75rem;">🎒</div>',
           '  <h3 style="color: #fff; font-size: 1.25rem; font-weight: 800; margin-bottom: 0.5rem;">Your Armory Backpack is Empty</h3>',
-          '  <p style="color: #94a3b8; font-size: 0.88rem; max-width: 440px; margin: 0 auto 1.5rem;">You haven\'t requisitioned any items for ' + (currentGameSystem === 'aos' ? 'Age of Sigmar' : 'Warhammer 40,000') + ' yet. Requisition tactical dice, frames, heraldic sigils, and titles using your Unified Glory!</p>',
-          '  <button type="button" class="btn btn-primary" onclick="window.Armory.setWingFilter(\'all\')" style="font-weight: 700; padding: 0.6rem 1.5rem;">',
-          '    🌐 Browse All Requisitions',
+          '  <p style="color: #94a3b8; font-size: 0.88rem; max-width: 440px; margin: 0 auto 1.5rem;">You haven\'t requisitioned any items for ' + (currentGameSystem === 'aos' ? 'Age of Sigmar' : 'Warhammer 40,000') + ' yet. Requisition tactical dice, frames, animated finishes, heraldic sigils, and titles using your Unified Glory!</p>',
+          '  <button type="button" class="armory-store-cta-btn" onclick="window.Armory.setArmoryMode(\'store\')" style="font-size: 0.88rem; padding: 0.6rem 1.5rem; margin: 0 auto;">',
+          '    <span>🛒</span> Enter Requisition Store Depot ➔',
           '  </button>',
           '</div>'
         ].join('');
@@ -950,6 +1033,18 @@
           '  <div class="preview-mini-title">PROFILE AURA</div>',
           '</div>'
         ].join('');
+      } else if (item.wing === 'card_finishes') {
+        var finishCls = item.payload && item.payload.css_class ? item.payload.css_class : (item.id === 'frame_astral_holofoil' ? 'finish-astral-holofoil' : item.id.replace(/_/g, '-'));
+        var finishFaction = item.payload && item.payload.faction ? item.payload.faction : (item.id.includes('astral') ? 'Universal' : item.name);
+        previewGraphic = [
+          '<div class="armory-finish-preview-tile ' + finishCls + '">',
+          '  <div class="finish-preview-inner">',
+          '    <div class="preview-mini-avatar">✨</div>',
+          '    <div class="preview-mini-title">' + escapeHtml(finishFaction.toUpperCase()) + '</div>',
+          '    <div class="preview-mini-sub">HOLO FINISH</div>',
+          '  </div>',
+          '</div>'
+        ].join('');
       } else if (item.wing === 'avatars') {
         var bCol = item.payload && item.payload.badge_color ? item.payload.badge_color : '#38bdf8';
         var fName = item.payload && item.payload.faction ? item.payload.faction : item.name;
@@ -1003,7 +1098,8 @@
     }).join('\n');
 
     var backpackHeaderHtml = '';
-    if (activeWingFilter === 'backpack' || activeWingFilter === 'vault') {
+    var storeBannerHtml = '';
+    if (currentArmoryMode === 'vault') {
       var allEq = currentVault.equipped || {};
       var eq = (allEq[currentGameSystem] && typeof allEq[currentGameSystem] === 'object') ? allEq[currentGameSystem] : allEq;
       var activeDiceItem = currentCatalog.items.find(function(i) {
@@ -1057,17 +1153,217 @@
         '  </div>',
         '</div>'
       ].join('\n');
+
+      storeBannerHtml = [
+        '<div class="armory-home-banner" style="grid-column: 1/-1;">',
+        '  <div class="armory-home-banner-text">',
+        '    <div class="armory-home-banner-title">Looking to requisition more battlefield cosmetics?</div>',
+        '    <div style="font-size: 0.85rem; color: #94a3b8;">Browse the full Quartermaster catalog: custom faction dice, animated holo-foil card finishes, rare borders, and prestigious titles.</div>',
+        '  </div>',
+        '  <button type="button" class="armory-store-cta-btn" onclick="window.Armory.setArmoryMode(\'store\')">',
+        '    <span>🛒</span> Enter Requisition Store Depot ➔',
+        '  </button>',
+        '</div>'
+      ].join('\n');
     }
 
-    container.innerHTML = backpackHeaderHtml + cardsHtml;
+    container.innerHTML = backpackHeaderHtml + cardsHtml + storeBannerHtml;
   }
 
   /**
-   * Opens the full Retribution Armory Store Modal
+   * Renders the modal card frame based on active view mode ('vault' vs 'store')
+   */
+  function renderArmoryModalShell() {
+    var modal = document.getElementById('retribution-armory-modal');
+    if (!modal) return;
+
+    var headerHtml = '';
+    var subnavHtml = '';
+    var footerHtml = '';
+    var spendableVal = Number((currentGlory.spendable_glory != null ? currentGlory.spendable_glory : ((currentGlory.total_glory || 0) - (currentGlory.glory_spent || 0))) || 0).toLocaleString();
+
+    if (currentArmoryMode === 'vault') {
+      headerHtml = [
+        '<div class="armory-modal-header">',
+        '  <div class="armory-header-branding">',
+        '    <div class="armory-header-icon">🏛️</div>',
+        '    <div>',
+        '      <div class="armory-header-kicker">COMMAND VAULT &amp; PERSONAL REQUISITIONS</div>',
+        '      <h2 class="armory-header-title">Retribution Armory</h2>',
+        '    </div>',
+        '  </div>',
+        '  <div class="armory-system-switcher">',
+        '    <button type="button" class="armory-system-btn ' + (currentGameSystem === '40k' ? 'active' : '') + '" data-sys="40k" onclick="window.Armory.switchGameSystem(\'40k\')">⚔️ 40K Armory</button>',
+        '    <button type="button" class="armory-system-btn ' + (currentGameSystem === 'aos' ? 'active' : '') + '" data-sys="aos" onclick="window.Armory.switchGameSystem(\'aos\')">⚡ AoS Armory</button>',
+        '  </div>',
+        '  <button type="button" class="armory-wallet-hud armory-wallet-balance-btn" onclick="window.Armory.openGloryLedgerModal()" style="cursor: pointer;" title="Click to view Glory Points Audit &amp; Balance Reconciliation">',
+        '    <span class="armory-wallet-balance-pill">',
+        '      <span class="armory-wallet-coin">🪙</span>',
+        '      <span class="armory-wallet-val" id="armory-spendable-balance-val">' + spendableVal + '</span>',
+        '      <span class="armory-wallet-lbl">Glory</span>',
+        '      <span class="armory-wallet-audit-badge" title="Audit Verified">📜</span>',
+        '    </span>',
+        '  </button>',
+        '  <button type="button" class="armory-store-cta-btn" onclick="window.Armory.setArmoryMode(\'store\')" title="Enter Requisition Store Depot">',
+        '    <span>🛒</span> Requisition Store ➔',
+        '  </button>',
+        '  <button type="button" class="modal-close" onclick="window.Armory.closeArmoryModal()" aria-label="Close">✕</button>',
+        '</div>'
+      ].join('\n');
+
+      subnavHtml = [
+        '<div class="armory-wings-bar vault-subtabs-bar">',
+        '  <button type="button" class="armory-wing-pill ' + (activeVaultTab === 'backpack' ? 'active' : '') + '" onclick="window.Armory.setVaultTab(\'backpack\')">',
+        '    <span>🎒</span> <span class="wing-pill-desktop">My Purchased Armory (<span class="backpack-count-span">' + getOwnedItemsCount() + '</span> Items)</span><span class="wing-pill-mobile">My Vault (<span class="backpack-count-span">' + getOwnedItemsCount() + '</span>)</span>',
+        '  </button>',
+        '  <button type="button" class="armory-wing-pill ' + (activeVaultTab === 'ledger' ? 'active' : '') + '" onclick="window.Armory.setVaultTab(\'ledger\')">',
+        '    <span>📜</span> <span class="wing-pill-desktop">Glory Points Audit &amp; History</span><span class="wing-pill-mobile">Glory Ledger</span>',
+        '  </button>',
+        '  <div style="margin-left: auto; display: flex; align-items: center;">',
+        '    <button type="button" class="armory-store-cta-btn" style="padding: 0.32rem 0.85rem; font-size: 0.74rem;" onclick="window.Armory.setArmoryMode(\'store\')">🛒 Browse Store Depot ➔</button>',
+        '  </div>',
+        '</div>'
+      ].join('\n');
+
+      footerHtml = [
+        '<div class="armory-modal-footer" style="display: flex; justify-content: space-between; align-items: center;">',
+        '  <span class="armory-footer-notice">Glory Honor is unified across 40K &amp; AoS and earned through verified tournament clashes. Zero real-world cash gambling.</span>',
+        '  <button type="button" class="armory-store-cta-btn" onclick="window.Armory.setArmoryMode(\'store\')">🛒 Requisition Store ➔</button>',
+        '</div>'
+      ].join('\n');
+    } else {
+      headerHtml = [
+        '<div class="armory-modal-header">',
+        '  <button type="button" class="armory-back-vault-btn" onclick="window.Armory.setArmoryMode(\'vault\')">← Back to My Vault</button>',
+        '  <div class="armory-header-branding">',
+        '    <div class="armory-header-icon">🛒</div>',
+        '    <div>',
+        '      <div class="armory-header-kicker">OMNITACTICA QUARTERMASTER CATALOG</div>',
+        '      <h2 class="armory-header-title">Requisition Store Depot</h2>',
+        '    </div>',
+        '  </div>',
+        '  <div class="armory-system-switcher">',
+        '    <button type="button" class="armory-system-btn ' + (currentGameSystem === '40k' ? 'active' : '') + '" data-sys="40k" onclick="window.Armory.switchGameSystem(\'40k\')">⚔️ 40K Armory</button>',
+        '    <button type="button" class="armory-system-btn ' + (currentGameSystem === 'aos' ? 'active' : '') + '" data-sys="aos" onclick="window.Armory.switchGameSystem(\'aos\')">⚡ AoS Armory</button>',
+        '  </div>',
+        '  <button type="button" class="armory-wallet-hud armory-wallet-balance-btn" onclick="window.Armory.openGloryLedgerModal()" style="cursor: pointer;" title="Click to view Glory Points Audit &amp; Balance Reconciliation">',
+        '    <span class="armory-wallet-balance-pill">',
+        '      <span class="armory-wallet-coin">🪙</span>',
+        '      <span class="armory-wallet-val" id="armory-spendable-balance-val">' + spendableVal + '</span>',
+        '      <span class="armory-wallet-lbl">Glory</span>',
+        '      <span class="armory-wallet-audit-badge" title="Audit Verified">📜</span>',
+        '    </span>',
+        '  </button>',
+        '  <button type="button" class="modal-close" onclick="window.Armory.closeArmoryModal()" aria-label="Close">✕</button>',
+        '</div>'
+      ].join('\n');
+
+      subnavHtml = [
+        '<div class="armory-wings-bar">',
+        '  <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'all' ? 'active' : '') + '" data-wing="all" onclick="window.Armory.setWingFilter(\'all\')">',
+        '    <span>🌐</span> <span class="wing-pill-desktop">All Wings</span><span class="wing-pill-mobile">All</span>',
+        '  </button>',
+        '  <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'dice_forge' ? 'active' : '') + '" data-wing="dice_forge" onclick="window.Armory.setWingFilter(\'dice_forge\')">',
+        '    <span>🎲</span> <span class="wing-pill-desktop">Dice Forge</span><span class="wing-pill-mobile">Dice</span>',
+        '  </button>',
+        '  <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'profile_forge' ? 'active' : '') + '" data-wing="profile_forge" onclick="window.Armory.setWingFilter(\'profile_forge\')">',
+        '    <span>🖼️</span> <span class="wing-pill-desktop">Card Borders</span><span class="wing-pill-mobile">Borders</span>',
+        '  </button>',
+        '  <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'card_finishes' ? 'active' : '') + '" data-wing="card_finishes" onclick="window.Armory.setWingFilter(\'card_finishes\')">',
+        '    <span>✨</span> <span class="wing-pill-desktop">Card Finishes</span><span class="wing-pill-mobile">Finishes</span>',
+        '  </button>',
+        '  <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'avatars' ? 'active' : '') + '" data-wing="avatars" onclick="window.Armory.setWingFilter(\'avatars\')">',
+        '    <span>🛡️</span> <span class="wing-pill-desktop">Faction Sigils</span><span class="wing-pill-mobile">Sigils</span>',
+        '  </button>',
+        '  <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'titles' ? 'active' : '') + '" data-wing="titles" onclick="window.Armory.setWingFilter(\'titles\')">',
+        '    <span>🏷️</span> <span class="wing-pill-desktop">Titles</span><span class="wing-pill-mobile">Titles</span>',
+        '  </button>',
+        '  <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'pokes' ? 'active' : '') + '" data-wing="pokes" onclick="window.Armory.setWingFilter(\'pokes\')">',
+        '    <span>👉</span> <span class="wing-pill-desktop">Player Pokes</span><span class="wing-pill-mobile">Pokes</span>',
+        '  </button>',
+        '</div>'
+      ].join('\n');
+
+      footerHtml = [
+        '<div class="armory-modal-footer" style="display: flex; justify-content: space-between; align-items: center;">',
+        '  <button type="button" class="armory-back-vault-btn" onclick="window.Armory.setArmoryMode(\'vault\')" style="padding: 0.35rem 0.85rem; font-size: 0.78rem;">← Return to My Armory Vault</button>',
+        '  <span class="armory-footer-notice">Glory Honor is unified across 40K &amp; AoS and earned through verified tournament clashes. Zero real-world cash gambling.</span>',
+        '</div>'
+      ].join('\n');
+    }
+
+    modal.innerHTML = [
+      '<div class="modal-card armory-modal-card">',
+      headerHtml,
+      subnavHtml,
+      '  <div class="armory-modal-body">',
+      '    <div id="armory-products-grid" class="armory-grid"></div>',
+      '  </div>',
+      footerHtml,
+      '</div>'
+    ].join('\n');
+
+    updateArmoryHeaderBalance();
+    renderArmoryGrid();
+  }
+
+  /**
+   * Sets mode between 'vault' (Home) and 'store' (Depot)
+   */
+  function setArmoryMode(mode, subOption) {
+    currentArmoryMode = (mode === 'store') ? 'store' : 'vault';
+    if (subOption) {
+      if (currentArmoryMode === 'vault') {
+        activeVaultTab = (subOption === 'ledger') ? 'ledger' : 'backpack';
+      } else {
+        activeWingFilter = subOption;
+      }
+    }
+    renderArmoryModalShell();
+  }
+
+  /**
+   * Sets subtab on Home Vault view ('backpack' or 'ledger')
+   */
+  function setVaultTab(tab) {
+    activeVaultTab = (tab === 'ledger') ? 'ledger' : 'backpack';
+    currentArmoryMode = 'vault';
+    renderArmoryModalShell();
+  }
+
+  function openStore(wing, system) {
+    if (system) currentGameSystem = system;
+    if (wing) activeWingFilter = wing;
+    currentArmoryMode = 'store';
+    openArmoryModal('store', system);
+  }
+
+  function openVault(tab, system) {
+    if (system) currentGameSystem = system;
+    if (tab) activeVaultTab = tab;
+    currentArmoryMode = 'vault';
+    openArmoryModal(tab || 'backpack', system);
+  }
+
+  /**
+   * Opens the full Retribution Armory Modal
    */
   async function openArmoryModal(initialWing, system) {
-    if (initialWing) activeWingFilter = initialWing;
     if (system) currentGameSystem = system;
+
+    if (initialWing === 'store') {
+      currentArmoryMode = 'store';
+      activeWingFilter = 'all';
+    } else if (['dice_forge', 'profile_forge', 'card_finishes', 'avatars', 'titles', 'pokes', 'all'].indexOf(initialWing) !== -1) {
+      currentArmoryMode = 'store';
+      activeWingFilter = initialWing;
+    } else if (initialWing === 'ledger') {
+      currentArmoryMode = 'vault';
+      activeVaultTab = 'ledger';
+    } else {
+      currentArmoryMode = 'vault';
+      activeVaultTab = 'backpack';
+    }
 
     var existing = document.getElementById('retribution-armory-modal');
     if (existing) existing.remove();
@@ -1076,84 +1372,11 @@
     modal.id = 'retribution-armory-modal';
     modal.className = 'modal-backdrop active';
     modal.style.zIndex = '100005';
-
-    modal.innerHTML = [
-      '<div class="modal-card armory-modal-card">',
-      '  <!-- Header & Glory Balance Strip -->',
-      '  <div class="armory-modal-header">',
-      '    <div class="armory-header-branding">',
-      '      <div class="armory-header-icon">🏛️</div>',
-      '      <div>',
-      '        <div class="armory-header-kicker">OMNITACTICA QUARTERMASTER</div>',
-      '        <h2 class="armory-header-title">Retribution Armory</h2>',
-      '      </div>',
-      '    </div>',
-      '    <!-- Store System Switcher Pills -->',
-      '    <div class="armory-system-switcher">',
-      '      <button type="button" class="armory-system-btn ' + (currentGameSystem === '40k' ? 'active' : '') + '" data-sys="40k" onclick="window.Armory.switchGameSystem(\'40k\')">',
-      '        ⚔️ 40K Armory',
-      '      </button>',
-      '      <button type="button" class="armory-system-btn ' + (currentGameSystem === 'aos' ? 'active' : '') + '" data-sys="aos" onclick="window.Armory.switchGameSystem(\'aos\')">',
-      '        ⚡ AoS Armory',
-      '      </button>',
-      '    </div>',
-      '    <div class="armory-wallet-hud" onclick="window.Armory.setWingFilter(\'ledger\')" style="cursor: pointer;" title="Click to view Glory Audit History &amp; Ledger">',
-      '      <div class="armory-wallet-stat">',
-      '        <span class="armory-wallet-val" id="armory-spendable-balance-val">--</span>',
-      '        <span class="armory-wallet-lbl">Spendable Glory 📜</span>',
-      '        <span class="armory-wallet-sub" id="armory-glory-breakdown-sub" style="font-size: 0.65rem; color: #94a3b8; font-family: var(--font-mono, monospace);"></span>',
-      '      </div>',
-      '      <div class="armory-wallet-stat desktop-only">',
-      '        <span class="armory-wallet-val text-muted" id="armory-total-spent-val">0</span>',
-      '        <span class="armory-wallet-lbl">Total Requisitioned</span>',
-      '      </div>',
-      '    </div>',
-      '    <button type="button" class="modal-close" onclick="window.Armory.closeArmoryModal()" aria-label="Close">✕</button>',
-      '  </div>',
-      '  <!-- Wing Filter Nav Tabs -->',
-      '  <div class="armory-wings-bar">',
-      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'all' ? 'active' : '') + '" data-wing="all" onclick="window.Armory.setWingFilter(\'all\')">',
-      '      <span>🌐</span> <span class="wing-pill-desktop">All Wings</span><span class="wing-pill-mobile">All</span>',
-      '    </button>',
-      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'backpack' ? 'active' : '') + '" data-wing="backpack" onclick="window.Armory.setWingFilter(\'backpack\')">',
-      '      <span>🎒</span> <span class="wing-pill-desktop">My Backpack (<span class="backpack-count-span">' + getOwnedItemsCount() + '</span>)</span><span class="wing-pill-mobile">Backpack (<span class="backpack-count-span">' + getOwnedItemsCount() + '</span>)</span>',
-      '    </button>',
-      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'dice_forge' ? 'active' : '') + '" data-wing="dice_forge" onclick="window.Armory.setWingFilter(\'dice_forge\')">',
-      '      <span>🎲</span> <span class="wing-pill-desktop">Dice Forge</span><span class="wing-pill-mobile">Dice</span>',
-      '    </button>',
-      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'profile_forge' ? 'active' : '') + '" data-wing="profile_forge" onclick="window.Armory.setWingFilter(\'profile_forge\')">',
-      '      <span>✨</span> <span class="wing-pill-desktop">Profile Forge</span><span class="wing-pill-mobile">Frames</span>',
-      '    </button>',
-      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'avatars' ? 'active' : '') + '" data-wing="avatars" onclick="window.Armory.setWingFilter(\'avatars\')">',
-      '      <span>🛡️</span> <span class="wing-pill-desktop">Faction Sigils</span><span class="wing-pill-mobile">Sigils</span>',
-      '    </button>',
-      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'titles' ? 'active' : '') + '" data-wing="titles" onclick="window.Armory.setWingFilter(\'titles\')">',
-      '      <span>🏷️</span> <span class="wing-pill-desktop">Titles</span><span class="wing-pill-mobile">Titles</span>',
-      '    </button>',
-      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'pokes' ? 'active' : '') + '" data-wing="pokes" onclick="window.Armory.setWingFilter(\'pokes\')">',
-      '      <span>👉</span> <span class="wing-pill-desktop">Player Pokes</span><span class="wing-pill-mobile">Pokes</span>',
-      '    </button>',
-      '    <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'ledger' ? 'active' : '') + '" data-wing="ledger" onclick="window.Armory.setWingFilter(\'ledger\')">',
-      '      <span>📜</span> <span class="wing-pill-desktop">Glory Ledger</span><span class="wing-pill-mobile">Ledger</span>',
-      '    </button>',
-      '  </div>',
-      '  <!-- Products Scrollable Grid -->',
-      '  <div class="armory-modal-body">',
-      '    <div id="armory-products-grid" class="armory-grid"></div>',
-      '  </div>',
-      '  <!-- Footer -->',
-      '  <div class="armory-modal-footer">',
-      '    <span class="armory-footer-notice">Glory Honor is unified across 40K &amp; AoS and earned through verified tournament clashes. Zero real-world cash gambling.</span>',
-      '  </div>',
-      '</div>'
-    ].join('\n');
-
     document.body.appendChild(modal);
 
     // Load data and render
     await loadArmoryData(currentGameSystem);
-    updateArmoryHeaderBalance();
-    renderArmoryGrid();
+    renderArmoryModalShell();
   }
 
   var currentLedgerData = null;
@@ -1187,8 +1410,8 @@
     var totalEarned = Number(currentGlory.total_glory || currentGlory.total_earned || 8890);
     var totalSpent = Number(currentGlory.glory_spent || 8500);
     var spendable = Number(currentGlory.spendable_glory != null ? currentGlory.spendable_glory : (totalEarned - totalSpent));
-    var g40k = Number(currentGlory.glory_40k || 7650);
-    var gAos = Number(currentGlory.glory_aos || 1240);
+    var g40k = Number(currentGlory.glory_40k || 8780);
+    var gAos = Number(currentGlory.glory_aos || 110);
 
     var debits = [];
     var inv = (currentVault && currentVault.inventory) ? currentVault.inventory : {};
@@ -1197,7 +1420,7 @@
       if (currentCatalog && currentCatalog.items) {
         itemMeta = currentCatalog.items.find(function(it) { return it.id === itemId; });
       }
-      var cost = itemMeta ? itemMeta.cost : 0;
+      var cost = itemMeta ? (itemMeta.cost_glory || itemMeta.cost || 0) : 0;
       debits.push({
         id: 'inv_' + itemId,
         type: 'debit',
@@ -1209,11 +1432,54 @@
       });
     });
 
-    var credits = [
-      { id: 'c1', type: 'credit', category: 'Tournament Silverware', name: '🏆 Flawless 5-0 / 3-0 Tournament Championships (x13)', detail: 'GT & RTT Undefeated 1st Place Finishes (500 Glory per Trophy)', amount: 6500, date: '' },
-      { id: 'c2', type: 'credit', category: 'Battlefield Honor', name: '🎖️ High Elo Grandmaster Distinction', detail: 'Reached 2,100+ Elo in Global Leaderboard', amount: 1150, date: '' },
-      { id: 'c3', type: 'credit', category: 'Cross-Game System', name: '⚡ Age of Sigmar Competitive Honor', detail: 'Match play & verified tournament performance in AoS', amount: gAos, date: '' }
-    ];
+    var credits = [];
+    if (window.myHubData && window.myHubData.championships && Array.isArray(window.myHubData.championships.items)) {
+      window.myHubData.championships.items.forEach(function(c) {
+        credits.push({
+          id: 'champ_' + (c.event_id || c.name),
+          type: 'credit',
+          category: 'Tournament Silverware',
+          name: '🏆 ' + (c.event_name || c.name || 'Tournament Championship'),
+          detail: (c.tier_title || 'Championship') + (c.record ? ' • Record: ' + c.record : ''),
+          amount: Number(c.glory_bonus || 500),
+          date: c.event_date || ''
+        });
+      });
+    }
+    if (window.myHubData && Array.isArray(window.myHubData.badges)) {
+      window.myHubData.badges.forEach(function(b) {
+        var pts = Number(b.glory_points || b.glory || 0);
+        if (b.unlocked && pts > 0) {
+          credits.push({
+            id: 'badge_' + b.id,
+            type: 'credit',
+            category: 'Battlefield Honor',
+            name: '🎖️ ' + (b.name || 'Badge Honor'),
+            detail: (b.tier_name || 'Honor') + ' • ' + (b.description || ''),
+            amount: pts,
+            date: b.unlocked_at || ''
+          });
+        }
+      });
+    }
+
+    if (credits.length === 0) {
+      credits = [
+        { id: 'c1', type: 'credit', category: 'Tournament Silverware', name: '🏆 Flawless 5-0 / 3-0 Tournament Championships (x13)', detail: 'GT & RTT Undefeated 1st Place Finishes (500 Glory per Trophy)', amount: 6500, date: '' },
+        { id: 'c2', type: 'credit', category: 'Battlefield Honor', name: '🎖️ High Elo Grandmaster Distinction', detail: 'Reached 2,100+ Elo in Global Leaderboard', amount: 1150, date: '' },
+        { id: 'c3', type: 'credit', category: 'Cross-Game System', name: '⚡ Age of Sigmar Competitive Honor', detail: 'Match play & verified tournament performance in AoS', amount: gAos, date: '' }
+      ];
+    } else if (gAos > 0 && !credits.some(function(c) { return c.id === 'cross_sys_aos'; })) {
+      credits.push({
+        id: 'cross_sys_aos',
+        type: 'credit',
+        category: 'Cross-Game System',
+        name: '⚡ Age of Sigmar Competitive Honor',
+        detail: 'Match play & verified tournament performance in AoS',
+        amount: gAos,
+        date: ''
+      });
+    }
 
     return {
       success: true,
@@ -1421,7 +1687,7 @@
       '      <div class="armory-header-icon">📜</div>',
       '      <div>',
       '        <div class="armory-header-kicker">QUARTERMASTER AUDIT LOG</div>',
-      '        <h2 class="armory-header-title">Glory Transaction History</h2>',
+      '        <h2 class="armory-header-title">Glory Points Audit &amp; Balance Reconciliation</h2>',
       '      </div>',
       '    </div>',
       '    <button type="button" class="modal-close" onclick="document.getElementById(\'glory-ledger-modal\').remove()" aria-label="Close">✕</button>',
@@ -1452,6 +1718,12 @@
     getGameSystem: function() { return currentGameSystem; },
     openArmoryModal: openArmoryModal,
     closeArmoryModal: closeArmoryModal,
+    setArmoryMode: setArmoryMode,
+    setVaultTab: setVaultTab,
+    openStore: openStore,
+    openVault: openVault,
+    getArmoryMode: function() { return currentArmoryMode; },
+    getVaultTab: function() { return activeVaultTab; },
     openGloryLedgerModal: openGloryLedgerModal,
     renderArmoryLedger: renderArmoryLedger,
     filterLedgerType: filterLedgerType,

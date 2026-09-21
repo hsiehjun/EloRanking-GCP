@@ -666,7 +666,7 @@ async def get_armory_transactions(request: Request):
         if item_id in seen_items:
             continue
         c_item = armory_catalog.get_item_by_id(item_id) or {}
-        cost = int(c_item.get("cost") or (inv_item.get("cost") if isinstance(inv_item, dict) else 0) or 0)
+        cost = int(c_item.get("cost_glory") or c_item.get("cost") or (inv_item.get("cost") if isinstance(inv_item, dict) else 0) or 0)
         acquired = inv_item.get("purchased_at") if isinstance(inv_item, dict) else ""
         debits.append({
             "id": f"inv_{item_id}",
@@ -697,15 +697,16 @@ async def get_armory_transactions(request: Request):
 
             badges_list = hub.get("badges", [])
             for b in badges_list:
-                if b.get("unlocked") and int(b.get("glory") or b.get("glory_bounty") or 0) > 0:
+                b_glory = int(b.get("glory_points") or b.get("glory") or b.get("glory_bounty") or 0)
+                if b.get("unlocked") and b_glory > 0:
                     credits.append({
                         "id": f"badge_{b.get('id')}",
                         "type": "credit",
                         "category": "Battlefield Honor",
                         "name": f"🎖️ {b.get('name')}",
                         "detail": f"{b.get('tier_name', 'Honor')} • {b.get('provenance') or b.get('description') or ''}",
-                        "amount": int(b.get("glory") or b.get("glory_bounty") or 0),
-                        "date": ""
+                        "amount": b_glory,
+                        "date": str(b.get("unlocked_at") or "")
                     })
 
             if hub.get("glory_aos") and int(hub.get("glory_aos")) > 0:

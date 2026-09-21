@@ -45,8 +45,14 @@ ARMORY_WINGS: Dict[str, Dict[str, Any]] = {
     "profile_forge": {
         "id": "profile_forge",
         "name": "Profile Forge",
-        "icon": "✨",
+        "icon": "🖼️",
         "description": "Prestige card frames locked behind career all-time peak Elo ratings."
+    },
+    "card_finishes": {
+        "id": "card_finishes",
+        "name": "Card Finishes",
+        "icon": "✨",
+        "description": "Shimmering holographic diffraction, iridescent glazes, and faction-themed overlays for hero cards."
     },
     "avatars": {
         "id": "avatars",
@@ -859,24 +865,6 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         }
     },
     {
-        "id": "frame_astral_holofoil",
-        "name": "Astral Holo-Foil Finish",
-        "game_system": "40k",
-        "wing": "profile_forge",
-        "slot": "active_card_finish",
-        "rarity": "master_crafted",
-        "cost_glory": 3700,
-        "is_consumable": False,
-        "bundle_count": 1,
-        "prerequisite": None,
-        "icon": "✨",
-        "description": "Shimmering prismatic diffraction sheen across your Hero Profile Card. Overlays ambient light refraction atop your card frame and border.",
-        "payload": {
-            "css_class": "finish-astral-holofoil",
-            "finish_type": "holofoil"
-        }
-    },
-    {
         "id": "frame_champion_laurel",
         "name": "Champion's Golden Laurel",
         "game_system": "40k",
@@ -928,6 +916,578 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         "payload": {
             "css_class": "frame-warp-corruption",
             "border_glow": "0 0 25px rgba(192, 132, 252, 0.55)"
+        }
+    },
+
+    # ── WING: CARD FINISHES (40K FACTION HOLO-FINISHES & UNIVERSAL FOILS) ──
+    {
+        "id": "frame_astral_holofoil",
+        "name": "Astral Holo-Foil Finish",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "master_crafted",
+        "cost_glory": 3700,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "✨",
+        "description": "Shimmering prismatic diffraction sheen across your Hero Profile Card. Overlays ambient light refraction atop your card frame and border.",
+        "payload": {
+            "css_class": "finish-astral-holofoil",
+            "faction": "Universal",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_dark_angels",
+        "name": "Caliban Emerald Holo-Finish",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "✨",
+        "description": "Caliban emerald shimmer with antique silver diffraction and angelic halo glints.",
+        "payload": {
+            "css_class": "finish-caliban-emerald-sheen",
+            "faction": "Dark Angels",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_necrons",
+        "name": "Dynastic Gauss Resonator",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🟢",
+        "description": "Pulsing Gauss emerald circuit diffraction and eldritch green matrix shimmer.",
+        "payload": {
+            "css_class": "finish-dynastic-gauss-sheen",
+            "faction": "Necrons",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_adeptus_astartes",
+        "name": "Imperial Aquila Auric Glaze",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🦅",
+        "description": "Royal cobalt blue and radiant 24k auric gold solar prismatic reflection.",
+        "payload": {
+            "css_class": "finish-macragge-auric-glaze",
+            "faction": "Adeptus Astartes",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_chaos_space_marines",
+        "name": "Warpfire Prismatic Veil",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "⭐",
+        "description": "Shifting eldritch violet, blood crimson, and infernal warp flame prismatic diffraction.",
+        "payload": {
+            "css_class": "finish-warpfire-prism",
+            "faction": "Chaos Space Marines",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_orks",
+        "name": "WAAAGH! Krumpin' Holo-Foil",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "💀",
+        "description": "Scrap metal iridescent foil with erratic green-and-yellow sparks and dakka flash.",
+        "payload": {
+            "css_class": "finish-waaagh-dakka-foil",
+            "faction": "Orks",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_black_templars",
+        "name": "Crusader Relic Silver Sheen",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "⚔️",
+        "description": "Sanctified holy silver and pure martyr alabaster pearlescent sheen.",
+        "payload": {
+            "css_class": "finish-crusader-relic-silver",
+            "faction": "Black Templars",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_blood_angels",
+        "name": "Baal Ruby Radiance Finish",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🩸",
+        "description": "Radiant crimson-ruby prismatic luster with golden sanguine flecks.",
+        "payload": {
+            "css_class": "finish-baal-ruby-radiance",
+            "faction": "Blood Angels",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_space_wolves",
+        "name": "Fenrisian Frost Glaze",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🐺",
+        "description": "Crystalline blizzard cyan frost and shimmering glacial ice prismatic refraction.",
+        "payload": {
+            "css_class": "finish-fenrisian-frost-glaze",
+            "faction": "Space Wolves",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_adeptus_custodes",
+        "name": "Solar Auramite Leaf Finish",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "👑",
+        "description": "True gilded 24K Auramite gold leaf reflective sheen with solar corona flares.",
+        "payload": {
+            "css_class": "finish-solar-auramite-leaf",
+            "faction": "Adeptus Custodes",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_adeptus_mechanicus",
+        "name": "Omnissiah Rad-Luminescence",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "⚙️",
+        "description": "Martian rust-red and radioactive cobalt blue binary data shimmer.",
+        "payload": {
+            "css_class": "finish-mechanicus-rad-luminescence",
+            "faction": "Adeptus Mechanicus",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_tyranids",
+        "name": "Bio-Chitin Synaptic Sheen",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🧬",
+        "description": "Alien bio-chitin purple and bioluminescent acid-green prismatic sheen.",
+        "payload": {
+            "css_class": "finish-hive-bio-chitin",
+            "faction": "Tyranids",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_tau",
+        "name": "Sept Holographic Telemetry",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "📡",
+        "description": "Clean high-tech turquoise and cyan holographic HUD pulse with scanning lattice.",
+        "payload": {
+            "css_class": "finish-sept-plasma-telemetry",
+            "faction": "T'au Empire",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_aeldari",
+        "name": "Wraithbone Spirit Veil",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🌙",
+        "description": "Pearlescent astral spirit-stone sheen with soul-circuit rainbow refraction.",
+        "payload": {
+            "css_class": "finish-wraithbone-spirit-veil",
+            "faction": "Aeldari",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_death_guard",
+        "name": "Plague Verdigris Patina",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "☣️",
+        "description": "Corrosive verdigris copper foil with toxic emerald rot luminescence.",
+        "payload": {
+            "css_class": "finish-nurgle-plague-patina",
+            "faction": "Death Guard",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_adepta_sororitas",
+        "name": "Miraculous Faith Auric Sheen",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "⚜️",
+        "description": "Radiant divine candlelight gold and sanctified holy white angelic luster.",
+        "payload": {
+            "css_class": "finish-sororitas-miracle-radiance",
+            "faction": "Adepta Sororitas",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_astra_militarum",
+        "name": "Cadia Kasrkin Prismatic Camo",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🎖️",
+        "description": "Tactical olive-drab iridescent flak coating with golden brass trim.",
+        "payload": {
+            "css_class": "finish-cadia-flak-camo-foil",
+            "faction": "Astra Militarum",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_chaos_daemons",
+        "name": "Immaterium Warp Rift Chroma",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🌀",
+        "description": "Ever-shifting psychedelic warp rift colors bending space and reality.",
+        "payload": {
+            "css_class": "finish-warp-rift-chroma",
+            "faction": "Chaos Daemons",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_chaos_knights",
+        "name": "Dreadblade Warp Corrupted Sheen",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🗡️",
+        "description": "Dark oil-slick iridescent corruption shimmering on barbed adamantium.",
+        "payload": {
+            "css_class": "finish-dread-warp-patina",
+            "faction": "Chaos Knights",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_deathwatch",
+        "name": "Xenomortis Silver Inlay",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🛡️",
+        "description": "Cold Corvus black ceramic finish with brilliant inquisitorial silver edge.",
+        "payload": {
+            "css_class": "finish-xenomortis-silver",
+            "faction": "Deathwatch",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_drukhari",
+        "name": "Soul-Shard Agony Holo-Finish",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "💎",
+        "description": "Jagged toxic-magenta and abyssal jade torment shard refraction.",
+        "payload": {
+            "css_class": "finish-commorragh-soul-shard",
+            "faction": "Drukhari",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_emperors_children",
+        "name": "Flawless Ecstatic Chromatic Sheen",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🦚",
+        "description": "Hypnotic neon magenta, lilac, and perfectionist gold chrome shimmer.",
+        "payload": {
+            "css_class": "finish-slaanesh-ecstatic-sheen",
+            "faction": "Emperor's Children",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_genestealer_cults",
+        "name": "Cult Wyrm-Holo Specular",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "⛏️",
+        "description": "Subterranean mining laser violet and bioluminescent amber gloss.",
+        "payload": {
+            "css_class": "finish-gsc-void-mining-holo",
+            "faction": "Genestealer Cults",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_grey_knights",
+        "name": "Titan Aegis Sanctification",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "⚔️",
+        "description": "Pure consecrated psychic silver-blue null-field shimmer repelling taint.",
+        "payload": {
+            "css_class": "finish-titan-aegis-sanctification",
+            "faction": "Grey Knights",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_imperial_agents",
+        "name": "Inquisitorial Auric Rosette",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "📜",
+        "description": "Sanctified Inquisition auric seal finish with vermilion wax reflection.",
+        "payload": {
+            "css_class": "finish-inquisition-rosette-gilt",
+            "faction": "Imperial Agents",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_imperial_knights",
+        "name": "Sacristan Chivalric Chrome",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🛡️",
+        "description": "Mirror-polished chivalric chrome with noble ruby-and-gold luster.",
+        "payload": {
+            "css_class": "finish-knights-chivalric-heraldry",
+            "faction": "Imperial Knights",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_leagues_of_votann",
+        "name": "Ancestor Core Magma Glaze",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🪐",
+        "description": "Warm amber-gold magma and deep forged bronze refractive luster.",
+        "payload": {
+            "css_class": "finish-votann-plasma-forge",
+            "faction": "Leagues of Votann",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_space_marines",
+        "name": "Astartes Battle-Brother Holo-Foil",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "⚔️",
+        "description": "Crisp Imperial blue-gold commemorative holographic foil.",
+        "payload": {
+            "css_class": "finish-astartes-honor-foil",
+            "faction": "Space Marines",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_thousand_sons",
+        "name": "Rubric Sorcery Prismatic Sheen",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "👁️",
+        "description": "Shifting sapphire and arcane Egyptian gold psychic illusion sheen.",
+        "payload": {
+            "css_class": "finish-rubric-tzaangor-sorcery",
+            "faction": "Thousand Sons",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_40k_world_eaters",
+        "name": "Gore-Slicked Brass Lustre",
+        "game_system": "40k",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🪓",
+        "description": "Gleaming Khorne brass and fresh iridescent blood-slick gloss sheen.",
+        "payload": {
+            "css_class": "finish-khorne-blood-slick",
+            "faction": "World Eaters",
+            "finish_type": "holofoil"
         }
     },
 
@@ -2378,6 +2938,483 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         }
     },
 
+    # ── WING: CARD FINISHES (AOS FACTION HOLO-FINISHES & UNIVERSAL FOILS) ──
+    {
+        "id": "finish_aos_astral_holofoil",
+        "name": "Astral Holo-Foil Finish",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "master_crafted",
+        "cost_glory": 3700,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "✨",
+        "description": "Shimmering prismatic diffraction sheen across your Hero Profile Card. Overlays ambient light refraction atop your card frame and border.",
+        "payload": {
+            "css_class": "finish-astral-holofoil",
+            "faction": "Universal",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_stormcast_eternals",
+        "name": "Azyrite Lightning Sheen",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "⚡",
+        "description": "Crackling Sigmarite celestial gold and blue lightning foil.",
+        "payload": {
+            "css_class": "finish-azyrite-lightning-sheen",
+            "faction": "Stormcast Eternals",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_blades_of_khorne",
+        "name": "Brass Citadel Gore Sheen",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🪓",
+        "description": "Burning skull-citadel brass with crimson gore gloss.",
+        "payload": {
+            "css_class": "finish-blood-god-brass-sheen",
+            "faction": "Blades of Khorne",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_gloomspite_gitz",
+        "name": "Bad Moon Loon-Glow Finish",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🌙",
+        "description": "Sickly pale yellow-green lunar cheese iridescent fungus glow.",
+        "payload": {
+            "css_class": "finish-bad-moon-loontide-sheen",
+            "faction": "Gloomspite Gitz",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_soulblight_gravelords",
+        "name": "Vampiric Blood-Gilt Foil",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🩸",
+        "description": "Deep crimson midnight velvet and carmine blood pearl sheen.",
+        "payload": {
+            "css_class": "finish-crimson-court-blood-foil",
+            "faction": "Soulblight Gravelords",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_sylvaneth",
+        "name": "Ghyran Life-Bloom Jade Sheen",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🍃",
+        "description": "Living wood emerald jade with blossoming spring pollen sparkle.",
+        "payload": {
+            "css_class": "finish-life-bloom-jade-sheen",
+            "faction": "Sylvaneth",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_beasts_of_chaos",
+        "name": "Herdstone Primeval Malice",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🦌",
+        "description": "Raw primeval flint and savage gore-stained wildwood sheen.",
+        "payload": {
+            "css_class": "finish-wild-herdstone-blood-sheen",
+            "faction": "Beasts of Chaos",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_cities_of_sigmar",
+        "name": "Freeguild Sovereign Banner Foil",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🏰",
+        "description": "Stately heraldic burgundy, cobalt, and gold leaf brocade foil.",
+        "payload": {
+            "css_class": "finish-freeguild-banner-foil",
+            "faction": "Cities of Sigmar",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_daughters_of_khaine",
+        "name": "Shadow-Stitched Shadowfoil",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🗡️",
+        "description": "Umbral shadow-violet and blood-mirror silver assassin foil.",
+        "payload": {
+            "css_class": "finish-morathi-shadow-blade-foil",
+            "faction": "Daughters of Khaine",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_disciples_of_tzeentch",
+        "name": "Fateweaver Kaleidoscope Finish",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🔮",
+        "description": "Twisting rainbow kaleidoscope sorcery of eternal mutation.",
+        "payload": {
+            "css_class": "finish-fateweaver-kaleidoscope",
+            "faction": "Disciples of Tzeentch",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_flesh_eater_courts",
+        "name": "Summercourt Grand Illusion",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "👑",
+        "description": "Delusional sparkling royal platinum masking necrotic rot.",
+        "payload": {
+            "css_class": "finish-grand-illusion-chivalric-sheen",
+            "faction": "Flesh-eater Courts",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_fyreslayers",
+        "name": "Ur-Gold Magma Ember Sheen",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🔥",
+        "description": "Glowing red-orange volcanic fissures and sacred ur-gold runes.",
+        "payload": {
+            "css_class": "finish-ur-gold-volcano-ember",
+            "faction": "Fyreslayers",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_hedonites_of_slaanesh",
+        "name": "Opalescent Excess Sheen",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🍷",
+        "description": "Iridescent pearl and rose-gold decadent shimmer of perfection.",
+        "payload": {
+            "css_class": "finish-excess-opalescent-sheen",
+            "faction": "Hedonites of Slaanesh",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_idoneth_deepkin",
+        "name": "Ethersea Abyssal Bioluminescence",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🌊",
+        "description": "Deep ocean turquoise and sapphire bioluminescent tidal shimmer.",
+        "payload": {
+            "css_class": "finish-ethersea-abyssal-current",
+            "faction": "Idoneth Deepkin",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_kharadron_overlords",
+        "name": "Aether-Gold Burnished Brass",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "⚓",
+        "description": "Gleaming industrial aether-gold and riveted copper cloud-sheen.",
+        "payload": {
+            "css_class": "finish-aether-gold-burnish",
+            "faction": "Kharadron Overlords",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_lumineth_realm_lords",
+        "name": "Zenith Aelemental Crystal Glaze",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "✨",
+        "description": "Pure blinding solar white and alpine quartz crystalline refraction.",
+        "payload": {
+            "css_class": "finish-aelementor-zenith-glaze",
+            "faction": "Lumineth Realm-lords",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_maggotkin_of_nurgle",
+        "name": "Garden of Nurgle Slime Glaze",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🪰",
+        "description": "Bubbling toxic olive-yellow bile slime sheen with rainbow oil swirls.",
+        "payload": {
+            "css_class": "finish-rotbringer-bile-glaze",
+            "faction": "Maggotkin of Nurgle",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_nighthaunt",
+        "name": "Grave-Sand Ectoplasm Veil",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "👻",
+        "description": "Ghostly sea-green ethereal translucent mist shimmer.",
+        "payload": {
+            "css_class": "finish-spectral-ectoplasm-veil",
+            "faction": "Nighthaunt",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_ogor_mawtribes",
+        "name": "Everwinter Rime Frost Finish",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "❄️",
+        "description": "Sub-zero crackling blizzard rime frost and mammoth blood sheen.",
+        "payload": {
+            "css_class": "finish-everwinter-blizzard-frost",
+            "faction": "Ogor Mawtribes",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_orruk_warclans",
+        "name": "Ironjawz 'Ard WAAAGH! Glaze",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🐗",
+        "description": "Rough hammered yellow-orange pig-iron with crude warpaint sheen.",
+        "payload": {
+            "css_class": "finish-ironjawz-crusher-glaze",
+            "faction": "Orruk Warclans",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_ossiarch_bonereapers",
+        "name": "Mortisan Carved Bone Lacquer",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "💀",
+        "description": "Polished ossified bone ivory and necromantic tourmaline gleam.",
+        "payload": {
+            "css_class": "finish-mortisan-bone-lacquer",
+            "faction": "Ossiarch Bonereapers",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_seraphon",
+        "name": "Old Ones Starlight Constellation Foil",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🦎",
+        "description": "Prismatic geometric starlight Aztec gold and turquoise nebula foil.",
+        "payload": {
+            "css_class": "finish-celestial-constellation-foil",
+            "faction": "Seraphon",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_skaven",
+        "name": "Warpstone Radiance Mutagenic Sheen",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🐀",
+        "description": "Toxic radioactive emerald warpstone fizz and green sparkles.",
+        "payload": {
+            "css_class": "finish-warpstone-mutagenic-sheen",
+            "faction": "Skaven",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_slaves_to_darkness",
+        "name": "Varanite Corrupted Iron",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🛡️",
+        "description": "Blackened iron with mutating blood-red varanite liquid foil.",
+        "payload": {
+            "css_class": "finish-varanite-corrupted-chrome",
+            "faction": "Slaves to Darkness",
+            "finish_type": "holofoil"
+        }
+    },
+    {
+        "id": "finish_aos_sons_of_behemat",
+        "name": "Megagargant Titan Crag Foil",
+        "game_system": "aos",
+        "wing": "card_finishes",
+        "slot": "active_card_finish",
+        "rarity": "epic",
+        "cost_glory": 2100,
+        "is_consumable": False,
+        "bundle_count": 1,
+        "prerequisite": None,
+        "icon": "🪨",
+        "description": "Earth-shattering titan stone and giant-bone iridescent mineral vein.",
+        "payload": {
+            "css_class": "finish-colossal-megagargant-crag",
+            "faction": "Sons of Behemat",
+            "finish_type": "holofoil"
+        }
+    },
+
     # ── WING 3: FACTION SIGILS (ALL 24 AOS FACTIONS!) ──
     {
         "id": "avatar_stormcast_eternals",
@@ -3083,7 +4120,8 @@ ARMORY_ALIASES: Dict[str, str] = {
     "frame_cyber_grid": "frame_cyber_matrix",
     "finish_astral_holofoil": "frame_astral_holofoil",
     "dice_dark_angels_caliban": "dice_40k_dark_angels",
-    "dice_dark_angels": "dice_40k_dark_angels"
+    "dice_dark_angels": "dice_40k_dark_angels",
+    "dice_sanctified_ceramite": "dice_ceramite_white"
 }
 
 

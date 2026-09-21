@@ -378,12 +378,17 @@ def _get_dev_user_glory_and_stats():
             "active_avatar": "avatar_dark_angels"
         }
     })
-    glory_40k = int(DEV_USER.get("glory_40k", 8030))
-    glory_aos = int(DEV_USER.get("glory_aos", 135))
-    total_earned = int(DEV_USER.get("total_glory") or (glory_40k + glory_aos))
-    spent = int(DEV_USER.get("glory_spent") or 0)
+    glory_aos = int(DEV_USER.get("glory_aos") if DEV_USER.get("glory_aos") is not None else 110)
+    if DEV_USER.get("total_glory") is not None:
+        total_earned = int(DEV_USER["total_glory"])
+        glory_40k = max(0, total_earned - glory_aos)
+    else:
+        glory_40k = int(DEV_USER.get("glory_40k") if DEV_USER.get("glory_40k") is not None else 8780)
+        total_earned = glory_40k + glory_aos
+    spent = int(DEV_USER.get("glory_spent") if DEV_USER.get("glory_spent") is not None else 8500)
     spendable = max(0, total_earned - spent)
     DEV_USER["total_glory"] = total_earned
+    DEV_USER["glory_40k"] = glory_40k
     DEV_USER["glory_balance"] = spendable
     DEV_USER["glory_spent"] = spent
     crest_tier = int(DEV_USER.get("crest_tier", 5))
@@ -1519,15 +1524,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
             if clean_path == "api/armory/reset":
                 DEV_USER.pop("total_glory", None)
-                DEV_USER["armory_vault"] = {
-                    "inventory": {},
-                    "equipped": {
-                        "40k": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None},
-                        "aos": {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None},
-                        "active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None
-                    }
-                }
-                DEV_USER["glory_spent"] = 0
+                DEV_USER.pop("glory_40k", None)
+                DEV_USER["glory_spent"] = 8500
+                DEV_USER.pop("armory_vault", None)
+                _get_dev_user_glory_and_stats()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
@@ -2129,6 +2129,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
         if clean_path == "api/armory/transactions":
             glory_state = _get_dev_user_glory_and_stats()
             v = glory_state["vault"]
@@ -2137,7 +2141,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             debits = []
             for item_id, inv_item in inv.items():
                 c_item = armory_catalog.get_item_by_id(item_id) or {}
-                cost = int(c_item.get("cost") or (inv_item.get("cost") if isinstance(inv_item, dict) else 0) or 0)
+                cost = int(c_item.get("cost_glory") or c_item.get("cost") or (inv_item.get("cost") if isinstance(inv_item, dict) else 0) or 0)
                 debits.append({
                     "id": f"inv_{item_id}",
                     "type": "debit",
@@ -2147,14 +2151,45 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "cost": cost,
                     "date": "2026-09-20"
                 })
-            credits = [
-                {"id": "champ_1", "type": "credit", "category": "Tournament Silverware", "name": "🏆 US Open Tacoma Major 2026", "detail": "Major Championship (7-0 Undefeated)", "amount": 1250, "date": "2026-09-12"},
-                {"id": "champ_2", "type": "credit", "category": "Tournament Silverware", "name": "🏆 Pacific Northwest GT 2026", "detail": "Grand Tournament (5-0 Undefeated)", "amount": 500, "date": "2026-08-28"},
-                {"id": "champ_3", "type": "credit", "category": "Tournament Silverware", "name": "🏆 Dicehead Spring RTT 2026", "detail": "Rogue Trader Tournament (3-0 Undefeated)", "amount": 150, "date": "2026-04-14"},
-                {"id": "badge_sovereign", "type": "credit", "category": "Battlefield Honor", "name": "🎖️ The Grand Sovereign", "detail": "65%+ win rate with faction across 50+ games", "amount": 100, "date": "2026-08-01"},
-                {"id": "badge_kingslayer", "type": "credit", "category": "Battlefield Honor", "name": "🎖️ The Kingslayer", "detail": "Defeat an elite competitor rated 2,000+ Elo", "amount": 100, "date": "2026-07-20"},
-                {"id": "badge_gauntlet", "type": "credit", "category": "Battlefield Honor", "name": "🎖️ The Apex Gauntlet", "detail": "4-1+ record where all opponents were 1,800+ Elo", "amount": 150, "date": "2026-06-15"}
-            ]
+            credits = []
+            for ev in DEV_EVENTS_ATTENDED:
+                if ev.get('placement') == 1 or ev.get('finish') == 1 or ev.get('wins', 0) >= 3:
+                    credits.append({
+                        'id': f'champ_{ev.get("event_id")}',
+                        'type': 'credit',
+                        'category': 'Tournament Silverware',
+                        'name': f'🏆 {ev.get("event_name")}',
+                        'detail': f'Undefeated Championship ({ev.get("wins", 0)}-0) • {ev.get("rounds", 0)} Rounds',
+                        'amount': 500 if ev.get('is_gt') else 150,
+                        'date': ev.get('event_date', '')
+                    })
+            try:
+                import badges
+                b_eval = badges.evaluate_player_badges(player_data=DEV_USER, history=[], tournaments=DEV_EVENTS_ATTENDED, game_system='40k')
+                for b in b_eval.get('badges', []):
+                    pts = b.get('glory_points') or b.get('glory') or 0
+                    if b.get('unlocked') and pts > 0:
+                        credits.append({
+                            'id': f'badge_{b.get("id")}',
+                            'type': 'credit',
+                            'category': 'Battlefield Honor',
+                            'name': f'🎖️ {b.get("name")}',
+                            'detail': f'{b.get("rarity_label", "Honor")} • {b.get("description", "")}',
+                            'amount': pts,
+                            'date': b.get('unlocked_at') or '2026-09-01'
+                        })
+            except Exception as be:
+                logger.debug(f"Notice generating badges in dev_server transactions: {be}")
+            if glory_state.get("glory_aos", 0) > 0:
+                credits.append({
+                    "id": "cross_sys_aos",
+                    "type": "credit",
+                    "category": "Cross-Game System",
+                    "name": "⚡ Age of Sigmar Competitive Honor",
+                    "detail": "Match play & verified tournament performance in AoS",
+                    "amount": int(glory_state["glory_aos"]),
+                    "date": ""
+                })
             total_earned = glory_state["total_earned"]
             total_spent = glory_state["glory_spent"]
             spendable = glory_state["spendable_glory"]
@@ -2465,9 +2500,12 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "total_badges": b_eval["total_badges"],
                 "completion_pct": b_eval["completion_pct"],
                 "glory_score": b_eval["glory_score"],
-                "career_glory": b_eval.get("career_glory", b_eval.get("glory_score", 0)),
+                "career_glory": glory_state["total_earned"] if is_self else b_eval.get("career_glory", b_eval.get("glory_score", 0)),
                 "seasonal_glory": b_eval.get("seasonal_glory", 0),
-                "glory_balance": b_eval.get("glory_balance", b_eval.get("glory_score", 0)),
+                "glory_balance": glory_state["spendable_glory"] if is_self else b_eval.get("glory_balance", b_eval.get("glory_score", 0)),
+                "spendable_glory": glory_state["spendable_glory"] if is_self else b_eval.get("glory_balance", b_eval.get("glory_score", 0)),
+                "total_glory": glory_state["total_earned"] if is_self else b_eval.get("career_glory", 0),
+                "glory_spent": glory_state["glory_spent"] if is_self else 0,
                 "seasonal": b_eval.get("seasonal", {}),
                 "active_season": b_eval.get("active_season", "2026"),
                 "rank": b_eval["rank"],
@@ -3994,14 +4032,12 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             user_ack = DEV_USER.get("acknowledged_badge_ids") or []
             ack_set = set(user_ack)
             newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
-            glory_40k = int(DEV_USER.get("glory_40k", 8030))
-            glory_aos = int(DEV_USER.get("glory_aos", 135))
-            current_sys_glory = glory_aos if req_game_sys == "aos" else glory_40k
-            total_earned = glory_40k + glory_aos
-            spent = int(DEV_USER.get("glory_spent") or 0)
-            spendable = max(0, total_earned - spent)
-            DEV_USER["total_glory"] = total_earned
-            DEV_USER["glory_balance"] = spendable
+            glory_state = _get_dev_user_glory_and_stats()
+            glory_40k = glory_state["glory_40k"]
+            glory_aos = glory_state["glory_aos"]
+            total_earned = glory_state["total_earned"]
+            spent = glory_state["glory_spent"]
+            spendable = glory_state["spendable_glory"]
 
             res.update({
                 "armory_vault": DEV_USER.get("armory_vault", {}),

@@ -20,6 +20,7 @@ class TestRetributionArmory(unittest.TestCase):
         wings_40k = self.cat_40k["wings"]
         self.assertIn("dice_forge", wings_40k)
         self.assertIn("profile_forge", wings_40k)
+        self.assertIn("card_finishes", wings_40k)
         self.assertIn("avatars", wings_40k)
         self.assertIn("titles", wings_40k)
         self.assertIn("pokes", wings_40k)
@@ -28,10 +29,10 @@ class TestRetributionArmory(unittest.TestCase):
         self.assertNotIn("oracle", wings_40k)
         self.assertIsNone(armory_catalog.get_item_by_id("oracle_gt_pickem_pass"))
 
-        # Verify items exist: 94 for 40K (including 3 championship unlocks), 66 for AoS = 160 items total
-        self.assertEqual(len(self.cat_40k["items"]), 94)
-        self.assertEqual(len(self.cat_aos["items"]), 66)
-        self.assertEqual(len(self.cat_40k["items"]) + len(self.cat_aos["items"]), 160)
+        # Verify items exist: 123 for 40K (including 30 finishes), 91 for AoS (including 25 finishes) = 214 items total
+        self.assertEqual(len(self.cat_40k["items"]), 123)
+        self.assertEqual(len(self.cat_aos["items"]), 91)
+        self.assertEqual(len(self.cat_40k["items"]) + len(self.cat_aos["items"]), 214)
 
     def test_game_system_isolation(self):
         """Verifies 40K and AoS items are strictly isolated to their own stores."""
@@ -207,6 +208,9 @@ class TestRetributionArmory(unittest.TestCase):
             elif wing == "profile_forge":
                 self.assertGreaterEqual(cost, 900)
                 self.assertLessEqual(cost, 9700)
+            elif wing == "card_finishes":
+                self.assertGreaterEqual(cost, 1500)
+                self.assertLessEqual(cost, 3700)
 
     def test_peak_elo_frame_prerequisites(self):
         """Verifies frames lock and unlock dynamically based on all-time career peak Elo."""

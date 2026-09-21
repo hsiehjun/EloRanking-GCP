@@ -298,6 +298,7 @@ function switchTab(tabName) {
     const isAct = (t === tabName) || 
                   (t === 'team' && (tabName === 'team-profile' || tabName === 'teams')) ||
                   (t === 'leaderboard' && (tabName === 'leaderboard' || tabName === 'player-profile')) ||
+                  (t === 'meta-intel' && (tabName === 'meta-intel' || tabName === 'factions')) ||
                   (t === 'my-hub' && tabName === 'my-hub') ||
                   (t === 'community' && tabName === 'community');
     item.classList.toggle('active', isAct);

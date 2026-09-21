@@ -32,6 +32,28 @@ async function loadTeamsDirectory() {
   const minRosterSelect = document.getElementById('teams-min-roster-filter');
   const minRoster = minRosterSelect ? minRosterSelect.value : 1;
   const tbody = document.getElementById('teams-body');
+  const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+
+  // Instant in-memory cache check
+  const dirCacheKey = `teams_dir_${sys}_${query}_${minRoster}_${teamsSortState.field}_${teamsSortState.asc}_${teamsPagination.page}_${teamsPagination.pageSize}`;
+  window._teamsDirCache = window._teamsDirCache || {};
+  const cachedDir = window._teamsDirCache[dirCacheKey];
+  if (cachedDir && (Date.now() - cachedDir.time < 300000)) { // 5-minute cache
+    const res = cachedDir.data;
+    if (res && res.items) {
+      teamsDirectoryData = res.items;
+      teamsPagination.total = res.total || 0;
+      teamsPagination.page = res.page || 1;
+      teamsPagination.pageSize = res.page_size || 25;
+      teamsPagination.totalPages = res.total_pages || 1;
+    } else {
+      teamsDirectoryData = Array.isArray(res) ? res : [];
+      teamsPagination.total = teamsDirectoryData.length;
+    }
+    renderTeamsDirectoryRows();
+    renderPaginationBar('teams-pagination', teamsPagination, 'setTeamsPage', 'setTeamsPageSize');
+    return;
+  }
 
   if (tbody && (!teamsDirectoryData || teamsDirectoryData.length === 0)) {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading teams directory...</div></td></tr>';
@@ -42,6 +64,7 @@ async function loadTeamsDirectory() {
       query, minRoster, teamsSortState.field, teamsSortState.asc ? 'ASC' : 'DESC',
       teamsPagination.page, teamsPagination.pageSize
     );
+    window._teamsDirCache[dirCacheKey] = { data: res, time: Date.now() };
     if (res && res.items) {
       teamsDirectoryData = res.items;
       teamsPagination.total = res.total || 0;
@@ -216,6 +239,16 @@ async function openTeamProfilePage(teamName, gameSystem = '', options = {}) {
     window.history.replaceState({ teamName: safeName, sys: targetSys }, '', `${cleanPath || ''}${targetHash}`);
   }
 
+  // Instant in-memory cache check
+  const dossierCacheKey = `team_dossier_${targetSys}_${safeName.toLowerCase()}`;
+  window._teamDossierCache = window._teamDossierCache || {};
+  const cachedDossier = window._teamDossierCache[dossierCacheKey];
+  if (cachedDossier && (Date.now() - cachedDossier.time < 600000)) { // 10 min cache
+    currentProfileTeamData = cachedDossier.data;
+    renderTeamProfilePage(cachedDossier.data, targetSys);
+    return;
+  }
+
   const container = document.getElementById('team-profile-container');
   if (container) {
     container.innerHTML = `
@@ -228,6 +261,7 @@ async function openTeamProfilePage(teamName, gameSystem = '', options = {}) {
 
   try {
     const data = await window.api.getTeamRoster(safeName, targetSys);
+    window._teamDossierCache[dossierCacheKey] = { data: data, time: Date.now() };
     currentProfileTeamData = data;
     renderTeamProfilePage(data, targetSys);
   } catch (err) {
