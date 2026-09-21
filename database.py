@@ -4225,63 +4225,32 @@ class PostgresDatabase:
                 try:
                     cursor.execute("""
                     SELECT 
-                        e.id as event_id, e.name as event_name, e.event_date, e.city, e.state, e.country,
-                        e.total_players, e.num_rounds,
-                        COALESCE(ep.faction, 'Unknown') as registered_faction,
-                        COALESCE(ep.placement, 0) as placement,
-                        COALESCE(m_stat.cnt, 0) as matches_played,
-                        COALESCE(m_stat.wins, 0) as wins,
-                        COALESCE(m_stat.losses, 0) as losses,
-                        COALESCE(m_stat.draws, 0) as draws,
-                        COALESCE(m_stat.battle_points, 0) as total_battle_points
-                    FROM event_participants ep
-                    JOIN events e ON ep.event_id = e.id
-                    LEFT JOIN (
-                        SELECT 
-                            event_id,
-                            COUNT(*) as cnt,
-                            SUM(CASE WHEN winner_id = %s THEN 1 ELSE 0 END) as wins,
-                            SUM(CASE WHEN loser_id = %s THEN 1 ELSE 0 END) as losses,
-                            SUM(CASE WHEN is_draw THEN 1 ELSE 0 END) as draws,
-                            SUM(CASE WHEN player1_id = %s THEN COALESCE(player1_score, 0) ELSE COALESCE(player2_score, 0) END) as battle_points
-                        FROM matches
-                        WHERE (player1_id = %s OR player2_id = %s) AND COALESCE(game_system, '40k') = %s
-                        GROUP BY event_id
-                    ) m_stat ON e.id = m_stat.event_id
-                    WHERE ep.player_id = %s AND COALESCE(e.game_system, '40k') = %s
-                    ORDER BY e.event_date DESC NULLS LAST;
-                    """, (player_id, player_id, player_id, player_id, player_id, system, player_id, system))
-                    rows = [dict(r) for r in cursor.fetchall()]
-                    if rows:
-                        return rows
-                except Exception as e:
-                    conn.rollback()
-                    logger.debug(f"Notice in get_player_tournaments: {e}")
-
-                # Fallback: aggregate directly from matches if event_participants record is absent
-                try:
-                    cursor.execute("""
-                    SELECT 
-                        e.id as event_id, e.name as event_name, e.event_date, e.city, e.state, e.country,
-                        COALESCE(e.total_players, 0) as total_players, COALESCE(e.num_rounds, 0) as num_rounds,
-                        COALESCE(MAX(CASE WHEN m.player1_id = %s THEN m.player1_faction ELSE m.player2_faction END), 'Unknown') as registered_faction,
-                        0 as placement,
-                        COUNT(m.id) as matches_played,
-                        SUM(CASE WHEN m.winner_id = %s THEN 1 ELSE 0 END) as wins,
-                        SUM(CASE WHEN m.loser_id = %s THEN 1 ELSE 0 END) as losses,
+                        e.id as event_id, e.name as event_name, 
+                        COALESCE(e.event_date, MAX(m.match_date)) as event_date, 
+                        e.city, e.state, e.country,
+                        COALESCE(e.total_players, 0) as total_players, 
+                        COALESCE(e.num_rounds, 0) as num_rounds,
+                        COALESCE(MAX(ep.faction), MAX(CASE WHEN m.player1_id = %(pid)s THEN m.player1_faction ELSE m.player2_faction END), 'Unknown') as registered_faction,
+                        COALESCE(MAX(ep.placement), 0) as placement,
+                        COUNT(DISTINCT m.id) as matches_played,
+                        SUM(CASE WHEN m.winner_id = %(pid)s THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN m.loser_id = %(pid)s THEN 1 ELSE 0 END) as losses,
                         SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) as draws,
-                        SUM(CASE WHEN m.player1_id = %s THEN COALESCE(m.player1_score, 0) ELSE COALESCE(m.player2_score, 0) END) as total_battle_points
-                    FROM matches m
-                    JOIN events e ON m.event_id = e.id
-                    WHERE (m.player1_id = %s OR m.player2_id = %s) AND COALESCE(e.game_system, '40k') = %s
+                        SUM(CASE WHEN m.player1_id = %(pid)s THEN COALESCE(m.player1_score, 0) ELSE COALESCE(m.player2_score, 0) END) as total_battle_points
+                    FROM events e
+                    LEFT JOIN event_participants ep ON ep.event_id = e.id AND ep.player_id = %(pid)s
+                    LEFT JOIN matches m ON m.event_id = e.id AND (m.player1_id = %(pid)s OR m.player2_id = %(pid)s)
+                    WHERE (ep.player_id = %(pid)s OR m.player1_id = %(pid)s OR m.player2_id = %(pid)s)
+                      AND COALESCE(e.game_system, '40k') = %(system)s
                     GROUP BY e.id, e.name, e.event_date, e.city, e.state, e.country, e.total_players, e.num_rounds
-                    ORDER BY e.event_date DESC NULLS LAST;
-                    """, (player_id, player_id, player_id, player_id, player_id, player_id, system))
+                    ORDER BY COALESCE(e.event_date, MAX(m.match_date)) DESC NULLS LAST;
+                    """, {"pid": player_id, "system": system})
                     return [dict(r) for r in cursor.fetchall()]
                 except Exception as e:
                     conn.rollback()
-                    logger.warning(f"Fallback get_player_tournaments error: {e}")
+                    logger.warning(f"Error in get_player_tournaments: {e}")
                     return []
+
 
 
     def get_faction_meta_stats(self, start_date: Optional[str] = None, end_date: Optional[str] = None, game_system: Optional[str] = "40k") -> Dict[str, Any]:

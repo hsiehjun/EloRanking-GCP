@@ -360,43 +360,62 @@ def extract_tournament_championships(
     tournaments = tournaments or []
     history = history or []
 
+    # 1. Index matches by event
     ev_matches: Dict[str, List[Dict[str, Any]]] = {}
-    for m in history:
-        eid = str(m.get("event_id") or m.get("event_name") or "")
-        if eid:
-            ev_matches.setdefault(eid, []).append(m)
+    for m in (history or []):
+        eid = str(m.get("event_id") or "").strip()
+        ename = str(m.get("event_name") or "").strip()
+        key = eid or ename.lower()
+        if key:
+            ev_matches.setdefault(key, []).append(m)
 
-    if not tournaments and ev_matches:
-        synthesized = []
-        for eid, m_list in ev_matches.items():
-            first_m = m_list[0]
-            w_cnt = len([m for m in m_list if str(m.get("result", "")).upper() == "W"])
-            l_cnt = len([m for m in m_list if str(m.get("result", "")).upper() == "L"])
-            d_cnt = len([m for m in m_list if str(m.get("result", "")).upper() == "D"])
-            ename = str(first_m.get("event_name") or eid or "Tournament").strip()
-            total_p = 16
-            if "gt" in ename.lower():
-                total_p = 32
-            elif "major" in ename.lower():
-                total_p = 120
-            synthesized.append({
+    # 2. Unified events dictionary merging tournaments and history
+    events_by_key: Dict[str, Dict[str, Any]] = {}
+    for t in (tournaments or []):
+        eid = str(t.get("event_id") or t.get("id") or "").strip()
+        ename = str(t.get("event_name") or t.get("name") or "Tournament").strip()
+        key = eid or ename.lower()
+        if key:
+            events_by_key[key] = dict(t)
+
+    for key, m_list in ev_matches.items():
+        first_m = m_list[0]
+        eid = str(first_m.get("event_id") or "").strip()
+        ename = str(first_m.get("event_name") or key).strip()
+        w_cnt = len([m for m in m_list if str(m.get("result", "")).upper() == "W"])
+        l_cnt = len([m for m in m_list if str(m.get("result", "")).upper() == "L"])
+        d_cnt = len([m for m in m_list if str(m.get("result", "")).upper() == "D"])
+        r_cnt = max([_safe_round(m.get("round")) for m in m_list if _safe_round(m.get("round")) > 0] + [len(m_list)])
+        m_date = str(first_m.get("match_date") or "")[:10]
+        m_fac = next((m.get("player_faction") or m.get("faction") for m in m_list if m.get("player_faction") or m.get("faction")), "Unknown")
+
+        if key in events_by_key:
+            ev = events_by_key[key]
+            if not ev.get("wins"): ev["wins"] = w_cnt
+            if not ev.get("losses"): ev["losses"] = l_cnt
+            if not ev.get("draws"): ev["draws"] = d_cnt
+            if not ev.get("num_rounds"): ev["num_rounds"] = r_cnt
+            if not ev.get("event_date") and m_date: ev["event_date"] = m_date
+            if (not ev.get("registered_faction") or ev.get("registered_faction") == "Unknown") and m_fac != "Unknown":
+                ev["registered_faction"] = m_fac
+        else:
+            events_by_key[key] = {
                 "event_id": eid,
                 "event_name": ename,
-                "event_date": first_m.get("match_date") or "",
-                "total_players": total_p,
-                "num_rounds": len(m_list),
+                "event_date": m_date,
+                "total_players": 0,
+                "num_rounds": r_cnt,
                 "placement": 1 if (w_cnt >= 3 and l_cnt == 0) else 0,
                 "wins": w_cnt,
                 "losses": l_cnt,
                 "draws": d_cnt,
-                "faction": first_m.get("player_faction") or "Unknown"
-            })
-        tournaments = synthesized
+                "registered_faction": m_fac
+            }
 
     championships = []
     seen_event_ids = set()
 
-    for t in tournaments:
+    for t in events_by_key.values():
         eid = str(t.get("event_id") or t.get("id") or "")
         ename = str(t.get("event_name") or t.get("name") or "Tournament").strip()
         date_str = str(t.get("event_date") or t.get("date") or "")[:10]
@@ -408,40 +427,27 @@ def extract_tournament_championships(
         draws = _safe_int(t.get("draws"))
         faction = str(t.get("registered_faction") or t.get("faction") or "Unknown").strip()
 
-        m_list = ev_matches.get(eid, [])
-        if m_list:
-            if not wins:
-                wins = len([m for m in m_list if str(m.get("result", "")).upper() == "W"])
-            if not losses:
-                losses = len([m for m in m_list if str(m.get("result", "")).upper() == "L"])
-            if not draws:
-                draws = len([m for m in m_list if str(m.get("result", "")).upper() == "D"])
-            if not num_r:
-                num_r = max([_safe_round(m.get("round")) for m in m_list if _safe_round(m.get("round")) > 0] + [len(m_list)])
-            if not faction or faction == "Unknown":
-                m_fac = next((m.get("player_faction") or m.get("faction") for m in m_list if m.get("player_faction") or m.get("faction")), None)
-                if m_fac:
-                    faction = str(m_fac).strip()
-
+        # Check for championship (1st place) or flawless undefeated tournament run (0 losses, 3+ wins)
         is_winner = False
         if placement == 1:
             is_winner = True
-        elif placement == 0 and wins >= 3 and losses == 0 and (total_p >= 8 or len(m_list) >= 3):
+        elif losses == 0 and wins >= 3:
             is_winner = True
 
         if not is_winner:
             continue
 
-        dedup_key = eid or f"{ename}_{date_str}"
+        dedup_key = eid or f"{ename.lower()}_{date_str}"
         if dedup_key in seen_event_ids:
             continue
         seen_event_ids.add(dedup_key)
 
         ename_lower = ename.lower()
-        is_super = total_p >= 200 or "lvo" in ename_lower or "adepticon" in ename_lower or "world championship" in ename_lower or "super major" in ename_lower
-        is_major = not is_super and (total_p >= 100 or num_r >= 6)
-        is_gt = not is_super and not is_major and (num_r >= 5 or total_p >= 28)
-        is_rtt = not is_super and not is_major and not is_gt and (total_p >= 8 or num_r >= 3)
+        is_super = total_p >= 200 or "lvo" in ename_lower or "adepticon" in ename_lower or "world championship" in ename_lower or "super major" in ename_lower or "team championships" in ename_lower
+        is_major = not is_super and (total_p >= 100 or num_r >= 6 or "major" in ename_lower or "us open" in ename_lower)
+        is_gt = not is_super and not is_major and (num_r >= 5 or wins >= 5 or total_p >= 28 or " gt" in ename_lower or "grand tournament" in ename_lower)
+        is_rtt = not is_super and not is_major and not is_gt
+
 
         if is_super:
             tier = "super_major"
