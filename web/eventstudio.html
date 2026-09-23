@@ -112,55 +112,10 @@
       </div>
     </div>
 
-    <!-- VIEW 1: Events Directory & League Commissioner Console -->
+    <!-- VIEW 1: Events Directory & Managed Leagues -->
     <div id="es-view-events" class="es-tab-view">
-      <!-- League Commissioner Console (Moved from Public League Page to Event Studio) -->
-      <div id="es-league-commissioner-console" class="card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92)); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 10px 30px rgba(0,0,0,0.35);">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.85rem; margin-bottom: 0.9rem;">
-          <div>
-            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-              <span style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.45); padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase;">
-                👑 Commissioner &amp; League Owner Console
-              </span>
-              <span id="es-comm-reg-badge" style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.35); padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 800;">
-                🔒 REGISTRATION CLOSED
-              </span>
-              <span style="font-family: monospace; font-size: 0.75rem; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 7px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3);">
-                🔑 ID: league_sd40k_big_league
-              </span>
-            </div>
-            <h3 style="margin: 0.4rem 0 0.2rem; color: #fff; font-size: 1.15rem;">San Diego 40k BIG League @ At Ease Games — Season 38</h3>
-            <div style="font-size: 0.8rem; color: #cbd5e1; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center;">
-              <span>🔁 <strong>Auto-Recurring Seasons:</strong> Enabled (8 Wks • 5 Games)</span>
-              <span>•</span>
-              <span>⚖️ <strong>Pod Rules:</strong> 6–8 Players / Pod (Evenly Distributed) • Top 2 ▲ Up 1 • Bottom 2 ▼ Down 1 • Middle ● Stay • New Entrants → Bottom Pod</span>
-            </div>
-          </div>
-          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-            <button type="button" id="es-comm-toggle-reg-btn" onclick="toggleStudioLeagueRegistration('league_sd40k_big_league')" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
-              📡 Open / Close Registration Window
-            </button>
-            <a href="/#/40k/league/league_sd40k_big_league" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; text-decoration: none; color: #38bdf8; border-color: rgba(56, 189, 248, 0.4); font-weight: 700;">
-              🛡️ View Public League Page ↗
-            </a>
-          </div>
-        </div>
-
-        <!-- Season-Specific Config (Stored in native_league_seasons.season_config_json) -->
-        <div style="background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.65rem 0.9rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem; font-size: 0.78rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-            <span style="color: #94a3b8; font-weight: 700;">🗺️ Season 38 Config (<code style="color:#38bdf8;">native_league_seasons.season_config_json</code>):</span>
-            <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">R1: Layout A</span>
-            <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">R2: Layout B</span>
-            <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">R3: Layout C</span>
-            <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">R4: Layout A</span>
-            <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">R5: Layout B</span>
-          </div>
-          <div style="color: #94a3b8; font-size: 0.74rem;">
-            Participants Table: <code style="color: #34d399;">native_league_participants</code> (<span id="es-comm-matched-count">62 / 68 DB Matched</span>)
-          </div>
-        </div>
-      </div>
+      <!-- Dynamic Managed Leagues Container (populated from PostgreSQL native_leagues where owner matches user) -->
+      <div id="es-managed-leagues-container" style="margin-bottom: 1.5rem;"></div>
 
       <div class="es-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
         <div>

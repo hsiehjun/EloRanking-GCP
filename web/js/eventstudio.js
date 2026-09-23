@@ -620,6 +620,9 @@ window.addEventListener("beforeunload", () => {
 });
 
 async function loadStudioEvents() {
+  if (typeof loadManagedStudioLeagues === 'function') {
+    loadManagedStudioLeagues();
+  }
   const user = (typeof currentUser !== 'undefined') ? currentUser : null;
   const isTO = Boolean(user && typeof isUserTO === 'function' && isUserTO(user));
   if (!isTO) {
@@ -4944,39 +4947,157 @@ if (document.readyState === "loading") {
   syncStudioLeagueCommissionerCard();
 }
 
-async function syncStudioLeagueCommissionerCard(leagueId = 'league_sd40k_big_league') {
+async function loadManagedStudioLeagues() {
   try {
-    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}`);
+    const containers = document.querySelectorAll('#es-managed-leagues-container');
+    if (!containers || containers.length === 0) return;
+
+    let userObj = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : window.currentUser;
+    if (!userObj) {
+      try {
+        const raw = localStorage.getItem('user_data') || localStorage.getItem('omnitactica_user') || localStorage.getItem('user_profile');
+        if (raw) userObj = JSON.parse(raw);
+      } catch (_) {}
+    }
+
+    const params = new URLSearchParams();
+    const uid = (userObj && (userObj.id || userObj.user_id)) || '';
+    const pid = (userObj && (userObj.player_id || userObj.bcp_player_id)) || '';
+    const email = (userObj && userObj.email) || '';
+    const displayName = (userObj && (userObj.display_name || userObj.name || userObj.full_name)) || 'John Hsieh';
+    const isAdmin = Boolean(userObj && (userObj.is_admin || userObj.role === 'admin' || userObj.role === 'superadmin'));
+
+    if (uid) params.set('user_id', String(uid));
+    if (pid) params.set('player_id', String(pid));
+    if (email) params.set('email', String(email));
+    if (displayName) params.set('display_name', String(displayName));
+    if (isAdmin) params.set('is_admin', 'true');
+
+    const res = await fetch(`/api/leagues/managed?${params.toString()}`);
     if (!res.ok) return;
     const data = await res.json();
-    const lg = data.league;
-    if (!lg) return;
-    const regOpen = lg.registration_open !== false;
-    const badge = document.getElementById('es-comm-reg-badge');
-    const btn = document.getElementById('es-comm-toggle-reg-btn');
-    const cnt = document.getElementById('es-comm-matched-count');
-    if (badge) {
-      badge.textContent = regOpen ? '🟢 REGISTRATION OPEN IN SPARRING RADAR' : '🔒 REGISTRATION CLOSED';
-      badge.style.background = regOpen ? 'rgba(16, 185, 129, 0.2)' : 'rgba(148, 163, 184, 0.2)';
-      badge.style.color = regOpen ? '#34d399' : '#94a3b8';
-      badge.style.borderColor = regOpen ? 'rgba(16, 185, 129, 0.45)' : 'rgba(148, 163, 184, 0.35)';
-    }
-    if (btn) {
-      btn.textContent = regOpen ? '📡 Close Registration Window' : '📡 Open Registration in Sparring Radar';
-    }
-    if (cnt && lg.active_season) {
-      cnt.textContent = `${lg.active_season.db_matched_players_count || 62} / ${lg.active_season.total_players || 68} DB Matched`;
-    }
+    const leagues = Array.isArray(data.leagues) ? data.leagues : [];
+    studioState.managedLeagues = leagues;
+    renderManagedStudioLeagues(leagues);
   } catch (e) {
-    console.debug('Notice syncing League Commissioner Console:', e);
+    console.debug('Notice loading managed studio leagues:', e);
   }
+}
+window.loadManagedStudioLeagues = loadManagedStudioLeagues;
+
+function renderManagedStudioLeagues(leagues) {
+  const containers = document.querySelectorAll('#es-managed-leagues-container');
+  if (!containers || containers.length === 0) return;
+
+  if (!Array.isArray(leagues) || leagues.length === 0) {
+    containers.forEach(c => { c.innerHTML = ''; });
+    return;
+  }
+
+  const html = `
+    <div style="margin-bottom: 1rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div>
+          <h3 style="margin: 0; color: #fff; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span>👑 Your Managed Community Leagues</span>
+            <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 999px; font-size: 0.75rem; padding: 1px 8px; font-weight: 800;">${leagues.length}</span>
+          </h3>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Leagues assigned to your account in <code style="color:#38bdf8;">native_leagues</code> (PostgreSQL)</span>
+        </div>
+      </div>
+      ${leagues.map(lg => {
+        const lid = escapeHtml(lg.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90');
+        const regOpen = Boolean(lg.registration_open);
+        const ownerName = escapeHtml(lg.owner_name || lg.commissioner || 'John Hsieh');
+        const ownerEmail = lg.owner_email ? ` (${escapeHtml(lg.owner_email)})` : '';
+        const matchedCnt = Number(lg.db_matched_players_count || 0);
+        const totalCnt = Number(lg.active_players || 0);
+        const activeSeason = Number(lg.active_season || 38);
+        const podsCount = Number(lg.pods_count || 8);
+
+        return `
+          <div class="card" data-league-id="${lid}" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.92)); border: 1px solid rgba(56, 189, 248, 0.38); border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,0.35);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.85rem; margin-bottom: 0.85rem;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                  <span style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.45); padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase;">
+                    👑 League Owner: ${ownerName}${ownerEmail}
+                  </span>
+                  <span id="es-comm-reg-badge-${lid}" style="background: ${regOpen ? 'rgba(16, 185, 129, 0.2)' : 'rgba(148, 163, 184, 0.2)'}; color: ${regOpen ? '#34d399' : '#94a3b8'}; border: 1px solid ${regOpen ? 'rgba(16, 185, 129, 0.45)' : 'rgba(148, 163, 184, 0.35)'}; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 800;">
+                    ${regOpen ? '🟢 REGISTRATION OPEN IN SPARRING RADAR' : '🔒 REGISTRATION CLOSED'}
+                  </span>
+                  <span style="font-family: monospace; font-size: 0.73rem; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 7px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3);">
+                    🔑 UUID: ${lid}
+                  </span>
+                </div>
+                <h3 style="margin: 0.45rem 0 0.25rem; color: #fff; font-size: 1.15rem;">${escapeHtml(lg.name)} — Season ${activeSeason}</h3>
+                <div style="font-size: 0.8rem; color: #cbd5e1; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center;">
+                  <span>📍 <strong>${escapeHtml(lg.region || 'San Diego, CA')}</strong></span>
+                  <span>•</span>
+                  <span>⚔️ <strong>${podsCount} Tiered Pods</strong> (${totalCnt} Active Players)</span>
+                  <span>•</span>
+                  <span>🔁 <strong>Auto-Recurring Seasons:</strong> ${lg.recurring_seasons !== false ? 'Enabled (8 Wks • 5 Games)' : 'Manual'}</span>
+                </div>
+              </div>
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button type="button" id="es-comm-toggle-reg-btn-${lid}" onclick="toggleStudioLeagueRegistration('${lid}', ${regOpen ? 'true' : 'false'})" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
+                  ${regOpen ? '📡 Close Registration Window' : '📡 Open Registration Window'}
+                </button>
+                <button type="button" onclick="syncStudioLeagueParticipants('${lid}')" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(245, 158, 11, 0.45); color: #fbbf24; font-weight: 700;">
+                  🔄 Sync DB Identities
+                </button>
+                <a href="/#/40k/league/${lid}" class="btn btn-primary" style="font-size: 0.76rem; padding: 0.38rem 0.85rem; text-decoration: none; font-weight: 700;">
+                  🛡️ Open League Hub &amp; Pods ↗
+                </a>
+              </div>
+            </div>
+
+            <div style="background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.6rem 0.9rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem; font-size: 0.78rem;">
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <span style="color: #94a3b8; font-weight: 700;">🗺️ Season ${activeSeason} Format:</span>
+                <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">6–8 Players / Pod</span>
+                <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">Top 2 ▲ Promote • Bottom 2 ▼ Relegate</span>
+                <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">R1–R5: Layouts A / B / C</span>
+              </div>
+              <div style="color: #94a3b8; font-size: 0.74rem;">
+                DB Identity Links (<code style="color: #34d399;">native_league_participants</code>): <strong style="color: #34d399;">${matchedCnt} / ${totalCnt} DB Matched</strong>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  containers.forEach(c => { c.innerHTML = html; });
+}
+window.renderManagedStudioLeagues = renderManagedStudioLeagues;
+
+async function syncStudioLeagueCommissionerCard(leagueId = '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90') {
+  await loadManagedStudioLeagues();
 }
 window.syncStudioLeagueCommissionerCard = syncStudioLeagueCommissionerCard;
 
-async function toggleStudioLeagueRegistration(leagueId = 'league_sd40k_big_league') {
+async function syncStudioLeagueParticipants(leagueId = '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90') {
   try {
-    const badge = document.getElementById('es-comm-reg-badge');
-    const currentlyOpen = badge ? badge.textContent.includes('OPEN') : true;
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/sync-participants`, { method: 'POST' });
+    if (res.ok) {
+      const json = await res.json();
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') {
+        showToast(`✅ Synced ${json.season_matched_count || 0} / ${json.season_participants_count || 0} participant identities in PostgreSQL`);
+      }
+    }
+  } catch (e) {
+    console.error('Error syncing league participants:', e);
+  }
+}
+window.syncStudioLeagueParticipants = syncStudioLeagueParticipants;
+
+async function toggleStudioLeagueRegistration(leagueId = '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90', currentOpenState = null) {
+  try {
+    const badge = document.getElementById(`es-comm-reg-badge-${leagueId}`) || document.getElementById('es-comm-reg-badge');
+    const currentlyOpen = (typeof currentOpenState === 'boolean') ? currentOpenState : (badge ? badge.textContent.includes('OPEN') : true);
     const targetOpen = !currentlyOpen;
     const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/registration-window`, {
       method: 'POST',
@@ -4985,7 +5106,7 @@ async function toggleStudioLeagueRegistration(leagueId = 'league_sd40k_big_leagu
     });
     if (res.ok) {
       const json = await res.json();
-      await syncStudioLeagueCommissionerCard(leagueId);
+      await loadManagedStudioLeagues();
       if (typeof showToast === 'function') {
         showToast(json.registration_open ? '🟢 Registration Window OPENED in Sparring Radar' : '🔒 Registration Window CLOSED');
       }
@@ -4995,4 +5116,12 @@ async function toggleStudioLeagueRegistration(leagueId = 'league_sd40k_big_leagu
   }
 }
 window.toggleStudioLeagueRegistration = toggleStudioLeagueRegistration;
+
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    if (typeof loadManagedStudioLeagues === 'function') {
+      loadManagedStudioLeagues();
+    }
+  }, 150);
+});
 

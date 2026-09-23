@@ -28,23 +28,52 @@ async def get_leagues_list():
     }
 
 
-_LEAGUE_DB_SYNCED = False
+@router.get("/api/leagues/managed", summary="Get leagues owned or commissioned by the active Event Studio user")
+async def get_managed_leagues_for_user(
+    user_id: Optional[str] = None,
+    player_id: Optional[str] = None,
+    email: Optional[str] = None,
+    display_name: Optional[str] = None,
+    is_admin: bool = False
+):
+    svc = leagues_hub_service.get_leagues_hub_service()
+    managed = svc.get_managed_leagues(
+        user_id=user_id,
+        player_id=player_id,
+        email=email,
+        display_name=display_name,
+        is_admin=is_admin
+    )
+    return {
+        "success": True,
+        "leagues": managed,
+        "count": len(managed)
+    }
+
+
+@router.post("/api/league/{league_id}/assign-owner", summary="Assign or update the owner/commissioner of a native league")
+async def assign_league_owner(league_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    result = svc.assign_league_owner(
+        league_id_or_slug=league_id,
+        owner_user_id=body.get("owner_user_id"),
+        owner_player_id=body.get("owner_player_id"),
+        owner_email=body.get("owner_email"),
+        owner_name=body.get("owner_name")
+    )
+    if result.get("status") == "error":
+        raise HTTPException(status_code=404, detail=result.get("message", "League not found"))
+    return result
+
 
 @router.get("/api/league/{league_id}", summary="Get full league data and active or historical season")
 @router.get("/api/leagues/{league_id}", summary="Get full league data and active or historical season")
 async def get_league_details(league_id: str, season: Optional[int] = None):
-    global _LEAGUE_DB_SYNCED
     norm_lid = leagues_hub_service._normalize_league_id(league_id)
-    if not _LEAGUE_DB_SYNCED:
-        try:
-            from core import get_database
-            db = get_database()
-            if hasattr(db, "sync_league_participant_identities"):
-                db.sync_league_participant_identities(norm_lid, 38)
-            _LEAGUE_DB_SYNCED = True
-        except Exception as e:
-            logger.warning(f"Auto league DB sync notice: {e}")
-
     svc = leagues_hub_service.get_leagues_hub_service()
     league = svc.get_league(norm_lid, season_number=season)
     if not league:
@@ -55,71 +84,52 @@ async def get_league_details(league_id: str, season: Optional[int] = None):
     }
 
 
-@router.get("/api/league/{league_id}/db-sync", summary="Force sync and audit Cloud SQL native_league_participants")
-@router.post("/api/league/{league_id}/db-sync", summary="Force sync and audit Cloud SQL native_league_participants")
+@router.post("/api/league/{league_id}/sync-participants", summary="Synchronize league participant DB identities and ownership")
+@router.get("/api/league/{league_id}/db-sync", summary="Synchronize league participant DB identities and ownership")
+@router.post("/api/league/{league_id}/db-sync", summary="Synchronize league participant DB identities and ownership")
 async def sync_and_audit_league_db(league_id: str, force_seed: bool = False):
     from core import get_database
     db = get_database()
     norm_lid = leagues_hub_service._normalize_league_id(league_id)
-    if hasattr(db, "seed_sd40k_league_tables"):
-        db.seed_sd40k_league_tables(force=force_seed)
+    if force_seed and hasattr(db, "seed_sd40k_league_tables"):
+        db.seed_sd40k_league_tables(force=True)
     if hasattr(db, "sync_league_participant_identities"):
         db.sync_league_participant_identities(norm_lid, 38)
 
-    rows_s38 = []
-    fake_count = 0
-    legacy_concat_id_count = 0
-    total_count = 0
     try:
         with db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT id, season_num, pod_num, participant_name, primary_faction, bcp_player_id, user_id, is_db_matched, match_method
-                    FROM native_league_participants
-                    WHERE league_id = %s AND season_num = 38
-                    ORDER BY pod_num ASC, participant_name ASC;
+                    SELECT id, slug, name, owner_user_id, owner_player_id, owner_email, owner_name, active_season_num
+                    FROM native_leagues
+                    WHERE id = %s
+                    LIMIT 1;
                 """, (norm_lid,))
-                for r in cur.fetchall():
-                    rows_s38.append({
-                        "id": r[0],
-                        "season_num": r[1],
-                        "pod_num": r[2],
-                        "participant_name": r[3],
-                        "primary_faction": r[4],
-                        "bcp_player_id": r[5],
-                        "user_id": r[6],
-                        "is_db_matched": r[7],
-                        "match_method": r[8]
-                    })
+                l_row = cur.fetchone()
                 cur.execute("""
-                    SELECT COUNT(*) FROM native_league_participants
-                    WHERE LEFT(COALESCE(bcp_player_id, ''), 4) = 'bcp_'
-                       OR LEFT(COALESCE(bcp_player_id, ''), 2) = 'p_'
-                       OR LEFT(COALESCE(user_id, ''), 2) = 'u_';
-                """)
-                fake_count = cur.fetchone()[0]
-                cur.execute("""
-                    SELECT COUNT(*) FROM native_league_participants
-                    WHERE LEFT(id, 7) = 'league_' OR LEFT(id, 3) = 'lg_';
-                """)
-                legacy_concat_id_count = cur.fetchone()[0]
-                cur.execute("SELECT COUNT(*) FROM native_league_participants;")
-                total_count = cur.fetchone()[0]
+                    SELECT COUNT(*),
+                           SUM(CASE WHEN is_db_matched THEN 1 ELSE 0 END)
+                    FROM native_league_participants
+                    WHERE league_id = %s AND season_num = COALESCE(%s, 38);
+                """, (norm_lid, l_row[7] if l_row else 38))
+                counts = cur.fetchone()
     except Exception as e:
         return {"success": False, "error": str(e)}
 
     return {
         "success": True,
         "league_uuid": norm_lid,
-        "total_participants_all_seasons": total_count,
-        "fake_bcp_slug_count": fake_count,
-        "legacy_concatenated_id_count": legacy_concat_id_count,
-        "season_38_count": len(rows_s38),
-        "season_38_matched_count": sum(1 for r in rows_s38 if r["is_db_matched"]),
-        "season_38_unmatched_count": sum(1 for r in rows_s38 if not r["is_db_matched"]),
-        "pod_1_rows": [r for r in rows_s38 if r["pod_num"] == 1],
-        "pod_7_rows": [r for r in rows_s38 if r["pod_num"] == 7],
-        "pod_8_rows": [r for r in rows_s38 if r["pod_num"] == 8]
+        "slug": l_row[1] if l_row else None,
+        "name": l_row[2] if l_row else None,
+        "owner": {
+            "owner_user_id": l_row[3] if l_row else None,
+            "owner_player_id": l_row[4] if l_row else None,
+            "owner_email": l_row[5] if l_row else None,
+            "owner_name": l_row[6] if l_row else None
+        },
+        "active_season": int(l_row[7] or 38) if l_row else 38,
+        "season_participants_count": int(counts[0] or 0) if counts else 0,
+        "season_matched_count": int(counts[1] or 0) if counts else 0
     }
 
 

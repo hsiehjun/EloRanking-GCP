@@ -1407,10 +1407,20 @@ class PostgresDatabase:
                 total_pods INT DEFAULT 0,
                 recurring_seasons BOOLEAN DEFAULT TRUE,
                 registration_open BOOLEAN DEFAULT FALSE,
+                owner_user_id VARCHAR(64),
+                owner_player_id VARCHAR(64),
+                owner_email TEXT,
+                owner_name TEXT,
                 config_json JSONB DEFAULT '{}'::jsonb,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             );""",
+            "ALTER TABLE native_leagues ADD COLUMN IF NOT EXISTS owner_user_id VARCHAR(64);",
+            "ALTER TABLE native_leagues ADD COLUMN IF NOT EXISTS owner_player_id VARCHAR(64);",
+            "ALTER TABLE native_leagues ADD COLUMN IF NOT EXISTS owner_email TEXT;",
+            "ALTER TABLE native_leagues ADD COLUMN IF NOT EXISTS owner_name TEXT;",
+            "CREATE INDEX IF NOT EXISTS idx_native_leagues_owner_uid ON native_leagues(owner_user_id);",
+            "CREATE INDEX IF NOT EXISTS idx_native_leagues_owner_pid ON native_leagues(owner_player_id);",
             """CREATE TABLE IF NOT EXISTS native_league_seasons (
                 id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
                 league_id VARCHAR(64),
@@ -1551,10 +1561,10 @@ class PostgresDatabase:
 
     def sync_league_participant_identities(self, league_id: str = "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90", season_num: Optional[int] = 38):
         """
-        Fast (<20ms) identity & UUID primary-key sync:
-        1. Migrates any legacy string-concatenated IDs (`league_sd40k_big_league...`) across all `native_league_*` tables
-           to collision-free PostgreSQL UUIDs (`gen_random_uuid()::text` and `8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90` for SD40K league_id).
-        2. Purges any fake `bcp_` / `p_` / `u_` slugs across all seasons and removes `pod_num > 8` in Season 38.
+        Idempotent league identity & ownership sync:
+        1. Ensures `native_leagues` ownership columns (`owner_user_id`, `owner_player_id`, `owner_email`, `owner_name`)
+           exist and assigns the San Diego Force Org League (`8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90`) to John Hsieh (`hsiehjun`).
+        2. Ensures all `native_league_*` primary keys and `league_id` references use collision-free UUIDs.
         3. Matches season/pod participants against real PostgreSQL `players` (`players.id`),
            `player_ratings` (`player_ratings.player_id`), and `users` (`users.id`).
         """
@@ -1565,12 +1575,55 @@ class PostgresDatabase:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("SET LOCAL lock_timeout = '10s';")
+                    # Ensure owner columns exist on native_leagues even if called standalone
+                    cursor.execute("ALTER TABLE native_leagues ADD COLUMN IF NOT EXISTS owner_user_id VARCHAR(64);")
+                    cursor.execute("ALTER TABLE native_leagues ADD COLUMN IF NOT EXISTS owner_player_id VARCHAR(64);")
+                    cursor.execute("ALTER TABLE native_leagues ADD COLUMN IF NOT EXISTS owner_email TEXT;")
+                    cursor.execute("ALTER TABLE native_leagues ADD COLUMN IF NOT EXISTS owner_name TEXT;")
+
                     # Migrate legacy string-concatenated league_id ('league_sd40k_big_league' / 'lg_sd40k') to UUID
                     for tbl in ("native_league_seasons", "native_league_pods", "native_league_participants", "native_league_standings", "native_league_matches", "native_league_careers"):
                         cursor.execute(f"UPDATE {tbl} SET league_id = %s WHERE league_id IN ('league_sd40k_big_league', 'lg_sd40k', 'sd40k');", (sd40k_uuid,))
                         cursor.execute(f"UPDATE {tbl} SET id = gen_random_uuid()::text WHERE LEFT(id, 7) = 'league_' OR LEFT(id, 3) = 'lg_';")
                     cursor.execute("UPDATE native_leagues SET id = %s WHERE id IN ('league_sd40k_big_league', 'lg_sd40k') AND NOT EXISTS (SELECT 1 FROM native_leagues WHERE id = %s);", (sd40k_uuid, sd40k_uuid))
                     cursor.execute("DELETE FROM native_leagues WHERE id IN ('league_sd40k_big_league', 'lg_sd40k') AND EXISTS (SELECT 1 FROM native_leagues WHERE id = %s);", (sd40k_uuid,))
+
+                    # Assign San Diego Force Org League (8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90) owner to John Hsieh (hsiehjun) if not overridden
+                    cursor.execute("""
+                        SELECT id::text, email, COALESCE(NULLIF(display_name, ''), 'John Hsieh'), player_id
+                        FROM users
+                        WHERE LOWER(TRIM(COALESCE(display_name, ''))) = 'john hsieh'
+                           OR LOWER(COALESCE(email, '')) LIKE 'hsiehjun%%'
+                           OR LOWER(COALESCE(email, '')) LIKE '%%john%%hsieh%%'
+                        ORDER BY created_at ASC
+                        LIMIT 1;
+                    """)
+                    owner_u_row = cursor.fetchone()
+                    owner_uid = owner_u_row[0] if owner_u_row else None
+                    owner_email = owner_u_row[1] if (owner_u_row and owner_u_row[1]) else "hsiehjun@google.com"
+                    owner_name = owner_u_row[2] if (owner_u_row and owner_u_row[2]) else "John Hsieh"
+                    owner_pid = owner_u_row[3] if (owner_u_row and owner_u_row[3]) else None
+
+                    if not owner_pid:
+                        cursor.execute("""
+                            SELECT id FROM players
+                            WHERE LOWER(TRIM(full_name)) = 'john hsieh'
+                              AND LEFT(id, 4) <> 'bcp_' AND LEFT(id, 2) <> 'p_'
+                            LIMIT 1;
+                        """)
+                        p_row = cursor.fetchone()
+                        if p_row:
+                            owner_pid = p_row[0]
+
+                    cursor.execute("""
+                        UPDATE native_leagues
+                        SET owner_user_id = COALESCE(NULLIF(owner_user_id, ''), %s),
+                            owner_player_id = COALESCE(NULLIF(owner_player_id, ''), %s),
+                            owner_email = COALESCE(NULLIF(owner_email, ''), %s),
+                            owner_name = COALESCE(NULLIF(owner_name, ''), %s),
+                            updated_at = NOW()
+                        WHERE id = %s;
+                    """, (owner_uid, owner_pid, owner_email, owner_name, sd40k_uuid))
 
                     # 0. Remove stale test Pod #9 rows and wipe any fake bcp_ / p_ / u_ slugs across ALL seasons
                     cursor.execute("""

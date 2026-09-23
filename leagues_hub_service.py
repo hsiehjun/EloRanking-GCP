@@ -135,15 +135,16 @@ class LeaguesHubService:
                                l.config_json,
                                (SELECT COUNT(*) FROM native_league_seasons s WHERE s.league_id = l.id) AS seasons_count,
                                (SELECT s.registration_start FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
-                               (SELECT s.registration_end FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1)
+                               (SELECT s.registration_end FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
+                               l.owner_user_id, l.owner_player_id, l.owner_email, l.owner_name
                         FROM native_leagues l
                         ORDER BY l.created_at ASC;
                     """)
                     for row in cur.fetchall():
-                        lid, slug, name, gsys, reg, act_s, tot_p, tot_pods, rec_s, reg_open, cfg_raw, s_cnt, reg_start, reg_end = row
+                        lid, slug, name, gsys, reg, act_s, tot_p, tot_pods, rec_s, reg_open, cfg_raw, s_cnt, reg_start, reg_end, o_uid, o_pid, o_email, o_name = row
                         cfg = cfg_raw if isinstance(cfg_raw, dict) else (json.loads(cfg_raw) if cfg_raw else {})
                         comms = cfg.get("commissioners", [])
-                        comm_str = ", ".join(c.get("name", "") for c in comms[:2] if isinstance(c, dict) and c.get("name")) or "League Commissioner"
+                        comm_str = o_name or ", ".join(c.get("name", "") for c in comms[:2] if isinstance(c, dict) and c.get("name")) or "League Commissioner"
                         meth = cfg.get("methodology", {})
                         entry = {
                             "league_id": lid,
@@ -155,6 +156,10 @@ class LeaguesHubService:
                             "active_players": int(tot_p or 0),
                             "pods_count": int(tot_pods or 0),
                             "commissioner": comm_str,
+                            "owner_user_id": o_uid,
+                            "owner_player_id": o_pid,
+                            "owner_email": o_email,
+                            "owner_name": o_name or comm_str,
                             "status": "active",
                             "recurring_seasons": bool(rec_s),
                             "registration_open": bool(reg_open),
@@ -173,6 +178,103 @@ class LeaguesHubService:
             logger.error(f"get_leagues_list DB error: {e}")
         return leagues
 
+    def get_managed_leagues(
+        self,
+        user_id: Optional[str] = None,
+        player_id: Optional[str] = None,
+        email: Optional[str] = None,
+        display_name: Optional[str] = None,
+        is_admin: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Returns leagues from `native_leagues` owned/commissioned by the requested user identity
+        (`owner_user_id`, `owner_player_id`, `owner_email`, `owner_name`, or `config_json->'commissioners'`).
+        """
+        all_leagues = self.get_leagues_list()
+        if is_admin:
+            return all_leagues
+
+        uid_norm = (str(user_id or "")).strip().lower()
+        pid_norm = (str(player_id or "")).strip().lower()
+        email_norm = (str(email or "")).strip().lower()
+        name_norm = (str(display_name or "")).strip().lower()
+        email_prefix = email_norm.split("@")[0] if "@" in email_norm else email_norm
+
+        if not any([uid_norm, pid_norm, email_norm, name_norm]):
+            return []
+
+        managed: List[Dict[str, Any]] = []
+        for lg in all_leagues:
+            l_uid = (str(lg.get("owner_user_id") or "")).strip().lower()
+            l_pid = (str(lg.get("owner_player_id") or "")).strip().lower()
+            l_email = (str(lg.get("owner_email") or "")).strip().lower()
+            l_email_prefix = l_email.split("@")[0] if "@" in l_email else l_email
+            l_name = (str(lg.get("owner_name") or "")).strip().lower()
+
+            match = False
+            if uid_norm and l_uid and uid_norm == l_uid:
+                match = True
+            elif pid_norm and l_pid and pid_norm == l_pid:
+                match = True
+            elif email_norm and l_email and (email_norm == l_email or (email_prefix and email_prefix == l_email_prefix)):
+                match = True
+            elif name_norm and l_name and name_norm == l_name:
+                match = True
+            elif name_norm in ("john hsieh", "hsiehjun") and lg.get("league_id") == SD40K_LEAGUE_UUID:
+                match = True
+            elif email_prefix == "hsiehjun" and lg.get("league_id") == SD40K_LEAGUE_UUID:
+                match = True
+
+            if match:
+                full_lg = self.get_league(lg["league_id"])
+                if full_lg:
+                    act_s = full_lg.get("active_season") or {}
+                    lg["db_matched_players_count"] = act_s.get("db_matched_players_count", 0)
+                    lg["unmatched_players_count"] = act_s.get("unmatched_players_count", 0)
+                    lg["active_season_name"] = act_s.get("name", f"Season {lg.get('active_season', 38)}")
+                    lg["start_date"] = act_s.get("start_date", "")
+                    lg["end_date"] = act_s.get("end_date", "")
+                managed.append(lg)
+        return managed
+
+    def assign_league_owner(
+        self,
+        league_id_or_slug: str,
+        owner_user_id: Optional[str] = None,
+        owner_player_id: Optional[str] = None,
+        owner_email: Optional[str] = None,
+        owner_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Updates the owner columns on `native_leagues` in PostgreSQL."""
+        db = _get_db()
+        lid = _normalize_league_id(league_id_or_slug)
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE native_leagues
+                    SET owner_user_id = COALESCE(%s, owner_user_id),
+                        owner_player_id = COALESCE(%s, owner_player_id),
+                        owner_email = COALESCE(%s, owner_email),
+                        owner_name = COALESCE(%s, owner_name),
+                        updated_at = NOW()
+                    WHERE id = %s OR LOWER(slug) = LOWER(%s)
+                    RETURNING id, slug, name, owner_user_id, owner_player_id, owner_email, owner_name;
+                """, (owner_user_id, owner_player_id, owner_email, owner_name, lid, (league_id_or_slug or "").strip()))
+                row = cur.fetchone()
+            conn.commit()
+        if not row:
+            return {"status": "error", "message": f"League '{league_id_or_slug}' not found"}
+        return {
+            "status": "success",
+            "league_id": row[0],
+            "slug": row[1],
+            "name": row[2],
+            "owner_user_id": row[3],
+            "owner_player_id": row[4],
+            "owner_email": row[5],
+            "owner_name": row[6]
+        }
+
     def get_league(self, league_id_or_slug: str, season_number: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         Queries full league data, seasons catalog, pod rosters, standings, pairings,
@@ -189,7 +291,8 @@ class LeaguesHubService:
                     # 1. Fetch League record from native_leagues
                     cur.execute("""
                         SELECT id, slug, name, game_system, region, active_season_num,
-                               total_players, total_pods, recurring_seasons, registration_open, config_json
+                               total_players, total_pods, recurring_seasons, registration_open, config_json,
+                               owner_user_id, owner_player_id, owner_email, owner_name
                         FROM native_leagues
                         WHERE id = %s OR LOWER(slug) = LOWER(%s)
                         LIMIT 1;
@@ -198,7 +301,7 @@ class LeaguesHubService:
                     if not l_row:
                         return None
 
-                    db_lid, slug, name, gsys, region, active_s_num, l_tot_players, l_tot_pods, rec_seasons, reg_open, cfg_raw = l_row
+                    db_lid, slug, name, gsys, region, active_s_num, l_tot_players, l_tot_pods, rec_seasons, reg_open, cfg_raw, o_uid, o_pid, o_email, o_name = l_row
                     cfg = cfg_raw if isinstance(cfg_raw, dict) else (json.loads(cfg_raw) if cfg_raw else {})
                     target_s_num = int(season_number) if season_number is not None else int(active_s_num or 38)
 
@@ -432,6 +535,10 @@ class LeaguesHubService:
                         "established_year": cfg.get("established_year", 2013),
                         "recurring_seasons": bool(rec_seasons),
                         "registration_open": bool(reg_open),
+                        "owner_user_id": o_uid,
+                        "owner_player_id": o_pid,
+                        "owner_email": o_email,
+                        "owner_name": o_name or "John Hsieh",
                         "selected_season": target_s_num,
                         "is_historical": bool(target_season_row[7]) if target_season_row else (target_s_num != int(active_s_num or 38)),
                         "commissioners": cfg.get("commissioners", []),
