@@ -3,7 +3,7 @@
   "slug": "sd40k",
   "name": "San Diego Force Org (SD40K)",
   "short_name": "SD40K",
-  "tagline": "The Premier 40k Pod League of Southern California \u2022 38 Continuous Seasons",
+  "tagline": "The Premier 40k Pod League of Southern California • 38 Continuous Seasons",
   "city": "San Diego",
   "state": "CA",
   "region": "Southern California",
@@ -100,11 +100,11 @@
       "list_policy": "Flexible lists between rounds. Detachments, units, and enhancements can be adjusted between games."
     },
     "promotion_relegation_rules": {
-      "promotion": "Top 2 finishers in Pods 2\u20137 earn promotion (+1 or +2 pods)",
-      "relegation": "Bottom 2 finishers in Pods 1\u20136 face relegation (-1 or -2 pods)",
+      "promotion": "Top 2 finishers in Pods 2–7 earn promotion (+1 or +2 pods)",
+      "relegation": "Bottom 2 finishers in Pods 1–6 face relegation (-1 or -2 pods)",
       "finals_qualification": "Top Pod 1 competitors qualify for the prestigious 16-player Single Elimination Finals Championship"
     },
-    "chess_clock_policy": "Mandatory in Pods 1\u20133 & Finals if requested by either player 24 hours prior. Pods 4\u20137 require mutual agreement. 2 hours per player.",
+    "chess_clock_policy": "Mandatory in Pods 1–3 & Finals if requested by either player 24 hours prior. Pods 4–7 require mutual agreement. 2 hours per player.",
     "tiebreakers": [
       "1. Total Battle Points (inclusive of win bonuses)",
       "2. Head-to-Head result",
@@ -118,8 +118,8 @@
     "status": "active",
     "start_date": "2026-08-15",
     "end_date": "2026-10-15",
-    "total_pods": 8,
-    "total_players": 68,
+    "total_pods": 9,
+    "total_players": 69,
     "pods": [
       {
         "pod_number": 1,
@@ -153,35 +153,50 @@
                 "opponent_name": "Miles",
                 "score": 93,
                 "is_completed": true,
-                "scorecard_id": null
+                "scorecard_id": null,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Jackson",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Kinyaaaanii",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "James",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Durand",
                 "score": 1093,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -195,7 +210,12 @@
               "career_record": "49 - 24 - 0",
               "pod_titles": 4,
               "championships": 1
-            }
+            },
+            "bcp_player_id": "bcp_victor_campos",
+            "player_id": "bcp_victor_campos",
+            "user_id": "u_victor_campos",
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 2,
@@ -215,35 +235,50 @@
                 "opponent_name": "James",
                 "score": 51,
                 "is_completed": true,
-                "scorecard_id": null
+                "scorecard_id": null,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "James",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Miles",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Kinyaaaanii",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Victor",
                 "score": 51,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -257,7 +292,12 @@
               "career_record": "14 - 11 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_durand_smiley",
+            "player_id": "bcp_durand_smiley",
+            "user_id": "u_durand_smiley",
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 3,
@@ -276,35 +316,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Rock",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Victor",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "James",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "James",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Miles",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -318,7 +373,12 @@
               "career_record": "14 - 6 - 0",
               "pod_titles": 2,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_jackson_rodelander",
+            "player_id": "bcp_jackson_rodelander",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 4,
@@ -337,35 +397,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Kinyaaaanii",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Durand",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Rock",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Jackson",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "James",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -379,7 +454,12 @@
               "career_record": "30 - 9 - 0",
               "pod_titles": 2,
               "championships": 1
-            }
+            },
+            "bcp_player_id": "p_james_carmona",
+            "player_id": "p_james_carmona",
+            "user_id": "u_james_carmona",
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 5,
@@ -398,35 +478,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Durand",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Rock",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Jackson",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Victor",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "James",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -440,7 +535,12 @@
               "career_record": "17 - 11 - 0",
               "pod_titles": 1,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_james_kang",
+            "player_id": "bcp_james_kang",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 6,
@@ -459,35 +559,50 @@
                 "layout": "Layout A",
                 "opponent_name": "James",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Miles",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Victor",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Durand",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Rock",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -501,7 +616,12 @@
               "career_record": "24 - 8 - 1",
               "pod_titles": 3,
               "championships": 0
-            }
+            },
+            "bcp_player_id": null,
+            "player_id": null,
+            "user_id": null,
+            "is_db_matched": false,
+            "match_method": "unmatched"
           },
           {
             "rank": 7,
@@ -520,35 +640,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Victor",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Kinyaaaanii",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Durand",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Rock",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Jackson",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -562,7 +697,12 @@
               "career_record": "24 - 21 - 2",
               "pod_titles": 1,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_miles_vollenweider",
+            "player_id": "bcp_miles_vollenweider",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 8,
@@ -581,35 +721,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Jackson",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "James",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "James",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Miles",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Kinyaaaanii",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -623,7 +778,12 @@
               "career_record": "112 - 57 - 4",
               "pod_titles": 9,
               "championships": 3
-            }
+            },
+            "bcp_player_id": null,
+            "player_id": null,
+            "user_id": null,
+            "is_db_matched": false,
+            "match_method": "unmatched"
           }
         ]
       },
@@ -658,35 +818,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Joel",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Jan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Alex",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Josh",
                 "score": 1098,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Michael",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -700,7 +875,12 @@
               "career_record": "114 - 59 - 2",
               "pod_titles": 8,
               "championships": 5
-            }
+            },
+            "bcp_player_id": "bcp_jeremy_larson",
+            "player_id": "bcp_jeremy_larson",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 2,
@@ -719,35 +899,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Michael",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Greg",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Nick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Jeremy",
                 "score": 76,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Jan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -761,7 +956,12 @@
               "career_record": "12 - 3 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_josh_peters",
+            "player_id": "bcp_josh_peters",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 3,
@@ -780,35 +980,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Greg",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Nick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Jeremy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Jan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Joel",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -822,7 +1037,12 @@
               "career_record": "55 - 44 - 3",
               "pod_titles": 2,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_alex_ivanov",
+            "player_id": "bcp_alex_ivanov",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 4,
@@ -841,35 +1061,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Alex",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Josh",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Michael",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Joel",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Nick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -883,7 +1118,12 @@
               "career_record": "45 - 66 - 0",
               "pod_titles": 1,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_greg_kellen",
+            "player_id": "bcp_greg_kellen",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 5,
@@ -902,35 +1142,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Nick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Jeremy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Joel",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Alex",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Josh",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -944,7 +1199,12 @@
               "career_record": "24 - 21 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": null,
+            "player_id": null,
+            "user_id": null,
+            "is_db_matched": false,
+            "match_method": "unmatched"
           },
           {
             "rank": 6,
@@ -963,35 +1223,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Jeremy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Michael",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Jan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Greg",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Alex",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1005,7 +1280,12 @@
               "career_record": "16 - 13 - 1",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_joel_palhegyi",
+            "player_id": "bcp_joel_palhegyi",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 7,
@@ -1024,35 +1304,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Josh",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Joel",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Greg",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Nick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Jeremy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1066,7 +1361,12 @@
               "career_record": "44 - 56 - 3",
               "pod_titles": 1,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_michael_pogrebinsky",
+            "player_id": "bcp_michael_pogrebinsky",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 8,
@@ -1085,35 +1385,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Jan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Alex",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Josh",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Michael",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Greg",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1127,7 +1442,12 @@
               "career_record": "17 - 16 - 1",
               "pod_titles": 1,
               "championships": 0
-            }
+            },
+            "bcp_player_id": null,
+            "player_id": null,
+            "user_id": null,
+            "is_db_matched": false,
+            "match_method": "unmatched"
           }
         ]
       },
@@ -1162,35 +1482,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Zack",
                 "score": 44,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Alberto",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Aurelia",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Sean",
                 "score": 1093,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Harrison",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1204,7 +1539,12 @@
               "career_record": "79 - 84 - 3",
               "pod_titles": 3,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_benjamin_nicholls",
+            "player_id": "bcp_benjamin_nicholls",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 2,
@@ -1223,35 +1563,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Benjamin",
                 "score": 1100,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Harrison",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Alberto",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Patrick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Aurelia",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1265,7 +1620,12 @@
               "career_record": "6 - 4 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_zack_soucek",
+            "player_id": "bcp_zack_soucek",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 3,
@@ -1284,35 +1644,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Harrison",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Patrick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Quinnton",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Benjamin",
                 "score": 71,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Alberto",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1326,7 +1701,12 @@
               "career_record": "16 - 25 - 2",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_sean_bejarano",
+            "player_id": "bcp_sean_bejarano",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 4,
@@ -1345,35 +1725,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Quinnton",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Benjamin",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Zack",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Aurelia",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Sean",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1387,7 +1782,12 @@
               "career_record": "8 - 12 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_alberto_brambila",
+            "player_id": "bcp_alberto_brambila",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 5,
@@ -1406,35 +1806,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Patrick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Quinnton",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Benjamin",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Alberto",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Zack",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1448,7 +1863,12 @@
               "career_record": "5 - 6 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_aurelia_spears",
+            "player_id": "bcp_aurelia_spears",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 6,
@@ -1467,35 +1887,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Sean",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Zack",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Patrick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Quinnton",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Benjamin",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1509,7 +1944,12 @@
               "career_record": "11 - 4 - 0",
               "pod_titles": 2,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_harrison_faust",
+            "player_id": "bcp_harrison_faust",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 7,
@@ -1528,35 +1968,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Aurelia",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Sean",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Harrison",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Zack",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Quinnton",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1570,7 +2025,12 @@
               "career_record": "30 - 39 - 3",
               "pod_titles": 2,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_patrick_bracken",
+            "player_id": "bcp_patrick_bracken",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 8,
@@ -1589,35 +2049,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Alberto",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Aurelia",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Sean",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Harrison",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Patrick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1631,7 +2106,12 @@
               "career_record": "11 - 9 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_quinnton_smiley",
+            "player_id": "bcp_quinnton_smiley",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           }
         ]
       },
@@ -1666,35 +2146,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Ryan",
                 "score": 90,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Steve",
                 "score": 1100,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Emanuele",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Jack",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Jeffrey",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1708,7 +2203,12 @@
               "career_record": "50 - 75 - 5",
               "pod_titles": 1,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_justin_jones",
+            "player_id": "bcp_justin_jones",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 2,
@@ -1727,35 +2227,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Justin",
                 "score": 1100,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Emanuele",
                 "score": 70,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Jeffrey",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Neil",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Steve",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1769,7 +2284,12 @@
               "career_record": "11 - 13 - 1",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_ryan_betts",
+            "player_id": "bcp_ryan_betts",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 3,
@@ -1788,35 +2308,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Nam",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Ryan",
                 "score": 1080,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Justin",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Jeffrey",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Neil",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1830,7 +2365,12 @@
               "career_record": "50 - 41 - 1",
               "pod_titles": 2,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_emanuele_saccarelli",
+            "player_id": "bcp_emanuele_saccarelli",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 4,
@@ -1849,35 +2389,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Neil",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Justin",
                 "score": 82,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Jack",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Nam",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Ryan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1891,7 +2446,12 @@
               "career_record": "4 - 14 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_steve_lerma",
+            "player_id": "bcp_steve_lerma",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 5,
@@ -1910,35 +2470,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Jeffrey",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Neil",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Steve",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Justin",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Nam",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -1952,7 +2527,12 @@
               "career_record": "5 - 0 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_jack_peterson",
+            "player_id": "bcp_jack_peterson",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 6,
@@ -1971,35 +2551,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Jack",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Nam",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Ryan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Emanuele",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Justin",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2013,7 +2608,12 @@
               "career_record": "13 - 7 - 0",
               "pod_titles": 1,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_jeffrey_felios",
+            "player_id": "bcp_jeffrey_felios",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 7,
@@ -2032,35 +2632,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Emanuele",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Jeffrey",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Neil",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Steve",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Jack",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2074,7 +2689,12 @@
               "career_record": "4 - 1 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_nam_hai_nguyen",
+            "player_id": "bcp_nam_hai_nguyen",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 8,
@@ -2093,35 +2713,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Steve",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Jack",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Nam",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Ryan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Emanuele",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2135,7 +2770,12 @@
               "career_record": "88 - 93 - 1",
               "pod_titles": 7,
               "championships": 1
-            }
+            },
+            "bcp_player_id": "bcp_neil_braden",
+            "player_id": "bcp_neil_braden",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           }
         ]
       },
@@ -2170,35 +2810,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Zach",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Guy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Xander",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Jose",
                 "score": 1087,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Patrick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2212,7 +2867,12 @@
               "career_record": "4 - 16 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_joe_keeb",
+            "player_id": "bcp_joe_keeb",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 2,
@@ -2231,35 +2891,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Guy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Xander",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Patrick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Joe",
                 "score": 59,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Garrett",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2273,7 +2948,12 @@
               "career_record": "6 - 14 - 1",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_jose_orizaba",
+            "player_id": "bcp_jose_orizaba",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 3,
@@ -2292,35 +2972,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Garrett",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Patrick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Zach",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Guy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Xander",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2334,7 +3029,12 @@
               "career_record": "3 - 2 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_chris_lane",
+            "player_id": "bcp_chris_lane",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 4,
@@ -2353,35 +3053,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Zach",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Guy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Xander",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Jose",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2395,7 +3110,12 @@
               "career_record": "5 - 4 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_garrett_turner",
+            "player_id": "bcp_garrett_turner",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 5,
@@ -2414,35 +3134,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Jose",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Joe",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Garrett",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Zach",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2456,7 +3191,12 @@
               "career_record": "9 - 13 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_guy_eckstein",
+            "player_id": "bcp_guy_eckstein",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 6,
@@ -2475,35 +3215,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Xander",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Jose",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Zach",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Joe",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2517,7 +3272,12 @@
               "career_record": "8 - 11 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_patrick_adamiak",
+            "player_id": "bcp_patrick_adamiak",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 7,
@@ -2536,35 +3296,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Patrick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Jose",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Joe",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Garrett",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2578,7 +3353,12 @@
               "career_record": "2 - 3 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_xander_alex_helm",
+            "player_id": "bcp_xander_alex_helm",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 8,
@@ -2597,35 +3377,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Joe",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Garrett",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Patrick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Guy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2639,7 +3434,12 @@
               "career_record": "3 - 1 - 1",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_zach_etterman",
+            "player_id": "bcp_zach_etterman",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           }
         ]
       },
@@ -2674,35 +3474,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Jeremy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Lance",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "David",
                 "score": 1077,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Travis",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Colton",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2716,7 +3531,12 @@
               "career_record": "14 - 53 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_keith_nyberg",
+            "player_id": "bcp_keith_nyberg",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 2,
@@ -2735,35 +3555,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Quentin",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Jeremy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Keith",
                 "score": 72,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Colton",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Henrik",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2777,7 +3612,12 @@
               "career_record": "3 - 2 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_david_clukey",
+            "player_id": "bcp_david_clukey",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 3,
@@ -2796,35 +3636,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Travis",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Quentin",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Jeremy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "David",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Keith",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2838,7 +3693,12 @@
               "career_record": "3 - 2 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_colton_hayes",
+            "player_id": "bcp_colton_hayes",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 4,
@@ -2857,35 +3717,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Lance",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Travis",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Quentin",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Jeremy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "David",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2899,7 +3774,12 @@
               "career_record": "1 - 8 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_henrik_warpefelt",
+            "player_id": "bcp_henrik_warpefelt",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 5,
@@ -2918,35 +3798,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Keith",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "David",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Colton",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Henrik",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Lance",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -2960,7 +3855,12 @@
               "career_record": "16 - 39 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_jeremy_crossley",
+            "player_id": "bcp_jeremy_crossley",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 6,
@@ -2979,35 +3879,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Henrik",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Keith",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Travis",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Quentin",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Jeremy",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3021,7 +3936,12 @@
               "career_record": "2 - 3 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_lance_moore",
+            "player_id": "bcp_lance_moore",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 7,
@@ -3040,35 +3960,50 @@
                 "layout": "Layout A",
                 "opponent_name": "David",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Colton",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Henrik",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Lance",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Travis",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3082,7 +4017,12 @@
               "career_record": "51 - 41 - 1",
               "pod_titles": 3,
               "championships": 1
-            }
+            },
+            "bcp_player_id": "bcp_quentin_ponath",
+            "player_id": "bcp_quentin_ponath",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 8,
@@ -3101,35 +4041,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Colton",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Henrik",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Lance",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Keith",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Quentin",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3143,7 +4098,12 @@
               "career_record": "1 - 9 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_travis_wambach",
+            "player_id": "bcp_travis_wambach",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           }
         ]
       },
@@ -3178,35 +4138,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Michael",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Jacob",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Christian",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Anthony",
                 "score": 1090,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Cooper",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3220,7 +4195,12 @@
               "career_record": "9 - 11 - 0",
               "pod_titles": 1,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_kory_marlatt",
+            "player_id": "bcp_kory_marlatt",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 2,
@@ -3239,35 +4219,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Nicole",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Kory",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Nick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Cristian",
                 "score": 1074,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3281,7 +4276,12 @@
               "career_record": "13 - 14 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_christian_h",
+            "player_id": "bcp_christian_h",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 3,
@@ -3300,35 +4300,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Nicole",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Kory",
                 "score": 79,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Nick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3342,7 +4357,12 @@
               "career_record": "31 - 24 - 0",
               "pod_titles": 2,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_anthony_silva",
+            "player_id": "bcp_anthony_silva",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 4,
@@ -3361,35 +4381,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Nick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Jordan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Michael",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Jacob",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Christian",
                 "score": 51,
-                "is_completed": true
+                "is_completed": true,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3403,7 +4438,12 @@
               "career_record": "16 - 12 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_cristian_no_h",
+            "player_id": "bcp_cristian_no_h",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 5,
@@ -3422,35 +4462,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Anthony",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Cooper",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Jordan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Michael",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Nicole",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3464,7 +4519,12 @@
               "career_record": "18 - 17 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_chris_krogen",
+            "player_id": "bcp_chris_krogen",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 6,
@@ -3483,35 +4543,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Jacob",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Christian",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Anthony",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Cooper",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Jordan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3525,7 +4600,12 @@
               "career_record": "25 - 24 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_chris_smith",
+            "player_id": "bcp_chris_smith",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 7,
@@ -3544,35 +4624,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Jordan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Nicole",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Kory",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3586,7 +4681,12 @@
               "career_record": "5 - 6 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_cooper_robertson",
+            "player_id": "bcp_cooper_robertson",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 8,
@@ -3605,35 +4705,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Kory",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Nick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Cristian",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Michael",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3647,7 +4762,12 @@
               "career_record": "2 - 2 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_jacob_bain",
+            "player_id": "bcp_jacob_bain",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 9,
@@ -3666,35 +4786,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Cooper",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Cristian",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Nicole",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3708,7 +4843,12 @@
               "career_record": "12 - 6 - 0",
               "pod_titles": 1,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_jordan_luksetich",
+            "player_id": "bcp_jordan_luksetich",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 10,
@@ -3727,35 +4867,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Kory",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Nick",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Cristian",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Jacob",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3769,7 +4924,12 @@
               "career_record": "8 - 2 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_michael_kornberg",
+            "player_id": "bcp_michael_kornberg",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 11,
@@ -3788,35 +4948,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Cristian",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Michael",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Jacob",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Christian",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Anthony",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3830,7 +5005,12 @@
               "career_record": "4 - 5 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_nick_huffmaster",
+            "player_id": "bcp_nick_huffmaster",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 12,
@@ -3849,35 +5029,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Christian",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Anthony",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Cooper",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Jordan",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Chris",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3891,7 +5086,12 @@
               "career_record": "2 - 3 - 0",
               "pod_titles": 0,
               "championships": 0
-            }
+            },
+            "bcp_player_id": "bcp_nicole_schwartz",
+            "player_id": "bcp_nicole_schwartz",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           }
         ]
       },
@@ -3927,35 +5127,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Jacob Fischer (Adeptus Mechanicus)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Deven Torres (Chaos Demons)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Joseph Ahlstrom (Adeptus Astartes)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "John Hsieh (Necrons)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "David Nguyen (Adeptus Custodes)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -3986,7 +5201,12 @@
                   "poty_points": 5
                 }
               ]
-            }
+            },
+            "bcp_player_id": "bcp_dauntae_forrest",
+            "player_id": "bcp_dauntae_forrest",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 2,
@@ -4006,35 +5226,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Joseph Ahlstrom (Adeptus Astartes)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Gerardo Lazarte (Black Templars)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "John Hsieh (Necrons)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Jacob Fischer (Adeptus Mechanicus)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Dauntae Forrest (Black Templars)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -4065,7 +5300,12 @@
                   "poty_points": 2
                 }
               ]
-            }
+            },
+            "bcp_player_id": "bcp_david_nguyen",
+            "player_id": "bcp_david_nguyen",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 3,
@@ -4085,35 +5325,50 @@
                 "layout": "Layout A",
                 "opponent_name": "John Hsieh (Necrons)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Dauntae Forrest (Black Templars)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Kyle Hoogervorst (Tyranids)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Gerardo Lazarte (Black Templars)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Jacob Fischer (Adeptus Mechanicus)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -4144,7 +5399,12 @@
                   "poty_points": 0
                 }
               ]
-            }
+            },
+            "bcp_player_id": "bcp_deven_torres",
+            "player_id": "bcp_deven_torres",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 4,
@@ -4164,35 +5424,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Kyle Hoogervorst (Tyranids)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "David Nguyen (Adeptus Custodes)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Jacob Fischer (Adeptus Mechanicus)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Deven Torres (Chaos Demons)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Joseph Ahlstrom (Adeptus Astartes)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -4223,7 +5498,12 @@
                   "poty_points": 0
                 }
               ]
-            }
+            },
+            "bcp_player_id": "bcp_gerardo_lazarte",
+            "player_id": "bcp_gerardo_lazarte",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 5,
@@ -4243,35 +5523,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Dauntae Forrest (Black Templars)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Kyle Hoogervorst (Tyranids)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Gerardo Lazarte (Black Templars)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "David Nguyen (Adeptus Custodes)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Deven Torres (Chaos Demons)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -4302,7 +5597,12 @@
                   "poty_points": 0
                 }
               ]
-            }
+            },
+            "bcp_player_id": "bcp_jacob_fischer",
+            "player_id": "bcp_jacob_fischer",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 6,
@@ -4322,35 +5622,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Deven Torres (Chaos Demons)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Joseph Ahlstrom (Adeptus Astartes)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "David Nguyen (Adeptus Custodes)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Dauntae Forrest (Black Templars)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Kyle Hoogervorst (Tyranids)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -4381,7 +5696,13 @@
                   "poty_points": 0
                 }
               ]
-            }
+            },
+            "bcp_player_id": "MEV83VFANA",
+            "player_id": "MEV83VFANA",
+            "user_id": "u_john_hsieh",
+            "is_db_matched": true,
+            "match_method": "self_claimed",
+            "linked_display_name": "John Hsieh"
           },
           {
             "rank": 7,
@@ -4401,35 +5722,50 @@
                 "layout": "Layout A",
                 "opponent_name": "David Nguyen (Adeptus Custodes)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "John Hsieh (Necrons)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Dauntae Forrest (Black Templars)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Kyle Hoogervorst (Tyranids)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "Gerardo Lazarte (Black Templars)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -4460,7 +5796,12 @@
                   "poty_points": 0
                 }
               ]
-            }
+            },
+            "bcp_player_id": "bcp_joseph_ahlstrom",
+            "player_id": "bcp_joseph_ahlstrom",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
           },
           {
             "rank": 8,
@@ -4480,35 +5821,50 @@
                 "layout": "Layout A",
                 "opponent_name": "Gerardo Lazarte (Black Templars)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 2,
                 "layout": "Layout B",
                 "opponent_name": "Jacob Fischer (Adeptus Mechanicus)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 3,
                 "layout": "Layout C",
                 "opponent_name": "Deven Torres (Chaos Demons)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 4,
                 "layout": "Layout A",
                 "opponent_name": "Joseph Ahlstrom (Adeptus Astartes)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               },
               {
                 "round": 5,
                 "layout": "Layout B",
                 "opponent_name": "John Hsieh (Necrons)",
                 "score": null,
-                "is_completed": false
+                "is_completed": false,
+                "opponent_bcp_player_id": null,
+                "opponent_user_id": null,
+                "opponent_is_db_matched": false
               }
             ],
             "career": {
@@ -4539,11 +5895,68 @@
                   "poty_points": 0
                 }
               ]
-            }
+            },
+            "bcp_player_id": "bcp_kyle_hoogervorst",
+            "player_id": "bcp_kyle_hoogervorst",
+            "user_id": null,
+            "is_db_matched": true,
+            "match_method": "name_assumption"
+          }
+        ]
+      },
+      {
+        "pod_number": 9,
+        "name": "POD #9 - The Punt Locker",
+        "tier": "Regional Division",
+        "round_layouts": [
+          "Layout A",
+          "Layout B",
+          "Layout C",
+          "Layout A",
+          "Layout B"
+        ],
+        "player_count": 1,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "John Hsieh",
+            "primary_faction": "Undeclared",
+            "allegiance": "Independent",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [],
+            "bcp_player_id": "MEV83VFANA",
+            "player_id": "MEV83VFANA",
+            "user_id": "u_john_hsieh",
+            "is_db_matched": true,
+            "match_method": "self_claimed",
+            "linked_display_name": "John Hsieh"
           }
         ]
       }
-    ]
+    ],
+    "season_config": {
+      "round_layouts": [
+        "Layout A",
+        "Layout B",
+        "Layout C",
+        "Layout A",
+        "Layout B"
+      ],
+      "pod_size_min": 6,
+      "pod_size_max": 8,
+      "promotion_count": 2,
+      "relegation_count": 2,
+      "games_per_season": 5,
+      "duration_weeks": 8
+    },
+    "db_matched_players_count": 65,
+    "unmatched_players_count": 4
   },
   "hall_of_fame": {
     "finals_champions": [
@@ -4616,7 +6029,7 @@
       {
         "season_label": "2019 Winter",
         "year": 2019,
-        "champion": "Jordan Rom\u00e1n",
+        "champion": "Jordan Román",
         "champion_faction": "Aeldari",
         "runner_up": "Junior Aflleje",
         "notes": "Craftworld Aeldari finals victor."
@@ -5700,5 +7113,7 @@
       "pod_champion": "James Carmona",
       "pod_champion_faction": "Heretic Astartes"
     }
-  ]
+  ],
+  "recurring_seasons": true,
+  "registration_open": true
 }

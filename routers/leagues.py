@@ -187,3 +187,25 @@ async def update_league_registration_window(league_id: str, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/api/league/{league_id}/participants", summary="Get season/pod participants with user_id and bcp_player_id matching status")
+async def get_league_participants_endpoint(league_id: str, season: Optional[int] = None):
+    svc = leagues_hub_service.get_leagues_hub_service()
+    try:
+        return svc.get_season_participants(league_id, season_number=season)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/api/league/{league_id}/claim-participant", summary="Link an existing user_id/bcp_player_id to a participant row or declare 'I'm in this league'")
+async def claim_league_participant_endpoint(league_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    try:
+        return svc.claim_or_link_participant(league_id, payload=body)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+

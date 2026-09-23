@@ -1209,6 +1209,25 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/league/") and clean_path.endswith("/claim-participant"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = parts[2]
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+                result = l_svc.claim_or_link_participant(l_id, payload=p_data)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+            return
+
         if clean_path == "api/armylists/parse":
             try:
                 p_load = json.loads(body.decode("utf-8")) if body else {}
@@ -3202,6 +3221,28 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "success": bool(league_data),
                     "league": league_data
                 } if league_data else {"success": False, "error": "Season not found"}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and clean_path.endswith("/participants"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = parts[2]
+            s_param = query_params.get("season", [None])[0]
+            s_num = int(s_param) if s_param and s_param.isdigit() else None
+            try:
+                res = l_svc.get_season_participants(l_id, season_number=s_num)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps(res).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
             return
 
         if clean_path.startswith("api/league/") and "/player/" in clean_path and clean_path.endswith("/history"):

@@ -1394,7 +1394,7 @@ class PostgresDatabase:
             logger.debug(f"ensure_tracker_table batch notice: {err}")
 
     def ensure_league_tables(self):
-        """Guarantees native_leagues, native_league_seasons, native_league_pods, native_league_standings, and native_league_matches exist and seeds SD40K league data."""
+        """Guarantees native_leagues, native_league_seasons, native_league_pods, native_league_participants, native_league_standings, and native_league_matches exist and seeds SD40K league data."""
         stmts = [
             """CREATE TABLE IF NOT EXISTS native_leagues (
                 id VARCHAR(64) PRIMARY KEY,
@@ -1428,9 +1428,11 @@ class PostgresDatabase:
                 champion_name TEXT,
                 champion_faction TEXT,
                 is_historical BOOLEAN DEFAULT FALSE,
+                season_config_json JSONB DEFAULT '{}'::jsonb,
                 raw_json JSONB DEFAULT '{}'::jsonb,
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );""",
+            "ALTER TABLE native_league_seasons ADD COLUMN IF NOT EXISTS season_config_json JSONB DEFAULT '{}'::jsonb;",
             """CREATE TABLE IF NOT EXISTS native_league_pods (
                 id VARCHAR(128) PRIMARY KEY,
                 league_id VARCHAR(64),
@@ -1442,6 +1444,22 @@ class PostgresDatabase:
                 player_count INT DEFAULT 0,
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );""",
+            """CREATE TABLE IF NOT EXISTS native_league_participants (
+                id VARCHAR(128) PRIMARY KEY,
+                league_id VARCHAR(64) NOT NULL,
+                season_num INT NOT NULL,
+                pod_num INT NOT NULL,
+                participant_name TEXT NOT NULL,
+                primary_faction TEXT,
+                bcp_player_id VARCHAR(64),
+                user_id VARCHAR(64),
+                is_db_matched BOOLEAN DEFAULT FALSE,
+                match_method VARCHAR(32) DEFAULT 'unmatched',
+                claimed_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(league_id, season_num, pod_num, participant_name)
+            );""",
             """CREATE TABLE IF NOT EXISTS native_league_standings (
                 id VARCHAR(128) PRIMARY KEY,
                 league_id VARCHAR(64),
@@ -1449,6 +1467,11 @@ class PostgresDatabase:
                 pod_num INT NOT NULL,
                 player_name TEXT NOT NULL,
                 primary_faction TEXT,
+                bcp_player_id VARCHAR(64),
+                player_id VARCHAR(64),
+                user_id VARCHAR(64),
+                is_db_matched BOOLEAN DEFAULT FALSE,
+                match_method VARCHAR(32) DEFAULT 'unmatched',
                 rank INT DEFAULT 1,
                 wins INT DEFAULT 0,
                 losses INT DEFAULT 0,
@@ -1461,6 +1484,11 @@ class PostgresDatabase:
                 career_json JSONB DEFAULT '{}'::jsonb,
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             );""",
+            "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS bcp_player_id VARCHAR(64);",
+            "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS player_id VARCHAR(64);",
+            "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS user_id VARCHAR(64);",
+            "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS is_db_matched BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS match_method VARCHAR(32) DEFAULT 'unmatched';",
             """CREATE TABLE IF NOT EXISTS native_league_matches (
                 id VARCHAR(128) PRIMARY KEY,
                 league_id VARCHAR(64),
@@ -1477,6 +1505,9 @@ class PostgresDatabase:
                 is_ringer BOOLEAN DEFAULT FALSE,
                 completed_at TIMESTAMPTZ DEFAULT NOW()
             );""",
+            "CREATE INDEX IF NOT EXISTS idx_league_participants_l_s ON native_league_participants(league_id, season_num, pod_num);",
+            "CREATE INDEX IF NOT EXISTS idx_league_participants_bcp ON native_league_participants(bcp_player_id);",
+            "CREATE INDEX IF NOT EXISTS idx_league_participants_uid ON native_league_participants(user_id);",
             "CREATE INDEX IF NOT EXISTS idx_league_standings_l_s ON native_league_standings(league_id, season_num, pod_num);",
             "CREATE INDEX IF NOT EXISTS idx_league_matches_l_s ON native_league_matches(league_id, season_num, pod_num);"
         ]
@@ -1492,8 +1523,109 @@ class PostgresDatabase:
                         conn.rollback()
                         logger.debug(f"League table notice: {e}")
             self.seed_sd40k_league_tables()
+            self.sync_league_participant_identities("league_sd40k_big_league", 38)
         except Exception as err:
             logger.debug(f"ensure_league_tables notice: {err}")
+
+    def sync_league_participant_identities(self, league_id: str, season_num: int):
+        """
+        Matches season/pod participants against `players` (bcp_player_id = players.player_id)
+        and `users` (user_id = users.id) by name assumption first, while preserving any
+        explicit user_id / bcp_player_id links already claimed by players.
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '2s';")
+                    # 1. Match against players table by name assumption where not already linked
+                    cursor.execute("""
+                        UPDATE native_league_participants nlp
+                        SET bcp_player_id = p.player_id,
+                            is_db_matched = TRUE,
+                            match_method = CASE WHEN nlp.match_method = 'unmatched' THEN 'name_assumption' ELSE nlp.match_method END,
+                            updated_at = NOW()
+                        FROM players p
+                        WHERE nlp.league_id = %s
+                          AND nlp.season_num = %s
+                          AND nlp.bcp_player_id IS NULL
+                          AND LOWER(TRIM(p.full_name)) = LOWER(TRIM(nlp.participant_name));
+                    """, (league_id, season_num))
+
+                    # 2. Match against users table by display_name or linked player_id
+                    cursor.execute("""
+                        UPDATE native_league_participants nlp
+                        SET user_id = u.id::text,
+                            bcp_player_id = COALESCE(nlp.bcp_player_id, u.player_id, u.bcp_user_id),
+                            is_db_matched = TRUE,
+                            match_method = CASE WHEN nlp.match_method = 'unmatched' THEN 'user_id_linked' ELSE nlp.match_method END,
+                            updated_at = NOW()
+                        FROM users u
+                        WHERE nlp.league_id = %s
+                          AND nlp.season_num = %s
+                          AND nlp.user_id IS NULL
+                          AND (
+                              LOWER(TRIM(COALESCE(u.display_name, ''))) = LOWER(TRIM(nlp.participant_name))
+                              OR (nlp.bcp_player_id IS NOT NULL AND (u.player_id = nlp.bcp_player_id OR u.bcp_user_id = nlp.bcp_player_id))
+                          );
+                    """, (league_id, season_num))
+
+                    # 3. Propagate onto native_league_standings
+                    cursor.execute("""
+                        UPDATE native_league_standings nls
+                        SET bcp_player_id = nlp.bcp_player_id,
+                            player_id = nlp.bcp_player_id,
+                            user_id = nlp.user_id,
+                            is_db_matched = nlp.is_db_matched,
+                            match_method = nlp.match_method
+                        FROM native_league_participants nlp
+                        WHERE nls.league_id = nlp.league_id
+                          AND nls.season_num = nlp.season_num
+                          AND nls.pod_num = nlp.pod_num
+                          AND LOWER(TRIM(nls.player_name)) = LOWER(TRIM(nlp.participant_name));
+                    """)
+                conn.commit()
+        except Exception as e:
+            logger.debug(f"sync_league_participant_identities notice: {e}")
+
+    def claim_league_participant_in_db(self, league_id: str, season_num: int, pod_num: int,
+                                       participant_name: str, user_id: Optional[str] = None,
+                                       bcp_player_id: Optional[str] = None,
+                                       match_method: str = "user_id_linked") -> bool:
+        """Links an existing user_id and/or bcp_player_id (players.player_id) to a season/pod participant row."""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '2s';")
+                    part_id = f"{league_id}_s{season_num}_p{pod_num}_{participant_name.lower().replace(' ', '_')}"
+                    cursor.execute("""
+                        INSERT INTO native_league_participants (
+                            id, league_id, season_num, pod_num, participant_name,
+                            bcp_player_id, user_id, is_db_matched, match_method, claimed_at, updated_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, %s, NOW(), NOW())
+                        ON CONFLICT (league_id, season_num, pod_num, participant_name) DO UPDATE SET
+                            bcp_player_id = COALESCE(EXCLUDED.bcp_player_id, native_league_participants.bcp_player_id),
+                            user_id = COALESCE(EXCLUDED.user_id, native_league_participants.user_id),
+                            is_db_matched = TRUE,
+                            match_method = EXCLUDED.match_method,
+                            claimed_at = NOW(),
+                            updated_at = NOW();
+                    """, (part_id, league_id, season_num, pod_num, participant_name, bcp_player_id, user_id, match_method))
+
+                    cursor.execute("""
+                        UPDATE native_league_standings
+                        SET bcp_player_id = COALESCE(%s, bcp_player_id),
+                            player_id = COALESCE(%s, player_id),
+                            user_id = COALESCE(%s, user_id),
+                            is_db_matched = TRUE,
+                            match_method = %s,
+                            updated_at = NOW()
+                        WHERE league_id = %s AND season_num = %s AND LOWER(TRIM(player_name)) = LOWER(TRIM(%s));
+                    """, (bcp_player_id, bcp_player_id, user_id, match_method, league_id, season_num, participant_name))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.debug(f"claim_league_participant_in_db notice: {e}")
+            return False
 
     def seed_sd40k_league_tables(self):
         """Non-destructively imports San Diego 40k BIG League @ At Ease Games dataset into PostgreSQL league tables."""
@@ -1506,6 +1638,15 @@ class PostgresDatabase:
             act = lg.get("active_season", {})
             s_num = int(act.get("season_number", 38))
             pods = act.get("pods", [])
+            season_cfg = {
+                "round_layouts": ["Layout A", "Layout B", "Layout C", "Layout A", "Layout B"],
+                "pod_size_min": 6,
+                "pod_size_max": 8,
+                "promotion_count": 2,
+                "relegation_count": 2,
+                "games_per_season": 5,
+                "duration_weeks": 8
+            }
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("SET LOCAL lock_timeout = '2s';")
@@ -1523,6 +1664,19 @@ class PostgresDatabase:
                         int(act.get("total_players", 68)),
                         len(pods),
                         json.dumps(lg.get("methodology", {}))
+                    ))
+                    cursor.execute("""
+                        INSERT INTO native_league_seasons (id, league_id, season_num, name, status, duration_weeks, rounds_count, total_players, total_pods, is_historical, season_config_json)
+                        VALUES (%s, %s, %s, %s, 'active', 8, 5, %s, %s, FALSE, %s::jsonb)
+                        ON CONFLICT (id) DO UPDATE SET season_config_json = EXCLUDED.season_config_json;
+                    """, (
+                        f"league_sd40k_big_league_s{s_num}",
+                        "league_sd40k_big_league",
+                        s_num,
+                        act.get("name", f"Season {s_num}"),
+                        int(act.get("total_players", 68)),
+                        len(pods),
+                        json.dumps(season_cfg)
                     ))
                     for p in pods:
                         p_num = int(p.get("pod_number", 1))
@@ -1544,15 +1698,35 @@ class PostgresDatabase:
                                 continue
                             st_id = f"league_sd40k_big_league_s{s_num}_p{p_num}_{pname.lower().replace(' ', '_')}"
                             cursor.execute("""
+                                INSERT INTO native_league_participants (
+                                    id, league_id, season_num, pod_num, participant_name, primary_faction,
+                                    bcp_player_id, user_id, is_db_matched, match_method
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (league_id, season_num, pod_num, participant_name) DO NOTHING;
+                            """, (
+                                st_id, "league_sd40k_big_league", s_num, p_num, pname,
+                                st.get("primary_faction", ""),
+                                st.get("bcp_player_id") or st.get("player_id"),
+                                st.get("user_id"),
+                                bool(st.get("is_db_matched", False)),
+                                st.get("match_method", "unmatched")
+                            ))
+                            cursor.execute("""
                                 INSERT INTO native_league_standings (
                                     id, league_id, season_num, pod_num, player_name, primary_faction,
+                                    bcp_player_id, player_id, user_id, is_db_matched, match_method,
                                     rank, wins, losses, draws, battle_points, games_played, poty_points,
                                     relegation_status, pairings_json
-                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                                 ON CONFLICT (id) DO NOTHING;
                             """, (
                                 st_id, "league_sd40k_big_league", s_num, p_num, pname,
                                 st.get("primary_faction", ""),
+                                st.get("bcp_player_id") or st.get("player_id"),
+                                st.get("bcp_player_id") or st.get("player_id"),
+                                st.get("user_id"),
+                                bool(st.get("is_db_matched", False)),
+                                st.get("match_method", "unmatched"),
                                 int(st.get("rank", 1)),
                                 int(st.get("wins", 0)),
                                 int(st.get("losses", 0)),

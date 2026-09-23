@@ -4935,7 +4935,57 @@ window.loadGoogleMapsSdk = loadGoogleMapsSdk;
 
 // Automatically load Google Maps SDK
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => loadGoogleMapsSdk());
+  document.addEventListener("DOMContentLoaded", () => {
+    loadGoogleMapsSdk();
+    syncStudioLeagueCommissionerCard();
+  });
 } else {
   loadGoogleMapsSdk();
+  syncStudioLeagueCommissionerCard();
 }
+
+async function syncStudioLeagueCommissionerCard(leagueId = 'league_sd40k_big_league') {
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const lg = data.league;
+    if (!lg) return;
+    const regOpen = lg.registration_open !== false;
+    const badge = document.getElementById('es-comm-reg-badge');
+    const btn = document.getElementById('es-comm-toggle-reg-btn');
+    const cnt = document.getElementById('es-comm-matched-count');
+    if (badge) {
+      badge.textContent = regOpen ? '🟢 REGISTRATION OPEN IN SPARRING RADAR' : '🔒 REGISTRATION CLOSED';
+      badge.style.background = regOpen ? 'rgba(16, 185, 129, 0.2)' : 'rgba(148, 163, 184, 0.2)';
+      badge.style.color = regOpen ? '#34d399' : '#94a3b8';
+      badge.style.borderColor = regOpen ? 'rgba(16, 185, 129, 0.45)' : 'rgba(148, 163, 184, 0.35)';
+    }
+    if (btn) {
+      btn.textContent = regOpen ? '📡 Close Registration Window' : '📡 Open Registration in Sparring Radar';
+    }
+    if (cnt && lg.active_season) {
+      cnt.textContent = `${lg.active_season.db_matched_players_count || 62} / ${lg.active_season.total_players || 68} DB Matched`;
+    }
+  } catch (e) {
+    console.debug('Notice syncing League Commissioner Console:', e);
+  }
+}
+window.syncStudioLeagueCommissionerCard = syncStudioLeagueCommissionerCard;
+
+async function toggleStudioLeagueRegistration(leagueId = 'league_sd40k_big_league') {
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/registration-window`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    if (res.ok) {
+      await syncStudioLeagueCommissionerCard(leagueId);
+    }
+  } catch (e) {
+    console.error('Failed toggling registration window from Event Studio:', e);
+  }
+}
+window.toggleStudioLeagueRegistration = toggleStudioLeagueRegistration;
+

@@ -185,28 +185,28 @@ function renderLeagueHub(league) {
           </div>
         </div>
 
-        <!-- Quick Action & TO Controls -->
-        <div style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1 1 240px; max-width: 300px; min-width: 220px;">
-          <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 8px; padding: 0.45rem 0.75rem; font-size: 0.75rem; color: #38bdf8; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
-            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">🔑 ID: <strong style="color: #fff; font-family: monospace;">league_sd40k_big_league</strong></span>
-            <button onclick="navigator.clipboard?.writeText(window.location.origin + '/#/40k/league/league_sd40k_big_league'); this.textContent='✓ Copied';" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #7dd3fc; border-radius: 4px; padding: 2px 6px; font-size: 0.68rem; font-weight: 700; cursor: pointer; flex-shrink: 0;">Copy Link</button>
-          </div>
-          <button onclick="openCopyLeagueTemplateModal()" class="btn btn-primary" style="font-size: 0.8rem; padding: 0.45rem 0.85rem; background: linear-gradient(135deg, #d97706, #b45309); border: 1px solid #f59e0b; font-weight: 700;">
-            ➕ TO: Create Recurring League
+        <!-- Player Action Controls (Commissioner Controls Moved to Event Studio) -->
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1 1 230px; max-width: 290px; min-width: 210px;">
+          <button onclick="openLeaguePlayerClaimModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-primary" style="font-size: 0.82rem; padding: 0.5rem 0.9rem; background: linear-gradient(135deg, #2563eb, #3b82f6); border: 1px solid #60a5fa; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+            <span>🙋‍♂️ I'm in this League</span>
           </button>
           <a href="https://sd40k.com" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
             <span>🌐 Official Website (sd40k.com)</span>
           </a>
+          <a href="/eventstudio.html?tab=leagues&league_id=${encodeURIComponent(league.league_id || 'league_sd40k_big_league')}" class="btn btn-outline" style="font-size: 0.74rem; padding: 0.35rem 0.75rem; text-align: center; text-decoration: none; color: #94a3b8; border-color: rgba(148, 163, 184, 0.28); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
+            <span>🎛️ Commissioner Studio (Event Studio)</span>
+          </a>
         </div>
       </div>
 
-      <!-- TO Automation & Sparring Radar Registration Control Strip -->
+      ${window.isEventStudioCommissionerView ? `
+      <!-- Commissioner-Only Control Strip (Only rendered inside Event Studio) -->
       <div style="margin-top: 1rem; padding: 0.75rem 1rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
         <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; font-size: 0.8rem; color: #cbd5e1;">
           <span style="background: ${league.registration_open !== false ? 'rgba(16, 185, 129, 0.2)' : 'rgba(148, 163, 184, 0.2)'}; color: ${league.registration_open !== false ? '#34d399' : '#94a3b8'}; border: 1px solid ${league.registration_open !== false ? 'rgba(16, 185, 129, 0.4)' : 'rgba(148, 163, 184, 0.3)'}; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.72rem;">
             ${league.registration_open !== false ? '🟢 REGISTRATION OPEN IN SPARRING RADAR' : '🔒 REGISTRATION CLOSED'}
           </span>
-          <span>🔁 <strong>Auto-Recurring Seasons:</strong> Enabled (8 Wks • 5 Games)</span>
+          <span>🔁 <strong>Auto-Recurring Seasons:</strong> Enabled (${actSeason.duration_weeks || 8} Wks • ${actSeason.rounds_count || 5} Games)</span>
           <span>•</span>
           <span>⚖️ <strong>Pod Rules:</strong> 6–8 Players / Pod (Evenly Distributed) • Top 2 ▲ Up 1 • Bottom 2 ▼ Down 1 • Middle ● Stay • New Entrants → Bottom Pod</span>
         </div>
@@ -214,28 +214,26 @@ function renderLeagueHub(league) {
           <button onclick="toggleLeagueRegistrationWindow('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
             📡 ${league.registration_open !== false ? 'Close Registration Window' : 'Open Registration in Sparring Radar'}
           </button>
-          <button onclick="viewLeagueInSparringRadar()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700;">
-            👀 Preview in Sparring Radar
-          </button>
           <button onclick="openLeagueRolloverPreviewModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(245, 158, 11, 0.45); color: #fbbf24; font-weight: 700;">
             🔄 Preview Season Rollover
           </button>
         </div>
       </div>
+      ` : ''}
 
-      <!-- 4 Quick KPI Badges -->
+      <!-- 4 Generic Season KPI Badges -->
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem;">
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
           <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Active Players</div>
           <div style="font-size: 1.35rem; font-weight: 800; color: #60a5fa;">${actSeason.total_players || 68}</div>
         </div>
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Tiered Pods (6–8/Pod)</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Active Pods</div>
           <div style="font-size: 1.35rem; font-weight: 800; color: #a78bfa;">${actSeason.total_pods || 8} Pods</div>
         </div>
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Season Rhythm</div>
-          <div style="font-size: 1.35rem; font-weight: 800; color: #34d399;">8 Wks / 5 Games</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">DB Matched Profiles</div>
+          <div style="font-size: 1.35rem; font-weight: 800; color: #34d399;">${actSeason.db_matched_players_count || 62} / ${actSeason.total_players || 68}</div>
         </div>
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
           <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Historical Legacy</div>
@@ -351,21 +349,31 @@ function renderPodsSubtab(league, currentPod) {
   const actSeason = league.active_season || {};
   const pods = actSeason.pods || [];
   const standings = currentPod.standings || [];
-  const layouts = currentPod.round_layouts || ["Layout A", "Layout B", "Layout C", "Layout A", "Layout B"];
+  const layouts = (actSeason.season_config && actSeason.season_config.round_layouts) || currentPod.round_layouts || ["Layout A", "Layout B", "Layout C", "Layout A", "Layout B"];
   const nStandings = standings.length;
   const totalPodsCount = pods.length || 8;
 
-  // Build deduplicated Round 1-5 pairings for the selected pod
+  // Build deduplicated Round 1-5 pairings for the selected pod with player DB identity metadata
   const seenPairs = new Set();
   const allPodPairings = [];
   const factionByPlayer = {};
+  const identityByPlayer = {};
   standings.forEach(st => {
-    if (st.name) factionByPlayer[st.name.toLowerCase()] = st.primary_faction || 'Warhammer 40k';
+    if (st.name) {
+      const k = st.name.toLowerCase();
+      factionByPlayer[k] = st.primary_faction || 'Warhammer 40k';
+      identityByPlayer[k] = {
+        bcp_player_id: st.bcp_player_id || st.player_id || null,
+        user_id: st.user_id || null,
+        is_db_matched: Boolean(st.is_db_matched && (st.bcp_player_id || st.player_id))
+      };
+    }
   });
 
   standings.forEach(s => {
     const p1Name = s.name || '';
     const p1Faction = s.primary_faction || 'Warhammer 40k';
+    const p1Ident = identityByPlayer[p1Name.toLowerCase()] || {};
     (s.pairings || []).forEach(m => {
       const p2Name = m.opponent_name || '';
       if (!p1Name || !p2Name || p2Name === 'BYE') return;
@@ -374,13 +382,22 @@ function renderPodsSubtab(league, currentPod) {
       const key = `R${rNum}_${pairNames[0]}__${pairNames[1]}`;
       if (seenPairs.has(key)) return;
       seenPairs.add(key);
+      const p2Ident = identityByPlayer[p2Name.toLowerCase()] || {
+        bcp_player_id: m.opponent_bcp_player_id || null,
+        user_id: m.opponent_user_id || null,
+        is_db_matched: Boolean(m.opponent_is_db_matched && m.opponent_bcp_player_id)
+      };
       allPodPairings.push({
         round: rNum,
         layout: m.layout || layouts[(rNum - 1) % layouts.length] || 'Layout A',
         p1_name: p1Name,
         p1_faction: p1Faction,
+        p1_bcp_player_id: p1Ident.bcp_player_id,
+        p1_is_db_matched: p1Ident.is_db_matched,
         p2_name: p2Name,
         p2_faction: factionByPlayer[p2Name.toLowerCase()] || 'Warhammer 40k',
+        p2_bcp_player_id: p2Ident.bcp_player_id,
+        p2_is_db_matched: p2Ident.is_db_matched,
         score: m.score || null,
         is_completed: !!m.is_completed
       });
@@ -419,46 +436,11 @@ function renderPodsSubtab(league, currentPod) {
       }).join('')}
     </div>
 
-    <!-- Current Pod Header Card -->
-    <div class="card" style="margin-bottom: 1.25rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem;">
-      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-        <div>
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <h2 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: #fff;">
-              ${escapeHtml(currentPod.name || 'Pod ' + leagueState.activePodNumber)}
-            </h2>
-            <span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px;">
-              ${escapeHtml(currentPod.tier || 'Tier ' + leagueState.activePodNumber)}
-            </span>
-          </div>
-          <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.25rem;">
-            6–8 Players / Pod (Evenly Distributed) • Top 2 Move UP 1 Pod • Bottom 2 Move DOWN 1 Pod • Middle Stay • 5 Games / Season
-          </div>
-        </div>
-        <div style="text-align: right;">
-          <span style="font-size: 0.85rem; font-weight: 700; color: #10b981;">${escapeHtml(currentPod.completion_rate || '0%')} Played</span>
-          <div style="font-size: 0.75rem; color: var(--text-muted);">${currentPod.player_count || standings.length} Competitors</div>
-        </div>
-      </div>
-
-      <!-- Terrain Layout Assignments for the 5 Rounds -->
-      <div style="background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.6rem 0.85rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.8rem;">
-        <span style="color: var(--text-muted); font-weight: 600;">🗺️ Assigned Mission Layouts (5 Games / Season):</span>
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          ${layouts.map((l, idx) => `
-            <span style="background: var(--bg-hover); border: 1px solid var(--border); padding: 2px 7px; border-radius: 4px; font-weight: 600; color: #cbd5e1;">
-              R${idx + 1}: <span style="color: #60a5fa;">${escapeHtml(l)}</span>
-            </span>
-          `).join('')}
-        </div>
-      </div>
-    </div>
-
     <!-- Standings Table -->
     <div class="card" style="margin-bottom: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;">
       <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
         <div style="font-weight: 700; font-size: 1rem; color: #fff;">🏆 Pod #${currentPod.pod_number} Standings &amp; Automated Pod Movement</div>
-        <div style="font-size: 0.78rem; color: var(--text-muted);">Click any player name for Quick Player Popup • Click Career for 38-Season Dossier</div>
+        <div style="font-size: 0.78rem; color: var(--text-muted);">Players matched in our DB (<span style="color:#38bdf8;text-decoration:underline;">blue</span>) are clickable • Unmatched players can link their User ID</div>
       </div>
 
       <div style="overflow-x: auto;">
@@ -490,17 +472,32 @@ function renderPodsSubtab(league, currentPod) {
               const isFirst = rankNum === 1;
               const rowBg = isFirst ? 'rgba(59, 130, 246, 0.05)' : (idx % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.01)');
               const safePlayerName = escapeHtml(s.name || '').replace(/'/g, "\\'");
+              const bcpPlayerId = s.bcp_player_id || s.player_id || '';
+              const safeBcpId = escapeHtml(bcpPlayerId || s.name || '').replace(/'/g, "\\'");
+              const isDbMatched = Boolean(s.is_db_matched && bcpPlayerId);
 
               return `
                 <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04); background: ${rowBg};">
                   <td style="padding: 0.75rem 1rem; font-weight: 700; color: ${isFirst ? '#60a5fa' : '#94a3b8'};">
                     #${rankNum}
                   </td>
-                  <td style="padding: 0.75rem 1rem; font-weight: 600; color: #fff;">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                      <button type="button" onclick="openPlayerModal('${safePlayerName}', '${safePlayerName}')" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 700; font-size: 0.88rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;">
-                        ${escapeHtml(s.name)}
-                      </button>
+                  <td style="padding: 0.75rem 1rem; font-weight: 600; color: #fff; white-space: nowrap;">
+                    <div style="display: inline-flex; align-items: center; gap: 0.45rem; white-space: nowrap;">
+                      ${isDbMatched ? `
+                        <button type="button" onclick="openPlayerModal('${safeBcpId}', '${safePlayerName}')" title="Matched in DB (${escapeHtml(bcpPlayerId)})" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 700; font-size: 0.88rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;">
+                          ${escapeHtml(s.name)}
+                        </button>
+                        <span title="Matched in Players DB (${escapeHtml(s.match_method === 'user_id_linked' ? 'Linked via User ID' : 'Matched by Name Assumption')})" style="background: rgba(16, 185, 129, 0.14); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.64rem; font-weight: 700; padding: 1px 5px; border-radius: 4px;">
+                          ${s.match_method === 'user_id_linked' || s.match_method === 'self_claimed' ? '✓ Linked User' : '✓ DB'}
+                        </span>
+                      ` : `
+                        <span title="Not found in Players DB by name assumption — click 'Match User' to link your existing user_id / bcp_player_id" style="color: #cbd5e1; font-weight: 600; font-size: 0.88rem; cursor: default;">
+                          ${escapeHtml(s.name)}
+                        </span>
+                        <span style="background: rgba(148, 163, 184, 0.12); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); font-size: 0.64rem; font-weight: 600; padding: 1px 5px; border-radius: 4px;">
+                          Unlinked
+                        </span>
+                      `}
                       ${s.career?.championships ? `<span title="${s.career.championships} All-time Championships" style="cursor: help;">🏆</span>` : ''}
                     </div>
                   </td>
@@ -522,9 +519,15 @@ function renderPodsSubtab(league, currentPod) {
                     ${relBadge}
                   </td>
                   <td style="padding: 0.75rem 1rem; text-align: right; white-space: nowrap;">
-                    <button onclick="openPlayerModal('${safePlayerName}', '${safePlayerName}')" class="btn btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; margin-right: 4px;">
-                      👤 Quick Popup
-                    </button>
+                    ${isDbMatched ? `
+                      <button onclick="openPlayerModal('${safeBcpId}', '${safePlayerName}')" class="btn btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; margin-right: 4px;">
+                        👤 Quick Popup
+                      </button>
+                    ` : `
+                      <button onclick="openLeaguePlayerClaimModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}', '${safePlayerName}', ${currentPod.pod_number})" class="btn btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; margin-right: 4px; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+                        🔗 Match User
+                      </button>
+                    `}
                     <button onclick="openPlayerLeagueModal('${safePlayerName}')" class="btn btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;">
                       📜 Career
                     </button>
@@ -561,6 +564,8 @@ function renderPodsSubtab(league, currentPod) {
         ${filteredPairings.map(m => {
           const safeP1 = escapeHtml(m.p1_name).replace(/'/g, "\\'");
           const safeP2 = escapeHtml(m.p2_name).replace(/'/g, "\\'");
+          const safeP1Id = escapeHtml(m.p1_bcp_player_id || m.p1_name).replace(/'/g, "\\'");
+          const safeP2Id = escapeHtml(m.p2_bcp_player_id || m.p2_name).replace(/'/g, "\\'");
           const safeF1 = escapeHtml(m.p1_faction).replace(/'/g, "\\'");
           const safeLayout = escapeHtml(m.layout).replace(/'/g, "\\'");
           return `
@@ -575,16 +580,28 @@ function renderPodsSubtab(league, currentPod) {
               </div>
               <div style="display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 0.92rem; color: #fff; gap: 0.4rem;">
                 <div style="flex: 1; min-width: 0;">
-                  <button type="button" onclick="openPlayerModal('${safeP1}', '${safeP1}')" style="background: none; border: none; padding: 0; color: #fff; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-align: left; text-decoration: underline; text-underline-offset: 2px;">
-                    ${escapeHtml(m.p1_name)}
-                  </button>
+                  ${m.p1_is_db_matched ? `
+                    <button type="button" onclick="openPlayerModal('${safeP1Id}', '${safeP1}')" style="background: none; border: none; padding: 0; color: #fff; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-align: left; text-decoration: underline; text-underline-offset: 2px;">
+                      ${escapeHtml(m.p1_name)}
+                    </button>
+                  ` : `
+                    <span style="color: #cbd5e1; font-weight: 600; font-size: 0.9rem; cursor: default;">
+                      ${escapeHtml(m.p1_name)}
+                    </span>
+                  `}
                   <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 500;">${escapeHtml(m.p1_faction)}</div>
                 </div>
                 <span style="color: var(--text-muted); font-size: 0.75rem; font-weight: 800; padding: 0 4px;">VS</span>
                 <div style="flex: 1; min-width: 0; text-align: right;">
-                  <button type="button" onclick="openPlayerModal('${safeP2}', '${safeP2}')" style="background: none; border: none; padding: 0; color: #93c5fd; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-align: right; text-decoration: underline; text-underline-offset: 2px;">
-                    ${escapeHtml(m.p2_name)}
-                  </button>
+                  ${m.p2_is_db_matched ? `
+                    <button type="button" onclick="openPlayerModal('${safeP2Id}', '${safeP2}')" style="background: none; border: none; padding: 0; color: #93c5fd; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-align: right; text-decoration: underline; text-underline-offset: 2px;">
+                      ${escapeHtml(m.p2_name)}
+                    </button>
+                  ` : `
+                    <span style="color: #cbd5e1; font-weight: 600; font-size: 0.9rem; cursor: default;">
+                      ${escapeHtml(m.p2_name)}
+                    </span>
+                  `}
                   <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 500;">${escapeHtml(m.p2_faction)}</div>
                 </div>
               </div>
@@ -1661,4 +1678,188 @@ window.openScoreReportingModal = openScoreReportingModal;
 window.submitLeagueScore = submitLeagueScore;
 window.openCopyLeagueTemplateModal = openCopyLeagueTemplateModal;
 window.submitNewLeagueCreation = submitNewLeagueCreation;
+
+/**
+ * Opens the "🙋‍♂️ I'm in this League / Link User ID & BCP Player ID" modal.
+ * Allows:
+ * 1. Linking an unmatched season/pod participant row (that couldn't be matched by name assumption) to an existing `user_id` and `bcp_player_id` (`players.player_id`).
+ * 2. Allowing newly registered players to declare "I'm in this league" and join/link with their `user_id` and `bcp_player_id`.
+ */
+async function openLeaguePlayerClaimModal(leagueId = 'league_sd40k_big_league', preselectedParticipantName = '', preselectedPodNum = null) {
+  const existing = document.getElementById('league-player-claim-modal');
+  if (existing) existing.remove();
+
+  const currentUser = (window.state && window.state.user) || {
+    id: 'u_john_hsieh',
+    display_name: 'John Hsieh',
+    player_id: 'MEV83VFANA',
+    bcp_user_id: 'MEV83VFANA'
+  };
+  const defaultUserId = currentUser.id || 'u_john_hsieh';
+  const defaultBcpId = currentUser.player_id || currentUser.bcp_user_id || 'MEV83VFANA';
+  const defaultDisplayName = currentUser.display_name || currentUser.name || 'John Hsieh';
+
+  const league = leagueState.leagueData || {};
+  const pods = (league.active_season && league.active_season.pods) || [];
+  const unmatchedOptions = [];
+  const allOptions = [];
+  pods.forEach(p => {
+    (p.standings || []).forEach(st => {
+      const item = {
+        name: st.name,
+        pod_num: p.pod_number,
+        faction: st.primary_faction || 'Warhammer 40k',
+        is_db_matched: Boolean(st.is_db_matched && (st.bcp_player_id || st.player_id))
+      };
+      allOptions.push(item);
+      if (!item.is_db_matched) unmatchedOptions.push(item);
+    });
+  });
+
+  const targetList = unmatchedOptions.length > 0 ? unmatchedOptions : allOptions;
+  const initialMode = 'claim_existing';
+
+  const modalHtml = `
+    <div id="league-player-claim-modal" class="modal-backdrop" onclick="if(event.target.id==='league-player-claim-modal') this.remove();" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.8); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 1rem;">
+      <div class="modal-card" style="background: #0f172a; border: 1px solid #334155; border-radius: 12px; max-width: 540px; width: 100%; padding: 1.4rem; color: #f8fafc; box-shadow: 0 20px 50px rgba(0,0,0,0.65);">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: #fff;">🙋‍♂️ I'm in this League — Link User ID &amp; BCP Profile</h3>
+            <div style="font-size: 0.78rem; color: #94a3b8; margin-top: 3px;">
+              Stored in <code style="color: #38bdf8;">native_league_participants</code> • Links your <code style="color: #34d399;">user_id</code> &amp; <code style="color: #fbbf24;">bcp_player_id</code> (<code style="color: #fbbf24;">players.player_id</code>)
+            </div>
+          </div>
+          <button onclick="document.getElementById('league-player-claim-modal').remove()" style="background: none; border: none; color: #94a3b8; font-size: 1.25rem; cursor: pointer;">✕</button>
+        </div>
+
+        <!-- Mode Selector -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
+          <button type="button" id="claim-mode-existing-btn" onclick="document.getElementById('claim-mode-input').value='claim_existing'; document.getElementById('claim-existing-group').style.display='block'; document.getElementById('claim-mode-existing-btn').style.borderColor='#3b82f6'; document.getElementById('claim-mode-new-btn').style.borderColor='#334155';" style="padding: 0.6rem; border-radius: 8px; border: 2px solid #3b82f6; background: rgba(59, 130, 246, 0.12); color: #fff; font-weight: 700; font-size: 0.8rem; cursor: pointer; text-align: left;">
+            🔗 Match Existing Pod Slot
+            <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 500; margin-top: 2px;">Couldn't match by name assumption? Link your user_id</div>
+          </button>
+          <button type="button" id="claim-mode-new-btn" onclick="document.getElementById('claim-mode-input').value='join_new'; document.getElementById('claim-existing-group').style.display='none'; document.getElementById('claim-mode-new-btn').style.borderColor='#3b82f6'; document.getElementById('claim-mode-existing-btn').style.borderColor='#334155';" style="padding: 0.6rem; border-radius: 8px; border: 2px solid #334155; background: rgba(15, 23, 42, 0.6); color: #fff; font-weight: 700; font-size: 0.8rem; cursor: pointer; text-align: left;">
+            🆕 Newly Registered Player
+            <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 500; margin-top: 2px;">Say "I'm in this league" &amp; add to active season</div>
+          </button>
+        </div>
+        <input type="hidden" id="claim-mode-input" value="${initialMode}" />
+
+        <div id="claim-existing-group" style="margin-bottom: 0.9rem;">
+          <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #cbd5e1; text-transform: uppercase; margin-bottom: 4px;">
+            Select Unmatched Season / Pod Participant Slot
+          </label>
+          <select id="claim-participant-select" style="width: 100%; padding: 0.55rem 0.75rem; border-radius: 8px; background: #1e293b; border: 1px solid #475569; color: #fff; font-size: 0.85rem; font-weight: 600;">
+            ${targetList.map(opt => `
+              <option value="${escapeHtml(opt.name)}" data-pod="${opt.pod_num}" ${opt.name === preselectedParticipantName ? 'selected' : ''}>
+                Pod #${opt.pod_num} — ${escapeHtml(opt.name)} (${escapeHtml(opt.faction)}) ${opt.is_db_matched ? '[Matched]' : '[Unlinked in DB]'}
+              </option>
+            `).join('')}
+          </select>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.9rem;">
+          <div>
+            <label style="display: block; font-size: 0.74rem; font-weight: 700; color: #cbd5e1; text-transform: uppercase; margin-bottom: 4px;">
+              Registered User ID (<code style="color:#34d399;">users.id</code>)
+            </label>
+            <input type="text" id="claim-user-id-input" value="${escapeHtml(defaultUserId)}" style="width: 100%; padding: 0.5rem 0.7rem; border-radius: 8px; background: #1e293b; border: 1px solid #475569; color: #34d399; font-family: monospace; font-size: 0.82rem;" />
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.74rem; font-weight: 700; color: #cbd5e1; text-transform: uppercase; margin-bottom: 4px;">
+              BCP Player ID (<code style="color:#fbbf24;">players.player_id</code>)
+            </label>
+            <input type="text" id="claim-bcp-id-input" value="${escapeHtml(defaultBcpId)}" style="width: 100%; padding: 0.5rem 0.7rem; border-radius: 8px; background: #1e293b; border: 1px solid #475569; color: #fbbf24; font-family: monospace; font-size: 0.82rem;" />
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.1rem;">
+          <div>
+            <label style="display: block; font-size: 0.74rem; font-weight: 700; color: #cbd5e1; text-transform: uppercase; margin-bottom: 4px;">
+              Verified Display Name
+            </label>
+            <input type="text" id="claim-display-name-input" value="${escapeHtml(defaultDisplayName)}" style="width: 100%; padding: 0.5rem 0.7rem; border-radius: 8px; background: #1e293b; border: 1px solid #475569; color: #fff; font-size: 0.84rem;" />
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.74rem; font-weight: 700; color: #cbd5e1; text-transform: uppercase; margin-bottom: 4px;">
+              Primary Faction
+            </label>
+            <input type="text" id="claim-faction-input" value="Dark Angels" style="width: 100%; padding: 0.5rem 0.7rem; border-radius: 8px; background: #1e293b; border: 1px solid #475569; color: #fff; font-size: 0.84rem;" />
+          </div>
+        </div>
+
+        <div id="claim-status-msg" style="display: none; margin-bottom: 0.85rem; padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600;"></div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.6rem;">
+          <button type="button" onclick="document.getElementById('league-player-claim-modal').remove()" class="btn btn-outline" style="padding: 0.45rem 0.95rem;">Cancel</button>
+          <button type="button" onclick="submitLeagueParticipantClaim('${escapeHtml(leagueId)}')" class="btn btn-primary" style="padding: 0.45rem 1.1rem; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none; font-weight: 700;">
+            ✓ Link Profile &amp; Make Clickable
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+window.openLeaguePlayerClaimModal = openLeaguePlayerClaimModal;
+
+async function submitLeagueParticipantClaim(leagueId = 'league_sd40k_big_league') {
+  const mode = document.getElementById('claim-mode-input')?.value || 'claim_existing';
+  const selectEl = document.getElementById('claim-participant-select');
+  const participantName = selectEl?.value || '';
+  const selectedOpt = selectEl?.options[selectEl.selectedIndex];
+  const podNum = parseInt(selectedOpt?.getAttribute('data-pod') || '1', 10) || 1;
+  const userId = document.getElementById('claim-user-id-input')?.value?.trim() || 'u_john_hsieh';
+  const bcpPlayerId = document.getElementById('claim-bcp-id-input')?.value?.trim() || 'MEV83VFANA';
+  const displayName = document.getElementById('claim-display-name-input')?.value?.trim() || 'John Hsieh';
+  const primaryFaction = document.getElementById('claim-faction-input')?.value?.trim() || 'Dark Angels';
+  const msgEl = document.getElementById('claim-status-msg');
+
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/claim-participant`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode,
+        participant_name: participantName,
+        pod_num: podNum,
+        user_id: userId,
+        bcp_player_id: bcpPlayerId,
+        display_name: displayName,
+        primary_faction: primaryFaction
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || data.detail || 'Failed to link participant');
+    }
+    if (data.league) {
+      leagueState.leagueData = data.league;
+      const container = document.getElementById('league-hub-view') || document.getElementById('main-content');
+      if (container) {
+        renderLeagueHub(container, data.league);
+      }
+    }
+    if (msgEl) {
+      msgEl.style.display = 'block';
+      msgEl.style.background = 'rgba(16, 185, 129, 0.18)';
+      msgEl.style.border = '1px solid rgba(16, 185, 129, 0.45)';
+      msgEl.style.color = '#34d399';
+      msgEl.textContent = `✓ Linked ${participantName || displayName} to user_id=${userId} & bcp_player_id=${bcpPlayerId}! Player is now DB-matched and clickable.`;
+    }
+    setTimeout(() => {
+      document.getElementById('league-player-claim-modal')?.remove();
+    }, 900);
+  } catch (err) {
+    if (msgEl) {
+      msgEl.style.display = 'block';
+      msgEl.style.background = 'rgba(239, 68, 68, 0.18)';
+      msgEl.style.border = '1px solid rgba(239, 68, 68, 0.45)';
+      msgEl.style.color = '#f87171';
+      msgEl.textContent = `Error: ${err.message}`;
+    }
+  }
+}
+window.submitLeagueParticipantClaim = submitLeagueParticipantClaim;
+
 
