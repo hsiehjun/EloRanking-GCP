@@ -1527,15 +1527,51 @@ class PostgresDatabase:
                 player_name TEXT NOT NULL,
                 bcp_player_id VARCHAR(64),
                 seasons_played INT DEFAULT 0,
+                total_games INT DEFAULT 0,
                 total_wins INT DEFAULT 0,
                 total_losses INT DEFAULT 0,
                 total_draws INT DEFAULT 0,
                 career_battle_points INT DEFAULT 0,
+                pod_titles INT DEFAULT 0,
                 pod1_titles INT DEFAULT 0,
+                championships INT DEFAULT 0,
+                finals_wins INT DEFAULT 0,
+                finals_appearances INT DEFAULT 0,
                 pod_promotions INT DEFAULT 0,
+                factions_json JSONB DEFAULT '[]'::jsonb,
                 career_history_json JSONB DEFAULT '[]'::jsonb,
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE(league_id, player_name)
+            );""",
+            "ALTER TABLE native_league_careers ADD COLUMN IF NOT EXISTS total_games INT DEFAULT 0;",
+            "ALTER TABLE native_league_careers ADD COLUMN IF NOT EXISTS pod_titles INT DEFAULT 0;",
+            "ALTER TABLE native_league_careers ADD COLUMN IF NOT EXISTS championships INT DEFAULT 0;",
+            "ALTER TABLE native_league_careers ADD COLUMN IF NOT EXISTS finals_wins INT DEFAULT 0;",
+            "ALTER TABLE native_league_careers ADD COLUMN IF NOT EXISTS finals_appearances INT DEFAULT 0;",
+            "ALTER TABLE native_league_careers ADD COLUMN IF NOT EXISTS factions_json JSONB DEFAULT '[]'::jsonb;",
+            """CREATE TABLE IF NOT EXISTS native_league_finals_history (
+                id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                league_id VARCHAR(64) NOT NULL,
+                season_label TEXT NOT NULL,
+                year INT DEFAULT 2026,
+                champion_name TEXT NOT NULL,
+                champion_faction TEXT,
+                champion_bcp_id VARCHAR(64),
+                runner_up_name TEXT,
+                runner_up_bcp_id VARCHAR(64),
+                third_place_name TEXT,
+                fourth_place_name TEXT,
+                notes TEXT,
+                UNIQUE(league_id, season_label)
+            );""",
+            """CREATE TABLE IF NOT EXISTS native_league_faction_stats (
+                id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                league_id VARCHAR(64) NOT NULL,
+                faction_name TEXT NOT NULL,
+                pod_titles INT DEFAULT 0,
+                total_wins INT DEFAULT 0,
+                seasons_played INT DEFAULT 0,
+                UNIQUE(league_id, faction_name)
             );""",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_native_league_careers_l_n ON native_league_careers(league_id, player_name);",
             "CREATE INDEX IF NOT EXISTS idx_league_participants_l_s ON native_league_participants(league_id, season_num, pod_num);",
@@ -1555,7 +1591,10 @@ class PostgresDatabase:
                     except Exception as e:
                         conn.rollback()
                         logger.debug(f"League table notice: {e}")
+            self.seed_sd40k_league_tables(force=False)
+            self.seed_the_gauntlet_league_tables(force=False)
             self.sync_league_participant_identities("8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90", 38)
+            self.sync_league_participant_identities("7a9e4c1b-3d28-4f6a-9c1e-5b8d2a4f6c91", 5)
         except Exception as err:
             logger.debug(f"ensure_league_tables notice: {err}")
 
@@ -1797,9 +1836,219 @@ class PostgresDatabase:
             logger.debug(f"claim_league_participant_in_db notice: {e}")
             return False
 
+    def _seed_league_hof_and_careers_in_db(self, league_id: str, lg: dict, careers_data: dict):
+        """Seeds native_league_finals_history, native_league_faction_stats, and native_league_careers from league config + career JSON."""
+        try:
+            hof = lg.get("hall_of_fame", {}) or {}
+            finals_champs = hof.get("finals_champions", []) or []
+            lbs = hof.get("leaderboards", {}) or {}
+            faction_recs = (lbs.get("faction_titles") or {}).get("records", []) or []
+            finals_wins_recs = (lbs.get("finals_wins") or {}).get("records", []) or []
+            titles_recs = (lbs.get("titles_and_champs") or {}).get("records", []) or []
+            most_games_recs = (lbs.get("most_games") or {}).get("records", []) or []
+            most_wins_recs = (lbs.get("most_wins") or {}).get("records", []) or []
+
+            fw_map = {str(r.get("player_name", "")).strip().lower(): r for r in finals_wins_recs if r.get("player_name")}
+            tc_map = {str(r.get("player_name", "")).strip().lower(): r for r in titles_recs if r.get("player_name")}
+            mg_map = {str(r.get("player_name", "")).strip().lower(): r for r in most_games_recs if r.get("player_name")}
+            mw_map = {str(r.get("player_name", "")).strip().lower(): r for r in most_wins_recs if r.get("player_name")}
+
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '15s';")
+
+                    for fc in finals_champs:
+                        s_label = str(fc.get("season_label") or "").strip()
+                        c_name = str(fc.get("champion") or "").strip()
+                        if not s_label or not c_name:
+                            continue
+                        cursor.execute("""
+                            INSERT INTO native_league_finals_history (
+                                id, league_id, season_label, year, champion_name, champion_faction,
+                                runner_up_name, third_place_name, fourth_place_name, notes
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (league_id, season_label) DO UPDATE SET
+                                year = EXCLUDED.year,
+                                champion_name = EXCLUDED.champion_name,
+                                champion_faction = EXCLUDED.champion_faction,
+                                runner_up_name = EXCLUDED.runner_up_name,
+                                third_place_name = EXCLUDED.third_place_name,
+                                fourth_place_name = EXCLUDED.fourth_place_name,
+                                notes = EXCLUDED.notes;
+                        """, (
+                            str(uuid.uuid4()),
+                            league_id,
+                            s_label,
+                            int(fc.get("year", 2026)),
+                            c_name,
+                            fc.get("champion_faction", ""),
+                            fc.get("runner_up"),
+                            fc.get("third_place"),
+                            fc.get("fourth_place"),
+                            fc.get("notes", "")
+                        ))
+
+                    for fr in faction_recs:
+                        f_name = str(fr.get("faction") or "").strip()
+                        if not f_name:
+                            continue
+                        cursor.execute("""
+                            INSERT INTO native_league_faction_stats (
+                                id, league_id, faction_name, pod_titles, total_wins, seasons_played
+                            ) VALUES (%s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (league_id, faction_name) DO UPDATE SET
+                                pod_titles = EXCLUDED.pod_titles,
+                                total_wins = EXCLUDED.total_wins,
+                                seasons_played = EXCLUDED.seasons_played;
+                        """, (
+                            str(uuid.uuid4()),
+                            league_id,
+                            f_name,
+                            int(fr.get("titles", 0)),
+                            int(fr.get("wins", 0)),
+                            int(fr.get("players", 0))
+                        ))
+
+                    # Collect union of all career players and leaderboard players
+                    all_player_names = dict()
+                    for c_name in careers_data.keys():
+                        all_player_names[c_name.strip().lower()] = c_name.strip()
+                    for m in (fw_map, tc_map, mg_map, mw_map):
+                        for k, rec in m.items():
+                            if k not in all_player_names:
+                                all_player_names[k] = str(rec.get("player_name")).strip()
+
+                    for nkey, canonical_name in all_player_names.items():
+                        c_obj = careers_data.get(canonical_name) or {}
+                        if not c_obj:
+                            for ck, cv in careers_data.items():
+                                if ck.strip().lower() == nkey and isinstance(cv, dict):
+                                    c_obj = cv
+                                    break
+
+                        rec_str = str(c_obj.get("record") or "")
+                        m_wld = re.search(r"(\d+)\s*W\s*-\s*(\d+)\s*L(?:\s*-\s*(\d+)\s*D)?", rec_str, re.IGNORECASE)
+                        p_wins = int(m_wld.group(1)) if m_wld else int(c_obj.get("total_wins", 0))
+                        p_losses = int(m_wld.group(2)) if m_wld else int(c_obj.get("total_losses", 0))
+                        p_draws = int(m_wld.group(3) or 0) if m_wld else int(c_obj.get("total_draws", 0))
+
+                        seasons_played = int(c_obj.get("total_seasons") or c_obj.get("seasons_played") or 0)
+                        total_games = int(c_obj.get("total_games") or (p_wins + p_losses + p_draws) or 0)
+                        total_bp = int(c_obj.get("total_bp") or c_obj.get("career_battle_points") or 0)
+                        pod_titles = int(c_obj.get("pod_titles") or c_obj.get("pod1_titles") or 0)
+                        championships = int(c_obj.get("championships") or 0)
+                        finals_wins = int(c_obj.get("finals_wins") or 0)
+                        finals_apps = int(c_obj.get("finals_appearances") or 0)
+
+                        if nkey in mg_map:
+                            total_games = max(total_games, int(mg_map[nkey].get("games_played", 0)))
+                            seasons_played = max(seasons_played, int(mg_map[nkey].get("seasons", 0)))
+                        if nkey in mw_map:
+                            p_wins = max(p_wins, int(mw_map[nkey].get("league_wins", 0)))
+                            seasons_played = max(seasons_played, int(mw_map[nkey].get("seasons", 0)))
+                        if nkey in tc_map:
+                            pod_titles = max(pod_titles, int(tc_map[nkey].get("pod_titles", 0)))
+                            championships = max(championships, int(tc_map[nkey].get("league_championships", 0)))
+                        if nkey in fw_map:
+                            finals_wins = max(finals_wins, int(fw_map[nkey].get("finals_wins", 0)))
+                            finals_apps = max(finals_apps, int(fw_map[nkey].get("appearances", 0)))
+                            championships = max(championships, int(fw_map[nkey].get("championships", 0)))
+
+                        raw_cpid = c_obj.get("bcp_player_id")
+                        valid_cpid = raw_cpid if (raw_cpid and not str(raw_cpid).startswith("bcp_") and not str(raw_cpid).startswith("p_")) else None
+                        factions_list = c_obj.get("factions", [])
+                        history_list = c_obj.get("history") or c_obj.get("seasons") or []
+
+                        cursor.execute("""
+                            INSERT INTO native_league_careers (
+                                id, league_id, player_name, bcp_player_id, seasons_played, total_games,
+                                total_wins, total_losses, total_draws, career_battle_points,
+                                pod_titles, pod1_titles, championships, finals_wins, finals_appearances,
+                                factions_json, career_history_json, updated_at
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW())
+                            ON CONFLICT (league_id, player_name) DO UPDATE SET
+                                bcp_player_id = COALESCE(EXCLUDED.bcp_player_id, native_league_careers.bcp_player_id),
+                                seasons_played = EXCLUDED.seasons_played,
+                                total_games = EXCLUDED.total_games,
+                                total_wins = EXCLUDED.total_wins,
+                                total_losses = EXCLUDED.total_losses,
+                                total_draws = EXCLUDED.total_draws,
+                                career_battle_points = EXCLUDED.career_battle_points,
+                                pod_titles = EXCLUDED.pod_titles,
+                                pod1_titles = EXCLUDED.pod1_titles,
+                                championships = EXCLUDED.championships,
+                                finals_wins = EXCLUDED.finals_wins,
+                                finals_appearances = EXCLUDED.finals_appearances,
+                                factions_json = EXCLUDED.factions_json,
+                                career_history_json = EXCLUDED.career_history_json,
+                                updated_at = NOW();
+                        """, (
+                            str(uuid.uuid4()),
+                            league_id,
+                            canonical_name,
+                            valid_cpid,
+                            seasons_played,
+                            total_games,
+                            p_wins,
+                            p_losses,
+                            p_draws,
+                            total_bp,
+                            pod_titles,
+                            pod_titles,
+                            championships,
+                            finals_wins,
+                            finals_apps,
+                            json.dumps(factions_list),
+                            json.dumps(history_list)
+                        ))
+
+                    # Match career and finals bcp_player_ids against PostgreSQL players and player_ratings
+                    cursor.execute("""
+                        UPDATE native_league_careers nlc
+                        SET bcp_player_id = p.id
+                        FROM players p
+                        WHERE nlc.league_id = %s
+                          AND nlc.bcp_player_id IS NULL
+                          AND p.id IS NOT NULL
+                          AND LEFT(p.id, 4) <> 'bcp_' AND LEFT(p.id, 2) <> 'p_'
+                          AND LOWER(TRIM(p.full_name)) = LOWER(TRIM(nlc.player_name));
+                    """, (league_id,))
+                    cursor.execute("""
+                        UPDATE native_league_careers nlc
+                        SET bcp_player_id = pr.player_id
+                        FROM player_ratings pr
+                        WHERE nlc.league_id = %s
+                          AND nlc.bcp_player_id IS NULL
+                          AND pr.player_id IS NOT NULL
+                          AND LEFT(pr.player_id, 4) <> 'bcp_' AND LEFT(pr.player_id, 2) <> 'p_'
+                          AND LOWER(TRIM(pr.player_name)) = LOWER(TRIM(nlc.player_name));
+                    """, (league_id,))
+                    cursor.execute("""
+                        UPDATE native_league_finals_history nlf
+                        SET champion_bcp_id = nlc.bcp_player_id
+                        FROM native_league_careers nlc
+                        WHERE nlf.league_id = %s
+                          AND nlc.league_id = %s
+                          AND nlc.bcp_player_id IS NOT NULL
+                          AND LOWER(TRIM(nlf.champion_name)) = LOWER(TRIM(nlc.player_name));
+                    """, (league_id, league_id))
+                    cursor.execute("""
+                        UPDATE native_league_finals_history nlf
+                        SET runner_up_bcp_id = nlc.bcp_player_id
+                        FROM native_league_careers nlc
+                        WHERE nlf.league_id = %s
+                          AND nlc.league_id = %s
+                          AND nlc.bcp_player_id IS NOT NULL
+                          AND nlf.runner_up_name IS NOT NULL
+                          AND LOWER(TRIM(nlf.runner_up_name)) = LOWER(TRIM(nlc.player_name));
+                    """, (league_id, league_id))
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"_seed_league_hof_and_careers_in_db({league_id}) notice: {e}")
+
     def seed_sd40k_league_tables(self, force: bool = False):
         """Non-destructively imports San Diego 40k BIG League @ At Ease Games dataset (Active Season 38 + 37 Historical Seasons + 402 Career Dossiers) into PostgreSQL league tables.
-        Skips the 4,900-row loop on normal startup if native_league_participants is already populated.
+        Skips the 4,900-row standings loop on normal startup if native_league_participants is already populated, while ensuring Hall of Fame & Career tables are populated.
         """
         sd40k_uuid = "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90"
         try:
@@ -1814,6 +2063,13 @@ class PostgresDatabase:
                         lg = json.load(f)
                 except Exception:
                     lg = {}
+            careers_data = {}
+            if os.path.exists(careers_file):
+                try:
+                    with open(careers_file, "r", encoding="utf-8") as cf:
+                        careers_data = json.load(cf)
+                except Exception:
+                    careers_data = {}
             full_config_obj = {
                 "methodology": lg.get("methodology", {}),
                 "hall_of_fame": lg.get("hall_of_fame", {}),
@@ -1835,15 +2091,19 @@ class PostgresDatabase:
                         with conn.cursor() as cursor:
                             cursor.execute("SELECT COUNT(*) FROM native_league_participants WHERE league_id IN (%s, 'league_sd40k_big_league');", (sd40k_uuid,))
                             existing_cnt = cursor.fetchone()[0]
+                            cursor.execute("SELECT COALESCE(MAX(total_games), 0) FROM native_league_careers WHERE league_id = %s;", (sd40k_uuid,))
+                            max_career_games = cursor.fetchone()[0] or 0
+                            cursor.execute("SELECT COUNT(*) FROM native_league_finals_history WHERE league_id = %s;", (sd40k_uuid,))
+                            finals_cnt = cursor.fetchone()[0] or 0
                             if existing_cnt and existing_cnt >= 1000:
-                                if full_config_obj.get("hall_of_fame"):
-                                    cursor.execute("""
-                                        UPDATE native_leagues
-                                        SET config_json = %s::jsonb
-                                        WHERE id IN (%s, 'league_sd40k_big_league')
-                                          AND (config_json IS NULL OR NOT (config_json ? 'hall_of_fame'));
-                                    """, (json.dumps(full_config_obj), sd40k_uuid))
-                                    conn.commit()
+                                cursor.execute("""
+                                    UPDATE native_leagues
+                                    SET config_json = %s::jsonb
+                                    WHERE id IN (%s, 'league_sd40k_big_league');
+                                """, (json.dumps(full_config_obj), sd40k_uuid))
+                                conn.commit()
+                                if max_career_games == 0 or finals_cnt == 0:
+                                    self._seed_league_hof_and_careers_in_db(sd40k_uuid, lg, careers_data)
                                 self.sync_league_participant_identities(sd40k_uuid, 38)
                                 return
                 except Exception:
@@ -1854,10 +2114,6 @@ class PostgresDatabase:
             if os.path.exists(hist_file):
                 with open(hist_file, "r", encoding="utf-8") as hf:
                     hist_seasons = json.load(hf)
-            careers_data = {}
-            if os.path.exists(careers_file):
-                with open(careers_file, "r", encoding="utf-8") as cf:
-                    careers_data = json.load(cf)
 
             act = lg.get("active_season", {})
             s_num = int(act.get("season_number", 38))
@@ -1883,7 +2139,6 @@ class PostgresDatabase:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("SET LOCAL lock_timeout = '20s';")
-                    # First migrate any legacy string-concatenated IDs
                     self.sync_league_participant_identities(sd40k_uuid, 38)
 
                     cursor.execute("""
@@ -2010,45 +2265,249 @@ class PostgresDatabase:
                                 ))
                 conn.commit()
 
-            # Seed career dossiers in a separate transaction so it never blocks or rolls back participants
-            try:
-                with self.get_connection() as conn:
-                    with conn.cursor() as cursor:
-                        cursor.execute("SET LOCAL lock_timeout = '15s';")
-                        for c_name, c_obj in careers_data.items():
-                            if not isinstance(c_obj, dict):
-                                continue
-                            raw_cpid = c_obj.get("bcp_player_id")
-                            valid_cpid = raw_cpid if (raw_cpid and not str(raw_cpid).startswith("bcp_")) else None
-                            cursor.execute("""
-                                INSERT INTO native_league_careers (
-                                    id, league_id, player_name, bcp_player_id, seasons_played,
-                                    total_wins, total_losses, total_draws, career_battle_points,
-                                    pod1_titles, pod_promotions, career_history_json
-                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                                ON CONFLICT (league_id, player_name) DO UPDATE SET
-                                    bcp_player_id = EXCLUDED.bcp_player_id;
-                            """, (
-                                str(uuid.uuid4()),
-                                sd40k_uuid,
-                                c_name,
-                                valid_cpid,
-                                int(c_obj.get("seasons_played", 0)),
-                                int(c_obj.get("total_wins", 0)),
-                                int(c_obj.get("total_losses", 0)),
-                                int(c_obj.get("total_draws", 0)),
-                                int(c_obj.get("career_battle_points", 0)),
-                                int(c_obj.get("pod1_titles", 0)),
-                                int(c_obj.get("pod_promotions", 0)),
-                                json.dumps(c_obj.get("seasons", []))
-                            ))
-                    conn.commit()
-            except Exception as ce:
-                logger.warning(f"seed_sd40k_league_tables careers notice: {ce}")
-
+            self._seed_league_hof_and_careers_in_db(sd40k_uuid, lg, careers_data)
             self.sync_league_participant_identities(sd40k_uuid, 38)
         except Exception as e:
             logger.warning(f"seed_sd40k_league_tables error: {e}")
+
+    def seed_the_gauntlet_league_tables(self, force: bool = False):
+        """Non-destructively seeds The Gauntlet @ Brute Force Games (Seasons 1-5, 3 Pods: Avatars of War, Battle Hardened, Blooded) into PostgreSQL league tables."""
+        gauntlet_uuid = "7a9e4c1b-3d28-4f6a-9c1e-5b8d2a4f6c91"
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            data_file = os.path.join(base_dir, "data", "the_gauntlet_league_data.json")
+            if not os.path.exists(data_file):
+                return
+            with open(data_file, "r", encoding="utf-8") as f:
+                lg = json.load(f)
+
+            full_config_obj = {
+                "methodology": lg.get("methodology", {}),
+                "commissioners": lg.get("commissioners", []),
+                "partner_venues": lg.get("partner_venues", []),
+                "clubs": lg.get("clubs", []),
+                "tagline": lg.get("tagline", ""),
+                "short_name": lg.get("short_name", "THE GAUNTLET"),
+                "city": lg.get("city", "San Diego"),
+                "state": lg.get("state", "CA"),
+                "country": lg.get("country", "USA"),
+                "website": lg.get("website", "https://bruteforcegames.com"),
+                "established_year": lg.get("established_year", 2024),
+            }
+            if not force:
+                try:
+                    with self.get_connection() as conn:
+                        with conn.cursor() as cursor:
+                            cursor.execute("SELECT COUNT(*) FROM native_league_standings WHERE league_id = %s;", (gauntlet_uuid,))
+                            cnt = cursor.fetchone()[0] or 0
+                            if cnt >= 28:
+                                cursor.execute("""
+                                    UPDATE native_leagues
+                                    SET config_json = %s::jsonb
+                                    WHERE id = %s;
+                                """, (json.dumps(full_config_obj), gauntlet_uuid))
+                                conn.commit()
+                                self.sync_league_participant_identities(gauntlet_uuid, 5)
+                                return
+                except Exception:
+                    pass
+
+            act = lg.get("active_season", {})
+            s_num = int(act.get("season_number", 5))
+            pods = act.get("pods", [])
+            season_cfg = {
+                "round_layouts": ["GW Layout 1", "GW Layout 2", "GW Layout 3", "GW Layout 4", "GW Layout 5"],
+                "pod_size_min": 8,
+                "pod_size_max": 10,
+                "promotion_count": 2,
+                "relegation_count": 2,
+                "games_per_season": 5,
+                "duration_weeks": 8,
+                "min_games_required": 3,
+                "win_bonus_bp": 1000,
+                "draw_bonus_bp": 500,
+                "in_pod_ringer_bonus_bp": 1000,
+                "out_of_pod_ringer_bonus_bp": 500
+            }
+
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '15s';")
+                    cursor.execute("""
+                        INSERT INTO native_leagues (id, slug, name, game_system, region, active_season_num, total_players, total_pods, recurring_seasons, registration_open, config_json)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, TRUE, %s::jsonb)
+                        ON CONFLICT (slug) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            active_season_num = EXCLUDED.active_season_num,
+                            total_players = EXCLUDED.total_players,
+                            total_pods = EXCLUDED.total_pods,
+                            config_json = EXCLUDED.config_json;
+                    """, (
+                        gauntlet_uuid,
+                        "the-gauntlet",
+                        lg.get("name", "The Gauntlet @ Brute Force Games"),
+                        "40k",
+                        lg.get("region", "San Diego, CA"),
+                        s_num,
+                        int(act.get("total_players", 28)),
+                        len(pods),
+                        json.dumps(full_config_obj)
+                    ))
+
+                    # Assign ownership to John Hsieh so he can also manage it in Event Studio
+                    cursor.execute("""
+                        UPDATE native_leagues nl
+                        SET owner_user_id = src.owner_user_id,
+                            owner_player_id = src.owner_player_id,
+                            owner_email = src.owner_email,
+                            owner_name = src.owner_name
+                        FROM native_leagues src
+                        WHERE nl.id = %s AND src.id = '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90'
+                          AND nl.owner_user_id IS NULL;
+                    """, (gauntlet_uuid,))
+
+                    # Seed historical seasons 1..4
+                    for h_season in lg.get("historical_seasons", []):
+                        h_num = int(h_season.get("season_number", 1))
+                        cursor.execute("""
+                            INSERT INTO native_league_seasons (
+                                id, league_id, season_num, name, status, duration_weeks, rounds_count,
+                                total_players, total_pods, champion_name, champion_faction, is_historical, season_config_json
+                            ) VALUES (%s, %s, %s, %s, 'completed', 8, 5, %s, %s, %s, %s, TRUE, %s::jsonb)
+                            ON CONFLICT (league_id, season_num) DO UPDATE SET
+                                name = EXCLUDED.name,
+                                champion_name = EXCLUDED.champion_name,
+                                champion_faction = EXCLUDED.champion_faction;
+                        """, (
+                            str(uuid.uuid4()),
+                            gauntlet_uuid,
+                            h_num,
+                            h_season.get("name", f"Season {h_num}"),
+                            int(h_season.get("total_players", 24)),
+                            int(h_season.get("total_pods", 3)),
+                            h_season.get("pod_champion"),
+                            h_season.get("pod_champion_faction"),
+                            json.dumps(season_cfg)
+                        ))
+                        if h_season.get("pod_champion"):
+                            cursor.execute("""
+                                INSERT INTO native_league_finals_history (
+                                    id, league_id, season_label, year, champion_name, champion_faction, notes
+                                ) VALUES (%s, %s, %s, 2025, %s, %s, %s)
+                                ON CONFLICT (league_id, season_label) DO UPDATE SET
+                                    champion_name = EXCLUDED.champion_name,
+                                    champion_faction = EXCLUDED.champion_faction;
+                            """, (
+                                str(uuid.uuid4()),
+                                gauntlet_uuid,
+                                h_season.get("name", f"Season {h_num}"),
+                                h_season.get("pod_champion"),
+                                h_season.get("pod_champion_faction", ""),
+                                "Pod 1 (Avatars of War) Seasonal Champion @ Brute Force Games"
+                            ))
+
+                    # Seed active season 5
+                    cursor.execute("""
+                        INSERT INTO native_league_seasons (
+                            id, league_id, season_num, name, status, duration_weeks, rounds_count,
+                            total_players, total_pods, champion_name, champion_faction, is_historical, season_config_json
+                        ) VALUES (%s, %s, %s, %s, 'active', 8, 5, %s, %s, %s, %s, FALSE, %s::jsonb)
+                        ON CONFLICT (league_id, season_num) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            total_players = EXCLUDED.total_players,
+                            total_pods = EXCLUDED.total_pods,
+                            champion_name = EXCLUDED.champion_name,
+                            champion_faction = EXCLUDED.champion_faction,
+                            season_config_json = EXCLUDED.season_config_json;
+                    """, (
+                        str(uuid.uuid4()),
+                        gauntlet_uuid,
+                        s_num,
+                        act.get("name", "Season 5 (Summer/Fall)"),
+                        int(act.get("total_players", 28)),
+                        len(pods),
+                        "Joaquin Ruiz",
+                        "Chaos Space Marines",
+                        json.dumps(season_cfg)
+                    ))
+
+                    for p in pods:
+                        p_num = int(p.get("pod_number", 1))
+                        cursor.execute("""
+                            INSERT INTO native_league_pods (id, league_id, season_num, pod_num, name, tier, round_layouts, player_count)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                            ON CONFLICT (league_id, season_num, pod_num) DO UPDATE SET
+                                name = EXCLUDED.name,
+                                tier = EXCLUDED.tier,
+                                player_count = EXCLUDED.player_count;
+                        """, (
+                            str(uuid.uuid4()),
+                            gauntlet_uuid,
+                            s_num,
+                            p_num,
+                            p.get("name", f"Pod {p_num}"),
+                            p.get("tier", f"Division {p_num}"),
+                            json.dumps(p.get("round_layouts", [])),
+                            len(p.get("standings", []))
+                        ))
+                        for st in p.get("standings", []):
+                            pname = (st.get("name") or "").strip()
+                            if not pname:
+                                continue
+                            cursor.execute("""
+                                INSERT INTO native_league_participants (
+                                    id, league_id, season_num, pod_num, participant_name, primary_faction,
+                                    bcp_player_id, user_id, is_db_matched, match_method
+                                ) VALUES (%s, %s, %s, %s, %s, %s, NULL, NULL, FALSE, 'unmatched')
+                                ON CONFLICT (league_id, season_num, pod_num, participant_name) DO UPDATE SET
+                                    primary_faction = EXCLUDED.primary_faction,
+                                    updated_at = NOW();
+                            """, (
+                                str(uuid.uuid4()),
+                                gauntlet_uuid,
+                                s_num,
+                                p_num,
+                                pname,
+                                st.get("primary_faction", "")
+                            ))
+                            cursor.execute("""
+                                INSERT INTO native_league_standings (
+                                    id, league_id, season_num, pod_num, player_name, primary_faction,
+                                    rank, wins, losses, draws, battle_points, games_played, poty_points,
+                                    relegation_status, pairings_json
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                                ON CONFLICT (league_id, season_num, pod_num, player_name) DO UPDATE SET
+                                    primary_faction = EXCLUDED.primary_faction,
+                                    rank = EXCLUDED.rank,
+                                    wins = EXCLUDED.wins,
+                                    losses = EXCLUDED.losses,
+                                    draws = EXCLUDED.draws,
+                                    battle_points = EXCLUDED.battle_points,
+                                    games_played = EXCLUDED.games_played,
+                                    poty_points = EXCLUDED.poty_points,
+                                    relegation_status = EXCLUDED.relegation_status,
+                                    pairings_json = EXCLUDED.pairings_json;
+                            """, (
+                                str(uuid.uuid4()),
+                                gauntlet_uuid,
+                                s_num,
+                                p_num,
+                                pname,
+                                st.get("primary_faction", ""),
+                                int(st.get("rank", 1)),
+                                int(st.get("wins", 0)),
+                                int(st.get("losses", 0)),
+                                int(st.get("draws", 0)),
+                                int(st.get("battle_points", 0)),
+                                int(st.get("games_played", 0)),
+                                int(st.get("poty_points", 0)),
+                                st.get("relegation_status", "None"),
+                                json.dumps(st.get("pairings", []))
+                            ))
+                conn.commit()
+            self.sync_league_participant_identities(gauntlet_uuid, s_num)
+        except Exception as e:
+            logger.warning(f"seed_the_gauntlet_league_tables error: {e}")
 
     def record_league_match_in_db(self, league_id: str, season_num: int, pod_num: int, round_num: int,
                                   p1_name: str, p2_name: str, p1_score: int, p2_score: int,

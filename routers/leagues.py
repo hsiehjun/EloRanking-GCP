@@ -91,10 +91,13 @@ async def sync_and_audit_league_db(league_id: str, force_seed: bool = False):
     from core import get_database
     db = get_database()
     norm_lid = leagues_hub_service._normalize_league_id(league_id)
-    if force_seed and hasattr(db, "seed_sd40k_league_tables"):
-        db.seed_sd40k_league_tables(force=True)
+    if force_seed:
+        if hasattr(db, "seed_sd40k_league_tables"):
+            db.seed_sd40k_league_tables(force=True)
+        if hasattr(db, "seed_the_gauntlet_league_tables"):
+            db.seed_the_gauntlet_league_tables(force=True)
     if hasattr(db, "sync_league_participant_identities"):
-        db.sync_league_participant_identities(norm_lid, 38)
+        db.sync_league_participant_identities(norm_lid, 38 if norm_lid == leagues_hub_service.SD40K_LEAGUE_UUID else 5)
 
     try:
         with db.get_connection() as conn:
@@ -133,7 +136,7 @@ async def sync_and_audit_league_db(league_id: str, force_seed: bool = False):
     }
 
 
-@router.get("/api/league/{league_id}/seasons", summary="Get catalog of all 38 historical seasons")
+@router.get("/api/league/{league_id}/seasons", summary="Get catalog of all historical seasons")
 async def get_league_seasons(league_id: str):
     svc = leagues_hub_service.get_leagues_hub_service()
     seasons = svc.get_seasons_catalog(league_id)
@@ -157,7 +160,7 @@ async def get_league_season(league_id: str, season_num: int):
     }
 
 
-@router.get("/api/league/{league_id}/player/{player_name}/history", summary="Get player career history across all 38 seasons")
+@router.get("/api/league/{league_id}/player/{player_name}/history", summary="Get player career history across all seasons")
 async def get_player_league_history(league_id: str, player_name: str):
     svc = leagues_hub_service.get_leagues_hub_service()
     career = svc.get_player_career(league_id, player_name)
@@ -200,6 +203,19 @@ async def create_community_league(request: Request):
     try:
         result = svc.create_league(body)
         return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/api/league/{league_id}/config", summary="Update community league methodology, pod rules, and scoring configuration")
+async def update_community_league_config(league_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    try:
+        return svc.update_league_config(league_id, body)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -5002,22 +5002,40 @@ async function loadManagedStudioLeagues() {
         } catch (_) {}
       }
       if ((!leagues || leagues.length === 0) && isOwnerOrAdmin) {
-        leagues = [{
-          league_id: '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90',
-          slug: 'sd40k',
-          name: 'San Diego Force Org League',
-          region: 'San Diego, CA',
-          venue_name: 'At Ease Games',
-          owner_user_id: 'user_john_hsieh_admin',
-          owner_player_id: 'MEV83VFANA',
-          owner_name: 'John Hsieh',
-          owner_email: 'hsiehjun@google.com',
-          registration_open: true,
-          active_season: 38,
-          pods_count: 8,
-          active_players: 68,
-          db_matched_players_count: 62
-        }];
+        leagues = [
+          {
+            league_id: '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90',
+            slug: 'sd40k',
+            name: 'San Diego Force Org League',
+            region: 'San Diego, CA',
+            venue_name: 'At Ease Games',
+            owner_user_id: 'user_john_hsieh_admin',
+            owner_player_id: 'MEV83VFANA',
+            owner_name: 'John Hsieh',
+            owner_email: 'hsiehjun@google.com',
+            registration_open: true,
+            active_season: 38,
+            pods_count: 8,
+            active_players: 68,
+            db_matched_players_count: 62
+          },
+          {
+            league_id: '7a9e4c1b-3d28-4f6a-9c1e-5b8d2a4f6c91',
+            slug: 'the-gauntlet',
+            name: 'The Gauntlet @ Brute Force Games',
+            region: 'San Diego, CA',
+            venue_name: 'Brute Force Games',
+            owner_user_id: 'user_john_hsieh_admin',
+            owner_player_id: 'MEV83VFANA',
+            owner_name: 'John Hsieh',
+            owner_email: 'hsiehjun@google.com',
+            registration_open: true,
+            active_season: 5,
+            pods_count: 3,
+            active_players: 28,
+            db_matched_players_count: 26
+          }
+        ];
       }
     }
     studioState.managedLeagues = leagues;
@@ -5045,21 +5063,31 @@ function renderManagedStudioLeagues(leagues) {
             <span>👑 Your Managed Community Leagues</span>
             <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 999px; font-size: 0.75rem; padding: 1px 8px; font-weight: 800;">${leagues.length}</span>
           </h3>
-          <span style="font-size: 0.8rem; color: var(--text-muted);">Leagues assigned to your account in <code style="color:#38bdf8;">native_leagues</code> (PostgreSQL)</span>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Leagues assigned to your account in <code style="color:#38bdf8;">native_leagues</code> (PostgreSQL) — Unified SD40K &amp; Gauntlet Pod Engine</span>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" onclick="if (typeof openCopyLeagueTemplateModal === 'function') openCopyLeagueTemplateModal('sd40k_pod_league');" class="btn btn-primary" style="font-size: 0.76rem; padding: 0.42rem 0.85rem; background: linear-gradient(135deg, #d97706, #b45309); border: 1px solid #f59e0b; font-weight: 700;">
+            + Create Automated Pod League
+          </button>
+          <button type="button" onclick="if (typeof openCopyLeagueTemplateModal === 'function') openCopyLeagueTemplateModal('gauntlet_pod_league');" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.42rem 0.85rem; border-color: rgba(248, 113, 113, 0.45); color: #f87171; font-weight: 700;">
+            ⚔️ New Gauntlet-Format League
+          </button>
         </div>
       </div>
       ${leagues.map(lg => {
         const lid = escapeHtml(lg.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90');
+        const slugOrId = escapeHtml(lg.slug || lg.league_id || 'sd40k');
+        const isGauntlet = String(lg.slug || lg.name || '').toLowerCase().includes('gauntlet');
         const regOpen = Boolean(lg.registration_open);
         const ownerName = escapeHtml(lg.owner_name || lg.commissioner || 'John Hsieh');
         const ownerEmail = lg.owner_email ? ` (${escapeHtml(lg.owner_email)})` : '';
         const matchedCnt = Number(lg.db_matched_players_count || 0);
         const totalCnt = Number(lg.active_players || 0);
-        const activeSeason = Number(lg.active_season || 38);
-        const podsCount = Number(lg.pods_count || 8);
+        const activeSeason = Number(lg.active_season || 1);
+        const podsCount = Number(lg.pods_count || 3);
 
         return `
-          <div class="card" data-league-id="${lid}" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.92)); border: 1px solid rgba(56, 189, 248, 0.38); border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,0.35);">
+          <div class="card" data-league-id="${lid}" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.92)); border: 1px solid ${isGauntlet ? 'rgba(248, 113, 113, 0.42)' : 'rgba(56, 189, 248, 0.38)'}; border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,0.35);">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.85rem; margin-bottom: 0.85rem;">
               <div>
                 <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
@@ -5073,9 +5101,9 @@ function renderManagedStudioLeagues(leagues) {
                     🔑 UUID: ${lid}
                   </span>
                 </div>
-                <h3 style="margin: 0.45rem 0 0.25rem; color: #fff; font-size: 1.15rem;">${escapeHtml(lg.name)} — Season ${activeSeason}</h3>
+                <h3 style="margin: 0.45rem 0 0.25rem; color: #fff; font-size: 1.15rem;">${isGauntlet ? '⚔️' : '🛡️'} ${escapeHtml(lg.name)} — Season ${activeSeason}</h3>
                 <div style="font-size: 0.8rem; color: #cbd5e1; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center;">
-                  <span>📍 <strong>${escapeHtml(lg.region || 'San Diego, CA')}</strong></span>
+                  <span>📍 <strong>${escapeHtml(lg.region || 'San Diego, CA')}</strong> (${escapeHtml(lg.venue_name || (isGauntlet ? 'Brute Force Games' : 'At Ease Games'))})</span>
                   <span>•</span>
                   <span>⚔️ <strong>${podsCount} Tiered Pods</strong> (${totalCnt} Active Players)</span>
                   <span>•</span>
@@ -5086,21 +5114,24 @@ function renderManagedStudioLeagues(leagues) {
                 <button type="button" id="es-comm-toggle-reg-btn-${lid}" onclick="toggleStudioLeagueRegistration('${lid}', ${regOpen ? 'true' : 'false'})" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
                   ${regOpen ? '📡 Close Registration Window' : '📡 Open Registration Window'}
                 </button>
+                <button type="button" onclick="if (typeof openConfigureLeagueModal === 'function') { openLeagueHubPage('${slugOrId}', '40k').then(() => openConfigureLeagueModal('${slugOrId}')); }" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700;">
+                  ⚙️ Configure Format
+                </button>
                 <button type="button" onclick="syncStudioLeagueParticipants('${lid}')" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(245, 158, 11, 0.45); color: #fbbf24; font-weight: 700;">
                   🔄 Sync DB Identities
                 </button>
-                <a href="/#/40k/league/${lid}" class="btn btn-primary" style="font-size: 0.76rem; padding: 0.38rem 0.85rem; text-decoration: none; font-weight: 700;">
+                <button type="button" onclick="if (typeof openLeagueHubPage === 'function') openLeagueHubPage('${slugOrId}', '40k', { replaceUrl: true });" class="btn btn-primary" style="font-size: 0.76rem; padding: 0.38rem 0.85rem; font-weight: 700;">
                   🛡️ Open League Hub &amp; Pods ↗
-                </a>
+                </button>
               </div>
             </div>
 
             <div style="background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.6rem 0.9rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem; font-size: 0.78rem;">
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                 <span style="color: #94a3b8; font-weight: 700;">🗺️ Season ${activeSeason} Format:</span>
-                <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">6–8 Players / Pod</span>
+                <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">${isGauntlet ? '8–10 Players / Pod (Named Tiers)' : '6–8 Players / Pod'}</span>
                 <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">Top 2 ▲ Promote • Bottom 2 ▼ Relegate</span>
-                <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">R1–R5: Layouts A / B / C</span>
+                <span style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-weight: 600;">${isGauntlet ? '+10 Paint Score • Out-of-Pod Ringer (+500 BP) • Yellow/Red/Black Cards' : '+1,000 Win BP • In-Pod Ringer (+750 BP) • 16p Finals'}</span>
               </div>
               <div style="color: #94a3b8; font-size: 0.74rem;">
                 DB Identity Links (<code style="color: #34d399;">native_league_participants</code>): <strong style="color: #34d399;">${matchedCnt} / ${totalCnt} DB Matched</strong>

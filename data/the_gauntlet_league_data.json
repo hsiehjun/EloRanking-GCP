@@ -1,0 +1,4079 @@
+{
+  "league_id": "7a9e4c1b-3d28-4f6a-9c1e-5b8d2a4f6c91",
+  "slug": "the-gauntlet",
+  "name": "The Gauntlet @ Brute Force Games",
+  "short_name": "THE GAUNTLET",
+  "tagline": "San Diego Competitive 40k Pod League \u2022 Hosted by Good Guys Bad Dice & Brute Force Games",
+  "city": "San Diego",
+  "state": "CA",
+  "region": "San Diego, CA",
+  "country": "USA",
+  "website": "https://bruteforcegames.com",
+  "established_year": 2024,
+  "commissioners": [
+    {
+      "name": "Hans Lieber",
+      "role": "League Organizer & TO (Good Guys Bad Dice)"
+    },
+    {
+      "name": "Angel Perez",
+      "role": "Co-Organizer & Pod Admin (Good Guys Bad Dice)"
+    }
+  ],
+  "partner_venues": [
+    {
+      "name": "Brute Force Games (BFG)",
+      "address": "9295 Farnham St, San Diego, CA 92123",
+      "phone": "(858) 279-4263",
+      "role": "Official Host Store & Prize Sponsor ($20 Entry / Store Credit Prizing)",
+      "perks": "Top 2 players in every pod receive Brute Force Games store credit prizing"
+    }
+  ],
+  "clubs": [
+    {
+      "name": "Good Guys Bad Dice",
+      "contact": "Hans Lieber & Angel Perez"
+    },
+    {
+      "name": "Brute Force Games Community",
+      "contact": "BFG Discord"
+    }
+  ],
+  "methodology": {
+    "preset_type": "gauntlet_pod_league",
+    "title": "The Gauntlet Pod & Store Credit Prizing System",
+    "summary": "An 8-week (2-month) season with 5 scheduled games in skill-matched pods of 8\u201310 players, featuring +1000/+500 BP bonus scoring, flexible In-Pod & Out-of-Pod Ringer rules, and Store Credit prizing for Top 2 in every pod.",
+    "points_limit": 2000,
+    "season_duration_weeks": 8,
+    "games_per_season": 5,
+    "min_games_required": 3,
+    "pod_size_min": 8,
+    "pod_size_max": 10,
+    "entry_fee": "$20 (or Store Credit)",
+    "scoring_rule": "sd40k_1000_bonus",
+    "scoring_breakdown": {
+      "win": "Actual Game VP + 1,000 Bonus Battle Points (including 10 pts Paint Score; max 1,100 BP)",
+      "draw": "Actual Game VP + 500 Bonus Battle Points",
+      "loss": "Actual Game VP + 0 Bonus Battle Points (0\u2013100 VP)",
+      "in_pod_ringer_win": "Actual Game VP + 1,000 Bonus Battle Points (last 2 weeks vs unassigned same-pod opponent)",
+      "out_of_pod_ringer_win": "Actual Game VP + 500 Bonus Battle Points (last 2 weeks vs different-pod opponent)"
+    },
+    "ringer_policy": {
+      "allowed": true,
+      "window_weeks": 2,
+      "in_pod_win_bonus": 1000,
+      "out_of_pod_allowed": true,
+      "out_of_pod_win_bonus": 500
+    },
+    "faction_rules": {
+      "lock_policy": "Faction locked for the entire 2-month season. May only switch factions mid-season if games played = 0 and TOs are notified.",
+      "list_policy": "Flexible lists, detachments, and sub-factions between games. Proxies permitted on correct base sizes with opponent clarity."
+    },
+    "promotion_relegation_rules": {
+      "promotion": "Top 2 finishers in Pods 2\u20133 earn Brute Force Games store credit prizing and promotion into higher pods next season",
+      "relegation": "Pod standings determine next season's pod placement across Avatars of War (Pod 1), Battle Hardened (Pod 2), and Blooded (Pod 3)",
+      "finals_qualification": "Top 2 finishers in Pod 1 (Avatars of War) claim the Seasonal Championship & Premier Store Credit Prizing"
+    },
+    "disciplinary_cards": {
+      "min_games_for_good_standing": 3,
+      "yellow_card": "Fewer than 3 games completed in a season results in a Yellow Card warning.",
+      "red_card": "Second consecutive season with <3 games results in a Red Card (must sit out 1 season).",
+      "black_card": "3 Red Cards or severe conduct violation results in removal from the league."
+    },
+    "chess_clock_policy": "Optional by mutual agreement when scheduling the match. Recommended 1.5 to 2 hours per player.",
+    "tiebreakers": [
+      "1. Total Battle Points (Win +1000 / Draw +500 / Out-of-Pod Ringer Win +500 + Game VP)",
+      "2. Total Wins",
+      "3. Head-to-Head result",
+      "4. Total Games Played (up to 5)"
+    ]
+  },
+  "active_season": {
+    "season_number": 5,
+    "name": "Season 5 (Summer/Fall)",
+    "status": "active",
+    "start_date": "2026-06-29",
+    "end_date": "2026-09-11",
+    "total_pods": 3,
+    "total_players": 28,
+    "pods": [
+      {
+        "pod_number": 1,
+        "name": "Pod 1 - Avatars of War",
+        "tier": "Premier Division (Avatars of War)",
+        "completion_rate": "80%",
+        "round_layouts": [
+          "GW Layout 1",
+          "GW Layout 2",
+          "GW Layout 3",
+          "GW Layout 4",
+          "GW Layout 5"
+        ],
+        "player_count": 8,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "Joaquin Ruiz",
+            "primary_faction": "Chaos Space Marines",
+            "relegation_status": "Pod Champion",
+            "poty_points": 30,
+            "wins": 5,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 5423,
+            "games_played": 5,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Angel Perez",
+                "scheduled_opponent_name": "Angel Perez",
+                "score": 77,
+                "opponent_score": 47,
+                "battle_points": 1077,
+                "opponent_battle_points": 47,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Jake Jesionowski",
+                "scheduled_opponent_name": "Jake Jesionowski",
+                "score": 80,
+                "opponent_score": 54,
+                "battle_points": 1080,
+                "opponent_battle_points": 54,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Joe Bravo",
+                "scheduled_opponent_name": "Joe Bravo",
+                "score": 92,
+                "opponent_score": 69,
+                "battle_points": 1092,
+                "opponent_battle_points": 69,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Nathan Carnes",
+                "scheduled_opponent_name": "Nathan Carnes",
+                "score": 83,
+                "opponent_score": 75,
+                "battle_points": 1083,
+                "opponent_battle_points": 75,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Adam Funk",
+                "scheduled_opponent_name": "Adam Funk",
+                "score": 91,
+                "opponent_score": 78,
+                "battle_points": 1091,
+                "opponent_battle_points": 78,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 2,
+            "name": "Devin Pamintuan",
+            "primary_faction": "T'au Empire",
+            "relegation_status": "Prizing Tier",
+            "poty_points": 25,
+            "wins": 3,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 3318,
+            "games_played": 4,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Jake Jesionowski",
+                "scheduled_opponent_name": "Jake Jesionowski",
+                "score": 92,
+                "opponent_score": 89,
+                "battle_points": 1092,
+                "opponent_battle_points": 89,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Marc Torres",
+                "scheduled_opponent_name": "Marc Torres",
+                "score": 100,
+                "opponent_score": 43,
+                "battle_points": 1100,
+                "opponent_battle_points": 43,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Adam Funk",
+                "scheduled_opponent_name": "Adam Funk",
+                "score": 28,
+                "opponent_score": 100,
+                "battle_points": 28,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Angel Perez",
+                "scheduled_opponent_name": "Angel Perez",
+                "score": 98,
+                "opponent_score": 73,
+                "battle_points": 1098,
+                "opponent_battle_points": 73,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Nathan Carnes",
+                "scheduled_opponent_name": "Nathan Carnes",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 3,
+            "name": "Jake Jesionowski",
+            "primary_faction": "Necrons",
+            "relegation_status": "Safe",
+            "poty_points": 20,
+            "wins": 2,
+            "losses": 2,
+            "draws": 0,
+            "battle_points": 2331,
+            "games_played": 4,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Devin Pamintuan",
+                "scheduled_opponent_name": "Devin Pamintuan",
+                "score": 89,
+                "opponent_score": 92,
+                "battle_points": 89,
+                "opponent_battle_points": 1092,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Joaquin Ruiz",
+                "scheduled_opponent_name": "Joaquin Ruiz",
+                "score": 54,
+                "opponent_score": 80,
+                "battle_points": 54,
+                "opponent_battle_points": 1080,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Marc Torres",
+                "scheduled_opponent_name": "Marc Torres",
+                "score": 100,
+                "opponent_score": 71,
+                "battle_points": 1100,
+                "opponent_battle_points": 71,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Joe Bravo",
+                "scheduled_opponent_name": "Joe Bravo",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Angel Perez",
+                "scheduled_opponent_name": "Angel Perez",
+                "score": 88,
+                "opponent_score": 50,
+                "battle_points": 1088,
+                "opponent_battle_points": 50,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 4,
+            "name": "Adam Funk",
+            "primary_faction": "Adepta Sororitas",
+            "relegation_status": "Safe",
+            "poty_points": 16,
+            "wins": 2,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 2262,
+            "games_played": 3,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Joe Bravo",
+                "scheduled_opponent_name": "Joe Bravo",
+                "score": 84,
+                "opponent_score": 66,
+                "battle_points": 1084,
+                "opponent_battle_points": 66,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Nathan Carnes",
+                "scheduled_opponent_name": "Nathan Carnes",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Devin Pamintuan",
+                "scheduled_opponent_name": "Devin Pamintuan",
+                "score": 100,
+                "opponent_score": 28,
+                "battle_points": 1100,
+                "opponent_battle_points": 28,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Marc Torres",
+                "scheduled_opponent_name": "Marc Torres",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Joaquin Ruiz",
+                "scheduled_opponent_name": "Joaquin Ruiz",
+                "score": 78,
+                "opponent_score": 91,
+                "battle_points": 78,
+                "opponent_battle_points": 1091,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 5,
+            "name": "Nathan Carnes",
+            "primary_faction": "Grey Knights",
+            "relegation_status": "Safe",
+            "poty_points": 14,
+            "wins": 2,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 2171,
+            "games_played": 3,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Marc Torres",
+                "scheduled_opponent_name": "Marc Torres",
+                "score": 0,
+                "opponent_score": 35,
+                "battle_points": 1000,
+                "opponent_battle_points": 35,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Adam Funk",
+                "scheduled_opponent_name": "Adam Funk",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Angel Perez",
+                "scheduled_opponent_name": "Angel Perez",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Joaquin Ruiz",
+                "scheduled_opponent_name": "Joaquin Ruiz",
+                "score": 75,
+                "opponent_score": 83,
+                "battle_points": 75,
+                "opponent_battle_points": 1083,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Joe Bravo",
+                "scheduled_opponent_name": "Devin Pamintuan",
+                "score": 96,
+                "opponent_score": 22,
+                "battle_points": 1096,
+                "opponent_battle_points": 22,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": true,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 6,
+            "name": "Joe Bravo",
+            "primary_faction": "World Eaters",
+            "relegation_status": "Safe",
+            "poty_points": 12,
+            "wins": 1,
+            "losses": 3,
+            "draws": 0,
+            "battle_points": 1254,
+            "games_played": 4,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Adam Funk",
+                "scheduled_opponent_name": "Adam Funk",
+                "score": 66,
+                "opponent_score": 84,
+                "battle_points": 66,
+                "opponent_battle_points": 1084,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Angel Perez",
+                "scheduled_opponent_name": "Angel Perez",
+                "score": 97,
+                "opponent_score": 32,
+                "battle_points": 1097,
+                "opponent_battle_points": 32,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Joaquin Ruiz",
+                "scheduled_opponent_name": "Joaquin Ruiz",
+                "score": 69,
+                "opponent_score": 92,
+                "battle_points": 69,
+                "opponent_battle_points": 1092,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Nathan Carnes",
+                "scheduled_opponent_name": "Jake Jesionowski",
+                "score": 22,
+                "opponent_score": 96,
+                "battle_points": 22,
+                "opponent_battle_points": 1096,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": true,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Marc Torres",
+                "scheduled_opponent_name": "Marc Torres",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 7,
+            "name": "Angel Perez",
+            "primary_faction": "World Eaters",
+            "relegation_status": "Relegation (-1 POD)",
+            "poty_points": 8,
+            "wins": 0,
+            "losses": 4,
+            "draws": 0,
+            "battle_points": 202,
+            "games_played": 4,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Joaquin Ruiz",
+                "scheduled_opponent_name": "Joaquin Ruiz",
+                "score": 47,
+                "opponent_score": 77,
+                "battle_points": 47,
+                "opponent_battle_points": 1077,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Joe Bravo",
+                "scheduled_opponent_name": "Joe Bravo",
+                "score": 32,
+                "opponent_score": 97,
+                "battle_points": 32,
+                "opponent_battle_points": 1097,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Nathan Carnes",
+                "scheduled_opponent_name": "Nathan Carnes",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Devin Pamintuan",
+                "scheduled_opponent_name": "Devin Pamintuan",
+                "score": 73,
+                "opponent_score": 98,
+                "battle_points": 73,
+                "opponent_battle_points": 1098,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Jake Jesionowski",
+                "scheduled_opponent_name": "Jake Jesionowski",
+                "score": 50,
+                "opponent_score": 88,
+                "battle_points": 50,
+                "opponent_battle_points": 1088,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 8,
+            "name": "Marc Torres",
+            "primary_faction": "Leagues of Votann",
+            "relegation_status": "Relegation (-1 POD)",
+            "poty_points": 6,
+            "wins": 0,
+            "losses": 3,
+            "draws": 0,
+            "battle_points": 149,
+            "games_played": 3,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Nathan Carnes",
+                "scheduled_opponent_name": "Nathan Carnes",
+                "score": 35,
+                "opponent_score": 0,
+                "battle_points": 35,
+                "opponent_battle_points": 1000,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Devin Pamintuan",
+                "scheduled_opponent_name": "Devin Pamintuan",
+                "score": 43,
+                "opponent_score": 100,
+                "battle_points": 43,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Jake Jesionowski",
+                "scheduled_opponent_name": "Jake Jesionowski",
+                "score": 71,
+                "opponent_score": 100,
+                "battle_points": 71,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Adam Funk",
+                "scheduled_opponent_name": "Adam Funk",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Joe Bravo",
+                "scheduled_opponent_name": "Joe Bravo",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "pod_number": 2,
+        "name": "Pod 2 - Battle Hardened",
+        "tier": "Division 2 (Battle Hardened)",
+        "completion_rate": "84%",
+        "round_layouts": [
+          "GW Layout 1",
+          "GW Layout 2",
+          "GW Layout 3",
+          "GW Layout 4",
+          "GW Layout 5"
+        ],
+        "player_count": 10,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "Victor Campos",
+            "primary_faction": "Chaos Space Marines",
+            "relegation_status": "Promote (+1 POD)",
+            "poty_points": 25,
+            "wins": 5,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 5459,
+            "games_played": 5,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Cory Daniel",
+                "scheduled_opponent_name": "Cory Daniel",
+                "score": 95,
+                "opponent_score": 71,
+                "battle_points": 1095,
+                "opponent_battle_points": 71,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Jean Evora",
+                "scheduled_opponent_name": "Jean Evora",
+                "score": 99,
+                "opponent_score": 89,
+                "battle_points": 1099,
+                "opponent_battle_points": 89,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Jeremy Mellor",
+                "scheduled_opponent_name": "Jeremy Mellor",
+                "score": 92,
+                "opponent_score": 62,
+                "battle_points": 1092,
+                "opponent_battle_points": 62,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Kevin Kiefer",
+                "scheduled_opponent_name": "Kevin Kiefer",
+                "score": 84,
+                "opponent_score": 62,
+                "battle_points": 1084,
+                "opponent_battle_points": 62,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Evan Berry",
+                "scheduled_opponent_name": "Evan Berry",
+                "score": 89,
+                "opponent_score": 77,
+                "battle_points": 1089,
+                "opponent_battle_points": 77,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 2,
+            "name": "Hans Lieber",
+            "primary_faction": "Death Guard",
+            "relegation_status": "Promote (+1 POD)",
+            "poty_points": 20,
+            "wins": 4,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 4429,
+            "games_played": 5,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Jeremy Mellor",
+                "scheduled_opponent_name": "Jeremy Mellor",
+                "score": 95,
+                "opponent_score": 43,
+                "battle_points": 1095,
+                "opponent_battle_points": 43,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Kevin Kiefer",
+                "scheduled_opponent_name": "Kevin Kiefer",
+                "score": 93,
+                "opponent_score": 29,
+                "battle_points": 1093,
+                "opponent_battle_points": 29,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Evan Berry",
+                "scheduled_opponent_name": "Evan Berry",
+                "score": 100,
+                "opponent_score": 23,
+                "battle_points": 1100,
+                "opponent_battle_points": 23,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Seth Gonzalez",
+                "scheduled_opponent_name": "Seth Gonzalez",
+                "score": 55,
+                "opponent_score": 58,
+                "battle_points": 55,
+                "opponent_battle_points": 1058,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "John Hsieh",
+                "scheduled_opponent_name": "John Hsieh",
+                "score": 86,
+                "opponent_score": 80,
+                "battle_points": 1086,
+                "opponent_battle_points": 80,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 3,
+            "name": "Seth Gonzalez",
+            "primary_faction": "Necrons",
+            "relegation_status": "Safe",
+            "poty_points": 16,
+            "wins": 3,
+            "losses": 2,
+            "draws": 0,
+            "battle_points": 3382,
+            "games_played": 5,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Evan Berry",
+                "scheduled_opponent_name": "Evan Berry",
+                "score": 82,
+                "opponent_score": 67,
+                "battle_points": 1082,
+                "opponent_battle_points": 67,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Cory Daniel",
+                "scheduled_opponent_name": "Cory Daniel",
+                "score": 68,
+                "opponent_score": 70,
+                "battle_points": 68,
+                "opponent_battle_points": 1070,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "John Hsieh",
+                "scheduled_opponent_name": "John Hsieh",
+                "score": 74,
+                "opponent_score": 98,
+                "battle_points": 74,
+                "opponent_battle_points": 1098,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Hans Lieber",
+                "scheduled_opponent_name": "Hans Lieber",
+                "score": 58,
+                "opponent_score": 55,
+                "battle_points": 1058,
+                "opponent_battle_points": 55,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "David Gomes",
+                "scheduled_opponent_name": "David Gomes",
+                "score": 100,
+                "opponent_score": 33,
+                "battle_points": 1100,
+                "opponent_battle_points": 33,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 4,
+            "name": "Jean Evora",
+            "primary_faction": "T'au Empire",
+            "relegation_status": "Safe",
+            "poty_points": 14,
+            "wins": 2,
+            "losses": 2,
+            "draws": 0,
+            "battle_points": 2364,
+            "games_played": 4,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "David Gomes",
+                "scheduled_opponent_name": "David Gomes",
+                "score": 97,
+                "opponent_score": 49,
+                "battle_points": 1097,
+                "opponent_battle_points": 49,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Victor Campos",
+                "scheduled_opponent_name": "Victor Campos",
+                "score": 89,
+                "opponent_score": 99,
+                "battle_points": 89,
+                "opponent_battle_points": 1099,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Cory Daniel",
+                "scheduled_opponent_name": "Cory Daniel",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Jeremy Mellor",
+                "scheduled_opponent_name": "Jeremy Mellor",
+                "score": 99,
+                "opponent_score": 63,
+                "battle_points": 1099,
+                "opponent_battle_points": 63,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Kevin Kiefer",
+                "scheduled_opponent_name": "Kevin Kiefer",
+                "score": 79,
+                "opponent_score": 97,
+                "battle_points": 79,
+                "opponent_battle_points": 1097,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 5,
+            "name": "Kevin Kiefer",
+            "primary_faction": "Blood Angels",
+            "relegation_status": "Safe",
+            "poty_points": 12,
+            "wins": 2,
+            "losses": 2,
+            "draws": 0,
+            "battle_points": 2283,
+            "games_played": 4,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "John Hsieh",
+                "scheduled_opponent_name": "John Hsieh",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Hans Lieber",
+                "scheduled_opponent_name": "Hans Lieber",
+                "score": 29,
+                "opponent_score": 93,
+                "battle_points": 29,
+                "opponent_battle_points": 1093,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "David Gomes",
+                "scheduled_opponent_name": "David Gomes",
+                "score": 95,
+                "opponent_score": 50,
+                "battle_points": 1095,
+                "opponent_battle_points": 50,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Victor Campos",
+                "scheduled_opponent_name": "Victor Campos",
+                "score": 62,
+                "opponent_score": 84,
+                "battle_points": 62,
+                "opponent_battle_points": 1084,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Jean Evora",
+                "scheduled_opponent_name": "Jean Evora",
+                "score": 97,
+                "opponent_score": 79,
+                "battle_points": 1097,
+                "opponent_battle_points": 79,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 6,
+            "name": "John Hsieh",
+            "primary_faction": "Necrons",
+            "relegation_status": "Safe",
+            "poty_points": 11,
+            "wins": 2,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 2278,
+            "games_played": 3,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Kevin Kiefer",
+                "scheduled_opponent_name": "Kevin Kiefer",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Evan Berry",
+                "scheduled_opponent_name": "Evan Berry",
+                "score": 100,
+                "opponent_score": 46,
+                "battle_points": 1100,
+                "opponent_battle_points": 46,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Seth Gonzalez",
+                "scheduled_opponent_name": "Seth Gonzalez",
+                "score": 98,
+                "opponent_score": 74,
+                "battle_points": 1098,
+                "opponent_battle_points": 74,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Cory Daniel",
+                "scheduled_opponent_name": "Cory Daniel",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Hans Lieber",
+                "scheduled_opponent_name": "Hans Lieber",
+                "score": 80,
+                "opponent_score": 86,
+                "battle_points": 80,
+                "opponent_battle_points": 1086,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 7,
+            "name": "Evan Berry",
+            "primary_faction": "Black Templars",
+            "relegation_status": "Safe",
+            "poty_points": 9,
+            "wins": 1,
+            "losses": 4,
+            "draws": 0,
+            "battle_points": 1306,
+            "games_played": 5,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Seth Gonzalez",
+                "scheduled_opponent_name": "Seth Gonzalez",
+                "score": 67,
+                "opponent_score": 82,
+                "battle_points": 67,
+                "opponent_battle_points": 1082,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "John Hsieh",
+                "scheduled_opponent_name": "John Hsieh",
+                "score": 46,
+                "opponent_score": 100,
+                "battle_points": 46,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Hans Lieber",
+                "scheduled_opponent_name": "Hans Lieber",
+                "score": 23,
+                "opponent_score": 100,
+                "battle_points": 23,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "David Gomes",
+                "scheduled_opponent_name": "David Gomes",
+                "score": 93,
+                "opponent_score": 48,
+                "battle_points": 1093,
+                "opponent_battle_points": 48,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Victor Campos",
+                "scheduled_opponent_name": "Victor Campos",
+                "score": 77,
+                "opponent_score": 89,
+                "battle_points": 77,
+                "opponent_battle_points": 1089,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 8,
+            "name": "David Gomes",
+            "primary_faction": "Dark Angels",
+            "relegation_status": "Safe",
+            "poty_points": 8,
+            "wins": 1,
+            "losses": 4,
+            "draws": 0,
+            "battle_points": 1261,
+            "games_played": 5,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Jean Evora",
+                "scheduled_opponent_name": "Jean Evora",
+                "score": 49,
+                "opponent_score": 97,
+                "battle_points": 49,
+                "opponent_battle_points": 1097,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Jeremy Mellor",
+                "scheduled_opponent_name": "Jeremy Mellor",
+                "score": 81,
+                "opponent_score": 76,
+                "battle_points": 1081,
+                "opponent_battle_points": 76,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Kevin Kiefer",
+                "scheduled_opponent_name": "Kevin Kiefer",
+                "score": 50,
+                "opponent_score": 95,
+                "battle_points": 50,
+                "opponent_battle_points": 1095,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Evan Berry",
+                "scheduled_opponent_name": "Evan Berry",
+                "score": 48,
+                "opponent_score": 93,
+                "battle_points": 48,
+                "opponent_battle_points": 1093,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Seth Gonzalez",
+                "scheduled_opponent_name": "Seth Gonzalez",
+                "score": 33,
+                "opponent_score": 100,
+                "battle_points": 33,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 9,
+            "name": "Cory Daniel",
+            "primary_faction": "Leagues of Votann",
+            "relegation_status": "Yellow Card (<3 GP)",
+            "poty_points": 4,
+            "wins": 1,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 1141,
+            "games_played": 2,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Victor Campos",
+                "scheduled_opponent_name": "Victor Campos",
+                "score": 71,
+                "opponent_score": 95,
+                "battle_points": 71,
+                "opponent_battle_points": 1095,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Seth Gonzalez",
+                "scheduled_opponent_name": "Seth Gonzalez",
+                "score": 70,
+                "opponent_score": 68,
+                "battle_points": 1070,
+                "opponent_battle_points": 68,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Jean Evora",
+                "scheduled_opponent_name": "Jean Evora",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "John Hsieh",
+                "scheduled_opponent_name": "John Hsieh",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Jeremy Mellor",
+                "scheduled_opponent_name": "Jeremy Mellor",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 10,
+            "name": "Jeremy Mellor",
+            "primary_faction": "Black Templars",
+            "relegation_status": "Relegation (-1 POD)",
+            "poty_points": 5,
+            "wins": 0,
+            "losses": 4,
+            "draws": 0,
+            "battle_points": 244,
+            "games_played": 4,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Hans Lieber",
+                "scheduled_opponent_name": "Hans Lieber",
+                "score": 43,
+                "opponent_score": 95,
+                "battle_points": 43,
+                "opponent_battle_points": 1095,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "David Gomes",
+                "scheduled_opponent_name": "David Gomes",
+                "score": 76,
+                "opponent_score": 81,
+                "battle_points": 76,
+                "opponent_battle_points": 1081,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Victor Campos",
+                "scheduled_opponent_name": "Victor Campos",
+                "score": 62,
+                "opponent_score": 92,
+                "battle_points": 62,
+                "opponent_battle_points": 1092,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Jean Evora",
+                "scheduled_opponent_name": "Jean Evora",
+                "score": 63,
+                "opponent_score": 99,
+                "battle_points": 63,
+                "opponent_battle_points": 1099,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Cory Daniel",
+                "scheduled_opponent_name": "Cory Daniel",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "pod_number": 3,
+        "name": "Pod 3 - Blooded",
+        "tier": "Division 3 (Blooded)",
+        "completion_rate": "72%",
+        "round_layouts": [
+          "GW Layout 1",
+          "GW Layout 2",
+          "GW Layout 3",
+          "GW Layout 4",
+          "GW Layout 5"
+        ],
+        "player_count": 10,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "Aaron Lopez",
+            "primary_faction": "Emperor's Children",
+            "relegation_status": "Promote (+1 POD)",
+            "poty_points": 22,
+            "wins": 5,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 5498,
+            "games_played": 5,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Alberto Brambila",
+                "scheduled_opponent_name": "Alberto Brambila",
+                "score": 100,
+                "opponent_score": 36,
+                "battle_points": 1100,
+                "opponent_battle_points": 36,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Connor Sweeney",
+                "scheduled_opponent_name": "Connor Sweeney",
+                "score": 98,
+                "opponent_score": 28,
+                "battle_points": 1098,
+                "opponent_battle_points": 28,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Ouhyan Lee",
+                "scheduled_opponent_name": "Ouhyan Lee",
+                "score": 100,
+                "opponent_score": 53,
+                "battle_points": 1100,
+                "opponent_battle_points": 53,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Tim Gorodnitski",
+                "scheduled_opponent_name": "Tim Gorodnitski",
+                "score": 100,
+                "opponent_score": 54,
+                "battle_points": 1100,
+                "opponent_battle_points": 54,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Garett Turner",
+                "scheduled_opponent_name": "Garett Turner",
+                "score": 100,
+                "opponent_score": 47,
+                "battle_points": 1100,
+                "opponent_battle_points": 47,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 2,
+            "name": "Alberto Brambila",
+            "primary_faction": "Aeldari",
+            "relegation_status": "Promote (+1 POD)",
+            "poty_points": 18,
+            "wins": 4,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 4406,
+            "games_played": 5,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Aaron Lopez",
+                "scheduled_opponent_name": "Aaron Lopez",
+                "score": 36,
+                "opponent_score": 100,
+                "battle_points": 36,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Vivian Vu",
+                "scheduled_opponent_name": "Vivian Vu",
+                "score": 93,
+                "opponent_score": 89,
+                "battle_points": 1093,
+                "opponent_battle_points": 89,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Tommy Nichols",
+                "scheduled_opponent_name": "Tommy Nichols",
+                "score": 98,
+                "opponent_score": 88,
+                "battle_points": 1098,
+                "opponent_battle_points": 88,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Eddie Galvan",
+                "scheduled_opponent_name": "Eddie Galvan",
+                "score": 90,
+                "opponent_score": 89,
+                "battle_points": 1090,
+                "opponent_battle_points": 89,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Connor Sweeney",
+                "scheduled_opponent_name": "Connor Sweeney",
+                "score": 89,
+                "opponent_score": 85,
+                "battle_points": 1089,
+                "opponent_battle_points": 85,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 3,
+            "name": "Seth Stewart",
+            "primary_faction": "Space Wolves",
+            "relegation_status": "Safe",
+            "poty_points": 14,
+            "wins": 2,
+            "losses": 3,
+            "draws": 0,
+            "battle_points": 2316,
+            "games_played": 5,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Connor Sweeney",
+                "scheduled_opponent_name": "Connor Sweeney",
+                "score": 70,
+                "opponent_score": 75,
+                "battle_points": 70,
+                "opponent_battle_points": 1075,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Ouhyan Lee",
+                "scheduled_opponent_name": "Ouhyan Lee",
+                "score": 42,
+                "opponent_score": 100,
+                "battle_points": 42,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Tim Gorodnitski",
+                "scheduled_opponent_name": "Tim Gorodnitski",
+                "score": 69,
+                "opponent_score": 57,
+                "battle_points": 1069,
+                "opponent_battle_points": 57,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Garett Turner",
+                "scheduled_opponent_name": "Garett Turner",
+                "score": 51,
+                "opponent_score": 100,
+                "battle_points": 51,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Eddie Galvan",
+                "scheduled_opponent_name": "Eddie Galvan",
+                "score": 84,
+                "opponent_score": 79,
+                "battle_points": 1084,
+                "opponent_battle_points": 79,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 4,
+            "name": "Garett Turner",
+            "primary_faction": "Dark Angels",
+            "relegation_status": "Safe",
+            "poty_points": 12,
+            "wins": 2,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 2247,
+            "games_played": 3,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Ouhyan Lee",
+                "scheduled_opponent_name": "Ouhyan Lee",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Tim Gorodnitski",
+                "scheduled_opponent_name": "Tim Gorodnitski",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Eddie Galvan",
+                "scheduled_opponent_name": "Eddie Galvan",
+                "score": 100,
+                "opponent_score": 59,
+                "battle_points": 1100,
+                "opponent_battle_points": 59,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Seth Stewart",
+                "scheduled_opponent_name": "Seth Stewart",
+                "score": 100,
+                "opponent_score": 51,
+                "battle_points": 1100,
+                "opponent_battle_points": 51,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Aaron Lopez",
+                "scheduled_opponent_name": "Aaron Lopez",
+                "score": 47,
+                "opponent_score": 100,
+                "battle_points": 47,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 5,
+            "name": "Ouhyan Lee",
+            "primary_faction": "Tyranids",
+            "relegation_status": "Safe",
+            "poty_points": 11,
+            "wins": 2,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 2214,
+            "games_played": 3,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Garett Turner",
+                "scheduled_opponent_name": "Garett Turner",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Seth Stewart",
+                "scheduled_opponent_name": "Seth Stewart",
+                "score": 100,
+                "opponent_score": 42,
+                "battle_points": 1100,
+                "opponent_battle_points": 42,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Aaron Lopez",
+                "scheduled_opponent_name": "Aaron Lopez",
+                "score": 53,
+                "opponent_score": 100,
+                "battle_points": 53,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Vivian Vu",
+                "scheduled_opponent_name": "Vivian Vu",
+                "score": 61,
+                "opponent_score": 50,
+                "battle_points": 1061,
+                "opponent_battle_points": 50,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Tommy Nichols",
+                "scheduled_opponent_name": "Tommy Nichols",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 6,
+            "name": "Vivian Vu",
+            "primary_faction": "Thousand Sons",
+            "relegation_status": "Safe",
+            "poty_points": 9,
+            "wins": 1,
+            "losses": 2,
+            "draws": 0,
+            "battle_points": 1233,
+            "games_played": 3,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Tommy Nichols",
+                "scheduled_opponent_name": "Tommy Nichols",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Alberto Brambila",
+                "scheduled_opponent_name": "Alberto Brambila",
+                "score": 89,
+                "opponent_score": 93,
+                "battle_points": 89,
+                "opponent_battle_points": 1093,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Connor Sweeney",
+                "scheduled_opponent_name": "Connor Sweeney",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Ouhyan Lee",
+                "scheduled_opponent_name": "Ouhyan Lee",
+                "score": 50,
+                "opponent_score": 61,
+                "battle_points": 50,
+                "opponent_battle_points": 1061,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Tim Gorodnitski",
+                "scheduled_opponent_name": "Tim Gorodnitski",
+                "score": 94,
+                "opponent_score": 50,
+                "battle_points": 1094,
+                "opponent_battle_points": 50,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 7,
+            "name": "Connor Sweeney",
+            "primary_faction": "Adeptus Mechanicus",
+            "relegation_status": "Safe",
+            "poty_points": 8,
+            "wins": 1,
+            "losses": 2,
+            "draws": 0,
+            "battle_points": 1188,
+            "games_played": 3,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Seth Stewart",
+                "scheduled_opponent_name": "Seth Stewart",
+                "score": 75,
+                "opponent_score": 70,
+                "battle_points": 1075,
+                "opponent_battle_points": 70,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Aaron Lopez",
+                "scheduled_opponent_name": "Aaron Lopez",
+                "score": 28,
+                "opponent_score": 98,
+                "battle_points": 28,
+                "opponent_battle_points": 1098,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Vivian Vu",
+                "scheduled_opponent_name": "Vivian Vu",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Tommy Nichols",
+                "scheduled_opponent_name": "Tommy Nichols",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Alberto Brambila",
+                "scheduled_opponent_name": "Alberto Brambila",
+                "score": 85,
+                "opponent_score": 89,
+                "battle_points": 85,
+                "opponent_battle_points": 1089,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 8,
+            "name": "Tommy Nichols",
+            "primary_faction": "Emperor's Children",
+            "relegation_status": "Yellow Card (<3 GP)",
+            "poty_points": 6,
+            "wins": 1,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 1187,
+            "games_played": 2,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Vivian Vu",
+                "scheduled_opponent_name": "Vivian Vu",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Eddie Galvan",
+                "scheduled_opponent_name": "Eddie Galvan",
+                "score": 99,
+                "opponent_score": 34,
+                "battle_points": 1099,
+                "opponent_battle_points": 34,
+                "result": "W",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Alberto Brambila",
+                "scheduled_opponent_name": "Alberto Brambila",
+                "score": 88,
+                "opponent_score": 98,
+                "battle_points": 88,
+                "opponent_battle_points": 1098,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Connor Sweeney",
+                "scheduled_opponent_name": "Connor Sweeney",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Ouhyan Lee",
+                "scheduled_opponent_name": "Ouhyan Lee",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 9,
+            "name": "Eddie Galvan",
+            "primary_faction": "Deathwatch",
+            "relegation_status": "Safe",
+            "poty_points": 5,
+            "wins": 0,
+            "losses": 4,
+            "draws": 0,
+            "battle_points": 261,
+            "games_played": 4,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Tim Gorodnitski",
+                "scheduled_opponent_name": "Tim Gorodnitski",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Tommy Nichols",
+                "scheduled_opponent_name": "Tommy Nichols",
+                "score": 34,
+                "opponent_score": 99,
+                "battle_points": 34,
+                "opponent_battle_points": 1099,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Garett Turner",
+                "scheduled_opponent_name": "Garett Turner",
+                "score": 59,
+                "opponent_score": 100,
+                "battle_points": 59,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Alberto Brambila",
+                "scheduled_opponent_name": "Alberto Brambila",
+                "score": 89,
+                "opponent_score": 90,
+                "battle_points": 89,
+                "opponent_battle_points": 1090,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Seth Stewart",
+                "scheduled_opponent_name": "Seth Stewart",
+                "score": 79,
+                "opponent_score": 84,
+                "battle_points": 79,
+                "opponent_battle_points": 1084,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          },
+          {
+            "rank": 10,
+            "name": "Tim Gorodnitski",
+            "primary_faction": "Imperial Knights",
+            "relegation_status": "Safe",
+            "poty_points": 4,
+            "wins": 0,
+            "losses": 3,
+            "draws": 0,
+            "battle_points": 161,
+            "games_played": 3,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "GW Layout 1",
+                "opponent_name": "Eddie Galvan",
+                "scheduled_opponent_name": "Eddie Galvan",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "GW Layout 2",
+                "opponent_name": "Garett Turner",
+                "scheduled_opponent_name": "Garett Turner",
+                "score": null,
+                "opponent_score": null,
+                "battle_points": 0,
+                "opponent_battle_points": 0,
+                "result": null,
+                "is_completed": false,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 3,
+                "layout": "GW Layout 3",
+                "opponent_name": "Seth Stewart",
+                "scheduled_opponent_name": "Seth Stewart",
+                "score": 57,
+                "opponent_score": 69,
+                "battle_points": 57,
+                "opponent_battle_points": 1069,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 4,
+                "layout": "GW Layout 4",
+                "opponent_name": "Aaron Lopez",
+                "scheduled_opponent_name": "Aaron Lopez",
+                "score": 54,
+                "opponent_score": 100,
+                "battle_points": 54,
+                "opponent_battle_points": 1100,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              },
+              {
+                "round": 5,
+                "layout": "GW Layout 5",
+                "opponent_name": "Vivian Vu",
+                "scheduled_opponent_name": "Vivian Vu",
+                "score": 50,
+                "opponent_score": 94,
+                "battle_points": 50,
+                "opponent_battle_points": 1094,
+                "result": "L",
+                "is_completed": true,
+                "is_ringer": false,
+                "scorecard_id": null
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "historical_seasons": [
+    {
+      "season_number": 4,
+      "name": "Season 4 (Mar 30 \u2013 Jun 8)",
+      "status": "completed",
+      "total_players": 28,
+      "total_pods": 3,
+      "pod_champion": "Jake Jesionowski",
+      "pod_champion_faction": "Necrons"
+    },
+    {
+      "season_number": 3,
+      "name": "Season 3 (Jan 5 \u2013 Mar 16)",
+      "status": "completed",
+      "total_players": 26,
+      "total_pods": 3,
+      "pod_champion": "Joaquin Ruiz",
+      "pod_champion_faction": "Chaos Space Marines"
+    },
+    {
+      "season_number": 2,
+      "name": "Season 2 (Oct 10 \u2013 Dec 22)",
+      "status": "completed",
+      "total_players": 24,
+      "total_pods": 3,
+      "pod_champion": "Devin Pamintuan",
+      "pod_champion_faction": "T'au Empire"
+    },
+    {
+      "season_number": 1,
+      "name": "Season 1 (Aug 4 \u2013 Sep 29)",
+      "status": "completed",
+      "total_players": 24,
+      "total_pods": 3,
+      "pod_champion": "Hans Lieber",
+      "pod_champion_faction": "Death Guard"
+    }
+  ],
+  "player_career_histories": {
+    "Joaquin Ruiz": {
+      "total_seasons": 4,
+      "total_games": 20,
+      "record": "18W - 2L - 0D",
+      "win_rate": "90%",
+      "pod_titles": 2,
+      "championships": 1,
+      "finals_wins": 5,
+      "finals_appearances": 3,
+      "best_pod": "Pod 1",
+      "factions_played": [
+        "Chaos Space Marines"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 1,
+          "primary_faction": "Chaos Space Marines",
+          "record": "5-0-0",
+          "battle_points": 5423,
+          "relegation": "Pod Champion"
+        }
+      ]
+    },
+    "Devin Pamintuan": {
+      "total_seasons": 4,
+      "total_games": 19,
+      "record": "15W - 4L - 0D",
+      "win_rate": "79%",
+      "pod_titles": 2,
+      "championships": 1,
+      "finals_wins": 5,
+      "finals_appearances": 3,
+      "best_pod": "Pod 1",
+      "factions_played": [
+        "T'au Empire"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 1,
+          "primary_faction": "T'au Empire",
+          "record": "3-1-0",
+          "battle_points": 3318,
+          "relegation": "Prizing Tier"
+        }
+      ]
+    },
+    "Jake Jesionowski": {
+      "total_seasons": 4,
+      "total_games": 19,
+      "record": "16W - 3L - 0D",
+      "win_rate": "84%",
+      "pod_titles": 2,
+      "championships": 1,
+      "finals_wins": 5,
+      "finals_appearances": 3,
+      "best_pod": "Pod 1",
+      "factions_played": [
+        "Necrons"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 1,
+          "primary_faction": "Necrons",
+          "record": "2-2-0",
+          "battle_points": 2331,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Adam Funk": {
+      "total_seasons": 4,
+      "total_games": 18,
+      "record": "12W - 6L - 0D",
+      "win_rate": "67%",
+      "pod_titles": 1,
+      "championships": 0,
+      "finals_wins": 1,
+      "finals_appearances": 1,
+      "best_pod": "Pod 1",
+      "factions_played": [
+        "Adepta Sororitas"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 1,
+          "primary_faction": "Adepta Sororitas",
+          "record": "2-1-0",
+          "battle_points": 2262,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Nathan Carnes": {
+      "total_seasons": 4,
+      "total_games": 18,
+      "record": "11W - 7L - 0D",
+      "win_rate": "61%",
+      "pod_titles": 1,
+      "championships": 0,
+      "finals_wins": 1,
+      "finals_appearances": 1,
+      "best_pod": "Pod 1",
+      "factions_played": [
+        "Grey Knights"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 1,
+          "primary_faction": "Grey Knights",
+          "record": "2-1-0",
+          "battle_points": 2171,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Joe Bravo": {
+      "total_seasons": 2,
+      "total_games": 9,
+      "record": "5W - 4L - 0D",
+      "win_rate": "56%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 1",
+      "factions_played": [
+        "World Eaters"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 1,
+          "primary_faction": "World Eaters",
+          "record": "1-3-0",
+          "battle_points": 1254,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Angel Perez": {
+      "total_seasons": 2,
+      "total_games": 9,
+      "record": "4W - 5L - 0D",
+      "win_rate": "44%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 1",
+      "factions_played": [
+        "World Eaters"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 1,
+          "primary_faction": "World Eaters",
+          "record": "0-4-0",
+          "battle_points": 202,
+          "relegation": "Relegation (-1 POD)"
+        }
+      ]
+    },
+    "Marc Torres": {
+      "total_seasons": 2,
+      "total_games": 8,
+      "record": "4W - 4L - 0D",
+      "win_rate": "50%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 1",
+      "factions_played": [
+        "Leagues of Votann"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 1,
+          "primary_faction": "Leagues of Votann",
+          "record": "0-3-0",
+          "battle_points": 149,
+          "relegation": "Relegation (-1 POD)"
+        }
+      ]
+    },
+    "Victor Campos": {
+      "total_seasons": 3,
+      "total_games": 15,
+      "record": "14W - 1L - 0D",
+      "win_rate": "93%",
+      "pod_titles": 2,
+      "championships": 0,
+      "finals_wins": 2,
+      "finals_appearances": 2,
+      "best_pod": "Pod 2",
+      "factions_played": [
+        "Chaos Space Marines"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 2,
+          "primary_faction": "Chaos Space Marines",
+          "record": "5-0-0",
+          "battle_points": 5459,
+          "relegation": "Promote (+1 POD)"
+        }
+      ]
+    },
+    "Hans Lieber": {
+      "total_seasons": 4,
+      "total_games": 20,
+      "record": "16W - 4L - 0D",
+      "win_rate": "80%",
+      "pod_titles": 2,
+      "championships": 1,
+      "finals_wins": 5,
+      "finals_appearances": 3,
+      "best_pod": "Pod 2",
+      "factions_played": [
+        "Death Guard"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 2,
+          "primary_faction": "Death Guard",
+          "record": "4-1-0",
+          "battle_points": 4429,
+          "relegation": "Promote (+1 POD)"
+        }
+      ]
+    },
+    "Seth Gonzalez": {
+      "total_seasons": 2,
+      "total_games": 10,
+      "record": "7W - 3L - 0D",
+      "win_rate": "70%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 2",
+      "factions_played": [
+        "Necrons"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 2,
+          "primary_faction": "Necrons",
+          "record": "3-2-0",
+          "battle_points": 3382,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Jean Evora": {
+      "total_seasons": 2,
+      "total_games": 9,
+      "record": "6W - 3L - 0D",
+      "win_rate": "67%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 2",
+      "factions_played": [
+        "T'au Empire"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 2,
+          "primary_faction": "T'au Empire",
+          "record": "2-2-0",
+          "battle_points": 2364,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Kevin Kiefer": {
+      "total_seasons": 2,
+      "total_games": 9,
+      "record": "6W - 3L - 0D",
+      "win_rate": "67%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 2",
+      "factions_played": [
+        "Blood Angels"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 2,
+          "primary_faction": "Blood Angels",
+          "record": "2-2-0",
+          "battle_points": 2283,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "John Hsieh": {
+      "total_seasons": 3,
+      "total_games": 13,
+      "record": "9W - 4L - 0D",
+      "win_rate": "69%",
+      "pod_titles": 1,
+      "championships": 0,
+      "finals_wins": 1,
+      "finals_appearances": 1,
+      "best_pod": "Pod 2",
+      "factions_played": [
+        "Necrons"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 2,
+          "primary_faction": "Necrons",
+          "record": "2-1-0",
+          "battle_points": 2278,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Evan Berry": {
+      "total_seasons": 2,
+      "total_games": 10,
+      "record": "5W - 5L - 0D",
+      "win_rate": "50%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 2",
+      "factions_played": [
+        "Black Templars"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 2,
+          "primary_faction": "Black Templars",
+          "record": "1-4-0",
+          "battle_points": 1306,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "David Gomes": {
+      "total_seasons": 2,
+      "total_games": 10,
+      "record": "5W - 5L - 0D",
+      "win_rate": "50%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 2",
+      "factions_played": [
+        "Dark Angels"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 2,
+          "primary_faction": "Dark Angels",
+          "record": "1-4-0",
+          "battle_points": 1261,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Cory Daniel": {
+      "total_seasons": 2,
+      "total_games": 7,
+      "record": "5W - 2L - 0D",
+      "win_rate": "71%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 2",
+      "factions_played": [
+        "Leagues of Votann"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 2,
+          "primary_faction": "Leagues of Votann",
+          "record": "1-1-0",
+          "battle_points": 1141,
+          "relegation": "Yellow Card (<3 GP)"
+        }
+      ]
+    },
+    "Jeremy Mellor": {
+      "total_seasons": 2,
+      "total_games": 9,
+      "record": "4W - 5L - 0D",
+      "win_rate": "44%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 2",
+      "factions_played": [
+        "Black Templars"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 2,
+          "primary_faction": "Black Templars",
+          "record": "0-4-0",
+          "battle_points": 244,
+          "relegation": "Relegation (-1 POD)"
+        }
+      ]
+    },
+    "Aaron Lopez": {
+      "total_seasons": 2,
+      "total_games": 10,
+      "record": "9W - 1L - 0D",
+      "win_rate": "90%",
+      "pod_titles": 1,
+      "championships": 0,
+      "finals_wins": 1,
+      "finals_appearances": 1,
+      "best_pod": "Pod 3",
+      "factions_played": [
+        "Emperor's Children"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 3,
+          "primary_faction": "Emperor's Children",
+          "record": "5-0-0",
+          "battle_points": 5498,
+          "relegation": "Promote (+1 POD)"
+        }
+      ]
+    },
+    "Alberto Brambila": {
+      "total_seasons": 2,
+      "total_games": 10,
+      "record": "8W - 2L - 0D",
+      "win_rate": "80%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 3",
+      "factions_played": [
+        "Aeldari"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 3,
+          "primary_faction": "Aeldari",
+          "record": "4-1-0",
+          "battle_points": 4406,
+          "relegation": "Promote (+1 POD)"
+        }
+      ]
+    },
+    "Seth Stewart": {
+      "total_seasons": 2,
+      "total_games": 10,
+      "record": "6W - 4L - 0D",
+      "win_rate": "60%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 3",
+      "factions_played": [
+        "Space Wolves"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 3,
+          "primary_faction": "Space Wolves",
+          "record": "2-3-0",
+          "battle_points": 2316,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Garett Turner": {
+      "total_seasons": 2,
+      "total_games": 8,
+      "record": "6W - 2L - 0D",
+      "win_rate": "75%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 3",
+      "factions_played": [
+        "Dark Angels"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 3,
+          "primary_faction": "Dark Angels",
+          "record": "2-1-0",
+          "battle_points": 2247,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Ouhyan Lee": {
+      "total_seasons": 2,
+      "total_games": 8,
+      "record": "6W - 2L - 0D",
+      "win_rate": "75%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 3",
+      "factions_played": [
+        "Tyranids"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 3,
+          "primary_faction": "Tyranids",
+          "record": "2-1-0",
+          "battle_points": 2214,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Vivian Vu": {
+      "total_seasons": 2,
+      "total_games": 8,
+      "record": "5W - 3L - 0D",
+      "win_rate": "62%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 3",
+      "factions_played": [
+        "Thousand Sons"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 3,
+          "primary_faction": "Thousand Sons",
+          "record": "1-2-0",
+          "battle_points": 1233,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Connor Sweeney": {
+      "total_seasons": 2,
+      "total_games": 8,
+      "record": "5W - 3L - 0D",
+      "win_rate": "62%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 3",
+      "factions_played": [
+        "Adeptus Mechanicus"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 3,
+          "primary_faction": "Adeptus Mechanicus",
+          "record": "1-2-0",
+          "battle_points": 1188,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Tommy Nichols": {
+      "total_seasons": 2,
+      "total_games": 7,
+      "record": "5W - 2L - 0D",
+      "win_rate": "71%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 3",
+      "factions_played": [
+        "Emperor's Children"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 3,
+          "primary_faction": "Emperor's Children",
+          "record": "1-1-0",
+          "battle_points": 1187,
+          "relegation": "Yellow Card (<3 GP)"
+        }
+      ]
+    },
+    "Eddie Galvan": {
+      "total_seasons": 2,
+      "total_games": 9,
+      "record": "4W - 5L - 0D",
+      "win_rate": "44%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 3",
+      "factions_played": [
+        "Deathwatch"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 3,
+          "primary_faction": "Deathwatch",
+          "record": "0-4-0",
+          "battle_points": 261,
+          "relegation": "Safe"
+        }
+      ]
+    },
+    "Tim Gorodnitski": {
+      "total_seasons": 2,
+      "total_games": 8,
+      "record": "4W - 4L - 0D",
+      "win_rate": "50%",
+      "pod_titles": 0,
+      "championships": 0,
+      "finals_wins": 0,
+      "finals_appearances": 1,
+      "best_pod": "Pod 3",
+      "factions_played": [
+        "Imperial Knights"
+      ],
+      "history": [
+        {
+          "season_number": 5,
+          "pod_number": 3,
+          "primary_faction": "Imperial Knights",
+          "record": "0-3-0",
+          "battle_points": 161,
+          "relegation": "Safe"
+        }
+      ]
+    }
+  },
+  "hall_of_fame": {
+    "finals_champions": [
+      {
+        "season_label": "Season 4 (Spring 2026)",
+        "year": 2026,
+        "champion": "Jake Jesionowski",
+        "champion_faction": "Necrons",
+        "runner_up": "Joaquin Ruiz",
+        "runner_up_faction": "Chaos Space Marines",
+        "notes": "Pod 1 (Avatars of War) Champion \u2014 5-0 Undefeated Run"
+      },
+      {
+        "season_label": "Season 3 (Winter 2026)",
+        "year": 2026,
+        "champion": "Joaquin Ruiz",
+        "champion_faction": "Chaos Space Marines",
+        "runner_up": "Adam Funk",
+        "runner_up_faction": "Imperial Knights",
+        "notes": "Pod 1 (Avatars of War) Champion \u2014 Store Credit Top Prize"
+      },
+      {
+        "season_label": "Season 2 (Fall 2025)",
+        "year": 2025,
+        "champion": "Devin Pamintuan",
+        "champion_faction": "T'au Empire",
+        "runner_up": "Nathan Carnes",
+        "runner_up_faction": "Aeldari",
+        "notes": "Pod 1 (Avatars of War) Champion \u2014 Brute Force Games"
+      },
+      {
+        "season_label": "Season 1 (Summer 2025)",
+        "year": 2025,
+        "champion": "Hans Lieber",
+        "champion_faction": "Death Guard",
+        "runner_up": "Jake Jesionowski",
+        "runner_up_faction": "Necrons",
+        "notes": "Inaugural Gauntlet League Champion @ Brute Force Games"
+      }
+    ],
+    "leaderboards": {
+      "titles_and_champs": {
+        "key": "titles_and_champs",
+        "title": "Most Pod Titles & League Championships",
+        "records": [
+          {
+            "player_name": "Joaquin Ruiz",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 20,
+            "league_wins": 18,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 1
+          },
+          {
+            "player_name": "Jake Jesionowski",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 19,
+            "league_wins": 16,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 2
+          },
+          {
+            "player_name": "Hans Lieber",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 20,
+            "league_wins": 16,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 3
+          },
+          {
+            "player_name": "Devin Pamintuan",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 19,
+            "league_wins": 15,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 4
+          },
+          {
+            "player_name": "Victor Campos",
+            "pod_titles": 2,
+            "league_championships": 0,
+            "games_played": 15,
+            "league_wins": 14,
+            "finals_wins": 2,
+            "appearances": 2,
+            "seasons": 3,
+            "rank": 5
+          },
+          {
+            "player_name": "Adam Funk",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 18,
+            "league_wins": 12,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 4,
+            "rank": 6
+          },
+          {
+            "player_name": "Nathan Carnes",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 18,
+            "league_wins": 11,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 4,
+            "rank": 7
+          },
+          {
+            "player_name": "John Hsieh",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 13,
+            "league_wins": 9,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 3,
+            "rank": 8
+          },
+          {
+            "player_name": "Aaron Lopez",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 9,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 9
+          },
+          {
+            "player_name": "Alberto Brambila",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 8,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 10
+          },
+          {
+            "player_name": "Seth Gonzalez",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 7,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 11
+          },
+          {
+            "player_name": "Jean Evora",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 9,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 12
+          },
+          {
+            "player_name": "Kevin Kiefer",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 9,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 13
+          },
+          {
+            "player_name": "Seth Stewart",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 14
+          },
+          {
+            "player_name": "Garett Turner",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 8,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 15
+          }
+        ]
+      },
+      "most_games": {
+        "key": "most_games",
+        "title": "Most Games Played",
+        "records": [
+          {
+            "player_name": "Joaquin Ruiz",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 20,
+            "league_wins": 18,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 1
+          },
+          {
+            "player_name": "Hans Lieber",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 20,
+            "league_wins": 16,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 2
+          },
+          {
+            "player_name": "Jake Jesionowski",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 19,
+            "league_wins": 16,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 3
+          },
+          {
+            "player_name": "Devin Pamintuan",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 19,
+            "league_wins": 15,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 4
+          },
+          {
+            "player_name": "Adam Funk",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 18,
+            "league_wins": 12,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 4,
+            "rank": 5
+          },
+          {
+            "player_name": "Nathan Carnes",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 18,
+            "league_wins": 11,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 4,
+            "rank": 6
+          },
+          {
+            "player_name": "Victor Campos",
+            "pod_titles": 2,
+            "league_championships": 0,
+            "games_played": 15,
+            "league_wins": 14,
+            "finals_wins": 2,
+            "appearances": 2,
+            "seasons": 3,
+            "rank": 7
+          },
+          {
+            "player_name": "John Hsieh",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 13,
+            "league_wins": 9,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 3,
+            "rank": 8
+          },
+          {
+            "player_name": "Aaron Lopez",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 9,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 9
+          },
+          {
+            "player_name": "Alberto Brambila",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 8,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 10
+          },
+          {
+            "player_name": "Seth Gonzalez",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 7,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 11
+          },
+          {
+            "player_name": "Seth Stewart",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 12
+          },
+          {
+            "player_name": "Evan Berry",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 5,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 13
+          },
+          {
+            "player_name": "David Gomes",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 5,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 14
+          },
+          {
+            "player_name": "Jean Evora",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 9,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 15
+          }
+        ]
+      },
+      "most_wins": {
+        "key": "most_wins",
+        "title": "Most League Season Wins",
+        "records": [
+          {
+            "player_name": "Joaquin Ruiz",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 20,
+            "league_wins": 18,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 1
+          },
+          {
+            "player_name": "Hans Lieber",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 20,
+            "league_wins": 16,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 2
+          },
+          {
+            "player_name": "Jake Jesionowski",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 19,
+            "league_wins": 16,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 3
+          },
+          {
+            "player_name": "Devin Pamintuan",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 19,
+            "league_wins": 15,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 4
+          },
+          {
+            "player_name": "Victor Campos",
+            "pod_titles": 2,
+            "league_championships": 0,
+            "games_played": 15,
+            "league_wins": 14,
+            "finals_wins": 2,
+            "appearances": 2,
+            "seasons": 3,
+            "rank": 5
+          },
+          {
+            "player_name": "Adam Funk",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 18,
+            "league_wins": 12,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 4,
+            "rank": 6
+          },
+          {
+            "player_name": "Nathan Carnes",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 18,
+            "league_wins": 11,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 4,
+            "rank": 7
+          },
+          {
+            "player_name": "John Hsieh",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 13,
+            "league_wins": 9,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 3,
+            "rank": 8
+          },
+          {
+            "player_name": "Aaron Lopez",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 9,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 9
+          },
+          {
+            "player_name": "Alberto Brambila",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 8,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 10
+          },
+          {
+            "player_name": "Seth Gonzalez",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 7,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 11
+          },
+          {
+            "player_name": "Seth Stewart",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 12
+          },
+          {
+            "player_name": "Jean Evora",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 9,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 13
+          },
+          {
+            "player_name": "Kevin Kiefer",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 9,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 14
+          },
+          {
+            "player_name": "Garett Turner",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 8,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 15
+          }
+        ]
+      },
+      "finals_wins": {
+        "key": "finals_wins",
+        "title": "Most Wins in Pod 1 (Avatars of War) & Championship Contests",
+        "records": [
+          {
+            "player_name": "Joaquin Ruiz",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 20,
+            "league_wins": 18,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 1
+          },
+          {
+            "player_name": "Jake Jesionowski",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 19,
+            "league_wins": 16,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 2
+          },
+          {
+            "player_name": "Hans Lieber",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 20,
+            "league_wins": 16,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 3
+          },
+          {
+            "player_name": "Devin Pamintuan",
+            "pod_titles": 2,
+            "league_championships": 1,
+            "games_played": 19,
+            "league_wins": 15,
+            "finals_wins": 5,
+            "appearances": 3,
+            "seasons": 4,
+            "rank": 4
+          },
+          {
+            "player_name": "Victor Campos",
+            "pod_titles": 2,
+            "league_championships": 0,
+            "games_played": 15,
+            "league_wins": 14,
+            "finals_wins": 2,
+            "appearances": 2,
+            "seasons": 3,
+            "rank": 5
+          },
+          {
+            "player_name": "Adam Funk",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 18,
+            "league_wins": 12,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 4,
+            "rank": 6
+          },
+          {
+            "player_name": "Nathan Carnes",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 18,
+            "league_wins": 11,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 4,
+            "rank": 7
+          },
+          {
+            "player_name": "John Hsieh",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 13,
+            "league_wins": 9,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 3,
+            "rank": 8
+          },
+          {
+            "player_name": "Aaron Lopez",
+            "pod_titles": 1,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 9,
+            "finals_wins": 1,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 9
+          },
+          {
+            "player_name": "Alberto Brambila",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 8,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 10
+          },
+          {
+            "player_name": "Seth Gonzalez",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 7,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 11
+          },
+          {
+            "player_name": "Jean Evora",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 9,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 12
+          },
+          {
+            "player_name": "Kevin Kiefer",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 9,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 13
+          },
+          {
+            "player_name": "Seth Stewart",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 10,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 14
+          },
+          {
+            "player_name": "Garett Turner",
+            "pod_titles": 0,
+            "league_championships": 0,
+            "games_played": 8,
+            "league_wins": 6,
+            "finals_wins": 0,
+            "appearances": 1,
+            "seasons": 2,
+            "rank": 15
+          }
+        ]
+      },
+      "faction_titles": {
+        "key": "faction_titles",
+        "title": "Most Pod Titles & Wins by Faction",
+        "records": [
+          {
+            "faction": "Chaos Space Marines",
+            "titles": 3,
+            "wins": 32,
+            "players": 2,
+            "rank": 1
+          },
+          {
+            "faction": "Necrons",
+            "titles": 1,
+            "wins": 32,
+            "players": 3,
+            "rank": 2
+          },
+          {
+            "faction": "T'au Empire",
+            "titles": 1,
+            "wins": 21,
+            "players": 2,
+            "rank": 3
+          },
+          {
+            "faction": "Death Guard",
+            "titles": 1,
+            "wins": 16,
+            "players": 1,
+            "rank": 4
+          },
+          {
+            "faction": "Emperor's Children",
+            "titles": 1,
+            "wins": 14,
+            "players": 2,
+            "rank": 5
+          },
+          {
+            "faction": "Adepta Sororitas",
+            "titles": 0,
+            "wins": 12,
+            "players": 1,
+            "rank": 6
+          },
+          {
+            "faction": "Dark Angels",
+            "titles": 0,
+            "wins": 11,
+            "players": 2,
+            "rank": 7
+          },
+          {
+            "faction": "Grey Knights",
+            "titles": 0,
+            "wins": 11,
+            "players": 1,
+            "rank": 8
+          },
+          {
+            "faction": "World Eaters",
+            "titles": 0,
+            "wins": 9,
+            "players": 2,
+            "rank": 9
+          },
+          {
+            "faction": "Leagues of Votann",
+            "titles": 0,
+            "wins": 9,
+            "players": 2,
+            "rank": 10
+          },
+          {
+            "faction": "Black Templars",
+            "titles": 0,
+            "wins": 9,
+            "players": 2,
+            "rank": 11
+          },
+          {
+            "faction": "Aeldari",
+            "titles": 0,
+            "wins": 8,
+            "players": 1,
+            "rank": 12
+          },
+          {
+            "faction": "Blood Angels",
+            "titles": 0,
+            "wins": 6,
+            "players": 1,
+            "rank": 13
+          },
+          {
+            "faction": "Space Wolves",
+            "titles": 0,
+            "wins": 6,
+            "players": 1,
+            "rank": 14
+          },
+          {
+            "faction": "Tyranids",
+            "titles": 0,
+            "wins": 6,
+            "players": 1,
+            "rank": 15
+          },
+          {
+            "faction": "Thousand Sons",
+            "titles": 0,
+            "wins": 5,
+            "players": 1,
+            "rank": 16
+          },
+          {
+            "faction": "Adeptus Mechanicus",
+            "titles": 0,
+            "wins": 5,
+            "players": 1,
+            "rank": 17
+          },
+          {
+            "faction": "Deathwatch",
+            "titles": 0,
+            "wins": 4,
+            "players": 1,
+            "rank": 18
+          },
+          {
+            "faction": "Imperial Knights",
+            "titles": 0,
+            "wins": 4,
+            "players": 1,
+            "rank": 19
+          }
+        ]
+      }
+    }
+  }
+}

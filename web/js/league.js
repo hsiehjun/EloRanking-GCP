@@ -24,7 +24,11 @@ async function openLeagueHubPage(leagueId = 'league_sd40k_big_league', gameSyste
   let rawId = (leagueId || 'league_sd40k_big_league').trim().toLowerCase();
   const cleanId = (rawId === 'sd40k' || rawId === 'lg_sd40k' || rawId === 'league_sd40k_big_league' || rawId === 'lg_sd40k_big_league')
     ? 'league_sd40k_big_league'
-    : rawId;
+    : ((rawId === 'gauntlet' || rawId === 'the_gauntlet' || rawId === 'league_the_gauntlet') ? 'the-gauntlet' : rawId);
+  if (leagueState.activeLeagueId !== cleanId) {
+    leagueState.activePodNumber = 1;
+    leagueState.activePairingRound = 'all';
+  }
   leagueState.activeLeagueId = cleanId;
   if (options.initialSubtab) {
     leagueState.activeSubtab = options.initialSubtab;
@@ -60,14 +64,26 @@ async function openLeagueHubPage(leagueId = 'league_sd40k_big_league', gameSyste
 /**
  * Loads league data from /api/league/{id}
  */
-async function loadLeagueData(leagueId) {
+async function loadLeagueData(leagueId, forceRefresh = false) {
   const container = document.getElementById('league-hub-container');
   if (!container) return;
 
   const cleanId = (leagueId || 'sd40k').replace(/^lg_/, '').toLowerCase();
   if (!leagueState._cache) leagueState._cache = {};
 
-  const cached = leagueState._cache[cleanId];
+  if (!leagueState.availableLeagues) {
+    fetch('/api/leagues')
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if (j && Array.isArray(j.leagues) && j.leagues.length) {
+          leagueState.availableLeagues = j.leagues;
+          if (leagueState.currentLeagueData) renderLeagueHub(leagueState.currentLeagueData);
+        }
+      })
+      .catch(() => {});
+  }
+
+  const cached = !forceRefresh && leagueState._cache[cleanId];
   if (cached && (Date.now() - cached.timestamp < 60000)) {
     leagueState.currentLeagueData = cached.data;
     renderLeagueHub(cached.data);
@@ -79,7 +95,7 @@ async function loadLeagueData(leagueId) {
     <div class="empty-state" style="padding: 4rem 1rem; text-align: center;">
       <div class="spinner"></div>
       <div style="margin-top: 1rem; font-weight: 600; color: var(--text-primary);">Loading League Hub for ${escapeHtml(cleanId.toUpperCase())}...</div>
-      <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">Fetching Season 38 Pods & Historical Records</div>
+      <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">Fetching Active Season Pods, Standings &amp; Hall of Fame Archives</div>
     </div>
   `;
 
@@ -109,12 +125,13 @@ async function loadLeagueData(leagueId) {
       leagueObj = getFallbackSd40kLeagueData();
     }
     if (!leagueObj) throw new Error('League not found');
+    const activeSeasonNum = parseInt(leagueObj.selected_season || leagueObj.active_season?.season_number || 1, 10) || 1;
     leagueState.currentLeagueData = leagueObj;
-    leagueState.currentLeagueData.selected_season = 38;
+    leagueState.currentLeagueData.selected_season = activeSeasonNum;
     leagueState.currentLeagueData.is_historical = false;
     leagueState._cache[cleanId] = { data: leagueObj, timestamp: Date.now() };
     if (!leagueState._seasonCache) leagueState._seasonCache = {};
-    leagueState._seasonCache[38] = leagueObj;
+    leagueState._seasonCache[`${cleanId}_${activeSeasonNum}`] = leagueObj;
     renderLeagueHub(leagueObj);
   } catch (err) {
     console.error('Error loading league data:', err);
@@ -200,34 +217,69 @@ function renderLeagueHub(league) {
   const actSeason = league.active_season || {};
   const pods = actSeason.pods || [];
   const currentPod = pods.find(p => p.pod_number === leagueState.activePodNumber) || pods[0] || {};
+  const methodology = league.methodology || {};
 
   const availableSeasons = (league.available_seasons && league.available_seasons.length > 0)
     ? league.available_seasons
-    : Array.from({ length: 38 }, (_, i) => {
-        const sNum = 38 - i;
-        return {
-          season_number: sNum,
-          name: `Season ${sNum}` + (sNum === 38 ? ' (Fall 2026)' : (sNum === 37 ? ' (Spring 2026)' : '')),
-          status: sNum === 38 ? 'active' : 'completed',
-          total_pods: sNum === 38 ? 8 : 7,
-          total_players: sNum === 38 ? 68 : 60
-        };
-      });
-  const currentSeasonNum = parseInt(league.selected_season || actSeason.season_number || 38, 10);
+    : [{
+        season_number: actSeason.season_number || 1,
+        name: actSeason.name || `Season ${actSeason.season_number || 1}`,
+        status: 'active',
+        total_pods: pods.length || 1,
+        total_players: actSeason.total_players || 8
+      }];
+  const currentSeasonNum = parseInt(league.selected_season || actSeason.season_number || 1, 10);
+  const totalSeasonsCount = availableSeasons.length || currentSeasonNum;
+  const activeSlug = (league.slug || league.league_id || 'sd40k').toLowerCase();
+  const isGauntlet = activeSlug.includes('gauntlet') || activeSlug.includes('7a9e4c1b');
+
+  const knownLeagues = (leagueState.availableLeagues && leagueState.availableLeagues.length > 0)
+    ? leagueState.availableLeagues
+    : [
+        { slug: 'sd40k', league_id: 'league_sd40k_big_league', name: 'San Diego Force Org (SD40K)', short_name: 'SD40K Big League', active_season_name: 'Season 38' },
+        { slug: 'the-gauntlet', league_id: 'the-gauntlet', name: 'The Gauntlet @ Brute Force Games', short_name: 'The Gauntlet', active_season_name: 'Season 5' }
+      ];
 
   container.innerHTML = `
+    <!-- Active League Switcher Bar -->
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; flex-wrap: wrap; margin-bottom: 0.85rem; padding: 0.6rem 0.85rem; background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(59, 130, 246, 0.28); border-radius: 10px;">
+      <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+        <span style="font-size: 0.72rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-right: 0.25rem;">Active Leagues:</span>
+        ${knownLeagues.map(item => {
+          const slugKey = (item.slug || item.league_id || '').toLowerCase();
+          const isCurrent = (slugKey === activeSlug) ||
+            (slugKey.includes('sd40k') && activeSlug.includes('sd40k')) ||
+            (slugKey.includes('gauntlet') && isGauntlet);
+          const icon = slugKey.includes('gauntlet') ? '⚔️' : '🛡️';
+          return `
+            <button type="button" onclick="openLeagueHubPage('${escapeHtml(item.slug || item.league_id)}', '40k', { replaceUrl: true })" style="padding: 0.38rem 0.8rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.15s ease; border: 1px solid ${isCurrent ? '#3b82f6' : 'rgba(255,255,255,0.12)'}; background: ${isCurrent ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : 'rgba(2, 6, 23, 0.6)'}; color: ${isCurrent ? '#fff' : '#cbd5e1'}; box-shadow: ${isCurrent ? '0 4px 12px rgba(37, 99, 235, 0.35)' : 'none'};">
+              ${icon} ${escapeHtml(item.short_name || item.name)}
+            </button>
+          `;
+        }).join('')}
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+        <button type="button" onclick="openConfigureLeagueModal('${escapeHtml(league.league_id || league.slug || 'sd40k')}')" class="btn btn-outline" style="font-size: 0.74rem; padding: 0.34rem 0.7rem; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700;">
+          ⚙️ Format &amp; Rules Config
+        </button>
+        <button type="button" onclick="openCopyLeagueTemplateModal()" class="btn btn-primary" style="font-size: 0.74rem; padding: 0.34rem 0.75rem; background: linear-gradient(135deg, #d97706, #b45309); border: 1px solid #f59e0b; font-weight: 700;">
+          + Create League
+        </button>
+      </div>
+    </div>
+
     <!-- League Hero Banner -->
     <div class="card" style="margin-bottom: 1.25rem; background: linear-gradient(135deg, rgba(30, 58, 138, 0.25) 0%, rgba(15, 23, 42, 0.8) 100%); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 1.25rem; position: relative; overflow: hidden;">
       <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
         <div style="display: flex; align-items: flex-start; gap: 1rem; flex: 1 1 440px; min-width: 0; max-width: 100%; flex-wrap: wrap;">
-          <div style="width: 64px; height: 64px; border-radius: 12px; background: linear-gradient(135deg, #2563eb, #1e40af); display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #fff; box-shadow: 0 8px 24px rgba(37, 99, 235, 0.4); flex-shrink: 0; border: 2px solid rgba(255, 255, 255, 0.15);">
-            🛡️
+          <div style="width: 64px; height: 64px; border-radius: 12px; background: ${isGauntlet ? 'linear-gradient(135deg, #b91c1c, #7f1d1d)' : 'linear-gradient(135deg, #2563eb, #1e40af)'}; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #fff; box-shadow: 0 8px 24px rgba(37, 99, 235, 0.4); flex-shrink: 0; border: 2px solid rgba(255, 255, 255, 0.15);">
+            ${isGauntlet ? '⚔️' : '🛡️'}
           </div>
           <div style="flex: 1 1 220px; min-width: 0; max-width: 100%;">
             <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.35rem; max-width: 100%;">
               <h1 style="margin: 0; font-size: clamp(1.25rem, 3.2vw, 1.65rem); font-weight: 800; color: #fff; letter-spacing: -0.02em; word-break: break-word;">${escapeHtml(league.name)}</h1>
               <span style="background: rgba(16, 185, 129, 0.16); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.38); padding: 3px 9px; border-radius: 999px; font-size: 0.74rem; font-weight: 800; letter-spacing: 0.03em;">
-                ⚡ ${escapeHtml(actSeason.name || 'Season 38 (Fall 2026)')} • Current Active Season
+                ⚡ ${escapeHtml(actSeason.name || `Season ${currentSeasonNum}`)} • Current Active Season
               </span>
             </div>
             <div style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 0.5rem; word-break: break-word;">
@@ -236,7 +288,7 @@ function renderLeagueHub(league) {
             <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; font-size: 0.78rem; color: #cbd5e1;">
               <span>📍 <strong>${escapeHtml(league.region || league.city || 'San Diego, CA')}</strong></span>
               <span>•</span>
-              <span>👔 Commissioners: <strong>${escapeHtml((league.commissioners || []).map(c => c.name.split(' ')[0]).join(' & ') || 'Coop & Ben')}</strong></span>
+              <span>👔 Commissioners: <strong>${escapeHtml((league.commissioners || []).map(c => c.name).join(' & ') || 'Coop & Ben')}</strong></span>
               <span>•</span>
               <span>🏢 Host Store: <strong>${escapeHtml((league.partner_venues && league.partner_venues[0]?.name) || 'At Ease Games')}</strong></span>
             </div>
@@ -244,15 +296,21 @@ function renderLeagueHub(league) {
         </div>
 
         <!-- External Link Only -->
-        <div style="display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0;">
-          <a href="https://sd40k.com" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.45rem 0.95rem; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
-            <span>🌐 Official Website (sd40k.com)</span>
-          </a>
+        <div style="display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; gap: 0.5rem; flex-wrap: wrap;">
+          ${isGauntlet ? `
+            <a href="https://docs.google.com/spreadsheets/d/13BLLEaRpReB5MbPQS-vqd5oMqbCRBf4ca0fX-qm1V0U/edit?usp=sharing" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.45rem 0.95rem; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+              <span>📊 Official Gauntlet Sheet</span>
+            </a>
+          ` : `
+            <a href="https://sd40k.com" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.45rem 0.95rem; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+              <span>🌐 Official Website (sd40k.com)</span>
+            </a>
+          `}
         </div>
       </div>
 
       ${window.isEventStudioCommissionerView ? `
-      <!-- Commissioner-Only Control Strip (Hidden from public by default; shown in Event Studio or when Commissioner mode is toggled) -->
+      <!-- Commissioner-Only Control Strip -->
       <div id="league-commissioner-strip" style="margin-top: 1rem; padding: 0.75rem 1rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
         <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; font-size: 0.8rem; color: #cbd5e1;">
           <span id="league-comm-reg-badge" style="background: ${league.registration_open !== false ? 'rgba(16, 185, 129, 0.2)' : 'rgba(148, 163, 184, 0.2)'}; color: ${league.registration_open !== false ? '#34d399' : '#94a3b8'}; border: 1px solid ${league.registration_open !== false ? 'rgba(16, 185, 129, 0.4)' : 'rgba(148, 163, 184, 0.3)'}; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.72rem;">
@@ -260,14 +318,14 @@ function renderLeagueHub(league) {
           </span>
           <span>🔁 <strong>Auto-Recurring Seasons:</strong> Enabled (${actSeason.duration_weeks || 8} Wks • ${actSeason.rounds_count || 5} Games)</span>
           <span>•</span>
-          <span>⚖️ <strong>Pod Rules:</strong> 6–8 Players / Pod (Evenly Distributed) • Top 2 ▲ Up 1 • Bottom 2 ▼ Down 1 • Middle ● Stay • New Entrants → Bottom Pod</span>
+          <span>⚖️ <strong>Pod Rules:</strong> ${methodology.pod_size_min || 6}–${methodology.pod_size_max || 8} Players / Pod • Top 2 ▲ Up 1 • Bottom 2 ▼ Down 1 • Middle ● Stay</span>
         </div>
         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
           <button id="league-comm-toggle-reg-btn" onclick="toggleLeagueRegistrationWindow('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
             📡 ${league.registration_open !== false ? 'Close Registration Window' : 'Open Registration in Sparring Radar'}
           </button>
-          <button onclick="viewLeagueInSparringRadar()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(59, 130, 246, 0.45); color: #60a5fa; font-weight: 700;">
-            👀 Preview in Sparring Radar
+          <button onclick="openConfigureLeagueModal('${escapeHtml(league.league_id || league.slug || 'sd40k')}')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700;">
+            ⚙️ Configure Rules
           </button>
           <button onclick="openLeagueRolloverPreviewModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(245, 158, 11, 0.45); color: #fbbf24; font-weight: 700;">
             🔄 Preview Season Rollover
@@ -280,19 +338,19 @@ function renderLeagueHub(league) {
       <div class="league-hero-kpi-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.65rem; margin-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem;">
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
           <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Active Players</div>
-          <div style="font-size: 1.2rem; font-weight: 800; color: #60a5fa;">${actSeason.total_players || 68}</div>
+          <div style="font-size: 1.2rem; font-weight: 800; color: #60a5fa;">${actSeason.total_players || 28}</div>
         </div>
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
           <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Active Pods</div>
-          <div style="font-size: 1.2rem; font-weight: 800; color: #a78bfa;">${actSeason.total_pods || 8} Pods</div>
+          <div style="font-size: 1.2rem; font-weight: 800; color: #a78bfa;">${actSeason.total_pods || pods.length || 3} Pods (${methodology.pod_size_min || 6}–${methodology.pod_size_max || 8}p)</div>
         </div>
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
           <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Season Format</div>
-          <div style="font-size: 1.2rem; font-weight: 800; color: #34d399;">5 Games</div>
+          <div style="font-size: 1.2rem; font-weight: 800; color: #34d399;">${actSeason.rounds_count || 5} Games / ${actSeason.duration_weeks || 8} Wks</div>
         </div>
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
           <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">History</div>
-          <div style="font-size: 1.2rem; font-weight: 800; color: #fbbf24;">38 Seasons</div>
+          <div style="font-size: 1.2rem; font-weight: 800; color: #fbbf24;">${totalSeasonsCount} Season${totalSeasonsCount === 1 ? '' : 's'}</div>
         </div>
       </div>
     </div>
@@ -357,7 +415,7 @@ function renderLeagueHub(league) {
     <!-- Main League Subtabs -->
     <div class="subtabs-bar" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch;">
       <button class="subtab-btn ${leagueState.activeSubtab === 'pods' ? 'active' : ''}" onclick="switchLeagueSubtab('pods')" style="white-space: nowrap;">
-        <span>🛡️ ${league.is_historical ? escapeHtml(actSeason.name || `Season ${actSeason.season_number}`) : 'Season 38'} Pods &amp; Matchups</span>
+        <span>🛡️ ${escapeHtml(actSeason.name || `Season ${currentSeasonNum}`)} Pods &amp; Matchups</span>
       </button>
       <button class="subtab-btn ${leagueState.activeSubtab === 'hof' ? 'active' : ''}" onclick="switchLeagueSubtab('hof')" style="white-space: nowrap;">
         <span>🏆 Hall of Fame &amp; Archives</span>
@@ -879,15 +937,16 @@ function renderHallOfFameSubtab(league) {
   const finalsChamps = hof.finals_champions || [];
   const leaderboards = hof.leaderboards || {};
   const activeCat = leagueState.hofCategory || 'finals_champions';
+  const seasonsCount = (league.available_seasons || []).length || 1;
 
   const categories = [
-    { id: 'finals_champions', label: '👑 Past Finals Champions', count: finalsChamps.length },
-    { id: 'historical_seasons', label: '📜 38-Season Roll of Honor', count: (league.available_seasons || []).length },
-    { id: 'titles_and_champs', label: '🏆 Titles & Championships', count: leaderboards.titles_and_champs?.records?.length || 0 },
-    { id: 'most_games', label: '⚔️ Most Games Played', count: leaderboards.most_games?.records?.length || 0 },
-    { id: 'most_wins', label: '🔥 Most League Wins', count: leaderboards.most_wins?.records?.length || 0 },
-    { id: 'finals_wins', label: '🎖️ Wins in the Finals', count: leaderboards.finals_wins?.records?.length || 0 },
-    { id: 'faction_titles', label: '🛡️ Faction Win Rates', count: leaderboards.faction_titles?.records?.length || 0 }
+    { id: 'finals_champions', label: `👑 Past Champions (${finalsChamps.length})`, count: finalsChamps.length },
+    { id: 'historical_seasons', label: `📜 ${seasonsCount}-Season Roll of Honor (${seasonsCount})`, count: seasonsCount },
+    { id: 'titles_and_champs', label: `🏆 Titles & Championships (${leaderboards.titles_and_champs?.records?.length || 0})`, count: leaderboards.titles_and_champs?.records?.length || 0 },
+    { id: 'most_games', label: `⚔️ Most Games Played (${leaderboards.most_games?.records?.length || 0})`, count: leaderboards.most_games?.records?.length || 0 },
+    { id: 'most_wins', label: `🔥 Most League Wins (${leaderboards.most_wins?.records?.length || 0})`, count: leaderboards.most_wins?.records?.length || 0 },
+    { id: 'finals_wins', label: `🎖️ Wins in the Finals (${leaderboards.finals_wins?.records?.length || 0})`, count: leaderboards.finals_wins?.records?.length || 0 },
+    { id: 'faction_titles', label: `🛡️ Faction Win Rates (${leaderboards.faction_titles?.records?.length || 0})`, count: leaderboards.faction_titles?.records?.length || 0 }
   ];
 
   return `
@@ -916,14 +975,18 @@ function renderHallOfFameSubtab(league) {
     </div>
 
     <!-- Category Content -->
-    ${activeCat === 'finals_champions' ? renderFinalsChampionsList(finalsChamps) : (activeCat === 'historical_seasons' ? renderHistoricalSeasonsList(league.available_seasons || []) : renderLeaderboardTable(leaderboards[activeCat]))}
+    ${activeCat === 'finals_champions'
+      ? renderFinalsChampionsList(finalsChamps, league)
+      : (activeCat === 'historical_seasons'
+          ? renderHistoricalSeasonsList(league.available_seasons || [], league)
+          : renderLeaderboardTable(leaderboards[activeCat], league))}
   `;
 }
 
 /**
- * Renders Complete 38-Season Roll of Honor
+ * Renders Complete Season Roll of Honor
  */
-function renderHistoricalSeasonsList(seasons) {
+function renderHistoricalSeasonsList(seasons, league = {}) {
   if (!seasons || !seasons.length) {
     return `
       <div class="empty-state" style="padding: 3rem 1rem; text-align: center;">
@@ -932,15 +995,17 @@ function renderHistoricalSeasonsList(seasons) {
       </div>
     `;
   }
+  const seasonsCount = seasons.length;
+  const leagueName = league.name || 'League';
   return `
     <div class="card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;">
       <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
         <div>
-          <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #fff;">📜 Complete 38-Season Roll of Honor</h3>
-          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">San Diego Force Org archival records from Season 1 to Season 38</div>
+          <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #fff;">📜 Complete ${seasonsCount}-Season Roll of Honor</h3>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">${escapeHtml(leagueName)} archival records across ${seasonsCount} season${seasonsCount === 1 ? '' : 's'}</div>
         </div>
         <span style="font-size: 0.75rem; color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); padding: 3px 8px; border-radius: 4px; font-weight: 700;">
-          38 Seasons Documented
+          ${seasonsCount} Seasons Documented
         </span>
       </div>
       <div style="overflow-x: auto;">
@@ -993,35 +1058,64 @@ function renderHistoricalSeasonsList(seasons) {
 /**
  * Renders Past Finals Champions
  */
-function renderFinalsChampionsList(champions) {
+function renderFinalsChampionsList(champions, league = {}) {
+  const seasonsCount = (league.available_seasons || []).length || 1;
   return `
     <div class="card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem;">
       <div style="margin-bottom: 1.25rem;">
-        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #fff;">👑 All-Time League Finals Champions</h3>
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #fff;">👑 All-Time League Champions</h3>
         <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.25rem;">
-          The single-elimination seasonal championship tournament honoring the winningest competitors across 38 seasons.
+          Official seasonal &amp; finals championship honors across ${seasonsCount} documented season${seasonsCount === 1 ? '' : 's'}. Click any linked player name for their quick profile or Career Dossier.
         </div>
       </div>
 
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 1rem;">
-        ${champions.map((c, idx) => `
-          <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 10px; padding: 1rem; position: relative; overflow: hidden;">
-            <div style="position: absolute; right: -10px; top: -10px; width: 60px; height: 60px; background: rgba(245, 158, 11, 0.08); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; pointer-events: none;">
-              🏆
+        ${champions.map((c) => {
+          const safeChamp = escapeHtml(c.champion || '').replace(/'/g, "\\'");
+          const safeFaction = escapeHtml(c.champion_faction || '').replace(/'/g, "\\'");
+          const safeChampPid = escapeHtml(c.champion_bcp_id || '').replace(/'/g, "\\'");
+          const isChampLinked = Boolean(c.champion_is_db_matched && c.champion_bcp_id && !String(c.champion_bcp_id).startsWith('bcp_'));
+
+          const safeRunner = escapeHtml(c.runner_up || '').replace(/'/g, "\\'");
+          const safeRunnerPid = escapeHtml(c.runner_up_bcp_id || '').replace(/'/g, "\\'");
+          const isRunnerLinked = Boolean(c.runner_up_is_db_matched && c.runner_up_bcp_id && !String(c.runner_up_bcp_id).startsWith('bcp_'));
+
+          return `
+            <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 10px; padding: 1rem; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;">
+              <div>
+                <div style="position: absolute; right: -10px; top: -10px; width: 60px; height: 60px; background: rgba(245, 158, 11, 0.08); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; pointer-events: none;">
+                  🏆
+                </div>
+                <div style="font-size: 0.75rem; font-weight: 700; color: #fbbf24; text-transform: uppercase; margin-bottom: 0.25rem;">
+                  ${escapeHtml(c.season_label || String(c.year))}
+                </div>
+                <div style="font-size: 1.22rem; font-weight: 800; color: #fff; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                  ${isChampLinked
+                    ? `<button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safeChampPid}', '${safeChamp}');" title="View ${escapeHtml(c.champion)}'s quick profile" style="background: none; border: none; padding: 0; font-size: 1.22rem; font-weight: 800; color: #38bdf8; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-align: left;">${escapeHtml(c.champion)}</button>`
+                    : `<span>${escapeHtml(c.champion)}</span>`
+                  }
+                  <button type="button" onclick="openPlayerLeagueModal('${safeChamp}', 1, '${safeFaction}')" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; border-radius: 6px; padding: 2px 7px; font-size: 0.68rem; font-weight: 700; cursor: pointer;">
+                    📜 Dossier
+                  </button>
+                </div>
+                <div style="font-size: 0.82rem; color: #60a5fa; font-weight: 600; margin-bottom: 0.6rem;">
+                  🛡️ ${escapeHtml(c.champion_faction || 'Warhammer 40k')}
+                </div>
+                ${c.runner_up ? `
+                  <div style="font-size: 0.78rem; color: var(--text-muted);">
+                    Runner-Up:
+                    ${isRunnerLinked
+                      ? `<button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safeRunnerPid}', '${safeRunner}');" style="background: none; border: none; padding: 0; font-size: 0.78rem; font-weight: 700; color: #60a5fa; cursor: pointer; text-decoration: underline;">${escapeHtml(c.runner_up)}</button>`
+                      : `<span style="color: #cbd5e1;">${escapeHtml(c.runner_up)}</span>`
+                    }
+                    ${c.runner_up_faction ? `<span style="color: #94a3b8;"> (${escapeHtml(c.runner_up_faction)})</span>` : ''}
+                  </div>
+                ` : ''}
+                ${c.notes ? `<div style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.4rem; font-style: italic;">"${escapeHtml(c.notes)}"</div>` : ''}
+              </div>
             </div>
-            <div style="font-size: 0.75rem; font-weight: 700; color: #fbbf24; text-transform: uppercase; margin-bottom: 0.25rem;">
-              ${escapeHtml(c.season_label || String(c.year))}
-            </div>
-            <div style="font-size: 1.25rem; font-weight: 800; color: #fff; margin-bottom: 0.25rem;">
-              ${escapeHtml(c.champion)}
-            </div>
-            <div style="font-size: 0.82rem; color: #60a5fa; font-weight: 600; margin-bottom: 0.6rem;">
-              🛡️ ${escapeHtml(c.champion_faction)}
-            </div>
-            ${c.runner_up ? `<div style="font-size: 0.78rem; color: var(--text-muted);">Runner-Up: <span style="color: #cbd5e1;">${escapeHtml(c.runner_up)}</span></div>` : ''}
-            ${c.notes ? `<div style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.4rem; font-style: italic;">"${escapeHtml(c.notes)}"</div>` : ''}
-          </div>
-        `).join('')}
+          `;
+        }).join('')}
       </div>
     </div>
   `;
@@ -1030,7 +1124,7 @@ function renderFinalsChampionsList(champions) {
 /**
  * Renders an All-Time Leaderboard table
  */
-function renderLeaderboardTable(data) {
+function renderLeaderboardTable(data, league = {}) {
   if (!data || !data.records || !data.records.length) {
     return `
       <div class="empty-state" style="padding: 3rem 1rem; text-align: center;">
@@ -1042,19 +1136,25 @@ function renderLeaderboardTable(data) {
 
   const records = data.records;
   const isFaction = data.key === 'faction_titles';
+  const seasonsCount = (league.available_seasons || []).length || 1;
 
   return `
     <div class="card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;">
-      <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);">
-        <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #fff;">${escapeHtml(data.title)}</h3>
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Cumulative records across 38 completed seasons</div>
+      <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #fff;">${escapeHtml(data.title)}</h3>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Cumulative database records across ${seasonsCount} documented season${seasonsCount === 1 ? '' : 's'}</div>
+        </div>
+        <span style="font-size: 0.74rem; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); padding: 3px 8px; border-radius: 4px; font-weight: 700;">
+          ${records.length} Ranked Entries
+        </span>
       </div>
 
       <div style="overflow-x: auto;">
         <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
           <thead>
             <tr style="background: rgba(0, 0, 0, 0.3); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
-              <th style="padding: 0.75rem 1rem; width: 45px;">Rank</th>
+              <th style="padding: 0.75rem 1rem; width: 55px;">Rank</th>
               <th style="padding: 0.75rem 1rem;">${isFaction ? 'Faction' : 'Player Name'}</th>
               ${isFaction ? `
                 <th style="padding: 0.75rem 0.75rem; text-align: center;">Pod Titles Won</th>
@@ -1071,13 +1171,40 @@ function renderLeaderboardTable(data) {
               const rankVal = r.rank || (idx + 1);
               const isTop3 = rankVal <= 3;
               const medal = rankVal === 1 ? '🥇 ' : (rankVal === 2 ? '🥈 ' : (rankVal === 3 ? '🥉 ' : ''));
+              const isLinked = !isFaction && Boolean(r.is_db_matched && r.bcp_player_id && !String(r.bcp_player_id).startsWith('bcp_'));
+              const safeName = escapeHtml(r.player_name || '').replace(/'/g, "\\'");
+              const safePid = escapeHtml(r.bcp_player_id || '').replace(/'/g, "\\'");
+
+              let metricDisplay = '—';
+              if (!isFaction) {
+                if (r.pod_titles !== undefined && r.pod_titles !== null) {
+                  metricDisplay = `${r.pod_titles} Pod Titles (${r.league_championships || 0} 🏆)`;
+                } else if (r.games_played !== undefined && r.games_played !== null) {
+                  metricDisplay = `${r.games_played} Games`;
+                } else if (r.league_wins !== undefined && r.league_wins !== null) {
+                  metricDisplay = `${r.league_wins} Wins`;
+                } else if (r.finals_wins !== undefined && r.finals_wins !== null) {
+                  metricDisplay = `${r.finals_wins} Finals Wins`;
+                }
+              }
+
               return `
                 <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04); background: ${idx % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.01)'};">
                   <td style="padding: 0.75rem 1rem; font-weight: 700; color: ${isTop3 ? '#fbbf24' : '#94a3b8'};">
                     ${medal}#${rankVal}
                   </td>
                   <td style="padding: 0.75rem 1rem; font-weight: 600; color: #fff;">
-                    ${escapeHtml(isFaction ? r.faction : r.player_name)}
+                    ${isFaction ? escapeHtml(r.faction) : `
+                      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                        ${isLinked
+                          ? `<button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safePid}', '${safeName}');" title="View ${escapeHtml(r.player_name)}'s quick profile" style="background: none; border: none; padding: 0; font-size: 0.86rem; font-weight: 700; color: #38bdf8; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-align: left;">${escapeHtml(r.player_name)}</button>`
+                          : `<span>${escapeHtml(r.player_name)}</span>`
+                        }
+                        <button type="button" onclick="openPlayerLeagueModal('${safeName}', 1, '')" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #94a3b8; border-radius: 5px; padding: 1px 6px; font-size: 0.67rem; font-weight: 700; cursor: pointer;">
+                          📜 Dossier
+                        </button>
+                      </div>
+                    `}
                   </td>
                   ${isFaction ? `
                     <td style="padding: 0.75rem 0.75rem; text-align: center; font-weight: 800; color: #f59e0b;">
@@ -1091,10 +1218,10 @@ function renderLeaderboardTable(data) {
                     </td>
                   ` : `
                     <td style="padding: 0.75rem 0.75rem; text-align: center; font-weight: 800; color: #60a5fa;">
-                      ${r.league_championships ? `${r.pod_titles} Titles (${r.league_championships} 🏆)` : (r.games_played ? `${r.games_played} Games` : (r.league_wins ? `${r.league_wins} Wins` : (r.finals_wins ? `${r.finals_wins} Finals Wins` : '—')))}
+                      ${escapeHtml(metricDisplay)}
                     </td>
                     <td style="padding: 0.75rem 0.75rem; text-align: center; color: var(--text-muted);">
-                      ${r.seasons ? `${r.seasons} Seasons` : (r.appearances ? `${r.appearances} Final Appearances` : '—')}
+                      ${r.seasons ? `${r.seasons} Seasons` : (r.appearances ? `${r.appearances} Finals Appearances` : '—')}
                     </td>
                   `}
                 </tr>
@@ -1108,68 +1235,141 @@ function renderLeaderboardTable(data) {
 }
 
 /**
- * Renders the Methodology & 38-Season Rules Subtab
+ * Renders the Methodology & Rules Subtab dynamically from league.methodology
  */
 function renderMethodologySubtab(league) {
   const m = league.methodology || {};
+  const actSeason = league.active_season || {};
+  const scoring = m.scoring_breakdown || {};
+  const cards = m.disciplinary_cards || {};
+  const podMin = m.pod_size_min || 6;
+  const podMax = m.pod_size_max || 8;
+  const roundsCount = actSeason.rounds_count || 5;
+  const durationWeeks = actSeason.duration_weeks || 8;
+
   return `
     <div style="display: flex; flex-direction: column; gap: 1.25rem;">
       <div class="card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem;">
-        <h2 style="margin: 0 0 0.5rem 0; font-size: 1.35rem; font-weight: 800; color: #fff;">
-          The SD40K Pod & Relegation Methodology
-        </h2>
-        <p style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.6; margin-bottom: 1.25rem;">
-          San Diego Force Org has operated for 38 consecutive seasons across multiple editions of Warhammer 40,000.
-          Its endurance stems from an elegant structure: balanced 8-player pods, guaranteed games over 8 weeks,
-          high-stakes promotion/relegation, and an unmistakable 1,000 Battle Point win bonus that rewards decisive tabletop victory.
-        </p>
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+          <div>
+            <h2 style="margin: 0 0 0.35rem 0; font-size: 1.35rem; font-weight: 800; color: #fff;">
+              ${escapeHtml(m.title || `${league.name} Pod & Relegation Methodology`)}
+            </h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.6; margin: 0;">
+              ${escapeHtml(m.summary || 'Balanced regional pod league featuring 5 guaranteed games over 8 weeks, +1,000 BP win bonuses, and structured promotion/relegation between tiered pods.')}
+            </p>
+          </div>
+          <button type="button" onclick="openConfigureLeagueModal('${escapeHtml(league.league_id || league.slug || 'sd40k')}')" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.9rem; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700; flex-shrink: 0;">
+            ⚙️ Configure Format &amp; Rules
+          </button>
+        </div>
 
         <!-- 6 Core Pillars Grid -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 1rem;">
           <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
-            <div style="font-size: 1.1rem; font-weight: 700; color: #60a5fa; margin-bottom: 0.4rem;">1. 8-Week Rhythm / 5 Games</div>
+            <div style="font-size: 1.05rem; font-weight: 700; color: #60a5fa; margin-bottom: 0.4rem;">1. ${durationWeeks}-Week Rhythm / ${roundsCount} Games (${podMin}–${podMax}p Pods)</div>
             <div style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.5;">
-              Players play 5 of their 7 pod companions over an 8-week window. Players can play games in any order, affording a 3-week scheduling cushion for busy work/family schedules.
+              Players compete in balanced <strong>${podMin}–${podMax} player pods</strong> and play <strong>${roundsCount} games</strong> over a <strong>${durationWeeks}-week</strong> window. Matches can be played in any order to accommodate work and family schedules.
             </div>
           </div>
 
           <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
-            <div style="font-size: 1.1rem; font-weight: 700; color: #34d399; margin-bottom: 0.4rem;">2. 1,000 BP Scoring Formula</div>
+            <div style="font-size: 1.05rem; font-weight: 700; color: #34d399; margin-bottom: 0.4rem;">2. Battle Point (BP) Scoring Formula</div>
             <div style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.5;">
-              • <strong>Win:</strong> Actual Victory Points + 1,000 BP Bonus (e.g. 93 VP = 1,093 BP)<br>
-              • <strong>Draw:</strong> Actual VP + 500 BP Bonus<br>
-              • <strong>Loss:</strong> Actual VP + 0 BP Bonus (e.g. 51 VP = 51 BP)<br>
-              • <strong>Ringer Win:</strong> Actual VP + 750 BP Bonus
+              • <strong>Win:</strong> ${escapeHtml(scoring.win || 'Actual VP + 1,000 BP Bonus')}<br>
+              • <strong>Draw:</strong> ${escapeHtml(scoring.draw || 'Actual VP + 500 BP Bonus')}<br>
+              • <strong>Loss:</strong> ${escapeHtml(scoring.loss || 'Actual VP + 0 BP Bonus')}<br>
+              ${scoring.paint_bonus ? `• <strong>Paint Score:</strong> ${escapeHtml(scoring.paint_bonus)}<br>` : ''}
+              • <strong>Ringer Win:</strong> ${escapeHtml(scoring.ringer_win || 'Actual VP + 500–750 BP Bonus')}
             </div>
           </div>
 
           <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
-            <div style="font-size: 1.1rem; font-weight: 700; color: #a78bfa; margin-bottom: 0.4rem;">3. Faction Lock, List Flexibility</div>
+            <div style="font-size: 1.05rem; font-weight: 700; color: #a78bfa; margin-bottom: 0.4rem;">3. Faction Lock &amp; List Flexibility</div>
             <div style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.5;">
-              Players lock their Primary Faction for the season (must field at least 1,001 pts in every game). However, army lists, detachments, and enhancements can be freely adjusted between rounds.
+              Players declare their Primary Faction for the season, while detachments, enhancements, and unit compositions may be freely adjusted between matches.
             </div>
           </div>
 
           <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
-            <div style="font-size: 1.1rem; font-weight: 700; color: #f59e0b; margin-bottom: 0.4rem;">4. Promotion & Relegation</div>
+            <div style="font-size: 1.05rem; font-weight: 700; color: #f59e0b; margin-bottom: 0.4rem;">4. Promotion &amp; Relegation Ladder</div>
             <div style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.5;">
-              Tiered pods (Pods 1 to 7) create intense parity. Top 2 in Pods 2–7 promote up (+1 or +2 pods). Bottom 2 in Pods 1–6 face relegation. The crucible keeps games competitive.
+              ${escapeHtml(m.promotion_relegation_rules || 'Top 2 in each pod promote UP 1 pod (+1). Bottom 2 in each pod relegate DOWN 1 pod (-1). Middle finishers hold their division.')}
             </div>
           </div>
 
           <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
-            <div style="font-size: 1.1rem; font-weight: 700; color: #ec4899; margin-bottom: 0.4rem;">5. The 16-Player Finals</div>
+            <div style="font-size: 1.05rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.4rem;">5. Ringer &amp; Substitute Policy</div>
             <div style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.5;">
-              The winningest competitors across Pod 1 qualify for a rigorous single-elimination playoff bracket to crown the seasonal League Champion.
+              ${escapeHtml(m.ringer_policy || 'If an assigned opponent drops or goes unresponsive, players may schedule a ringer game so all 5 seasonal matches can be completed.')}
             </div>
           </div>
 
           <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
-            <div style="font-size: 1.1rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.4rem;">6. Ringer Match Safeguards</div>
+            <div style="font-size: 1.05rem; font-weight: 700; color: #ec4899; margin-bottom: 0.4rem;">6. Minimum Games &amp; Card Discipline</div>
             <div style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.5;">
-              If an opponent goes silent or drops, players schedule an in-pod ringer match with one of their unassigned pod companions (+750 BP win bonus), guaranteeing all 5 games get completed.
+              ${cards.yellow_card
+                ? `• <strong>Yellow Card:</strong> ${escapeHtml(cards.yellow_card)}<br>• <strong>Red Card:</strong> ${escapeHtml(cards.red_card || '1 season suspension')}<br>• <strong>Black Card:</strong> ${escapeHtml(cards.black_card || 'Expulsion')}`
+                : escapeHtml(m.chess_clock_policy || 'Players must complete at least 3 of 5 scheduled games per season to remain in good standing for promotion and seasonal prizing.')}
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Generic Multi-League Architecture Comparison Card -->
+      <div class="card" style="background: var(--bg-card); border: 1px solid rgba(56, 189, 248, 0.28); border-radius: 10px; padding: 1.35rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.85rem;">
+          <div>
+            <div style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">Unified Sovereign League Engine</div>
+            <h3 style="margin: 0.15rem 0 0 0; font-size: 1.1rem; font-weight: 800; color: #fff;">How Event Studio Generalizes San Diego BIG League &amp; The Gauntlet</h3>
+          </div>
+          <button type="button" onclick="openCopyLeagueTemplateModal()" class="btn btn-primary" style="font-size: 0.76rem; padding: 0.4rem 0.85rem; background: linear-gradient(135deg, #d97706, #b45309); border: 1px solid #f59e0b; font-weight: 700;">
+            + Launch New League from Preset
+          </button>
+        </div>
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.82rem;">
+            <thead>
+              <tr style="background: rgba(0, 0, 0, 0.35); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase;">
+                <th style="padding: 0.65rem 0.85rem;">Rule Dimension</th>
+                <th style="padding: 0.65rem 0.85rem; color: #60a5fa;">🛡️ San Diego 40k BIG League (@ At Ease)</th>
+                <th style="padding: 0.65rem 0.85rem; color: #f87171;">⚔️ The Gauntlet (@ Brute Force Games)</th>
+                <th style="padding: 0.65rem 0.85rem; color: #34d399;">⚙️ Event Studio Engine Parameter</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <td style="padding: 0.6rem 0.85rem; font-weight: 700; color: #fff;">Pod Size &amp; Tier Names</td>
+                <td style="padding: 0.6rem 0.85rem; color: #cbd5e1;">6–8 players / pod • Numbered Pods 1–8</td>
+                <td style="padding: 0.6rem 0.85rem; color: #cbd5e1;">8–10 players / pod • Thematic Names (<em>Avatars of War, Battle Hardened, Blooded</em>)</td>
+                <td style="padding: 0.6rem 0.85rem; color: #94a3b8;"><code>pod_size_min</code>, <code>pod_size_max</code>, <code>custom_pod_names[]</code></td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <td style="padding: 0.6rem 0.85rem; font-weight: 700; color: #fff;">Win / Draw / Paint Bonus</td>
+                <td style="padding: 0.6rem 0.85rem; color: #cbd5e1;">Win +1,000 BP • Draw +500 BP • Paint included in VP</td>
+                <td style="padding: 0.6rem 0.85rem; color: #cbd5e1;">Win +1,000 BP • Draw +500 BP • Explicit <strong>+10 VP Battle Ready Paint</strong></td>
+                <td style="padding: 0.6rem 0.85rem; color: #94a3b8;"><code>win_bp_bonus</code>, <code>draw_bp_bonus</code>, <code>paint_Score_included</code></td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <td style="padding: 0.6rem 0.85rem; font-weight: 700; color: #fff;">Ringer Match Policy</td>
+                <td style="padding: 0.6rem 0.85rem; color: #cbd5e1;">In-Pod Ringer (+750 BP win bonus)</td>
+                <td style="padding: 0.6rem 0.85rem; color: #cbd5e1;">In-Pod (+1,000 BP) or Out-of-Pod Ringer (<strong>+500 BP win bonus</strong>)</td>
+                <td style="padding: 0.6rem 0.85rem; color: #94a3b8;"><code>ringer_mode</code>, <code>ringer_win_bp_bonus</code></td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <td style="padding: 0.6rem 0.85rem; font-weight: 700; color: #fff;">Participation &amp; Discipline</td>
+                <td style="padding: 0.6rem 0.85rem; color: #cbd5e1;">Drop / inactive replaced by ringer or relegated</td>
+                <td style="padding: 0.6rem 0.85rem; color: #cbd5e1;"><strong>&lt;3 Games Played</strong> → Yellow Card (1st), Red Card (2nd), Black Card (3rd)</td>
+                <td style="padding: 0.6rem 0.85rem; color: #94a3b8;"><code>min_games_required</code>, <code>disciplinary_cards</code></td>
+              </tr>
+              <tr>
+                <td style="padding: 0.6rem 0.85rem; font-weight: 700; color: #fff;">Championship &amp; Prizing</td>
+                <td style="padding: 0.6rem 0.85rem; color: #cbd5e1;">Annual 16-Player Single-Elimination Finals Bracket</td>
+                <td style="padding: 0.6rem 0.85rem; color: #cbd5e1;">Pod 1 Top-2 Championship &amp; Store Credit Payouts</td>
+                <td style="padding: 0.6rem 0.85rem; color: #94a3b8;"><code>finals_bracket_size</code>, <code>prizing_model</code></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -1720,78 +1920,197 @@ async function submitLeagueScore(leagueId, podNum, roundNum, p1Name, p2Name) {
 }
 
 /**
- * TO Wizard to Create an Automated Recurring Pod League with Registration Window
+ * Applies a format preset inside the League Creation / Configuration modal
  */
-function openCopyLeagueTemplateModal() {
+function applyLeagueFormatPreset(presetId) {
+  const presets = {
+    sd40k_pod_league: {
+      podMin: 6,
+      podMax: 8,
+      podNames: 'Pod 1, Pod 2, Pod 3, Pod 4',
+      winBp: 1000,
+      drawBp: 500,
+      paintBonus: false,
+      ringerMode: 'in_pod_750',
+      ringerBp: 750,
+      minGames: 3,
+      disciplineMode: 'ringer_replace',
+      finalsBracket: 16
+    },
+    gauntlet_pod_league: {
+      podMin: 8,
+      podMax: 10,
+      podNames: 'Pod 1 - Avatars of War, Pod 2 - Battle Hardened, Pod 3 - Blooded',
+      winBp: 1000,
+      drawBp: 500,
+      paintBonus: true,
+      ringerMode: 'out_of_pod_500',
+      ringerBp: 500,
+      minGames: 3,
+      disciplineMode: 'yellow_red_black_cards',
+      finalsBracket: 0
+    },
+    custom_pod_league: {
+      podMin: 6,
+      podMax: 10,
+      podNames: 'Pod 1 - Premier, Pod 2 - Challenger, Pod 3 - Vanguard',
+      winBp: 1000,
+      drawBp: 500,
+      paintBonus: true,
+      ringerMode: 'in_pod_750',
+      ringerBp: 750,
+      minGames: 3,
+      disciplineMode: 'yellow_red_black_cards',
+      finalsBracket: 8
+    }
+  };
+  const p = presets[presetId] || presets.sd40k_pod_league;
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) {
+      if (el.type === 'checkbox') el.checked = Boolean(val);
+      else el.value = String(val);
+    }
+  };
+  setVal('new-league-pod-min', p.podMin);
+  setVal('new-league-pod-max', p.podMax);
+  setVal('new-league-pod-names', p.podNames);
+  setVal('new-league-win-bp', p.winBp);
+  setVal('new-league-draw-bp', p.drawBp);
+  setVal('new-league-paint-bonus', p.paintBonus);
+  setVal('new-league-ringer-mode', p.ringerMode);
+  setVal('new-league-ringer-bp', p.ringerBp);
+  setVal('new-league-min-games', p.minGames);
+  setVal('new-league-discipline', p.disciplineMode);
+  setVal('new-league-finals-size', p.finalsBracket);
+}
+window.applyLeagueFormatPreset = applyLeagueFormatPreset;
+
+/**
+ * TO Wizard to Create an Automated Recurring Pod League with Generic Rules Engine
+ */
+function openCopyLeagueTemplateModal(initialPreset = 'sd40k_pod_league') {
+  const existing = document.getElementById('league-copy-modal-backdrop');
+  if (existing) existing.remove();
+
   const defaultStart = new Date();
   defaultStart.setDate(defaultStart.getDate() + 14);
   const startStr = defaultStart.toISOString().split('T')[0];
 
   const modalHtml = `
     <div id="league-copy-modal-backdrop" onclick="closeLeagueModal(event)" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.78); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 1rem;">
-      <div onclick="event.stopPropagation()" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 620px; max-height: 90vh; overflow-y: auto; padding: 1.5rem; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);">
+      <div onclick="event.stopPropagation()" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 680px; max-height: 92vh; overflow-y: auto; padding: 1.5rem; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);">
         <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.85rem;">
           <div>
-            <div style="font-size: 0.72rem; color: #f59e0b; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;">TO League Automation Studio</div>
+            <div style="font-size: 0.72rem; color: #f59e0b; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;">TO League Automation Studio • Generic Multi-League Engine</div>
             <h2 style="margin: 0.15rem 0 0 0; font-size: 1.35rem; font-weight: 800; color: #fff;">Create Automated Recurring Pod League</h2>
           </div>
           <button onclick="document.getElementById('league-copy-modal-backdrop').remove()" style="background: none; border: none; font-size: 1.25rem; color: var(--text-muted); cursor: pointer;">✕</button>
         </div>
 
         <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.5;">
-          Launch a fully automated pod league. During the registration window before each season, your league is automatically exposed in the <strong>Sparring Radar</strong>. All new entrants start in the bottom pod, pods are evenly balanced to <strong>6–8 players</strong> (5 games/season), and Top 2 move UP 1 pod / Bottom 2 move DOWN 1 pod / Middle stay.
+          Choose a battle-tested San Diego format preset (<strong>SD40K Big League</strong> or <strong>The Gauntlet @ Brute Force Games</strong>) or customize pod sizes, thematic pod names, Battle Ready paint bonuses, ringer scoring, and disciplinary card rules.
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 0.8rem; margin-bottom: 1.15rem;">
           <div>
-            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">League Name *</label>
-            <input type="text" id="new-league-name" placeholder="e.g. San Diego 40k BIG League @ At Ease Games" class="form-input" style="width: 100%; box-sizing: border-box;" />
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.3rem;">1. Format Preset Template *</label>
+            <select id="new-league-template" onchange="applyLeagueFormatPreset(this.value)" class="form-input" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+              <option value="sd40k_pod_league" ${initialPreset === 'sd40k_pod_league' ? 'selected' : ''}>🛡️ San Diego 40k BIG League Format (6–8p Pods, +1000 Win BP, In-Pod Ringer +750, 16p Finals)</option>
+              <option value="gauntlet_pod_league" ${initialPreset === 'gauntlet_pod_league' ? 'selected' : ''}>⚔️ The Gauntlet Format (8–10p Named Pods, +10 Paint Score, Out-of-Pod Ringer +500, Yellow/Red/Black Cards)</option>
+              <option value="custom_pod_league" ${initialPreset === 'custom_pod_league' ? 'selected' : ''}>⚙️ Custom Regional Pod League (Fully Configurable Rules)</option>
+            </select>
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+
+          <div style="display: grid; grid-template-columns: 1.4fr 1fr; gap: 0.6rem;">
+            <div>
+              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">League Name *</label>
+              <input type="text" id="new-league-name" placeholder="e.g. North County 40k Crucible League" class="form-input" style="width: 100%; box-sizing: border-box;" />
+            </div>
             <div>
               <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">City / Region *</label>
               <input type="text" id="new-league-region" placeholder="e.g. San Diego, CA" class="form-input" style="width: 100%; box-sizing: border-box;" />
             </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem;">
             <div>
               <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">TO / Commissioner *</label>
               <input type="text" id="new-league-comm" placeholder="Your Name or Club" class="form-input" style="width: 100%; box-sizing: border-box;" />
             </div>
-          </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
             <div>
               <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Host Game Store / Venue</label>
-              <input type="text" id="new-league-venue" placeholder="e.g. At Ease Games" class="form-input" style="width: 100%; box-sizing: border-box;" />
+              <input type="text" id="new-league-venue" placeholder="e.g. Brute Force Games" class="form-input" style="width: 100%; box-sizing: border-box;" />
             </div>
             <div>
               <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Season 1 Start Date *</label>
               <input type="date" id="new-league-start-date" value="${startStr}" class="form-input" style="width: 100%; box-sizing: border-box;" />
             </div>
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem;">
             <div>
-              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Recurring Season Cadence *</label>
+              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Pod Size Min–Max *</label>
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <input type="number" id="new-league-pod-min" min="4" max="16" value="6" class="form-input" style="width: 100%; box-sizing: border-box;" />
+                <span style="color: #94a3b8;">to</span>
+                <input type="number" id="new-league-pod-max" min="4" max="16" value="8" class="form-input" style="width: 100%; box-sizing: border-box;" />
+              </div>
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Season Cadence *</label>
               <select id="new-league-recurring" class="form-input" style="width: 100%; box-sizing: border-box;">
-                <option value="true" selected>🔁 Auto-Recurring Seasons (8 Weeks / 5 Games)</option>
-                <option value="6_weeks">🔁 Auto-Recurring Seasons (6 Weeks / 5 Games)</option>
-                <option value="false">1️⃣ Single Season (Manual Rollover)</option>
+                <option value="true" selected>🔁 8 Weeks / 5 Games</option>
+                <option value="6_weeks">🔁 6 Weeks / 5 Games</option>
+                <option value="false">1️⃣ Single Season</option>
               </select>
             </div>
             <div>
-              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Registration Window (Sparring Radar) *</label>
+              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Radar Reg Window *</label>
               <select id="new-league-reg-window" class="form-input" style="width: 100%; box-sizing: border-box;">
-                <option value="14" selected>📡 14 Days Before Season (Expose in Radar)</option>
-                <option value="21">📡 21 Days Before Season (Expose in Radar)</option>
-                <option value="7">📡 7 Days Before Season (Expose in Radar)</option>
+                <option value="14" selected>📡 14 Days Before</option>
+                <option value="21">📡 21 Days Before</option>
+                <option value="7">📡 7 Days Before</option>
               </select>
             </div>
           </div>
 
-          <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.28); border-radius: 8px; padding: 0.75rem 0.9rem; font-size: 0.78rem; color: #cbd5e1; line-height: 1.45;">
-            <strong style="color: #34d399;">⚙️ Automated Pod &amp; Promotion Rules (Locked):</strong><br/>
-            • <strong>Pod Size:</strong> 6–8 players per pod (distributed as evenly as possible) • <strong>5 Games per season</strong><br/>
-            • <strong>Movement:</strong> Top 2 move <strong>UP 1 pod</strong> • Bottom 2 move <strong>DOWN 1 pod</strong> • Middle <strong>stay in same pod</strong><br/>
-            • <strong>Starting Rule:</strong> Everyone starting off begins in the <strong>bottom pod</strong>
+          <div>
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Custom Pod Tier Names (comma-separated, optional)</label>
+            <input type="text" id="new-league-pod-names" value="Pod 1, Pod 2, Pod 3, Pod 4" placeholder="e.g. Pod 1 - Avatars of War, Pod 2 - Battle Hardened, Pod 3 - Blooded" class="form-input" style="width: 100%; box-sizing: border-box;" />
           </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem;">
+            <div>
+              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Win / Draw BP Bonus</label>
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <input type="number" id="new-league-win-bp" value="1000" class="form-input" style="width: 100%; box-sizing: border-box;" title="Win BP Bonus" />
+                <input type="number" id="new-league-draw-bp" value="500" class="form-input" style="width: 100%; box-sizing: border-box;" title="Draw BP Bonus" />
+              </div>
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Ringer Policy &amp; Bonus</label>
+              <select id="new-league-ringer-mode" class="form-input" style="width: 100%; box-sizing: border-box;">
+                <option value="in_pod_750" selected>In-Pod Ringer (+750 BP Win)</option>
+                <option value="out_of_pod_500">Out-of-Pod Ringer (+500 BP Win)</option>
+              </select>
+              <input type="hidden" id="new-league-ringer-bp" value="750" />
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Min Games &amp; Discipline</label>
+              <select id="new-league-discipline" class="form-input" style="width: 100%; box-sizing: border-box;">
+                <option value="yellow_red_black_cards">&lt;3 GP → Yellow / Red / Black Cards</option>
+                <option value="ringer_replace" selected>Auto-Ringer &amp; Relegation</option>
+              </select>
+              <input type="hidden" id="new-league-min-games" value="3" />
+              <input type="hidden" id="new-league-finals-size" value="16" />
+            </div>
+          </div>
+
+          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #cbd5e1; cursor: pointer;">
+            <input type="checkbox" id="new-league-paint-bonus" />
+            <span>Award explicit <strong>+10 VP Battle Ready Paint Score</strong> in every match (The Gauntlet standard)</span>
+          </label>
         </div>
 
         <div style="display: flex; gap: 0.5rem;">
@@ -1806,12 +2125,14 @@ function openCopyLeagueTemplateModal() {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
+  applyLeagueFormatPreset(initialPreset);
 }
 
 /**
  * Creates new league via POST /api/league/create
  */
 async function submitNewLeagueCreation() {
+  const templateId = document.getElementById('new-league-template')?.value || 'sd40k_pod_league';
   const name = document.getElementById('new-league-name')?.value.trim();
   const region = document.getElementById('new-league-region')?.value.trim();
   const commissioner = document.getElementById('new-league-comm')?.value.trim();
@@ -1819,6 +2140,16 @@ async function submitNewLeagueCreation() {
   const startDate = document.getElementById('new-league-start-date')?.value || '';
   const recVal = document.getElementById('new-league-recurring')?.value || 'true';
   const regDays = parseInt(document.getElementById('new-league-reg-window')?.value || '14', 10);
+  const podMin = parseInt(document.getElementById('new-league-pod-min')?.value || '6', 10) || 6;
+  const podMax = parseInt(document.getElementById('new-league-pod-max')?.value || '8', 10) || 8;
+  const podNamesRaw = document.getElementById('new-league-pod-names')?.value || '';
+  const customPodNames = podNamesRaw.split(',').map(s => s.trim()).filter(Boolean);
+  const winBp = parseInt(document.getElementById('new-league-win-bp')?.value || '1000', 10) || 1000;
+  const drawBp = parseInt(document.getElementById('new-league-draw-bp')?.value || '500', 10) || 500;
+  const ringerMode = document.getElementById('new-league-ringer-mode')?.value || 'in_pod_750';
+  const ringerBp = ringerMode === 'out_of_pod_500' ? 500 : 750;
+  const paintBonus = Boolean(document.getElementById('new-league-paint-bonus')?.checked);
+  const disciplineMode = document.getElementById('new-league-discipline')?.value || 'yellow_red_black_cards';
 
   if (!name) {
     alert('Please enter a league name.');
@@ -1831,29 +2162,157 @@ async function submitNewLeagueCreation() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: name,
-        region: region || 'Local Scene',
+        region: region || 'San Diego, CA',
         commissioner: commissioner || 'Community Organizer',
         partner_venues: venue ? [{ name: venue, role: 'Official Host Store' }] : [],
         start_date: startDate,
         duration_weeks: recVal === '6_weeks' ? 6 : 8,
         rounds_count: 5,
-        pod_size: 8,
+        pod_size: podMax,
+        pod_size_min: podMin,
+        pod_size_max: podMax,
+        custom_pod_names: customPodNames,
+        win_bp_bonus: winBp,
+        draw_bp_bonus: drawBp,
+        ringer_win_bp_bonus: ringerBp,
+        paint_score_included: paintBonus,
+        min_games_required: 3,
+        discipline_mode: disciplineMode,
         recurring_seasons: recVal !== 'false',
         registration_window_days: regDays,
         registration_open: true,
-        template_id: 'sd40k_standard_pod_system'
+        template_id: templateId
       })
     });
     const json = await res.json();
     if (!json.success || !json.league) throw new Error(json.error || 'Failed to create league');
 
     document.getElementById('league-copy-modal-backdrop')?.remove();
+    leagueState.availableLeagues = null;
     renderSparringRadarLeagueRegistrations();
     openLeagueHubPage(json.league.slug, '40k', { replaceUrl: true });
   } catch (err) {
     alert(`Error creating league: ${err.message}`);
   }
 }
+
+/**
+ * Opens modal to configure an existing League's Format & Rules (persisted to PostgreSQL via POST /api/league/{id}/config)
+ */
+function openConfigureLeagueModal(leagueId = 'sd40k') {
+  const existing = document.getElementById('league-config-modal-backdrop');
+  if (existing) existing.remove();
+
+  const league = leagueState.currentLeagueData || {};
+  const m = league.methodology || {};
+  const actSeason = league.active_season || {};
+  const pods = actSeason.pods || [];
+  const podNamesStr = pods.map(p => p.name || `Pod ${p.pod_number}`).join(', ');
+  const podMin = m.pod_size_min || 6;
+  const podMax = m.pod_size_max || 8;
+  const isGauntlet = String(league.slug || leagueId).toLowerCase().includes('gauntlet');
+
+  const html = `
+    <div id="league-config-modal-backdrop" onclick="if(event.target === this) this.remove()" style="position: fixed; inset: 0; background: rgba(0,0,0,0.78); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 1rem;">
+      <div onclick="event.stopPropagation()" style="background: var(--bg-card); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 12px; width: 100%; max-width: 620px; max-height: 90vh; overflow-y: auto; padding: 1.5rem; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.85rem;">
+          <div>
+            <div style="font-size: 0.72rem; color: #38bdf8; font-weight: 800; text-transform: uppercase;">Event Studio • League Rules &amp; Pod Engine Config</div>
+            <h2 style="margin: 0.15rem 0 0 0; font-size: 1.3rem; font-weight: 800; color: #fff;">Configure ${escapeHtml(league.name || leagueId)}</h2>
+          </div>
+          <button onclick="document.getElementById('league-config-modal-backdrop').remove()" style="background: none; border: none; font-size: 1.25rem; color: var(--text-muted); cursor: pointer;">✕</button>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.8rem; margin-bottom: 1.15rem;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+            <div>
+              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Pod Size Min–Max</label>
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <input type="number" id="cfg-league-pod-min" min="4" max="16" value="${podMin}" class="form-input" style="width: 100%; box-sizing: border-box;" />
+                <span style="color: #94a3b8;">to</span>
+                <input type="number" id="cfg-league-pod-max" min="4" max="16" value="${podMax}" class="form-input" style="width: 100%; box-sizing: border-box;" />
+              </div>
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Win / Draw / Ringer BP Bonus</label>
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <input type="number" id="cfg-league-win-bp" value="${m.win_bp_bonus || 1000}" class="form-input" style="width: 100%; box-sizing: border-box;" />
+                <input type="number" id="cfg-league-draw-bp" value="${m.draw_bp_bonus || 500}" class="form-input" style="width: 100%; box-sizing: border-box;" />
+                <input type="number" id="cfg-league-ringer-bp" value="${m.ringer_win_bp_bonus || (isGauntlet ? 500 : 750)}" class="form-input" style="width: 100%; box-sizing: border-box;" />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Pod Tier Names (comma-separated)</label>
+            <input type="text" id="cfg-league-pod-names" value="${escapeHtml(podNamesStr)}" class="form-input" style="width: 100%; box-sizing: border-box;" />
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Ringer &amp; Unresponsive Opponent Policy</label>
+            <input type="text" id="cfg-league-ringer-policy" value="${escapeHtml(m.ringer_policy || (isGauntlet ? 'In-Pod Ringer (+1,000 BP) or Out-of-Pod Ringer (+500 BP win bonus)' : 'In-Pod Ringer match with unassigned pod companion (+750 BP win bonus)'))}" class="form-input" style="width: 100%; box-sizing: border-box;" />
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Promotion &amp; Relegation Ladder Rule</label>
+            <input type="text" id="cfg-league-promo-rule" value="${escapeHtml(m.promotion_relegation_rules || 'Top 2 in each pod promote UP 1 pod (+1). Bottom 2 in each pod relegate DOWN 1 pod (-1). Middle stay.')}" class="form-input" style="width: 100%; box-sizing: border-box;" />
+          </div>
+
+          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #cbd5e1; cursor: pointer;">
+            <input type="checkbox" id="cfg-league-paint-bonus" ${m.paint_score_included || isGauntlet ? 'checked' : ''} />
+            <span>Include explicit <strong>+10 VP Battle Ready Paint Score</strong> in match scoring</span>
+          </label>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button type="button" onclick="document.getElementById('league-config-modal-backdrop').remove()" class="btn btn-outline">Cancel</button>
+          <button type="button" onclick="submitLeagueConfiguration('${escapeHtml(league.league_id || leagueId)}')" class="btn btn-primary" style="background: linear-gradient(135deg, #2563eb, #1d4ed8); border: none; font-weight: 700;">
+            ✓ Save Rules Configuration to DB
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+window.openConfigureLeagueModal = openConfigureLeagueModal;
+
+async function submitLeagueConfiguration(leagueId) {
+  const podMin = parseInt(document.getElementById('cfg-league-pod-min')?.value || '6', 10) || 6;
+  const podMax = parseInt(document.getElementById('cfg-league-pod-max')?.value || '8', 10) || 8;
+  const winBp = parseInt(document.getElementById('cfg-league-win-bp')?.value || '1000', 10) || 1000;
+  const drawBp = parseInt(document.getElementById('cfg-league-draw-bp')?.value || '500', 10) || 500;
+  const ringerBp = parseInt(document.getElementById('cfg-league-ringer-bp')?.value || '750', 10) || 750;
+  const podNames = (document.getElementById('cfg-league-pod-names')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  const ringerPolicy = document.getElementById('cfg-league-ringer-policy')?.value?.trim() || '';
+  const promoRule = document.getElementById('cfg-league-promo-rule')?.value?.trim() || '';
+  const paintBonus = Boolean(document.getElementById('cfg-league-paint-bonus')?.checked);
+
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pod_size_min: podMin,
+        pod_size_max: podMax,
+        win_bp_bonus: winBp,
+        draw_bp_bonus: drawBp,
+        ringer_win_bp_bonus: ringerBp,
+        custom_pod_names: podNames,
+        ringer_policy: ringerPolicy,
+        promotion_relegation_rules: promoRule,
+        paint_score_included: paintBonus
+      })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to save configuration');
+    document.getElementById('league-config-modal-backdrop')?.remove();
+    await loadLeagueData(leagueId, true);
+  } catch (err) {
+    alert(`Error saving league configuration: ${err.message}`);
+  }
+}
+window.submitLeagueConfiguration = submitLeagueConfiguration;
 
 /**
  * Opens direct opponent chat from a League Pairing Card
