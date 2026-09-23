@@ -28,8 +28,24 @@ async def get_leagues_list():
     }
 
 
+_LEAGUE_DB_SYNCED = False
+
 @router.get("/api/league/{league_id}", summary="Get full league data and active or historical season")
+@router.get("/api/leagues/{league_id}", summary="Get full league data and active or historical season")
 async def get_league_details(league_id: str, season: Optional[int] = None):
+    global _LEAGUE_DB_SYNCED
+    if not _LEAGUE_DB_SYNCED:
+        try:
+            from core import get_database
+            db = get_database()
+            if hasattr(db, "seed_sd40k_league_tables"):
+                db.seed_sd40k_league_tables()
+            if hasattr(db, "sync_league_participant_identities"):
+                db.sync_league_participant_identities("league_sd40k_big_league", 38)
+            _LEAGUE_DB_SYNCED = True
+        except Exception as e:
+            logger.warning(f"Auto league DB sync notice: {e}")
+
     svc = leagues_hub_service.get_leagues_hub_service()
     league = svc.get_league(league_id, season_number=season)
     if not league:
@@ -37,6 +53,59 @@ async def get_league_details(league_id: str, season: Optional[int] = None):
     return {
         "success": True,
         "league": league
+    }
+
+
+@router.get("/api/league/{league_id}/db-sync", summary="Force sync and audit Cloud SQL native_league_participants")
+@router.post("/api/league/{league_id}/db-sync", summary="Force sync and audit Cloud SQL native_league_participants")
+async def sync_and_audit_league_db(league_id: str):
+    from core import get_database
+    db = get_database()
+    if hasattr(db, "seed_sd40k_league_tables"):
+        db.seed_sd40k_league_tables()
+    if hasattr(db, "sync_league_participant_identities"):
+        db.sync_league_participant_identities("league_sd40k_big_league", 38)
+
+    rows_s38 = []
+    fake_count = 0
+    total_count = 0
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, season_num, pod_num, participant_name, primary_faction, bcp_player_id, user_id, is_db_matched, match_method
+                    FROM native_league_participants
+                    WHERE league_id = 'league_sd40k_big_league' AND season_num = 38
+                    ORDER BY pod_num ASC, participant_name ASC;
+                """)
+                for r in cur.fetchall():
+                    rows_s38.append({
+                        "id": r[0],
+                        "season_num": r[1],
+                        "pod_num": r[2],
+                        "participant_name": r[3],
+                        "primary_faction": r[4],
+                        "bcp_player_id": r[5],
+                        "user_id": r[6],
+                        "is_db_matched": r[7],
+                        "match_method": r[8]
+                    })
+                cur.execute("SELECT COUNT(*) FROM native_league_participants WHERE bcp_player_id LIKE 'bcp_%' OR bcp_player_id LIKE 'p_%';")
+                fake_count = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM native_league_participants;")
+                total_count = cur.fetchone()[0]
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+    return {
+        "success": True,
+        "total_participants_all_seasons": total_count,
+        "fake_bcp_slug_count": fake_count,
+        "season_38_count": len(rows_s38),
+        "season_38_matched_count": sum(1 for r in rows_s38 if r["is_db_matched"]),
+        "season_38_unmatched_count": sum(1 for r in rows_s38 if not r["is_db_matched"]),
+        "pod_7_rows": [r for r in rows_s38 if r["pod_num"] == 7],
+        "pod_8_rows": [r for r in rows_s38 if r["pod_num"] == 8]
     }
 
 
