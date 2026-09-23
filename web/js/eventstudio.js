@@ -4975,13 +4975,20 @@ window.syncStudioLeagueCommissionerCard = syncStudioLeagueCommissionerCard;
 
 async function toggleStudioLeagueRegistration(leagueId = 'league_sd40k_big_league') {
   try {
+    const badge = document.getElementById('es-comm-reg-badge');
+    const currentlyOpen = badge ? badge.textContent.includes('OPEN') : true;
+    const targetOpen = !currentlyOpen;
     const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/registration-window`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+      body: JSON.stringify({ registration_open: targetOpen })
     });
     if (res.ok) {
+      const json = await res.json();
       await syncStudioLeagueCommissionerCard(leagueId);
+      if (typeof showToast === 'function') {
+        showToast(json.registration_open ? '🟢 Registration Window OPENED in Sparring Radar' : '🔒 Registration Window CLOSED');
+      }
     }
   } catch (e) {
     console.error('Failed toggling registration window from Event Studio:', e);

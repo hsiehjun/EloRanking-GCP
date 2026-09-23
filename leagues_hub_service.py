@@ -1252,12 +1252,12 @@ class LeaguesHubService:
         if not league:
             raise ValueError(f"League '{league_id}' not found")
 
-        if "registration_open" in payload:
+        if "registration_open" in payload and payload["registration_open"] is not None:
             league["registration_open"] = bool(payload["registration_open"])
         else:
-            league["registration_open"] = not bool(league.get("registration_open", False))
+            league["registration_open"] = not bool(league.get("registration_open", True))
 
-        if "recurring_seasons" in payload:
+        if "recurring_seasons" in payload and payload["recurring_seasons"] is not None:
             league["recurring_seasons"] = bool(payload["recurring_seasons"])
 
         act = league.setdefault("active_season", {})
@@ -1269,6 +1269,11 @@ class LeaguesHubService:
             act["duration_weeks"] = int(payload["duration_weeks"])
             league.setdefault("methodology", {})["season_duration_weeks"] = int(payload["duration_weeks"])
 
+        for alias in ("lg_sd40k", "sd40k", "league_sd40k_big_league", "lg_sd40k_big_league", league_id):
+            if alias in self._leagues_cache and isinstance(self._leagues_cache[alias], dict):
+                self._leagues_cache[alias]["registration_open"] = league["registration_open"]
+                self._leagues_cache[alias]["recurring_seasons"] = league.get("recurring_seasons", True)
+
         for l in self._index.get("leagues", []):
             if l.get("league_id") in (league_id, "lg_sd40k", "league_sd40k_big_league") or l.get("slug") == league.get("slug"):
                 l["registration_open"] = league["registration_open"]
@@ -1278,6 +1283,20 @@ class LeaguesHubService:
 
         self._save_league_data(league.get("league_id", league_id))
         self._save_index()
+
+        try:
+            from database import PostgresDatabase
+            db = PostgresDatabase()
+            with db._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE native_leagues SET registration_open = %s, updated_at = NOW() WHERE id IN (%s, 'lg_sd40k', 'league_sd40k_big_league')",
+                        (league["registration_open"], league_id)
+                    )
+                conn.commit()
+        except Exception:
+            pass
+
         return {
             "success": True,
             "league_id": league.get("league_id", league_id),

@@ -185,7 +185,7 @@ function renderLeagueHub(league) {
           </div>
         </div>
 
-        <!-- Player Action Controls (Commissioner Controls Moved to Event Studio) -->
+        <!-- Player Action Controls (Commissioner Controls Hidden by Default / Available in Event Studio) -->
         <div style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1 1 230px; max-width: 290px; min-width: 210px;">
           <button onclick="openLeaguePlayerClaimModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-primary" style="font-size: 0.82rem; padding: 0.5rem 0.9rem; background: linear-gradient(135deg, #2563eb, #3b82f6); border: 1px solid #60a5fa; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
             <span>🙋‍♂️ I'm in this League</span>
@@ -193,17 +193,22 @@ function renderLeagueHub(league) {
           <a href="https://sd40k.com" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
             <span>🌐 Official Website (sd40k.com)</span>
           </a>
-          <a href="/eventstudio.html?tab=leagues&league_id=${encodeURIComponent(league.league_id || 'league_sd40k_big_league')}" class="btn btn-outline" style="font-size: 0.74rem; padding: 0.35rem 0.75rem; text-align: center; text-decoration: none; color: #94a3b8; border-color: rgba(148, 163, 184, 0.28); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
-            <span>🎛️ Commissioner Studio (Event Studio)</span>
-          </a>
+          <div style="display: flex; gap: 0.4rem;">
+            <a href="/eventstudio.html?tab=leagues&league_id=${encodeURIComponent(league.league_id || 'league_sd40k_big_league')}" class="btn btn-outline" style="flex: 1; font-size: 0.72rem; padding: 0.35rem 0.55rem; text-align: center; text-decoration: none; color: #94a3b8; border-color: rgba(148, 163, 184, 0.28); display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;">
+              <span>🎛️ Event Studio</span>
+            </a>
+            <button onclick="toggleLeagueCommissionerMode()" class="btn btn-outline" style="font-size: 0.72rem; padding: 0.35rem 0.55rem; color: ${window.isEventStudioCommissionerView ? '#34d399' : '#94a3b8'}; border-color: ${window.isEventStudioCommissionerView ? 'rgba(16, 185, 129, 0.45)' : 'rgba(148, 163, 184, 0.28)'};" title="Toggle Commissioner / League Owner Controls">
+              <span>🔑 Commissioner</span>
+            </button>
+          </div>
         </div>
       </div>
 
       ${window.isEventStudioCommissionerView ? `
-      <!-- Commissioner-Only Control Strip (Only rendered inside Event Studio) -->
-      <div style="margin-top: 1rem; padding: 0.75rem 1rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+      <!-- Commissioner-Only Control Strip (Hidden from public by default; shown in Event Studio or when Commissioner mode is toggled) -->
+      <div id="league-commissioner-strip" style="margin-top: 1rem; padding: 0.75rem 1rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
         <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; font-size: 0.8rem; color: #cbd5e1;">
-          <span style="background: ${league.registration_open !== false ? 'rgba(16, 185, 129, 0.2)' : 'rgba(148, 163, 184, 0.2)'}; color: ${league.registration_open !== false ? '#34d399' : '#94a3b8'}; border: 1px solid ${league.registration_open !== false ? 'rgba(16, 185, 129, 0.4)' : 'rgba(148, 163, 184, 0.3)'}; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.72rem;">
+          <span id="league-comm-reg-badge" style="background: ${league.registration_open !== false ? 'rgba(16, 185, 129, 0.2)' : 'rgba(148, 163, 184, 0.2)'}; color: ${league.registration_open !== false ? '#34d399' : '#94a3b8'}; border: 1px solid ${league.registration_open !== false ? 'rgba(16, 185, 129, 0.4)' : 'rgba(148, 163, 184, 0.3)'}; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.72rem;">
             ${league.registration_open !== false ? '🟢 REGISTRATION OPEN IN SPARRING RADAR' : '🔒 REGISTRATION CLOSED'}
           </span>
           <span>🔁 <strong>Auto-Recurring Seasons:</strong> Enabled (${actSeason.duration_weeks || 8} Wks • ${actSeason.rounds_count || 5} Games)</span>
@@ -211,8 +216,11 @@ function renderLeagueHub(league) {
           <span>⚖️ <strong>Pod Rules:</strong> 6–8 Players / Pod (Evenly Distributed) • Top 2 ▲ Up 1 • Bottom 2 ▼ Down 1 • Middle ● Stay • New Entrants → Bottom Pod</span>
         </div>
         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <button onclick="toggleLeagueRegistrationWindow('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
+          <button id="league-comm-toggle-reg-btn" onclick="toggleLeagueRegistrationWindow('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
             📡 ${league.registration_open !== false ? 'Close Registration Window' : 'Open Registration in Sparring Radar'}
+          </button>
+          <button onclick="viewLeagueInSparringRadar()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(59, 130, 246, 0.45); color: #60a5fa; font-weight: 700;">
+            👀 Preview in Sparring Radar
           </button>
           <button onclick="openLeagueRolloverPreviewModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(245, 158, 11, 0.45); color: #fbbf24; font-weight: 700;">
             🔄 Preview Season Rollover
@@ -1428,22 +1436,44 @@ function sendLeagueOpponentMessage(opponentName) {
 window.sendLeagueOpponentMessage = sendLeagueOpponentMessage;
 
 /**
+ * Toggles Commissioner Mode on the League Page
+ */
+function toggleLeagueCommissionerMode() {
+  window.isEventStudioCommissionerView = !window.isEventStudioCommissionerView;
+  if (leagueState.currentLeagueData) {
+    renderLeagueHub(leagueState.currentLeagueData);
+  }
+}
+window.toggleLeagueCommissionerMode = toggleLeagueCommissionerMode;
+
+/**
  * Toggles the Registration Window for Sparring Radar exposure
  */
 async function toggleLeagueRegistrationWindow(leagueId = 'league_sd40k_big_league') {
   try {
+    const currentlyOpen = leagueState.currentLeagueData
+      ? (leagueState.currentLeagueData.registration_open !== false)
+      : true;
+    const targetOpen = !currentlyOpen;
     const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/registration-window`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+      body: JSON.stringify({ registration_open: targetOpen })
     });
     const json = await res.json();
     if (json.success) {
+      const nextOpen = Boolean(json.registration_open);
       if (leagueState.currentLeagueData) {
-        leagueState.currentLeagueData.registration_open = json.registration_open;
+        leagueState.currentLeagueData.registration_open = nextOpen;
         renderLeagueHub(leagueState.currentLeagueData);
       }
+      if (typeof syncStudioLeagueCommissionerCard === 'function') {
+        syncStudioLeagueCommissionerCard(leagueId);
+      }
       renderSparringRadarLeagueRegistrations();
+      if (typeof showToast === 'function') {
+        showToast(nextOpen ? '🟢 Registration Window OPENED in Sparring Radar' : '🔒 Registration Window CLOSED');
+      }
     }
   } catch (e) {
     console.error('Error toggling registration window:', e);
