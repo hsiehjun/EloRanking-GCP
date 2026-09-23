@@ -2693,6 +2693,7 @@ function isValidStoreResult(name, types = []) {
 function formatStoreWebsiteDisplay(url) {
   if (!url) return '';
   let clean = String(url).trim();
+  if (!clean.includes('.')) return '';
   clean = clean.replace(/^https?:\/\//i, '');
   clean = clean.replace(/^www\./i, '');
   clean = clean.replace(/\/+$/, '');
@@ -3161,9 +3162,9 @@ function renderStoreCard(store) {
       </div>
 
       <!-- Website Row -->
-      <div id="store-website-row-${escapeHtml(store.id)}" style="font-size: 0.78rem; color: #38bdf8; margin-bottom: 0.75rem; display: ${store.website ? 'flex' : 'none'}; align-items: center; gap: 6px; line-height: 1.4;">
+      <div id="store-website-row-${escapeHtml(store.id)}" style="font-size: 0.78rem; color: #38bdf8; margin-bottom: 0.75rem; display: ${formatStoreWebsiteDisplay(store.website) ? 'flex' : 'none'}; align-items: center; gap: 6px; line-height: 1.4;">
         <span style="font-size: 0.9rem; flex-shrink: 0;">🌐</span>
-        ${store.website ? `
+        ${formatStoreWebsiteDisplay(store.website) ? `
           <a href="${escapeHtml(store.website)}" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: none; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(store.website)}">
             ${escapeHtml(formatStoreWebsiteDisplay(store.website))} ↗
           </a>

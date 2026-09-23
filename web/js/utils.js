@@ -894,6 +894,60 @@ function sortMatchesNewestFirst(matches) {
     .map(entry => entry.item);
 }
 
+let _globalMapsSdkLoadingPromise = null;
+
+async function loadGoogleMapsSdk(callback) {
+  if (typeof google !== 'undefined' && google.maps && google.maps.places) {
+    if (typeof initGooglePlaces === 'function') initGooglePlaces();
+    if (typeof attachAllPlacesAutocompletes === 'function') attachAllPlacesAutocompletes();
+    if (typeof callback === 'function') callback();
+    return;
+  }
+  if (_globalMapsSdkLoadingPromise) {
+    if (typeof callback === 'function') {
+      _globalMapsSdkLoadingPromise.then(() => callback());
+    }
+    return _globalMapsSdkLoadingPromise;
+  }
+
+  _globalMapsSdkLoadingPromise = (async () => {
+    try {
+      const res = await fetch('/api/config/maps-key');
+      if (!res.ok) return;
+      const data = await res.json();
+      const apiKey = (data && data.key) ? data.key.trim() : '';
+      if (!apiKey) return;
+      if (document.querySelector('script[src*="maps.googleapis.com"]')) {
+        if (typeof callback === 'function') setTimeout(callback, 200);
+        return;
+      }
+
+      await new Promise((resolve) => {
+        window.__onGoogleMapsSdkReady = () => {
+          if (typeof initGooglePlaces === 'function') initGooglePlaces();
+          if (typeof attachAllPlacesAutocompletes === 'function') attachAllPlacesAutocompletes();
+          if (typeof initStoresGoogleMap === 'function' && document.getElementById('comm-stores-map')) {
+            initStoresGoogleMap();
+          }
+          if (typeof callback === 'function') callback();
+          resolve();
+        };
+
+        const script = document.createElement('script');
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&libraries=places&callback=__onGoogleMapsSdkReady`;
+        script.async = true;
+        script.defer = true;
+        script.onerror = () => resolve();
+        document.head.appendChild(script);
+      });
+    } catch (err) {
+      console.warn('Notice loading Google Maps SDK:', err);
+    }
+  })();
+
+  return _globalMapsSdkLoadingPromise;
+}
+
 if (typeof window !== 'undefined') {
   window.GLOBAL_CITY_COORDS = GLOBAL_CITY_COORDS;
   window.lookupCityCoordinates = lookupCityCoordinates;
@@ -906,4 +960,14 @@ if (typeof window !== 'undefined') {
   window.sortMatchesNewestFirst = sortMatchesNewestFirst;
   window.handlePlayerChatClick = handlePlayerChatClick;
   window.openDatePicker = openDatePicker;
+  window.loadGoogleMapsSdk = loadGoogleMapsSdk;
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => loadGoogleMapsSdk());
+    } else {
+      loadGoogleMapsSdk();
+    }
+  }
 }
+

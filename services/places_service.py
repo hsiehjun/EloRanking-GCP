@@ -308,7 +308,6 @@ class PlacesService:
                                 MAX(COALESCE(
                                     NULLIF(TRIM(e.raw_json->>'website'), ''),
                                     NULLIF(TRIM(e.raw_json->'location'->>'website'), ''),
-                                    NULLIF(TRIM(e.raw_json->>'url'), ''),
                                     NULLIF(TRIM(e.raw_json->'location'->>'url'), ''),
                                     NULLIF(TRIM(e.raw_json->>'facebook'), ''),
                                     NULLIF(TRIM(e.raw_json->'location'->>'facebook'), '')
@@ -351,6 +350,8 @@ class PlacesService:
                         v_lat = float(v.get("lat") or 0.0)
                         v_lng = float(v.get("lng") or 0.0)
                         v_website = (v.get("website") or "").strip() or None
+                        if v_website and "." not in v_website:
+                            v_website = None
                         t_count = int(v.get("tournament_count") or 0)
                         last_date = v.get("last_tournament_date")
                         if hasattr(last_date, "isoformat"):
@@ -480,7 +481,6 @@ class PlacesService:
                         COALESCE(
                             NULLIF(TRIM(e.raw_json->>'website'), ''),
                             NULLIF(TRIM(e.raw_json->'location'->>'website'), ''),
-                            NULLIF(TRIM(e.raw_json->>'url'), ''),
                             NULLIF(TRIM(e.raw_json->'location'->>'url'), ''),
                             NULLIF(TRIM(e.raw_json->>'facebook'), ''),
                             NULLIF(TRIM(e.raw_json->'location'->>'facebook'), '')
