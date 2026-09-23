@@ -192,14 +192,18 @@ async def report_league_match(league_id: str, request: Request):
         body = {}
     svc = leagues_hub_service.get_leagues_hub_service()
     try:
+        p1_name = body.get("p1_name") or body.get("player1") or ""
+        p2_name = body.get("p2_name") or body.get("player2") or ""
+        p1_score = int(body.get("p1_score") if body.get("p1_score") is not None else body.get("score1", 0))
+        p2_score = int(body.get("p2_score") if body.get("p2_score") is not None else body.get("score2", 0))
         result = svc.report_match(
             league_id=league_id,
             pod_number=int(body.get("pod_number", 1)),
             round_number=int(body.get("round_number", 1)),
-            p1_name=body.get("p1_name", ""),
-            p2_name=body.get("p2_name", ""),
-            p1_score=int(body.get("p1_score", 0)),
-            p2_score=int(body.get("p2_score", 0)),
+            p1_name=p1_name,
+            p2_name=p2_name,
+            p1_score=p1_score,
+            p2_score=p2_score,
             scorecard_id=body.get("scorecard_id"),
             is_ringer=bool(body.get("is_ringer", False))
         )

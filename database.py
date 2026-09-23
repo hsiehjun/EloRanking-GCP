@@ -1728,6 +1728,32 @@ class PostgresDatabase:
         Skips the 4,900-row loop on normal startup if native_league_participants is already populated.
         """
         try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            data_file = os.path.join(base_dir, "data", "sd40k_league_data.json")
+            hist_file = os.path.join(base_dir, "data", "sd40k_historical_seasons.json")
+            careers_file = os.path.join(base_dir, "data", "sd40k_player_careers.json")
+            lg = {}
+            if os.path.exists(data_file):
+                try:
+                    with open(data_file, "r", encoding="utf-8") as f:
+                        lg = json.load(f)
+                except Exception:
+                    lg = {}
+            full_config_obj = {
+                "methodology": lg.get("methodology", {}),
+                "hall_of_fame": lg.get("hall_of_fame", {}),
+                "past_finals_champions": lg.get("past_finals_champions", []),
+                "commissioners": lg.get("commissioners", []),
+                "partner_venues": lg.get("partner_venues", []),
+                "clubs": lg.get("clubs", []),
+                "tagline": lg.get("tagline", ""),
+                "short_name": lg.get("short_name", "SD40K"),
+                "city": lg.get("city", "San Diego"),
+                "state": lg.get("state", "CA"),
+                "country": lg.get("country", "USA"),
+                "website": lg.get("website", "https://sd40k.com"),
+                "established_year": lg.get("established_year", 2013),
+            }
             if not force:
                 try:
                     with self.get_connection() as conn:
@@ -1735,18 +1761,20 @@ class PostgresDatabase:
                             cursor.execute("SELECT COUNT(*) FROM native_league_participants WHERE league_id = 'league_sd40k_big_league';")
                             existing_cnt = cursor.fetchone()[0]
                             if existing_cnt and existing_cnt >= 1000:
+                                if full_config_obj.get("hall_of_fame"):
+                                    cursor.execute("""
+                                        UPDATE native_leagues
+                                        SET config_json = %s::jsonb
+                                        WHERE id = 'league_sd40k_big_league'
+                                          AND (config_json IS NULL OR NOT (config_json ? 'hall_of_fame'));
+                                    """, (json.dumps(full_config_obj),))
+                                    conn.commit()
                                 self.sync_league_participant_identities("league_sd40k_big_league", 38)
                                 return
                 except Exception:
                     pass
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            data_file = os.path.join(base_dir, "data", "sd40k_league_data.json")
-            hist_file = os.path.join(base_dir, "data", "sd40k_historical_seasons.json")
-            careers_file = os.path.join(base_dir, "data", "sd40k_player_careers.json")
-            if not os.path.exists(data_file):
+            if not lg:
                 return
-            with open(data_file, "r", encoding="utf-8") as f:
-                lg = json.load(f)
             hist_seasons = {}
             if os.path.exists(hist_file):
                 with open(hist_file, "r", encoding="utf-8") as hf:
@@ -1792,7 +1820,8 @@ class PostgresDatabase:
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, FALSE, %s::jsonb)
                         ON CONFLICT (id) DO UPDATE SET
                             total_players = EXCLUDED.total_players,
-                            total_pods = EXCLUDED.total_pods;
+                            total_pods = EXCLUDED.total_pods,
+                            config_json = EXCLUDED.config_json;
                     """, (
                         "league_sd40k_big_league",
                         "sd40k",
@@ -1802,7 +1831,7 @@ class PostgresDatabase:
                         s_num,
                         int(act.get("total_players", 68)),
                         len(pods),
-                        json.dumps(lg.get("methodology", {}))
+                        json.dumps(full_config_obj)
                     ))
 
                     for curr_s_num, season_obj, is_hist in all_seasons_to_seed:
