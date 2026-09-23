@@ -23,10 +23,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=30d8a93e40">
-  <link rel="stylesheet" href="/css/styles.min.css?v=30d8a93e40">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=30d8a93e40">
-  <link rel="preload" href="/js/app.bundle.min.js?v=30d8a93e40" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=07a489f9f3">
+  <link rel="stylesheet" href="/css/styles.min.css?v=07a489f9f3">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=07a489f9f3">
+  <link rel="preload" href="/js/app.bundle.min.js?v=07a489f9f3" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 
   <style>
@@ -438,6 +438,9 @@
             </div>
           </div>
 
+          <!-- ACTIVE LEAGUE REGISTRATIONS IN SPARRING RADAR (Exposed only during registration window) -->
+          <div id="radar-active-league-registrations" style="margin-bottom: 1rem;"></div>
+
           <div id="players-grid" class="oc-players-grid">
             <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: #94a3b8;">
               <div style="font-size: 2rem; margin-bottom: 0.5rem;">📡</div>
@@ -686,6 +689,16 @@
         <div class="empty-state">
           <div class="spinner"></div>
           <div style="margin-top: 0.75rem;">Loading team profile...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: DEDICATED COMMUNITY LEAGUE HUB (Private Detailed League Page accessed via League ID) -->
+    <section id="tab-league-hub" class="tab-panel">
+      <div id="league-hub-container" class="player-profile-view league-hub-view">
+        <div class="empty-state">
+          <div class="spinner"></div>
+          <div style="margin-top: 0.75rem;">Loading Detailed League Page...</div>
         </div>
       </div>
     </section>
@@ -1379,6 +1392,7 @@
           <div style="display: flex; gap: 0.5rem; align-items: center;">
             <button id="btn-sync-bcp-events" class="btn btn-outline" style="display: none !important; font-size: 0.76rem; padding: 0.32rem 0.75rem;" onclick="syncBcpOrganizerEvents()">🔄 Sync BCP Events</button>
             <button id="btn-studio-create-tourney" class="btn btn-primary es-create-tourney-btn" style="font-size: 0.76rem; padding: 0.32rem 0.85rem;" onclick="switchStudioTab('create')">➕ Create Tournament</button>
+            <button id="btn-studio-create-league" class="btn btn-primary es-create-league-btn" style="font-size: 0.76rem; padding: 0.32rem 0.85rem; background: linear-gradient(135deg, #d97706, #b45309); border: 1px solid #f59e0b; font-weight: 700;" onclick="openCopyLeagueTemplateModal()">🏆 Create League</button>
           </div>
         </div>
 
@@ -3322,8 +3336,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "30d8a93e40";</script>
-  <script src="/js/app.bundle.min.js?v=30d8a93e40"></script>
+  <script>window.APP_VERSION = "07a489f9f3";</script>
+  <script src="/js/app.bundle.min.js?v=07a489f9f3"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

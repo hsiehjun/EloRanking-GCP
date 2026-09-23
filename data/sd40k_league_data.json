@@ -1,0 +1,5704 @@
+{
+  "league_id": "lg_sd40k",
+  "slug": "sd40k",
+  "name": "San Diego Force Org (SD40K)",
+  "short_name": "SD40K",
+  "tagline": "The Premier 40k Pod League of Southern California \u2022 38 Continuous Seasons",
+  "city": "San Diego",
+  "state": "CA",
+  "region": "Southern California",
+  "country": "USA",
+  "website": "https://sd40k.com",
+  "established_year": 2013,
+  "commissioners": [
+    {
+      "name": "Cooper Waddell (Coop)",
+      "role": "League Founder & Commissioner"
+    },
+    {
+      "name": "Ben Nicholls",
+      "role": "Co-Commissioner & Head of Rules"
+    },
+    {
+      "name": "Victor Campos",
+      "role": "Senior Advisor"
+    },
+    {
+      "name": "Nick Card",
+      "role": "Dicehammer Liaison"
+    },
+    {
+      "name": "Jeremy Larson",
+      "role": "Tournament Council"
+    },
+    {
+      "name": "Rock Liberty",
+      "role": "Council & Hall of Fame Rep"
+    },
+    {
+      "name": "Junior Aflleje",
+      "role": "7x Champion & Team Zero Comp Rep"
+    }
+  ],
+  "partner_venues": [
+    {
+      "name": "At Ease Games",
+      "address": "8980 Miramar Rd, San Diego, CA 92126",
+      "phone": "(858) 549-4263",
+      "role": "Primary Official Host Store (Dedicated Matched Play Tables)",
+      "perks": "Table fees waived for SD40K league participants with prior booking"
+    },
+    {
+      "name": "Pair A Dice Games",
+      "address": "2020 S Rancho Santa Fe Rd #2, San Marcos, CA 92078",
+      "role": "North County Venue Partner"
+    },
+    {
+      "name": "Off The Shelf Games",
+      "address": "1735 E Main St, El Cajon, CA 92021",
+      "role": "East County Venue Partner"
+    },
+    {
+      "name": "TC's Rockets",
+      "address": "5155 Waring Rd, San Diego, CA 92120",
+      "role": "Central San Diego Venue Partner"
+    }
+  ],
+  "clubs": [
+    {
+      "name": "Rage On",
+      "contact": "Cooper Waddell"
+    },
+    {
+      "name": "Dicehammer",
+      "contact": "Nick Card"
+    },
+    {
+      "name": "Angron's Book Club",
+      "contact": "Alvin Dean Collins"
+    },
+    {
+      "name": "Grand Slam",
+      "contact": "Brought to you by Denny's"
+    }
+  ],
+  "methodology": {
+    "title": "The SD40K Pod & Relegation System",
+    "summary": "An 8-week season with 5 scheduled games inside tiered pods, featuring automatic promotion/relegation and a single-elimination seasonal finals tournament.",
+    "points_limit": 2000,
+    "season_duration_weeks": 8,
+    "games_per_season": 5,
+    "scoring_rule": "sd40k_1000_bonus",
+    "scoring_breakdown": {
+      "win": "Actual Game VP + 1,000 Bonus Battle Points (e.g. 93 VP = 1,093 BP)",
+      "draw": "Actual Game VP + 500 Bonus Battle Points",
+      "loss": "Actual Game VP + 0 Bonus Battle Points (e.g. 51 VP = 51 BP)",
+      "in_pod_ringer_win": "Actual Game VP + 750 Bonus Battle Points"
+    },
+    "faction_rules": {
+      "lock_policy": "Locked for the entire 8-week season. Must field at least 1,001 points of chosen primary faction in every match.",
+      "list_policy": "Flexible lists between rounds. Detachments, units, and enhancements can be adjusted between games."
+    },
+    "promotion_relegation_rules": {
+      "promotion": "Top 2 finishers in Pods 2\u20137 earn promotion (+1 or +2 pods)",
+      "relegation": "Bottom 2 finishers in Pods 1\u20136 face relegation (-1 or -2 pods)",
+      "finals_qualification": "Top Pod 1 competitors qualify for the prestigious 16-player Single Elimination Finals Championship"
+    },
+    "chess_clock_policy": "Mandatory in Pods 1\u20133 & Finals if requested by either player 24 hours prior. Pods 4\u20137 require mutual agreement. 2 hours per player.",
+    "tiebreakers": [
+      "1. Total Battle Points (inclusive of win bonuses)",
+      "2. Head-to-Head result",
+      "3. Fastest player to complete all 5 matches",
+      "4. Coin toss"
+    ]
+  },
+  "active_season": {
+    "season_number": 38,
+    "name": "Season 38 (Fall 2026)",
+    "status": "active",
+    "start_date": "2026-08-15",
+    "end_date": "2026-10-15",
+    "total_pods": 8,
+    "total_players": 68,
+    "pods": [
+      {
+        "pod_number": 1,
+        "name": "POD #1 - The Hard Boys",
+        "tier": "Premier Division",
+        "completion_rate": "5%",
+        "round_layouts": [
+          "Layout A",
+          "Layout B",
+          "Layout C",
+          "Layout A",
+          "Layout B"
+        ],
+        "player_count": 8,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "Victor Campos",
+            "primary_faction": "Heretic Astartes",
+            "relegation_status": "None",
+            "poty_points": 30,
+            "wins": 2,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 2186,
+            "games_played": 2,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Miles",
+                "score": 93,
+                "is_completed": true,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Jackson",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Kinyaaaanii",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "James",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Durand",
+                "score": 1093,
+                "is_completed": true
+              }
+            ],
+            "career": {
+              "poty_total": 87,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 1.25,
+              "recent_record": "12 - 8 - 0",
+              "points_per_game": 79.05,
+              "seasons_played": 15,
+              "career_win_pct": "67.12%",
+              "career_record": "49 - 24 - 0",
+              "pod_titles": 4,
+              "championships": 1
+            }
+          },
+          {
+            "rank": 2,
+            "name": "Durand Smiley",
+            "primary_faction": "Adepta Sororitas",
+            "relegation_status": "None",
+            "poty_points": 30,
+            "wins": 0,
+            "losses": 2,
+            "draws": 0,
+            "battle_points": 102,
+            "games_played": 2,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "James",
+                "score": 51,
+                "is_completed": true,
+                "scorecard_id": null
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "James",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Miles",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Kinyaaaanii",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Victor",
+                "score": 51,
+                "is_completed": true
+              }
+            ],
+            "career": {
+              "poty_total": 37,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 2.5,
+              "recent_record": "12 - 8 - 0",
+              "points_per_game": 79.65,
+              "seasons_played": 5,
+              "career_win_pct": "56.00%",
+              "career_record": "14 - 11 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 3,
+            "name": "Jackson Rodelander",
+            "primary_faction": "Dark Angels",
+            "relegation_status": "None",
+            "poty_points": 30,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Rock",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Victor",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "James",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "James",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Miles",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 40,
+              "recent_win_pct": "70.00%",
+              "avg_pod": 3.0,
+              "recent_record": "14 - 6 - 0",
+              "points_per_game": 77.35,
+              "seasons_played": 4,
+              "career_win_pct": "70.00%",
+              "career_record": "14 - 6 - 0",
+              "pod_titles": 2,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 4,
+            "name": "James Carmona",
+            "primary_faction": "World Eaters",
+            "relegation_status": "None",
+            "poty_points": 30,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Kinyaaaanii",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Durand",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Rock",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Jackson",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "James",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 5,
+              "recent_win_pct": "100.00%",
+              "avg_pod": 4.0,
+              "recent_record": "9 - 0 - 0",
+              "points_per_game": 63.56,
+              "seasons_played": 10,
+              "career_win_pct": "76.92%",
+              "career_record": "30 - 9 - 0",
+              "pod_titles": 2,
+              "championships": 1
+            }
+          },
+          {
+            "rank": 5,
+            "name": "James Kang",
+            "primary_faction": "Adeptus Custodes",
+            "relegation_status": "- 1 POD",
+            "poty_points": 30,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Durand",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Rock",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Jackson",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Victor",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "James",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 13,
+              "recent_win_pct": "66.67%",
+              "avg_pod": 4.0,
+              "recent_record": "12 - 6 - 0",
+              "points_per_game": 73.22,
+              "seasons_played": 6,
+              "career_win_pct": "60.71%",
+              "career_record": "17 - 11 - 0",
+              "pod_titles": 1,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 6,
+            "name": "Kinyaaaanii Padilla",
+            "primary_faction": "Dark Angels",
+            "relegation_status": "- 1 POD",
+            "poty_points": 30,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "James",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Miles",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Victor",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Durand",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Rock",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 89,
+              "recent_win_pct": "68.42%",
+              "avg_pod": 1.25,
+              "recent_record": "13 - 6 - 0",
+              "points_per_game": 72.42,
+              "seasons_played": 7,
+              "career_win_pct": "75.00%",
+              "career_record": "24 - 8 - 1",
+              "pod_titles": 3,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 7,
+            "name": "Miles Vollenweider",
+            "primary_faction": "Thousand Sons",
+            "relegation_status": "- 2 POD",
+            "poty_points": 30,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Victor",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Kinyaaaanii",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Durand",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Rock",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Jackson",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 33,
+              "recent_win_pct": "50.00%",
+              "avg_pod": 2.75,
+              "recent_record": "10 - 10 - 0",
+              "points_per_game": 77.95,
+              "seasons_played": 10,
+              "career_win_pct": "53.33%",
+              "career_record": "24 - 21 - 2",
+              "pod_titles": 1,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 8,
+            "name": "Rock Liberty",
+            "primary_faction": "Thousand Sons",
+            "relegation_status": "- 2 POD",
+            "poty_points": 30,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Jackson",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "James",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "James",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Miles",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Kinyaaaanii",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 69,
+              "recent_win_pct": "82.35%",
+              "avg_pod": 1.75,
+              "recent_record": "14 - 3 - 0",
+              "points_per_game": 83.06,
+              "seasons_played": 37,
+              "career_win_pct": "66.27%",
+              "career_record": "112 - 57 - 4",
+              "pod_titles": 9,
+              "championships": 3
+            }
+          }
+        ]
+      },
+      {
+        "pod_number": 2,
+        "name": "POD #2 - The Deuce",
+        "tier": "Challenger Division",
+        "completion_rate": "5%",
+        "round_layouts": [
+          "Layout A",
+          "Layout B",
+          "Layout C",
+          "Layout A",
+          "Layout B"
+        ],
+        "player_count": 8,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "Jeremy Larson",
+            "primary_faction": "Deathwatch",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 22,
+            "wins": 1,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 1098,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Joel",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Jan",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Alex",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Josh",
+                "score": 1098,
+                "is_completed": true
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Michael",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 52,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 2.0,
+              "recent_record": "12 - 8 - 0",
+              "points_per_game": 75.45,
+              "seasons_played": 35,
+              "career_win_pct": "65.90%",
+              "career_record": "114 - 59 - 2",
+              "pod_titles": 8,
+              "championships": 5
+            }
+          },
+          {
+            "rank": 2,
+            "name": "Josh Peters",
+            "primary_faction": "Chaos Knights",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 20,
+            "wins": 0,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 76,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Michael",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Greg",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Nick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Jeremy",
+                "score": 76,
+                "is_completed": true
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Jan",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "80.00%",
+              "avg_pod": 4.5,
+              "recent_record": "8 - 2 - 0",
+              "points_per_game": 90.2,
+              "seasons_played": 3,
+              "career_win_pct": "80.00%",
+              "career_record": "12 - 3 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 3,
+            "name": "Alex Ivanov",
+            "primary_faction": "T'au",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 19,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Greg",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Nick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Jeremy",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Jan",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Joel",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 77,
+              "recent_win_pct": "62.50%",
+              "avg_pod": 1.75,
+              "recent_record": "10 - 6 - 1",
+              "points_per_game": 80.35,
+              "seasons_played": 22,
+              "career_win_pct": "55.56%",
+              "career_record": "55 - 44 - 3",
+              "pod_titles": 2,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 4,
+            "name": "Greg Kellen",
+            "primary_faction": "Orks",
+            "relegation_status": "None",
+            "poty_points": 15,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Alex",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Josh",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Michael",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Joel",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Nick",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 4,
+              "recent_win_pct": "42.86%",
+              "avg_pod": 3.67,
+              "recent_record": "6 - 8 - 0",
+              "points_per_game": 74.79,
+              "seasons_played": 23,
+              "career_win_pct": "40.54%",
+              "career_record": "45 - 66 - 0",
+              "pod_titles": 1,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 5,
+            "name": "Jan Pferdekamper",
+            "primary_faction": "Space Wolves",
+            "relegation_status": "None",
+            "poty_points": 14,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Nick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Jeremy",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Joel",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Alex",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Josh",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 3.5,
+              "recent_record": "6 - 4 - 0",
+              "points_per_game": 73.3,
+              "seasons_played": 12,
+              "career_win_pct": "53.33%",
+              "career_record": "24 - 21 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 6,
+            "name": "Joel Palhegyi",
+            "primary_faction": "Orks",
+            "relegation_status": "- 1 POD",
+            "poty_points": 9,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Jeremy",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Michael",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Jan",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Greg",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Alex",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 23,
+              "recent_win_pct": "50.00%",
+              "avg_pod": 3.0,
+              "recent_record": "10 - 10 - 0",
+              "points_per_game": 76.9,
+              "seasons_played": 6,
+              "career_win_pct": "55.17%",
+              "career_record": "16 - 13 - 1",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 7,
+            "name": "Michael Pogrebinsky",
+            "primary_faction": "Imperial Knights",
+            "relegation_status": "- 2 POD",
+            "poty_points": 6,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Josh",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Joel",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Greg",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Nick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Jeremy",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 41,
+              "recent_win_pct": "35.00%",
+              "avg_pod": 2.5,
+              "recent_record": "7 - 13 - 0",
+              "points_per_game": 65.9,
+              "seasons_played": 21,
+              "career_win_pct": "44.00%",
+              "career_record": "44 - 56 - 3",
+              "pod_titles": 1,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 8,
+            "name": "Nick Treuheit",
+            "primary_faction": "Orks",
+            "relegation_status": "- 2 POD",
+            "poty_points": 5,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Jan",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Alex",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Josh",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Michael",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Greg",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 36,
+              "recent_win_pct": "47.37%",
+              "avg_pod": 2.25,
+              "recent_record": "9 - 10 - 1",
+              "points_per_game": 74.85,
+              "seasons_played": 7,
+              "career_win_pct": "51.52%",
+              "career_record": "17 - 16 - 1",
+              "pod_titles": 1,
+              "championships": 0
+            }
+          }
+        ]
+      },
+      {
+        "pod_number": 3,
+        "name": "POD #3 - The Average Joes",
+        "tier": "Mid Division A",
+        "completion_rate": "10%",
+        "round_layouts": [
+          "Layout A",
+          "Layout B",
+          "Layout C",
+          "Layout A",
+          "Layout B"
+        ],
+        "player_count": 8,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "Benjamin Nicholls",
+            "primary_faction": "Adeptus Astartes",
+            "relegation_status": "+ 2 POD",
+            "poty_points": 18,
+            "wins": 1,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 1137,
+            "games_played": 2,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Zack",
+                "score": 44,
+                "is_completed": true
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Alberto",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Aurelia",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Sean",
+                "score": 1093,
+                "is_completed": true
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Harrison",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 37,
+              "recent_win_pct": "37.50%",
+              "avg_pod": 2.75,
+              "recent_record": "6 - 10 - 2",
+              "points_per_game": 71.67,
+              "seasons_played": 36,
+              "career_win_pct": "48.47%",
+              "career_record": "79 - 84 - 3",
+              "pod_titles": 3,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 2,
+            "name": "Zack Soucek",
+            "primary_faction": "Tyranids",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 13,
+            "wins": 1,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 1100,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Benjamin",
+                "score": 1100,
+                "is_completed": true
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Harrison",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Alberto",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Patrick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Aurelia",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 2,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 4.0,
+              "recent_record": "6 - 4 - 0",
+              "points_per_game": 81.3,
+              "seasons_played": 2,
+              "career_win_pct": "60.00%",
+              "career_record": "6 - 4 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 3,
+            "name": "Sean Bejarano",
+            "primary_faction": "Dark Angels",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 12,
+            "wins": 0,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 71,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Harrison",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Patrick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Quinnton",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Benjamin",
+                "score": 71,
+                "is_completed": true
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Alberto",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 84,
+              "recent_win_pct": "47.37%",
+              "avg_pod": 1.25,
+              "recent_record": "9 - 10 - 1",
+              "points_per_game": 73.75,
+              "seasons_played": 9,
+              "career_win_pct": "39.02%",
+              "career_record": "16 - 25 - 2",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 4,
+            "name": "Alberto Brambila",
+            "primary_faction": "Dark Angels",
+            "relegation_status": "None",
+            "poty_points": 8,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Quinnton",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Benjamin",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Zack",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Aurelia",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Sean",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "40.00%",
+              "avg_pod": 4.75,
+              "recent_record": "8 - 12 - 0",
+              "points_per_game": 63.8,
+              "seasons_played": 4,
+              "career_win_pct": "40.00%",
+              "career_record": "8 - 12 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 5,
+            "name": "Aurelia Spears",
+            "primary_faction": "Adeptus Custodes",
+            "relegation_status": "None",
+            "poty_points": 7,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Patrick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Quinnton",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Benjamin",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Alberto",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Zack",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "45.45%",
+              "avg_pod": 5.33,
+              "recent_record": "5 - 6 - 0",
+              "points_per_game": 71.73,
+              "seasons_played": 3,
+              "career_win_pct": "45.45%",
+              "career_record": "5 - 6 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 6,
+            "name": "Harrison Faust",
+            "primary_faction": "Adeptus Custodes",
+            "relegation_status": "- 1 POD",
+            "poty_points": 4,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Sean",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Zack",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Patrick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Quinnton",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Benjamin",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 27,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 2.5,
+              "recent_record": "6 - 4 - 0",
+              "points_per_game": 76.3,
+              "seasons_played": 3,
+              "career_win_pct": "73.33%",
+              "career_record": "11 - 4 - 0",
+              "pod_titles": 2,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 7,
+            "name": "Patrick Bracken",
+            "primary_faction": "Genestealer Cult",
+            "relegation_status": "- 2 POD",
+            "poty_points": 3,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Aurelia",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Sean",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Harrison",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Zack",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Quinnton",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 48,
+              "recent_win_pct": "33.33%",
+              "avg_pod": 1.67,
+              "recent_record": "5 - 10 - 0",
+              "points_per_game": 76.0,
+              "seasons_played": 16,
+              "career_win_pct": "43.48%",
+              "career_record": "30 - 39 - 3",
+              "pod_titles": 2,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 8,
+            "name": "Quinnton Smiley",
+            "primary_faction": "Dark Angels",
+            "relegation_status": "- 2 POD",
+            "poty_points": 2,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Alberto",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Aurelia",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Sean",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Harrison",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Patrick",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 12,
+              "recent_win_pct": "53.33%",
+              "avg_pod": 3.33,
+              "recent_record": "8 - 7 - 0",
+              "points_per_game": 74.8,
+              "seasons_played": 4,
+              "career_win_pct": "55.00%",
+              "career_record": "11 - 9 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          }
+        ]
+      },
+      {
+        "pod_number": 4,
+        "name": "POD #4 - The F-Shack",
+        "tier": "Mid Division B",
+        "completion_rate": "15%",
+        "round_layouts": [
+          "Layout A",
+          "Layout B",
+          "Layout C",
+          "Layout A",
+          "Layout B"
+        ],
+        "player_count": 8,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "Justin Jones",
+            "primary_faction": "Chaos Knights",
+            "relegation_status": "+ 2 POD",
+            "poty_points": 5,
+            "wins": 1,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 1190,
+            "games_played": 2,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Ryan",
+                "score": 90,
+                "is_completed": true
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Steve",
+                "score": 1100,
+                "is_completed": true
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Emanuele",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Jack",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Jeffrey",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 6,
+              "recent_win_pct": "56.25%",
+              "avg_pod": 3.75,
+              "recent_record": "9 - 7 - 1",
+              "points_per_game": 74.47,
+              "seasons_played": 30,
+              "career_win_pct": "40.00%",
+              "career_record": "50 - 75 - 5",
+              "pod_titles": 1,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 2,
+            "name": "Ryan Betts",
+            "primary_faction": "Emperor's Children",
+            "relegation_status": "+ 2 POD",
+            "poty_points": 2,
+            "wins": 1,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 1170,
+            "games_played": 2,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Justin",
+                "score": 1100,
+                "is_completed": true
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Emanuele",
+                "score": 70,
+                "is_completed": true
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Jeffrey",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Neil",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Steve",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 6,
+              "recent_win_pct": "52.63%",
+              "avg_pod": 4.0,
+              "recent_record": "10 - 9 - 1",
+              "points_per_game": 73.35,
+              "seasons_played": 5,
+              "career_win_pct": "45.83%",
+              "career_record": "11 - 13 - 1",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 3,
+            "name": "Emanuele Saccarelli",
+            "primary_faction": "Chaos Demons",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 0,
+            "wins": 1,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 1080,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Nam",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Ryan",
+                "score": 1080,
+                "is_completed": true
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Justin",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Jeffrey",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Neil",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 2,
+              "recent_win_pct": "100.00%",
+              "avg_pod": 5.0,
+              "recent_record": "4 - 0 - 0",
+              "points_per_game": 89.75,
+              "seasons_played": 21,
+              "career_win_pct": "54.95%",
+              "career_record": "50 - 41 - 1",
+              "pod_titles": 2,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 4,
+            "name": "Steve Lerma",
+            "primary_faction": "Orks",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 82,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Neil",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Justin",
+                "score": 82,
+                "is_completed": true
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Jack",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Nam",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Ryan",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "15.38%",
+              "avg_pod": 5.0,
+              "recent_record": "2 - 11 - 0",
+              "points_per_game": 52.46,
+              "seasons_played": 4,
+              "career_win_pct": "22.22%",
+              "career_record": "4 - 14 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 5,
+            "name": "Jack Peterson",
+            "primary_faction": "Asuryani",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Jeffrey",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Neil",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Steve",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Justin",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Nam",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "100.00%",
+              "avg_pod": 7.0,
+              "recent_record": "5 - 0 - 0",
+              "points_per_game": 95.8,
+              "seasons_played": 1,
+              "career_win_pct": "100.00%",
+              "career_record": "5 - 0 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 6,
+            "name": "Jeffrey Felios",
+            "primary_faction": "Votann",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Jack",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Nam",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Ryan",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Emanuele",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Justin",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 18,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 3.67,
+              "recent_record": "9 - 6 - 0",
+              "points_per_game": 77.33,
+              "seasons_played": 4,
+              "career_win_pct": "65.00%",
+              "career_record": "13 - 7 - 0",
+              "pod_titles": 1,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 7,
+            "name": "Nam Hai Nguyen",
+            "primary_faction": "Tyranids",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Emanuele",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Jeffrey",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Neil",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Steve",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Jack",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "80.00%",
+              "avg_pod": 7.0,
+              "recent_record": "4 - 1 - 0",
+              "points_per_game": 79.8,
+              "seasons_played": 1,
+              "career_win_pct": "80.00%",
+              "career_record": "4 - 1 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 8,
+            "name": "Neil Braden",
+            "primary_faction": "Space Wolves",
+            "relegation_status": "- 2 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Steve",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Jack",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Nam",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Ryan",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Emanuele",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 34,
+              "recent_win_pct": "40.00%",
+              "avg_pod": 2.75,
+              "recent_record": "8 - 12 - 0",
+              "points_per_game": 67.2,
+              "seasons_played": 37,
+              "career_win_pct": "48.62%",
+              "career_record": "88 - 93 - 1",
+              "pod_titles": 7,
+              "championships": 1
+            }
+          }
+        ]
+      },
+      {
+        "pod_number": 5,
+        "name": "POD #5 - Purgatory",
+        "tier": "Veteran Relegation",
+        "completion_rate": "5%",
+        "round_layouts": [
+          "Layout A",
+          "Layout B",
+          "Layout C",
+          "Layout A",
+          "Layout B"
+        ],
+        "player_count": 8,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "Joe Keeb",
+            "primary_faction": "World Eaters",
+            "relegation_status": "+ 2 POD",
+            "poty_points": 5,
+            "wins": 1,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 1087,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Zach",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Guy",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Xander",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Jose",
+                "score": 1087,
+                "is_completed": true
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Patrick",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 2,
+              "recent_win_pct": "23.08%",
+              "avg_pod": 4.67,
+              "recent_record": "3 - 10 - 0",
+              "points_per_game": 62.31,
+              "seasons_played": 5,
+              "career_win_pct": "20.00%",
+              "career_record": "4 - 16 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 2,
+            "name": "Jose Orizaba",
+            "primary_faction": "Emperor's Children",
+            "relegation_status": "+ 2 POD",
+            "poty_points": 2,
+            "wins": 0,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 59,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Guy",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Xander",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Patrick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Joe",
+                "score": 59,
+                "is_completed": true
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Garrett",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "35.29%",
+              "avg_pod": 4.25,
+              "recent_record": "6 - 11 - 1",
+              "points_per_game": 56.72,
+              "seasons_played": 5,
+              "career_win_pct": "30.00%",
+              "career_record": "6 - 14 - 1",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 3,
+            "name": "Chris Lane",
+            "primary_faction": "Dark Angels",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Garrett",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Patrick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Zach",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Guy",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Xander",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 7.0,
+              "recent_record": "3 - 2 - 0",
+              "points_per_game": 93.4,
+              "seasons_played": 1,
+              "career_win_pct": "60.00%",
+              "career_record": "3 - 2 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 4,
+            "name": "Garrett Turner",
+            "primary_faction": "Black Templars",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Zach",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Guy",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Xander",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Jose",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 6.0,
+              "recent_record": "3 - 2 - 0",
+              "points_per_game": 77.8,
+              "seasons_played": 2,
+              "career_win_pct": "55.56%",
+              "career_record": "5 - 4 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 5,
+            "name": "Guy Eckstein",
+            "primary_faction": "Space Wolves",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Jose",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Joe",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Garrett",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Zach",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "35.29%",
+              "avg_pod": 4.25,
+              "recent_record": "6 - 11 - 0",
+              "points_per_game": 60.65,
+              "seasons_played": 5,
+              "career_win_pct": "40.91%",
+              "career_record": "9 - 13 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 6,
+            "name": "Patrick Adamiak",
+            "primary_faction": "Genestealer Cult",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Xander",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Jose",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Zach",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Joe",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 3,
+              "recent_win_pct": "42.11%",
+              "avg_pod": 4.25,
+              "recent_record": "8 - 11 - 0",
+              "points_per_game": 80.74,
+              "seasons_played": 4,
+              "career_win_pct": "42.11%",
+              "career_record": "8 - 11 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 7,
+            "name": "Xander (Alex Helm)",
+            "primary_faction": "Thousand Sons",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Patrick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Jose",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Joe",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Garrett",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "40.00%",
+              "avg_pod": 6.0,
+              "recent_record": "2 - 3 - 0",
+              "points_per_game": 73.8,
+              "seasons_played": 1,
+              "career_win_pct": "40.00%",
+              "career_record": "2 - 3 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 8,
+            "name": "Zach Etterman",
+            "primary_faction": "Blood Angels",
+            "relegation_status": "- 2 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Joe",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Garrett",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Patrick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Guy",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "75.00%",
+              "avg_pod": 7.0,
+              "recent_record": "3 - 1 - 1",
+              "points_per_game": 74.6,
+              "seasons_played": 1,
+              "career_win_pct": "75.00%",
+              "career_record": "3 - 1 - 1",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          }
+        ]
+      },
+      {
+        "pod_number": 6,
+        "name": "POD #6 - The Kiddy Pool",
+        "tier": "Apprentice Division",
+        "completion_rate": "5%",
+        "round_layouts": [
+          "Layout A",
+          "Layout B",
+          "Layout C",
+          "Layout A",
+          "Layout B"
+        ],
+        "player_count": 8,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "Keith Nyberg",
+            "primary_faction": "Orks",
+            "relegation_status": "+ 2 POD",
+            "poty_points": 5,
+            "wins": 1,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 1077,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Jeremy",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Lance",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "David",
+                "score": 1077,
+                "is_completed": true
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Travis",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Colton",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "25.00%",
+              "avg_pod": 5.25,
+              "recent_record": "3 - 9 - 0",
+              "points_per_game": 51.08,
+              "seasons_played": 19,
+              "career_win_pct": "20.90%",
+              "career_record": "14 - 53 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 2,
+            "name": "David Clukey",
+            "primary_faction": "Chaos Knights",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 2,
+            "wins": 0,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 72,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Quentin",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Jeremy",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Keith",
+                "score": 72,
+                "is_completed": true
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Colton",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Henrik",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 7.0,
+              "recent_record": "3 - 2 - 0",
+              "points_per_game": 75.2,
+              "seasons_played": 1,
+              "career_win_pct": "60.00%",
+              "career_record": "3 - 2 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 3,
+            "name": "Colton Hayes",
+            "primary_faction": "Heretic Astartes",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Travis",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Quentin",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Jeremy",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "David",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Keith",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 7.0,
+              "recent_record": "3 - 2 - 0",
+              "points_per_game": 75.4,
+              "seasons_played": 1,
+              "career_win_pct": "60.00%",
+              "career_record": "3 - 2 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 4,
+            "name": "Henrik Warpefelt",
+            "primary_faction": "Adeptus Custodes",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Lance",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Travis",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Quentin",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Jeremy",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "David",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 2.5,
+              "recent_record": "6 - 4 - 0",
+              "points_per_game": 76.3,
+              "seasons_played": 2,
+              "career_win_pct": "11.11%",
+              "career_record": "1 - 8 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 5,
+            "name": "Jeremy Crossley",
+            "primary_faction": "Death Guard",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Keith",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "David",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Colton",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Henrik",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Lance",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 5,
+              "recent_win_pct": "22.22%",
+              "avg_pod": 4.5,
+              "recent_record": "4 - 14 - 0",
+              "points_per_game": 67.44,
+              "seasons_played": 12,
+              "career_win_pct": "29.09%",
+              "career_record": "16 - 39 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 6,
+            "name": "Lance Moore",
+            "primary_faction": "Adeptus Custodes",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Henrik",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Keith",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Travis",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Quentin",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Jeremy",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "40.00%",
+              "avg_pod": 7.0,
+              "recent_record": "2 - 3 - 0",
+              "points_per_game": 82.4,
+              "seasons_played": 1,
+              "career_win_pct": "40.00%",
+              "career_record": "2 - 3 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 7,
+            "name": "Quentin Ponath",
+            "primary_faction": "Tyranids",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "David",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Colton",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Henrik",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Lance",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Travis",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "37.50%",
+              "avg_pod": 6.0,
+              "recent_record": "3 - 5 - 0",
+              "points_per_game": 69.63,
+              "seasons_played": 20,
+              "career_win_pct": "55.43%",
+              "career_record": "51 - 41 - 1",
+              "pod_titles": 3,
+              "championships": 1
+            }
+          },
+          {
+            "rank": 8,
+            "name": "Travis Wambach",
+            "primary_faction": "Heretic Astartes",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Colton",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Henrik",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Lance",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Keith",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Quentin",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "10.00%",
+              "avg_pod": 5.0,
+              "recent_record": "1 - 9 - 0",
+              "points_per_game": 63.8,
+              "seasons_played": 2,
+              "career_win_pct": "10.00%",
+              "career_record": "1 - 9 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          }
+        ]
+      },
+      {
+        "pod_number": 7,
+        "name": "POD #7 - The Thunderdome",
+        "tier": "Entry & Open Division",
+        "completion_rate": "10%",
+        "round_layouts": [
+          "Layout A",
+          "Layout B",
+          "Layout C",
+          "Layout A",
+          "Layout B"
+        ],
+        "player_count": 12,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "Kory Marlatt",
+            "primary_faction": "Blood Angels",
+            "relegation_status": "+ 2 POD",
+            "poty_points": 5,
+            "wins": 1,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 1090,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Michael",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Jacob",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Christian",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Anthony",
+                "score": 1090,
+                "is_completed": true
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Cooper",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "0.00%",
+              "avg_pod": 7.0,
+              "recent_record": "0 - 0 - 0",
+              "points_per_game": 0.0,
+              "seasons_played": 4,
+              "career_win_pct": "45.00%",
+              "career_record": "9 - 11 - 0",
+              "pod_titles": 1,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 2,
+            "name": "Christian (H)",
+            "primary_faction": "Necrons",
+            "relegation_status": "+ 2 POD",
+            "poty_points": 2,
+            "wins": 1,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 1074,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Nicole",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Kory",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Nick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Cristian",
+                "score": 1074,
+                "is_completed": true
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "50.00%",
+              "avg_pod": 2.33,
+              "recent_record": "7 - 7 - 0",
+              "points_per_game": 72.0,
+              "seasons_played": 6,
+              "career_win_pct": "48.15%",
+              "career_record": "13 - 14 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 3,
+            "name": "Anthony Silva",
+            "primary_faction": "Unassigned",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 79,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Nicole",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Kory",
+                "score": 79,
+                "is_completed": true
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Nick",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "44.44%",
+              "avg_pod": 3.5,
+              "recent_record": "4 - 5 - 0",
+              "points_per_game": 77.56,
+              "seasons_played": 11,
+              "career_win_pct": "56.36%",
+              "career_record": "31 - 24 - 0",
+              "pod_titles": 2,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 4,
+            "name": "Cristian (No H)",
+            "primary_faction": "Adepta Sororitas",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 1,
+            "draws": 0,
+            "battle_points": 51,
+            "games_played": 1,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Nick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Jordan",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Michael",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Jacob",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Christian",
+                "score": 51,
+                "is_completed": true
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "62.50%",
+              "avg_pod": 4.75,
+              "recent_record": "5 - 3 - 1",
+              "points_per_game": 72.22,
+              "seasons_played": 6,
+              "career_win_pct": "57.14%",
+              "career_record": "16 - 12 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 5,
+            "name": "Chris Krogen",
+            "primary_faction": "Chaos Demons",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Anthony",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Cooper",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Jordan",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Michael",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Nicole",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "0.00%",
+              "avg_pod": 7.0,
+              "recent_record": "0 - 0 - 0",
+              "points_per_game": 0.0,
+              "seasons_played": 7,
+              "career_win_pct": "51.43%",
+              "career_record": "18 - 17 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 6,
+            "name": "Chris Smith",
+            "primary_faction": "Astra Militarum",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Jacob",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Christian",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Anthony",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Cooper",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Jordan",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "50.00%",
+              "avg_pod": 2.33,
+              "recent_record": "7 - 7 - 0",
+              "points_per_game": 72.0,
+              "seasons_played": 10,
+              "career_win_pct": "51.02%",
+              "career_record": "25 - 24 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 7,
+            "name": "Cooper Robertson",
+            "primary_faction": "Unassigned",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Jordan",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Nicole",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Kory",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "60.00%",
+              "avg_pod": 7.0,
+              "recent_record": "3 - 2 - 0",
+              "points_per_game": 75.4,
+              "seasons_played": 3,
+              "career_win_pct": "45.45%",
+              "career_record": "5 - 6 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 8,
+            "name": "Jacob Bain",
+            "primary_faction": "Adeptus Astartes",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Kory",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Nick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Cristian",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Michael",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "70.00%",
+              "avg_pod": 3.0,
+              "recent_record": "14 - 6 - 0",
+              "points_per_game": 77.35,
+              "seasons_played": 2,
+              "career_win_pct": "50.00%",
+              "career_record": "2 - 2 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 9,
+            "name": "Jordan Luksetich",
+            "primary_faction": "Deathwatch",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Cooper",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Cristian",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Nicole",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 30,
+              "recent_win_pct": "62.50%",
+              "avg_pod": 2.0,
+              "recent_record": "5 - 3 - 0",
+              "points_per_game": 74.25,
+              "seasons_played": 4,
+              "career_win_pct": "66.67%",
+              "career_record": "12 - 6 - 0",
+              "pod_titles": 1,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 10,
+            "name": "Michael Kornberg",
+            "primary_faction": "Dark Angels",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Kory",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Nick",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Cristian",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Jacob",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "80.00%",
+              "avg_pod": 6.0,
+              "recent_record": "4 - 1 - 0",
+              "points_per_game": 97.2,
+              "seasons_played": 2,
+              "career_win_pct": "80.00%",
+              "career_record": "8 - 2 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 11,
+            "name": "Nick Huffmaster",
+            "primary_faction": "Adeptus Astartes",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Cristian",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Michael",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Jacob",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Christian",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Anthony",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "40.00%",
+              "avg_pod": 2.75,
+              "recent_record": "8 - 12 - 0",
+              "points_per_game": 67.2,
+              "seasons_played": 2,
+              "career_win_pct": "44.44%",
+              "career_record": "4 - 5 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          },
+          {
+            "rank": 12,
+            "name": "Nicole Schwartz",
+            "primary_faction": "Adeptus Astartes",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Christian",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Anthony",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Cooper",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Jordan",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Chris",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "poty_total": 0,
+              "recent_win_pct": "40.00%",
+              "avg_pod": 7.0,
+              "recent_record": "2 - 3 - 0",
+              "points_per_game": 81.4,
+              "seasons_played": 1,
+              "career_win_pct": "40.00%",
+              "career_record": "2 - 3 - 0",
+              "pod_titles": 0,
+              "championships": 0
+            }
+          }
+        ]
+      },
+      {
+        "pod_number": 8,
+        "name": "POD #8 - The Scrub Tub",
+        "tier": "Development Division",
+        "completion_rate": "0%",
+        "round_layouts": [
+          "Layout A",
+          "Layout B",
+          "Layout C",
+          "Layout A",
+          "Layout B"
+        ],
+        "player_count": 8,
+        "standings": [
+          {
+            "rank": 1,
+            "name": "Dauntae Forrest",
+            "primary_faction": "Black Templars",
+            "allegiance": "Imperial",
+            "relegation_status": "+ 2 POD",
+            "poty_points": 5,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Jacob Fischer (Adeptus Mechanicus)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Deven Torres (Chaos Demons)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Joseph Ahlstrom (Adeptus Astartes)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "John Hsieh (Necrons)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "David Nguyen (Adeptus Custodes)",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "name": "Dauntae Forrest",
+              "total_seasons": 1,
+              "total_games": 0,
+              "record": "0W - 0L - 0D",
+              "win_pct": "0.0%",
+              "total_bp": 0,
+              "best_pod": "Pod 8",
+              "pod_titles": 1,
+              "factions": [
+                "Black Templars"
+              ],
+              "history": [
+                {
+                  "season_number": 38,
+                  "pod_number": 8,
+                  "pod_name": "The Scrub Tub",
+                  "primary_faction": "Black Templars",
+                  "rank": 1,
+                  "relegation": "+ 2 POD",
+                  "record": "0W - 0L - 0D",
+                  "wins": 0,
+                  "losses": 0,
+                  "draws": 0,
+                  "battle_points": 0,
+                  "poty_points": 5
+                }
+              ]
+            }
+          },
+          {
+            "rank": 2,
+            "name": "David Nguyen",
+            "primary_faction": "Adeptus Custodes",
+            "allegiance": "Imperial",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 2,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Joseph Ahlstrom (Adeptus Astartes)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Gerardo Lazarte (Black Templars)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "John Hsieh (Necrons)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Jacob Fischer (Adeptus Mechanicus)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Dauntae Forrest (Black Templars)",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "name": "David Nguyen",
+              "total_seasons": 1,
+              "total_games": 0,
+              "record": "0W - 0L - 0D",
+              "win_pct": "0.0%",
+              "total_bp": 0,
+              "best_pod": "Pod 8",
+              "pod_titles": 0,
+              "factions": [
+                "Adeptus Custodes"
+              ],
+              "history": [
+                {
+                  "season_number": 38,
+                  "pod_number": 8,
+                  "pod_name": "The Scrub Tub",
+                  "primary_faction": "Adeptus Custodes",
+                  "rank": 2,
+                  "relegation": "+ 1 POD",
+                  "record": "0W - 0L - 0D",
+                  "wins": 0,
+                  "losses": 0,
+                  "draws": 0,
+                  "battle_points": 0,
+                  "poty_points": 2
+                }
+              ]
+            }
+          },
+          {
+            "rank": 3,
+            "name": "Deven Torres",
+            "primary_faction": "Chaos Demons",
+            "allegiance": "Chaos",
+            "relegation_status": "+ 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "John Hsieh (Necrons)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Dauntae Forrest (Black Templars)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Kyle Hoogervorst (Tyranids)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Gerardo Lazarte (Black Templars)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Jacob Fischer (Adeptus Mechanicus)",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "name": "Deven Torres",
+              "total_seasons": 1,
+              "total_games": 0,
+              "record": "0W - 0L - 0D",
+              "win_pct": "0.0%",
+              "total_bp": 0,
+              "best_pod": "Pod 8",
+              "pod_titles": 0,
+              "factions": [
+                "Chaos Demons"
+              ],
+              "history": [
+                {
+                  "season_number": 38,
+                  "pod_number": 8,
+                  "pod_name": "The Scrub Tub",
+                  "primary_faction": "Chaos Demons",
+                  "rank": 3,
+                  "relegation": "+ 1 POD",
+                  "record": "0W - 0L - 0D",
+                  "wins": 0,
+                  "losses": 0,
+                  "draws": 0,
+                  "battle_points": 0,
+                  "poty_points": 0
+                }
+              ]
+            }
+          },
+          {
+            "rank": 4,
+            "name": "Gerardo Lazarte",
+            "primary_faction": "Black Templars",
+            "allegiance": "Imperial",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Kyle Hoogervorst (Tyranids)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "David Nguyen (Adeptus Custodes)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Jacob Fischer (Adeptus Mechanicus)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Deven Torres (Chaos Demons)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Joseph Ahlstrom (Adeptus Astartes)",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "name": "Gerardo Lazarte",
+              "total_seasons": 1,
+              "total_games": 0,
+              "record": "0W - 0L - 0D",
+              "win_pct": "0.0%",
+              "total_bp": 0,
+              "best_pod": "Pod 8",
+              "pod_titles": 0,
+              "factions": [
+                "Black Templars"
+              ],
+              "history": [
+                {
+                  "season_number": 38,
+                  "pod_number": 8,
+                  "pod_name": "The Scrub Tub",
+                  "primary_faction": "Black Templars",
+                  "rank": 4,
+                  "relegation": "+ 1 POD",
+                  "record": "0W - 0L - 0D",
+                  "wins": 0,
+                  "losses": 0,
+                  "draws": 0,
+                  "battle_points": 0,
+                  "poty_points": 0
+                }
+              ]
+            }
+          },
+          {
+            "rank": 5,
+            "name": "Jacob Fischer",
+            "primary_faction": "Adeptus Mechanicus",
+            "allegiance": "Imperial",
+            "relegation_status": "None",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Dauntae Forrest (Black Templars)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Kyle Hoogervorst (Tyranids)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Gerardo Lazarte (Black Templars)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "David Nguyen (Adeptus Custodes)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Deven Torres (Chaos Demons)",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "name": "Jacob Fischer",
+              "total_seasons": 1,
+              "total_games": 0,
+              "record": "0W - 0L - 0D",
+              "win_pct": "0.0%",
+              "total_bp": 0,
+              "best_pod": "Pod 8",
+              "pod_titles": 0,
+              "factions": [
+                "Adeptus Mechanicus"
+              ],
+              "history": [
+                {
+                  "season_number": 38,
+                  "pod_number": 8,
+                  "pod_name": "The Scrub Tub",
+                  "primary_faction": "Adeptus Mechanicus",
+                  "rank": 5,
+                  "relegation": "None",
+                  "record": "0W - 0L - 0D",
+                  "wins": 0,
+                  "losses": 0,
+                  "draws": 0,
+                  "battle_points": 0,
+                  "poty_points": 0
+                }
+              ]
+            }
+          },
+          {
+            "rank": 6,
+            "name": "John Hsieh",
+            "primary_faction": "Necrons",
+            "allegiance": "Xenos",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Deven Torres (Chaos Demons)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Joseph Ahlstrom (Adeptus Astartes)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "David Nguyen (Adeptus Custodes)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Dauntae Forrest (Black Templars)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Kyle Hoogervorst (Tyranids)",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "name": "John Hsieh",
+              "total_seasons": 1,
+              "total_games": 0,
+              "record": "0W - 0L - 0D",
+              "win_pct": "0.0%",
+              "total_bp": 0,
+              "best_pod": "Pod 8",
+              "pod_titles": 0,
+              "factions": [
+                "Necrons"
+              ],
+              "history": [
+                {
+                  "season_number": 38,
+                  "pod_number": 8,
+                  "pod_name": "The Scrub Tub",
+                  "primary_faction": "Necrons",
+                  "rank": 6,
+                  "relegation": "None",
+                  "record": "0W - 0L - 0D",
+                  "wins": 0,
+                  "losses": 0,
+                  "draws": 0,
+                  "battle_points": 0,
+                  "poty_points": 0
+                }
+              ]
+            }
+          },
+          {
+            "rank": 7,
+            "name": "Joseph Ahlstrom",
+            "primary_faction": "Adeptus Astartes",
+            "allegiance": "Imperial",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "David Nguyen (Adeptus Custodes)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "John Hsieh (Necrons)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Dauntae Forrest (Black Templars)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Kyle Hoogervorst (Tyranids)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "Gerardo Lazarte (Black Templars)",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "name": "Joseph Ahlstrom",
+              "total_seasons": 1,
+              "total_games": 0,
+              "record": "0W - 0L - 0D",
+              "win_pct": "0.0%",
+              "total_bp": 0,
+              "best_pod": "Pod 8",
+              "pod_titles": 0,
+              "factions": [
+                "Adeptus Astartes"
+              ],
+              "history": [
+                {
+                  "season_number": 38,
+                  "pod_number": 8,
+                  "pod_name": "The Scrub Tub",
+                  "primary_faction": "Adeptus Astartes",
+                  "rank": 7,
+                  "relegation": "None",
+                  "record": "0W - 0L - 0D",
+                  "wins": 0,
+                  "losses": 0,
+                  "draws": 0,
+                  "battle_points": 0,
+                  "poty_points": 0
+                }
+              ]
+            }
+          },
+          {
+            "rank": 8,
+            "name": "Kyle Hoogervorst",
+            "primary_faction": "Tyranids",
+            "allegiance": "Xenos",
+            "relegation_status": "- 1 POD",
+            "poty_points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "battle_points": 0,
+            "games_played": 0,
+            "pairings": [
+              {
+                "round": 1,
+                "layout": "Layout A",
+                "opponent_name": "Gerardo Lazarte (Black Templars)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 2,
+                "layout": "Layout B",
+                "opponent_name": "Jacob Fischer (Adeptus Mechanicus)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 3,
+                "layout": "Layout C",
+                "opponent_name": "Deven Torres (Chaos Demons)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 4,
+                "layout": "Layout A",
+                "opponent_name": "Joseph Ahlstrom (Adeptus Astartes)",
+                "score": null,
+                "is_completed": false
+              },
+              {
+                "round": 5,
+                "layout": "Layout B",
+                "opponent_name": "John Hsieh (Necrons)",
+                "score": null,
+                "is_completed": false
+              }
+            ],
+            "career": {
+              "name": "Kyle Hoogervorst",
+              "total_seasons": 1,
+              "total_games": 0,
+              "record": "0W - 0L - 0D",
+              "win_pct": "0.0%",
+              "total_bp": 0,
+              "best_pod": "Pod 8",
+              "pod_titles": 0,
+              "factions": [
+                "Tyranids"
+              ],
+              "history": [
+                {
+                  "season_number": 38,
+                  "pod_number": 8,
+                  "pod_name": "The Scrub Tub",
+                  "primary_faction": "Tyranids",
+                  "rank": 8,
+                  "relegation": "None",
+                  "record": "0W - 0L - 0D",
+                  "wins": 0,
+                  "losses": 0,
+                  "draws": 0,
+                  "battle_points": 0,
+                  "poty_points": 0
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "hall_of_fame": {
+    "finals_champions": [
+      {
+        "season_label": "2026 Fall (Season 37)",
+        "year": 2026,
+        "champion": "Rock Liberty",
+        "champion_faction": "Genestealer Cults",
+        "runner_up": "David Susco",
+        "third_place": "Tim Sweet",
+        "fourth_place": "Victor Campos",
+        "notes": "Rock Liberty swept the bracket 4-0 to claim his 3rd League Championship title."
+      },
+      {
+        "season_label": "2025 Spring",
+        "year": 2025,
+        "champion": "Rock Liberty",
+        "champion_faction": "Genestealer Cults",
+        "runner_up": "Neil Braden",
+        "notes": "Back-to-back championship appearance."
+      },
+      {
+        "season_label": "2024 Fall",
+        "year": 2024,
+        "champion": "Ben Nicholls",
+        "champion_faction": "Drukhari",
+        "runner_up": "Jeremy Larson",
+        "notes": "Ben Nicholls clinched the title piloting high-speed Drukhari."
+      },
+      {
+        "season_label": "2023 Fall",
+        "year": 2023,
+        "champion": "Jason Lenore",
+        "champion_faction": "Deathwatch",
+        "runner_up": "Rock Liberty",
+        "notes": "Jason Lenore capped a 10-win finals career with the championship."
+      },
+      {
+        "season_label": "2023 Spring",
+        "year": 2023,
+        "champion": "Russell Jacobsen",
+        "champion_faction": "Space Wolves",
+        "runner_up": "Junior Aflleje",
+        "notes": "Russell Jacobsen took Space Wolves to the top of the bracket."
+      },
+      {
+        "season_label": "2022 Spring",
+        "year": 2022,
+        "champion": "Rock Liberty",
+        "champion_faction": "Adeptus Custodes",
+        "runner_up": "Junior Aflleje",
+        "notes": "Dominant Golden Boys tournament run."
+      },
+      {
+        "season_label": "2021 Fall",
+        "year": 2021,
+        "champion": "Junior Aflleje",
+        "champion_faction": "Drukhari",
+        "runner_up": "Jeremy Larson",
+        "notes": "Junior Aflleje's 7th all-time SD40K League Championship title!"
+      },
+      {
+        "season_label": "2019 Summer",
+        "year": 2019,
+        "champion": "Frankie Giampapa",
+        "champion_faction": "Genestealer Cults",
+        "runner_up": "Neil Braden",
+        "notes": "Pre-9th edition tactical mastery by Frankie."
+      },
+      {
+        "season_label": "2019 Winter",
+        "year": 2019,
+        "champion": "Jordan Rom\u00e1n",
+        "champion_faction": "Aeldari",
+        "runner_up": "Junior Aflleje",
+        "notes": "Craftworld Aeldari finals victor."
+      }
+    ],
+    "leaderboards": {
+      "faction_titles": {
+        "key": "faction_titles",
+        "title": "Most Pod Titles Won by Faction",
+        "records": [
+          {
+            "rank": 1,
+            "faction": "Astra Militarum",
+            "titles": 20,
+            "wins": 318,
+            "players": 141
+          },
+          {
+            "rank": 2,
+            "faction": "Necrons",
+            "titles": 18,
+            "wins": 230,
+            "players": 101
+          },
+          {
+            "rank": 3,
+            "faction": "Imperial Knights",
+            "titles": 15,
+            "wins": 154,
+            "players": 56
+          },
+          {
+            "rank": 4,
+            "faction": "Drukhari",
+            "titles": 15,
+            "wins": 207,
+            "players": 90
+          },
+          {
+            "rank": 5,
+            "faction": "Adeptus Custodes",
+            "titles": 14,
+            "wins": 249,
+            "players": 112
+          },
+          {
+            "rank": 6,
+            "faction": "Thousand Sons",
+            "titles": 13,
+            "wins": 163,
+            "players": 72
+          },
+          {
+            "rank": 7,
+            "faction": "Blood Angels",
+            "titles": 13,
+            "wins": 187,
+            "players": 83
+          },
+          {
+            "rank": 8,
+            "faction": "Tyranids",
+            "titles": 12,
+            "wins": 268,
+            "players": 124
+          },
+          {
+            "rank": 9,
+            "faction": "Death Guard",
+            "titles": 10,
+            "wins": 189,
+            "players": 97
+          },
+          {
+            "rank": 10,
+            "faction": "Space Wolves",
+            "titles": 9,
+            "wins": 140,
+            "players": 72
+          },
+          {
+            "rank": 11,
+            "faction": "T'au",
+            "titles": 8,
+            "wins": 218,
+            "players": 95
+          },
+          {
+            "rank": 12,
+            "faction": "Heretic Astartes",
+            "titles": 8,
+            "wins": 196,
+            "players": 115
+          },
+          {
+            "rank": 13,
+            "faction": "Deathwatch",
+            "titles": 7,
+            "wins": 110,
+            "players": 38
+          },
+          {
+            "rank": 14,
+            "faction": "Adeptus Mechanicus",
+            "titles": 7,
+            "wins": 117,
+            "players": 48
+          },
+          {
+            "rank": 15,
+            "faction": "Adeptus Astartes",
+            "titles": 7,
+            "wins": 99,
+            "players": 51
+          },
+          {
+            "rank": 16,
+            "faction": "Adepta Sororitas",
+            "titles": 7,
+            "wins": 134,
+            "players": 56
+          },
+          {
+            "rank": 17,
+            "faction": "Grey Knights",
+            "titles": 6,
+            "wins": 93,
+            "players": 37
+          },
+          {
+            "rank": 18,
+            "faction": "Dark Angels",
+            "titles": 6,
+            "wins": 173,
+            "players": 82
+          },
+          {
+            "rank": 19,
+            "faction": "Black Templars",
+            "titles": 6,
+            "wins": 106,
+            "players": 47
+          },
+          {
+            "rank": 20,
+            "faction": "Orks",
+            "titles": 5,
+            "wins": 122,
+            "players": 71
+          },
+          {
+            "rank": 21,
+            "faction": "Chaos Knights",
+            "titles": 5,
+            "wins": 62,
+            "players": 38
+          },
+          {
+            "rank": 22,
+            "faction": "Genestealer Cult",
+            "titles": 4,
+            "wins": 62,
+            "players": 31
+          },
+          {
+            "rank": 23,
+            "faction": "Chaos Demons",
+            "titles": 4,
+            "wins": 118,
+            "players": 55
+          },
+          {
+            "rank": 24,
+            "faction": "Asuryani",
+            "titles": 4,
+            "wins": 81,
+            "players": 45
+          },
+          {
+            "rank": 25,
+            "faction": "World Eaters",
+            "titles": 3,
+            "wins": 83,
+            "players": 41
+          },
+          {
+            "rank": 26,
+            "faction": "Votann",
+            "titles": 3,
+            "wins": 68,
+            "players": 0
+          },
+          {
+            "rank": 27,
+            "faction": "Emperor's Children",
+            "titles": 3,
+            "wins": 57,
+            "players": 0
+          },
+          {
+            "rank": 28,
+            "faction": "Salamanders",
+            "titles": 1,
+            "wins": 23,
+            "players": 14
+          }
+        ]
+      },
+      "most_games": {
+        "key": "most_games",
+        "title": "Most Games Played",
+        "records": [
+          {
+            "rank": 1,
+            "player_name": "Neil Braden",
+            "games_played": 182,
+            "seasons": 37
+          },
+          {
+            "rank": 2,
+            "player_name": "Jeremy Larson",
+            "games_played": 175,
+            "seasons": 35
+          },
+          {
+            "rank": 3,
+            "player_name": "Rock Liberty",
+            "games_played": 173,
+            "seasons": 37
+          },
+          {
+            "rank": 4,
+            "player_name": "Benjamin Nicholls",
+            "games_played": 166,
+            "seasons": 36
+          },
+          {
+            "rank": 5,
+            "player_name": "Tim Sweet",
+            "games_played": 145,
+            "seasons": 29
+          },
+          {
+            "rank": 6,
+            "player_name": "John Weber",
+            "games_played": 139,
+            "seasons": 31
+          },
+          {
+            "rank": 7,
+            "player_name": "Cooper Waddell",
+            "games_played": 137,
+            "seasons": 34
+          },
+          {
+            "rank": 8,
+            "player_name": "Juan Diego Vasquez",
+            "games_played": 132,
+            "seasons": 27
+          },
+          {
+            "rank": 9,
+            "player_name": "Justin Jones",
+            "games_played": 130,
+            "seasons": 30
+          },
+          {
+            "rank": 10,
+            "player_name": "Greg Kellen",
+            "games_played": 111,
+            "seasons": 23
+          },
+          {
+            "rank": 11,
+            "player_name": "Evan Burnsworth",
+            "games_played": 109,
+            "seasons": 24
+          },
+          {
+            "rank": 12,
+            "player_name": "Mike Mental",
+            "games_played": 105,
+            "seasons": 22
+          },
+          {
+            "rank": 13,
+            "player_name": "Michael Pogrebinsky",
+            "games_played": 103,
+            "seasons": 21
+          },
+          {
+            "rank": 14,
+            "player_name": "Alex Ivanov",
+            "games_played": 102,
+            "seasons": 22
+          },
+          {
+            "rank": 15,
+            "player_name": "Mike Yao",
+            "games_played": 101,
+            "seasons": 21
+          },
+          {
+            "rank": 16,
+            "player_name": "Russell Jacobsen",
+            "games_played": 93,
+            "seasons": 21
+          },
+          {
+            "rank": 17,
+            "player_name": "Quentin Ponath",
+            "games_played": 93,
+            "seasons": 20
+          },
+          {
+            "rank": 18,
+            "player_name": "Emanuele Saccarelli",
+            "games_played": 92,
+            "seasons": 21
+          },
+          {
+            "rank": 19,
+            "player_name": "Ouhyon Lee",
+            "games_played": 81,
+            "seasons": 18
+          },
+          {
+            "rank": 20,
+            "player_name": "Jason Lenore",
+            "games_played": 76,
+            "seasons": 17
+          }
+        ]
+      },
+      "most_wins": {
+        "key": "most_wins",
+        "title": "Most League Season Wins",
+        "records": [
+          {
+            "rank": 1,
+            "player_name": "Jeremy Larson",
+            "league_wins": 114,
+            "seasons": 35
+          },
+          {
+            "rank": 2,
+            "player_name": "Rock Liberty",
+            "league_wins": 112,
+            "seasons": 37
+          },
+          {
+            "rank": 3,
+            "player_name": "Neil Braden",
+            "league_wins": 88,
+            "seasons": 37
+          },
+          {
+            "rank": 4,
+            "player_name": "Benjamin Nicholls",
+            "league_wins": 79,
+            "seasons": 36
+          },
+          {
+            "rank": 5,
+            "player_name": "Cooper Waddell",
+            "league_wins": 75,
+            "seasons": 34
+          },
+          {
+            "rank": 6,
+            "player_name": "Mike Mental",
+            "league_wins": 65,
+            "seasons": 22
+          },
+          {
+            "rank": 7,
+            "player_name": "Tim Sweet",
+            "league_wins": 64,
+            "seasons": 29
+          },
+          {
+            "rank": 8,
+            "player_name": "Juan Diego Vasquez",
+            "league_wins": 64,
+            "seasons": 27
+          },
+          {
+            "rank": 9,
+            "player_name": "John Weber",
+            "league_wins": 61,
+            "seasons": 31
+          },
+          {
+            "rank": 10,
+            "player_name": "Alex Ivanov",
+            "league_wins": 55,
+            "seasons": 22
+          },
+          {
+            "rank": 11,
+            "player_name": "Junior Aflleje",
+            "league_wins": 54,
+            "seasons": 13
+          },
+          {
+            "rank": 12,
+            "player_name": "Russell Jacobsen",
+            "league_wins": 52,
+            "seasons": 21
+          },
+          {
+            "rank": 13,
+            "player_name": "Jake Jesionowski",
+            "league_wins": 52,
+            "seasons": 14
+          },
+          {
+            "rank": 14,
+            "player_name": "Quentin Ponath",
+            "league_wins": 51,
+            "seasons": 20
+          },
+          {
+            "rank": 15,
+            "player_name": "Matt Geyer",
+            "league_wins": 51,
+            "seasons": 15
+          },
+          {
+            "rank": 16,
+            "player_name": "Justin Jones",
+            "league_wins": 50,
+            "seasons": 30
+          },
+          {
+            "rank": 17,
+            "player_name": "Emanuele Saccarelli",
+            "league_wins": 50,
+            "seasons": 21
+          },
+          {
+            "rank": 18,
+            "player_name": "Victor Campos",
+            "league_wins": 49,
+            "seasons": 15
+          },
+          {
+            "rank": 19,
+            "player_name": "Jason Lenore",
+            "league_wins": 45,
+            "seasons": 17
+          },
+          {
+            "rank": 20,
+            "player_name": "Greg Kellen",
+            "league_wins": 45,
+            "seasons": 23
+          }
+        ]
+      },
+      "titles_and_champs": {
+        "key": "titles_and_champs",
+        "title": "Most Pod Titles & League Championships",
+        "records": [
+          {
+            "rank": 1,
+            "player_name": "Rock Liberty",
+            "pod_titles": 9,
+            "league_championships": 3
+          },
+          {
+            "rank": 2,
+            "player_name": "Junior Aflleje",
+            "pod_titles": 8,
+            "league_championships": 7
+          },
+          {
+            "rank": 3,
+            "player_name": "Jeremy Larson",
+            "pod_titles": 8,
+            "league_championships": 5
+          },
+          {
+            "rank": 4,
+            "player_name": "Jake Jesionowski",
+            "pod_titles": 8,
+            "league_championships": 4
+          },
+          {
+            "rank": 5,
+            "player_name": "Neil Braden",
+            "pod_titles": 7,
+            "league_championships": 1
+          },
+          {
+            "rank": 6,
+            "player_name": "Matt Geyer",
+            "pod_titles": 6,
+            "league_championships": 2
+          },
+          {
+            "rank": 7,
+            "player_name": "Cooper Waddell",
+            "pod_titles": 6,
+            "league_championships": 1
+          },
+          {
+            "rank": 8,
+            "player_name": "Tim Sweet",
+            "pod_titles": 5,
+            "league_championships": 0
+          },
+          {
+            "rank": 9,
+            "player_name": "Mike Mental",
+            "pod_titles": 5,
+            "league_championships": 1
+          },
+          {
+            "rank": 10,
+            "player_name": "Victor Campos",
+            "pod_titles": 4,
+            "league_championships": 1
+          },
+          {
+            "rank": 11,
+            "player_name": "Russell Jacobsen",
+            "pod_titles": 4,
+            "league_championships": 0
+          },
+          {
+            "rank": 12,
+            "player_name": "Noah Whitehead",
+            "pod_titles": 4,
+            "league_championships": 2
+          },
+          {
+            "rank": 13,
+            "player_name": "Nick Hodson",
+            "pod_titles": 4,
+            "league_championships": 0
+          },
+          {
+            "rank": 14,
+            "player_name": "Jason Dillon",
+            "pod_titles": 4,
+            "league_championships": 1
+          },
+          {
+            "rank": 15,
+            "player_name": "Tony Baumayr",
+            "pod_titles": 3,
+            "league_championships": 0
+          },
+          {
+            "rank": 16,
+            "player_name": "Tim Gorodnitski",
+            "pod_titles": 3,
+            "league_championships": 1
+          },
+          {
+            "rank": 17,
+            "player_name": "Quentin Ponath",
+            "pod_titles": 3,
+            "league_championships": 1
+          },
+          {
+            "rank": 18,
+            "player_name": "Paul Gyori",
+            "pod_titles": 3,
+            "league_championships": 0
+          },
+          {
+            "rank": 19,
+            "player_name": "Max Melendrez",
+            "pod_titles": 3,
+            "league_championships": 1
+          },
+          {
+            "rank": 20,
+            "player_name": "Kinyaaaanii Padilla",
+            "pod_titles": 3,
+            "league_championships": 0
+          }
+        ]
+      },
+      "finals_wins": {
+        "key": "finals_wins",
+        "title": "Most Wins in the Finals",
+        "records": [
+          {
+            "rank": 1,
+            "player_name": "Rock Liberty",
+            "finals_wins": 18,
+            "championships": 1,
+            "appearances": 7
+          },
+          {
+            "rank": 2,
+            "player_name": "Russell Jacobsen",
+            "finals_wins": 12,
+            "championships": 1,
+            "appearances": 5
+          },
+          {
+            "rank": 3,
+            "player_name": "Junior Aflleje",
+            "finals_wins": 11,
+            "championships": 1,
+            "appearances": 4
+          },
+          {
+            "rank": 4,
+            "player_name": "Jason Lenore",
+            "finals_wins": 10,
+            "championships": 1,
+            "appearances": 5
+          },
+          {
+            "rank": 5,
+            "player_name": "Mike Mental",
+            "finals_wins": 8,
+            "championships": 0,
+            "appearances": 5
+          },
+          {
+            "rank": 6,
+            "player_name": "Jeremy Larson",
+            "finals_wins": 8,
+            "championships": 0,
+            "appearances": 5
+          },
+          {
+            "rank": 7,
+            "player_name": "Cooper Waddell",
+            "finals_wins": 7,
+            "championships": 0,
+            "appearances": 7
+          },
+          {
+            "rank": 8,
+            "player_name": "Benjamin Nicholls",
+            "finals_wins": 6,
+            "championships": 1,
+            "appearances": 6
+          },
+          {
+            "rank": 9,
+            "player_name": "Frankie Giampapa",
+            "finals_wins": 5,
+            "championships": 1,
+            "appearances": 2
+          },
+          {
+            "rank": 10,
+            "player_name": "Emanuele Saccarelli",
+            "finals_wins": 5,
+            "championships": 0,
+            "appearances": 4
+          },
+          {
+            "rank": 11,
+            "player_name": "Tre O'Rourke",
+            "finals_wins": 4,
+            "championships": 0,
+            "appearances": 2
+          },
+          {
+            "rank": 12,
+            "player_name": "Tim Gorodnitski",
+            "finals_wins": 4,
+            "championships": 0,
+            "appearances": 3
+          },
+          {
+            "rank": 13,
+            "player_name": "Reece Robbins",
+            "finals_wins": 4,
+            "championships": 0,
+            "appearances": 2
+          },
+          {
+            "rank": 14,
+            "player_name": "Jordan Roman",
+            "finals_wins": 4,
+            "championships": 1,
+            "appearances": 1
+          },
+          {
+            "rank": 15,
+            "player_name": "Steven Rainey",
+            "finals_wins": 3,
+            "championships": 0,
+            "appearances": 3
+          },
+          {
+            "rank": 16,
+            "player_name": "Nick Hodson",
+            "finals_wins": 3,
+            "championships": 0,
+            "appearances": 1
+          },
+          {
+            "rank": 17,
+            "player_name": "Neil Braden",
+            "finals_wins": 3,
+            "championships": 0,
+            "appearances": 5
+          },
+          {
+            "rank": 18,
+            "player_name": "Max Melendrez",
+            "finals_wins": 3,
+            "championships": 0,
+            "appearances": 2
+          },
+          {
+            "rank": 19,
+            "player_name": "Matt Geyer",
+            "finals_wins": 3,
+            "championships": 0,
+            "appearances": 2
+          },
+          {
+            "rank": 20,
+            "player_name": "Marc Torres",
+            "finals_wins": 3,
+            "championships": 0,
+            "appearances": 3
+          }
+        ]
+      }
+    }
+  },
+  "meta": {
+    "engine": "OmniTactica Native League Architecture v1.0",
+    "source": "https://sd40k.com",
+    "last_synced": "2026-09-22T19:30:59.934100+00:00",
+    "bcp_isolation_guarantee": "100% Native isolated namespace. Zero writes or locks to BCP tournament tables."
+  },
+  "available_seasons": [
+    {
+      "season_number": 38,
+      "name": "Season 38 (Fall 2026)",
+      "status": "active",
+      "total_players": 68,
+      "total_pods": 8,
+      "pod_champion": "In Progress",
+      "pod_champion_faction": ""
+    },
+    {
+      "season_number": 37,
+      "name": "Season 37 (Spring 2026)",
+      "status": "completed",
+      "total_players": 62,
+      "total_pods": 7,
+      "pod_champion": "Tim Sweet",
+      "pod_champion_faction": "Heretic Astartes"
+    },
+    {
+      "season_number": 36,
+      "name": "Season 36",
+      "status": "completed",
+      "total_players": 46,
+      "total_pods": 5,
+      "pod_champion": "Victor Campos",
+      "pod_champion_faction": "Heretic Astartes"
+    },
+    {
+      "season_number": 35,
+      "name": "Season 35",
+      "status": "completed",
+      "total_players": 50,
+      "total_pods": 6,
+      "pod_champion": "Rock Liberty",
+      "pod_champion_faction": "Thousand Sons"
+    },
+    {
+      "season_number": 34,
+      "name": "Season 34",
+      "status": "completed",
+      "total_players": 54,
+      "total_pods": 6,
+      "pod_champion": "Noah Whitehead",
+      "pod_champion_faction": "Thousand Sons"
+    },
+    {
+      "season_number": 33,
+      "name": "Season 33",
+      "status": "completed",
+      "total_players": 52,
+      "total_pods": 6,
+      "pod_champion": "Noah Whitehead",
+      "pod_champion_faction": "Adeptus Custodes"
+    },
+    {
+      "season_number": 32,
+      "name": "Season 32",
+      "status": "completed",
+      "total_players": 44,
+      "total_pods": 5,
+      "pod_champion": "Rock Liberty",
+      "pod_champion_faction": "Thousand Sons"
+    },
+    {
+      "season_number": 31,
+      "name": "Season 31",
+      "status": "completed",
+      "total_players": 42,
+      "total_pods": 5,
+      "pod_champion": "Jeremy Larson",
+      "pod_champion_faction": "Emperor's Children"
+    },
+    {
+      "season_number": 30,
+      "name": "Season 30",
+      "status": "completed",
+      "total_players": 56,
+      "total_pods": 7,
+      "pod_champion": "Matt Geyer",
+      "pod_champion_faction": "Chaos Demons"
+    },
+    {
+      "season_number": 29,
+      "name": "Season 29",
+      "status": "completed",
+      "total_players": 50,
+      "total_pods": 6,
+      "pod_champion": "Hans Lieber",
+      "pod_champion_faction": "Chaos Knights"
+    },
+    {
+      "season_number": 28,
+      "name": "Season 28",
+      "status": "completed",
+      "total_players": 48,
+      "total_pods": 5,
+      "pod_champion": "Hans Lieber",
+      "pod_champion_faction": "Death Guard"
+    },
+    {
+      "season_number": 27,
+      "name": "Season 27",
+      "status": "completed",
+      "total_players": 50,
+      "total_pods": 6,
+      "pod_champion": "Tre O'Rourke",
+      "pod_champion_faction": "World Eaters"
+    },
+    {
+      "season_number": 26,
+      "name": "Season 26",
+      "status": "completed",
+      "total_players": 56,
+      "total_pods": 7,
+      "pod_champion": "Jake Jesionowski",
+      "pod_champion_faction": "Grey Knights"
+    },
+    {
+      "season_number": 25,
+      "name": "Season 25",
+      "status": "completed",
+      "total_players": 52,
+      "total_pods": 6,
+      "pod_champion": "Neil Braden",
+      "pod_champion_faction": "Space Wolves"
+    },
+    {
+      "season_number": 24,
+      "name": "Season 24",
+      "status": "completed",
+      "total_players": 46,
+      "total_pods": 5,
+      "pod_champion": "Jake Jesionowski",
+      "pod_champion_faction": "Necrons"
+    },
+    {
+      "season_number": 23,
+      "name": "Season 23",
+      "status": "completed",
+      "total_players": 54,
+      "total_pods": 6,
+      "pod_champion": "Jeremy Larson",
+      "pod_champion_faction": "Astra Militarum"
+    },
+    {
+      "season_number": 22,
+      "name": "Season 22",
+      "status": "completed",
+      "total_players": 42,
+      "total_pods": 5,
+      "pod_champion": "Max Melendrez",
+      "pod_champion_faction": "Dark Angels"
+    },
+    {
+      "season_number": 21,
+      "name": "Season 21",
+      "status": "completed",
+      "total_players": 52,
+      "total_pods": 6,
+      "pod_champion": "Jake Jesionowski",
+      "pod_champion_faction": "Grey Knights"
+    },
+    {
+      "season_number": 20,
+      "name": "Season 20",
+      "status": "completed",
+      "total_players": 52,
+      "total_pods": 6,
+      "pod_champion": "Aaron Lopez",
+      "pod_champion_faction": "Adeptus Custodes"
+    },
+    {
+      "season_number": 19,
+      "name": "Season 19",
+      "status": "completed",
+      "total_players": 50,
+      "total_pods": 6,
+      "pod_champion": "Jeremy Larson",
+      "pod_champion_faction": "Astra Militarum"
+    },
+    {
+      "season_number": 18,
+      "name": "Season 18",
+      "status": "completed",
+      "total_players": 58,
+      "total_pods": 7,
+      "pod_champion": "Tim Gorodnitski",
+      "pod_champion_faction": "Votann"
+    },
+    {
+      "season_number": 17,
+      "name": "Season 17",
+      "status": "completed",
+      "total_players": 46,
+      "total_pods": 5,
+      "pod_champion": "Mike Mental",
+      "pod_champion_faction": "Chaos Knights"
+    },
+    {
+      "season_number": 16,
+      "name": "Season 16",
+      "status": "completed",
+      "total_players": 50,
+      "total_pods": 6,
+      "pod_champion": "Jake Jesionowski",
+      "pod_champion_faction": "Necrons"
+    },
+    {
+      "season_number": 15,
+      "name": "Season 15",
+      "status": "completed",
+      "total_players": 56,
+      "total_pods": 7,
+      "pod_champion": "Cooper Waddell",
+      "pod_champion_faction": "Tyranids"
+    },
+    {
+      "season_number": 14,
+      "name": "Season 14",
+      "status": "completed",
+      "total_players": 56,
+      "total_pods": 7,
+      "pod_champion": "Quentin Ponath",
+      "pod_champion_faction": "Tyranids"
+    },
+    {
+      "season_number": 13,
+      "name": "Season 13",
+      "status": "completed",
+      "total_players": 56,
+      "total_pods": 7,
+      "pod_champion": "Rock Liberty",
+      "pod_champion_faction": "Adeptus Custodes"
+    },
+    {
+      "season_number": 12,
+      "name": "Season 12",
+      "status": "completed",
+      "total_players": 48,
+      "total_pods": 6,
+      "pod_champion": "Junior Aflleje",
+      "pod_champion_faction": "Drukhari"
+    },
+    {
+      "season_number": 11,
+      "name": "Season 11",
+      "status": "completed",
+      "total_players": 42,
+      "total_pods": 5,
+      "pod_champion": "Junior Aflleje",
+      "pod_champion_faction": "Drukhari"
+    },
+    {
+      "season_number": 10,
+      "name": "Season 10",
+      "status": "completed",
+      "total_players": 70,
+      "total_pods": 8,
+      "pod_champion": "Junior Aflleje",
+      "pod_champion_faction": "Drukhari"
+    },
+    {
+      "season_number": 9,
+      "name": "Season 9",
+      "status": "completed",
+      "total_players": 80,
+      "total_pods": 10,
+      "pod_champion": "Matt Geyer",
+      "pod_champion_faction": "Adeptus Mechanicus"
+    },
+    {
+      "season_number": 8,
+      "name": "Season 8",
+      "status": "completed",
+      "total_players": 60,
+      "total_pods": 7,
+      "pod_champion": "Jeremy Larson",
+      "pod_champion_faction": "Adeptus Astartes"
+    },
+    {
+      "season_number": 7,
+      "name": "Season 7",
+      "status": "completed",
+      "total_players": 66,
+      "total_pods": 8,
+      "pod_champion": "Jeremy Larson",
+      "pod_champion_faction": "Adeptus Astartes"
+    },
+    {
+      "season_number": 6,
+      "name": "Season 6",
+      "status": "completed",
+      "total_players": 68,
+      "total_pods": 8,
+      "pod_champion": "Jason Dillon",
+      "pod_champion_faction": "Necrons"
+    },
+    {
+      "season_number": 5,
+      "name": "Season 5",
+      "status": "completed",
+      "total_players": 72,
+      "total_pods": 9,
+      "pod_champion": "Junior Aflleje",
+      "pod_champion_faction": "Imperial Knights"
+    },
+    {
+      "season_number": 4,
+      "name": "Season 4",
+      "status": "completed",
+      "total_players": 70,
+      "total_pods": 8,
+      "pod_champion": "Junior Aflleje",
+      "pod_champion_faction": "Imperial Knights"
+    },
+    {
+      "season_number": 3,
+      "name": "Season 3",
+      "status": "completed",
+      "total_players": 72,
+      "total_pods": 9,
+      "pod_champion": "Junior Aflleje",
+      "pod_champion_faction": "Imperial Knights"
+    },
+    {
+      "season_number": 2,
+      "name": "Season 2",
+      "status": "completed",
+      "total_players": 58,
+      "total_pods": 7,
+      "pod_champion": "Junior Aflleje",
+      "pod_champion_faction": "Imperial Knights"
+    },
+    {
+      "season_number": 1,
+      "name": "Season 1",
+      "status": "completed",
+      "total_players": 42,
+      "total_pods": 6,
+      "pod_champion": "James Carmona",
+      "pod_champion_faction": "Heretic Astartes"
+    }
+  ]
+}

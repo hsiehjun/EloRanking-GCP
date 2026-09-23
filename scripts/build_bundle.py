@@ -32,6 +32,7 @@ BUNDLE_MODULES = [
     "my_hub.js",
     "connect.js",
     "community.js",
+    "league.js",
     "app.js"
 ]
 

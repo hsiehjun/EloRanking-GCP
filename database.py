@@ -272,6 +272,7 @@ class PostgresDatabase:
             if not PostgresDatabase._db_initialized:
                 self.init_db()
                 self.ensure_tracker_table()
+                self.ensure_league_tables()
                 self._ensure_event_participant_columns()
                 self._heal_unlinked_user_profiles()
                 PostgresDatabase._db_initialized = True
@@ -1391,6 +1392,211 @@ class PostgresDatabase:
                         logger.debug(f"Tracker ensure table notice: {e}")
         except Exception as err:
             logger.debug(f"ensure_tracker_table batch notice: {err}")
+
+    def ensure_league_tables(self):
+        """Guarantees native_leagues, native_league_seasons, native_league_pods, native_league_standings, and native_league_matches exist and seeds SD40K league data."""
+        stmts = [
+            """CREATE TABLE IF NOT EXISTS native_leagues (
+                id VARCHAR(64) PRIMARY KEY,
+                slug VARCHAR(64) UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                game_system VARCHAR(32) DEFAULT '40k',
+                region TEXT,
+                active_season_num INT DEFAULT 1,
+                total_players INT DEFAULT 0,
+                total_pods INT DEFAULT 0,
+                recurring_seasons BOOLEAN DEFAULT TRUE,
+                registration_open BOOLEAN DEFAULT FALSE,
+                config_json JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            """CREATE TABLE IF NOT EXISTS native_league_seasons (
+                id VARCHAR(128) PRIMARY KEY,
+                league_id VARCHAR(64),
+                season_num INT NOT NULL,
+                name TEXT NOT NULL,
+                status VARCHAR(32) DEFAULT 'registration',
+                start_date DATE,
+                end_date DATE,
+                registration_start DATE,
+                registration_end DATE,
+                duration_weeks INT DEFAULT 8,
+                rounds_count INT DEFAULT 5,
+                total_players INT DEFAULT 0,
+                total_pods INT DEFAULT 0,
+                champion_name TEXT,
+                champion_faction TEXT,
+                is_historical BOOLEAN DEFAULT FALSE,
+                raw_json JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            """CREATE TABLE IF NOT EXISTS native_league_pods (
+                id VARCHAR(128) PRIMARY KEY,
+                league_id VARCHAR(64),
+                season_num INT NOT NULL,
+                pod_num INT NOT NULL,
+                name TEXT NOT NULL,
+                tier TEXT,
+                round_layouts JSONB DEFAULT '[]'::jsonb,
+                player_count INT DEFAULT 0,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            """CREATE TABLE IF NOT EXISTS native_league_standings (
+                id VARCHAR(128) PRIMARY KEY,
+                league_id VARCHAR(64),
+                season_num INT NOT NULL,
+                pod_num INT NOT NULL,
+                player_name TEXT NOT NULL,
+                primary_faction TEXT,
+                rank INT DEFAULT 1,
+                wins INT DEFAULT 0,
+                losses INT DEFAULT 0,
+                draws INT DEFAULT 0,
+                battle_points INT DEFAULT 0,
+                games_played INT DEFAULT 0,
+                poty_points INT DEFAULT 0,
+                relegation_status VARCHAR(64) DEFAULT 'None',
+                pairings_json JSONB DEFAULT '[]'::jsonb,
+                career_json JSONB DEFAULT '{}'::jsonb,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            """CREATE TABLE IF NOT EXISTS native_league_matches (
+                id VARCHAR(128) PRIMARY KEY,
+                league_id VARCHAR(64),
+                season_num INT NOT NULL,
+                pod_num INT NOT NULL,
+                round_num INT NOT NULL,
+                p1_name TEXT NOT NULL,
+                p2_name TEXT NOT NULL,
+                p1_score INT DEFAULT 0,
+                p2_score INT DEFAULT 0,
+                p1_bp INT DEFAULT 0,
+                p2_bp INT DEFAULT 0,
+                scorecard_id VARCHAR(128),
+                is_ringer BOOLEAN DEFAULT FALSE,
+                completed_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_league_standings_l_s ON native_league_standings(league_id, season_num, pod_num);",
+            "CREATE INDEX IF NOT EXISTS idx_league_matches_l_s ON native_league_matches(league_id, season_num, pod_num);"
+        ]
+        try:
+            with self.get_connection() as conn:
+                for s in stmts:
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute("SET LOCAL lock_timeout = '2s';")
+                            cursor.execute(s)
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        logger.debug(f"League table notice: {e}")
+            self.seed_sd40k_league_tables()
+        except Exception as err:
+            logger.debug(f"ensure_league_tables notice: {err}")
+
+    def seed_sd40k_league_tables(self):
+        """Non-destructively imports San Diego 40k BIG League @ At Ease Games dataset into PostgreSQL league tables."""
+        try:
+            data_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "sd40k_league_data.json")
+            if not os.path.exists(data_file):
+                return
+            with open(data_file, "r", encoding="utf-8") as f:
+                lg = json.load(f)
+            act = lg.get("active_season", {})
+            s_num = int(act.get("season_number", 38))
+            pods = act.get("pods", [])
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '2s';")
+                    cursor.execute("""
+                        INSERT INTO native_leagues (id, slug, name, game_system, region, active_season_num, total_players, total_pods, recurring_seasons, registration_open, config_json)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, FALSE, %s::jsonb)
+                        ON CONFLICT (id) DO NOTHING;
+                    """, (
+                        "league_sd40k_big_league",
+                        "sd40k",
+                        lg.get("name", "San Diego 40k BIG League @ At Ease Games"),
+                        "40k",
+                        lg.get("region", "San Diego, CA"),
+                        s_num,
+                        int(act.get("total_players", 68)),
+                        len(pods),
+                        json.dumps(lg.get("methodology", {}))
+                    ))
+                    for p in pods:
+                        p_num = int(p.get("pod_number", 1))
+                        pod_id = f"league_sd40k_big_league_s{s_num}_p{p_num}"
+                        cursor.execute("""
+                            INSERT INTO native_league_pods (id, league_id, season_num, pod_num, name, tier, round_layouts, player_count)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                            ON CONFLICT (id) DO NOTHING;
+                        """, (
+                            pod_id, "league_sd40k_big_league", s_num, p_num,
+                            p.get("name", f"Pod {p_num}"),
+                            p.get("tier", f"Division {p_num}"),
+                            json.dumps(p.get("round_layouts", [])),
+                            len(p.get("standings", []))
+                        ))
+                        for st in p.get("standings", []):
+                            pname = st.get("name", "")
+                            if not pname:
+                                continue
+                            st_id = f"league_sd40k_big_league_s{s_num}_p{p_num}_{pname.lower().replace(' ', '_')}"
+                            cursor.execute("""
+                                INSERT INTO native_league_standings (
+                                    id, league_id, season_num, pod_num, player_name, primary_faction,
+                                    rank, wins, losses, draws, battle_points, games_played, poty_points,
+                                    relegation_status, pairings_json
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                                ON CONFLICT (id) DO NOTHING;
+                            """, (
+                                st_id, "league_sd40k_big_league", s_num, p_num, pname,
+                                st.get("primary_faction", ""),
+                                int(st.get("rank", 1)),
+                                int(st.get("wins", 0)),
+                                int(st.get("losses", 0)),
+                                int(st.get("draws", 0)),
+                                int(st.get("battle_points", 0)),
+                                int(st.get("games_played", 0)),
+                                int(st.get("poty_points", 0)),
+                                st.get("relegation_status", "None"),
+                                json.dumps(st.get("pairings", []))
+                            ))
+                conn.commit()
+        except Exception as e:
+            logger.debug(f"seed_sd40k_league_tables notice: {e}")
+
+    def record_league_match_in_db(self, league_id: str, season_num: int, pod_num: int, round_num: int,
+                                  p1_name: str, p2_name: str, p1_score: int, p2_score: int,
+                                  p1_bp: int, p2_bp: int, scorecard_id: Optional[str] = None,
+                                  is_ringer: bool = False) -> bool:
+        """Persists a concluded league match to PostgreSQL native_league_matches."""
+        match_uid = f"{league_id}_s{season_num}_p{pod_num}_r{round_num}_{int(time.time())}"
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO native_league_matches (
+                            id, league_id, season_num, pod_num, round_num,
+                            p1_name, p2_name, p1_score, p2_score, p1_bp, p2_bp,
+                            scorecard_id, is_ringer, completed_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        ON CONFLICT (id) DO UPDATE SET
+                            p1_score = EXCLUDED.p1_score,
+                            p2_score = EXCLUDED.p2_score,
+                            p1_bp = EXCLUDED.p1_bp,
+                            p2_bp = EXCLUDED.p2_bp,
+                            scorecard_id = EXCLUDED.scorecard_id,
+                            completed_at = NOW();
+                    """, (match_uid, league_id, season_num, pod_num, round_num,
+                          p1_name, p2_name, p1_score, p2_score, p1_bp, p2_bp,
+                          scorecard_id, is_ringer))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.debug(f"Notice persisting league match to DB: {e}")
+            return False
 
     def _ensure_event_participant_columns(self):
         """Guarantees detachment, army_list, has_list_submitted, and bcp_player_id columns exist in event_participants."""

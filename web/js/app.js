@@ -551,9 +551,42 @@ function handleAppRoute(routeStr) {
       }
     }
   }
+
+  // Route: /#/aos/league/:id or /#/40k/league/:id or /#/league/:id (with optional subtab /hof, /methodology, /pod/1)
+  const leagueMatch = clean.match(/^(?:(aos|40k)\/)?league\/([^/?#]+)(?:\/([a-z0-9_-]+))?/i);
+  if (leagueMatch) {
+    const routeSys = leagueMatch[1] ? leagueMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const lid = decodeURIComponent(leagueMatch[2]);
+    let sub = leagueMatch[3] ? leagueMatch[3].toLowerCase() : null;
+    let podNum = null;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      sub = sub || sp.get('subtab') || sp.get('tab');
+      podNum = sp.get('pod');
+    } catch (e) {}
+    if (sub && sub.startsWith('pod_')) {
+      podNum = sub.replace('pod_', '');
+      sub = 'pods';
+    }
+    if (typeof openLeagueHubPage === 'function') {
+      openLeagueHubPage(lid, routeSys, { replaceUrl: true, initialSubtab: sub || undefined, pod: podNum || undefined });
+      return true;
+    }
+  }
   return false;
 }
 window.handleAppRoute = handleAppRoute;
+
+// Automatically check ?league_id= query parameter on load
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const qLeagueId = sp.get('league_id') || sp.get('league');
+    if (qLeagueId && typeof openLeagueHubPage === 'function') {
+      setTimeout(() => openLeagueHubPage(qLeagueId, '40k', { replaceUrl: false }), 120);
+    }
+  } catch (e) {}
+});
 
 // Support hash navigation and reactive updates across tabs
 window.addEventListener('hashchange', () => {

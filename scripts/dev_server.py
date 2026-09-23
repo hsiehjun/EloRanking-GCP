@@ -1106,6 +1106,109 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length > 0 else b"{}"
 
+        if clean_path == "api/league/create":
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+                result = l_svc.create_league(p_data)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and clean_path.endswith("/match/report"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = parts[2]
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+                result = l_svc.report_match(
+                    league_id=l_id,
+                    pod_number=int(p_data.get("pod_number", 1)),
+                    round_number=int(p_data.get("round_number", 1)),
+                    p1_name=p_data.get("p1_name", ""),
+                    p2_name=p_data.get("p2_name", ""),
+                    p1_score=int(p_data.get("p1_score", 0)),
+                    p2_score=int(p_data.get("p2_score", 0)),
+                    scorecard_id=p_data.get("scorecard_id"),
+                    is_ringer=bool(p_data.get("is_ringer", False))
+                )
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and clean_path.endswith("/season/rollover"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = parts[2]
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+                result = l_svc.rollover_season(l_id, options=p_data)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and clean_path.endswith("/register"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = parts[2]
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+                result = l_svc.register_player_for_league(l_id, player_data=p_data)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and clean_path.endswith("/registration-window"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = parts[2]
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+                result = l_svc.set_registration_window(l_id, payload=p_data)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+            return
+
         if clean_path == "api/armylists/parse":
             try:
                 p_load = json.loads(body.decode("utf-8")) if body else {}
@@ -2232,6 +2335,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path.startswith("api/player/"):
+            import leagues_hub_service
             pid = urllib.parse.unquote(clean_path.replace("api/player/", "").strip("/"))
             req_name = (query_params.get("name", [None])[0] or "").strip().lower()
             if pid == "Te1Q9lp3By" or "junior" in pid.lower() or "aflleje" in pid.lower() or "junior" in req_name or "aflleje" in req_name:
@@ -2469,6 +2573,51 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 4, "result": "L", "player_score": 48, "opponent_score": 100, "player_faction": "Necrons", "opponent_name": "Junior Aflleje", "opponent_faction": "Space Marines", "opponent_elo": 2180.0, "delta_elo": -5.2, "new_elo": 1857.0},
                         {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 5, "result": "W", "player_score": 91, "opponent_score": 80, "player_faction": "Necrons", "opponent_name": "James Carmona", "opponent_faction": "Custodes", "opponent_elo": 1940.0, "delta_elo": 12.4, "new_elo": 1862.2}
                     ]
+                }
+            elif leagues_hub_service.get_leagues_hub_service().get_player_career("league_sd40k_big_league", (query_params.get("name", [None])[0] or pid).strip()):
+                lookup_name = (query_params.get("name", [None])[0] or pid).strip()
+                career = leagues_hub_service.get_leagues_hub_service().get_player_career("league_sd40k_big_league", lookup_name)
+                factions_list = career.get("factions") or ["Space Marines"]
+                hist_list = career.get("history") or []
+                total_w = sum(int(h.get("wins", 0)) for h in hist_list)
+                total_l = sum(int(h.get("losses", 0)) for h in hist_list)
+                total_d = sum(int(h.get("draws", 0)) for h in hist_list)
+                total_g = career.get("total_games") or (total_w + total_l + total_d) or 1
+                win_rate_val = round((total_w / max(1, total_g)) * 100, 1)
+                history_rows = []
+                for s_entry in hist_list[:8]:
+                    history_rows.append({
+                        "match_date": f"Season {s_entry.get('season_number')}",
+                        "event_name": f"SD40K BIG League S{s_entry.get('season_number')} (Pod {s_entry.get('pod_number')}: {s_entry.get('pod_name', 'Pod')})",
+                        "round": f"Rank #{s_entry.get('rank', 1)}",
+                        "result": "W" if s_entry.get("wins", 0) >= s_entry.get("losses", 0) else "L",
+                        "player_score": s_entry.get("battle_points", 380),
+                        "opponent_score": s_entry.get("poty_points", 25),
+                        "player_faction": s_entry.get("primary_faction") or factions_list[0],
+                        "opponent_name": s_entry.get("record", f"{s_entry.get('wins', 0)}W-{s_entry.get('losses', 0)}L"),
+                        "opponent_faction": f"Pod #{s_entry.get('pod_number', 1)} Standings",
+                        "opponent_elo": 1950.0,
+                        "delta_elo": round((s_entry.get("wins", 0) - s_entry.get("losses", 0)) * 6.5, 1),
+                        "new_elo": 2120.0
+                    })
+                res = {
+                    "player": {
+                        "player_id": f"p_{lookup_name.lower().replace(' ', '_')}",
+                        "player_name": career.get("name", lookup_name),
+                        "team": "San Diego Force Org (SD40K)",
+                        "teams_history": ["San Diego Force Org (SD40K)", "At Ease Games"],
+                        "top_faction": ", ".join(factions_list),
+                        "current_elo": round(1850.0 + total_w * 4.5, 1),
+                        "peak_elo": round(1910.0 + total_w * 4.8, 1),
+                        "wins": total_w,
+                        "losses": total_l,
+                        "draws": total_d,
+                        "win_rate": win_rate_val,
+                        "total_matches": total_g
+                    },
+                    "has_account": True,
+                    "longest_win_streak": max(5, int(career.get("pod_titles", 0)) * 3 + 4),
+                    "history": history_rows
                 }
             else:
                 # Default to Folger Pyles profile matching the user's test scenario
@@ -2946,6 +3095,147 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps({"success": True, "users": DEV_USERS_LIST}).encode("utf-8"))
+            return
+
+        if clean_path in ("api/leagues", "api/leagues/"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            leagues_list = l_svc.get_leagues_list()
+            templates_list = l_svc.get_available_templates()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "leagues": leagues_list,
+                    "count": len(leagues_list),
+                    "available_templates": templates_list
+                }).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/player/"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            p_name = urllib.parse.unquote(clean_path.replace("api/league/player/", "").strip("/"))
+            summary = l_svc.get_player_league_summary(p_name)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "player_name": p_name,
+                    "active_leagues": summary
+                }).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and "/pod/" in clean_path:
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = parts[2]
+            pod_num = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 1
+            pod_data = l_svc.get_pod(l_id, pod_num)
+            self.send_response(200 if pod_data else 404)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": bool(pod_data),
+                    "pod": pod_data
+                } if pod_data else {"success": False, "error": "Pod not found"}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and clean_path.endswith("/rollover/preview"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = parts[2]
+            s_param = query_params.get("season", [None])[0]
+            s_num = int(s_param) if s_param and s_param.isdigit() else None
+            try:
+                preview = l_svc.calculate_promotion_relegation(l_id, season_number=s_num)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps(preview).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and clean_path.endswith("/seasons"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = parts[2]
+            seasons = l_svc.get_seasons_catalog(l_id)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "league_id": l_id,
+                    "seasons": seasons,
+                    "count": len(seasons)
+                }).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and "/season/" in clean_path:
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = parts[2]
+            s_num = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 38
+            league_data = l_svc.get_league(l_id, season_number=s_num)
+            self.send_response(200 if league_data else 404)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": bool(league_data),
+                    "league": league_data
+                } if league_data else {"success": False, "error": "Season not found"}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and "/player/" in clean_path and clean_path.endswith("/history"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = parts[2]
+            p_name = urllib.parse.unquote(parts[4])
+            career = l_svc.get_player_career(l_id, p_name)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "player": career
+                }).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            l_id = clean_path.replace("api/league/", "").strip("/")
+            s_param = query_params.get("season", [None])[0]
+            s_num = int(s_param) if s_param and s_param.isdigit() else None
+            league_data = l_svc.get_league(l_id, season_number=s_num)
+            self.send_response(200 if league_data else 404)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": bool(league_data),
+                    "league": league_data
+                } if league_data else {"success": False, "error": "League not found"}).encode("utf-8"))
             return
 
         if clean_path.startswith("api/event/"):
