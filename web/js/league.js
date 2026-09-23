@@ -532,86 +532,164 @@ function renderPodsSubtab(league, currentPod) {
       </div>
     </div>
 
-    <!-- Matchup & Pairings Schedule Cards (All 5 Rounds + Game Tracker + Opponent Chat) -->
+    <!-- Pod Head-to-Head Matchup Matrix (Players Matched Together & Scores) -->
     <div id="league-pairings-list" class="card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem;">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
         <div>
-          <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #fff;">⚔️ Pod #${currentPod.pod_number} Pairings — Start Game Tracker &amp; Opponent Chat</h3>
-          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Start OmniTactica Game Tracker in the same tab or chat directly with your matched opponent</div>
+          <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #fff;">⚔️ Pod #${currentPod.pod_number} Matchup Matrix &amp; Scores</h3>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Click any matched cell to launch Game Tracker, chat with your opponent, or enter match scores</div>
         </div>
-        <!-- Round Filter Pills -->
-        <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-          ${['all', 1, 2, 3, 4, 5].map(r => {
-            const isActR = String(selectedRound) === String(r);
-            return `
-              <button onclick="switchLeaguePairingRound('${r}')" style="padding: 4px 10px; border-radius: 6px; font-size: 0.76rem; font-weight: 700; cursor: pointer; border: 1px solid ${isActR ? '#3b82f6' : 'var(--border)'}; background: ${isActR ? 'rgba(59, 130, 246, 0.2)' : 'rgba(15, 23, 42, 0.6)'}; color: ${isActR ? '#60a5fa' : 'var(--text-secondary)'};">
-                ${r === 'all' ? `All Rounds (${allPodPairings.length})` : `Round ${r}`}
-              </button>
-            `;
-          }).join('')}
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; font-size: 0.75rem; font-weight: 700;">
+          <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(16, 185, 129, 0.18); border: 1px solid rgba(16, 185, 129, 0.5); color: #34d399; padding: 3px 9px; border-radius: 6px;">
+            🟢 Played (Score)
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(56, 189, 248, 0.14); border: 1px solid rgba(56, 189, 248, 0.45); color: #38bdf8; padding: 3px 9px; border-radius: 6px;">
+            🔵 Matched — Yet to Play
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: #64748b; padding: 3px 9px; border-radius: 6px;">
+            — Not Paired
+          </span>
         </div>
       </div>
 
-      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0.85rem;">
-        ${filteredPairings.map(m => {
-          const safeP1 = escapeHtml(m.p1_name).replace(/'/g, "\\'");
-          const safeP2 = escapeHtml(m.p2_name).replace(/'/g, "\\'");
-          const safeP1Id = escapeHtml(m.p1_bcp_player_id || m.p1_name).replace(/'/g, "\\'");
-          const safeP2Id = escapeHtml(m.p2_bcp_player_id || m.p2_name).replace(/'/g, "\\'");
-          const safeF1 = escapeHtml(m.p1_faction).replace(/'/g, "\\'");
-          const safeLayout = escapeHtml(m.layout).replace(/'/g, "\\'");
-          return `
-            <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid ${m.is_completed ? 'rgba(16, 185, 129, 0.3)' : 'var(--border)'}; border-radius: 8px; padding: 0.85rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.65rem;">
-              <div style="display: flex; align-items: center; justify-content: space-between;">
-                <span style="font-size: 0.74rem; font-weight: 700; color: #60a5fa; background: rgba(59, 130, 246, 0.15); padding: 2px 7px; border-radius: 4px;">
-                  Round ${m.round} • ${escapeHtml(m.layout)}
-                </span>
-                <span style="font-size: 0.72rem; font-weight: 700; color: ${m.is_completed ? '#34d399' : '#fbbf24'};">
-                  ${m.is_completed ? `✓ ${escapeHtml(String(m.score || 'Completed'))}` : '⏳ Scheduled (2,000 pts)'}
-                </span>
-              </div>
-              <div style="display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 0.92rem; color: #fff; gap: 0.4rem;">
-                <div style="flex: 1; min-width: 0;">
-                  ${m.p1_is_db_matched ? `
-                    <button type="button" onclick="openPlayerModal('${safeP1Id}', '${safeP1}')" style="background: none; border: none; padding: 0; color: #fff; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-align: left; text-decoration: underline; text-underline-offset: 2px;">
-                      ${escapeHtml(m.p1_name)}
-                    </button>
-                  ` : `
-                    <span style="color: #cbd5e1; font-weight: 600; font-size: 0.9rem; cursor: default;">
-                      ${escapeHtml(m.p1_name)}
-                    </span>
-                  `}
-                  <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 500;">${escapeHtml(m.p1_faction)}</div>
-                </div>
-                <span style="color: var(--text-muted); font-size: 0.75rem; font-weight: 800; padding: 0 4px;">VS</span>
-                <div style="flex: 1; min-width: 0; text-align: right;">
-                  ${m.p2_is_db_matched ? `
-                    <button type="button" onclick="openPlayerModal('${safeP2Id}', '${safeP2}')" style="background: none; border: none; padding: 0; color: #93c5fd; font-weight: 700; font-size: 0.9rem; cursor: pointer; text-align: right; text-decoration: underline; text-underline-offset: 2px;">
-                      ${escapeHtml(m.p2_name)}
-                    </button>
-                  ` : `
-                    <span style="color: #cbd5e1; font-weight: 600; font-size: 0.9rem; cursor: default;">
-                      ${escapeHtml(m.p2_name)}
-                    </span>
-                  `}
-                  <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 500;">${escapeHtml(m.p2_faction)}</div>
-                </div>
-              </div>
-              <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-                <button onclick="launchLeagueMatchTracker('${safeP1}', '${safeP2}', '${safeF1}', '${safeLayout}', ${m.round}, '${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-primary" style="flex: 1.2; font-size: 0.76rem; padding: 0.4rem 0.5rem; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none; font-weight: 700;">
-                  🎲 Start Tracker
-                </button>
-                <button onclick="openLeagueOpponentChat('${safeP2}', '${safeP1}', ${m.round}, ${currentPod.pod_number})" class="btn btn-outline" style="flex: 1; font-size: 0.76rem; padding: 0.4rem 0.5rem; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8; font-weight: 700;">
-                  💬 Chat
-                </button>
-                <button onclick="openScoreReportingModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}', ${currentPod.pod_number}, ${m.round}, '${safeP1}', '${safeP2}')" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.4rem 0.55rem;">
-                  📝 Score
-                </button>
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
+      ${(() => {
+        // Build lookup map of matchups between any two players in this Pod
+        const pairMap = {};
+        allPodPairings.forEach(m => {
+          const k1 = (m.p1_name || '').trim().toLowerCase();
+          const k2 = (m.p2_name || '').trim().toLowerCase();
+          if (!k1 || !k2) return;
+          let s1 = null, s2 = null;
+          if (m.score && String(m.score).includes('-')) {
+            const pts = String(m.score).split('-').map(x => parseInt(x.trim(), 10));
+            if (!isNaN(pts[0]) && !isNaN(pts[1])) { s1 = pts[0]; s2 = pts[1]; }
+          }
+          pairMap[`${k1}__${k2}`] = {
+            round: m.round || 1,
+            layout: m.layout || 'Layout A',
+            is_completed: Boolean(m.is_completed || (s1 !== null && s2 !== null && (s1 > 0 || s2 > 0))),
+            row_score: s1,
+            col_score: s2,
+            score_label: (s1 !== null && s2 !== null && (m.is_completed || s1 > 0 || s2 > 0)) ? `${s1} - ${s2}` : (m.score || '')
+          };
+          pairMap[`${k2}__${k1}`] = {
+            round: m.round || 1,
+            layout: m.layout || 'Layout A',
+            is_completed: Boolean(m.is_completed || (s1 !== null && s2 !== null && (s1 > 0 || s2 > 0))),
+            row_score: s2,
+            col_score: s1,
+            score_label: (s1 !== null && s2 !== null && (m.is_completed || s1 > 0 || s2 > 0)) ? `${s2} - ${s1}` : (m.score || '')
+          };
+        });
+
+        const formatShortHeader = (fullName) => {
+          const parts = String(fullName || '').trim().split(/\s+/);
+          if (parts.length <= 1) return fullName;
+          return `${parts[0]} ${parts[parts.length - 1].charAt(0)}.`;
+        };
+
+        return `
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: separate; border-spacing: 4px; font-size: 0.82rem;">
+              <thead>
+                <tr>
+                  <th style="text-align: left; padding: 0.6rem 0.85rem; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #cbd5e1; font-weight: 800; min-width: 190px;">
+                    Player &amp; Faction
+                  </th>
+                  ${standings.map(colP => `
+                    <th title="${escapeHtml(colP.name)} (${escapeHtml(colP.primary_faction || 'Unassigned')})" style="text-align: center; padding: 0.5rem 0.4rem; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #e2e8f0; font-weight: 700; min-width: 86px; white-space: nowrap;">
+                      <div>${escapeHtml(formatShortHeader(colP.name))}</div>
+                      <div style="font-size: 0.65rem; color: #94a3b8; font-weight: 500; max-width: 90px; overflow: hidden; text-overflow: ellipsis; margin: 1px auto 0;">
+                        ${escapeHtml(colP.primary_faction || '')}
+                      </div>
+                    </th>
+                  `).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${standings.map((rowP, rIdx) => {
+                  const rowName = (rowP.name || '').trim();
+                  const rowKey = rowName.toLowerCase();
+                  const rowFaction = rowP.primary_faction || 'Unassigned';
+                  const rawRowPid = rowP.bcp_player_id || rowP.player_id || '';
+                  const rowPid = (rawRowPid && !String(rawRowPid).startsWith('bcp_')) ? rawRowPid : '';
+                  const rowMatched = Boolean(rowP.is_db_matched && rowPid);
+                  const safeRowName = escapeHtml(rowName).replace(/'/g, "\\'");
+                  const safeRowPid = escapeHtml(rowPid).replace(/'/g, "\\'");
+                  const safeRowFaction = escapeHtml(rowFaction).replace(/'/g, "\\'");
+
+                  return `
+                    <tr>
+                      <td style="padding: 0.55rem 0.85rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; white-space: nowrap;">
+                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                          ${rowMatched ? `
+                            <button type="button" onclick="openPlayerModal('${safeRowPid}', '${safeRowName}')" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 800; font-size: 0.86rem; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;">
+                              ${escapeHtml(rowName)}
+                            </button>
+                          ` : `
+                            <span style="color: #f8fafc; font-weight: 700; font-size: 0.86rem;">
+                              ${escapeHtml(rowName)}
+                            </span>
+                          `}
+                        </div>
+                        <div style="font-size: 0.71rem; color: #94a3b8; margin-top: 2px;">
+                          ${escapeHtml(rowFaction)}
+                        </div>
+                      </td>
+                      ${standings.map((colP, cIdx) => {
+                        if (rIdx === cIdx) {
+                          return `
+                            <td style="text-align: center; padding: 0.5rem; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; color: #475569; font-weight: 700;">
+                              —
+                            </td>
+                          `;
+                        }
+                        const colName = (colP.name || '').trim();
+                        const colKey = colName.toLowerCase();
+                        const colFaction = colP.primary_faction || 'Unassigned';
+                        const matchInfo = pairMap[`${rowKey}__${colKey}`];
+                        if (!matchInfo) {
+                          return `
+                            <td style="text-align: center; padding: 0.5rem; background: rgba(15, 23, 42, 0.28); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; color: #334155;">
+                              ·
+                            </td>
+                          `;
+                        }
+                        const safeColName = escapeHtml(colName).replace(/'/g, "\\'");
+                        const safeColFaction = escapeHtml(colFaction).replace(/'/g, "\\'");
+                        const safeLayout = escapeHtml(matchInfo.layout || 'Layout A').replace(/'/g, "\\'");
+                        const safeScore = escapeHtml(matchInfo.score_label || '').replace(/'/g, "\\'");
+                        const safeLeagueId = escapeHtml(league.league_id || 'league_sd40k_big_league').replace(/'/g, "\\'");
+
+                        if (matchInfo.is_completed) {
+                          const won = (matchInfo.row_score !== null && matchInfo.col_score !== null) ? (matchInfo.row_score > matchInfo.col_score) : true;
+                          return `
+                            <td onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round}, '${safeLayout}', '${safeScore}', true, ${currentPod.pod_number}, '${safeLeagueId}')" title="${escapeHtml(rowName)} vs ${escapeHtml(colName)} — Played (${escapeHtml(matchInfo.score_label || 'Completed')})" style="text-align: center; padding: 0.5rem 0.35rem; background: ${won ? 'rgba(16, 185, 129, 0.22)' : 'rgba(239, 68, 68, 0.18)'}; border: 1px solid ${won ? 'rgba(16, 185, 129, 0.55)' : 'rgba(239, 68, 68, 0.45)'}; border-radius: 6px; cursor: pointer; transition: transform 0.12s;">
+                              <div style="font-weight: 800; font-size: 0.82rem; color: ${won ? '#34d399' : '#fca5a5'};">
+                                ${escapeHtml(matchInfo.score_label || 'Played')}
+                              </div>
+                              <div style="font-size: 0.64rem; color: #cbd5e1; font-weight: 600;">✓ Played</div>
+                            </td>
+                          `;
+                        }
+
+                        return `
+                          <td onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round}, '${safeLayout}', '', false, ${currentPod.pod_number}, '${safeLeagueId}')" title="${escapeHtml(rowName)} vs ${escapeHtml(colName)} — Yet to be played (Click to Start Tracker, Enter Score, or Chat)" style="text-align: center; padding: 0.5rem 0.35rem; background: rgba(56, 189, 248, 0.13); border: 1px solid rgba(56, 189, 248, 0.42); border-radius: 6px; cursor: pointer; transition: transform 0.12s;">
+                            <div style="font-weight: 800; font-size: 0.76rem; color: #38bdf8;">
+                              Yet to Play
+                            </div>
+                            <div style="font-size: 0.64rem; color: #93c5fd;">Click to Play</div>
+                          </td>
+                        `;
+                      }).join('')}
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      })()}
     </div>
   `;
 }
@@ -924,21 +1002,86 @@ function renderMethodologySubtab(league) {
 /**
  * 1-Tap Launch of Game Tracker with pre-filled league match room
  */
-function launchLeagueMatchTracker(p1Name, p2Name, p1Faction, layout, roundNum = 1, leagueId = 'league_sd40k_big_league') {
-  const roomId = `LG-SD40K-R${roundNum || 1}-${Date.now().toString(36).toUpperCase()}`;
+function launchLeagueMatchTracker(p1Name, p2Name, p1Faction, layout, roundNum = 1, leagueId = 'league_sd40k_big_league', podNum = null, p2Faction = '') {
+  const activePod = podNum || (typeof leagueState !== 'undefined' ? leagueState.activePodNumber : 1) || 1;
+  const roomId = `LG-SD40K-P${activePod}-R${roundNum || 1}-${Date.now().toString(36).toUpperCase()}`;
   const params = new URLSearchParams({
     match_id: roomId,
     room: roomId,
     p1: p1Name,
     p2: p2Name,
     faction1: p1Faction || 'Warhammer 40k',
+    faction2: p2Faction || 'Warhammer 40k',
     layout: layout || 'Layout A',
     round: String(roundNum || 1),
+    pod_number: String(activePod),
     league_id: leagueId || 'league_sd40k_big_league',
     system: '40k'
   });
   window.location.href = `/11th/tracker/play?${params.toString()}`;
 }
+
+function closeMatrixMatchupModal() {
+  const existing = document.getElementById('league-matrix-matchup-modal');
+  if (existing) existing.remove();
+}
+window.closeMatrixMatchupModal = closeMatrixMatchupModal;
+
+function openMatrixMatchupModal(p1Name, p2Name, p1Faction, p2Faction, roundNum, layout, scoreLabel, isCompleted, podNum, leagueId) {
+  closeMatrixMatchupModal();
+  const safeP1 = escapeHtml(p1Name || '').replace(/'/g, "\\'");
+  const safeP2 = escapeHtml(p2Name || '').replace(/'/g, "\\'");
+  const safeF1 = escapeHtml(p1Faction || 'Warhammer 40k').replace(/'/g, "\\'");
+  const safeF2 = escapeHtml(p2Faction || 'Warhammer 40k').replace(/'/g, "\\'");
+  const safeLayout = escapeHtml(layout || 'Layout A').replace(/'/g, "\\'");
+  const safeLeagueId = escapeHtml(leagueId || 'league_sd40k_big_league').replace(/'/g, "\\'");
+  const pNum = parseInt(podNum, 10) || (typeof leagueState !== 'undefined' ? leagueState.activePodNumber : 1) || 1;
+  const rNum = parseInt(roundNum, 10) || 1;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'league-matrix-matchup-modal';
+  overlay.style.cssText = 'position: fixed; inset: 0; z-index: 10060; background: rgba(2, 6, 23, 0.78); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; padding: 1rem;';
+  overlay.onclick = (e) => { if (e.target === overlay) closeMatrixMatchupModal(); };
+
+  overlay.innerHTML = `
+    <div style="background: #0f172a; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.45)' : 'rgba(56, 189, 248, 0.45)'}; border-radius: 12px; width: 100%; max-width: 460px; padding: 1.25rem; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.9rem;">
+        <span style="font-size: 0.74rem; font-weight: 800; padding: 3px 9px; border-radius: 6px; background: ${isCompleted ? 'rgba(16, 185, 129, 0.18)' : 'rgba(56, 189, 248, 0.16)'}; color: ${isCompleted ? '#34d399' : '#38bdf8'}; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.45)' : 'rgba(56, 189, 248, 0.4)'};">
+          ${isCompleted ? `🟢 PLAYED • ${escapeHtml(scoreLabel || 'Completed')}` : '🔵 MATCHED — YET TO PLAY'}
+        </span>
+        <button type="button" onclick="closeMatrixMatchupModal()" style="background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 1.1rem;">✕</button>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: rgba(2, 6, 23, 0.55); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.9rem 1rem; margin-bottom: 1rem;">
+        <div style="flex: 1;">
+          <div style="font-weight: 800; font-size: 1rem; color: #fff;">${escapeHtml(p1Name)}</div>
+          <div style="font-size: 0.78rem; color: #38bdf8; font-weight: 600; margin-top: 2px;">${escapeHtml(p1Faction)}</div>
+        </div>
+        <div style="font-weight: 900; font-size: 0.9rem; color: ${isCompleted ? '#34d399' : '#64748b'}; padding: 0 0.5rem;">
+          ${isCompleted && scoreLabel ? escapeHtml(scoreLabel) : 'VS'}
+        </div>
+        <div style="flex: 1; text-align: right;">
+          <div style="font-weight: 800; font-size: 1rem; color: #fff;">${escapeHtml(p2Name)}</div>
+          <div style="font-size: 0.78rem; color: #93c5fd; font-weight: 600; margin-top: 2px;">${escapeHtml(p2Faction)}</div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <button type="button" onclick="closeMatrixMatchupModal(); launchLeagueMatchTracker('${safeP1}', '${safeP2}', '${safeF1}', '${safeLayout}', ${rNum}, '${safeLeagueId}', ${pNum}, '${safeF2}')" class="btn btn-primary" style="flex: 1.3; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 800; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none;">
+          🎲 Launch Tracker
+        </button>
+        <button type="button" onclick="closeMatrixMatchupModal(); openScoreReportingModal('${safeLeagueId}', ${pNum}, ${rNum}, '${safeP1}', '${safeP2}')" class="btn btn-outline" style="flex: 1; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 700;">
+          📝 Enter Score
+        </button>
+        <button type="button" onclick="closeMatrixMatchupModal(); openLeagueOpponentChat('${safeP2}', '${safeP1}', ${rNum}, ${pNum})" class="btn btn-outline" style="flex: 0.9; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+          💬 Chat
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+window.openMatrixMatchupModal = openMatrixMatchupModal;
 
 /**
  * Switches the active season viewed in League Hub

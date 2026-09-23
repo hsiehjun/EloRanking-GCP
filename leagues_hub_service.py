@@ -760,20 +760,39 @@ class LeaguesHubService:
             if p.get("pod_number") == pod_number:
                 target_pod = p
                 break
-        if not target_pod:
-            raise ValueError(f"Pod {pod_number} not found in league {league_id}")
 
-        standings = target_pod.get("standings", [])
+        p1_clean = (p1_name or "").strip().lower()
+        p2_clean = (p2_name or "").strip().lower()
+
         p1_record = None
         p2_record = None
+        if target_pod:
+            for s in target_pod.get("standings", []):
+                sname = (s.get("name") or "").strip().lower()
+                if sname == p1_clean:
+                    p1_record = s
+                elif sname == p2_clean:
+                    p2_record = s
 
-        for s in standings:
-            if s.get("name", "").strip().lower() == p1_name.strip().lower():
-                p1_record = s
-            elif s.get("name", "").strip().lower() == p2_name.strip().lower():
-                p2_record = s
-
+        # Auto-detect pod if p1_record/p2_record were not in pod_number
         if not p1_record or not p2_record:
+            for p in pods:
+                cand_p1 = None
+                cand_p2 = None
+                for s in p.get("standings", []):
+                    sname = (s.get("name") or "").strip().lower()
+                    if sname == p1_clean:
+                        cand_p1 = s
+                    elif sname == p2_clean:
+                        cand_p2 = s
+                if cand_p1 and cand_p2:
+                    target_pod = p
+                    pod_number = int(p.get("pod_number", 1))
+                    p1_record = cand_p1
+                    p2_record = cand_p2
+                    break
+
+        if not target_pod or not p1_record or not p2_record:
             raise ValueError(f"Could not locate players '{p1_name}' and '{p2_name}' in Pod {pod_number}")
 
         # Compute BP bonus
@@ -801,18 +820,30 @@ class LeaguesHubService:
         p1_record["battle_points"] = p1_record.get("battle_points", 0) + p1_bp
         p2_record["battle_points"] = p2_record.get("battle_points", 0) + p2_bp
 
+        standings = target_pod.get("standings", [])
+
         # Update pairing in p1
         for m in p1_record.get("pairings", []):
-            if m.get("round") == round_number or (p2_name.split()[0].lower() in (m.get("opponent_name") or "").lower()):
-                m["score"] = p1_score
+            opp_c = (m.get("opponent_clean_name") or m.get("opponent_name") or "").lower()
+            if p2_clean in opp_c or m.get("round") == round_number:
+                m["score"] = f"{p1_score} - {p2_score}"
+                m["player_score"] = p1_score
+                m["opponent_score"] = p2_score
+                m["status"] = "completed"
+                m["result"] = "W" if p1_score > p2_score else ("L" if p1_score < p2_score else "D")
                 m["is_completed"] = True
                 m["scorecard_id"] = scorecard_id
                 break
 
         # Update pairing in p2
         for m in p2_record.get("pairings", []):
-            if m.get("round") == round_number or (p1_name.split()[0].lower() in (m.get("opponent_name") or "").lower()):
-                m["score"] = p2_score
+            opp_c = (m.get("opponent_clean_name") or m.get("opponent_name") or "").lower()
+            if p1_clean in opp_c or m.get("round") == round_number:
+                m["score"] = f"{p2_score} - {p1_score}"
+                m["player_score"] = p2_score
+                m["opponent_score"] = p1_score
+                m["status"] = "completed"
+                m["result"] = "W" if p2_score > p1_score else ("L" if p2_score < p1_score else "D")
                 m["is_completed"] = True
                 m["scorecard_id"] = scorecard_id
                 break

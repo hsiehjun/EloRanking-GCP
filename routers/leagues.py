@@ -90,7 +90,7 @@ async def sync_and_audit_league_db(league_id: str):
                         "is_db_matched": r[7],
                         "match_method": r[8]
                     })
-                cur.execute("SELECT COUNT(*) FROM native_league_participants WHERE bcp_player_id LIKE 'bcp_%' OR bcp_player_id LIKE 'p_%';")
+                cur.execute("SELECT COUNT(*) FROM native_league_participants WHERE bcp_player_id LIKE 'bcp_%' OR bcp_player_id LIKE 'p_%' OR user_id LIKE 'u_%';")
                 fake_count = cur.fetchone()[0]
                 cur.execute("SELECT COUNT(*) FROM native_league_participants;")
                 total_count = cur.fetchone()[0]
@@ -104,6 +104,7 @@ async def sync_and_audit_league_db(league_id: str):
         "season_38_count": len(rows_s38),
         "season_38_matched_count": sum(1 for r in rows_s38 if r["is_db_matched"]),
         "season_38_unmatched_count": sum(1 for r in rows_s38 if not r["is_db_matched"]),
+        "pod_1_rows": [r for r in rows_s38 if r["pod_num"] == 1],
         "pod_7_rows": [r for r in rows_s38 if r["pod_num"] == 7],
         "pod_8_rows": [r for r in rows_s38 if r["pod_num"] == 8]
     }

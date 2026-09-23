@@ -1887,6 +1887,88 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
     except Exception as e:
         logger.warning(f"Notice saving finalized game to DB {match_id}: {e}")
 
+    # 1b. Auto-submit to League Scoring System if this is a League Match
+    league_submitted = False
+    try:
+        game_info = (state.get("game") if isinstance(state, dict) else {}) or {}
+        league_id = (
+            (state.get("league_id") if isinstance(state, dict) else None)
+            or game_info.get("leagueId")
+            or game_info.get("league_id")
+            or room.get("league_id")
+            or ("league_sd40k_big_league" if ("LG-" in match_id.upper() or "SD40K" in match_id.upper()) else None)
+        )
+        p1_name = (
+            (state.get("p1_name") if isinstance(state, dict) else None)
+            or game_info.get("p1Name")
+            or room.get("p1_name")
+            or ""
+        ).strip()
+        p2_name = (
+            (state.get("p2_name") if isinstance(state, dict) else None)
+            or game_info.get("p2Name")
+            or room.get("p2_name")
+            or ""
+        ).strip()
+
+        def _extract_tracker_score(side_key: str, top_key: str) -> int:
+            if isinstance(state, dict):
+                if state.get(top_key) is not None:
+                    try:
+                        return int(state[top_key])
+                    except Exception:
+                        pass
+                side_obj = state.get(side_key) or {}
+                if isinstance(side_obj, dict):
+                    if side_obj.get("score") is not None and int(side_obj.get("score") or 0) > 0:
+                        return int(side_obj["score"])
+                    rounds_arr = side_obj.get("rounds") or []
+                    if isinstance(rounds_arr, list) and rounds_arr:
+                        prim = sum(int(r.get("primaryScore") or 0) for r in rounds_arr if isinstance(r, dict))
+                        sec = sum(int(r.get("secondaryScore") or 0) for r in rounds_arr if isinstance(r, dict))
+                        paint = 10 if side_obj.get("battleReady") is not False else 0
+                        return min(100, min(50, prim) + min(40, sec) + paint)
+            return int(room.get(top_key) or 0)
+
+        p1_score = _extract_tracker_score("p1", "p1_score")
+        p2_score = _extract_tracker_score("p2", "p2_score")
+
+        if p1_name and p2_name:
+            import re as _re
+            pod_num = int(
+                (state.get("pod_number") if isinstance(state, dict) else 0)
+                or game_info.get("podNumber")
+                or room.get("pod_number")
+                or 0
+            )
+            round_num = int(
+                (state.get("round_num") if isinstance(state, dict) else 0)
+                or game_info.get("roundNum")
+                or room.get("round_num")
+                or 1
+            )
+            m_pod = _re.search(r"-P(\d+)-R(\d+)-", match_id.upper())
+            if m_pod:
+                if not pod_num:
+                    pod_num = int(m_pod.group(1))
+                if not round_num:
+                    round_num = int(m_pod.group(2))
+            from leagues_hub_service import get_leagues_hub_service
+            lh_svc = get_leagues_hub_service()
+            lh_svc.report_match(
+                league_id=league_id or "league_sd40k_big_league",
+                pod_number=pod_num or 1,
+                round_number=round_num or 1,
+                p1_name=p1_name,
+                p2_name=p2_name,
+                p1_score=p1_score,
+                p2_score=p2_score,
+                scorecard_id=match_id
+            )
+            league_submitted = True
+    except Exception as le:
+        logger.debug(f"Auto league score submit check on finalize ({match_id}): {le}")
+
     # 2. Broadcast conclusion to connected SSE listeners (Player 2, Spectators)
     listeners = TRACKER_LISTENERS.get(match_id, [])
     finalize_msg = {

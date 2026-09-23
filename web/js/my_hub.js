@@ -800,74 +800,58 @@ async function openUserLeagueGamesQuickModal(entryId) {
         </div>
       </div>
 
-      <!-- Modal Body: 5 Scheduled Season Games / Pairings -->
+      <!-- Modal Body: 5 Pod Matchups -->
       <div style="padding: 1.15rem 1.35rem; overflow-y: auto; flex: 1;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
           <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #fff;">
-            ⚔️ Your ${pairings.length} Scheduled Pod Games &amp; Opponents
+            ⚔️ Your Pod Matchups &amp; Opponents
           </h4>
-          <span style="font-size: 0.75rem; color: #94a3b8;">Click any DB-matched opponent to inspect their career dossier &amp; ELO</span>
+          <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; font-weight: 700;">
+            <span style="background: rgba(16, 185, 129, 0.18); border: 1px solid rgba(16, 185, 129, 0.45); color: #34d399; padding: 2px 8px; border-radius: 5px;">🟢 Played</span>
+            <span style="background: rgba(56, 189, 248, 0.14); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 2px 8px; border-radius: 5px;">🔵 Yet to Play</span>
+          </div>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 0.7rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.65rem;">
           ${pairings.map((pair, idx) => {
             const rNum = pair.round || (idx + 1);
-            const layoutStr = pair.layout || 'Standard Layout';
+            const layoutStr = pair.layout || 'Layout A';
             const oppName = pair.opponent_clean_name || (pair.opponent_name || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || 'TBD';
             const oppFaction = pair.opponent_faction || 'Unknown Faction';
             const oppPid = (pair.opponent_bcp_player_id && !String(pair.opponent_bcp_player_id).startsWith('bcp_')) ? pair.opponent_bcp_player_id : '';
             const oppMatched = Boolean(pair.opponent_is_db_matched && oppPid);
             const safeOppName = escapeHtml(oppName).replace(/'/g, "\\'");
+            const safeOppFaction = escapeHtml(oppFaction).replace(/'/g, "\\'");
             const safeOppPid = escapeHtml(oppPid).replace(/'/g, "\\'");
             const safeLayout = escapeHtml(layoutStr).replace(/'/g, "\\'");
-            const isCompleted = pair.status === 'completed' || Boolean(pair.result);
+            const isCompleted = pair.status === 'completed' || Boolean(pair.result) || Boolean(pair.is_completed) || ((pair.player_score || 0) > 0 || (pair.opponent_score || 0) > 0);
+            const scoreStr = pair.score || `${pair.player_score || 0} - ${pair.opponent_score || 0}`;
 
             return `
-              <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.35)' : 'rgba(255, 255, 255, 0.09)'}; border-radius: 10px; padding: 0.85rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-                <div style="display: flex; align-items: center; gap: 0.85rem; min-width: 240px; flex: 1;">
-                  <div style="background: rgba(59, 130, 246, 0.16); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 8px; padding: 0.4rem 0.65rem; text-align: center; min-width: 74px;">
-                    <div style="font-size: 0.72rem; font-weight: 800; color: #60a5fa;">ROUND ${rNum}</div>
-                    <div style="font-size: 0.66rem; color: #93c5fd; font-weight: 600;">${escapeHtml(layoutStr)}</div>
-                  </div>
-                  <div style="min-width: 0; flex: 1;">
-                    <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-                      <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 700;">VS</span>
-                      ${oppMatched ? `
-                        <button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safeOppPid}', '${safeOppName}');" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 800; font-size: 0.95rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;">
-                          ${escapeHtml(oppName)}
-                        </button>
-                        <span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.64rem; font-weight: 700; padding: 1px 5px; border-radius: 4px;">
-                          ✓ DB
-                        </span>
-                      ` : `
-                        <span style="color: #f8fafc; font-weight: 700; font-size: 0.95rem;">
-                          ${escapeHtml(oppName)}
-                        </span>
-                        <span style="background: rgba(148, 163, 184, 0.12); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); font-size: 0.64rem; font-weight: 600; padding: 1px 5px; border-radius: 4px;">
-                          Unlinked
-                        </span>
-                      `}
-                    </div>
-                    <div style="font-size: 0.78rem; color: #cbd5e1; margin-top: 3px;">
-                      🛡️ Opponent Faction: <strong style="color: #e2e8f0;">${escapeHtml(oppFaction)}</strong>
-                      <span style="color: #64748b; margin: 0 6px;">•</span>
-                      <span style="color: ${isCompleted ? '#34d399' : '#fbbf24'}; font-weight: 600;">
-                        ${isCompleted ? `✓ Completed (${pair.player_score || 0} - ${pair.opponent_score || 0})` : '⏳ Scheduled (2,000 pts)'}
-                      </span>
-                    </div>
-                  </div>
+              <div style="background: ${isCompleted ? 'rgba(16, 185, 129, 0.12)' : 'rgba(15, 23, 42, 0.82)'}; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.48)' : 'rgba(56, 189, 248, 0.32)'}; border-radius: 10px; padding: 0.8rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; min-width: 220px; flex: 1;">
+                  <span style="font-size: 0.72rem; font-weight: 800; padding: 3px 8px; border-radius: 5px; background: ${isCompleted ? 'rgba(16, 185, 129, 0.22)' : 'rgba(56, 189, 248, 0.16)'}; color: ${isCompleted ? '#34d399' : '#38bdf8'}; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.45)' : 'rgba(56, 189, 248, 0.4)'};">
+                    ${isCompleted ? `✓ PLAYED (${escapeHtml(scoreStr)})` : 'YET TO PLAY'}
+                  </span>
+                  ${oppMatched ? `
+                    <button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safeOppPid}', '${safeOppName}');" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 800; font-size: 1rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;">
+                      ${escapeHtml(oppName)}
+                    </button>
+                  ` : `
+                    <span style="color: #fff; font-weight: 800; font-size: 1rem;">
+                      ${escapeHtml(oppName)}
+                    </span>
+                  `}
+                  <span style="background: rgba(245, 158, 11, 0.16); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.38); font-size: 0.75rem; font-weight: 700; padding: 2px 9px; border-radius: 6px;">
+                    🛡️ ${escapeHtml(oppFaction)}
+                  </span>
                 </div>
 
                 <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-                  ${oppMatched ? `
-                    <button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safeOppPid}', '${safeOppName}');" class="btn btn-outline" style="padding: 0.38rem 0.65rem; font-size: 0.74rem; font-weight: 700;">
-                      👤 Scouting Dossier
-                    </button>
-                  ` : ''}
-                  <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof launchLeagueMatchTracker === 'function') { launchLeagueMatchTracker('${safePlayerName}', '${safeOppName}', '${safePlayerFaction}', '${safeLayout}', ${rNum}, '${safeLeagueId}'); } else { window.location.hash = '#/40k/tracker'; }" class="btn btn-primary" style="padding: 0.38rem 0.75rem; font-size: 0.75rem; font-weight: 700; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none;">
+                  <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof launchLeagueMatchTracker === 'function') { launchLeagueMatchTracker('${safePlayerName}', '${safeOppName}', '${safePlayerFaction}', '${safeLayout}', ${rNum}, '${safeLeagueId}', ${podNum}, '${safeOppFaction}'); } else { window.location.hash = '#/40k/tracker'; }" class="btn btn-primary" style="padding: 0.4rem 0.8rem; font-size: 0.76rem; font-weight: 700; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none;">
                     🎲 Launch Tracker
                   </button>
-                  <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof openLeagueOpponentChat === 'function') { openLeagueOpponentChat('${safeOppName}', '${safePlayerName}', ${rNum}, ${podNum}); }" class="btn btn-outline" style="padding: 0.38rem 0.65rem; font-size: 0.74rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+                  <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof openLeagueOpponentChat === 'function') { openLeagueOpponentChat('${safeOppName}', '${safePlayerName}', ${rNum}, ${podNum}); }" class="btn btn-outline" style="padding: 0.4rem 0.7rem; font-size: 0.75rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
                     💬 Message
                   </button>
                 </div>

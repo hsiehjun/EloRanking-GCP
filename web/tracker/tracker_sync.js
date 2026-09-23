@@ -647,6 +647,46 @@
       } catch(e) {}
     }
 
+    // 1b. Auto-submit score to League Scoring System if this is a League Match
+    const leagueId = urlParams.get('league_id') || st.league_id || game.leagueId || ((matchId && (matchId.includes('LG-') || matchId.includes('SD40K'))) ? 'league_sd40k_big_league' : '');
+    if (leagueId) {
+      try {
+        const calcSideScore = (sideObj, topVal) => {
+          if (topVal !== undefined && topVal !== null && Number(topVal) > 0) return Number(topVal);
+          if (!sideObj) return 0;
+          if (sideObj.score !== undefined && sideObj.score !== null && Number(sideObj.score) > 0) return Number(sideObj.score);
+          const rds = Array.isArray(sideObj.rounds) ? sideObj.rounds : [];
+          const prim = rds.reduce((acc, r) => acc + (Number(r.primaryScore) || 0), 0);
+          const sec = rds.reduce((acc, r) => acc + (Number(r.secondaryScore) || 0), 0);
+          const paint = sideObj.battleReady !== false ? 10 : 0;
+          return Math.min(100, Math.min(50, prim) + Math.min(40, sec) + paint);
+        };
+        const p1Score = calcSideScore(st.p1, st.p1_score ?? st.p1Score);
+        const p2Score = calcSideScore(st.p2, st.p2_score ?? st.p2Score);
+        const p1Name = urlParams.get('p1') || game.p1Name || st.p1_name || '';
+        const p2Name = urlParams.get('p2') || game.p2Name || st.p2_name || '';
+        const podNum = parseInt(urlParams.get('pod_number') || st.pod_number || game.podNumber || '0', 10) || 1;
+        const roundNum = parseInt(urlParams.get('round') || st.round_num || game.roundNum || '1', 10) || 1;
+        if (p1Name && p2Name) {
+          await fetch(`/api/league/${encodeURIComponent(leagueId)}/match/report`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              pod_number: podNum,
+              round_number: roundNum,
+              p1_name: p1Name,
+              p2_name: p2Name,
+              p1_score: p1Score,
+              p2_score: p2Score,
+              scorecard_id: matchId
+            })
+          });
+        }
+      } catch (lgErr) {
+        console.warn('Notice auto-submitting league score:', lgErr);
+      }
+    }
+
     // 2. Server-side finalize (persists in PostgreSQL and removes from active Firestore)
     try {
       const token = getAuthToken();
@@ -662,7 +702,9 @@
         if (statusEl) {
           statusEl.style.display = 'block';
           statusEl.style.color = '#10b981';
-          statusEl.innerHTML = `✅ Battle record archived permanently! Redirecting to lobby...`;
+          statusEl.innerHTML = leagueId
+            ? `✅ League score auto-submitted &amp; Pod standings updated! Redirecting to League Hub...`
+            : `✅ Battle record archived permanently! Redirecting to lobby...`;
         }
         if (btn) {
           btn.style.background = '#10b981';
@@ -672,7 +714,7 @@
         setTimeout(() => {
           const m = document.getElementById('gt-complete-modal');
           if (m) m.remove();
-          window.location.href = '/11th/tracker';
+          window.location.href = leagueId ? `/app.html#/40k/league/${encodeURIComponent(leagueId)}` : '/11th/tracker';
         }, 700);
         return;
       }
