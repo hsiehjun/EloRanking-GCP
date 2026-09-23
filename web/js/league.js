@@ -163,22 +163,11 @@ function renderLeagueHub(league) {
           </div>
         </div>
 
-        <!-- Player Action Controls (Commissioner Controls Hidden by Default / Available in Event Studio) -->
-        <div style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1 1 230px; max-width: 290px; min-width: 210px;">
-          <button onclick="openLeaguePlayerClaimModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-primary" style="font-size: 0.82rem; padding: 0.5rem 0.9rem; background: linear-gradient(135deg, #2563eb, #3b82f6); border: 1px solid #60a5fa; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
-            <span>🙋‍♂️ I'm in this League</span>
-          </button>
-          <a href="https://sd40k.com" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+        <!-- External Link Only -->
+        <div style="display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0;">
+          <a href="https://sd40k.com" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.45rem 0.95rem; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
             <span>🌐 Official Website (sd40k.com)</span>
           </a>
-          <div style="display: flex; gap: 0.4rem;">
-            <a href="/eventstudio.html?tab=leagues&league_id=${encodeURIComponent(league.league_id || 'league_sd40k_big_league')}" class="btn btn-outline" style="flex: 1; font-size: 0.72rem; padding: 0.35rem 0.55rem; text-align: center; text-decoration: none; color: #94a3b8; border-color: rgba(148, 163, 184, 0.28); display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;">
-              <span>🎛️ Event Studio</span>
-            </a>
-            <button onclick="toggleLeagueCommissionerMode()" class="btn btn-outline" style="font-size: 0.72rem; padding: 0.35rem 0.55rem; color: ${window.isEventStudioCommissionerView ? '#34d399' : '#94a3b8'}; border-color: ${window.isEventStudioCommissionerView ? 'rgba(16, 185, 129, 0.45)' : 'rgba(148, 163, 184, 0.28)'};" title="Toggle Commissioner / League Owner Controls">
-              <span>🔑 Commissioner</span>
-            </button>
-          </div>
         </div>
       </div>
 
@@ -424,9 +413,14 @@ function renderPodsSubtab(league, currentPod) {
 
     <!-- Standings Table -->
     <div class="card" style="margin-bottom: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;">
-      <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+      <div style="padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
         <div style="font-weight: 700; font-size: 1rem; color: #fff;">🏆 Pod #${currentPod.pod_number} Standings &amp; Automated Pod Movement</div>
-        <div style="font-size: 0.78rem; color: var(--text-muted);">Players matched in our DB (<span style="color:#38bdf8;text-decoration:underline;">blue</span>) are clickable • Unmatched players can link their User ID</div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <span style="font-size: 0.78rem; color: var(--text-muted);">Players matched in our DB (<span style="color:#38bdf8;text-decoration:underline;">blue</span>) are clickable</span>
+          <button onclick="openLeaguePlayerClaimModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-outline" style="font-size: 0.74rem; padding: 0.3rem 0.7rem; border-color: rgba(59, 130, 246, 0.45); color: #60a5fa; font-weight: 700;">
+            🙋‍♂️ I'm in this League
+          </button>
+        </div>
       </div>
 
       <div style="overflow-x: auto;">
