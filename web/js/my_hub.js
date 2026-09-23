@@ -765,21 +765,28 @@ window.closeUserLeagueGamesQuickModal = closeUserLeagueGamesQuickModal;
 async function openUserLeagueGamesQuickModal(entryId) {
   closeUserLeagueGamesQuickModal();
   const cachedList = window._hubRegisteredEventsCache || [];
-  let ev = cachedList.find(item => String(item.id || item.bcp_event_id) === String(entryId))
-    || cachedList.find(item => item.is_native_league);
+  let eventIndex = cachedList.findIndex(item => String(item.id || item.bcp_event_id) === String(entryId));
+  if (eventIndex === -1) {
+    eventIndex = cachedList.findIndex(item => item.is_native_league);
+  }
+  let ev = eventIndex !== -1 ? cachedList[eventIndex] : null;
 
   if (!ev) {
     try {
       const resp = await fetch('/api/user/registered-tournaments');
       if (resp.ok) {
         const json = await resp.json();
-        ev = (json.tournaments || []).find(item => String(item.id || item.bcp_event_id) === String(entryId) || item.is_native_league);
+        const list = json.tournaments || [];
+        window._hubRegisteredEventsCache = list;
+        eventIndex = list.findIndex(item => String(item.id || item.bcp_event_id) === String(entryId) || item.is_native_league);
+        ev = eventIndex !== -1 ? list[eventIndex] : null;
       }
     } catch (err) {
       console.warn('[MyHub] Failed to fetch registered league details:', err);
     }
   }
   if (!ev) return;
+  if (eventIndex === -1) eventIndex = 0;
 
   const leagueId = ev.league_id || 'league_sd40k_big_league';
   const podNum = ev.pod_number || 1;
@@ -1065,9 +1072,9 @@ async function submitQuickModalInlineScore(leagueId, podNum, roundNum, player1, 
       throw new Error(data.error || `HTTP ${res.status}`);
     }
 
-    // Update local state in window._hubLeagueParticipatingEvents so reopening reflects immediately
-    const events = window._hubLeagueParticipatingEvents || [];
-    const ev = events[eventIndex] || events[0];
+    // Update local state in window._hubRegisteredEventsCache so reopening reflects immediately
+    const events = window._hubRegisteredEventsCache || window._hubLeagueParticipatingEvents || [];
+    const ev = events[eventIndex] || events.find(item => item.is_native_league) || events[0];
     if (ev && Array.isArray(ev.pairings) && ev.pairings[pairIdx]) {
       ev.pairings[pairIdx].player_score = score1;
       ev.pairings[pairIdx].opponent_score = score2;
