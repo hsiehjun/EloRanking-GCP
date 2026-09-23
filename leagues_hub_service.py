@@ -1455,12 +1455,19 @@ class LeaguesHubService:
                     st_name = (st.get("name") or "").strip()
                     st_name_lower = st_name.lower()
 
+                    is_clickable_matched = bool(st.get("is_db_matched")) and (
+                        (st_pid and not st_pid.startswith("bcp_") and not st_pid.startswith("p_"))
+                        or (st_uid and not st_uid.startswith("u_"))
+                    )
+                    if not is_clickable_matched:
+                        continue
+
                     is_match = False
                     if uid_clean and st_uid and uid_clean == st_uid:
                         is_match = True
                     elif pid_clean and st_pid and pid_clean == st_pid:
                         is_match = True
-                    elif pname_clean and st_name_lower and pname_clean == st_name_lower:
+                    elif not pid_clean and not st_pid and pname_clean and st_name_lower and pname_clean == st_name_lower:
                         is_match = True
 
                     if is_match:

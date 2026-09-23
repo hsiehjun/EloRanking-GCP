@@ -644,10 +644,6 @@ function getDefaultSd40kRegisteredLeagueEntry() {
 
 function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
   const events = (tournaments || []).filter(isValidRegisteredTournament);
-  const hasNativeLeague = events.some(ev => Boolean(ev.is_native_league || String(ev.id || ev.bcp_event_id || '').includes('8f5e3b2c') || String(ev.id || ev.bcp_event_id || '').startsWith('league_')));
-  if (!hasNativeLeague) {
-    events.unshift(getDefaultSd40kRegisteredLeagueEntry());
-  }
   window._hubRegisteredEventsCache = events;
   const activeTab = window._hubRegEventsActiveTab || 'all';
 
@@ -869,9 +865,6 @@ async function openUserLeagueGamesQuickModal(entryId) {
     } catch (err) {
       console.warn('[MyHub] Failed to fetch registered league details:', err);
     }
-  }
-  if (!ev && typeof getDefaultSd40kRegisteredLeagueEntry === 'function') {
-    ev = getDefaultSd40kRegisteredLeagueEntry();
   }
   if (!ev) return;
   if (eventIndex === -1) eventIndex = 0;
