@@ -692,6 +692,8 @@ function renderPodsSubtab(league, currentPod) {
             layout: m.layout || 'Layout A',
             opp_name: m.p2_name,
             opp_faction: m.p2_faction || factionByPlayer[k2] || 'Warhammer 40k',
+            opp_bcp_player_id: m.p2_bcp_player_id || identityByPlayer[k2]?.bcp_player_id || '',
+            opp_is_db_matched: Boolean(m.p2_is_db_matched || (identityByPlayer[k2]?.is_db_matched && identityByPlayer[k2]?.bcp_player_id)),
             is_completed: done,
             row_score: s1,
             col_score: s2,
@@ -702,6 +704,8 @@ function renderPodsSubtab(league, currentPod) {
             layout: m.layout || 'Layout A',
             opp_name: m.p1_name,
             opp_faction: m.p1_faction || factionByPlayer[k1] || 'Warhammer 40k',
+            opp_bcp_player_id: m.p1_bcp_player_id || identityByPlayer[k1]?.bcp_player_id || '',
+            opp_is_db_matched: Boolean(m.p1_is_db_matched || (identityByPlayer[k1]?.is_db_matched && identityByPlayer[k1]?.bcp_player_id)),
             is_completed: done,
             row_score: s2,
             col_score: s1,
@@ -746,11 +750,17 @@ function renderPodsSubtab(league, currentPod) {
                     if (seenOpp.has(oKey)) return;
                     seenOpp.add(oKey);
                     const mapped = pairMap[`${rowKey}__${oKey}`];
+                    const oppIdent = identityByPlayer[oKey] || {};
+                    const rawItemPid = pItem.opponent_bcp_player_id || oppIdent.bcp_player_id || mapped?.opp_bcp_player_id || '';
+                    const validItemPid = (rawItemPid && !String(rawItemPid).startsWith('bcp_') && !String(rawItemPid).startsWith('p_')) ? rawItemPid : '';
+                    const itemMatched = Boolean((pItem.opponent_is_db_matched || oppIdent.is_db_matched || mapped?.opp_is_db_matched) && validItemPid);
                     oppList.push({
                       round: pItem.round || mapped?.round || (idx + 1),
                       layout: pItem.layout || mapped?.layout || 'Layout A',
                       opp_name: rawOpp,
                       opp_faction: factionByPlayer[oKey] || pItem.opponent_faction || mapped?.opp_faction || 'Warhammer 40k',
+                      opp_bcp_player_id: validItemPid,
+                      opp_is_db_matched: itemMatched,
                       is_completed: Boolean(pItem.is_completed || mapped?.is_completed),
                       row_score: mapped ? mapped.row_score : (pItem.player_score ?? null),
                       col_score: mapped ? mapped.col_score : (pItem.opponent_score ?? null),
@@ -799,11 +809,24 @@ function renderPodsSubtab(league, currentPod) {
                         }
                         const colName = matchInfo.opp_name;
                         const colFaction = matchInfo.opp_faction || 'Unassigned';
+                        const colPid = matchInfo.opp_bcp_player_id || '';
+                        const colMatched = Boolean(matchInfo.opp_is_db_matched && colPid);
                         const safeColName = escapeHtml(colName).replace(/'/g, "\\'");
+                        const safeColPid = escapeHtml(colPid).replace(/'/g, "\\'");
                         const safeColFaction = escapeHtml(colFaction).replace(/'/g, "\\'");
                         const safeLayout = escapeHtml(matchInfo.layout || 'Layout A').replace(/'/g, "\\'");
                         const safeScore = escapeHtml(matchInfo.score_label || '').replace(/'/g, "\\'");
                         const safeLeagueId = escapeHtml(league.league_id || 'league_sd40k_big_league').replace(/'/g, "\\'");
+
+                        const oppNameLabelHtml = colMatched ? `
+                          <button type="button" onclick="event.stopPropagation(); if (typeof openPlayerModal === 'function') openPlayerModal('${safeColPid}', '${safeColName}');" title="View ${escapeHtml(colName)}'s quick profile" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 800; font-size: 0.83rem; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-align: left; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block;">
+                            ${escapeHtml(colName)}
+                          </button>
+                        ` : `
+                          <div style="font-weight: 800; font-size: 0.83rem; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            ${escapeHtml(colName)}
+                          </div>
+                        `;
 
                         if (matchInfo.is_completed) {
                           const won = (matchInfo.row_score !== null && matchInfo.col_score !== null) ? (matchInfo.row_score > matchInfo.col_score) : true;
@@ -812,10 +835,8 @@ function renderPodsSubtab(league, currentPod) {
                           const borderCol = draw ? 'rgba(245, 158, 11, 0.5)' : (won ? 'rgba(16, 185, 129, 0.55)' : 'rgba(239, 68, 68, 0.45)');
                           const scoreCol = draw ? '#fbbf24' : (won ? '#34d399' : '#fca5a5');
                           return `
-                            <td class="league-schedule-opp-cell" onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round || (slotIdx + 1)}, '${safeLayout}', '${safeScore}', true, ${currentPod.pod_number}, '${safeLeagueId}')" style="padding: 0.55rem 0.7rem; background: ${bgCol}; border: 1px solid ${borderCol}; border-radius: 7px; cursor: pointer; transition: transform 0.12s;">
-                              <div style="font-weight: 800; font-size: 0.83rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                ${escapeHtml(colName)}
-                              </div>
+                            <td class="league-schedule-opp-cell" onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round || (slotIdx + 1)}, '${safeLayout}', '${safeScore}', true, ${currentPod.pod_number}, '${safeLeagueId}', '${safeRowPid}', '${safeColPid}')" style="padding: 0.55rem 0.7rem; background: ${bgCol}; border: 1px solid ${borderCol}; border-radius: 7px; cursor: pointer; transition: transform 0.12s;">
+                              <div>${oppNameLabelHtml}</div>
                               <div style="font-size: 0.69rem; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;">
                                 ${escapeHtml(colFaction)}
                               </div>
@@ -827,10 +848,8 @@ function renderPodsSubtab(league, currentPod) {
                         }
 
                         return `
-                          <td class="league-schedule-opp-cell" onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round || (slotIdx + 1)}, '${safeLayout}', '', false, ${currentPod.pod_number}, '${safeLeagueId}')" style="padding: 0.55rem 0.7rem; background: rgba(56, 189, 248, 0.11); border: 1px solid rgba(56, 189, 248, 0.36); border-radius: 7px; cursor: pointer; transition: transform 0.12s;">
-                            <div style="font-weight: 800; font-size: 0.83rem; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                              ${escapeHtml(colName)}
-                            </div>
+                          <td class="league-schedule-opp-cell" onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round || (slotIdx + 1)}, '${safeLayout}', '', false, ${currentPod.pod_number}, '${safeLeagueId}', '${safeRowPid}', '${safeColPid}')" style="padding: 0.55rem 0.7rem; background: rgba(56, 189, 248, 0.11); border: 1px solid rgba(56, 189, 248, 0.36); border-radius: 7px; cursor: pointer; transition: transform 0.12s;">
+                            <div>${oppNameLabelHtml}</div>
                             <div style="font-size: 0.69rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;">
                               ${escapeHtml(colFaction)}
                             </div>
@@ -1185,7 +1204,52 @@ function closeMatrixMatchupModal() {
 }
 window.closeMatrixMatchupModal = closeMatrixMatchupModal;
 
-function openMatrixMatchupModal(p1Name, p2Name, p1Faction, p2Faction, roundNum, layout, scoreLabel, isCompleted, podNum, leagueId) {
+function resolveLeaguePlayerIdentity(playerName, podNum = null, fallbackPid = '') {
+  const cleanName = String(playerName || '').trim();
+  const key = cleanName.toLowerCase();
+  const isRealPid = (pid) => Boolean(pid && !String(pid).startsWith('bcp_') && !String(pid).startsWith('p_'));
+  let foundPid = isRealPid(fallbackPid) ? String(fallbackPid).trim() : '';
+  let foundUid = '';
+  let matchedFlag = Boolean(foundPid);
+
+  const league = (typeof leagueState !== 'undefined' && (leagueState.currentLeagueData || leagueState.leagueData)) || null;
+  const pods = league?.active_season?.pods || [];
+  const orderedPods = podNum
+    ? [...pods.filter(p => Number(p.pod_number) === Number(podNum)), ...pods.filter(p => Number(p.pod_number) !== Number(podNum))]
+    : pods;
+
+  for (const p of orderedPods) {
+    for (const st of (p.standings || [])) {
+      if (String(st.name || '').trim().toLowerCase() === key) {
+        const rawPid = st.bcp_player_id || st.player_id || '';
+        if (!foundPid && isRealPid(rawPid)) foundPid = String(rawPid).trim();
+        if (!foundUid && st.user_id && !String(st.user_id).startsWith('u_')) foundUid = String(st.user_id).trim();
+        if (st.is_db_matched && (foundPid || foundUid)) matchedFlag = true;
+        break;
+      }
+      for (const pair of (st.pairings || [])) {
+        const oppClean = String(pair.opponent_clean_name || (pair.opponent_name || '').replace(/\s*\([^)]*\)\s*$/, '')).trim();
+        if (oppClean.toLowerCase() === key) {
+          const rawOppPid = pair.opponent_bcp_player_id || '';
+          if (!foundPid && isRealPid(rawOppPid)) foundPid = String(rawOppPid).trim();
+          if (!foundUid && pair.opponent_user_id && !String(pair.opponent_user_id).startsWith('u_')) foundUid = String(pair.opponent_user_id).trim();
+          if (pair.opponent_is_db_matched && (foundPid || foundUid)) matchedFlag = true;
+        }
+      }
+    }
+    if (matchedFlag && foundPid) break;
+  }
+
+  return {
+    name: cleanName,
+    bcp_player_id: foundPid,
+    user_id: foundUid,
+    isMatched: Boolean(matchedFlag && foundPid)
+  };
+}
+window.resolveLeaguePlayerIdentity = resolveLeaguePlayerIdentity;
+
+function openMatrixMatchupModal(p1Name, p2Name, p1Faction, p2Faction, roundNum, layout, scoreLabel, isCompleted, podNum, leagueId, p1PidOpt = '', p2PidOpt = '') {
   closeMatrixMatchupModal();
   const safeP1 = escapeHtml(p1Name || '').replace(/'/g, "\\'");
   const safeP2 = escapeHtml(p2Name || '').replace(/'/g, "\\'");
@@ -1196,9 +1260,32 @@ function openMatrixMatchupModal(p1Name, p2Name, p1Faction, p2Faction, roundNum, 
   const pNum = parseInt(podNum, 10) || (typeof leagueState !== 'undefined' ? leagueState.activePodNumber : 1) || 1;
   const rNum = parseInt(roundNum, 10) || 1;
 
+  const p1Info = resolveLeaguePlayerIdentity(p1Name, pNum, p1PidOpt);
+  const p2Info = resolveLeaguePlayerIdentity(p2Name, pNum, p2PidOpt);
+  const safeP1Pid = escapeHtml(p1Info.bcp_player_id || '').replace(/'/g, "\\'");
+  const safeP2Pid = escapeHtml(p2Info.bcp_player_id || '').replace(/'/g, "\\'");
+
+  const curUser = (typeof window !== 'undefined' && (window.currentUser || window.state?.user)) || null;
+  const curNameLower = String(curUser?.display_name || curUser?.name || '').trim().toLowerCase();
+  const curPid = String(curUser?.player_id || curUser?.bcp_user_id || '').trim();
+  const isP2Self = Boolean(
+    (curNameLower && curNameLower === String(p2Name || '').trim().toLowerCase()) ||
+    (curPid && p2Info.bcp_player_id && curPid === String(p2Info.bcp_player_id))
+  );
+  const chatTargetName = isP2Self ? p1Name : p2Name;
+  const chatSenderName = isP2Self ? p2Name : p1Name;
+  const chatTargetInfo = isP2Self ? p1Info : p2Info;
+  const safeChatTarget = escapeHtml(chatTargetName || '').replace(/'/g, "\\'");
+  const safeChatSender = escapeHtml(chatSenderName || '').replace(/'/g, "\\'");
+  const safeChatTargetPid = escapeHtml(chatTargetInfo.bcp_player_id || '').replace(/'/g, "\\'");
+  const safeChatTargetUid = escapeHtml(chatTargetInfo.user_id || '').replace(/'/g, "\\'");
+  // Only show Chat if both players in the matchup have a linked account
+  const canShowChat = Boolean(p1Info.isMatched && p2Info.isMatched && chatTargetInfo.isMatched);
+
   const overlay = document.createElement('div');
   overlay.id = 'league-matrix-matchup-modal';
-  overlay.style.cssText = 'position: fixed; inset: 0; z-index: 10060; background: rgba(2, 6, 23, 0.78); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; padding: 1rem;';
+  overlay.className = 'modal-backdrop active';
+  overlay.style.cssText = 'position: fixed; inset: 0; z-index: 10005; background: rgba(2, 6, 23, 0.78); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; padding: 1rem;';
   overlay.onclick = (e) => { if (e.target === overlay) closeMatrixMatchupModal(); };
 
   overlay.innerHTML = `
@@ -1211,15 +1298,27 @@ function openMatrixMatchupModal(p1Name, p2Name, p1Faction, p2Faction, roundNum, 
       </div>
 
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: rgba(2, 6, 23, 0.55); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.9rem 1rem; margin-bottom: 1rem;">
-        <div style="flex: 1;">
-          <div style="font-weight: 800; font-size: 1rem; color: #fff;">${escapeHtml(p1Name)}</div>
+        <div style="flex: 1; min-width: 0;">
+          ${p1Info.isMatched ? `
+            <button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safeP1Pid}', '${safeP1}');" title="View ${escapeHtml(p1Name)}'s quick profile" style="background: none; border: none; padding: 0; font-weight: 800; font-size: 1rem; color: #38bdf8; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-align: left;">
+              ${escapeHtml(p1Name)}
+            </button>
+          ` : `
+            <div style="font-weight: 800; font-size: 1rem; color: #fff;">${escapeHtml(p1Name)}</div>
+          `}
           <div style="font-size: 0.78rem; color: #38bdf8; font-weight: 600; margin-top: 2px;">${escapeHtml(p1Faction)}</div>
         </div>
-        <div style="font-weight: 900; font-size: 0.9rem; color: ${isCompleted ? '#34d399' : '#64748b'}; padding: 0 0.5rem;">
+        <div style="font-weight: 900; font-size: 0.9rem; color: ${isCompleted ? '#34d399' : '#64748b'}; padding: 0 0.5rem; flex-shrink: 0;">
           ${isCompleted && scoreLabel ? escapeHtml(scoreLabel) : 'VS'}
         </div>
-        <div style="flex: 1; text-align: right;">
-          <div style="font-weight: 800; font-size: 1rem; color: #fff;">${escapeHtml(p2Name)}</div>
+        <div style="flex: 1; min-width: 0; text-align: right;">
+          ${p2Info.isMatched ? `
+            <button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safeP2Pid}', '${safeP2}');" title="View ${escapeHtml(p2Name)}'s quick profile" style="background: none; border: none; padding: 0; font-weight: 800; font-size: 1rem; color: #38bdf8; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-align: right;">
+              ${escapeHtml(p2Name)}
+            </button>
+          ` : `
+            <div style="font-weight: 800; font-size: 1rem; color: #fff;">${escapeHtml(p2Name)}</div>
+          `}
           <div style="font-size: 0.78rem; color: #93c5fd; font-weight: 600; margin-top: 2px;">${escapeHtml(p2Faction)}</div>
         </div>
       </div>
@@ -1231,9 +1330,11 @@ function openMatrixMatchupModal(p1Name, p2Name, p1Faction, p2Faction, roundNum, 
         <button type="button" onclick="const f = document.getElementById('matrix-inline-score-form'); if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';" class="btn btn-outline" style="flex: 1; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 700; border-color: rgba(16, 185, 129, 0.45); color: #34d399;">
           📝 Enter Score
         </button>
-        <button type="button" onclick="closeMatrixMatchupModal(); openLeagueOpponentChat('${safeP2}', '${safeP1}', ${rNum}, ${pNum})" class="btn btn-outline" style="flex: 0.9; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
-          💬 Chat
-        </button>
+        ${canShowChat ? `
+          <button type="button" onclick="closeMatrixMatchupModal(); openLeagueOpponentChat('${safeChatTarget}', '${safeChatSender}', ${rNum}, ${pNum}, '${safeChatTargetPid}', '${safeChatTargetUid}')" class="btn btn-outline" style="flex: 0.9; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+            💬 Chat
+          </button>
+        ` : ''}
       </div>
 
       <!-- Inline Score Entry Drawer -->
@@ -1757,9 +1858,15 @@ async function submitNewLeagueCreation() {
 /**
  * Opens direct opponent chat from a League Pairing Card
  */
-function openLeagueOpponentChat(opponentName, myName, roundNum, podNum) {
+function openLeagueOpponentChat(opponentName, myName, roundNum, podNum, opponentPlayerId = '', opponentUserId = '') {
+  const resolved = typeof resolveLeaguePlayerIdentity === 'function'
+    ? resolveLeaguePlayerIdentity(opponentName, podNum, opponentPlayerId)
+    : { bcp_player_id: opponentPlayerId, user_id: opponentUserId };
+  const targetPid = opponentPlayerId || resolved.bcp_player_id || null;
+  const targetUid = opponentUserId || resolved.user_id || null;
+
   if (typeof handlePlayerChatClick === 'function' && window.currentUser) {
-    handlePlayerChatClick(null, opponentName);
+    handlePlayerChatClick(targetPid, opponentName, targetUid);
     return;
   }
   const existing = document.getElementById('league-opponent-chat-modal');

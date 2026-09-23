@@ -844,7 +844,8 @@ async function openUserLeagueGamesQuickModal(entryId) {
 
   const modalOverlay = document.createElement('div');
   modalOverlay.id = 'user-league-games-quick-modal';
-  modalOverlay.style.cssText = 'position: fixed; inset: 0; z-index: 10050; background: rgba(2, 6, 23, 0.85); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 0.75rem;';
+  modalOverlay.className = 'modal-backdrop active';
+  modalOverlay.style.cssText = 'position: fixed; inset: 0; z-index: 10005; background: rgba(2, 6, 23, 0.85); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 0.75rem;';
   modalOverlay.onclick = (e) => {
     if (e.target === modalOverlay) closeUserLeagueGamesQuickModal();
   };
@@ -1026,9 +1027,11 @@ async function openUserLeagueGamesQuickModal(entryId) {
                     <button type="button" onclick="toggleQuickModalInlineScore('${drawerId}')" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; font-weight: 700; border-color: rgba(16, 185, 129, 0.45); color: #34d399; background: rgba(16, 185, 129, 0.08);">
                       📝 Enter Score
                     </button>
-                    <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof openLeagueOpponentChat === 'function') { openLeagueOpponentChat('${safeOppName}', '${safePlayerName}', ${rNum}, ${podNum}); }" class="btn btn-outline" style="padding: 0.4rem 0.7rem; font-size: 0.75rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
-                      💬 Message
-                    </button>
+                    ${oppMatched ? `
+                      <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof openLeagueOpponentChat === 'function') { openLeagueOpponentChat('${safeOppName}', '${safePlayerName}', ${rNum}, ${podNum}, '${safeOppPid}'); }" class="btn btn-outline" style="padding: 0.4rem 0.7rem; font-size: 0.75rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+                        💬 Message
+                      </button>
+                    ` : ''}
                   </div>
                 </div>
 
