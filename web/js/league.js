@@ -196,37 +196,94 @@ function renderLeagueHub(league) {
       </div>
       ` : ''}
 
-      <!-- 4 Generic Season KPI Badges -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem;">
-        <div style="background: rgba(0, 0, 0, 0.25); padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Active Players</div>
-          <div style="font-size: 1.35rem; font-weight: 800; color: #60a5fa;">${actSeason.total_players || 68}</div>
+      <!-- 4 Season KPI Badges -->
+      <div class="league-hero-kpi-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.65rem; margin-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem;">
+        <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
+          <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Active Players</div>
+          <div style="font-size: 1.2rem; font-weight: 800; color: #60a5fa;">${actSeason.total_players || 68}</div>
         </div>
-        <div style="background: rgba(0, 0, 0, 0.25); padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Active Pods</div>
-          <div style="font-size: 1.35rem; font-weight: 800; color: #a78bfa;">${actSeason.total_pods || 8} Pods</div>
+        <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
+          <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Active Pods</div>
+          <div style="font-size: 1.2rem; font-weight: 800; color: #a78bfa;">${actSeason.total_pods || 8} Pods</div>
         </div>
-        <div style="background: rgba(0, 0, 0, 0.25); padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">DB Matched Profiles</div>
-          <div style="font-size: 1.35rem; font-weight: 800; color: #34d399;">${actSeason.db_matched_players_count || 62} / ${actSeason.total_players || 68}</div>
+        <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
+          <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Season Format</div>
+          <div style="font-size: 1.2rem; font-weight: 800; color: #34d399;">5 Games</div>
         </div>
-        <div style="background: rgba(0, 0, 0, 0.25); padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Historical Legacy</div>
-          <div style="font-size: 1.35rem; font-weight: 800; color: #fbbf24;">38 Seasons</div>
+        <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
+          <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">History</div>
+          <div style="font-size: 1.2rem; font-weight: 800; color: #fbbf24;">38 Seasons</div>
         </div>
       </div>
     </div>
 
+    <style>
+      @media (max-width: 768px) {
+        .league-hero-kpi-grid {
+          grid-template-columns: repeat(2, 1fr) !important;
+        }
+        .league-standings-table th.hide-mob,
+        .league-standings-table td.hide-mob {
+          display: none !important;
+        }
+        .league-standings-table th,
+        .league-standings-table td {
+          padding: 0.55rem 0.5rem !important;
+          font-size: 0.78rem !important;
+        }
+        .league-mob-subinfo {
+          display: flex !important;
+        }
+        .league-5col-schedule-table thead {
+          display: none !important;
+        }
+        .league-5col-schedule-table,
+        .league-5col-schedule-table tbody {
+          display: block !important;
+          width: 100% !important;
+        }
+        .league-5col-schedule-table tr.league-schedule-row {
+          display: grid !important;
+          grid-template-columns: repeat(2, 1fr) !important;
+          gap: 0.45rem !important;
+          background: rgba(15, 23, 42, 0.75) !important;
+          border: 1px solid rgba(255, 255, 255, 0.09) !important;
+          border-radius: 10px !important;
+          padding: 0.7rem !important;
+          margin-bottom: 0.65rem !important;
+        }
+        .league-5col-schedule-table td.league-schedule-player-cell {
+          grid-column: 1 / -1 !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          background: transparent !important;
+          border: none !important;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+          border-radius: 0 !important;
+          padding: 0 0 0.45rem 0 !important;
+          margin-bottom: 0.15rem !important;
+        }
+        .league-5col-schedule-table td.league-schedule-opp-cell {
+          display: flex !important;
+          flex-direction: column !important;
+          justify-content: space-between !important;
+          text-align: left !important;
+          padding: 0.5rem 0.6rem !important;
+        }
+      }
+    </style>
+
     <!-- Main League Subtabs -->
-    <div class="subtabs-bar" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; overflow-x: auto;">
-      <button class="subtab-btn ${leagueState.activeSubtab === 'pods' ? 'active' : ''}" onclick="switchLeagueSubtab('pods')">
-        <span>🛡️ ${league.is_historical ? escapeHtml(actSeason.name || `Season ${actSeason.season_number}`) : 'Season 38'} Pods, Standings & Pairings</span>
+    <div class="subtabs-bar" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch;">
+      <button class="subtab-btn ${leagueState.activeSubtab === 'pods' ? 'active' : ''}" onclick="switchLeagueSubtab('pods')" style="white-space: nowrap;">
+        <span>🛡️ ${league.is_historical ? escapeHtml(actSeason.name || `Season ${actSeason.season_number}`) : 'Season 38'} Pods &amp; Matchups</span>
       </button>
-      <button class="subtab-btn ${leagueState.activeSubtab === 'hof' ? 'active' : ''}" onclick="switchLeagueSubtab('hof')">
-        <span>🏆 Hall of Fame & 38-Season Historical Archives</span>
+      <button class="subtab-btn ${leagueState.activeSubtab === 'hof' ? 'active' : ''}" onclick="switchLeagueSubtab('hof')" style="white-space: nowrap;">
+        <span>🏆 Hall of Fame &amp; Archives</span>
       </button>
-      <button class="subtab-btn ${leagueState.activeSubtab === 'methodology' ? 'active' : ''}" onclick="switchLeagueSubtab('methodology')">
-        <span>📜 Pod Automation & Rules</span>
+      <button class="subtab-btn ${leagueState.activeSubtab === 'methodology' ? 'active' : ''}" onclick="switchLeagueSubtab('methodology')" style="white-space: nowrap;">
+        <span>📜 Rules &amp; Format</span>
       </button>
     </div>
 
@@ -318,7 +375,7 @@ function switchLeaguePairingRound(roundVal) {
 window.switchLeaguePairingRound = switchLeaguePairingRound;
 
 /**
- * Renders Pods, Standings & Round 1-5 Pairings Subtab
+ * Renders Pods, Standings & 5-Column Player Matchup Schedule Subtab
  */
 function renderPodsSubtab(league, currentPod) {
   const actSeason = league.active_season || {};
@@ -328,12 +385,11 @@ function renderPodsSubtab(league, currentPod) {
   const nStandings = standings.length;
   const totalPodsCount = pods.length || 8;
 
-  // Build deduplicated Round 1-5 pairings for the selected pod with player DB identity metadata
   const seenPairs = new Set();
   const allPodPairings = [];
   const factionByPlayer = {};
   const identityByPlayer = {};
-  const isRealDbPlayerId = (pid) => Boolean(pid && !String(pid).startsWith('bcp_'));
+  const isRealDbPlayerId = (pid) => Boolean(pid && !String(pid).startsWith('bcp_') && !String(pid).startsWith('p_'));
   standings.forEach(st => {
     if (st.name) {
       const k = st.name.trim().toLowerCase();
@@ -391,22 +447,18 @@ function renderPodsSubtab(league, currentPod) {
   });
 
   allPodPairings.sort((a, b) => a.round - b.round);
-  const selectedRound = leagueState.activePairingRound || 'all';
-  const filteredPairings = selectedRound === 'all'
-    ? allPodPairings
-    : allPodPairings.filter(m => m.round === selectedRound);
 
   return `
     <!-- Pod Switcher Pills -->
-    <div style="display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.5rem; margin-bottom: 1.25rem;">
+    <div style="display: flex; gap: 0.45rem; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 0.5rem; margin-bottom: 1.15rem;">
       ${pods.map(p => {
         const isAct = p.pod_number === leagueState.activePodNumber;
         return `
           <button onclick="switchPod(${p.pod_number})" style="
-            padding: 0.55rem 1rem;
+            padding: 0.5rem 0.9rem;
             border-radius: 8px;
-            font-size: 0.85rem;
-            font-weight: 600;
+            font-size: 0.82rem;
+            font-weight: 700;
             white-space: nowrap;
             cursor: pointer;
             transition: all 0.15s ease;
@@ -416,18 +468,17 @@ function renderPodsSubtab(league, currentPod) {
             box-shadow: ${isAct ? '0 4px 12px rgba(37, 99, 235, 0.3)' : 'none'};
           ">
             <span>Pod #${p.pod_number}</span>
-            <span style="opacity: 0.8; font-size: 0.75rem; margin-left: 4px;">(${escapeHtml(p.name.replace(/^POD #\d+ - /, ''))})</span>
+            <span style="opacity: 0.8; font-size: 0.72rem; margin-left: 3px;">(${escapeHtml(p.name.replace(/^POD #\d+ - /, ''))})</span>
           </button>
         `;
       }).join('')}
     </div>
 
     <!-- Standings Table -->
-    <div class="card" style="margin-bottom: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;">
-      <div style="padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-        <div style="font-weight: 700; font-size: 1rem; color: #fff;">🏆 Pod #${currentPod.pod_number} Standings &amp; Automated Pod Movement</div>
-        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-          <span style="font-size: 0.78rem; color: var(--text-muted);">Players matched in our DB (<span style="color:#38bdf8;text-decoration:underline;">blue</span>) are clickable</span>
+    <div class="card" style="margin-bottom: 1.35rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;">
+      <div style="padding: 0.85rem 1.15rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.65rem;">
+        <div style="font-weight: 700; font-size: 0.98rem; color: #fff;">🏆 Pod #${currentPod.pod_number} Standings</div>
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
           <button onclick="openLeaguePlayerClaimModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}')" class="btn btn-outline" style="font-size: 0.74rem; padding: 0.3rem 0.7rem; border-color: rgba(59, 130, 246, 0.45); color: #60a5fa; font-weight: 700;">
             🙋‍♂️ I'm in this League
           </button>
@@ -435,92 +486,81 @@ function renderPodsSubtab(league, currentPod) {
       </div>
 
       <div style="overflow-x: auto;">
-        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+        <table class="league-standings-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
           <thead>
-            <tr style="background: rgba(0, 0, 0, 0.3); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
-              <th style="padding: 0.75rem 1rem; width: 45px;">Rank</th>
-              <th style="padding: 0.75rem 1rem;">Player</th>
-              <th style="padding: 0.75rem 1rem;">Primary Faction</th>
-              <th style="padding: 0.75rem 0.75rem; text-align: center;">Record</th>
-              <th style="padding: 0.75rem 0.75rem; text-align: center;">Battle Points</th>
-              <th style="padding: 0.75rem 0.75rem; text-align: center;">POTY Pts</th>
-              <th style="padding: 0.75rem 1rem; text-align: center;">Automated Pod Trajectory</th>
-              <th style="padding: 0.75rem 1rem; text-align: right;">Action</th>
+            <tr style="background: rgba(0, 0, 0, 0.3); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 0.73rem; text-transform: uppercase;">
+              <th style="padding: 0.7rem 0.85rem; width: 42px;">#</th>
+              <th style="padding: 0.7rem 0.85rem;">Player</th>
+              <th class="hide-mob" style="padding: 0.7rem 0.85rem;">Faction</th>
+              <th style="padding: 0.7rem 0.65rem; text-align: center;">Record</th>
+              <th style="padding: 0.7rem 0.65rem; text-align: center;">Points</th>
+              <th class="hide-mob" style="padding: 0.7rem 0.85rem; text-align: center;">Trajectory</th>
+              <th style="padding: 0.7rem 0.85rem; text-align: right;">Action</th>
             </tr>
           </thead>
           <tbody>
             ${standings.map((s, idx) => {
               const rankNum = s.rank || (idx + 1);
-              let relBadge = '<span style="background: rgba(148, 163, 184, 0.12); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.25); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;">● Stay (Pod ' + currentPod.pod_number + ')</span>';
+              let relBadge = '<span style="background: rgba(148, 163, 184, 0.12); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.25); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.7rem;">● Stay (Pod ' + currentPod.pod_number + ')</span>';
               if (currentPod.pod_number === 1 && rankNum <= 2) {
-                relBadge = '<span style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;">★ Finals Seed (Pod 1)</span>';
+                relBadge = '<span style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.7rem;">★ Finals Seed</span>';
               } else if (rankNum <= 2 && currentPod.pod_number > 1) {
-                relBadge = `<span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;">▲ +1 Pod → Pod #${currentPod.pod_number - 1}</span>`;
+                relBadge = `<span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.7rem;">▲ Pod #${currentPod.pod_number - 1}</span>`;
               } else if (rankNum > Math.max(2, nStandings - 2) && currentPod.pod_number < totalPodsCount) {
-                relBadge = `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;">▼ -1 Pod → Pod #${currentPod.pod_number + 1}</span>`;
+                relBadge = `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.7rem;">▼ Pod #${currentPod.pod_number + 1}</span>`;
               }
 
               const isFirst = rankNum === 1;
               const rowBg = isFirst ? 'rgba(59, 130, 246, 0.05)' : (idx % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.01)');
               const safePlayerName = escapeHtml(s.name || '').replace(/'/g, "\\'");
               const rawBcpPlayerId = s.bcp_player_id || s.player_id || '';
-              const bcpPlayerId = (rawBcpPlayerId && !String(rawBcpPlayerId).startsWith('bcp_')) ? rawBcpPlayerId : '';
+              const bcpPlayerId = (rawBcpPlayerId && !String(rawBcpPlayerId).startsWith('bcp_') && !String(rawBcpPlayerId).startsWith('p_')) ? rawBcpPlayerId : '';
               const safeBcpId = escapeHtml(bcpPlayerId || s.name || '').replace(/'/g, "\\'");
               const isDbMatched = Boolean(s.is_db_matched && bcpPlayerId);
 
               return `
                 <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04); background: ${rowBg};">
-                  <td style="padding: 0.75rem 1rem; font-weight: 700; color: ${isFirst ? '#60a5fa' : '#94a3b8'};">
+                  <td style="padding: 0.7rem 0.85rem; font-weight: 700; color: ${isFirst ? '#60a5fa' : '#94a3b8'};">
                     #${rankNum}
                   </td>
-                  <td style="padding: 0.75rem 1rem; font-weight: 600; color: #fff; white-space: nowrap;">
-                    <div style="display: inline-flex; align-items: center; gap: 0.45rem; white-space: nowrap;">
+                  <td style="padding: 0.7rem 0.85rem; font-weight: 600; color: #fff;">
+                    <div style="display: flex; align-items: center; gap: 0.4rem;">
                       ${isDbMatched ? `
-                        <button type="button" onclick="openPlayerModal('${safeBcpId}', '${safePlayerName}')" title="Matched in DB (${escapeHtml(bcpPlayerId)})" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 700; font-size: 0.88rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;">
+                        <button type="button" onclick="openPlayerModal('${safeBcpId}', '${safePlayerName}')" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 700; font-size: 0.88rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-align: left;">
                           ${escapeHtml(s.name)}
                         </button>
-                        <span title="Matched in Players DB (${escapeHtml(s.match_method === 'user_id_linked' ? 'Linked via User ID' : 'Matched by Name Assumption')})" style="background: rgba(16, 185, 129, 0.14); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.64rem; font-weight: 700; padding: 1px 5px; border-radius: 4px;">
-                          ${s.match_method === 'user_id_linked' || s.match_method === 'self_claimed' ? '✓ Linked User' : '✓ DB'}
-                        </span>
                       ` : `
-                        <span title="Not found in Players DB by name assumption — click 'Match User' to link your existing user_id / bcp_player_id" style="color: #cbd5e1; font-weight: 600; font-size: 0.88rem; cursor: default;">
+                        <span style="color: #f8fafc; font-weight: 600; font-size: 0.88rem;">
                           ${escapeHtml(s.name)}
-                        </span>
-                        <span style="background: rgba(148, 163, 184, 0.12); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); font-size: 0.64rem; font-weight: 600; padding: 1px 5px; border-radius: 4px;">
-                          Unlinked
                         </span>
                       `}
                       ${s.career?.championships ? `<span title="${s.career.championships} All-time Championships" style="cursor: help;">🏆</span>` : ''}
                     </div>
+                    <div class="league-mob-subinfo" style="display: none; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-top: 3px; font-size: 0.7rem; color: #94a3b8;">
+                      <span>${escapeHtml(s.primary_faction || 'Unassigned')}</span>
+                    </div>
                   </td>
-                  <td style="padding: 0.75rem 1rem; color: #cbd5e1;">
-                    <span style="background: rgba(255, 255, 255, 0.06); padding: 2px 7px; border-radius: 4px; font-size: 0.78rem;">
+                  <td class="hide-mob" style="padding: 0.7rem 0.85rem; color: #cbd5e1;">
+                    <span style="background: rgba(255, 255, 255, 0.06); padding: 2px 7px; border-radius: 4px; font-size: 0.76rem;">
                       ${escapeHtml(s.primary_faction || 'Unassigned')}
                     </span>
                   </td>
-                  <td style="padding: 0.75rem 0.75rem; text-align: center; font-weight: 600;">
-                    <span style="color: #34d399;">${s.wins}W</span> - <span style="color: #f87171;">${s.losses}L</span> - <span style="color: #94a3b8;">${s.draws}D</span>
+                  <td style="padding: 0.7rem 0.65rem; text-align: center; font-weight: 600; white-space: nowrap;">
+                    <span style="color: #34d399;">${s.wins}W</span>-<span style="color: #f87171;">${s.losses}L</span>${s.draws ? `-${s.draws}D` : ''}
                   </td>
-                  <td style="padding: 0.75rem 0.75rem; text-align: center; font-weight: 800; color: #60a5fa; font-size: 0.95rem;">
+                  <td style="padding: 0.7rem 0.65rem; text-align: center; font-weight: 800; color: #60a5fa; font-size: 0.9rem; white-space: nowrap;">
                     ${s.battle_points} BP
                   </td>
-                  <td style="padding: 0.75rem 0.75rem; text-align: center; color: var(--text-muted);">
-                    ${s.poty_points || 0}
-                  </td>
-                  <td style="padding: 0.75rem 1rem; text-align: center;">
+                  <td class="hide-mob" style="padding: 0.7rem 0.85rem; text-align: center; white-space: nowrap;">
                     ${relBadge}
                   </td>
-                  <td style="padding: 0.75rem 1rem; text-align: right; white-space: nowrap;">
-                    ${isDbMatched ? `
-                      <button onclick="openPlayerModal('${safeBcpId}', '${safePlayerName}')" class="btn btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; margin-right: 4px;">
-                        👤 Quick Popup
+                  <td style="padding: 0.7rem 0.85rem; text-align: right; white-space: nowrap;">
+                    ${!isDbMatched ? `
+                      <button onclick="openLeaguePlayerClaimModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}', '${safePlayerName}', ${currentPod.pod_number})" class="btn btn-outline" style="padding: 0.22rem 0.5rem; font-size: 0.7rem; margin-right: 3px; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+                        🔗 Claim
                       </button>
-                    ` : `
-                      <button onclick="openLeaguePlayerClaimModal('${escapeHtml(league.league_id || 'league_sd40k_big_league')}', '${safePlayerName}', ${currentPod.pod_number})" class="btn btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; margin-right: 4px; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
-                        🔗 Match User
-                      </button>
-                    `}
-                    <button onclick="openPlayerLeagueModal('${safePlayerName}')" class="btn btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;">
+                    ` : ''}
+                    <button onclick="openPlayerLeagueModal('${safePlayerName}')" class="btn btn-outline" style="padding: 0.22rem 0.5rem; font-size: 0.7rem; border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;">
                       📜 Career
                     </button>
                   </td>
@@ -532,22 +572,19 @@ function renderPodsSubtab(league, currentPod) {
       </div>
     </div>
 
-    <!-- Pod Head-to-Head Matchup Matrix (Players Matched Together & Scores) -->
-    <div id="league-pairings-list" class="card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+    <!-- 5-Column Player Opponent Schedule (Player on Left + 5 Assigned Opponents) -->
+    <div id="league-pairings-list" class="card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.15rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.95rem; flex-wrap: wrap; gap: 0.65rem;">
         <div>
-          <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #fff;">⚔️ Pod #${currentPod.pod_number} Matchup Matrix &amp; Scores</h3>
-          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Click any matched cell to launch Game Tracker, chat with your opponent, or enter match scores</div>
+          <h3 style="margin: 0; font-size: 1.02rem; font-weight: 700; color: #fff;">⚔️ Pod #${currentPod.pod_number} Player Matchups &amp; Scores (5 Games)</h3>
+          <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">Each row shows a player and their 5 assigned opponents. Tap any matchup to launch Tracker, enter scores manually, or chat.</div>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; font-size: 0.75rem; font-weight: 700;">
-          <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(16, 185, 129, 0.18); border: 1px solid rgba(16, 185, 129, 0.5); color: #34d399; padding: 3px 9px; border-radius: 6px;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.73rem; font-weight: 700;">
+          <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.18); border: 1px solid rgba(16, 185, 129, 0.5); color: #34d399; padding: 3px 8px; border-radius: 6px;">
             🟢 Played (Score)
           </span>
-          <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(56, 189, 248, 0.14); border: 1px solid rgba(56, 189, 248, 0.45); color: #38bdf8; padding: 3px 9px; border-radius: 6px;">
-            🔵 Matched — Yet to Play
-          </span>
-          <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: #64748b; padding: 3px 9px; border-radius: 6px;">
-            — Not Paired
+          <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(56, 189, 248, 0.14); border: 1px solid rgba(56, 189, 248, 0.45); color: #38bdf8; padding: 3px 8px; border-radius: 6px;">
+            🔵 Yet to Play
           </span>
         </div>
       </div>
@@ -564,97 +601,119 @@ function renderPodsSubtab(league, currentPod) {
             const pts = String(m.score).split('-').map(x => parseInt(x.trim(), 10));
             if (!isNaN(pts[0]) && !isNaN(pts[1])) { s1 = pts[0]; s2 = pts[1]; }
           }
+          const done = Boolean(m.is_completed || (s1 !== null && s2 !== null && (s1 > 0 || s2 > 0)));
           pairMap[`${k1}__${k2}`] = {
             round: m.round || 1,
             layout: m.layout || 'Layout A',
-            is_completed: Boolean(m.is_completed || (s1 !== null && s2 !== null && (s1 > 0 || s2 > 0))),
+            opp_name: m.p2_name,
+            opp_faction: m.p2_faction || factionByPlayer[k2] || 'Warhammer 40k',
+            is_completed: done,
             row_score: s1,
             col_score: s2,
-            score_label: (s1 !== null && s2 !== null && (m.is_completed || s1 > 0 || s2 > 0)) ? `${s1} - ${s2}` : (m.score || '')
+            score_label: (s1 !== null && s2 !== null && done) ? `${s1} - ${s2}` : (m.score || '')
           };
           pairMap[`${k2}__${k1}`] = {
             round: m.round || 1,
             layout: m.layout || 'Layout A',
-            is_completed: Boolean(m.is_completed || (s1 !== null && s2 !== null && (s1 > 0 || s2 > 0))),
+            opp_name: m.p1_name,
+            opp_faction: m.p1_faction || factionByPlayer[k1] || 'Warhammer 40k',
+            is_completed: done,
             row_score: s2,
             col_score: s1,
-            score_label: (s1 !== null && s2 !== null && (m.is_completed || s1 > 0 || s2 > 0)) ? `${s2} - ${s1}` : (m.score || '')
+            score_label: (s1 !== null && s2 !== null && done) ? `${s2} - ${s1}` : (m.score || '')
           };
         });
 
-        const formatShortHeader = (fullName) => {
-          const parts = String(fullName || '').trim().split(/\s+/);
-          if (parts.length <= 1) return fullName;
-          return `${parts[0]} ${parts[parts.length - 1].charAt(0)}.`;
-        };
-
         return `
           <div style="overflow-x: auto;">
-            <table style="width: 100%; border-collapse: separate; border-spacing: 4px; font-size: 0.82rem;">
+            <table class="league-5col-schedule-table" style="width: 100%; border-collapse: separate; border-spacing: 5px; font-size: 0.82rem;">
               <thead>
                 <tr>
-                  <th style="text-align: left; padding: 0.6rem 0.85rem; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #cbd5e1; font-weight: 800; min-width: 190px;">
-                    Player &amp; Faction
+                  <th style="text-align: left; padding: 0.6rem 0.85rem; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #cbd5e1; font-weight: 800; width: 190px;">
+                    Player
                   </th>
-                  ${standings.map(colP => `
-                    <th title="${escapeHtml(colP.name)} (${escapeHtml(colP.primary_faction || 'Unassigned')})" style="text-align: center; padding: 0.5rem 0.4rem; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #e2e8f0; font-weight: 700; min-width: 86px; white-space: nowrap;">
-                      <div>${escapeHtml(formatShortHeader(colP.name))}</div>
-                      <div style="font-size: 0.65rem; color: #94a3b8; font-weight: 500; max-width: 90px; overflow: hidden; text-overflow: ellipsis; margin: 1px auto 0;">
-                        ${escapeHtml(colP.primary_faction || '')}
-                      </div>
+                  ${[1, 2, 3, 4, 5].map(gNum => `
+                    <th style="text-align: left; padding: 0.55rem 0.75rem; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #94a3b8; font-weight: 800; font-size: 0.73rem; text-transform: uppercase;">
+                      Opponent ${gNum}
                     </th>
                   `).join('')}
                 </tr>
               </thead>
               <tbody>
-                ${standings.map((rowP, rIdx) => {
+                ${standings.map(rowP => {
                   const rowName = (rowP.name || '').trim();
                   const rowKey = rowName.toLowerCase();
                   const rowFaction = rowP.primary_faction || 'Unassigned';
                   const rawRowPid = rowP.bcp_player_id || rowP.player_id || '';
-                  const rowPid = (rawRowPid && !String(rawRowPid).startsWith('bcp_')) ? rawRowPid : '';
+                  const rowPid = (rawRowPid && !String(rawRowPid).startsWith('bcp_') && !String(rawRowPid).startsWith('p_')) ? rawRowPid : '';
                   const rowMatched = Boolean(rowP.is_db_matched && rowPid);
                   const safeRowName = escapeHtml(rowName).replace(/'/g, "\\'");
                   const safeRowPid = escapeHtml(rowPid).replace(/'/g, "\\'");
                   const safeRowFaction = escapeHtml(rowFaction).replace(/'/g, "\\'");
 
+                  // Gather the 5 assigned opponents for this player (from rowP.pairings + pairMap)
+                  const oppList = [];
+                  const seenOpp = new Set();
+                  (rowP.pairings || []).forEach((pItem, idx) => {
+                    const rawOpp = (pItem.opponent_clean_name || (pItem.opponent_name || '').replace(/\s*\([^)]*\)\s*$/, '')).trim();
+                    if (!rawOpp || rawOpp === 'BYE') return;
+                    const oKey = rawOpp.toLowerCase();
+                    if (seenOpp.has(oKey)) return;
+                    seenOpp.add(oKey);
+                    const mapped = pairMap[`${rowKey}__${oKey}`];
+                    oppList.push({
+                      round: pItem.round || mapped?.round || (idx + 1),
+                      layout: pItem.layout || mapped?.layout || 'Layout A',
+                      opp_name: rawOpp,
+                      opp_faction: factionByPlayer[oKey] || pItem.opponent_faction || mapped?.opp_faction || 'Warhammer 40k',
+                      is_completed: Boolean(pItem.is_completed || mapped?.is_completed),
+                      row_score: mapped ? mapped.row_score : (pItem.player_score ?? null),
+                      col_score: mapped ? mapped.col_score : (pItem.opponent_score ?? null),
+                      score_label: (mapped && mapped.score_label) ? mapped.score_label : (pItem.score || '')
+                    });
+                  });
+                  // Fill any remaining matchups from pairMap if < 5
+                  Object.keys(pairMap).forEach(pk => {
+                    if (oppList.length >= 5) return;
+                    if (pk.startsWith(`${rowKey}__`)) {
+                      const oKey = pk.split('__')[1];
+                      if (!seenOpp.has(oKey)) {
+                        seenOpp.add(oKey);
+                        oppList.push(pairMap[pk]);
+                      }
+                    }
+                  });
+                  oppList.sort((a, b) => (a.round || 1) - (b.round || 1));
+
                   return `
-                    <tr>
-                      <td style="padding: 0.55rem 0.85rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; white-space: nowrap;">
-                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                    <tr class="league-schedule-row">
+                      <td class="league-schedule-player-cell" style="padding: 0.6rem 0.85rem; background: rgba(15, 23, 42, 0.82); border: 1px solid rgba(255,255,255,0.08); border-radius: 7px; white-space: nowrap;">
+                        <div>
                           ${rowMatched ? `
-                            <button type="button" onclick="openPlayerModal('${safeRowPid}', '${safeRowName}')" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 800; font-size: 0.86rem; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;">
+                            <button type="button" onclick="openPlayerModal('${safeRowPid}', '${safeRowName}')" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 800; font-size: 0.88rem; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-align: left;">
                               ${escapeHtml(rowName)}
                             </button>
                           ` : `
-                            <span style="color: #f8fafc; font-weight: 700; font-size: 0.86rem;">
+                            <span style="color: #f8fafc; font-weight: 700; font-size: 0.88rem;">
                               ${escapeHtml(rowName)}
                             </span>
                           `}
                         </div>
-                        <div style="font-size: 0.71rem; color: #94a3b8; margin-top: 2px;">
+                        <div style="font-size: 0.72rem; color: #94a3b8; margin-top: 2px;">
                           ${escapeHtml(rowFaction)}
                         </div>
                       </td>
-                      ${standings.map((colP, cIdx) => {
-                        if (rIdx === cIdx) {
+                      ${[0, 1, 2, 3, 4].map(slotIdx => {
+                        const matchInfo = oppList[slotIdx];
+                        if (!matchInfo) {
                           return `
-                            <td style="text-align: center; padding: 0.5rem; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; color: #475569; font-weight: 700;">
+                            <td class="league-schedule-opp-cell" style="padding: 0.55rem 0.7rem; background: rgba(15, 23, 42, 0.25); border: 1px solid rgba(255,255,255,0.04); border-radius: 7px; color: #475569;">
                               —
                             </td>
                           `;
                         }
-                        const colName = (colP.name || '').trim();
-                        const colKey = colName.toLowerCase();
-                        const colFaction = colP.primary_faction || 'Unassigned';
-                        const matchInfo = pairMap[`${rowKey}__${colKey}`];
-                        if (!matchInfo) {
-                          return `
-                            <td style="text-align: center; padding: 0.5rem; background: rgba(15, 23, 42, 0.28); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; color: #334155;">
-                              ·
-                            </td>
-                          `;
-                        }
+                        const colName = matchInfo.opp_name;
+                        const colFaction = matchInfo.opp_faction || 'Unassigned';
                         const safeColName = escapeHtml(colName).replace(/'/g, "\\'");
                         const safeColFaction = escapeHtml(colFaction).replace(/'/g, "\\'");
                         const safeLayout = escapeHtml(matchInfo.layout || 'Layout A').replace(/'/g, "\\'");
@@ -663,22 +722,36 @@ function renderPodsSubtab(league, currentPod) {
 
                         if (matchInfo.is_completed) {
                           const won = (matchInfo.row_score !== null && matchInfo.col_score !== null) ? (matchInfo.row_score > matchInfo.col_score) : true;
+                          const draw = (matchInfo.row_score !== null && matchInfo.col_score !== null && matchInfo.row_score === matchInfo.col_score);
+                          const bgCol = draw ? 'rgba(245, 158, 11, 0.18)' : (won ? 'rgba(16, 185, 129, 0.22)' : 'rgba(239, 68, 68, 0.16)');
+                          const borderCol = draw ? 'rgba(245, 158, 11, 0.5)' : (won ? 'rgba(16, 185, 129, 0.55)' : 'rgba(239, 68, 68, 0.45)');
+                          const scoreCol = draw ? '#fbbf24' : (won ? '#34d399' : '#fca5a5');
                           return `
-                            <td onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round}, '${safeLayout}', '${safeScore}', true, ${currentPod.pod_number}, '${safeLeagueId}')" title="${escapeHtml(rowName)} vs ${escapeHtml(colName)} — Played (${escapeHtml(matchInfo.score_label || 'Completed')})" style="text-align: center; padding: 0.5rem 0.35rem; background: ${won ? 'rgba(16, 185, 129, 0.22)' : 'rgba(239, 68, 68, 0.18)'}; border: 1px solid ${won ? 'rgba(16, 185, 129, 0.55)' : 'rgba(239, 68, 68, 0.45)'}; border-radius: 6px; cursor: pointer; transition: transform 0.12s;">
-                              <div style="font-weight: 800; font-size: 0.82rem; color: ${won ? '#34d399' : '#fca5a5'};">
-                                ${escapeHtml(matchInfo.score_label || 'Played')}
+                            <td class="league-schedule-opp-cell" onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round || (slotIdx + 1)}, '${safeLayout}', '${safeScore}', true, ${currentPod.pod_number}, '${safeLeagueId}')" style="padding: 0.55rem 0.7rem; background: ${bgCol}; border: 1px solid ${borderCol}; border-radius: 7px; cursor: pointer; transition: transform 0.12s;">
+                              <div style="font-weight: 800; font-size: 0.83rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                ${escapeHtml(colName)}
                               </div>
-                              <div style="font-size: 0.64rem; color: #cbd5e1; font-weight: 600;">✓ Played</div>
+                              <div style="font-size: 0.69rem; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;">
+                                ${escapeHtml(colFaction)}
+                              </div>
+                              <div style="margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; font-weight: 800; font-size: 0.74rem; color: ${scoreCol};">
+                                <span>✓ ${escapeHtml(matchInfo.score_label || 'Played')}</span>
+                              </div>
                             </td>
                           `;
                         }
 
                         return `
-                          <td onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round}, '${safeLayout}', '', false, ${currentPod.pod_number}, '${safeLeagueId}')" title="${escapeHtml(rowName)} vs ${escapeHtml(colName)} — Yet to be played (Click to Start Tracker, Enter Score, or Chat)" style="text-align: center; padding: 0.5rem 0.35rem; background: rgba(56, 189, 248, 0.13); border: 1px solid rgba(56, 189, 248, 0.42); border-radius: 6px; cursor: pointer; transition: transform 0.12s;">
-                            <div style="font-weight: 800; font-size: 0.76rem; color: #38bdf8;">
-                              Yet to Play
+                          <td class="league-schedule-opp-cell" onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round || (slotIdx + 1)}, '${safeLayout}', '', false, ${currentPod.pod_number}, '${safeLeagueId}')" style="padding: 0.55rem 0.7rem; background: rgba(56, 189, 248, 0.11); border: 1px solid rgba(56, 189, 248, 0.36); border-radius: 7px; cursor: pointer; transition: transform 0.12s;">
+                            <div style="font-weight: 800; font-size: 0.83rem; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                              ${escapeHtml(colName)}
                             </div>
-                            <div style="font-size: 0.64rem; color: #93c5fd;">Click to Play</div>
+                            <div style="font-size: 0.69rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;">
+                              ${escapeHtml(colFaction)}
+                            </div>
+                            <div style="margin-top: 4px; font-weight: 800; font-size: 0.71rem; color: #38bdf8;">
+                              🔵 Yet to Play
+                            </div>
                           </td>
                         `;
                       }).join('')}
@@ -1044,7 +1117,7 @@ function openMatrixMatchupModal(p1Name, p2Name, p1Faction, p2Faction, roundNum, 
   overlay.onclick = (e) => { if (e.target === overlay) closeMatrixMatchupModal(); };
 
   overlay.innerHTML = `
-    <div style="background: #0f172a; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.45)' : 'rgba(56, 189, 248, 0.45)'}; border-radius: 12px; width: 100%; max-width: 460px; padding: 1.25rem; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
+    <div style="background: #0f172a; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.45)' : 'rgba(56, 189, 248, 0.45)'}; border-radius: 12px; width: 100%; max-width: 480px; padding: 1.25rem; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.9rem;">
         <span style="font-size: 0.74rem; font-weight: 800; padding: 3px 9px; border-radius: 6px; background: ${isCompleted ? 'rgba(16, 185, 129, 0.18)' : 'rgba(56, 189, 248, 0.16)'}; color: ${isCompleted ? '#34d399' : '#38bdf8'}; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.45)' : 'rgba(56, 189, 248, 0.4)'};">
           ${isCompleted ? `🟢 PLAYED • ${escapeHtml(scoreLabel || 'Completed')}` : '🔵 MATCHED — YET TO PLAY'}
@@ -1070,11 +1143,28 @@ function openMatrixMatchupModal(p1Name, p2Name, p1Faction, p2Faction, roundNum, 
         <button type="button" onclick="closeMatrixMatchupModal(); launchLeagueMatchTracker('${safeP1}', '${safeP2}', '${safeF1}', '${safeLayout}', ${rNum}, '${safeLeagueId}', ${pNum}, '${safeF2}')" class="btn btn-primary" style="flex: 1.3; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 800; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none;">
           🎲 Launch Tracker
         </button>
-        <button type="button" onclick="closeMatrixMatchupModal(); openScoreReportingModal('${safeLeagueId}', ${pNum}, ${rNum}, '${safeP1}', '${safeP2}')" class="btn btn-outline" style="flex: 1; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 700;">
+        <button type="button" onclick="const f = document.getElementById('matrix-inline-score-form'); if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';" class="btn btn-outline" style="flex: 1; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 700; border-color: rgba(16, 185, 129, 0.45); color: #34d399;">
           📝 Enter Score
         </button>
         <button type="button" onclick="closeMatrixMatchupModal(); openLeagueOpponentChat('${safeP2}', '${safeP1}', ${rNum}, ${pNum})" class="btn btn-outline" style="flex: 0.9; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
           💬 Chat
+        </button>
+      </div>
+
+      <!-- Inline Score Entry Drawer -->
+      <div id="matrix-inline-score-form" style="display: none; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px dashed rgba(255,255,255,0.14);">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 0.65rem;">
+          <div>
+            <label style="display: block; font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">${escapeHtml(p1Name)} VP</label>
+            <input id="matrix-score-p1" type="number" min="0" max="100" placeholder="0 - 100" style="width: 100%; padding: 0.45rem 0.6rem; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.45); background: #020617; color: #fff; font-weight: 800; font-size: 0.9rem;">
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">${escapeHtml(p2Name)} VP</label>
+            <input id="matrix-score-p2" type="number" min="0" max="100" placeholder="0 - 100" style="width: 100%; padding: 0.45rem 0.6rem; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.45); background: #020617; color: #fff; font-weight: 800; font-size: 0.9rem;">
+          </div>
+        </div>
+        <button type="button" id="matrix-score-save-btn" onclick="submitMatrixMatchupScore('${safeLeagueId}', ${pNum}, ${rNum}, '${safeP1}', '${safeP2}')" class="btn btn-primary" style="width: 100%; padding: 0.55rem; font-size: 0.82rem; font-weight: 800; background: #10b981; border: none; color: #022c22;">
+          ✓ Submit Official Match Score
         </button>
       </div>
     </div>
@@ -1082,6 +1172,55 @@ function openMatrixMatchupModal(p1Name, p2Name, p1Faction, p2Faction, roundNum, 
   document.body.appendChild(overlay);
 }
 window.openMatrixMatchupModal = openMatrixMatchupModal;
+
+async function submitMatrixMatchupScore(leagueId, podNum, roundNum, player1, player2) {
+  const p1El = document.getElementById('matrix-score-p1');
+  const p2El = document.getElementById('matrix-score-p2');
+  const btn = document.getElementById('matrix-score-save-btn');
+  if (!p1El || !p2El) return;
+
+  const s1 = parseInt(p1El.value, 10);
+  const s2 = parseInt(p2El.value, 10);
+  if (isNaN(s1) || isNaN(s2) || s1 < 0 || s2 < 0 || s1 > 100 || s2 > 100) {
+    alert('Please enter valid Victory Points between 0 and 100 for both players.');
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Saving Score...';
+  }
+
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId || 'league_sd40k_big_league')}/match/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pod_number: podNum,
+        round_number: roundNum,
+        player1: player1,
+        player2: player2,
+        score1: s1,
+        score2: s2,
+        source: 'Schedule Matrix Manual Entry'
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+
+    closeMatrixMatchupModal();
+    if (typeof renderLeagueDetailView === 'function') {
+      renderLeagueDetailView(leagueId || 'league_sd40k_big_league');
+    }
+  } catch (err) {
+    alert(`Failed to save score: ${err.message}`);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '✓ Submit Official Match Score';
+    }
+  }
+}
+window.submitMatrixMatchupScore = submitMatrixMatchupScore;
 
 /**
  * Switches the active season viewed in League Hub

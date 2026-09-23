@@ -745,7 +745,7 @@ async function openUserLeagueGamesQuickModal(entryId) {
 
   const modalOverlay = document.createElement('div');
   modalOverlay.id = 'user-league-games-quick-modal';
-  modalOverlay.style.cssText = 'position: fixed; inset: 0; z-index: 10050; background: rgba(2, 6, 23, 0.82); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 1rem;';
+  modalOverlay.style.cssText = 'position: fixed; inset: 0; z-index: 10050; background: rgba(2, 6, 23, 0.85); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 0.75rem;';
   modalOverlay.onclick = (e) => {
     if (e.target === modalOverlay) closeUserLeagueGamesQuickModal();
   };
@@ -755,58 +755,127 @@ async function openUserLeagueGamesQuickModal(entryId) {
   const safeLeagueId = escapeHtml(leagueId).replace(/'/g, "\\'");
 
   modalOverlay.innerHTML = `
-    <div style="background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; width: 100%; max-width: 780px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 25px 60px rgba(0, 0, 0, 0.75); overflow: hidden;">
+    <style>
+      .quick-league-modal-card {
+        background: #0f172a;
+        border: 1px solid rgba(56, 189, 248, 0.35);
+        border-radius: 14px;
+        width: 100%;
+        max-width: 780px;
+        max-height: 92vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 60px rgba(0, 0, 0, 0.75);
+        overflow: hidden;
+      }
+      .quick-league-kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.65rem;
+        padding: 0.85rem 1.25rem;
+        background: rgba(2, 6, 23, 0.55);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      .quick-league-match-row {
+        border-radius: 10px;
+        padding: 0.85rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+      }
+      .quick-league-match-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+      .quick-league-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+      }
+      @media (max-width: 640px) {
+        .quick-league-kpi-grid {
+          grid-template-columns: repeat(2, 1fr) !important;
+          gap: 0.5rem !important;
+          padding: 0.75rem 0.9rem !important;
+        }
+        .quick-league-header {
+          padding: 0.95rem 1rem !important;
+        }
+        .quick-league-body {
+          padding: 0.9rem 1rem !important;
+        }
+        .quick-league-match-top {
+          flex-direction: column;
+          align-items: flex-start !important;
+        }
+        .quick-league-actions {
+          width: 100%;
+          display: grid !important;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 0.4rem !important;
+        }
+        .quick-league-actions button {
+          width: 100%;
+          justify-content: center;
+          padding: 0.45rem 0.35rem !important;
+          font-size: 0.72rem !important;
+          text-align: center;
+        }
+      }
+    </style>
+    <div class="quick-league-modal-card">
       <!-- Modal Header -->
-      <div style="padding: 1.15rem 1.35rem; background: linear-gradient(135deg, rgba(30, 58, 138, 0.45), rgba(15, 23, 42, 0.95)); border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;">
-        <div>
-          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
-            <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.7rem; font-weight: 800; padding: 2px 8px;">🏆 ACTIVE LEAGUE POD SCHEDULE</span>
-            <span class="badge" style="background: rgba(16, 185, 129, 0.16); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.7rem; font-weight: 700; padding: 2px 8px;">✓ DB Matched Competitor</span>
-          </div>
-          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 800; color: #fff;">
-            ${escapeHtml(ev.event_name || 'San Diego Force Org (SD40K) — Season 38')}
-          </h3>
-          <div style="font-size: 0.84rem; color: #94a3b8; margin-top: 0.25rem;">
-            📍 <strong style="color: #38bdf8;">${escapeHtml(podName)}</strong> • Competitor: <strong style="color: #fff;">${escapeHtml(playerName)}</strong> (<span style="color: #cbd5e1;">${escapeHtml(playerFaction)}</span>)
+      <div class="quick-league-header" style="padding: 1.15rem 1.35rem; background: linear-gradient(135deg, rgba(30, 58, 138, 0.45), rgba(15, 23, 42, 0.95)); border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.55rem;">
+          <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.68rem; font-weight: 800; padding: 3px 8px;">🏆 ACTIVE LEAGUE POD SCHEDULE</span>
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-shrink: 0;">
+            <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof leagueState !== 'undefined') { leagueState.activePodNumber = ${podNum}; } window.location.hash = '#/40k/league/${safeLeagueId}';" class="btn btn-outline" style="padding: 0.35rem 0.7rem; font-size: 0.74rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8;">
+              🏛️ Full League Hub
+            </button>
+            <button type="button" onclick="closeUserLeagueGamesQuickModal()" style="background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.14); color: #cbd5e1; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center;">
+              ✕
+            </button>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
-          <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof leagueState !== 'undefined') { leagueState.activePodNumber = ${podNum}; } window.location.hash = '#/40k/league/${safeLeagueId}';" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.76rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8;">
-            🏛️ Full League Hub
-          </button>
-          <button type="button" onclick="closeUserLeagueGamesQuickModal()" style="background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.14); color: #cbd5e1; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center;">
-            ✕
-          </button>
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: #fff; line-height: 1.3;">
+          ${escapeHtml(ev.event_name || 'San Diego Force Org (SD40K) — Season 38')}
+        </h3>
+        <div style="font-size: 0.84rem; color: #94a3b8; margin-top: 0.3rem; line-height: 1.4;">
+          📍 <strong style="color: #38bdf8;">${escapeHtml(podName)}</strong> • Competitor: <strong style="color: #fff;">${escapeHtml(playerName)}</strong> (<span style="color: #cbd5e1;">${escapeHtml(playerFaction)}</span>)
         </div>
       </div>
 
-      <!-- KPI Summary Strip -->
-      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.65rem; padding: 0.85rem 1.35rem; background: rgba(2, 6, 23, 0.55); border-bottom: 1px solid rgba(255, 255, 255, 0.06);">
+      <!-- KPI Summary Strip (Responsive 4-col Desktop / 2x2 Mobile) -->
+      <div class="quick-league-kpi-grid">
         <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.5rem 0.75rem;">
-          <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Assigned Pod</div>
+          <div style="font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Assigned Pod</div>
           <div style="font-size: 0.95rem; font-weight: 800; color: #38bdf8; margin-top: 2px;">Pod #${podNum}</div>
         </div>
         <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.5rem 0.75rem;">
-          <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Pod Standing</div>
+          <div style="font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Pod Standing</div>
           <div style="font-size: 0.95rem; font-weight: 800; color: #fbbf24; margin-top: 2px;">Rank #${rankNum}</div>
         </div>
         <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.5rem 0.75rem;">
-          <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">W-L-D Record</div>
+          <div style="font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">W-L-D Record</div>
           <div style="font-size: 0.95rem; font-weight: 800; color: #34d399; margin-top: 2px;">${escapeHtml(recordStr)}</div>
         </div>
         <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.5rem 0.75rem;">
-          <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Battle Points</div>
+          <div style="font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Battle Points</div>
           <div style="font-size: 0.95rem; font-weight: 800; color: #60a5fa; margin-top: 2px;">${bpVal} VP</div>
         </div>
       </div>
 
       <!-- Modal Body: 5 Pod Matchups -->
-      <div style="padding: 1.15rem 1.35rem; overflow-y: auto; flex: 1;">
+      <div class="quick-league-body" style="padding: 1.15rem 1.35rem; overflow-y: auto; flex: 1;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
           <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #fff;">
-            ⚔️ Your Pod Matchups &amp; Opponents
+            ⚔️ Your 5 Pod Opponents
           </h4>
-          <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; font-weight: 700;">
+          <div style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.71rem; font-weight: 700;">
             <span style="background: rgba(16, 185, 129, 0.18); border: 1px solid rgba(16, 185, 129, 0.45); color: #34d399; padding: 2px 8px; border-radius: 5px;">🟢 Played</span>
             <span style="background: rgba(56, 189, 248, 0.14); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 2px 8px; border-radius: 5px;">🔵 Yet to Play</span>
           </div>
@@ -824,36 +893,69 @@ async function openUserLeagueGamesQuickModal(entryId) {
             const safeOppFaction = escapeHtml(oppFaction).replace(/'/g, "\\'");
             const safeOppPid = escapeHtml(oppPid).replace(/'/g, "\\'");
             const safeLayout = escapeHtml(layoutStr).replace(/'/g, "\\'");
-            const isCompleted = pair.status === 'completed' || Boolean(pair.result) || Boolean(pair.is_completed) || ((pair.player_score || 0) > 0 || (pair.opponent_score || 0) > 0);
-            const scoreStr = pair.score || `${pair.player_score || 0} - ${pair.opponent_score || 0}`;
+            const pScoreVal = pair.player_score ?? 0;
+            const oScoreVal = pair.opponent_score ?? 0;
+            const isCompleted = pair.status === 'completed' || Boolean(pair.result) || Boolean(pair.is_completed) || (pScoreVal > 0 || oScoreVal > 0);
+            const scoreStr = pair.score || `${pScoreVal} - ${oScoreVal}`;
+            const drawerId = `quick-score-drawer-${idx}`;
 
             return `
-              <div style="background: ${isCompleted ? 'rgba(16, 185, 129, 0.12)' : 'rgba(15, 23, 42, 0.82)'}; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.48)' : 'rgba(56, 189, 248, 0.32)'}; border-radius: 10px; padding: 0.8rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-                <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; min-width: 220px; flex: 1;">
-                  <span style="font-size: 0.72rem; font-weight: 800; padding: 3px 8px; border-radius: 5px; background: ${isCompleted ? 'rgba(16, 185, 129, 0.22)' : 'rgba(56, 189, 248, 0.16)'}; color: ${isCompleted ? '#34d399' : '#38bdf8'}; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.45)' : 'rgba(56, 189, 248, 0.4)'};">
-                    ${isCompleted ? `✓ PLAYED (${escapeHtml(scoreStr)})` : 'YET TO PLAY'}
-                  </span>
-                  ${oppMatched ? `
-                    <button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safeOppPid}', '${safeOppName}');" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 800; font-size: 1rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;">
-                      ${escapeHtml(oppName)}
-                    </button>
-                  ` : `
-                    <span style="color: #fff; font-weight: 800; font-size: 1rem;">
-                      ${escapeHtml(oppName)}
+              <div class="quick-league-match-row" style="background: ${isCompleted ? 'rgba(16, 185, 129, 0.12)' : 'rgba(15, 23, 42, 0.82)'}; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.48)' : 'rgba(56, 189, 248, 0.32)'};">
+                <div class="quick-league-match-top">
+                  <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; flex: 1;">
+                    <span id="quick-status-badge-${idx}" style="font-size: 0.71rem; font-weight: 800; padding: 3px 8px; border-radius: 5px; background: ${isCompleted ? 'rgba(16, 185, 129, 0.22)' : 'rgba(56, 189, 248, 0.16)'}; color: ${isCompleted ? '#34d399' : '#38bdf8'}; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.45)' : 'rgba(56, 189, 248, 0.4)'};">
+                      ${isCompleted ? `✓ PLAYED (${escapeHtml(scoreStr)})` : 'YET TO PLAY'}
                     </span>
-                  `}
-                  <span style="background: rgba(245, 158, 11, 0.16); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.38); font-size: 0.75rem; font-weight: 700; padding: 2px 9px; border-radius: 6px;">
-                    🛡️ ${escapeHtml(oppFaction)}
-                  </span>
+                    ${oppMatched ? `
+                      <button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safeOppPid}', '${safeOppName}');" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 800; font-size: 0.98rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-align: left;">
+                        ${escapeHtml(oppName)}
+                      </button>
+                    ` : `
+                      <span style="color: #fff; font-weight: 800; font-size: 0.98rem;">
+                        ${escapeHtml(oppName)}
+                      </span>
+                    `}
+                    <span style="background: rgba(245, 158, 11, 0.16); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.38); font-size: 0.74rem; font-weight: 700; padding: 2px 8px; border-radius: 6px;">
+                      🛡️ ${escapeHtml(oppFaction)}
+                    </span>
+                  </div>
+
+                  <div class="quick-league-actions">
+                    <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof launchLeagueMatchTracker === 'function') { launchLeagueMatchTracker('${safePlayerName}', '${safeOppName}', '${safePlayerFaction}', '${safeLayout}', ${rNum}, '${safeLeagueId}', ${podNum}, '${safeOppFaction}'); } else { window.location.hash = '#/40k/tracker'; }" class="btn btn-primary" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; font-weight: 700; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none;">
+                      🎲 Tracker
+                    </button>
+                    <button type="button" onclick="toggleQuickModalInlineScore('${drawerId}')" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; font-weight: 700; border-color: rgba(16, 185, 129, 0.45); color: #34d399; background: rgba(16, 185, 129, 0.08);">
+                      📝 Enter Score
+                    </button>
+                    <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof openLeagueOpponentChat === 'function') { openLeagueOpponentChat('${safeOppName}', '${safePlayerName}', ${rNum}, ${podNum}); }" class="btn btn-outline" style="padding: 0.4rem 0.7rem; font-size: 0.75rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+                      💬 Message
+                    </button>
+                  </div>
                 </div>
 
-                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-                  <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof launchLeagueMatchTracker === 'function') { launchLeagueMatchTracker('${safePlayerName}', '${safeOppName}', '${safePlayerFaction}', '${safeLayout}', ${rNum}, '${safeLeagueId}', ${podNum}, '${safeOppFaction}'); } else { window.location.hash = '#/40k/tracker'; }" class="btn btn-primary" style="padding: 0.4rem 0.8rem; font-size: 0.76rem; font-weight: 700; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none;">
-                    🎲 Launch Tracker
-                  </button>
-                  <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof openLeagueOpponentChat === 'function') { openLeagueOpponentChat('${safeOppName}', '${safePlayerName}', ${rNum}, ${podNum}); }" class="btn btn-outline" style="padding: 0.4rem 0.7rem; font-size: 0.75rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
-                    💬 Message
-                  </button>
+                <!-- Inline Manual Score Entry Drawer -->
+                <div id="${drawerId}" style="display: none; padding-top: 0.65rem; border-top: 1px dashed rgba(255, 255, 255, 0.12);">
+                  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; flex: 1;">
+                      <label style="font-size: 0.74rem; color: #cbd5e1; font-weight: 700; display: flex; align-items: center; gap: 0.35rem;">
+                        <span>${escapeHtml(playerName)} VP:</span>
+                        <input id="${drawerId}-p1" type="number" min="0" max="100" value="${pScoreVal || ''}" placeholder="0-100" style="width: 68px; padding: 0.32rem 0.45rem; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.45); background: #020617; color: #fff; font-weight: 800; font-size: 0.85rem; text-align: center;">
+                      </label>
+                      <span style="color: #64748b; font-weight: 800; font-size: 0.8rem;">vs</span>
+                      <label style="font-size: 0.74rem; color: #cbd5e1; font-weight: 700; display: flex; align-items: center; gap: 0.35rem;">
+                        <span>${escapeHtml(oppName)} VP:</span>
+                        <input id="${drawerId}-p2" type="number" min="0" max="100" value="${oScoreVal || ''}" placeholder="0-100" style="width: 68px; padding: 0.32rem 0.45rem; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.45); background: #020617; color: #fff; font-weight: 800; font-size: 0.85rem; text-align: center;">
+                      </label>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                      <button type="button" id="${drawerId}-save-btn" onclick="submitQuickModalInlineScore('${safeLeagueId}', ${podNum}, ${rNum}, '${safePlayerName}', '${safeOppName}', '${drawerId}', ${idx}, ${eventIndex})" class="btn btn-primary" style="padding: 0.38rem 0.8rem; font-size: 0.75rem; font-weight: 800; background: #10b981; border: none; color: #022c22;">
+                        ✓ Save Score
+                      </button>
+                      <button type="button" onclick="toggleQuickModalInlineScore('${drawerId}')" class="btn btn-outline" style="padding: 0.38rem 0.6rem; font-size: 0.74rem; color: #94a3b8; border-color: rgba(255,255,255,0.15);">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             `;
@@ -866,6 +968,93 @@ async function openUserLeagueGamesQuickModal(entryId) {
   document.body.appendChild(modalOverlay);
 }
 window.openUserLeagueGamesQuickModal = openUserLeagueGamesQuickModal;
+
+function toggleQuickModalInlineScore(drawerId) {
+  const el = document.getElementById(drawerId);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+window.toggleQuickModalInlineScore = toggleQuickModalInlineScore;
+
+async function submitQuickModalInlineScore(leagueId, podNum, roundNum, player1, player2, drawerId, pairIdx, eventIndex) {
+  const p1Input = document.getElementById(`${drawerId}-p1`);
+  const p2Input = document.getElementById(`${drawerId}-p2`);
+  const saveBtn = document.getElementById(`${drawerId}-save-btn`);
+  if (!p1Input || !p2Input) return;
+
+  const score1 = parseInt(p1Input.value, 10);
+  const score2 = parseInt(p2Input.value, 10);
+  if (isNaN(score1) || isNaN(score2) || score1 < 0 || score2 < 0 || score1 > 100 || score2 > 100) {
+    if (typeof showToast === 'function') {
+      showToast('Please enter valid Victory Points between 0 and 100 for both players.', 'warning');
+    } else {
+      alert('Please enter valid Victory Points between 0 and 100 for both players.');
+    }
+    return;
+  }
+
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+  }
+
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId || 'league_sd40k_big_league')}/match/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pod_number: podNum,
+        round_number: roundNum,
+        player1: player1,
+        player2: player2,
+        score1: score1,
+        score2: score2,
+        source: 'Quick Modal Manual Entry'
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    // Update local state in window._hubLeagueParticipatingEvents so reopening reflects immediately
+    const events = window._hubLeagueParticipatingEvents || [];
+    const ev = events[eventIndex] || events[0];
+    if (ev && Array.isArray(ev.pairings) && ev.pairings[pairIdx]) {
+      ev.pairings[pairIdx].player_score = score1;
+      ev.pairings[pairIdx].opponent_score = score2;
+      ev.pairings[pairIdx].score = `${score1} - ${score2}`;
+      ev.pairings[pairIdx].status = 'completed';
+      ev.pairings[pairIdx].is_completed = true;
+    }
+
+    const badgeEl = document.getElementById(`quick-status-badge-${pairIdx}`);
+    if (badgeEl) {
+      badgeEl.textContent = `✓ PLAYED (${score1} - ${score2})`;
+      badgeEl.style.background = 'rgba(16, 185, 129, 0.22)';
+      badgeEl.style.color = '#34d399';
+      badgeEl.style.borderColor = 'rgba(16, 185, 129, 0.45)';
+    }
+    toggleQuickModalInlineScore(drawerId);
+
+    if (typeof showToast === 'function') {
+      showToast(`Score saved: ${player1} (${score1} VP) vs ${player2} (${score2} VP)`, 'success');
+    }
+  } catch (err) {
+    console.error('[submitQuickModalInlineScore] Error:', err);
+    if (typeof showToast === 'function') {
+      showToast(`Failed to save score: ${err.message}`, 'error');
+    } else {
+      alert(`Failed to save score: ${err.message}`);
+    }
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = '✓ Save Score';
+    }
+  }
+}
+window.submitQuickModalInlineScore = submitQuickModalInlineScore;
 
 function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
   if (!isBcpConnected) {
