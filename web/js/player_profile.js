@@ -496,15 +496,25 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
       </div>
 
       <!-- Collapsible Career Progression & Full Stats for Mobile -->
-      <button type="button" id="profile-career-toggle-btn" class="hub-career-toggle-btn mobile-only" onclick="toggleProfileCareerDetails()" aria-expanded="false">
+      ${(() => {
+        const existingDrawer = document.getElementById('profile-career-details-drawer');
+        const domExpanded = existingDrawer && existingDrawer.classList.contains('hub-career-drawer-expanded');
+        let storedExpanded = false;
+        try { storedExpanded = sessionStorage.getItem('omni_profile_career_expanded') === '1'; } catch (e) {}
+        const isCareerExpanded = Boolean(window.isProfileCareerDrawerExpanded || domExpanded || storedExpanded);
+        if (isCareerExpanded) window.isProfileCareerDrawerExpanded = true;
+        return `
+      <button type="button" id="profile-career-toggle-btn" class="hub-career-toggle-btn mobile-only" onclick="toggleProfileCareerDetails(event)" aria-expanded="${isCareerExpanded ? 'true' : 'false'}">
         <span style="display:inline-flex; align-items:center; gap:6px;">
           <span>📊</span>
-          <span id="profile-career-toggle-text">Show Full Stats &amp; Progression</span>
+          <span id="profile-career-toggle-text">${isCareerExpanded ? 'Hide Full Stats &amp; Progression' : 'Show Full Stats &amp; Progression'}</span>
         </span>
-        <span id="profile-career-toggle-arrow">▼</span>
+        <span id="profile-career-toggle-arrow">${isCareerExpanded ? '▲' : '▼'}</span>
       </button>
 
-      <div id="profile-career-details-drawer" class="hub-career-drawer-collapsed">
+      <div id="profile-career-details-drawer" class="${isCareerExpanded ? 'hub-career-drawer-expanded' : 'hub-career-drawer-collapsed'}">
+        `;
+      })()}
         <!-- Milestone XP Progress Bar -->
         ${xpSectionHtml}
 
@@ -1476,13 +1486,16 @@ function filterProfileMatchups(query) {
   });
 }
 
-function toggleProfileCareerDetails() {
+function toggleProfileCareerDetails(ev) {
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
   const drawer = document.getElementById('profile-career-details-drawer');
   const arrow = document.getElementById('profile-career-toggle-arrow');
   const textSpan = document.getElementById('profile-career-toggle-text');
   const btn = document.getElementById('profile-career-toggle-btn');
   if (!drawer) return;
   const isCollapsed = drawer.classList.contains('hub-career-drawer-collapsed');
+  window.isProfileCareerDrawerExpanded = isCollapsed;
+  try { sessionStorage.setItem('omni_profile_career_expanded', isCollapsed ? '1' : '0'); } catch (e) {}
   if (isCollapsed) {
     drawer.classList.remove('hub-career-drawer-collapsed');
     drawer.classList.add('hub-career-drawer-expanded');

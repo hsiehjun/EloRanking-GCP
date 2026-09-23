@@ -432,13 +432,8 @@ function navigateToMyHub(forceRefresh = true) {
     window.currentOpenEventId = null;
   }
 
-  const wasMyHub = (activeTab === 'my-hub');
   activeTab = '';
   switchTab('my-hub');
-
-  if ((forceRefresh || wasMyHub) && typeof loadMyHubDashboard === 'function') {
-    loadMyHubDashboard();
-  }
 }
 window.navigateToMyHub = navigateToMyHub;
 

@@ -123,9 +123,13 @@ function getLocalTrackerSessions(gs = '40k') {
   return { active, completed };
 }
 
+var _myHubLoadSeq = 0;
+
 async function loadMyHubDashboard() {
   const container = document.getElementById('my-hub-content');
   if (!container) return;
+
+  const mySeq = ++_myHubLoadSeq;
 
   if (!currentUser && (localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || (document.cookie.includes('session_token=')))) {
     if (typeof initAuth === 'function') await initAuth();
@@ -162,6 +166,7 @@ async function loadMyHubDashboard() {
 
   // Ensure local active and completed tracker matches are instantly reflected in optimistic render
   const localInitial = getLocalTrackerSessions(gs);
+  const alreadyMounted = Boolean(document.getElementById('my-hub-container'));
   if (cachedData) {
     if (Array.isArray(cachedData.active_sessions) && cachedData.active_sessions.length > 1) {
       const serverActiveItems = cachedData.active_sessions.filter(m => {
@@ -190,7 +195,9 @@ async function loadMyHubDashboard() {
       cachedData.completed_history = localInitial.completed;
       cachedData.tracker_history = localInitial.completed;
     }
-    renderMyHub(cachedData);
+    if (!alreadyMounted) {
+      renderMyHub(cachedData);
+    }
   } else if (currentUser) {
     const shell = buildMyHubShellData(currentUser);
     shell.active_sessions = localInitial.active;
@@ -198,7 +205,9 @@ async function loadMyHubDashboard() {
     shell.unfinished_sessions = localInitial.active.slice(1);
     shell.completed_history = localInitial.completed;
     shell.tracker_history = localInitial.completed;
-    renderMyHub(shell);
+    if (!alreadyMounted) {
+      renderMyHub(shell);
+    }
   } else {
     container.innerHTML = `
       <div class="empty-state" style="padding: 3rem 1rem;">
@@ -311,6 +320,8 @@ async function loadMyHubDashboard() {
         localStorage.setItem('my_hub_cache', JSON.stringify(data));
       }
     } catch (e) {}
+
+    if (mySeq !== _myHubLoadSeq) return;
 
     renderMyHub(data);
     if (window.Armory && typeof window.Armory.renderActiveRivalHexBanner === 'function') {
@@ -1740,15 +1751,25 @@ function renderMyHub(data) {
         </div>
 
         <!-- Collapsible Career Progression & Full Stats for Mobile -->
-        <button type="button" id="hub-career-toggle-btn" class="hub-career-toggle-btn mobile-only" onclick="toggleHubCareerDetails()" aria-expanded="false">
+        ${(() => {
+          const existingDrawer = document.getElementById('hub-career-details-drawer');
+          const domExpanded = existingDrawer && existingDrawer.classList.contains('hub-career-drawer-expanded');
+          let storedExpanded = false;
+          try { storedExpanded = sessionStorage.getItem('omni_hub_career_expanded') === '1'; } catch (e) {}
+          const isCareerExpanded = Boolean(window.isHubCareerDrawerExpanded || domExpanded || storedExpanded);
+          if (isCareerExpanded) window.isHubCareerDrawerExpanded = true;
+          return `
+        <button type="button" id="hub-career-toggle-btn" class="hub-career-toggle-btn mobile-only" onclick="toggleHubCareerDetails(event)" aria-expanded="${isCareerExpanded ? 'true' : 'false'}">
           <span style="display:inline-flex; align-items:center; gap:6px;">
             <span>📊</span>
-            <span id="hub-career-toggle-text">Show Full Stats &amp; Progression</span>
+            <span id="hub-career-toggle-text">${isCareerExpanded ? 'Hide Full Stats &amp; Progression' : 'Show Full Stats &amp; Progression'}</span>
           </span>
-          <span id="hub-career-toggle-arrow">▼</span>
+          <span id="hub-career-toggle-arrow">${isCareerExpanded ? '▲' : '▼'}</span>
         </button>
 
-        <div id="hub-career-details-drawer" class="hub-career-drawer-collapsed">
+        <div id="hub-career-details-drawer" class="${isCareerExpanded ? 'hub-career-drawer-expanded' : 'hub-career-drawer-collapsed'}">
+          `;
+        })()}
           <!-- Key Metrics Grid -->
           <div class="profile-metrics-grid" style="margin-top: 0.75rem;">
             <div class="profile-metric-box">
@@ -4173,13 +4194,16 @@ window.resetMyHubState = function() {
   hubSavedLists = [];
 };
 
-function toggleHubCareerDetails() {
+function toggleHubCareerDetails(ev) {
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
   const drawer = document.getElementById('hub-career-details-drawer');
   const arrow = document.getElementById('hub-career-toggle-arrow');
   const textSpan = document.getElementById('hub-career-toggle-text');
   const btn = document.getElementById('hub-career-toggle-btn');
   if (!drawer) return;
   const isCollapsed = drawer.classList.contains('hub-career-drawer-collapsed');
+  window.isHubCareerDrawerExpanded = isCollapsed;
+  try { sessionStorage.setItem('omni_hub_career_expanded', isCollapsed ? '1' : '0'); } catch (e) {}
   if (isCollapsed) {
     drawer.classList.remove('hub-career-drawer-collapsed');
     drawer.classList.add('hub-career-drawer-expanded');
