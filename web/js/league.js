@@ -465,32 +465,82 @@ function renderLeagueHub(league) {
     </style>
 
     ${(() => {
+      const lid = escapeHtml(league.league_id || league.slug || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90');
       const annList = Array.isArray(league.announcements) ? league.announcements : [];
       const pinned = annList.find(a => a && a.is_pinned) || annList[0];
-      if (!pinned) return '';
+      const opsData = (window._unifiedFloorOpsState && window._unifiedFloorOpsState.byEntity && window._unifiedFloorOpsState.byEntity[lid]) || null;
+      if (!opsData && typeof window.fetchUnifiedFloorOps === 'function' && !window._fetchingLeagueFloorOps) {
+        window._fetchingLeagueFloorOps = true;
+        window.fetchUnifiedFloorOps(lid).then(() => {
+          window._fetchingLeagueFloorOps = false;
+          const clockPill = document.getElementById('league-live-clock-pill');
+          const d = window._unifiedFloorOpsState?.byEntity?.[lid];
+          if (clockPill && d && d.clock) {
+            const rem = Number(d.clock.remaining_seconds ?? 10800);
+            const h = Math.floor(rem / 3600);
+            const m = Math.floor((rem % 3600) / 60);
+            const s = rem % 60;
+            clockPill.textContent = `⏱️ Round ${d.clock.round_number || 1} (${String(d.clock.status || 'paused').toUpperCase()}): ${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+          }
+        }).catch(() => { window._fetchingLeagueFloorOps = false; });
+      }
+      const clock = opsData?.clock || { round_number: 1, status: 'paused', remaining_seconds: 10800 };
+      const rem = Number(clock.remaining_seconds ?? 10800);
+      const ch = Math.floor(rem / 3600);
+      const cm = Math.floor((rem % 3600) / 60);
+      const cs = rem % 60;
+      const openFlagsCount = Number(opsData?.open_flags_count || 0);
+
       return `
-        <div id="league-pinned-announcement-banner" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: linear-gradient(135deg, rgba(245, 158, 11, 0.16), rgba(30, 41, 59, 0.92)); border: 1px solid rgba(245, 158, 11, 0.48); border-left: 4px solid #f59e0b; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; gap: 0.85rem; flex-wrap: wrap;">
-          <div style="flex: 1; min-width: 240px;">
-            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.2rem;">
-              <span style="background: rgba(245, 158, 11, 0.22); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.45); padding: 1px 7px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; text-transform: uppercase;">
-                📢 Pinned TO Broadcast • ${escapeHtml(pinned.target_pod || 'All Pods')}
-              </span>
-              <span style="font-size: 0.72rem; color: #94a3b8;">by ${escapeHtml(pinned.author_name || 'Commissioner')} • ${escapeHtml(String(pinned.created_at || '').slice(0, 10))}</span>
-            </div>
-            <div style="font-size: 0.92rem; font-weight: 800; color: #fff;">${escapeHtml(pinned.title || 'League Announcement')}</div>
-            <div style="font-size: 0.8rem; color: #e2e8f0; margin-top: 0.15rem; line-height: 1.4;">${escapeHtml(pinned.body || '')}</div>
+        <!-- Unified Player Live Floor Deck Bar -->
+        <div id="league-player-floor-deck-bar" style="margin-bottom: 0.75rem; padding: 0.65rem 0.95rem; background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.92)); border: 1px solid rgba(56, 189, 248, 0.38); border-radius: 10px; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+            <span id="league-live-clock-pill" style="background: rgba(16, 185, 129, 0.16); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 0.28rem 0.65rem; border-radius: 999px; font-family: monospace; font-size: 0.78rem; font-weight: 800;">
+              ⏱️ Round ${clock.round_number || 1} (${String(clock.status || 'paused').toUpperCase()}): ${ch}:${String(cm).padStart(2, '0')}:${String(cs).padStart(2, '0')}
+            </span>
+            <span style="font-size: 0.76rem; color: #cbd5e1;">
+              🚩 Active Table Flags: <strong style="color: ${openFlagsCount > 0 ? '#f87171' : '#34d399'};">${openFlagsCount}</strong>
+            </span>
           </div>
           <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
-            <button type="button" onclick="switchLeagueSubtab('announcements')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(245, 158, 11, 0.5); color: #fbbf24; font-weight: 800;">
-              📢 All News &amp; Alerts (${annList.length})
+            <button type="button" id="league-raise-table-flag-btn" onclick="if (typeof openUnifiedFloorOpsModal === 'function') { openUnifiedFloorOpsModal('${lid}', 'flags'); } else { alert('Floor Ops module loading...'); }" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.34rem 0.75rem; border-color: rgba(239, 68, 68, 0.55); color: #f87171; font-weight: 800;">
+              🚩 Raise Table Flag / Call Judge
             </button>
             ${canManageLeague ? `
-              <button type="button" onclick="if (typeof openStudioLeagueCommandCenterModal === 'function') { openStudioLeagueCommandCenterModal('${escapeHtml(league.league_id || league.slug || 'sd40k')}', 'announcements'); } else { window.location.href = '/eventstudio.html'; }" class="btn btn-primary" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: 1px solid #60a5fa; font-weight: 800;">
-                🎛️ TO Edit
+              <button type="button" onclick="if (typeof openUnifiedFloorOpsModal === 'function') { openUnifiedFloorOpsModal('${lid}', 'clock'); }" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.34rem 0.75rem; border-color: rgba(56, 189, 248, 0.5); color: #38bdf8; font-weight: 800;">
+                ⏱️ Manage Floor Clock
               </button>
             ` : ''}
           </div>
         </div>
+
+        ${pinned ? `
+          <div id="league-pinned-announcement-banner" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: linear-gradient(135deg, rgba(245, 158, 11, 0.16), rgba(30, 41, 59, 0.92)); border: 1px solid rgba(245, 158, 11, 0.48); border-left: 4px solid #f59e0b; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; gap: 0.85rem; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 240px;">
+              <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.2rem;">
+                <span style="background: rgba(245, 158, 11, 0.22); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.45); padding: 1px 7px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; text-transform: uppercase;">
+                  📢 Pinned TO Broadcast • ${escapeHtml(pinned.target_pod || 'All Pods')}
+                </span>
+                <span style="font-size: 0.72rem; color: #94a3b8;">by ${escapeHtml(pinned.author_name || 'Commissioner')} • ${escapeHtml(String(pinned.created_at || '').slice(0, 10))}</span>
+              </div>
+              <div style="font-size: 0.92rem; font-weight: 800; color: #fff;">${escapeHtml(pinned.title || 'League Announcement')}</div>
+              <div style="font-size: 0.8rem; color: #e2e8f0; margin-top: 0.15rem; line-height: 1.4;">${escapeHtml(pinned.body || '')}</div>
+            </div>
+            <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
+              <button type="button" id="league-ack-broadcast-btn" onclick="if (typeof acknowledgeBroadcastNotice === 'function') { acknowledgeBroadcastNotice('${lid}', '${escapeHtml(String(pinned.id || 'pinned-1'))}'); }" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(16, 185, 129, 0.5); color: #34d399; font-weight: 800;">
+                ✓ Acknowledge Notice ${pinned.ack_count ? `(${pinned.ack_count})` : ''}
+              </button>
+              <button type="button" onclick="switchLeagueSubtab('announcements')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(245, 158, 11, 0.5); color: #fbbf24; font-weight: 800;">
+                📢 All News &amp; Alerts (${annList.length})
+              </button>
+              ${canManageLeague ? `
+                <button type="button" onclick="if (typeof openStudioLeagueCommandCenterModal === 'function') { openStudioLeagueCommandCenterModal('${lid}', 'announcements'); } else { window.location.href = '/eventstudio.html'; }" class="btn btn-primary" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: 1px solid #60a5fa; font-weight: 800;">
+                  🎛️ TO Edit
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        ` : ''}
       `;
     })()}
 

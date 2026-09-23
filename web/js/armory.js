@@ -679,7 +679,8 @@
    * Effect Dispatcher: Applies active decorations across the entire page
    */
   function applyEquippedDecorations(system, overrideEquipped) {
-    var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
+    var rawSys = (typeof system === 'string' && system) ? system : ((typeof currentGameSystem !== 'undefined' && typeof currentGameSystem === 'string' && currentGameSystem) ? currentGameSystem : ((typeof window !== 'undefined' && typeof window.currentGameSystem === 'string' && window.currentGameSystem) ? window.currentGameSystem : '40k'));
+    var sys = String(rawSys).toLowerCase();
     var allEq = overrideEquipped || currentVault.equipped || {};
     var eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
 

@@ -2000,20 +2000,21 @@ async def api_eventstudio_register_player(event_id: str, payload: RegisterPlayer
     ev["total_players"] = len(roster)
     saved = db.save_studio_event(ev)
 
-    try:
-        db.upsert_event_participant(
-            event_id=event_id,
-            player_id=player_id,
-            first_name=fn,
-            last_name=ln,
-            full_name=full_name,
-            faction=faction,
-            team=team,
-            dropped=False,
-            checked_in=checked_in
-        )
-    except Exception as pe:
-        logger.warning(f"Error upserting participant: {pe}")
+    if str(event_id).startswith("ES-"):
+        try:
+            db.upsert_event_participant(
+                event_id=event_id,
+                player_id=player_id,
+                first_name=fn,
+                last_name=ln,
+                full_name=full_name,
+                faction=faction,
+                team=team,
+                dropped=False,
+                checked_in=checked_in
+            )
+        except Exception as pe:
+            logger.warning(f"Error upserting participant: {pe}")
 
     try:
         from routers.leaderboard import api_events_recommended

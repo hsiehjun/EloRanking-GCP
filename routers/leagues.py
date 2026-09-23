@@ -397,3 +397,72 @@ async def update_league_pod_roster_endpoint(league_id: str, request: Request):
     return res
 
 
+@router.post("/api/eventstudio/unified/create", summary="Create a Unified Tournament or League via the 4-Step Event Studio Wizard")
+async def create_unified_event_endpoint(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    try:
+        return svc.create_unified_event(body)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/api/eventstudio/ops/{entity_id}", summary="Get Unified Live Floor Operations (Clock, Table Flags, Broadcasts, Acks)")
+async def get_unified_ops_endpoint(entity_id: str):
+    svc = leagues_hub_service.get_leagues_hub_service()
+    return svc.get_unified_floor_ops(entity_id)
+
+
+@router.post("/api/eventstudio/ops/{entity_id}/clock", summary="Update Unified Master Round Clock or Per-Table Time Extension")
+async def update_unified_clock_endpoint(entity_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    return svc.update_unified_clock(entity_id, body)
+
+
+@router.post("/api/eventstudio/ops/{entity_id}/flag", summary="Create a Table Flag / Judge Call for a Tournament or League")
+async def create_unified_flag_endpoint(entity_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    return svc.create_unified_flag(entity_id, body)
+
+
+@router.post("/api/eventstudio/ops/{entity_id}/flag/resolve", summary="Claim, resolve, or grant time extension for a Table Flag / Judge Call")
+async def resolve_unified_flag_endpoint(entity_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    return svc.resolve_unified_flag(entity_id, body)
+
+
+@router.post("/api/eventstudio/ops/{entity_id}/broadcast", summary="Publish a Unified Broadcast / Ruling to Tournament or League")
+async def publish_unified_broadcast_endpoint(entity_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    return svc.publish_unified_broadcast(entity_id, body)
+
+
+@router.post("/api/eventstudio/ops/{entity_id}/broadcast/ack", summary="Acknowledge a TO Broadcast / Ruling as a Player")
+async def ack_unified_broadcast_endpoint(entity_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    return svc.acknowledge_unified_broadcast(entity_id, body)
+
+

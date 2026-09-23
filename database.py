@@ -7176,73 +7176,98 @@ class PostgresDatabase:
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
-                INSERT INTO events (
-                    id, name, event_date, end_date, city, state, country, venue,
-                    tier, total_players, num_rounds, current_round, points, capacity,
-                    mission_pack, organizer_id, organizer_bcp_id, roster, pairings,
-                    raw_json, scraped_at, event_type, team_size, circuits,
-                    venue_name, address, postal_code, latitude, longitude, place_id,
-                    started, pairings_status, game_system, game_system_id
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s::jsonb, %s::jsonb,
-                    %s::jsonb, NOW(), %s, %s, %s::jsonb,
-                    %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s
-                )
+                CREATE TABLE IF NOT EXISTS native_studio_events (
+                    id VARCHAR(64) PRIMARY KEY,
+                    name TEXT,
+                    organizer_id VARCHAR(128),
+                    organizer_bcp_id VARCHAR(128),
+                    game_system VARCHAR(32) DEFAULT '40k',
+                    event_data JSONB NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                """)
+                cursor.execute("""
+                INSERT INTO native_studio_events (id, name, organizer_id, organizer_bcp_id, game_system, event_data, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, NOW())
                 ON CONFLICT (id) DO UPDATE SET
                     name = EXCLUDED.name,
-                    tier = EXCLUDED.tier,
-                    event_date = EXCLUDED.event_date,
-                    end_date = EXCLUDED.end_date,
-                    city = EXCLUDED.city,
-                    state = EXCLUDED.state,
-                    country = EXCLUDED.country,
-                    venue = EXCLUDED.venue,
-                    total_players = GREATEST(COALESCE(events.total_players, 0), EXCLUDED.total_players),
-                    num_rounds = GREATEST(COALESCE(events.num_rounds, 0), EXCLUDED.num_rounds),
-                    current_round = EXCLUDED.current_round,
-                    points = EXCLUDED.points,
-                    capacity = EXCLUDED.capacity,
-                    mission_pack = EXCLUDED.mission_pack,
-                    event_type = EXCLUDED.event_type,
-                    team_size = EXCLUDED.team_size,
-                    circuits = COALESCE(EXCLUDED.circuits, events.circuits),
-                    organizer_id = COALESCE(EXCLUDED.organizer_id, events.organizer_id),
-                    organizer_bcp_id = COALESCE(EXCLUDED.organizer_bcp_id, events.organizer_bcp_id),
-                    roster = COALESCE(EXCLUDED.roster, events.roster),
-                    pairings = COALESCE(EXCLUDED.pairings, events.pairings),
-                    raw_json = COALESCE(EXCLUDED.raw_json, events.raw_json),
-                    venue_name = COALESCE(EXCLUDED.venue_name, events.venue_name),
-                    address = COALESCE(EXCLUDED.address, events.address),
-                    postal_code = COALESCE(EXCLUDED.postal_code, events.postal_code),
-                    latitude = COALESCE(EXCLUDED.latitude, events.latitude),
-                    longitude = COALESCE(EXCLUDED.longitude, events.longitude),
-                    place_id = COALESCE(EXCLUDED.place_id, events.place_id),
-                    started = COALESCE(EXCLUDED.started, events.started),
-                    pairings_status = COALESCE(EXCLUDED.pairings_status, events.pairings_status),
-                    game_system = COALESCE(EXCLUDED.game_system, events.game_system),
-                    game_system_id = COALESCE(EXCLUDED.game_system_id, events.game_system_id),
-                    scraped_at = NOW();
-                """, (
-                    event_id, name, event_date, end_date, city, state, country, venue,
-                    tier, total_players, num_rounds, current_round, points, capacity,
-                    mission_pack, organizer_id, organizer_bcp_id, roster_json, pairings_json,
-                    raw_json, event_type, team_size, circuits_json,
-                    venue_name, address, postal_code,
-                    float(latitude) if latitude is not None else None,
-                    float(longitude) if longitude is not None else None,
-                    place_id,
-                    started, pairings_status,
-                    game_system, game_system_id
-                ))
+                    organizer_id = COALESCE(EXCLUDED.organizer_id, native_studio_events.organizer_id),
+                    organizer_bcp_id = COALESCE(EXCLUDED.organizer_bcp_id, native_studio_events.organizer_bcp_id),
+                    game_system = COALESCE(EXCLUDED.game_system, native_studio_events.game_system),
+                    event_data = EXCLUDED.event_data,
+                    updated_at = NOW();
+                """, (event_id, name, organizer_id, organizer_bcp_id, game_system, raw_json))
+
+                # STRICT GUARDRAIL: Never write to BCP-ingested rows in `events`. Only native ES-* events may write to `events`.
+                if str(event_id).startswith("ES-"):
+                    cursor.execute("""
+                    INSERT INTO events (
+                        id, name, event_date, end_date, city, state, country, venue,
+                        tier, total_players, num_rounds, current_round, points, capacity,
+                        mission_pack, organizer_id, organizer_bcp_id, roster, pairings,
+                        raw_json, scraped_at, event_type, team_size, circuits,
+                        venue_name, address, postal_code, latitude, longitude, place_id,
+                        started, pairings_status, game_system, game_system_id
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s::jsonb, %s::jsonb,
+                        %s::jsonb, NOW(), %s, %s, %s::jsonb,
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s
+                    )
+                    ON CONFLICT (id) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        tier = EXCLUDED.tier,
+                        event_date = EXCLUDED.event_date,
+                        end_date = EXCLUDED.end_date,
+                        city = EXCLUDED.city,
+                        state = EXCLUDED.state,
+                        country = EXCLUDED.country,
+                        venue = EXCLUDED.venue,
+                        total_players = GREATEST(COALESCE(events.total_players, 0), EXCLUDED.total_players),
+                        num_rounds = GREATEST(COALESCE(events.num_rounds, 0), EXCLUDED.num_rounds),
+                        current_round = EXCLUDED.current_round,
+                        points = EXCLUDED.points,
+                        capacity = EXCLUDED.capacity,
+                        mission_pack = EXCLUDED.mission_pack,
+                        event_type = EXCLUDED.event_type,
+                        team_size = EXCLUDED.team_size,
+                        circuits = COALESCE(EXCLUDED.circuits, events.circuits),
+                        organizer_id = COALESCE(EXCLUDED.organizer_id, events.organizer_id),
+                        organizer_bcp_id = COALESCE(EXCLUDED.organizer_bcp_id, events.organizer_bcp_id),
+                        roster = COALESCE(EXCLUDED.roster, events.roster),
+                        pairings = COALESCE(EXCLUDED.pairings, events.pairings),
+                        raw_json = COALESCE(EXCLUDED.raw_json, events.raw_json),
+                        venue_name = COALESCE(EXCLUDED.venue_name, events.venue_name),
+                        address = COALESCE(EXCLUDED.address, events.address),
+                        postal_code = COALESCE(EXCLUDED.postal_code, events.postal_code),
+                        latitude = COALESCE(EXCLUDED.latitude, events.latitude),
+                        longitude = COALESCE(EXCLUDED.longitude, events.longitude),
+                        place_id = COALESCE(EXCLUDED.place_id, events.place_id),
+                        started = COALESCE(EXCLUDED.started, events.started),
+                        pairings_status = COALESCE(EXCLUDED.pairings_status, events.pairings_status),
+                        game_system = COALESCE(EXCLUDED.game_system, events.game_system),
+                        game_system_id = COALESCE(EXCLUDED.game_system_id, events.game_system_id),
+                        scraped_at = NOW();
+                    """, (
+                        event_id, name, event_date, end_date, city, state, country, venue,
+                        tier, total_players, num_rounds, current_round, points, capacity,
+                        mission_pack, organizer_id, organizer_bcp_id, roster_json, pairings_json,
+                        raw_json, event_type, team_size, circuits_json,
+                        venue_name, address, postal_code,
+                        float(latitude) if latitude is not None else None,
+                        float(longitude) if longitude is not None else None,
+                        place_id,
+                        started, pairings_status,
+                        game_system, game_system_id
+                    ))
             conn.commit()
 
         return self.get_studio_event(event_id) or {"id": event_id, "name": name}
 
     def delete_studio_event(self, event_id: str, organizer_id: Optional[str] = None) -> bool:
-        """Deletes a tournament event and associated data from the database."""
+        """Deletes a native tournament event and marks deleted_studio_events without mutating BCP tables."""
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
@@ -7252,9 +7277,11 @@ class PostgresDatabase:
                 );
                 """)
                 cursor.execute("INSERT INTO deleted_studio_events (event_id, deleted_at) VALUES (%s, NOW()) ON CONFLICT (event_id) DO UPDATE SET deleted_at = NOW();", (event_id,))
-                cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
-                cursor.execute("DELETE FROM event_participants WHERE event_id = %s;", (event_id,))
-                cursor.execute("DELETE FROM matches WHERE event_id = %s;", (event_id,))
+                cursor.execute("DELETE FROM native_studio_events WHERE id = %s;", (event_id,))
+                if str(event_id).startswith("ES-"):
+                    cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
+                    cursor.execute("DELETE FROM event_participants WHERE event_id = %s;", (event_id,))
+                    cursor.execute("DELETE FROM matches WHERE event_id = %s;", (event_id,))
             conn.commit()
         return True
 
@@ -7279,8 +7306,8 @@ class PostgresDatabase:
             return False
 
     def prune_event_participants(self, event_id: str, active_player_ids: set) -> int:
-        """Removes participants from an event who are no longer on the active BCP roster."""
-        if not event_id:
+        """Removes participants ONLY from native ES-* events; never mutates BCP event_participants."""
+        if not event_id or not str(event_id).startswith("ES-"):
             return 0
         try:
             with self.get_connection() as conn:

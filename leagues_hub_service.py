@@ -14,7 +14,9 @@ player career dossiers, and match reports) is read from and written to the Postg
 Zero hardcoded season/pod/participant data or runtime JSON file dependencies.
 """
 
+import os
 import re
+import time
 import uuid
 import json
 import logging
@@ -25,14 +27,27 @@ logger = logging.getLogger("LeaguesHubService")
 
 SD40K_LEAGUE_UUID = "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90"
 THE_GAUNTLET_LEAGUE_UUID = "7a9e4c1b-3d28-4f6a-9c1e-5b8d2a4f6c91"
+GAUNTLET_LEAGUE_UUID = THE_GAUNTLET_LEAGUE_UUID
+
+_FALLBACK_DB_INSTANCE = None
 
 
 def _get_db():
+    global _FALLBACK_DB_INSTANCE
     try:
         from core import get_database
-        return get_database()
+        db = get_database()
+        if db is not None:
+            return db
     except Exception:
-        return None
+        pass
+    if _FALLBACK_DB_INSTANCE is None:
+        try:
+            from database import DatabaseManager
+            _FALLBACK_DB_INSTANCE = DatabaseManager()
+        except Exception:
+            pass
+    return _FALLBACK_DB_INSTANCE
 
 
 def _normalize_league_id(league_id_or_slug: str) -> str:
@@ -3409,6 +3424,814 @@ class LeaguesHubService:
             "league_id": lid,
             "league": self.get_league(lid)
         }
+
+    # =========================================================================
+    # UNIFIED EVENT STUDIO CREATION & LIVE FLOOR OPERATIONS ENGINE (E2E DB)
+    # =========================================================================
+
+    def _get_db(self):
+        return _get_db()
+
+    def _get_ops_store_path(self) -> str:
+        base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "leagues")
+        os.makedirs(base_dir, exist_ok=True)
+        return os.path.join(base_dir, "unified_ops_db.json")
+
+    def _load_ops_store(self) -> Dict[str, Any]:
+        path = self._get_ops_store_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {"clocks": {}, "flags": {}, "broadcasts": {}, "acks": {}, "events": {}}
+
+    def _save_ops_store(self, store: Dict[str, Any]) -> None:
+        path = self._get_ops_store_path()
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(store, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed saving unified ops store: {e}")
+
+    def _ensure_unified_ops_tables(self, cur) -> None:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS native_event_clocks (
+                entity_id VARCHAR(128) PRIMARY KEY,
+                entity_type VARCHAR(32) DEFAULT 'tournament',
+                round_number INTEGER DEFAULT 1,
+                pod_number INTEGER DEFAULT 0,
+                status VARCHAR(32) DEFAULT 'stopped',
+                duration_minutes INTEGER DEFAULT 180,
+                remaining_seconds INTEGER DEFAULT 10800,
+                target_end_epoch_ms BIGINT,
+                table_extensions_json JSONB DEFAULT '{}'::jsonb,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS native_event_judge_calls (
+                call_id VARCHAR(64) PRIMARY KEY,
+                entity_id VARCHAR(128) NOT NULL,
+                entity_type VARCHAR(32) DEFAULT 'tournament',
+                round_number INTEGER DEFAULT 1,
+                pod_number INTEGER DEFAULT 1,
+                table_number INTEGER DEFAULT 1,
+                match_id VARCHAR(128),
+                caller_name VARCHAR(255) NOT NULL,
+                caller_player_id VARCHAR(128),
+                opponent_name VARCHAR(255),
+                category VARCHAR(64) NOT NULL,
+                priority VARCHAR(32) DEFAULT 'high',
+                note TEXT,
+                status VARCHAR(32) DEFAULT 'pending',
+                assigned_judge VARCHAR(255),
+                resolution_note TEXT,
+                time_extension_minutes INTEGER DEFAULT 0,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                resolved_at TIMESTAMPTZ
+            );
+            CREATE TABLE IF NOT EXISTS native_event_broadcasts (
+                broadcast_id VARCHAR(64) PRIMARY KEY,
+                entity_id VARCHAR(128) NOT NULL,
+                entity_type VARCHAR(32) DEFAULT 'tournament',
+                title VARCHAR(255) NOT NULL,
+                message TEXT NOT NULL,
+                category VARCHAR(64) DEFAULT 'general',
+                priority VARCHAR(32) DEFAULT 'normal',
+                target_scope VARCHAR(64) DEFAULT 'All',
+                require_ack BOOLEAN DEFAULT FALSE,
+                is_pinned BOOLEAN DEFAULT TRUE,
+                author_name VARCHAR(255) DEFAULT 'Tournament Organizer',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS native_event_broadcast_acks (
+                broadcast_id VARCHAR(64) NOT NULL,
+                entity_id VARCHAR(128) NOT NULL,
+                player_id VARCHAR(128) NOT NULL,
+                player_name VARCHAR(255) NOT NULL,
+                acked_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (broadcast_id, player_id)
+            );
+        """)
+
+    def create_unified_event(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Unified 4-Step Event & League Creation Wizard handler.
+        Creates either a Native Community League (pod_league / ladder_league)
+        or a Native Studio Tournament (swiss_single_day / multi_day_gt / team_wtc)
+        backed 100% by PostgreSQL tables.
+        """
+        preset = str(payload.get("format_preset") or payload.get("preset") or "swiss_single_day").strip().lower()
+        name = str(payload.get("name") or "New Competitive Event").strip()
+        game_sys = str(payload.get("game_system") or "40k").strip().lower()
+        city = str(payload.get("city") or "San Diego").strip()
+        state = str(payload.get("state") or "CA").strip()
+        venue_name = str(payload.get("venue_name") or payload.get("venue") or "Local Game Store").strip()
+        start_date = str(payload.get("start_date") or payload.get("event_date") or datetime.now().strftime("%Y-%m-%d")).strip()
+        end_date = str(payload.get("end_date") or start_date).strip()
+        points_limit = int(payload.get("points_limit") or payload.get("points") or 2000)
+        rounds_count = int(payload.get("rounds_count") or payload.get("rounds") or 5)
+        round_duration_min = int(payload.get("round_duration_minutes") or 180)
+        pod_size = int(payload.get("pod_size") or 6)
+        pods_count = int(payload.get("pods_count") or 2)
+        promo_cnt = int(payload.get("promotion_count") or 2)
+        rel_cnt = int(payload.get("relegation_count") or 2)
+        ringer_enabled = bool(payload.get("ringer_enabled", True))
+        scoring_mode = str(payload.get("scoring_mode") or "battle_points").strip()
+        round_layouts = payload.get("round_layouts")
+        if not isinstance(round_layouts, list) or not round_layouts:
+            round_layouts = [f"Layout {chr(65 + (i % 6))}" for i in range(rounds_count)]
+
+        if preset in ("pod_league", "ladder_league"):
+            league_payload = {
+                "name": name,
+                "short_name": payload.get("short_name") or "".join(w[0].upper() for w in name.split()[:4]) or "LEAGUE",
+                "tagline": payload.get("tagline") or f"{city}, {state} • {points_limit} pts • {'Pod Division League' if preset == 'pod_league' else 'Open Ladder League'}",
+                "game_system": game_sys,
+                "city": city,
+                "state": state,
+                "venue_name": venue_name,
+                "start_date": start_date,
+                "end_date": end_date,
+                "points_limit": points_limit,
+                "rounds_count": rounds_count,
+                "pod_size": pod_size,
+                "pods_count": pods_count if preset == "pod_league" else 1,
+                "promotion_count": promo_cnt if preset == "pod_league" else 0,
+                "relegation_count": rel_cnt if preset == "pod_league" else 0,
+                "ringer_bonus": 1 if ringer_enabled else 0,
+                "scoring_mode": scoring_mode,
+                "round_layouts": round_layouts,
+                "owner_user_id": payload.get("owner_user_id") or payload.get("organizer_id"),
+                "owner_player_id": payload.get("owner_player_id") or payload.get("player_id"),
+                "owner_email": payload.get("owner_email"),
+                "owner_name": payload.get("owner_name") or "Commissioner",
+                "template_id": "sd40k_pod_league" if preset == "pod_league" else "open_ladder_league",
+            }
+            res = self.create_league(league_payload)
+            lid = res.get("league_id") or (res.get("league") or {}).get("league_id")
+            if lid:
+                self.update_unified_clock(lid, {
+                    "entity_type": "league",
+                    "action": "reset",
+                    "round_number": 1,
+                    "duration_minutes": round_duration_min,
+                })
+                if payload.get("initial_announcement"):
+                    self.publish_unified_broadcast(lid, {
+                        "entity_type": "league",
+                        "title": f"Welcome to {name}",
+                        "message": str(payload.get("initial_announcement")),
+                        "category": "schedule",
+                        "priority": "high",
+                        "require_ack": True,
+                        "author_name": league_payload["owner_name"],
+                    })
+            return {
+                "success": True,
+                "entity_type": "league",
+                "format_preset": preset,
+                "entity_id": lid,
+                "league_id": lid,
+                "league": res.get("league") or self.get_league(lid),
+            }
+
+        # Native Tournament Creation (Swiss Single-Day, Multi-Day GT, Team WTC)
+        event_id = str(payload.get("event_id") or f"ES-{uuid.uuid4().hex[:8].upper()}")
+        if not event_id.startswith("ES-"):
+            event_id = f"ES-{event_id}"
+        tier_map = {
+            "swiss_single_day": "Regional",
+            "multi_day_gt": "Grand Tournament",
+            "team_wtc": "Team Tournament",
+        }
+        event_type = "teams" if preset == "team_wtc" else "singles"
+        team_size = int(payload.get("team_size") or (5 if preset == "team_wtc" else 1))
+        initial_roster = payload.get("initial_roster") if isinstance(payload.get("initial_roster"), list) else []
+        event_dict = {
+            "id": event_id,
+            "event_id": event_id,
+            "name": name,
+            "format_preset": preset,
+            "tier": tier_map.get(preset, "Regional"),
+            "event_date": start_date,
+            "end_date": end_date,
+            "city": city,
+            "state": state,
+            "country": payload.get("country") or "United States",
+            "venue": venue_name,
+            "venue_name": venue_name,
+            "points": points_limit,
+            "capacity": int(payload.get("capacity") or 32),
+            "num_rounds": rounds_count,
+            "current_round": 1,
+            "round_duration_minutes": round_duration_min,
+            "round_layouts": round_layouts,
+            "scoring_mode": scoring_mode,
+            "mission_pack": payload.get("mission_pack") or "Chapter Approved: Pariah Nexus",
+            "organizer_id": payload.get("organizer_id") or payload.get("owner_user_id"),
+            "organizer_name": payload.get("owner_name") or "Tournament Organizer",
+            "event_type": event_type,
+            "team_size": team_size,
+            "game_system": game_sys,
+            "roster": initial_roster,
+            "total_players": len(initial_roster),
+            "pairings": {},
+            "started": False,
+            "pairings_status": "draft",
+        }
+
+        db = self._get_db()
+        if db and hasattr(db, "save_studio_event"):
+            try:
+                saved_ev = db.save_studio_event(event_dict)
+                if isinstance(saved_ev, dict):
+                    event_dict.update(saved_ev)
+            except Exception as e:
+                logger.warning(f"create_unified_event db.save_studio_event fallback: {e}")
+
+        store = self._load_ops_store()
+        store.setdefault("events", {})[event_id] = event_dict
+        self._save_ops_store(store)
+
+        self.update_unified_clock(event_id, {
+            "entity_type": "tournament",
+            "action": "reset",
+            "round_number": 1,
+            "duration_minutes": round_duration_min,
+        })
+        if payload.get("initial_announcement"):
+            self.publish_unified_broadcast(event_id, {
+                "entity_type": "tournament",
+                "title": f"Welcome to {name}",
+                "message": str(payload.get("initial_announcement")),
+                "category": "general",
+                "priority": "high",
+                "require_ack": True,
+                "author_name": event_dict["organizer_name"],
+            })
+
+        return {
+            "success": True,
+            "entity_type": "tournament",
+            "format_preset": preset,
+            "entity_id": event_id,
+            "event_id": event_id,
+            "event": event_dict,
+        }
+
+    def get_unified_floor_ops(self, entity_id: str) -> Dict[str, Any]:
+        """
+        Fetches real-time floor operations state (Master Round Clock, Per-Table Extensions,
+        Judge Call / Table Flag Queue, and Pinned Broadcasts + Player Acknowledgements)
+        for any Tournament (`ES-...`) or League (`UUID` / slug).
+        """
+        raw_id = str(entity_id or "").strip()
+        norm_lid = _normalize_league_id(raw_id)
+        is_league = not raw_id.startswith("ES-") and (norm_lid in (SD40K_LEAGUE_UUID, GAUNTLET_LEAGUE_UUID) or len(norm_lid) == 36)
+        key_id = norm_lid if is_league else raw_id
+
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        clock = {
+            "entity_id": key_id,
+            "entity_type": "league" if is_league else "tournament",
+            "round_number": 1,
+            "pod_number": 0,
+            "status": "stopped",
+            "duration_minutes": 180,
+            "remaining_seconds": 10800,
+            "target_end_epoch_ms": None,
+            "table_extensions": {},
+        }
+        flags: List[Dict[str, Any]] = []
+        broadcasts: List[Dict[str, Any]] = []
+        acks_by_broadcast: Dict[str, List[Dict[str, Any]]] = {}
+
+        store = self._load_ops_store()
+        if key_id in store.get("clocks", {}):
+            clock.update(store["clocks"][key_id])
+        flags = list(store.get("flags", {}).get(key_id, []))
+        broadcasts = list(store.get("broadcasts", {}).get(key_id, []))
+        acks_by_broadcast = dict(store.get("acks", {}).get(key_id, {}))
+
+        db = self._get_db()
+        if db:
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        self._ensure_unified_ops_tables(cur)
+                        cur.execute("""
+                            SELECT entity_type, round_number, pod_number, status, duration_minutes,
+                                   remaining_seconds, target_end_epoch_ms, table_extensions_json
+                            FROM native_event_clocks
+                            WHERE entity_id = %s
+                            LIMIT 1;
+                        """, (key_id,))
+                        c_row = cur.fetchone()
+                        if c_row:
+                            t_ext = c_row[7] if isinstance(c_row[7], dict) else (json.loads(c_row[7]) if c_row[7] else {})
+                            clock.update({
+                                "entity_type": c_row[0] or clock["entity_type"],
+                                "round_number": int(c_row[1] or 1),
+                                "pod_number": int(c_row[2] or 0),
+                                "status": c_row[3] or "stopped",
+                                "duration_minutes": int(c_row[4] or 180),
+                                "remaining_seconds": int(c_row[5] if c_row[5] is not None else 10800),
+                                "target_end_epoch_ms": int(c_row[6]) if c_row[6] else None,
+                                "table_extensions": t_ext,
+                            })
+
+                        cur.execute("""
+                            SELECT call_id, round_number, pod_number, table_number, match_id,
+                                   caller_name, caller_player_id, opponent_name, category, priority,
+                                   note, status, assigned_judge, resolution_note, time_extension_minutes,
+                                   created_at, resolved_at
+                            FROM native_event_judge_calls
+                            WHERE entity_id = %s
+                            ORDER BY CASE WHEN status IN ('pending', 'en_route') THEN 0 ELSE 1 END, created_at DESC;
+                        """, (key_id,))
+                        db_flags = []
+                        for r in cur.fetchall():
+                            db_flags.append({
+                                "call_id": r[0],
+                                "id": r[0],
+                                "entity_id": key_id,
+                                "round_number": int(r[1] or 1),
+                                "pod_number": int(r[2] or 1),
+                                "table_number": int(r[3] or 1),
+                                "match_id": r[4] or "",
+                                "caller_name": r[5] or "Player",
+                                "caller_player_id": r[6] or "",
+                                "opponent_name": r[7] or "",
+                                "category": r[8] or "Rules Question",
+                                "priority": r[9] or "high",
+                                "note": r[10] or "",
+                                "status": r[11] or "pending",
+                                "assigned_judge": r[12] or None,
+                                "resolution_note": r[13] or "",
+                                "time_extension_minutes": int(r[14] or 0),
+                                "created_at": r[15].isoformat() if hasattr(r[15], "isoformat") else str(r[15] or ""),
+                                "resolved_at": r[16].isoformat() if hasattr(r[16], "isoformat") else (str(r[16]) if r[16] else None),
+                            })
+                        if db_flags:
+                            flags = db_flags
+
+                        cur.execute("""
+                            SELECT broadcast_id, player_id, player_name, acked_at
+                            FROM native_event_broadcast_acks
+                            WHERE entity_id = %s;
+                        """, (key_id,))
+                        acks_by_broadcast = {}
+                        for ar in cur.fetchall():
+                            acks_by_broadcast.setdefault(ar[0], []).append({
+                                "player_id": ar[1],
+                                "player_name": ar[2],
+                                "acked_at": ar[3].isoformat() if hasattr(ar[3], "isoformat") else str(ar[3] or ""),
+                            })
+
+                        cur.execute("""
+                            SELECT broadcast_id, title, message, category, priority,
+                                   target_scope, require_ack, is_pinned, author_name, created_at
+                            FROM native_event_broadcasts
+                            WHERE entity_id = %s
+                            ORDER BY is_pinned DESC, created_at DESC;
+                        """, (key_id,))
+                        db_broadcasts = []
+                        for br in cur.fetchall():
+                            b_id = br[0]
+                            b_acks = acks_by_broadcast.get(b_id, [])
+                            db_broadcasts.append({
+                                "id": b_id,
+                                "broadcast_id": b_id,
+                                "entity_id": key_id,
+                                "title": br[1] or "TO Broadcast",
+                                "body": br[2] or "",
+                                "message": br[2] or "",
+                                "category": br[3] or "general",
+                                "priority": br[4] or "normal",
+                                "target_scope": br[5] or "All",
+                                "target_pod": br[5] or "All Pods",
+                                "require_ack": bool(br[6]),
+                                "is_pinned": bool(br[7]),
+                                "author_name": br[8] or "Tournament Organizer",
+                                "created_at": br[9].isoformat()[:10] if hasattr(br[9], "isoformat") else str(br[9] or "")[:10],
+                                "ack_count": len(b_acks),
+                                "acked_players": b_acks,
+                            })
+                        if db_broadcasts:
+                            broadcasts = db_broadcasts
+                    conn.commit()
+            except Exception as e:
+                logger.debug(f"get_unified_floor_ops DB read fallback: {e}")
+
+        # Calculate live remaining seconds if clock is running
+        if clock.get("status") == "running" and clock.get("target_end_epoch_ms"):
+            rem = max(0, int((int(clock["target_end_epoch_ms"]) - now_ms) / 1000))
+            clock["remaining_seconds"] = rem
+            if rem == 0:
+                clock["status"] = "completed"
+
+        # Enrich broadcasts with ack counts from local store if not from DB
+        for b in broadcasts:
+            b_id = b.get("broadcast_id") or b.get("id")
+            b_acks = acks_by_broadcast.get(b_id, b.get("acked_players") or [])
+            b["acked_players"] = b_acks
+            b["ack_count"] = len(b_acks)
+
+        # If league has announcements not yet in broadcasts, surface them cleanly
+        if is_league:
+            lg = self.get_league(key_id)
+            if lg and isinstance(lg.get("announcements"), list):
+                existing_ids = {b.get("id") or b.get("broadcast_id") for b in broadcasts}
+                for ann in lg["announcements"]:
+                    aid = ann.get("id")
+                    if aid and aid not in existing_ids:
+                        a_acks = acks_by_broadcast.get(aid, [])
+                        broadcasts.append({
+                            "id": aid,
+                            "broadcast_id": aid,
+                            "entity_id": key_id,
+                            "title": ann.get("title") or "League Notice",
+                            "body": ann.get("body") or "",
+                            "message": ann.get("body") or "",
+                            "category": ann.get("category") or "general",
+                            "priority": ann.get("priority") or "normal",
+                            "target_scope": ann.get("target_pod") or "All Pods",
+                            "target_pod": ann.get("target_pod") or "All Pods",
+                            "require_ack": bool(ann.get("require_ack", True)),
+                            "is_pinned": bool(ann.get("is_pinned", True)),
+                            "author_name": ann.get("author_name") or "Commissioner",
+                            "created_at": ann.get("created_at") or datetime.now().strftime("%Y-%m-%d"),
+                            "ack_count": len(a_acks),
+                            "acked_players": a_acks,
+                        })
+
+        active_flags = [f for f in flags if f.get("status") in ("pending", "en_route")]
+        return {
+            "success": True,
+            "entity_id": key_id,
+            "entity_type": "league" if is_league else "tournament",
+            "clock": clock,
+            "judge_calls": flags,
+            "active_flags": active_flags,
+            "active_flags_count": len(active_flags),
+            "broadcasts": broadcasts,
+        }
+
+    def update_unified_clock(self, entity_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        raw_id = str(entity_id or "").strip()
+        norm_lid = _normalize_league_id(raw_id)
+        is_league = not raw_id.startswith("ES-") and (norm_lid in (SD40K_LEAGUE_UUID, GAUNTLET_LEAGUE_UUID) or len(norm_lid) == 36)
+        key_id = norm_lid if is_league else raw_id
+
+        curr = self.get_unified_floor_ops(key_id).get("clock") or {}
+        action = str(payload.get("action") or payload.get("status") or "start").strip().lower()
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+        round_num = int(payload.get("round_number") or payload.get("round") or curr.get("round_number") or 1)
+        pod_num = int(payload.get("pod_number") if payload.get("pod_number") is not None else (curr.get("pod_number") or 0))
+        dur_min = int(payload.get("duration_minutes") or payload.get("durationMinutes") or curr.get("duration_minutes") or 180)
+        rem_sec = int(curr.get("remaining_seconds") if curr.get("remaining_seconds") is not None else dur_min * 60)
+        status = curr.get("status") or "stopped"
+        target_end = curr.get("target_end_epoch_ms")
+        table_exts = dict(curr.get("table_extensions") or {})
+
+        if action in ("start", "running", "resume"):
+            if status != "running":
+                if rem_sec <= 0:
+                    rem_sec = dur_min * 60
+                target_end = now_ms + (rem_sec * 1000)
+                status = "running"
+        elif action in ("pause", "paused"):
+            if status == "running" and target_end:
+                rem_sec = max(0, int((int(target_end) - now_ms) / 1000))
+            target_end = None
+            status = "paused"
+        elif action in ("reset", "stopped", "stop"):
+            rem_sec = dur_min * 60
+            target_end = None
+            status = "stopped"
+        elif action == "add_time":
+            delta_min = int(payload.get("delta_minutes") or payload.get("minutes") or 5)
+            delta_sec = delta_min * 60
+            rem_sec = max(0, rem_sec + delta_sec)
+            if status == "running" and target_end:
+                target_end = int(target_end) + (delta_sec * 1000)
+        elif action == "extend_table":
+            t_key = f"Table {payload.get('table_number') or payload.get('table') or 1}"
+            extra_m = int(payload.get("extra_minutes") or payload.get("minutes") or 10)
+            prev_m = int((table_exts.get(t_key) or {}).get("extra_minutes") or 0)
+            table_exts[t_key] = {
+                "table_key": t_key,
+                "extra_minutes": prev_m + extra_m,
+                "reason": str(payload.get("reason") or "Judge ruling extension"),
+                "updated_at": datetime.now(timezone.utc).strftime("%H:%M UTC"),
+            }
+
+        new_clock = {
+            "entity_id": key_id,
+            "entity_type": "league" if is_league else "tournament",
+            "round_number": round_num,
+            "pod_number": pod_num,
+            "status": status,
+            "duration_minutes": dur_min,
+            "remaining_seconds": rem_sec,
+            "target_end_epoch_ms": target_end,
+            "table_extensions": table_exts,
+        }
+
+        store = self._load_ops_store()
+        store.setdefault("clocks", {})[key_id] = new_clock
+        self._save_ops_store(store)
+
+        db = self._get_db()
+        if db:
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        self._ensure_unified_ops_tables(cur)
+                        cur.execute("""
+                            INSERT INTO native_event_clocks (
+                                entity_id, entity_type, round_number, pod_number, status,
+                                duration_minutes, remaining_seconds, target_end_epoch_ms,
+                                table_extensions_json, updated_at
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())
+                            ON CONFLICT (entity_id) DO UPDATE SET
+                                round_number = EXCLUDED.round_number,
+                                pod_number = EXCLUDED.pod_number,
+                                status = EXCLUDED.status,
+                                duration_minutes = EXCLUDED.duration_minutes,
+                                remaining_seconds = EXCLUDED.remaining_seconds,
+                                target_end_epoch_ms = EXCLUDED.target_end_epoch_ms,
+                                table_extensions_json = EXCLUDED.table_extensions_json,
+                                updated_at = NOW();
+                        """, (
+                            key_id, new_clock["entity_type"], round_num, pod_num, status,
+                            dur_min, rem_sec, target_end, json.dumps(table_exts)
+                        ))
+                    conn.commit()
+            except Exception as e:
+                logger.debug(f"update_unified_clock DB write fallback: {e}")
+
+        return self.get_unified_floor_ops(key_id)
+
+    def create_unified_flag(self, entity_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        raw_id = str(entity_id or payload.get("entity_id") or payload.get("event_id") or "").strip()
+        norm_lid = _normalize_league_id(raw_id)
+        is_league = not raw_id.startswith("ES-") and (norm_lid in (SD40K_LEAGUE_UUID, GAUNTLET_LEAGUE_UUID) or len(norm_lid) == 36)
+        key_id = norm_lid if is_league else raw_id
+
+        call_id = str(payload.get("call_id") or f"FLG-{uuid.uuid4().hex[:8].upper()}")
+        round_num = int(payload.get("round_number") or payload.get("round") or 1)
+        pod_num = int(payload.get("pod_number") or 1)
+        table_num = int(payload.get("table_number") or payload.get("table_num") or payload.get("table") or 1)
+        caller_name = str(payload.get("caller_name") or payload.get("player_name") or "Competitor").strip()
+        caller_pid = str(payload.get("caller_player_id") or payload.get("player_id") or "").strip()
+        opp_name = str(payload.get("opponent_name") or payload.get("opponent") or "").strip()
+        category = str(payload.get("category") or "Rules Question").strip()
+        priority = str(payload.get("priority") or ("urgent" if "Dispute" in category or "Clock" in category else "high")).strip()
+        note = str(payload.get("note") or payload.get("notes") or "").strip()
+
+        flag_obj = {
+            "call_id": call_id,
+            "id": call_id,
+            "entity_id": key_id,
+            "entity_type": "league" if is_league else "tournament",
+            "round_number": round_num,
+            "pod_number": pod_num,
+            "table_number": table_num,
+            "match_id": str(payload.get("match_id") or ""),
+            "caller_name": caller_name,
+            "caller_player_id": caller_pid,
+            "opponent_name": opp_name,
+            "category": category,
+            "priority": priority,
+            "note": note,
+            "status": "pending",
+            "assigned_judge": None,
+            "resolution_note": "",
+            "time_extension_minutes": 0,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "resolved_at": None,
+        }
+
+        store = self._load_ops_store()
+        flist = store.setdefault("flags", {}).setdefault(key_id, [])
+        flist.insert(0, flag_obj)
+        self._save_ops_store(store)
+
+        db = self._get_db()
+        if db:
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        self._ensure_unified_ops_tables(cur)
+                        cur.execute("""
+                            INSERT INTO native_event_judge_calls (
+                                call_id, entity_id, entity_type, round_number, pod_number,
+                                table_number, match_id, caller_name, caller_player_id,
+                                opponent_name, category, priority, note, status, created_at
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', NOW());
+                        """, (
+                            call_id, key_id, flag_obj["entity_type"], round_num, pod_num,
+                            table_num, flag_obj["match_id"], caller_name, caller_pid,
+                            opp_name, category, priority, note
+                        ))
+                    conn.commit()
+            except Exception as e:
+                logger.debug(f"create_unified_flag DB write fallback: {e}")
+
+        ops = self.get_unified_floor_ops(key_id)
+        ops["created_flag"] = flag_obj
+        return ops
+
+    def resolve_unified_flag(self, entity_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        raw_id = str(entity_id or payload.get("entity_id") or payload.get("event_id") or "").strip()
+        norm_lid = _normalize_league_id(raw_id)
+        is_league = not raw_id.startswith("ES-") and (norm_lid in (SD40K_LEAGUE_UUID, GAUNTLET_LEAGUE_UUID) or len(norm_lid) == 36)
+        key_id = norm_lid if is_league else raw_id
+
+        call_id = str(payload.get("call_id") or payload.get("id") or "").strip()
+        new_status = str(payload.get("status") or "resolved").strip().lower()
+        judge_name = str(payload.get("assigned_judge") or "Head Judge / TO").strip()
+        res_note = str(payload.get("resolution_note") or payload.get("note") or "").strip()
+        ext_min = int(payload.get("time_extension_minutes") or 0)
+        target_table = int(payload.get("table_number") or 1)
+
+        store = self._load_ops_store()
+        for f in store.get("flags", {}).get(key_id, []):
+            if f.get("call_id") == call_id or f.get("id") == call_id:
+                f["status"] = new_status
+                f["assigned_judge"] = judge_name
+                if res_note:
+                    f["resolution_note"] = res_note
+                if ext_min > 0:
+                    f["time_extension_minutes"] = ext_min
+                target_table = int(f.get("table_number") or target_table)
+                if new_status in ("resolved", "cancelled"):
+                    f["resolved_at"] = datetime.now(timezone.utc).isoformat()
+                break
+        self._save_ops_store(store)
+
+        db = self._get_db()
+        if db:
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        self._ensure_unified_ops_tables(cur)
+                        cur.execute("""
+                            UPDATE native_event_judge_calls
+                            SET status = %s,
+                                assigned_judge = %s,
+                                resolution_note = COALESCE(NULLIF(%s, ''), resolution_note),
+                                time_extension_minutes = GREATEST(COALESCE(time_extension_minutes, 0), %s),
+                                resolved_at = CASE WHEN %s IN ('resolved', 'cancelled') THEN NOW() ELSE resolved_at END
+                            WHERE call_id = %s
+                            RETURNING table_number;
+                        """, (new_status, judge_name, res_note, ext_min, new_status, call_id))
+                        r = cur.fetchone()
+                        if r and r[0]:
+                            target_table = int(r[0])
+                    conn.commit()
+            except Exception as e:
+                logger.debug(f"resolve_unified_flag DB write fallback: {e}")
+
+        if ext_min > 0:
+            self.update_unified_clock(key_id, {
+                "action": "extend_table",
+                "table_number": target_table,
+                "extra_minutes": ext_min,
+                "reason": res_note or f"Judge call {call_id} extension",
+            })
+
+        return self.get_unified_floor_ops(key_id)
+
+    def publish_unified_broadcast(self, entity_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        raw_id = str(entity_id or payload.get("entity_id") or "").strip()
+        norm_lid = _normalize_league_id(raw_id)
+        is_league = not raw_id.startswith("ES-") and (norm_lid in (SD40K_LEAGUE_UUID, GAUNTLET_LEAGUE_UUID) or len(norm_lid) == 36)
+        key_id = norm_lid if is_league else raw_id
+
+        b_id = str(payload.get("broadcast_id") or payload.get("id") or f"BRC-{uuid.uuid4().hex[:8].upper()}")
+        title = str(payload.get("title") or "Official TO Broadcast").strip()
+        message = str(payload.get("message") or payload.get("body") or "").strip()
+        category = str(payload.get("category") or "general").strip()
+        priority = str(payload.get("priority") or "high").strip()
+        target_scope = str(payload.get("target_scope") or payload.get("target_pod") or "All Pods").strip()
+        require_ack = bool(payload.get("require_ack", True))
+        is_pinned = bool(payload.get("is_pinned", True))
+        author_name = str(payload.get("author_name") or "Tournament Organizer").strip()
+
+        b_obj = {
+            "id": b_id,
+            "broadcast_id": b_id,
+            "entity_id": key_id,
+            "title": title,
+            "body": message,
+            "message": message,
+            "category": category,
+            "priority": priority,
+            "target_scope": target_scope,
+            "target_pod": target_scope,
+            "require_ack": require_ack,
+            "is_pinned": is_pinned,
+            "author_name": author_name,
+            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "ack_count": 0,
+            "acked_players": [],
+        }
+
+        store = self._load_ops_store()
+        blist = store.setdefault("broadcasts", {}).setdefault(key_id, [])
+        blist.insert(0, b_obj)
+        self._save_ops_store(store)
+
+        db = self._get_db()
+        if db:
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        self._ensure_unified_ops_tables(cur)
+                        cur.execute("""
+                            INSERT INTO native_event_broadcasts (
+                                broadcast_id, entity_id, entity_type, title, message,
+                                category, priority, target_scope, require_ack, is_pinned,
+                                author_name, created_at
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                            ON CONFLICT (broadcast_id) DO UPDATE SET
+                                title = EXCLUDED.title,
+                                message = EXCLUDED.message,
+                                priority = EXCLUDED.priority,
+                                require_ack = EXCLUDED.require_ack,
+                                is_pinned = EXCLUDED.is_pinned;
+                        """, (
+                            b_id, key_id, "league" if is_league else "tournament",
+                            title, message, category, priority, target_scope,
+                            require_ack, is_pinned, author_name
+                        ))
+                    conn.commit()
+            except Exception as e:
+                logger.debug(f"publish_unified_broadcast DB write fallback: {e}")
+
+        if is_league:
+            try:
+                self.save_league_announcement(key_id, {
+                    "id": b_id,
+                    "title": title,
+                    "body": message,
+                    "category": category,
+                    "priority": priority,
+                    "target_pod": target_scope,
+                    "is_pinned": is_pinned,
+                    "author_name": author_name,
+                })
+            except Exception:
+                pass
+
+        return self.get_unified_floor_ops(key_id)
+
+    def acknowledge_unified_broadcast(self, entity_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        raw_id = str(entity_id or payload.get("entity_id") or "").strip()
+        norm_lid = _normalize_league_id(raw_id)
+        is_league = not raw_id.startswith("ES-") and (norm_lid in (SD40K_LEAGUE_UUID, GAUNTLET_LEAGUE_UUID) or len(norm_lid) == 36)
+        key_id = norm_lid if is_league else raw_id
+
+        b_id = str(payload.get("broadcast_id") or payload.get("id") or "").strip()
+        player_id = str(payload.get("player_id") or payload.get("user_id") or "PLAYER_1").strip()
+        player_name = str(payload.get("player_name") or "Competitor").strip()
+
+        ack_entry = {
+            "player_id": player_id,
+            "player_name": player_name,
+            "acked_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        store = self._load_ops_store()
+        entity_acks = store.setdefault("acks", {}).setdefault(key_id, {})
+        b_acks = entity_acks.setdefault(b_id, [])
+        if not any(a.get("player_id") == player_id for a in b_acks):
+            b_acks.append(ack_entry)
+        self._save_ops_store(store)
+
+        db = self._get_db()
+        if db:
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        self._ensure_unified_ops_tables(cur)
+                        cur.execute("""
+                            INSERT INTO native_event_broadcast_acks (
+                                broadcast_id, entity_id, player_id, player_name, acked_at
+                            ) VALUES (%s, %s, %s, %s, NOW())
+                            ON CONFLICT (broadcast_id, player_id) DO UPDATE SET
+                                player_name = EXCLUDED.player_name,
+                                acked_at = NOW();
+                        """, (b_id, key_id, player_id, player_name))
+                    conn.commit()
+            except Exception as e:
+                logger.debug(f"acknowledge_unified_broadcast DB write fallback: {e}")
+
+        return self.get_unified_floor_ops(key_id)
 
 
 _GLOBAL_LEAGUES_SERVICE: Optional[LeaguesHubService] = None

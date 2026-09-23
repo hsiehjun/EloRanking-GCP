@@ -1228,6 +1228,85 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
             return
 
+        if clean_path == "api/eventstudio/unified/create":
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+                result = l_svc.create_unified_event(p_data)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/eventstudio/ops/"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            entity_id = urllib.parse.unquote(parts[3]) if len(parts) > 3 else ""
+            sub_action = "/".join(parts[4:]) if len(parts) > 4 else ""
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+                if sub_action == "clock":
+                    result = l_svc.update_unified_clock(entity_id, p_data)
+                elif sub_action == "flag":
+                    result = l_svc.create_unified_flag(entity_id, p_data)
+                elif sub_action == "flag/resolve":
+                    result = l_svc.resolve_unified_flag(entity_id, p_data)
+                elif sub_action == "broadcast":
+                    result = l_svc.publish_unified_broadcast(entity_id, p_data)
+                elif sub_action == "broadcast/ack":
+                    result = l_svc.acknowledge_unified_broadcast(entity_id, p_data)
+                else:
+                    result = l_svc.get_unified_floor_ops(entity_id)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and (
+            clean_path.endswith("/pairings/update")
+            or clean_path.endswith("/roster/update")
+            or clean_path.endswith("/announcements")
+            or clean_path.endswith("/season-schedule")
+        ):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = urllib.parse.unquote(parts[2])
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+                if clean_path.endswith("/pairings/update"):
+                    result = l_svc.update_pod_pairing_or_score(l_id, payload=p_data)
+                elif clean_path.endswith("/roster/update"):
+                    result = l_svc.update_pod_roster_and_discipline(l_id, payload=p_data)
+                elif clean_path.endswith("/announcements"):
+                    result = l_svc.save_league_announcement(l_id, payload=p_data)
+                else:
+                    result = l_svc.update_season_schedule_and_layouts(l_id, payload=p_data)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+            return
+
         if clean_path == "api/armylists/parse":
             try:
                 p_load = json.loads(body.decode("utf-8")) if body else {}
@@ -3283,6 +3362,19 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 }).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/eventstudio/ops/"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            entity_id = urllib.parse.unquote(parts[3]) if len(parts) > 3 else ""
+            ops_data = l_svc.get_unified_floor_ops(entity_id)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(ops_data).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/league/"):
             import leagues_hub_service
             l_svc = leagues_hub_service.get_leagues_hub_service()
@@ -5064,6 +5156,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             if fallback.is_file():
                 self._serve_file(fallback, is_head=is_head)
                 return
+
+        if clean_path in ("eventstudio", "eventstudio.html", "40k/eventstudio", "aos/eventstudio"):
+            self._serve_html_with_auth(WEB_DIR / "eventstudio.html", is_head)
+            return
 
         # 6. Direct file resolution in WEB_DIR
         local_web = WEB_DIR / clean_path

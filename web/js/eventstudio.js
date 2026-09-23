@@ -5001,45 +5001,14 @@ async function loadManagedStudioLeagues() {
           }
         } catch (_) {}
       }
-      if ((!leagues || leagues.length === 0) && isOwnerOrAdmin) {
-        leagues = [
-          {
-            league_id: '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90',
-            slug: 'sd40k',
-            name: 'San Diego Force Org League',
-            region: 'San Diego, CA',
-            venue_name: 'At Ease Games',
-            owner_user_id: 'user_john_hsieh_admin',
-            owner_player_id: 'MEV83VFANA',
-            owner_name: 'John Hsieh',
-            owner_email: 'hsiehjun@google.com',
-            registration_open: true,
-            active_season: 38,
-            pods_count: 8,
-            active_players: 68,
-            db_matched_players_count: 62
-          },
-          {
-            league_id: '7a9e4c1b-3d28-4f6a-9c1e-5b8d2a4f6c91',
-            slug: 'the-gauntlet',
-            name: 'The Gauntlet @ Brute Force Games',
-            region: 'San Diego, CA',
-            venue_name: 'Brute Force Games',
-            owner_user_id: 'user_john_hsieh_admin',
-            owner_player_id: 'MEV83VFANA',
-            owner_name: 'John Hsieh',
-            owner_email: 'hsiehjun@google.com',
-            registration_open: true,
-            active_season: 5,
-            pods_count: 3,
-            active_players: 28,
-            db_matched_players_count: 26
-          }
-        ];
-      }
     }
-    studioState.managedLeagues = leagues;
-    renderManagedStudioLeagues(leagues);
+    studioState.managedLeagues = leagues || [];
+    renderManagedStudioLeagues(studioState.managedLeagues);
+    if (Array.isArray(studioState.managedLeagues) && studioState.managedLeagues.length > 0 && typeof fetchUnifiedFloorOps === 'function') {
+      Promise.all(studioState.managedLeagues.map(l => fetchUnifiedFloorOps(l.league_id))).then(() => {
+        renderManagedStudioLeagues(studioState.managedLeagues);
+      }).catch(() => {});
+    }
   } catch (e) {
     console.debug('Notice loading managed studio leagues:', e);
   }
@@ -5051,7 +5020,19 @@ function renderManagedStudioLeagues(leagues) {
   if (!containers || containers.length === 0) return;
 
   if (!Array.isArray(leagues) || leagues.length === 0) {
-    containers.forEach(c => { c.innerHTML = ''; });
+    containers.forEach(c => {
+      c.innerHTML = `
+        <div style="margin-bottom: 1rem; padding: 1rem; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <h3 style="margin: 0; color: #fff; font-size: 1.05rem;">👑 Unified Event &amp; League Studio</h3>
+            <div style="font-size: 0.8rem; color: #94a3b8;">Launch a new Swiss GT, Multi-Day Major, Pod League, Ladder League, or Team WTC Event persisted in PostgreSQL.</div>
+          </div>
+          <button type="button" onclick="openUnifiedEventCreatorModal('pod_league')" class="btn btn-primary" style="font-size: 0.8rem; padding: 0.5rem 1rem; background: linear-gradient(135deg, #2563eb, #0284c7); border: 1px solid #38bdf8; font-weight: 800;">
+            ✨ + Unified Event / League Wizard
+          </button>
+        </div>
+      `;
+    });
     return;
   }
 
@@ -5060,14 +5041,17 @@ function renderManagedStudioLeagues(leagues) {
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
         <div>
           <h3 style="margin: 0; color: #fff; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;">
-            <span>👑 Your Managed Community Leagues</span>
+            <span>👑 Your Managed Community Leagues &amp; Events</span>
             <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 999px; font-size: 0.75rem; padding: 1px 8px; font-weight: 800;">${leagues.length}</span>
           </h3>
-          <span style="font-size: 0.8rem; color: var(--text-muted);">Leagues assigned to your account in <code style="color:#38bdf8;">native_leagues</code> (PostgreSQL) — Unified Community Pod League Engine</span>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Leagues &amp; live floor operations persisted in <code style="color:#38bdf8;">native_leagues</code> &amp; <code style="color:#34d399;">native_event_clocks</code> (PostgreSQL)</span>
         </div>
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          <button type="button" onclick="if (typeof openCopyLeagueTemplateModal === 'function') openCopyLeagueTemplateModal();" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.45rem 0.95rem; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: 1px solid #60a5fa; font-weight: 800; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);">
-            + Create Community League
+          <button type="button" id="es-open-unified-wizard-btn" onclick="openUnifiedEventCreatorModal('pod_league')" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.45rem 0.95rem; background: linear-gradient(135deg, #0284c7, #2563eb); border: 1px solid #38bdf8; font-weight: 800; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35);">
+            ✨ + Unified Event / League Wizard
+          </button>
+          <button type="button" onclick="if (typeof openCopyLeagueTemplateModal === 'function') openCopyLeagueTemplateModal();" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.95rem; border-color: rgba(96, 165, 250, 0.45); color: #93c5fd; font-weight: 800;">
+            + Clone League Template
           </button>
         </div>
       </div>
@@ -5079,20 +5063,20 @@ function renderManagedStudioLeagues(leagues) {
         const regOpen = Boolean(lg.registration_open);
         const ownerName = escapeHtml(lg.owner_name || lg.commissioner || 'John Hsieh');
         const ownerEmail = lg.owner_email ? ` (${escapeHtml(lg.owner_email)})` : '';
-        const totalCnt = Number(lg.active_players || (isGauntlet ? 28 : 68));
+        const totalCnt = Number(lg.active_players || 0);
         const matchedCnt = Number(lg.db_matched_players_count || totalCnt);
         const activeSeason = Number(lg.active_season || 1);
-        const podsCount = Number(lg.pods_count || 3);
+        const podsCount = Number(lg.pods_count || 1);
         const meth = lg.methodology || {};
-        const podMin = Number(meth.pod_size_min ?? (isGauntlet ? 8 : 6));
-        const podMax = Number(meth.pod_size_max ?? (isGauntlet ? 10 : 8));
+        const podMin = Number(meth.pod_size_min ?? 6);
+        const podMax = Number(meth.pod_size_max ?? 8);
         const promoCnt = Number(meth.promotion_count ?? 2);
         const relCnt = Number(meth.relegation_count ?? 2);
         const winBp = Number(meth.win_bp_bonus ?? 1000);
         const inPodRingerBp = Number(meth.in_pod_ringer_bonus_bp ?? 750);
         const outOfPodAllowed = meth.out_of_pod_ringer_allowed !== undefined ? Boolean(meth.out_of_pod_ringer_allowed) : true;
         const outOfPodRingerBp = Number(meth.out_of_pod_ringer_bonus_bp ?? 500);
-        const paintBp = Number(meth.paint_bonus_bp ?? (isGauntlet ? 10 : 0));
+        const paintBp = Number(meth.paint_bonus_bp ?? 0);
         const seasonWks = Number(meth.season_duration_weeks ?? 8);
         const gamesCnt = Number(meth.games_per_season ?? 5);
         const annList = Array.isArray(lg.announcements) ? lg.announcements : [];
@@ -5126,6 +5110,9 @@ function renderManagedStudioLeagues(leagues) {
                 <button type="button" onclick="openStudioLeagueCommandCenterModal('${lid}', 'announcements')" class="btn btn-primary" style="font-size: 0.76rem; padding: 0.4rem 0.85rem; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: 1px solid #60a5fa; font-weight: 800; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);">
                   🎛️ TO Command Center
                 </button>
+                <button type="button" onclick="openUnifiedFloorOpsModal('${lid}', 'flags')" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(239, 68, 68, 0.45); color: #f87171; font-weight: 700;">
+                  🚩 Live Floor &amp; Clocks
+                </button>
                 <button type="button" id="es-comm-toggle-reg-btn-${lid}" onclick="toggleStudioLeagueRegistration('${lid}', ${regOpen ? 'true' : 'false'})" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
                   ${regOpen ? '📡 Close Registration Window' : '📡 Open Registration Window'}
                 </button>
@@ -5137,6 +5124,8 @@ function renderManagedStudioLeagues(leagues) {
                 </button>
               </div>
             </div>
+
+            ${typeof renderUnifiedFloorCommandBar === 'function' ? renderUnifiedFloorCommandBar(lid) : ''}
 
             <!-- Quick TO Management Toolbar -->
             <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.75rem; padding: 0.55rem 0.75rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 8px; align-items: center;">
@@ -5837,6 +5826,8 @@ function renderStudioLeagueCommandCenterModal() {
         </div>
       </div>
 
+      ${typeof renderUnifiedFloorCommandBar === 'function' ? renderUnifiedFloorCommandBar(lid) : ''}
+
       <!-- Navigation Tabs -->
       <div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-bottom:1rem;">
         <button type="button" onclick="switchStudioLeagueCmdTab('announcements')" style="${tabBtnStyle('announcements')}">📢 Announcements &amp; Alerts (${anns.length})</button>
@@ -6198,6 +6189,676 @@ async function saveStudioLeagueRulesConfig(leagueId) {
 }
 window.saveStudioLeagueRulesConfig = saveStudioLeagueRulesConfig;
 
+// ============================================================================
+// PHASE 1 & PHASE 2: UNIFIED 4-STEP EVENT CREATION WIZARD & LIVE FLOOR COMMAND BAR
+// ============================================================================
+
+const _unifiedWizardState = {
+  step: 1,
+  format_preset: 'pod_league',
+  name: '',
+  game_system: '40k',
+  venue_name: 'At Ease Games',
+  city: 'San Diego',
+  state: 'CA',
+  points_limit: 2000,
+  start_date: '2026-10-01',
+  end_date: '2026-11-20',
+  rounds_count: 5,
+  round_duration_minutes: 180,
+  pod_size: 6,
+  pods_count: 4,
+  promotion_count: 2,
+  relegation_count: 2,
+  scoring_mode: 'battle_points',
+  ringer_enabled: true,
+  round_layouts: ['Layout A', 'Layout B', 'Layout C', 'Layout A', 'Layout B'],
+  initial_announcement: 'Welcome! Check your Pod/Round pairings and use the Raise Flag button if you need a Judge or Ringer.'
+};
+
+const _unifiedOpsCache = {};
+
+async function loadUnifiedFloorOps(entityId = '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90') {
+  if (!entityId) return null;
+  try {
+    const res = await fetch(`/api/eventstudio/ops/${encodeURIComponent(entityId)}`);
+    if (res.ok) {
+      const data = await res.json();
+      _unifiedOpsCache[entityId] = data;
+      const barContainer = document.getElementById(`unified-floor-bar-${entityId}`) || document.getElementById('unified-floor-bar-active');
+      if (barContainer) {
+        barContainer.innerHTML = buildUnifiedFloorCommandBarInnerHtml(entityId, data);
+      }
+      return data;
+    }
+  } catch (e) {
+    console.warn('Failed loading unified floor ops:', e);
+  }
+  return _unifiedOpsCache[entityId] || null;
+}
+window.loadUnifiedFloorOps = loadUnifiedFloorOps;
+
+function formatSecondsHms(totalSec) {
+  const s = Math.max(0, parseInt(totalSec || 0, 10));
+  const hrs = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function buildUnifiedFloorCommandBarInnerHtml(entityId, opsData) {
+  const ops = opsData || _unifiedOpsCache[entityId] || {};
+  const clock = ops.clock || { status: 'stopped', round_number: 1, duration_minutes: 180, remaining_seconds: 10800, table_extensions: {} };
+  const activeFlags = Array.isArray(ops.active_flags) ? ops.active_flags : [];
+  const allFlags = Array.isArray(ops.judge_calls) ? ops.judge_calls : [];
+  const broadcasts = Array.isArray(ops.broadcasts) ? ops.broadcasts : [];
+  const totalAcks = broadcasts.reduce((acc, b) => acc + Number(b.ack_count || 0), 0);
+  const extEntries = Object.values(clock.table_extensions || {});
+  const safeId = escapeHtml(String(entityId)).replace(/'/g, "\\'");
+
+  const statusColor = clock.status === 'running' ? '#10b981' : (clock.status === 'paused' ? '#f59e0b' : '#94a3b8');
+
+  return `
+    <div style="background:linear-gradient(135deg,rgba(15,23,42,0.96),rgba(2,6,23,0.96));border:1px solid rgba(56,189,248,0.4);border-radius:12px;padding:0.75rem 1rem;margin-bottom:0.9rem;box-shadow:0 10px 28px rgba(0,0,0,0.45);">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
+        <!-- Live Master Clock & Controls -->
+        <div style="display:flex;align-items:center;gap:0.65rem;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:0.45rem;background:rgba(2,6,23,0.9);border:1px solid ${statusColor};border-radius:8px;padding:0.35rem 0.7rem;">
+            <span style="width:8px;height:8px;border-radius:50%;background:${statusColor};display:inline-block;"></span>
+            <span style="font-size:0.7rem;color:#94a3b8;font-weight:800;text-transform:uppercase;">R${clock.round_number || 1} CLOCK</span>
+            <span id="unified-clock-readout-${safeId}" style="font-family:var(--font-mono,monospace);font-size:1.05rem;font-weight:900;color:#fff;letter-spacing:0.04em;">
+              ${formatSecondsHms(clock.remaining_seconds)}
+            </span>
+          </div>
+          <div style="display:flex;gap:0.3rem;flex-wrap:wrap;">
+            <button type="button" onclick="triggerUnifiedClockAction('${safeId}', '${clock.status === 'running' ? 'pause' : 'start'}')" class="btn btn-outline" style="font-size:0.72rem;padding:0.28rem 0.55rem;border-color:${clock.status === 'running' ? '#f59e0b' : '#10b981'};color:${clock.status === 'running' ? '#fbbf24' : '#34d399'};font-weight:800;">
+              ${clock.status === 'running' ? '⏸ Pause' : '▶ Start'}
+            </button>
+            <button type="button" onclick="triggerUnifiedClockAction('${safeId}', 'add_time', {delta_minutes: 5})" class="btn btn-outline" style="font-size:0.72rem;padding:0.28rem 0.5rem;border-color:rgba(56,189,248,0.4);color:#38bdf8;font-weight:700;">
+              +5m
+            </button>
+            <button type="button" onclick="triggerUnifiedClockAction('${safeId}', 'add_time', {delta_minutes: 15})" class="btn btn-outline" style="font-size:0.72rem;padding:0.28rem 0.5rem;border-color:rgba(56,189,248,0.4);color:#38bdf8;font-weight:700;">
+              +15m
+            </button>
+            <button type="button" onclick="triggerUnifiedClockAction('${safeId}', 'reset')" class="btn btn-outline" style="font-size:0.72rem;padding:0.28rem 0.5rem;border-color:rgba(148,163,184,0.35);color:#94a3b8;font-weight:700;">
+              ↺ Reset
+            </button>
+          </div>
+          ${extEntries.length > 0 ? `
+            <span style="background:rgba(168,85,247,0.18);border:1px solid rgba(168,85,247,0.45);color:#d8b4fe;font-size:0.7rem;padding:2px 8px;border-radius:999px;font-weight:700;">
+              ⏱️ ${extEntries.map(e => `${escapeHtml(e.table_key)}: +${e.extra_minutes}m`).join(' • ')}
+            </span>
+          ` : ''}
+        </div>
+
+        <!-- Judge Call / Flag Queue + Broadcast Ack Status + Unified Wizard CTA -->
+        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+          <button type="button" onclick="openUnifiedFloorOpsModal('${safeId}', 'flags')" class="btn btn-outline" style="font-size:0.74rem;padding:0.32rem 0.7rem;border-color:${activeFlags.length > 0 ? '#ef4444' : 'rgba(245,158,11,0.45)'};background:${activeFlags.length > 0 ? 'rgba(239,68,68,0.2)' : 'rgba(15,23,42,0.8)'};color:${activeFlags.length > 0 ? '#fca5a5' : '#fbbf24'};font-weight:800;">
+            🚩 ${activeFlags.length} Active Flag${activeFlags.length === 1 ? '' : 's'} (${allFlags.length} Total)
+          </button>
+          <button type="button" onclick="openUnifiedFloorOpsModal('${safeId}', 'broadcasts')" class="btn btn-outline" style="font-size:0.74rem;padding:0.32rem 0.7rem;border-color:rgba(16,185,129,0.45);color:#34d399;font-weight:800;">
+            📢 Broadcasts (${broadcasts.length}) • ✓ ${totalAcks} Acked
+          </button>
+          <button type="button" onclick="openUnifiedEventCreatorModal('pod_league')" class="btn btn-primary" style="font-size:0.74rem;padding:0.32rem 0.75rem;background:linear-gradient(135deg,#2563eb,#0ea5e9);border:1px solid #38bdf8;color:#fff;font-weight:800;">
+            ✨ + Unified Event / League Wizard
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderUnifiedFloorCommandBar(entityId = '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90') {
+  const safeId = escapeHtml(String(entityId));
+  setTimeout(() => { loadUnifiedFloorOps(entityId); }, 30);
+  return `<div id="unified-floor-bar-${safeId}">${buildUnifiedFloorCommandBarInnerHtml(entityId, _unifiedOpsCache[entityId])}</div>`;
+}
+window.renderUnifiedFloorCommandBar = renderUnifiedFloorCommandBar;
+
+async function triggerUnifiedClockAction(entityId, action, extraPayload = {}) {
+  try {
+    const res = await fetch(`/api/eventstudio/ops/${encodeURIComponent(entityId)}/clock`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...extraPayload })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      _unifiedOpsCache[entityId] = data;
+      const barContainer = document.getElementById(`unified-floor-bar-${entityId}`);
+      if (barContainer) {
+        barContainer.innerHTML = buildUnifiedFloorCommandBarInnerHtml(entityId, data);
+      }
+      if (document.getElementById('unified-floor-ops-modal')?.style.display === 'flex') {
+        renderUnifiedFloorOpsModalContent(entityId);
+      }
+      if (typeof showToast === 'function') {
+        showToast(`⏱️ Master Clock updated (${action.toUpperCase()})`);
+      }
+    }
+  } catch (e) {
+    console.error('Error updating unified clock:', e);
+  }
+}
+window.triggerUnifiedClockAction = triggerUnifiedClockAction;
+
+let _activeFloorOpsTab = 'flags';
+let _activeFloorOpsEntityId = '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90';
+
+async function openUnifiedFloorOpsModal(entityId = '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90', tab = 'flags') {
+  _activeFloorOpsEntityId = entityId;
+  _activeFloorOpsTab = tab || 'flags';
+  let modal = document.getElementById('unified-floor-ops-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'unified-floor-ops-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10065;background:rgba(2,6,23,0.88);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:1rem;overflow-y:auto;';
+    document.body.appendChild(modal);
+  }
+  modal.style.display = 'flex';
+  await loadUnifiedFloorOps(entityId);
+  renderUnifiedFloorOpsModalContent(entityId);
+}
+window.openUnifiedFloorOpsModal = openUnifiedFloorOpsModal;
+
+function closeUnifiedFloorOpsModal() {
+  const modal = document.getElementById('unified-floor-ops-modal');
+  if (modal) modal.style.display = 'none';
+}
+window.closeUnifiedFloorOpsModal = closeUnifiedFloorOpsModal;
+
+function renderUnifiedFloorOpsModalContent(entityId = _activeFloorOpsEntityId) {
+  const modal = document.getElementById('unified-floor-ops-modal');
+  if (!modal) return;
+  const ops = _unifiedOpsCache[entityId] || {};
+  const flags = Array.isArray(ops.judge_calls) ? ops.judge_calls : [];
+  const broadcasts = Array.isArray(ops.broadcasts) ? ops.broadcasts : [];
+  const safeId = escapeHtml(String(entityId)).replace(/'/g, "\\'");
+
+  modal.innerHTML = `
+    <div style="background:#0f172a;border:1px solid rgba(56,189,248,0.5);border-radius:14px;max-width:920px;width:100%;padding:1.35rem;color:#f8fafc;box-shadow:0 25px 60px rgba(0,0,0,0.8);max-height:90vh;overflow-y:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.65rem;padding-bottom:0.85rem;border-bottom:1px solid rgba(255,255,255,0.1);">
+        <div>
+          <h3 style="margin:0;font-size:1.15rem;font-weight:900;color:#fff;">🚨 Live Floor Command &amp; Player Interaction Console</h3>
+          <div style="font-size:0.76rem;color:#94a3b8;margin-top:0.2rem;">Real-time PostgreSQL Judge Calls, Table Time Extensions &amp; Broadcast Acknowledgements</div>
+        </div>
+        <div style="display:flex;gap:0.45rem;">
+          <button type="button" onclick="_activeFloorOpsTab='flags';renderUnifiedFloorOpsModalContent('${safeId}')" class="btn btn-outline" style="font-size:0.76rem;padding:0.35rem 0.75rem;border-color:${_activeFloorOpsTab === 'flags' ? '#ef4444' : 'rgba(255,255,255,0.15)'};color:${_activeFloorOpsTab === 'flags' ? '#fca5a5' : '#94a3b8'};font-weight:800;">
+            🚩 Table Flags &amp; Judge Calls (${flags.length})
+          </button>
+          <button type="button" onclick="_activeFloorOpsTab='broadcasts';renderUnifiedFloorOpsModalContent('${safeId}')" class="btn btn-outline" style="font-size:0.76rem;padding:0.35rem 0.75rem;border-color:${_activeFloorOpsTab === 'broadcasts' ? '#10b981' : 'rgba(255,255,255,0.15)'};color:${_activeFloorOpsTab === 'broadcasts' ? '#34d399' : '#94a3b8'};font-weight:800;">
+            📢 Broadcasts &amp; Player Acks (${broadcasts.length})
+          </button>
+          <button type="button" onclick="closeUnifiedFloorOpsModal()" class="btn btn-outline" style="font-size:0.76rem;padding:0.35rem 0.65rem;color:#cbd5e1;">✕ Close</button>
+        </div>
+      </div>
+
+      ${_activeFloorOpsTab === 'flags' ? `
+        <div style="margin-top:1rem;display:grid;grid-template-columns:1fr 1.35fr;gap:1rem;">
+          <!-- Raise New Table Flag / Judge Call -->
+          <div style="background:rgba(2,6,23,0.75);border:1px solid rgba(239,68,68,0.35);border-radius:10px;padding:0.95rem;">
+            <div style="font-size:0.86rem;font-weight:800;color:#fca5a5;margin-bottom:0.65rem;">🚩 Raise Table Flag / Judge Assistance Call</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:0.55rem;">
+              <div>
+                <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;">Table / Pod #</label>
+                <input id="uf-flag-table" type="number" min="1" max="99" value="1" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.8rem;">
+              </div>
+              <div>
+                <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;">Category</label>
+                <select id="uf-flag-category" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.8rem;">
+                  <option value="Rules Question">⚖️ Rules Question</option>
+                  <option value="Clock / Chess Timer">⏱️ Clock / Chess Timer</option>
+                  <option value="Terrain / Measurement">📐 Terrain / Measurement</option>
+                  <option value="Score Dispute">🚨 Score Dispute</option>
+                  <option value="Unresponsive Opponent / Request Ringer">🃏 Request Ringer / Schedule Help</option>
+                </select>
+              </div>
+            </div>
+            <div style="margin-bottom:0.55rem;">
+              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;">Caller / Player Name</label>
+              <input id="uf-flag-caller" type="text" placeholder="e.g., Mattister" value="${escapeHtml((typeof currentUser !== 'undefined' && currentUser?.display_name) || 'Mattister')}" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.8rem;">
+            </div>
+            <div style="margin-bottom:0.65rem;">
+              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;">Situation / Note</label>
+              <textarea id="uf-flag-note" rows="2" placeholder="Describe rule interaction, line-of-sight check, or clock extension request..." style="width:100%;padding:0.45rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.8rem;"></textarea>
+            </div>
+            <button type="button" onclick="submitUnifiedTableFlag('${safeId}')" class="btn btn-primary" style="width:100%;background:linear-gradient(135deg,#ef4444,#dc2626);border:1px solid #f87171;color:#fff;font-weight:800;font-size:0.8rem;padding:0.5rem;">
+              🚩 Submit Table Flag to TO Queue
+            </button>
+          </div>
+
+          <!-- Active & Historical Flag Triage Queue -->
+          <div style="background:rgba(2,6,23,0.75);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:0.95rem;max-height:420px;overflow-y:auto;">
+            <div style="font-size:0.86rem;font-weight:800;color:#e2e8f0;margin-bottom:0.65rem;">📋 Judge Call &amp; Table Flag Triage Queue (${flags.length})</div>
+            ${flags.length === 0 ? `<div style="color:#94a3b8;font-size:0.8rem;padding:1.2rem 0;text-align:center;">Zero active table flags. All tables running smoothly!</div>` : flags.map(f => {
+              const cid = escapeHtml(f.call_id || f.id);
+              const isOpen = f.status === 'pending' || f.status === 'en_route';
+              return `
+                <div style="background:rgba(15,23,42,0.9);border:1px solid ${isOpen ? 'rgba(239,68,68,0.5)' : 'rgba(16,185,129,0.35)'};border-radius:8px;padding:0.7rem;margin-bottom:0.55rem;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                    <div>
+                      <span style="background:${isOpen ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)'};color:${isOpen ? '#fca5a5' : '#34d399'};font-size:0.66rem;font-weight:800;padding:2px 6px;border-radius:4px;text-transform:uppercase;">${escapeHtml(f.status)}</span>
+                      <strong style="color:#fff;font-size:0.82rem;margin-left:0.3rem;">Table #${f.table_number} • ${escapeHtml(f.category)}</strong>
+                    </div>
+                    <span style="font-size:0.7rem;color:#94a3b8;">Caller: <strong style="color:#38bdf8;">${escapeHtml(f.caller_name)}</strong></span>
+                  </div>
+                  ${f.note ? `<div style="font-size:0.76rem;color:#cbd5e1;margin-top:0.35rem;">"${escapeHtml(f.note)}"</div>` : ''}
+                  ${f.time_extension_minutes > 0 ? `<div style="font-size:0.7rem;color:#d8b4fe;margin-top:0.25rem;font-weight:700;">⏱️ Granted +${f.time_extension_minutes}m Table Time Extension</div>` : ''}
+                  ${isOpen ? `
+                    <div style="display:flex;gap:0.4rem;margin-top:0.5rem;flex-wrap:wrap;">
+                      <button type="button" onclick="resolveUnifiedTableFlag('${safeId}', '${cid}', 'en_route', 0)" class="btn btn-outline" style="font-size:0.7rem;padding:2px 8px;border-color:#f59e0b;color:#fbbf24;font-weight:700;">🏃 Judge En Route</button>
+                      <button type="button" onclick="resolveUnifiedTableFlag('${safeId}', '${cid}', 'resolved', 0)" class="btn btn-outline" style="font-size:0.7rem;padding:2px 8px;border-color:#10b981;color:#34d399;font-weight:700;">✓ Resolve</button>
+                      <button type="button" onclick="resolveUnifiedTableFlag('${safeId}', '${cid}', 'resolved', 10)" class="btn btn-outline" style="font-size:0.7rem;padding:2px 8px;border-color:#a855f7;color:#d8b4fe;font-weight:700;">✓ Resolve +10m Table Clock</button>
+                    </div>
+                  ` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      ` : `
+        <div style="margin-top:1rem;display:grid;grid-template-columns:1fr 1.35fr;gap:1rem;">
+          <div style="background:rgba(2,6,23,0.75);border:1px solid rgba(16,185,129,0.35);border-radius:10px;padding:0.95rem;">
+            <div style="font-size:0.86rem;font-weight:800;color:#34d399;margin-bottom:0.65rem;">📢 Publish Broadcast with Player Acknowledgement</div>
+            <div style="margin-bottom:0.55rem;">
+              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;">Headline *</label>
+              <input id="uf-brc-title" type="text" placeholder="e.g., Round 2 Pairings Live — 15 Minutes to Table Check-In" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.8rem;">
+            </div>
+            <div style="margin-bottom:0.55rem;">
+              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;">Message Body *</label>
+              <textarea id="uf-brc-body" rows="3" placeholder="Enter official ruling, schedule notice, or pairing instructions..." style="width:100%;padding:0.45rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.8rem;"></textarea>
+            </div>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.75rem;color:#cbd5e1;margin-bottom:0.65rem;cursor:pointer;">
+              <input id="uf-brc-ack" type="checkbox" checked>
+              <span>Require Player One-Tap Acknowledgement (✓ Ack Receipt)</span>
+            </label>
+            <button type="button" onclick="submitUnifiedBroadcast('${safeId}')" class="btn btn-primary" style="width:100%;background:linear-gradient(135deg,#10b981,#059669);border:1px solid #34d399;color:#fff;font-weight:800;font-size:0.8rem;padding:0.5rem;">
+              📢 Broadcast to All Players
+            </button>
+          </div>
+          <div style="background:rgba(2,6,23,0.75);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:0.95rem;max-height:420px;overflow-y:auto;">
+            <div style="font-size:0.86rem;font-weight:800;color:#e2e8f0;margin-bottom:0.65rem;">📋 Active Broadcasts &amp; Player Receipts (${broadcasts.length})</div>
+            ${broadcasts.map(b => {
+              const bid = escapeHtml(b.broadcast_id || b.id);
+              return `
+                <div style="background:rgba(15,23,42,0.9);border:1px solid rgba(56,189,248,0.35);border-radius:8px;padding:0.7rem;margin-bottom:0.55rem;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:0.4rem;">
+                    <strong style="color:#fff;font-size:0.82rem;">${escapeHtml(b.title)}</strong>
+                    <span style="background:rgba(16,185,129,0.2);border:1px solid rgba(16,185,129,0.45);color:#34d399;font-size:0.68rem;font-weight:800;padding:2px 7px;border-radius:999px;">
+                      ✓ ${Number(b.ack_count || 0)} Acked
+                    </span>
+                  </div>
+                  <div style="font-size:0.76rem;color:#cbd5e1;margin-top:0.3rem;">${escapeHtml(b.body || b.message || '')}</div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.45rem;">
+                    <span style="font-size:0.68rem;color:#64748b;">Target: ${escapeHtml(b.target_scope || 'All')}</span>
+                    <button type="button" onclick="acknowledgeBroadcastNotice('${safeId}', '${bid}')" class="btn btn-outline" style="font-size:0.7rem;padding:2px 8px;border-color:#34d399;color:#34d399;font-weight:700;">
+                      ✓ Acknowledge Notice
+                    </button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `}
+    </div>
+  `;
+}
+
+async function submitUnifiedTableFlag(entityId) {
+  const table_number = Number(document.getElementById('uf-flag-table')?.value || 1);
+  const category = document.getElementById('uf-flag-category')?.value || 'Rules Question';
+  const caller_name = (document.getElementById('uf-flag-caller')?.value || 'Competitor').trim();
+  const note = (document.getElementById('uf-flag-note')?.value || '').trim();
+
+  const res = await fetch(`/api/eventstudio/ops/${encodeURIComponent(entityId)}/flag`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table_number, category, caller_name, note })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    _unifiedOpsCache[entityId] = data;
+    renderUnifiedFloorOpsModalContent(entityId);
+    const bar = document.getElementById(`unified-floor-bar-${entityId}`);
+    if (bar) bar.innerHTML = buildUnifiedFloorCommandBarInnerHtml(entityId, data);
+    if (typeof showToast === 'function') showToast(`🚩 Table #${table_number} flag raised (${category})`);
+  }
+}
+window.submitUnifiedTableFlag = submitUnifiedTableFlag;
+
+async function resolveUnifiedTableFlag(entityId, callId, status, timeExtensionMinutes = 0) {
+  const res = await fetch(`/api/eventstudio/ops/${encodeURIComponent(entityId)}/flag/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      call_id: callId,
+      status,
+      time_extension_minutes: timeExtensionMinutes,
+      assigned_judge: (typeof currentUser !== 'undefined' && currentUser?.display_name) || 'Head Judge / TO'
+    })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    _unifiedOpsCache[entityId] = data;
+    renderUnifiedFloorOpsModalContent(entityId);
+    const bar = document.getElementById(`unified-floor-bar-${entityId}`);
+    if (bar) bar.innerHTML = buildUnifiedFloorCommandBarInnerHtml(entityId, data);
+    if (typeof showToast === 'function') {
+      showToast(`✅ Flag ${callId} marked ${status.toUpperCase()}${timeExtensionMinutes > 0 ? ` (+${timeExtensionMinutes}m clock extension)` : ''}`);
+    }
+  }
+}
+window.resolveUnifiedTableFlag = resolveUnifiedTableFlag;
+
+async function submitUnifiedBroadcast(entityId) {
+  const title = (document.getElementById('uf-brc-title')?.value || '').trim();
+  const message = (document.getElementById('uf-brc-body')?.value || '').trim();
+  const require_ack = Boolean(document.getElementById('uf-brc-ack')?.checked);
+  if (!title || !message) {
+    if (typeof showToast === 'function') showToast('Please enter both a Headline and Message Body');
+    return;
+  }
+  const res = await fetch(`/api/eventstudio/ops/${encodeURIComponent(entityId)}/broadcast`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title,
+      message,
+      require_ack,
+      priority: 'high',
+      author_name: (typeof currentUser !== 'undefined' && currentUser?.display_name) || 'Tournament Organizer'
+    })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    _unifiedOpsCache[entityId] = data;
+    renderUnifiedFloorOpsModalContent(entityId);
+    const bar = document.getElementById(`unified-floor-bar-${entityId}`);
+    if (bar) bar.innerHTML = buildUnifiedFloorCommandBarInnerHtml(entityId, data);
+    if (typeof showToast === 'function') showToast('📢 Broadcast published & synced to PostgreSQL!');
+  }
+}
+window.submitUnifiedBroadcast = submitUnifiedBroadcast;
+
+async function acknowledgeBroadcastNotice(entityId, broadcastId, explicitPlayerName = null) {
+  const player_name = explicitPlayerName || (typeof currentUser !== 'undefined' && currentUser?.display_name) || 'John Hsieh';
+  const player_id = (typeof currentUser !== 'undefined' && (currentUser?.player_id || currentUser?.id)) || 'MEV83VFANA';
+  const res = await fetch(`/api/eventstudio/ops/${encodeURIComponent(entityId)}/broadcast/ack`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ broadcast_id: broadcastId, player_id, player_name })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    _unifiedOpsCache[entityId] = data;
+    if (document.getElementById('unified-floor-ops-modal')?.style.display === 'flex') {
+      renderUnifiedFloorOpsModalContent(entityId);
+    }
+    const bar = document.getElementById(`unified-floor-bar-${entityId}`);
+    if (bar) bar.innerHTML = buildUnifiedFloorCommandBarInnerHtml(entityId, data);
+    const ackBtn = document.getElementById(`ack-btn-${broadcastId}`);
+    if (ackBtn) {
+      const updatedB = (data.broadcasts || []).find(b => (b.broadcast_id || b.id) === broadcastId);
+      ackBtn.textContent = `✓ Acked (${updatedB ? updatedB.ack_count : 1})`;
+      ackBtn.style.background = 'rgba(16,185,129,0.25)';
+    }
+    if (typeof showToast === 'function') showToast(`✓ Acknowledged notice (${player_name})`);
+  }
+}
+window.acknowledgeBroadcastNotice = acknowledgeBroadcastNotice;
+
+// ============================================================================
+// UNIFIED 4-STEP EVENT & LEAGUE CREATION WIZARD
+// ============================================================================
+
+function openUnifiedEventCreatorModal(defaultPreset = 'pod_league') {
+  _unifiedWizardState.step = 1;
+  if (defaultPreset) _unifiedWizardState.format_preset = defaultPreset;
+  let modal = document.getElementById('unified-event-creator-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'unified-event-creator-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10070;background:rgba(2,6,23,0.88);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:1rem;overflow-y:auto;';
+    document.body.appendChild(modal);
+  }
+  modal.style.display = 'flex';
+  renderUnifiedEventCreatorStep();
+}
+window.openUnifiedEventCreatorModal = openUnifiedEventCreatorModal;
+
+function closeUnifiedEventCreatorModal() {
+  const modal = document.getElementById('unified-event-creator-modal');
+  if (modal) modal.style.display = 'none';
+}
+window.closeUnifiedEventCreatorModal = closeUnifiedEventCreatorModal;
+
+function selectUnifiedFormatPreset(preset) {
+  _unifiedWizardState.format_preset = preset;
+  if (preset === 'pod_league') {
+    _unifiedWizardState.rounds_count = 5;
+    _unifiedWizardState.pod_size = 6;
+    _unifiedWizardState.pods_count = 4;
+    _unifiedWizardState.scoring_mode = 'battle_points';
+  } else if (preset === 'swiss_single_day') {
+    _unifiedWizardState.rounds_count = 3;
+    _unifiedWizardState.round_duration_minutes = 165;
+    _unifiedWizardState.scoring_mode = 'wld_vp';
+  } else if (preset === 'multi_day_gt') {
+    _unifiedWizardState.rounds_count = 5;
+    _unifiedWizardState.round_duration_minutes = 180;
+    _unifiedWizardState.scoring_mode = 'wld_vp';
+  } else if (preset === 'team_wtc') {
+    _unifiedWizardState.rounds_count = 5;
+    _unifiedWizardState.scoring_mode = 'wtc_20_0';
+  }
+  renderUnifiedEventCreatorStep();
+}
+window.selectUnifiedFormatPreset = selectUnifiedFormatPreset;
+
+function goToUnifiedWizardStep(nextStep) {
+  const nameEl = document.getElementById('uw-name');
+  if (nameEl) _unifiedWizardState.name = nameEl.value.trim();
+  const venueEl = document.getElementById('uw-venue');
+  if (venueEl) _unifiedWizardState.venue_name = venueEl.value.trim();
+  const cityEl = document.getElementById('uw-city');
+  if (cityEl) _unifiedWizardState.city = cityEl.value.trim();
+  const ptsEl = document.getElementById('uw-points');
+  if (ptsEl) _unifiedWizardState.points_limit = Number(ptsEl.value || 2000);
+  const startEl = document.getElementById('uw-start-date');
+  if (startEl) _unifiedWizardState.start_date = startEl.value;
+  const endEl = document.getElementById('uw-end-date');
+  if (endEl) _unifiedWizardState.end_date = endEl.value;
+  const rndEl = document.getElementById('uw-rounds');
+  if (rndEl) _unifiedWizardState.rounds_count = Number(rndEl.value || 5);
+  const durEl = document.getElementById('uw-duration');
+  if (durEl) _unifiedWizardState.round_duration_minutes = Number(durEl.value || 180);
+  const podSzEl = document.getElementById('uw-pod-size');
+  if (podSzEl) _unifiedWizardState.pod_size = Number(podSzEl.value || 6);
+  const podsCntEl = document.getElementById('uw-pods-count');
+  if (podsCntEl) _unifiedWizardState.pods_count = Number(podsCntEl.value || 4);
+
+  _unifiedWizardState.step = Math.max(1, Math.min(4, Number(nextStep || 1)));
+  renderUnifiedEventCreatorStep();
+}
+window.goToUnifiedWizardStep = goToUnifiedWizardStep;
+
+function renderUnifiedEventCreatorStep() {
+  const modal = document.getElementById('unified-event-creator-modal');
+  if (!modal) return;
+  const s = _unifiedWizardState;
+  const isLeague = s.format_preset === 'pod_league' || s.format_preset === 'ladder_league';
+
+  const presets = [
+    { id: 'pod_league', icon: '🛡️', title: 'Pod Division League', desc: '6–8 player skill pods, 2-Up/2-Down promotion & relegation' },
+    { id: 'swiss_single_day', icon: '⚡', title: 'Swiss Single-Day RTT', desc: '3 rounds, 1-day Swiss tables with live round clock' },
+    { id: 'multi_day_gt', icon: '🏆', title: 'Multi-Day Grand Tournament', desc: '5–8 rounds, Day 2 cut / bracket pods & stream tables' },
+    { id: 'ladder_league', icon: '📈', title: 'Open Challenge Ladder', desc: 'Flexible weekly challenge matches & Elo/BP leaderboard' },
+    { id: 'team_wtc', icon: '🤝', title: 'Team WTC Event (5v5 / 8v8)', desc: 'Defender/Attacker captain pairing matrix & 20-0 differential' }
+  ];
+
+  modal.innerHTML = `
+    <div style="background:#0f172a;border:1px solid rgba(56,189,248,0.5);border-radius:14px;max-width:860px;width:100%;padding:1.4rem;color:#f8fafc;box-shadow:0 25px 65px rgba(0,0,0,0.85);">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:0.85rem;border-bottom:1px solid rgba(255,255,255,0.1);">
+        <div>
+          <h3 style="margin:0;font-size:1.18rem;font-weight:900;color:#fff;">✨ Unified Event Studio Creation Wizard</h3>
+          <div style="font-size:0.76rem;color:#94a3b8;margin-top:0.2rem;">Step ${s.step} of 4 • One Seamless Flow for Tournaments &amp; Multi-Season Leagues (100% PostgreSQL Backed)</div>
+        </div>
+        <button type="button" onclick="closeUnifiedEventCreatorModal()" class="btn btn-outline" style="font-size:0.75rem;padding:0.3rem 0.65rem;">✕ Close</button>
+      </div>
+
+      <!-- Step Progress Pills -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.45rem;margin:0.9rem 0;">
+        ${[
+          [1, '1. Format & Identity'],
+          [2, '2. Cadence & Clocks'],
+          [3, '3. Pods & Terrain'],
+          [4, '4. Scoring & Launch']
+        ].map(([num, label]) => `
+          <button type="button" onclick="goToUnifiedWizardStep(${num})" style="padding:0.45rem;border-radius:8px;border:1px solid ${s.step === num ? '#38bdf8' : 'rgba(255,255,255,0.1)'};background:${s.step === num ? 'rgba(56,189,248,0.2)' : 'rgba(2,6,23,0.6)'};color:${s.step === num ? '#fff' : '#94a3b8'};font-size:0.75rem;font-weight:800;cursor:pointer;">
+            ${label}
+          </button>
+        `).join('')}
+      </div>
+
+      ${s.step === 1 ? `
+        <div style="margin-bottom:0.85rem;">
+          <div style="font-size:0.78rem;font-weight:800;color:#38bdf8;margin-bottom:0.45rem;">Select Competitive Format Preset</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0.5rem;">
+            ${presets.map(p => `
+              <div onclick="selectUnifiedFormatPreset('${p.id}')" style="cursor:pointer;padding:0.65rem;border-radius:9px;border:1px solid ${s.format_preset === p.id ? '#38bdf8' : 'rgba(255,255,255,0.1)'};background:${s.format_preset === p.id ? 'rgba(37,99,235,0.25)' : 'rgba(2,6,23,0.75)'};">
+                <div style="font-size:1.1rem;">${p.icon}</div>
+                <div style="font-size:0.78rem;font-weight:800;color:#fff;margin-top:0.2rem;">${p.title}</div>
+                <div style="font-size:0.68rem;color:#94a3b8;margin-top:0.15rem;line-height:1.3;">${p.desc}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:0.65rem;margin-bottom:0.65rem;">
+          <div>
+            <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;">Event / League Official Name *</label>
+            <input id="uw-name" type="text" value="${escapeHtml(s.name)}" placeholder="e.g., SoCal Force Org Champions League — Season 39" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.2);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;">Points Limit</label>
+            <input id="uw-points" type="number" value="${s.points_limit}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.2);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1.5fr 1fr 0.6fr;gap:0.65rem;">
+          <div>
+            <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;">Primary Venue / Store</label>
+            <input id="uw-venue" type="text" value="${escapeHtml(s.venue_name)}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.2);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;">City</label>
+            <input id="uw-city" type="text" value="${escapeHtml(s.city)}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.2);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;">State</label>
+            <input id="uw-state" type="text" value="${escapeHtml(s.state)}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.2);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+        </div>
+      ` : s.step === 2 ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+          <div>
+            <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;">Start Date</label>
+            <input id="uw-start-date" type="date" value="${escapeHtml(s.start_date)}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.2);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;">End Date</label>
+            <input id="uw-end-date" type="date" value="${escapeHtml(s.end_date)}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.2);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;">Total Rounds / Match Weeks</label>
+            <input id="uw-rounds" type="number" min="3" max="12" value="${s.rounds_count}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.2);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;">Master Round Clock Duration (Minutes)</label>
+            <input id="uw-duration" type="number" min="60" max="300" value="${s.round_duration_minutes}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.2);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+        </div>
+      ` : s.step === 3 ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+          <div>
+            <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;">Players Per Pod / Division Size</label>
+            <input id="uw-pod-size" type="number" min="4" max="32" value="${s.pod_size}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.2);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;">Number of Divisions / Pods</label>
+            <input id="uw-pods-count" type="number" min="1" max="16" value="${s.pods_count}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.2);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+        </div>
+        <div style="font-size:0.76rem;color:#38bdf8;font-weight:800;margin-bottom:0.4rem;">Per-Round Official Terrain Layouts</div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.45rem;">
+          ${[0,1,2,3,4].map(i => `
+            <input type="text" value="${escapeHtml(s.round_layouts[i] || `Layout ${['A','B','C','A','B'][i]}`)}" onchange="_unifiedWizardState.round_layouts[${i}]=this.value" style="padding:0.4rem;background:#020617;border:1px solid rgba(56,189,248,0.35);border-radius:6px;color:#fff;font-size:0.78rem;">
+          `).join('')}
+        </div>
+      ` : `
+        <div style="background:rgba(2,6,23,0.75);border:1px solid rgba(16,185,129,0.4);border-radius:10px;padding:0.95rem;margin-bottom:0.75rem;">
+          <div style="font-size:0.88rem;font-weight:800;color:#34d399;margin-bottom:0.4rem;">🚀 Ready to Launch ${isLeague ? 'Native Community League' : 'Native Studio Tournament'}</div>
+          <div style="font-size:0.78rem;color:#cbd5e1;line-height:1.5;">
+            • <strong>Format Preset:</strong> ${escapeHtml(s.format_preset.toUpperCase())}<br>
+            • <strong>Name:</strong> ${escapeHtml(s.name || 'New Competitive Event')} (${s.points_limit} pts)<br>
+            • <strong>Schedule &amp; Clock:</strong> ${escapeHtml(s.start_date)} to ${escapeHtml(s.end_date)} (${s.rounds_count} Rounds @ ${s.round_duration_minutes}m Clock)<br>
+            • <strong>Live Floor Command Bar:</strong> Enabled (Master Clock, Judge Flag Triage Queue, &amp; Player Ack Broadcasts)
+          </div>
+        </div>
+      `}
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.1rem;padding-top:0.85rem;border-top:1px solid rgba(255,255,255,0.1);">
+        ${s.step > 1 ? `
+          <button type="button" onclick="goToUnifiedWizardStep(${s.step - 1})" class="btn btn-outline" style="font-size:0.8rem;padding:0.45rem 0.9rem;">← Previous Step</button>
+        ` : `<div></div>`}
+        ${s.step < 4 ? `
+          <button type="button" onclick="goToUnifiedWizardStep(${s.step + 1})" class="btn btn-primary" style="font-size:0.8rem;padding:0.45rem 1.1rem;background:linear-gradient(135deg,#2563eb,#0ea5e9);border:1px solid #38bdf8;color:#fff;font-weight:800;">Next Step →</button>
+        ` : `
+          <button type="button" onclick="submitUnifiedEventCreation()" class="btn btn-primary" style="font-size:0.82rem;padding:0.5rem 1.25rem;background:linear-gradient(135deg,#10b981,#059669);border:1px solid #34d399;color:#fff;font-weight:900;">
+            🚀 Create &amp; Open Unified TO Workspace
+          </button>
+        `}
+      </div>
+    </div>
+  `;
+}
+window.renderUnifiedEventCreatorStep = renderUnifiedEventCreatorStep;
+
+async function submitUnifiedEventCreation() {
+  const s = _unifiedWizardState;
+  const payload = {
+    ...s,
+    name: s.name || (s.format_preset.includes('league') ? 'SoCal Premier Pod League' : 'SoCal Tactical RTT'),
+    owner_user_id: (typeof currentUser !== 'undefined' && currentUser?.id) || 'user_john_hsieh_admin',
+    owner_player_id: (typeof currentUser !== 'undefined' && currentUser?.player_id) || 'MEV83VFANA',
+    owner_name: (typeof currentUser !== 'undefined' && currentUser?.display_name) || 'John Hsieh'
+  };
+
+  try {
+    const res = await fetch('/api/eventstudio/unified/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      closeUnifiedEventCreatorModal();
+      if (typeof loadManagedStudioLeagues === 'function') await loadManagedStudioLeagues();
+      if (typeof loadStudioEvents === 'function') await loadStudioEvents();
+      if (typeof showToast === 'function') {
+        showToast(`🎉 Created ${data.entity_type === 'league' ? 'League' : 'Tournament'}: ${payload.name}`);
+      }
+      if (data.entity_type === 'league' && data.league_id) {
+        openStudioLeagueCommandCenterModal(data.league_id, 'announcements');
+      }
+      return data;
+    }
+  } catch (e) {
+    console.error('Error submitting unified event creation:', e);
+  }
+  return null;
+}
+window.submitUnifiedEventCreation = submitUnifiedEventCreation;
+
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     if (typeof loadManagedStudioLeagues === 'function') {
@@ -6205,5 +6866,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, 150);
 });
+
 
 
