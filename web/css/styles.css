@@ -15137,6 +15137,97 @@ table.desktop-only,
     color: #38bdf8 !important;
     border-color: rgba(56, 189, 248, 0.45) !important;
   }
+
+  /* Event Studio: Create Tournament Form & Managed Leagues Mobile Fixes */
+  #es-view-create .es-form-card,
+  .es-form-card {
+    padding: 1.1rem 0.9rem !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  #es-view-create .form-grid,
+  .es-form-card .form-grid {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 0.85rem !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  #es-view-create .form-group,
+  .es-form-card .form-group {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  #es-view-create .form-input,
+  #es-view-create select,
+  #es-view-create input,
+  .es-form-card .form-input,
+  .es-form-card select,
+  .es-form-card input {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    text-overflow: ellipsis !important;
+  }
+
+  /* Managed Community Leagues Card inside Event Studio on Mobile */
+  #es-managed-leagues-container .card {
+    padding: 0.95rem 0.85rem !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  #es-managed-leagues-container .card .btn {
+    flex: 1 1 calc(50% - 0.35rem) !important;
+    justify-content: center !important;
+    text-align: center !important;
+    min-width: 120px !important;
+  }
+
+  /* Community & Events Top Location/Radius Bar Mobile Fix */
+  .comm-radius-control-box {
+    flex-shrink: 0 !important;
+  }
+  #comm-radius-select,
+  select[id*="radius"] {
+    width: auto !important;
+    min-width: 96px !important;
+    max-width: 108px !important;
+    padding: 0.35rem 1.25rem 0.35rem 0.45rem !important;
+    font-size: 0.75rem !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Ensure icon-only action buttons (e.g. delete trash button) meet minimum mobile width */
+  .es-event-card button.btn,
+  button[onclick*="deleteStudioTournament"],
+  button[onclick*="delete"] {
+    min-width: 36px !important;
+    min-height: 32px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  /* Retribution Armory Modal Header Mobile Alignment */
+  .armory-modal-header {
+    position: relative !important;
+    padding-right: 2.5rem !important;
+  }
+  .armory-modal-header .modal-close {
+    position: absolute !important;
+    top: 0.75rem !important;
+    right: 0.75rem !important;
+    margin: 0 !important;
+  }
 }
 
 

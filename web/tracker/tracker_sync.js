@@ -3039,17 +3039,36 @@
     }
     hud.dataset.sig = sig;
 
+    const isMobileHud = window.innerWidth <= 480;
+    const rawMatchStr = String(clientState.matchId || '').replace(/^(WH40K-|AOS-)/i, '');
+    const compactMatchId = isMobileHud
+      ? (rawMatchStr.split('-').pop() || rawMatchStr.slice(-6))
+      : clientState.matchId;
+
+    const compactName = (nameStr) => {
+      if (!isMobileHud || !nameStr) return nameStr;
+      const clean = String(nameStr).replace(/\s*\(You\)/i, '').trim();
+      if (/^waiting/i.test(clean)) return 'P2...';
+      const parts = clean.split(/\s+/);
+      if (parts.length >= 2 && clean.length > 10) {
+        return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+      }
+      return clean.length > 11 ? clean.slice(0, 10) + '…' : clean;
+    };
+    const hudP1Display = isMobileHud ? compactName(p1Display) : p1Display;
+    const hudP2Display = isMobileHud ? compactName(p2Display) : p2Display;
+
     hud.innerHTML = `
       <!-- Left: Hub & Lobby Navigation & Match Tag -->
-      <div style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
-        <a href="/#my-hub" style="display:inline-flex; align-items:center; gap:3px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:800; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
+      <div style="display:inline-flex; align-items:center; gap:5px; flex-shrink:0;">
+        <a href="/#my-hub" style="display:inline-flex; align-items:center; gap:3px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:800; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:4px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
           🏠 Hub
         </a>
-        <a href="/11th/tracker" onclick="if(window.__showGtLoadingOverlay) window.__showGtLoadingOverlay('🎲 Entering Game Tracker Lobby', 'Loading active tabletop rooms & match history...');" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
+        <a href="/11th/tracker" onclick="if(window.__showGtLoadingOverlay) window.__showGtLoadingOverlay('🎲 Entering Game Tracker Lobby', 'Loading active tabletop rooms & match history...');" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
           🎲 Lobby
         </a>
-        <span style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:4px 7px; border-radius:6px; border:1px solid #334155; font-weight:800;">
-          #${clientState.matchId}${tableNum ? ` (T${tableNum})` : ''}
+        <span style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:10.5px; background:#070b14; padding:4px 6px; border-radius:6px; border:1px solid #334155; font-weight:800; white-space:nowrap;">
+          #${compactMatchId}${tableNum ? ` (T${tableNum})` : ''}
         </span>
         ${isSpectator ? `
           <span style="font-family:'JetBrains Mono',monospace; color:#cbd5e1; font-size:11px; background:rgba(100,116,139,0.25); border:1px solid rgba(148,163,184,0.3); padding:4px 8px; border-radius:6px; font-weight:800; display:inline-flex; align-items:center; gap:4px;">
@@ -3070,11 +3089,11 @@
       </div>
 
       <!-- Center: Connected Players Matchup -->
-      <div style="display:inline-flex; align-items:center; gap:6px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:11px; padding:0 6px; flex-shrink:0;">
+      <div style="display:inline-flex; align-items:center; gap:4px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:10.5px; padding:0 2px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
         <span style="width:7px; height:7px; border-radius:50%; background:${statusDotColor}; ${statusDotPulse}; flex-shrink:0;"></span>
-        <span style="color:#38bdf8;">${p1Display}</span>
+        <span style="color:#38bdf8; overflow:hidden; text-overflow:ellipsis;">${hudP1Display}</span>
         <span style="color:#64748b; font-size:10px;">vs</span>
-        <span style="${isP2Ready ? 'color:#10b981;' : 'color:#94a3b8; font-style:italic;'}">${p2Display}</span>
+        <span style="${isP2Ready ? 'color:#10b981;' : 'color:#94a3b8; font-style:italic;'} overflow:hidden; text-overflow:ellipsis;">${hudP2Display}</span>
       </div>
 
       <!-- Right: Action Buttons (Desktop / Wide Screen) -->
@@ -3201,7 +3220,7 @@
       </button>
       <button type="button" class="gt-dock-btn" style="background:rgba(79,70,229,0.15); border-color:rgba(99,102,241,0.4); color:#a5b4fc;" onclick="window.__openScorecardModal()" title="View Scorecard">
         <span class="gt-dock-icon">📄</span>
-        <span class="gt-dock-label">Scorecard</span>
+        <span class="gt-dock-label">Card</span>
       </button>
       <button type="button" class="gt-dock-btn" style="background:${hasOppList || hasMyList ? 'rgba(16,185,129,0.15)' : 'rgba(30,41,59,0.5)'}; border-color:${hasOppList || hasMyList ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}; color:${hasOppList || hasMyList ? '#34d399' : '#94a3b8'};" onclick="window.gtOpenArmyListModal(hasOppList ? 'opponent' : 'my')" title="View Army Lists">
         <span class="gt-dock-icon">📋</span>
