@@ -1925,7 +1925,6 @@ class LeaguesHubService:
         if not name:
             raise ValueError("League name is required")
 
-        preset = (payload.get("preset_type") or payload.get("template_id") or "sd40k_pod_league").strip()
         raw_slug = (payload.get("slug") or re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")).strip()
         if not raw_slug:
             raw_slug = f"league-{str(uuid.uuid4())[:8]}"
@@ -1939,40 +1938,46 @@ class LeaguesHubService:
         tagline = (payload.get("tagline") or f"{region} Competitive {game_system.upper()} Pod League").strip()
 
         duration_weeks = int(payload.get("duration_weeks") or payload.get("weeks") or 8)
-        games_per_season = int(payload.get("games_per_season") or payload.get("rounds") or 5)
+        games_per_season = int(payload.get("games_per_season") or payload.get("rounds_count") or payload.get("rounds") or 5)
         min_games_required = int(payload.get("min_games_required") or 3)
         points_limit = int(payload.get("points_limit") or 2000)
 
-        is_gauntlet_style = (preset == "gauntlet_pod_league")
-        pod_size_min = int(payload.get("pod_size_min") or (8 if is_gauntlet_style else 6))
-        pod_size_max = int(payload.get("pod_size_max") or (10 if is_gauntlet_style else 8))
-        win_bonus_bp = int(payload.get("win_bonus_bp") if payload.get("win_bonus_bp") is not None else 1000)
-        draw_bonus_bp = int(payload.get("draw_bonus_bp") if payload.get("draw_bonus_bp") is not None else 500)
-        paint_bonus_bp = int(payload.get("paint_bonus_bp") if payload.get("paint_bonus_bp") is not None else (10 if is_gauntlet_style else 0))
-        in_pod_ringer_bonus_bp = int(payload.get("in_pod_ringer_bonus_bp") if payload.get("in_pod_ringer_bonus_bp") is not None else (1000 if is_gauntlet_style else 750))
-        out_of_pod_allowed = bool(payload.get("out_of_pod_ringer_allowed")) if "out_of_pod_ringer_allowed" in payload else is_gauntlet_style
+        pod_size_min = int(payload.get("pod_size_min") or 6)
+        pod_size_max = int(payload.get("pod_size_max") or 8)
+        win_bonus_bp = int(payload.get("win_bonus_bp", payload.get("win_bp_bonus", 1000)))
+        draw_bonus_bp = int(payload.get("draw_bonus_bp", payload.get("draw_bp_bonus", 500)))
+        paint_bonus_bp = int(
+            payload.get("paint_bonus_bp")
+            if payload.get("paint_bonus_bp") is not None
+            else (10 if payload.get("paint_score_included") else 0)
+        )
+        in_pod_ringer_bonus_bp = int(payload.get("in_pod_ringer_bonus_bp", payload.get("ringer_win_bp_bonus", 750)))
+        out_of_pod_allowed = bool(payload.get("out_of_pod_ringer_allowed", True))
         out_of_pod_ringer_bonus_bp = int(payload.get("out_of_pod_ringer_bonus_bp") if payload.get("out_of_pod_ringer_bonus_bp") is not None else (500 if out_of_pod_allowed else 0))
         promotion_count = int(payload.get("promotion_count") if payload.get("promotion_count") is not None else 2)
         relegation_count = int(payload.get("relegation_count") if payload.get("relegation_count") is not None else 2)
-        has_playoff_finals = bool(payload.get("has_playoff_finals")) if "has_playoff_finals" in payload else (not is_gauntlet_style)
-        has_poty_points = bool(payload.get("has_poty_points")) if "has_poty_points" in payload else (not is_gauntlet_style)
-        entry_fee = (payload.get("entry_fee") or ("$20 (or Store Credit)" if is_gauntlet_style else "Patreon / Table Fee")).strip()
-        venue_name = (payload.get("venue_name") or ("Brute Force Games" if is_gauntlet_style else "At Ease Games")).strip()
+        finals_bracket_size = int(payload.get("finals_bracket_size") if payload.get("finals_bracket_size") is not None else 8)
+        has_playoff_finals = bool(payload.get("has_playoff_finals")) if "has_playoff_finals" in payload else (finals_bracket_size > 0)
+        has_poty_points = bool(payload.get("has_poty_points", True))
+        enable_disciplinary_cards = bool(payload.get("enable_disciplinary_cards", payload.get("discipline_mode") != "ringer_replace"))
+        entry_fee = (payload.get("entry_fee") or "$20 (or Store Credit / Table Fee)").strip()
+        partner_venues_in = payload.get("partner_venues")
+        venue_name = (
+            payload.get("venue_name")
+            or (partner_venues_in[0].get("name") if isinstance(partner_venues_in, list) and partner_venues_in and isinstance(partner_venues_in[0], dict) else "")
+            or "Local Host Game Store"
+        ).strip()
         venue_address = (payload.get("venue_address") or f"{city}, {state}").strip()
         prizing_desc = (payload.get("prizing_description") or (
-            "Top 2 players in every pod receive Store Credit prizing + next season pod promotion"
-            if is_gauntlet_style else
-            "Top 2 promote / Bottom 2 relegate + Single-Elimination Championship Finals"
+            f"Top {promotion_count} promote / Bottom {relegation_count} relegate"
+            + (f" + {finals_bracket_size}-Player Championship Playoff Finals" if has_playoff_finals and finals_bracket_size > 0 else " + Seasonal Pod Store Credit Prizing")
         )).strip()
 
-        custom_pod_names = payload.get("pod_names")
+        custom_pod_names = payload.get("custom_pod_names") or payload.get("pod_names")
         if isinstance(custom_pod_names, str):
             custom_pod_names = [x.strip() for x in custom_pod_names.split(",") if x.strip()]
         if not custom_pod_names or not isinstance(custom_pod_names, list):
-            if is_gauntlet_style:
-                custom_pod_names = ["Pod 1 - Avatars of War", "Pod 2 - Battle Hardened", "Pod 3 - Blooded"]
-            else:
-                custom_pod_names = ["Pod 1 - Premier Division", "Pod 2 - Challenger Division", "Pod 3 - Vanguard Division"]
+            custom_pod_names = ["Pod 1 - Premier Division", "Pod 2 - Challenger Division", "Pod 3 - Vanguard Division"]
 
         initial_pods_count = max(1, int(payload.get("initial_pods_count") or len(custom_pod_names) or 3))
         owner_uid = (payload.get("owner_user_id") or "").strip() or None
@@ -1981,7 +1986,7 @@ class LeaguesHubService:
         owner_name = (payload.get("owner_name") or payload.get("commissioner") or "League Commissioner").strip()
 
         methodology_obj = {
-            "preset_type": preset,
+            "format_engine": "community_pod_league",
             "title": f"{name} Pod & Progression System",
             "summary": f"An {duration_weeks}-week season with {games_per_season} scheduled games in skill-matched pods of {pod_size_min}–{pod_size_max} players (+{win_bonus_bp} BP win bonus, minimum {min_games_required} games required).",
             "points_limit": points_limit,
@@ -1990,12 +1995,35 @@ class LeaguesHubService:
             "min_games_required": min_games_required,
             "pod_size_min": pod_size_min,
             "pod_size_max": pod_size_max,
+            "win_bp_bonus": win_bonus_bp,
+            "win_bonus_bp": win_bonus_bp,
+            "draw_bp_bonus": draw_bonus_bp,
+            "draw_bonus_bp": draw_bonus_bp,
+            "paint_bonus_bp": paint_bonus_bp,
+            "paint_score_included": paint_bonus_bp > 0,
+            "in_pod_ringer_bonus_bp": in_pod_ringer_bonus_bp,
+            "ringer_win_bp_bonus": in_pod_ringer_bonus_bp,
+            "out_of_pod_ringer_allowed": out_of_pod_allowed,
+            "out_of_pod_ringer_bonus_bp": out_of_pod_ringer_bonus_bp,
+            "promotion_count": promotion_count,
+            "relegation_count": relegation_count,
+            "finals_bracket_size": finals_bracket_size,
+            "has_playoff_finals": has_playoff_finals,
+            "has_poty_points": has_poty_points,
+            "enable_disciplinary_cards": enable_disciplinary_cards,
+            "custom_pod_names": custom_pod_names,
             "entry_fee": entry_fee,
-            "scoring_rule": "sd40k_1000_bonus",
+            "scoring_rule": "community_pod_bp",
             "scoring_breakdown": {
-                "win": f"Actual Game VP + {win_bonus_bp:,} Bonus Battle Points" + (f" (+{paint_bonus_bp} pts Paint Score)" if paint_bonus_bp > 0 else ""),
+                "win": f"Actual Game VP + {win_bonus_bp:,} Bonus Battle Points" + (f" (+{paint_bonus_bp} VP Battle Ready Paint)" if paint_bonus_bp > 0 else ""),
                 "draw": f"Actual Game VP + {draw_bonus_bp:,} Bonus Battle Points",
                 "loss": "Actual Game VP + 0 Bonus Battle Points (0–100 VP)",
+                "paint_bonus": f"+{paint_bonus_bp} VP Battle Ready Paint Score included" if paint_bonus_bp > 0 else "Standard Game VP (0–100)",
+                "ringer_win": (
+                    f"In-Pod Ringer: +{in_pod_ringer_bonus_bp:,} BP Win Bonus • Out-of-Pod Ringer: +{out_of_pod_ringer_bonus_bp:,} BP Win Bonus"
+                    if out_of_pod_allowed else
+                    f"In-Pod Ringer: +{in_pod_ringer_bonus_bp:,} BP Win Bonus (Out-of-Pod counts for GP only)"
+                ),
                 "in_pod_ringer_win": f"Actual Game VP + {in_pod_ringer_bonus_bp:,} Bonus Battle Points (vs unassigned podmate)",
                 "out_of_pod_ringer_win": (
                     f"Actual Game VP + {out_of_pod_ringer_bonus_bp:,} Bonus Battle Points (vs different-pod opponent)"
@@ -2025,11 +2053,7 @@ class LeaguesHubService:
                 "red_card": f"Repeat season with <{min_games_required} games results in a Red Card (sit out 1 season).",
                 "black_card": "3 Red Cards or severe sportsmanship violation results in league removal."
             },
-            "chess_clock_policy": payload.get("clock_policy") or (
-                "Optional by mutual agreement when scheduling the match (1.5–2 hrs per player)."
-                if is_gauntlet_style else
-                "Mandatory in Pods 1–3 if requested 24h prior; mutual agreement in lower pods."
-            ),
+            "chess_clock_policy": payload.get("clock_policy") or "Mandatory in upper pods if requested 24h prior; optional by mutual agreement in other pods (1.5–2 hrs per player).",
             "tiebreakers": [
                 f"1. Total Battle Points (Win +{win_bonus_bp} / Draw +{draw_bonus_bp} + Game VP)",
                 "2. Total Wins",
@@ -2077,39 +2101,108 @@ class LeaguesHubService:
             "has_poty_points": has_poty_points
         }
 
-        with db.get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO native_leagues (
-                        id, slug, name, game_system, region, active_season_num,
-                        total_players, total_pods, recurring_seasons, registration_open,
-                        owner_user_id, owner_player_id, owner_email, owner_name, config_json
-                    ) VALUES (%s, %s, %s, %s, %s, 1, 0, %s, TRUE, TRUE, %s, %s, %s, %s, %s::jsonb)
-                    RETURNING id;
-                """, (
-                    new_lid, raw_slug, name, game_system, region, initial_pods_count,
-                    owner_uid, owner_pid, owner_email, owner_name, json.dumps(config_obj)
-                ))
-                cur.execute("""
-                    INSERT INTO native_league_seasons (
-                        id, league_id, season_num, name, status, duration_weeks, rounds_count,
-                        total_players, total_pods, is_historical, season_config_json
-                    ) VALUES (%s, %s, 1, 'Season 1 (Inaugural)', 'active', %s, %s, 0, %s, FALSE, %s::jsonb);
-                """, (str(uuid.uuid4()), new_lid, duration_weeks, games_per_season, initial_pods_count, json.dumps(season_cfg)))
+        pods_payload = []
+        for p_idx in range(initial_pods_count):
+            p_num = p_idx + 1
+            p_name = custom_pod_names[p_idx] if p_idx < len(custom_pod_names) else f"Pod #{p_num}"
+            pods_payload.append({
+                "pod_number": p_num,
+                "name": p_name,
+                "pod_name": p_name,
+                "tier": "Premier Division" if p_num == 1 else f"Division {p_num}",
+                "round_layouts": season_cfg["round_layouts"],
+                "player_count": 0,
+                "standings": [],
+                "matches": []
+            })
 
-                for p_idx in range(initial_pods_count):
-                    p_num = p_idx + 1
-                    p_name = custom_pod_names[p_idx] if p_idx < len(custom_pod_names) else f"Pod #{p_num}"
-                    cur.execute("""
-                        INSERT INTO native_league_pods (
-                            id, league_id, season_num, pod_num, name, tier, round_layouts, player_count
-                        ) VALUES (%s, %s, 1, %s, %s, %s, %s::jsonb, 0);
-                    """, (
-                        str(uuid.uuid4()), new_lid, p_num, p_name,
-                        "Premier Division" if p_num == 1 else f"Division {p_num}",
-                        json.dumps(season_cfg["round_layouts"])
-                    ))
-            conn.commit()
+        # Populate offline cache immediately so in-memory / fallback mode works seamlessly
+        if not hasattr(self, "_offline_league_cache"):
+            self._offline_league_cache = {}
+        self._offline_league_cache[new_lid] = {
+            "league_id": new_lid,
+            "id": new_lid,
+            "slug": raw_slug,
+            "name": name,
+            "short_name": short_name,
+            "tagline": tagline,
+            "game_system": game_system,
+            "region": region,
+            "city": city,
+            "state": state,
+            "country": "USA",
+            "active_season_num": 1,
+            "total_players": 0,
+            "total_pods": initial_pods_count,
+            "recurring_seasons": True,
+            "registration_open": True,
+            "owner_user_id": owner_uid,
+            "owner_player_id": owner_pid,
+            "owner_email": owner_email,
+            "owner_name": owner_name,
+            "commissioners": config_obj["commissioners"],
+            "partner_venues": config_obj["partner_venues"],
+            "methodology": methodology_obj,
+            "active_season": {
+                "season_number": 1,
+                "name": "Season 1 (Inaugural)",
+                "status": "active",
+                "duration_weeks": duration_weeks,
+                "rounds_count": games_per_season,
+                "total_players": 0,
+                "total_pods": initial_pods_count,
+                "pods": pods_payload
+            },
+            "available_seasons": [{
+                "season_number": 1,
+                "name": "Season 1 (Inaugural)",
+                "status": "active",
+                "total_pods": initial_pods_count,
+                "total_players": 0,
+                "pod_champion": None
+            }],
+            "announcements": [],
+            "announcements_count": 0,
+            "hall_of_fame": {"finals_champions": [], "leaderboards": {}}
+        }
+
+        if db is not None:
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            INSERT INTO native_leagues (
+                                id, slug, name, game_system, region, active_season_num,
+                                total_players, total_pods, recurring_seasons, registration_open,
+                                owner_user_id, owner_player_id, owner_email, owner_name, config_json
+                            ) VALUES (%s, %s, %s, %s, %s, 1, 0, %s, TRUE, TRUE, %s, %s, %s, %s, %s::jsonb)
+                            RETURNING id;
+                        """, (
+                            new_lid, raw_slug, name, game_system, region, initial_pods_count,
+                            owner_uid, owner_pid, owner_email, owner_name, json.dumps(config_obj)
+                        ))
+                        cur.execute("""
+                            INSERT INTO native_league_seasons (
+                                id, league_id, season_num, name, status, duration_weeks, rounds_count,
+                                total_players, total_pods, is_historical, season_config_json
+                            ) VALUES (%s, %s, 1, 'Season 1 (Inaugural)', 'active', %s, %s, 0, %s, FALSE, %s::jsonb);
+                        """, (str(uuid.uuid4()), new_lid, duration_weeks, games_per_season, initial_pods_count, json.dumps(season_cfg)))
+
+                        for p_idx in range(initial_pods_count):
+                            p_num = p_idx + 1
+                            p_name = custom_pod_names[p_idx] if p_idx < len(custom_pod_names) else f"Pod #{p_num}"
+                            cur.execute("""
+                                INSERT INTO native_league_pods (
+                                    id, league_id, season_num, pod_num, name, tier, round_layouts, player_count
+                                ) VALUES (%s, %s, 1, %s, %s, %s, %s::jsonb, 0);
+                            """, (
+                                str(uuid.uuid4()), new_lid, p_num, p_name,
+                                "Premier Division" if p_num == 1 else f"Division {p_num}",
+                                json.dumps(season_cfg["round_layouts"])
+                            ))
+                    conn.commit()
+            except Exception as db_err:
+                logger.warning(f"create_league DB write fallback to cache: {db_err}")
 
         return {
             "success": True,
@@ -2119,37 +2212,119 @@ class LeaguesHubService:
         }
 
     def update_league_config(self, league_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Updates a league's methodology, pod sizing, ringer rules, and scoring parameters in PostgreSQL."""
+        """Updates a league's unified methodology, pod sizing, custom pod names, ringer rules, promotion/relegation, and scoring parameters in PostgreSQL."""
         db = _get_db()
         lid = _normalize_league_id(league_id)
         league = self.get_league(lid)
         if not league:
             raise ValueError(f"League '{league_id}' not found")
 
-        with db.get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT config_json, active_season_num FROM native_leagues WHERE id = %s;", (lid,))
-                row = cur.fetchone()
-                cfg = row[0] if (row and isinstance(row[0], dict)) else (json.loads(row[0]) if (row and row[0]) else {})
-                s_num = int(row[1] or 1) if row else 1
+        meth = dict(league.get("methodology") or {})
+        meth["format_engine"] = "community_pod_league"
+        meth["format_type"] = "community_pod_league"
 
-                meth = cfg.get("methodology") or {}
-                for k in (
-                    "preset_type", "title", "summary", "points_limit", "season_duration_weeks",
-                    "games_per_season", "min_games_required", "pod_size_min", "pod_size_max",
-                    "entry_fee", "chess_clock_policy"
-                ):
-                    if k in payload and payload[k] is not None:
-                        meth[k] = payload[k]
+        # Normalize aliases from UI forms
+        win_bp = payload.get("win_bonus_bp", payload.get("win_bp_bonus"))
+        draw_bp = payload.get("draw_bonus_bp", payload.get("draw_bp_bonus"))
+        in_ringer_bp = payload.get("in_pod_ringer_bonus_bp", payload.get("ringer_win_bp_bonus"))
+        out_ringer_allowed = payload.get("out_of_pod_ringer_allowed")
+        out_ringer_bp = payload.get("out_of_pod_ringer_bonus_bp")
+        paint_bp = payload.get("paint_bonus_bp")
+        if paint_bp is None and "paint_score_included" in payload:
+            paint_bp = 10 if payload.get("paint_score_included") else 0
 
-                if "ringer_policy" in payload and isinstance(payload["ringer_policy"], dict):
-                    meth["ringer_policy"] = {**(meth.get("ringer_policy") or {}), **payload["ringer_policy"]}
-                if "scoring_breakdown" in payload and isinstance(payload["scoring_breakdown"], dict):
-                    meth["scoring_breakdown"] = {**(meth.get("scoring_breakdown") or {}), **payload["scoring_breakdown"]}
+        if win_bp is not None:
+            meth["win_bp_bonus"] = int(win_bp)
+            meth["win_bonus_bp"] = int(win_bp)
+        if draw_bp is not None:
+            meth["draw_bp_bonus"] = int(draw_bp)
+            meth["draw_bonus_bp"] = int(draw_bp)
+        if in_ringer_bp is not None:
+            meth["ringer_win_bp_bonus"] = int(in_ringer_bp)
+            meth["in_pod_ringer_bonus_bp"] = int(in_ringer_bp)
+        if out_ringer_allowed is not None:
+            meth["out_of_pod_ringer_allowed"] = bool(out_ringer_allowed)
+        if out_ringer_bp is not None:
+            meth["out_of_pod_ringer_bonus_bp"] = int(out_ringer_bp)
+        if paint_bp is not None:
+            meth["paint_bonus_bp"] = int(paint_bp)
+            meth["paint_score_included"] = int(paint_bp) > 0
 
-                cfg["methodology"] = meth
-                cur.execute("UPDATE native_leagues SET config_json = %s::jsonb, updated_at = NOW() WHERE id = %s;", (json.dumps(cfg), lid))
-            conn.commit()
+        for k in (
+            "title", "summary", "points_limit", "season_duration_weeks",
+            "games_per_season", "min_games_required", "pod_size_min", "pod_size_max",
+            "promotion_count", "relegation_count", "finals_bracket_size",
+            "has_playoff_finals", "has_poty_points", "enable_disciplinary_cards",
+            "entry_fee", "chess_clock_policy", "custom_pod_names"
+        ):
+            if k in payload and payload[k] is not None:
+                meth[k] = payload[k]
+
+        # Rebuild human-readable scoring breakdown so the Rules tab reflects changes immediately
+        w_val = int(meth.get("win_bp_bonus", meth.get("win_bonus_bp", 1000)))
+        d_val = int(meth.get("draw_bp_bonus", meth.get("draw_bonus_bp", 500)))
+        p_val = int(meth.get("paint_bonus_bp", 10 if meth.get("paint_score_included") else 0))
+        ir_val = int(meth.get("in_pod_ringer_bonus_bp", meth.get("ringer_win_bp_bonus", 750)))
+        or_allowed = bool(meth.get("out_of_pod_ringer_allowed", True))
+        or_val = int(meth.get("out_of_pod_ringer_bonus_bp", 500))
+        sb = meth.get("scoring_breakdown") if isinstance(meth.get("scoring_breakdown"), dict) else {}
+        sb["win"] = f"Actual Game VP + {w_val:,} Bonus Battle Points" + (f" (+{p_val} VP Battle Ready Paint)" if p_val > 0 else "")
+        sb["draw"] = f"Actual Game VP + {d_val:,} Bonus Battle Points"
+        sb["loss"] = "Actual Game VP + 0 Bonus Battle Points (0–100 VP)"
+        sb["paint_bonus"] = f"+{p_val} VP Battle Ready Paint Score included" if p_val > 0 else "Standard Game VP (0–100)"
+        sb["ringer_win"] = (
+            f"In-Pod Ringer: +{ir_val:,} BP Win Bonus • Out-of-Pod Ringer: +{or_val:,} BP Win Bonus"
+            if or_allowed else
+            f"In-Pod Ringer: +{ir_val:,} BP Win Bonus (Out-of-Pod counts for GP only)"
+        )
+        meth["scoring_breakdown"] = sb
+
+        if "ringer_policy" in payload:
+            if isinstance(payload["ringer_policy"], dict):
+                meth["ringer_policy"] = {**(meth.get("ringer_policy") if isinstance(meth.get("ringer_policy"), dict) else {}), **payload["ringer_policy"]}
+            elif isinstance(payload["ringer_policy"], str) and payload["ringer_policy"].strip():
+                meth["ringer_policy_summary"] = payload["ringer_policy"].strip()
+
+        if "promotion_relegation_rules" in payload:
+            if isinstance(payload["promotion_relegation_rules"], dict):
+                meth["promotion_relegation_rules"] = payload["promotion_relegation_rules"]
+            elif isinstance(payload["promotion_relegation_rules"], str) and payload["promotion_relegation_rules"].strip():
+                meth["promotion_relegation_summary"] = payload["promotion_relegation_rules"].strip()
+
+        custom_names = payload.get("custom_pod_names")
+        if isinstance(custom_names, list) and custom_names:
+            meth["custom_pod_names"] = custom_names
+            act_pods = (league.get("active_season") or {}).get("pods") or []
+            for idx, pod_title in enumerate(custom_names, start=1):
+                if pod_title and idx <= len(act_pods):
+                    act_pods[idx - 1]["name"] = str(pod_title).strip()
+                    act_pods[idx - 1]["pod_name"] = str(pod_title).strip()
+
+        league["methodology"] = meth
+        if not hasattr(self, "_offline_league_cache"):
+            self._offline_league_cache = {}
+        self._offline_league_cache[lid] = league
+
+        if db is not None:
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT config_json, active_season_num FROM native_leagues WHERE id = %s;", (lid,))
+                        row = cur.fetchone()
+                        cfg = row[0] if (row and isinstance(row[0], dict)) else (json.loads(row[0]) if (row and row[0]) else {})
+                        s_num = int(row[1] or 1) if row else 1
+                        cfg["methodology"] = meth
+                        if isinstance(custom_names, list) and custom_names:
+                            for idx, pod_title in enumerate(custom_names, start=1):
+                                if pod_title:
+                                    cur.execute(
+                                        "UPDATE native_league_pods SET name = %s WHERE league_id = %s AND season_num = %s AND pod_num = %s;",
+                                        (str(pod_title).strip(), lid, s_num, idx)
+                                    )
+                        cur.execute("UPDATE native_leagues SET config_json = %s::jsonb, updated_at = NOW() WHERE id = %s;", (json.dumps(cfg), lid))
+                    conn.commit()
+            except Exception as db_err:
+                logger.warning(f"update_league_config DB write fallback to cache: {db_err}")
 
         return {
             "success": True,

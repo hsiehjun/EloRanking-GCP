@@ -876,7 +876,7 @@ async function openUserLeagueGamesQuickModal(entryId) {
   if (!ev) return;
   if (eventIndex === -1) eventIndex = 0;
 
-  const leagueId = ev.league_id || 'league_sd40k_big_league';
+  const leagueId = ev.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90';
   const podNum = ev.pod_number || 1;
   const podName = ev.pod_name || `Pod #${podNum}`;
   const playerName = ev.player_name || 'Player';
@@ -1181,7 +1181,7 @@ async function submitQuickModalInlineScore(leagueId, podNum, roundNum, player1, 
   }
 
   try {
-    const res = await fetch(`/api/league/${encodeURIComponent(leagueId || 'league_sd40k_big_league')}/match/report`, {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90')}/match/report`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
