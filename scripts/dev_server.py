@@ -3042,7 +3042,20 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             user_ack = DEV_USER.get("acknowledged_badge_ids") or []
             ack_set = set(user_ack)
             newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
+            from leagues_hub_service import get_leagues_hub_service
+            lh_svc = get_leagues_hub_service()
+            native_leagues = lh_svc.get_user_registered_leagues(
+                user_id=DEV_USER.get("id", "u_john_hsieh"),
+                player_id=DEV_USER.get("bcp_player_id", "MEV83VFANA"),
+                player_name=DEV_USER.get("display_name") or DEV_USER.get("bcp_player_name") or "John Hsieh"
+            )
+            cur_reg_tournaments = list(res.get("registered_tournaments") or [])
+            existing_reg_ids = {str(t.get("id") or t.get("bcp_event_id") or "") for t in cur_reg_tournaments}
+            for nl in native_leagues:
+                if str(nl.get("id")) not in existing_reg_ids:
+                    cur_reg_tournaments.insert(0, nl)
             res.update({
+                "registered_tournaments": cur_reg_tournaments,
                 "badge_count": b_eval["badge_count"],
                 "total_badges": b_eval["total_badges"],
                 "completion_pct": b_eval["completion_pct"],
@@ -3068,27 +3081,35 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path == "api/user/registered-tournaments" or clean_path.startswith("api/user/registered-tournaments"):
+            from leagues_hub_service import get_leagues_hub_service
+            lh_svc = get_leagues_hub_service()
+            native_leagues = lh_svc.get_user_registered_leagues(
+                user_id=DEV_USER.get("id", "u_john_hsieh"),
+                player_id=DEV_USER.get("bcp_player_id", "MEV83VFANA"),
+                player_name=DEV_USER.get("display_name") or DEV_USER.get("bcp_player_name") or "John Hsieh"
+            )
+            base_tournaments = list(native_leagues) + [
+                {
+                    "id": "ev_active_lvo_2026",
+                    "bcp_event_id": "ev_active_lvo_2026",
+                    "event_name": "LVO 2026 Warhammer 40K Champs",
+                    "event_date": "2026-01-18",
+                    "city": "Las Vegas",
+                    "state": "NV",
+                    "checked_in": True,
+                    "faction": "Necrons",
+                    "detachment": "Canoptek Court",
+                    "has_list_submitted": True,
+                    "points_limit": 2000,
+                    "rounds": 5,
+                    "player_id": "MEV83VFANA"
+                }
+            ]
             res = {
                 "success": True,
                 "bcp_connected": True,
-                "count": 1,
-                "tournaments": [
-                    {
-                        "id": "ev_active_lvo_2026",
-                        "bcp_event_id": "ev_active_lvo_2026",
-                        "event_name": "LVO 2026 Warhammer 40K Champs",
-                        "event_date": "2026-01-18",
-                        "city": "Las Vegas",
-                        "state": "NV",
-                        "checked_in": True,
-                        "faction": "Necrons",
-                        "detachment": "Canoptek Court",
-                        "has_list_submitted": True,
-                        "points_limit": 2000,
-                        "rounds": 5,
-                        "player_id": "p_innes_wilson"
-                    }
-                ]
+                "count": len(base_tournaments),
+                "tournaments": base_tournaments
             }
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")

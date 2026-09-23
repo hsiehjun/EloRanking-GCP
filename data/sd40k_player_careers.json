@@ -241,7 +241,9 @@
         "poty_points": 0
       }
     ],
-    "championships": 1
+    "championships": 1,
+    "bcp_player_id": "H73JXQX69P",
+    "is_db_matched": true
   },
   "Durand Smiley": {
     "name": "Durand Smiley",
@@ -340,7 +342,9 @@
         "battle_points": 2308,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "V1L0KAMTK0",
+    "is_db_matched": true
   },
   "Jackson Rodelander": {
     "name": "Jackson Rodelander",
@@ -426,7 +430,9 @@
         "battle_points": 5458,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "Ja6RbPAcWWuN",
+    "is_db_matched": true
   },
   "James Carmona": {
     "name": "James Carmona",
@@ -597,7 +603,9 @@
         "battle_points": 4170,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "Yv6Ys75AJ9",
+    "is_db_matched": true
   },
   "James Kang": {
     "name": "James Kang",
@@ -714,7 +722,9 @@
         "battle_points": 2357,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Kinyaaaanii Padilla": {
     "name": "Kinyaaaanii Padilla",
@@ -843,7 +853,9 @@
         "battle_points": 3260,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "em1URh6ozbny",
+    "is_db_matched": true
   },
   "Miles Vollenweider": {
     "name": "Miles Vollenweider",
@@ -1017,7 +1029,9 @@
         "battle_points": 2315,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "PRXMTNTQVN",
+    "is_db_matched": true
   },
   "Rock Liberty": {
     "name": "Rock Liberty",
@@ -1573,7 +1587,9 @@
         "poty_points": 11
       }
     ],
-    "championships": 3
+    "championships": 3,
+    "bcp_player_id": "5a4Eh1jWg3",
+    "is_db_matched": true
   },
   "Jeremy Larson": {
     "name": "Jeremy Larson",
@@ -2100,7 +2116,9 @@
         "battle_points": 3097,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "OFRLJlX7Og",
+    "is_db_matched": true
   },
   "Josh Peters": {
     "name": "Josh Peters",
@@ -2173,7 +2191,9 @@
         "battle_points": 4374,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Alex Ivanov": {
     "name": "Alex Ivanov",
@@ -2513,7 +2533,9 @@
         "battle_points": 2092,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": "83ujXMrjvX",
+    "is_db_matched": true
   },
   "Greg Kellen": {
     "name": "Greg Kellen",
@@ -2868,7 +2890,9 @@
         "battle_points": 3380,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "XXDOJorgUw3G",
+    "is_db_matched": true
   },
   "Jan Pferdekamper": {
     "name": "Jan Pferdekamper",
@@ -3067,7 +3091,9 @@
         "battle_points": 3315,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Joel Palhegyi": {
     "name": "Joel Palhegyi",
@@ -3181,7 +3207,9 @@
         "battle_points": 4408,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "2EUJjMrGOE4I",
+    "is_db_matched": true
   },
   "Michael Pogrebinsky": {
     "name": "Michael Pogrebinsky",
@@ -3508,7 +3536,9 @@
         "battle_points": 2108,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Nick Treuheit": {
     "name": "Nick Treuheit",
@@ -3639,7 +3669,9 @@
         "battle_points": 1290,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "WL01A3QW9X",
+    "is_db_matched": true
   },
   "Benjamin Nicholls": {
     "name": "Benjamin Nicholls",
@@ -4175,7 +4207,9 @@
         "battle_points": 3113,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Zack Soucek": {
     "name": "Zack Soucek",
@@ -4233,7 +4267,9 @@
         "battle_points": 4415,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "wc8qZ8QTlals",
+    "is_db_matched": true
   },
   "Sean Bejarano": {
     "name": "Sean Bejarano",
@@ -4389,7 +4425,9 @@
         "battle_points": 178,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Alberto Brambila": {
     "name": "Alberto Brambila",
@@ -4476,7 +4514,9 @@
         "battle_points": 1284,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "vnSrOm5ICXSP",
+    "is_db_matched": true
   },
   "Aurelia Spears": {
     "name": "Aurelia Spears",
@@ -4548,7 +4588,9 @@
         "battle_points": 1257,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "1QC6fmzozvUO",
+    "is_db_matched": true
   },
   "Harrison Faust": {
     "name": "Harrison Faust",
@@ -4619,7 +4661,9 @@
         "battle_points": 5463,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Patrick Bracken": {
     "name": "Patrick Bracken",
@@ -4874,7 +4918,9 @@
         "battle_points": 0,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Quinnton Smiley": {
     "name": "Quinnton Smiley",
@@ -4959,7 +5005,9 @@
         "battle_points": 3266,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "RU2J4FQ5EC",
+    "is_db_matched": true
   },
   "Justin Jones": {
     "name": "Justin Jones",
@@ -5414,7 +5462,9 @@
         "battle_points": 113,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": "5ZkOhjtxoW",
+    "is_db_matched": true
   },
   "Ryan Betts": {
     "name": "Ryan Betts",
@@ -5513,7 +5563,9 @@
         "battle_points": 1274,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "1xgtYPeVJftU",
+    "is_db_matched": true
   },
   "Emanuele Saccarelli": {
     "name": "Emanuele Saccarelli",
@@ -5840,7 +5892,9 @@
         "battle_points": 4414,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "EQMwcxuXZm",
+    "is_db_matched": true
   },
   "Steve Lerma": {
     "name": "Steve Lerma",
@@ -5925,7 +5979,9 @@
         "battle_points": 2205,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jack Peterson": {
     "name": "Jack Peterson",
@@ -5969,7 +6025,9 @@
         "battle_points": 5479,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "D4JE860613",
+    "is_db_matched": true
   },
   "Jeffrey Felios": {
     "name": "Jeffrey Felios",
@@ -6054,7 +6112,9 @@
         "battle_points": 4429,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "HVP6WX0D59",
+    "is_db_matched": true
   },
   "Nam Hai Nguyen": {
     "name": "Nam Hai Nguyen",
@@ -6097,7 +6157,9 @@
         "battle_points": 4399,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "1rLN15gBaBfb",
+    "is_db_matched": true
   },
   "Neil Braden": {
     "name": "Neil Braden",
@@ -6650,7 +6712,9 @@
         "battle_points": 4162,
         "poty_points": 13
       }
-    ]
+    ],
+    "bcp_player_id": "yKeLkgySVc",
+    "is_db_matched": true
   },
   "Joe Keeb": {
     "name": "Joe Keeb",
@@ -6750,7 +6814,9 @@
         "battle_points": 1209,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "GTPU2822V5",
+    "is_db_matched": true
   },
   "Jose Orizaba": {
     "name": "Jose Orizaba",
@@ -6851,7 +6917,9 @@
         "battle_points": 132,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Chris Lane": {
     "name": "Chris Lane",
@@ -6894,7 +6962,9 @@
         "battle_points": 3467,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "l2NnjYTRqe3a",
+    "is_db_matched": true
   },
   "Garrett Turner": {
     "name": "Garrett Turner",
@@ -6953,7 +7023,9 @@
         "battle_points": 2280,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": "RJ5cwbLoaJ",
+    "is_db_matched": true
   },
   "Guy Eckstein": {
     "name": "Guy Eckstein",
@@ -7052,7 +7124,9 @@
         "battle_points": 3303,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Patrick Adamiak": {
     "name": "Patrick Adamiak",
@@ -7137,7 +7211,9 @@
         "battle_points": 3419,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "kixTI4ziN4gI",
+    "is_db_matched": true
   },
   "Xander (Alex Helm)": {
     "name": "Xander (Alex Helm)",
@@ -7180,7 +7256,9 @@
         "battle_points": 2369,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Zach Etterman": {
     "name": "Zach Etterman",
@@ -7223,7 +7301,9 @@
         "battle_points": 3873,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Keith Nyberg": {
     "name": "Keith Nyberg",
@@ -7522,7 +7602,9 @@
         "battle_points": 73,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": "MtyBCjURI2",
+    "is_db_matched": true
   },
   "David Clukey": {
     "name": "David Clukey",
@@ -7565,7 +7647,9 @@
         "battle_points": 3376,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Colton Hayes": {
     "name": "Colton Hayes",
@@ -7609,7 +7693,9 @@
         "battle_points": 3377,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Henrik Warpefelt": {
     "name": "Henrik Warpefelt",
@@ -7667,7 +7753,9 @@
         "battle_points": 219,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "2q5XLoajbQdo",
+    "is_db_matched": true
   },
   "Jeremy Crossley": {
     "name": "Jeremy Crossley",
@@ -7866,7 +7954,9 @@
         "battle_points": 2332,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "55Q19CG08K",
+    "is_db_matched": true
   },
   "Lance Moore": {
     "name": "Lance Moore",
@@ -7909,7 +7999,9 @@
         "battle_points": 2412,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "5134LVVLC1",
+    "is_db_matched": true
   },
   "Quentin Ponath": {
     "name": "Quentin Ponath",
@@ -8221,7 +8313,9 @@
         "battle_points": 3113,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "UQwsyLX1DM",
+    "is_db_matched": true
   },
   "Travis Wambach": {
     "name": "Travis Wambach",
@@ -8278,7 +8372,9 @@
         "battle_points": 278,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Kory Marlatt": {
     "name": "Kory Marlatt",
@@ -8365,7 +8461,9 @@
         "battle_points": 4400,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Christian (H)": {
     "name": "Christian (H)",
@@ -8394,7 +8492,9 @@
         "battle_points": 1074,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Anthony Silva": {
     "name": "Anthony Silva",
@@ -8578,7 +8678,9 @@
         "battle_points": 2118,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "nuiKN0RcoL",
+    "is_db_matched": true
   },
   "Cristian (No H)": {
     "name": "Cristian (No H)",
@@ -8607,7 +8709,9 @@
         "battle_points": 51,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Chris Krogen": {
     "name": "Chris Krogen",
@@ -8736,7 +8840,9 @@
         "battle_points": 3333,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "wedXNVkvZT",
+    "is_db_matched": true
   },
   "Chris Smith": {
     "name": "Chris Smith",
@@ -8765,7 +8871,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "AVJLU0TVDU",
+    "is_db_matched": true
   },
   "Cooper Robertson": {
     "name": "Cooper Robertson",
@@ -8792,7 +8900,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jacob Bain": {
     "name": "Jacob Bain",
@@ -8850,7 +8960,9 @@
         "battle_points": 2236,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jordan Luksetich": {
     "name": "Jordan Luksetich",
@@ -8935,7 +9047,9 @@
         "battle_points": 5343,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "H3GTAUJRP1",
+    "is_db_matched": true
   },
   "Michael Kornberg": {
     "name": "Michael Kornberg",
@@ -8993,7 +9107,9 @@
         "battle_points": 4408,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "7AFM2G26TV",
+    "is_db_matched": true
   },
   "Nick Huffmaster": {
     "name": "Nick Huffmaster",
@@ -9051,7 +9167,9 @@
         "battle_points": 1229,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Nicole Schwartz": {
     "name": "Nicole Schwartz",
@@ -9095,7 +9213,9 @@
         "battle_points": 2407,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "W1hMRenHOvCk",
+    "is_db_matched": true
   },
   "Dauntae Forrest": {
     "name": "Dauntae Forrest",
@@ -9124,7 +9244,9 @@
         "battle_points": 0,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "David Nguyen": {
     "name": "David Nguyen",
@@ -9153,7 +9275,9 @@
         "battle_points": 0,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "xosQ597WOvJh",
+    "is_db_matched": true
   },
   "Deven Torres": {
     "name": "Deven Torres",
@@ -9182,7 +9306,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Gerardo Lazarte": {
     "name": "Gerardo Lazarte",
@@ -9211,7 +9337,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "r8Ax9B2aQwo5",
+    "is_db_matched": true
   },
   "Jacob Fischer": {
     "name": "Jacob Fischer",
@@ -9240,7 +9368,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "TxD3Z4dMAmrt",
+    "is_db_matched": true
   },
   "John Hsieh": {
     "name": "John Hsieh",
@@ -9269,7 +9399,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "MEV83VFANA",
+    "is_db_matched": true
   },
   "Joseph Ahlstrom": {
     "name": "Joseph Ahlstrom",
@@ -9298,7 +9430,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Kyle Hoogervorst": {
     "name": "Kyle Hoogervorst",
@@ -9327,7 +9461,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Tim Sweet": {
     "name": "Tim Sweet",
@@ -9751,7 +9887,9 @@
         "battle_points": 1068,
         "poty_points": 26
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Dustin Lindgren": {
     "name": "Dustin Lindgren",
@@ -9924,7 +10062,9 @@
         "battle_points": 2827,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "cSDIcr5TaAWt",
+    "is_db_matched": true
   },
   "David Susko": {
     "name": "David Susko",
@@ -10121,7 +10261,9 @@
         "battle_points": 3333,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "4TT6VTK604",
+    "is_db_matched": true
   },
   "Matt Cross": {
     "name": "Matt Cross",
@@ -10222,7 +10364,9 @@
         "battle_points": 1221,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "jUKmEJZQ6qPX",
+    "is_db_matched": true
   },
   "Stephen Luxford": {
     "name": "Stephen Luxford",
@@ -10349,7 +10493,9 @@
         "battle_points": 4381,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "A17F63TR93",
+    "is_db_matched": true
   },
   "Cooper Waddell": {
     "name": "Cooper Waddell",
@@ -10847,7 +10993,9 @@
         "battle_points": 3119,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "sHTgrnzZpJ",
+    "is_db_matched": true
   },
   "Mike Ray": {
     "name": "Mike Ray",
@@ -10918,7 +11066,9 @@
         "battle_points": 1219,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Kellen Foster": {
     "name": "Kellen Foster",
@@ -11033,7 +11183,9 @@
         "battle_points": 4391,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "FdSfCVQYwy",
+    "is_db_matched": true
   },
   "Camden Jansen": {
     "name": "Camden Jansen",
@@ -11062,7 +11214,9 @@
         "battle_points": 4441,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "nQzLyFCCZD",
+    "is_db_matched": true
   },
   "Curran Meek": {
     "name": "Curran Meek",
@@ -11148,7 +11302,9 @@
         "battle_points": 241,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "David Pavan": {
     "name": "David Pavan",
@@ -11233,7 +11389,9 @@
         "battle_points": 2200,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "5BF0312KP2",
+    "is_db_matched": true
   },
   "Edward Garcia": {
     "name": "Edward Garcia",
@@ -11290,7 +11448,9 @@
         "battle_points": 1214,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Elijah Saucedo": {
     "name": "Elijah Saucedo",
@@ -11319,7 +11479,9 @@
         "battle_points": 727,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Vivian Vu": {
     "name": "Vivian Vu",
@@ -11348,7 +11510,9 @@
         "battle_points": 307,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Carlos Gomez": {
     "name": "Carlos Gomez",
@@ -11377,7 +11541,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Kohner Griffiths": {
     "name": "Kohner Griffiths",
@@ -11406,7 +11572,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Seth Stewart": {
     "name": "Seth Stewart",
@@ -11435,7 +11603,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Chris Maxwell": {
     "name": "Chris Maxwell",
@@ -11594,7 +11764,9 @@
         "battle_points": 2094,
         "poty_points": 20
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Austyn Martin": {
     "name": "Austyn Martin",
@@ -11721,7 +11893,9 @@
         "battle_points": 2325,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "E8DKnLB90m",
+    "is_db_matched": true
   },
   "Tom Murphy": {
     "name": "Tom Murphy",
@@ -11764,7 +11938,9 @@
         "battle_points": 4397,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "James Smith": {
     "name": "James Smith",
@@ -11793,7 +11969,9 @@
         "battle_points": 3372,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "eFCYpMhifh",
+    "is_db_matched": true
   },
   "Aaron San Juan": {
     "name": "Aaron San Juan",
@@ -11837,7 +12015,9 @@
         "battle_points": 1353,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "1H2Q6BF0XH",
+    "is_db_matched": true
   },
   "Manuel Cuevas": {
     "name": "Manuel Cuevas",
@@ -11866,7 +12046,9 @@
         "battle_points": 2189,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Michael Manglicmot": {
     "name": "Michael Manglicmot",
@@ -11895,7 +12077,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Andres Contreras": {
     "name": "Andres Contreras",
@@ -12024,7 +12208,9 @@
         "battle_points": 3380,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "C8GDLXPQCM",
+    "is_db_matched": true
   },
   "Eric Horne": {
     "name": "Eric Horne",
@@ -12124,7 +12310,9 @@
         "battle_points": 4412,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "BpuD7dBDXq",
+    "is_db_matched": true
   },
   "Patrick Shea": {
     "name": "Patrick Shea",
@@ -12167,7 +12355,9 @@
         "battle_points": 1230,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Damian Knight": {
     "name": "Damian Knight",
@@ -12311,7 +12501,9 @@
         "battle_points": 0,
         "poty_points": 41
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Silas Bundrock": {
     "name": "Silas Bundrock",
@@ -12340,7 +12532,9 @@
         "battle_points": 4380,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Stephen Walsh": {
     "name": "Stephen Walsh",
@@ -12383,7 +12577,9 @@
         "battle_points": 330,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "dyPfuMwkV8",
+    "is_db_matched": true
   },
   "Zane Osborn": {
     "name": "Zane Osborn",
@@ -12412,7 +12608,9 @@
         "battle_points": 2028,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Ben Altice": {
     "name": "Ben Altice",
@@ -12441,7 +12639,9 @@
         "battle_points": 956,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Joseph Melanson": {
     "name": "Joseph Melanson",
@@ -12470,7 +12670,9 @@
         "battle_points": 239,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Elijah Brannon": {
     "name": "Elijah Brannon",
@@ -12499,7 +12701,9 @@
         "battle_points": 109,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Noah Whitehead": {
     "name": "Noah Whitehead",
@@ -12585,7 +12789,9 @@
         "battle_points": 4416,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "8YjOrjFhz82s",
+    "is_db_matched": true
   },
   "Eric Halverson": {
     "name": "Eric Halverson",
@@ -12671,7 +12877,9 @@
         "battle_points": 3438,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "ABBC1X8GMT",
+    "is_db_matched": true
   },
   "Juan Jaquez": {
     "name": "Juan Jaquez",
@@ -12799,7 +13007,9 @@
         "battle_points": 2838,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "RC44Y70B42",
+    "is_db_matched": true
   },
   "Randy Robinson": {
     "name": "Randy Robinson",
@@ -12983,7 +13193,9 @@
         "battle_points": 1053,
         "poty_points": 30
       }
-    ]
+    ],
+    "bcp_player_id": "5D6WHGHVRC",
+    "is_db_matched": true
   },
   "Tony Baumayr": {
     "name": "Tony Baumayr",
@@ -13138,7 +13350,9 @@
         "battle_points": 4461,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "l7uIi0fwCM",
+    "is_db_matched": true
   },
   "John Weber": {
     "name": "John Weber",
@@ -13592,7 +13806,9 @@
         "battle_points": 1113,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": "6xEVV338pR",
+    "is_db_matched": true
   },
   "Ian Mexas": {
     "name": "Ian Mexas",
@@ -13663,7 +13879,9 @@
         "battle_points": 1229,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "DNjHrrjBjMs8",
+    "is_db_matched": true
   },
   "Michael Watson": {
     "name": "Michael Watson",
@@ -13692,7 +13910,9 @@
         "battle_points": 205,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "VRCR0RCTR1",
+    "is_db_matched": true
   },
   "Jason Lenore": {
     "name": "Jason Lenore",
@@ -13948,7 +14168,9 @@
         "poty_points": 15
       }
     ],
-    "championships": 1
+    "championships": 1,
+    "bcp_player_id": "GLCZWedBzi",
+    "is_db_matched": true
   },
   "Daniel Fortini": {
     "name": "Daniel Fortini",
@@ -14034,7 +14256,9 @@
         "battle_points": 5409,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "OI9qf5P4V4ir",
+    "is_db_matched": true
   },
   "Adam Grubba": {
     "name": "Adam Grubba",
@@ -14077,7 +14301,9 @@
         "battle_points": 3306,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Chris Bakke": {
     "name": "Chris Bakke",
@@ -14135,7 +14361,9 @@
         "battle_points": 2311,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "PF56DLWN65",
+    "is_db_matched": true
   },
   "Evan Burnsworth": {
     "name": "Evan Burnsworth",
@@ -14495,7 +14723,9 @@
         "battle_points": 1069,
         "poty_points": 21
       }
-    ]
+    ],
+    "bcp_player_id": "Q35impYBw9",
+    "is_db_matched": true
   },
   "Ansel Alfonso": {
     "name": "Ansel Alfonso",
@@ -14524,7 +14754,9 @@
         "battle_points": 4431,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Adam Zimnicki": {
     "name": "Adam Zimnicki",
@@ -14553,7 +14785,9 @@
         "battle_points": 1070,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "0X8LKPRX3P",
+    "is_db_matched": true
   },
   "Max Gonzalez": {
     "name": "Max Gonzalez",
@@ -14596,7 +14830,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "David Gomes": {
     "name": "David Gomes",
@@ -14625,7 +14861,9 @@
         "battle_points": 51,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "Oixpg9SFfWpq",
+    "is_db_matched": true
   },
   "Graham Allen": {
     "name": "Graham Allen",
@@ -14767,7 +15005,9 @@
         "battle_points": 70,
         "poty_points": 34
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Forrest Phanton": {
     "name": "Forrest Phanton",
@@ -14796,7 +15036,9 @@
         "battle_points": 4387,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "bwJAlnBzds",
+    "is_db_matched": true
   },
   "Eli Welton": {
     "name": "Eli Welton",
@@ -14825,7 +15067,9 @@
         "battle_points": 3262,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Soren Jorgenson": {
     "name": "Soren Jorgenson",
@@ -14940,7 +15184,9 @@
         "battle_points": 203,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "z2tnQKfwJP",
+    "is_db_matched": true
   },
   "Luke Wright": {
     "name": "Luke Wright",
@@ -14983,7 +15229,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "thtNSmXGmiF2",
+    "is_db_matched": true
   },
   "Taylor Hildebrand": {
     "name": "Taylor Hildebrand",
@@ -15026,7 +15274,9 @@
         "battle_points": 1120,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "E1uD17om0K",
+    "is_db_matched": true
   },
   "Justin Kunzel": {
     "name": "Justin Kunzel",
@@ -15055,7 +15305,9 @@
         "battle_points": 1255,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "FvWPZhliznb6",
+    "is_db_matched": true
   },
   "Patrick Hogan": {
     "name": "Patrick Hogan",
@@ -15084,7 +15336,9 @@
         "battle_points": 1181,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Brendan Moore": {
     "name": "Brendan Moore",
@@ -15113,7 +15367,9 @@
         "battle_points": 45,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Juan Diego Vasquez": {
     "name": "Juan Diego Vasquez",
@@ -15512,7 +15768,9 @@
         "battle_points": 3129,
         "poty_points": 23
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "AJ Mody": {
     "name": "AJ Mody",
@@ -15569,7 +15827,9 @@
         "battle_points": 1312,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Joshuah Singson": {
     "name": "Joshuah Singson",
@@ -15612,7 +15872,9 @@
         "battle_points": 4437,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Danny Aflleje": {
     "name": "Danny Aflleje",
@@ -15697,7 +15959,9 @@
         "battle_points": 2066,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "ePzGW7T69X",
+    "is_db_matched": true
   },
   "Antonio Barrios": {
     "name": "Antonio Barrios",
@@ -15770,7 +16034,9 @@
         "battle_points": 257,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "0NE9EX9RT6",
+    "is_db_matched": true
   },
   "Derrick Lee": {
     "name": "Derrick Lee",
@@ -15799,7 +16065,9 @@
         "battle_points": 3235,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "MCBCU83X80",
+    "is_db_matched": true
   },
   "Nick Lupu": {
     "name": "Nick Lupu",
@@ -15828,7 +16096,9 @@
         "battle_points": 2167,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "d5yLXH7SGHXo",
+    "is_db_matched": true
   },
   "Kyle Dunn": {
     "name": "Kyle Dunn",
@@ -15857,7 +16127,9 @@
         "battle_points": 1203,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Joe": {
     "name": "Joe",
@@ -15886,7 +16158,9 @@
         "battle_points": 1115,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Alejandro Gendrop": {
     "name": "Alejandro Gendrop",
@@ -15915,7 +16189,9 @@
         "battle_points": 113,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jose Flores": {
     "name": "Jose Flores",
@@ -15944,7 +16220,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Matt Geyer": {
     "name": "Matt Geyer",
@@ -16174,7 +16452,9 @@
         "battle_points": 4163,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "0A10N07EWP",
+    "is_db_matched": true
   },
   "Hans Lieber": {
     "name": "Hans Lieber",
@@ -16344,7 +16624,9 @@
         "battle_points": 4417,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "Q1Q5EAJYQM",
+    "is_db_matched": true
   },
   "Joe Bravo": {
     "name": "Joe Bravo",
@@ -16488,7 +16770,9 @@
         "battle_points": 3304,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "H7FV6Q4PD7",
+    "is_db_matched": true
   },
   "Jeremy Salgado": {
     "name": "Jeremy Salgado",
@@ -16603,7 +16887,9 @@
         "battle_points": 3302,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "gnxXDWVzdv",
+    "is_db_matched": true
   },
   "Jason Butler": {
     "name": "Jason Butler",
@@ -16833,7 +17119,9 @@
         "battle_points": 1031,
         "poty_points": 27
       }
-    ]
+    ],
+    "bcp_player_id": "jlRFj6JYpb",
+    "is_db_matched": true
   },
   "Sean Koch": {
     "name": "Sean Koch",
@@ -16877,7 +17165,9 @@
         "battle_points": 3382,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "1VQ5TAR05T",
+    "is_db_matched": true
   },
   "Said Bujdud-Gonzalez": {
     "name": "Said Bujdud-Gonzalez",
@@ -16990,7 +17280,9 @@
         "battle_points": 268,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Victor Flores": {
     "name": "Victor Flores",
@@ -17077,7 +17369,9 @@
         "battle_points": 2275,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "AVJA815QRP",
+    "is_db_matched": true
   },
   "Breandan Haley": {
     "name": "Breandan Haley",
@@ -17106,7 +17400,9 @@
         "battle_points": 68,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Shane Yirak": {
     "name": "Shane Yirak",
@@ -17163,7 +17459,9 @@
         "battle_points": 3270,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "QVBLBBNX69",
+    "is_db_matched": true
   },
   "Tri Le": {
     "name": "Tri Le",
@@ -17220,7 +17518,9 @@
         "battle_points": 1242,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Nicholas Treuheit": {
     "name": "Nicholas Treuheit",
@@ -17249,7 +17549,9 @@
         "battle_points": 3312,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Alvin Collins": {
     "name": "Alvin Collins",
@@ -17307,7 +17609,9 @@
         "battle_points": 3214,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "QMRH756YEG",
+    "is_db_matched": true
   },
   "Vito Dettmers": {
     "name": "Vito Dettmers",
@@ -17449,7 +17753,9 @@
         "battle_points": 1079,
         "poty_points": 12
       }
-    ]
+    ],
+    "bcp_player_id": "M5SGx2Kyum",
+    "is_db_matched": true
   },
   "Devin Pamintuan": {
     "name": "Devin Pamintuan",
@@ -17478,7 +17784,9 @@
         "battle_points": 4416,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "YYXEKM113L",
+    "is_db_matched": true
   },
   "Hal Jenson": {
     "name": "Hal Jenson",
@@ -17507,7 +17815,9 @@
         "battle_points": 2106,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "5Qo4isVAMl",
+    "is_db_matched": true
   },
   "Alistair Carmic": {
     "name": "Alistair Carmic",
@@ -17536,7 +17846,9 @@
         "battle_points": 1321,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "John Howe": {
     "name": "John Howe",
@@ -17565,7 +17877,9 @@
         "battle_points": 227,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "7Ba6RHSiH5",
+    "is_db_matched": true
   },
   "Jake Jesionowski": {
     "name": "Jake Jesionowski",
@@ -17777,7 +18091,9 @@
         "battle_points": 3403,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "V3TQAQFFNM",
+    "is_db_matched": true
   },
   "Ouhyon Lee": {
     "name": "Ouhyon Lee",
@@ -18045,7 +18361,9 @@
         "battle_points": 2327,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "b9kHkjwXiK",
+    "is_db_matched": true
   },
   "Jean Evora": {
     "name": "Jean Evora",
@@ -18232,7 +18550,9 @@
         "battle_points": 4936,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Shun Fung Lam": {
     "name": "Shun Fung Lam",
@@ -18305,7 +18625,9 @@
         "battle_points": 4099,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Evan Berry": {
     "name": "Evan Berry",
@@ -18531,7 +18853,9 @@
         "battle_points": 2293,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "xLmCSPiK7p",
+    "is_db_matched": true
   },
   "Michael Ernst": {
     "name": "Michael Ernst",
@@ -18588,7 +18912,9 @@
         "battle_points": 3323,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "ic8a7dSQDL",
+    "is_db_matched": true
   },
   "Jason Cleveland": {
     "name": "Jason Cleveland",
@@ -18702,7 +19028,9 @@
         "battle_points": 2313,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "53T1PE9MP9",
+    "is_db_matched": true
   },
   "Nick Hernandez": {
     "name": "Nick Hernandez",
@@ -18887,7 +19215,9 @@
         "battle_points": 1263,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "4XKV3TCXQG",
+    "is_db_matched": true
   },
   "Marc Torres": {
     "name": "Marc Torres",
@@ -19086,7 +19416,9 @@
         "battle_points": 2331,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "PY2GtUgTyI",
+    "is_db_matched": true
   },
   "Tyler Lee": {
     "name": "Tyler Lee",
@@ -19115,7 +19447,9 @@
         "battle_points": 5399,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "q87rXnhqMM",
+    "is_db_matched": true
   },
   "AJ Smith": {
     "name": "AJ Smith",
@@ -19172,7 +19506,9 @@
         "battle_points": 160,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Anton Kalyuzhniy": {
     "name": "Anton Kalyuzhniy",
@@ -19216,7 +19552,9 @@
         "battle_points": 302,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Tobias Wilson": {
     "name": "Tobias Wilson",
@@ -19245,7 +19583,9 @@
         "battle_points": 176,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Tre O'Rourke": {
     "name": "Tre O'Rourke",
@@ -19487,7 +19827,9 @@
         "battle_points": 1250,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "XEK9Q71TMR",
+    "is_db_matched": true
   },
   "Justin Morris": {
     "name": "Justin Morris",
@@ -19642,7 +19984,9 @@
         "battle_points": 4428,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Mike Yao": {
     "name": "Mike Yao",
@@ -19952,7 +20296,9 @@
         "battle_points": 3127,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Brandon Hunter": {
     "name": "Brandon Hunter",
@@ -20010,7 +20356,9 @@
         "battle_points": 2231,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Paul Kandal": {
     "name": "Paul Kandal",
@@ -20197,7 +20545,9 @@
         "battle_points": 255,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Abe Garcia": {
     "name": "Abe Garcia",
@@ -20240,7 +20590,9 @@
         "battle_points": 1235,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Breandon Haley": {
     "name": "Breandon Haley",
@@ -20269,7 +20621,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Tim Gorodnitski": {
     "name": "Tim Gorodnitski",
@@ -20512,7 +20866,9 @@
         "battle_points": 2345,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "7N49M5T816",
+    "is_db_matched": true
   },
   "Owen Bottorff": {
     "name": "Owen Bottorff",
@@ -20585,7 +20941,9 @@
         "battle_points": 1288,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "27QV7Y86YV",
+    "is_db_matched": true
   },
   "James McCarthy": {
     "name": "James McCarthy",
@@ -20628,7 +20986,9 @@
         "battle_points": 4378,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "R3hGZwWgsL",
+    "is_db_matched": true
   },
   "Zachary Fullerton": {
     "name": "Zachary Fullerton",
@@ -20685,7 +21045,9 @@
         "battle_points": 2279,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Charles Angelo": {
     "name": "Charles Angelo",
@@ -20744,7 +21106,9 @@
         "battle_points": 232,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "X9PTDUWC90",
+    "is_db_matched": true
   },
   "Nephele Rudin": {
     "name": "Nephele Rudin",
@@ -20773,7 +21137,9 @@
         "battle_points": 1346,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "88B65KMQ66",
+    "is_db_matched": true
   },
   "Aaron Lopez": {
     "name": "Aaron Lopez",
@@ -20970,7 +21336,9 @@
         "battle_points": 5474,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "4P7MTQBENQ",
+    "is_db_matched": true
   },
   "Adam Funk": {
     "name": "Adam Funk",
@@ -21056,7 +21424,9 @@
         "battle_points": 4437,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "15KnDk7r9A",
+    "is_db_matched": true
   },
   "Mike Mental": {
     "name": "Mike Mental",
@@ -21383,7 +21753,9 @@
         "battle_points": 2087,
         "poty_points": 36
       }
-    ]
+    ],
+    "bcp_player_id": "PUhi0j7EVT",
+    "is_db_matched": true
   },
   "Max Melendrez": {
     "name": "Max Melendrez",
@@ -21569,7 +21941,9 @@
         "battle_points": 2251,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": "vlYyYYSWQW",
+    "is_db_matched": true
   },
   "Russell Jacobsen": {
     "name": "Russell Jacobsen",
@@ -21883,7 +22257,9 @@
         "poty_points": 6
       }
     ],
-    "championships": 1
+    "championships": 1,
+    "bcp_player_id": "1yTdIWYgfB",
+    "is_db_matched": true
   },
   "Paul Gyori": {
     "name": "Paul Gyori",
@@ -21982,7 +22358,9 @@
         "battle_points": 5479,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "oXCYo5j6Pc",
+    "is_db_matched": true
   },
   "Sam Black": {
     "name": "Sam Black",
@@ -22026,7 +22404,9 @@
         "battle_points": 4415,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "JWRKDFD851",
+    "is_db_matched": true
   },
   "Richard Despojado": {
     "name": "Richard Despojado",
@@ -22083,7 +22463,9 @@
         "battle_points": 2368,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Adam Long": {
     "name": "Adam Long",
@@ -22253,7 +22635,9 @@
         "battle_points": 4152,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "ooALEdXSO9",
+    "is_db_matched": true
   },
   "Ryan Navigato": {
     "name": "Ryan Navigato",
@@ -22282,7 +22666,9 @@
         "battle_points": 2217,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "John Ralston": {
     "name": "John Ralston",
@@ -22311,7 +22697,9 @@
         "battle_points": 1174,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Thomas Morford": {
     "name": "Thomas Morford",
@@ -22340,7 +22728,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Stephen Caliendo": {
     "name": "Stephen Caliendo",
@@ -22384,7 +22774,9 @@
         "battle_points": 1270,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Mike Russell": {
     "name": "Mike Russell",
@@ -22615,7 +23007,9 @@
         "battle_points": 0,
         "poty_points": 25
       }
-    ]
+    ],
+    "bcp_player_id": "hv9sDofSma",
+    "is_db_matched": true
   },
   "Paco Morales": {
     "name": "Paco Morales",
@@ -22644,7 +23038,9 @@
         "battle_points": 1754,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "4U5MJGTWP5",
+    "is_db_matched": true
   },
   "Max Niles": {
     "name": "Max Niles",
@@ -22673,7 +23069,9 @@
         "battle_points": 140,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Kevin Kiefer": {
     "name": "Kevin Kiefer",
@@ -22844,7 +23242,9 @@
         "battle_points": 2282,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "U4U45RR8NB",
+    "is_db_matched": true
   },
   "Gabriel Palacios": {
     "name": "Gabriel Palacios",
@@ -22971,7 +23371,9 @@
         "battle_points": 3340,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "X1480BKD57",
+    "is_db_matched": true
   },
   "Manuel Valera": {
     "name": "Manuel Valera",
@@ -23072,7 +23474,9 @@
         "battle_points": 4371,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "TVM6J1J574",
+    "is_db_matched": true
   },
   "Matthew Bantelman": {
     "name": "Matthew Bantelman",
@@ -23115,7 +23519,9 @@
         "battle_points": 2345,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "A3M9U000W7",
+    "is_db_matched": true
   },
   "Ryan Mead": {
     "name": "Ryan Mead",
@@ -23301,7 +23707,9 @@
         "battle_points": 5152,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "ePmdnU0cB2",
+    "is_db_matched": true
   },
   "Kevin Mutch": {
     "name": "Kevin Mutch",
@@ -23330,7 +23738,9 @@
         "battle_points": 1259,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "3Q82R53J1G",
+    "is_db_matched": true
   },
   "David Oribre": {
     "name": "David Oribre",
@@ -23374,7 +23784,9 @@
         "battle_points": 1155,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Mitchell Khollesi": {
     "name": "Mitchell Khollesi",
@@ -23418,7 +23830,9 @@
         "battle_points": 28,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Johnathan Krider": {
     "name": "Johnathan Krider",
@@ -23490,7 +23904,9 @@
         "battle_points": 5441,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "D74QF3FHAP",
+    "is_db_matched": true
   },
   "Marvin Waldmann": {
     "name": "Marvin Waldmann",
@@ -23663,7 +24079,9 @@
         "battle_points": 3117,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "Rn2p7VjQFk",
+    "is_db_matched": true
   },
   "Kody Wood": {
     "name": "Kody Wood",
@@ -23790,7 +24208,9 @@
         "battle_points": 3366,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "zqBoExjqkf",
+    "is_db_matched": true
   },
   "Brian Braden": {
     "name": "Brian Braden",
@@ -23847,7 +24267,9 @@
         "battle_points": 133,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "Jy8pWaQbuIJp",
+    "is_db_matched": true
   },
   "Kevin Duffy": {
     "name": "Kevin Duffy",
@@ -23964,7 +24386,9 @@
         "battle_points": 2338,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "FWLtPFEL4r",
+    "is_db_matched": true
   },
   "Scott Reed": {
     "name": "Scott Reed",
@@ -24177,7 +24601,9 @@
         "battle_points": 2099,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Henry Zervas": {
     "name": "Henry Zervas",
@@ -24334,7 +24760,9 @@
         "battle_points": 4359,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "HpEVPn7kCv",
+    "is_db_matched": true
   },
   "Ethan Dahan": {
     "name": "Ethan Dahan",
@@ -24392,7 +24820,9 @@
         "battle_points": 3234,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Anders Sloan": {
     "name": "Anders Sloan",
@@ -24421,7 +24851,9 @@
         "battle_points": 238,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "REV9EAYQY4",
+    "is_db_matched": true
   },
   "Michael Krider": {
     "name": "Michael Krider",
@@ -24492,7 +24924,9 @@
         "battle_points": 3355,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "jscrmuyLFo",
+    "is_db_matched": true
   },
   "Cory Oakes": {
     "name": "Cory Oakes",
@@ -24550,7 +24984,9 @@
         "battle_points": 2323,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "vw3c6MZDBE",
+    "is_db_matched": true
   },
   "Zach Califano": {
     "name": "Zach Califano",
@@ -24680,7 +25116,9 @@
         "battle_points": 94,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Josh Arquilevich": {
     "name": "Josh Arquilevich",
@@ -24765,7 +25203,9 @@
         "battle_points": 210,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Brian Wegemann": {
     "name": "Brian Wegemann",
@@ -24794,7 +25234,9 @@
         "battle_points": 2296,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "5GmzYGi3AD",
+    "is_db_matched": true
   },
   "Jose Aguilar": {
     "name": "Jose Aguilar",
@@ -24823,7 +25265,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Robin Churchill-vogt": {
     "name": "Robin Churchill-vogt",
@@ -24895,7 +25339,9 @@
         "battle_points": 1228,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Andrew Suhrer": {
     "name": "Andrew Suhrer",
@@ -24997,7 +25443,9 @@
         "battle_points": 22,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": "FYX4StbjjP",
+    "is_db_matched": true
   },
   "Max Kuo": {
     "name": "Max Kuo",
@@ -25040,7 +25488,9 @@
         "battle_points": 1163,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Charles Capehart": {
     "name": "Charles Capehart",
@@ -25169,7 +25619,9 @@
         "battle_points": 2899,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Adrian Kandal": {
     "name": "Adrian Kandal",
@@ -25241,7 +25693,9 @@
         "battle_points": 1232,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": "MHNRN713Y2",
+    "is_db_matched": true
   },
   "Max Metzler": {
     "name": "Max Metzler",
@@ -25298,7 +25752,9 @@
         "battle_points": 1314,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": "voGId827Ef",
+    "is_db_matched": true
   },
   "Joseph Sung": {
     "name": "Joseph Sung",
@@ -25327,7 +25783,9 @@
         "battle_points": 2207,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "MQ9KQ17MJJ",
+    "is_db_matched": true
   },
   "Shane Martin": {
     "name": "Shane Martin",
@@ -25385,7 +25843,9 @@
         "battle_points": 5149,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "XW7J83RC3N",
+    "is_db_matched": true
   },
   "Greg Schofield": {
     "name": "Greg Schofield",
@@ -25414,7 +25874,9 @@
         "battle_points": 1234,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Gerald Nivison": {
     "name": "Gerald Nivison",
@@ -25443,7 +25905,9 @@
         "battle_points": 1070,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "XBM9FJEAC8",
+    "is_db_matched": true
   },
   "Jaz Van Furche": {
     "name": "Jaz Van Furche",
@@ -25472,7 +25936,9 @@
         "battle_points": 135,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "9LFrYAC27Z",
+    "is_db_matched": true
   },
   "Josh Graunke": {
     "name": "Josh Graunke",
@@ -25574,7 +26040,9 @@
         "battle_points": 1247,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": "iZVZ3ITFrN",
+    "is_db_matched": true
   },
   "Aaron Bressler": {
     "name": "Aaron Bressler",
@@ -25689,7 +26157,9 @@
         "battle_points": 2102,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "dBMHXqcKTR",
+    "is_db_matched": true
   },
   "Athena Appleby": {
     "name": "Athena Appleby",
@@ -25718,7 +26188,9 @@
         "battle_points": 76,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Hunter Matos": {
     "name": "Hunter Matos",
@@ -25747,7 +26219,9 @@
         "battle_points": 0,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "CBRLRU44PL",
+    "is_db_matched": true
   },
   "Kerstan Allen": {
     "name": "Kerstan Allen",
@@ -25821,7 +26295,9 @@
         "battle_points": 3326,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "NyV32Rmc8gDt",
+    "is_db_matched": true
   },
   "Zac Thayer": {
     "name": "Zac Thayer",
@@ -25936,7 +26412,9 @@
         "battle_points": 4348,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "Gtqvp0iUZI",
+    "is_db_matched": true
   },
   "Andres Mego": {
     "name": "Andres Mego",
@@ -25979,7 +26457,9 @@
         "battle_points": 5456,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Michael Brindley": {
     "name": "Michael Brindley",
@@ -26022,7 +26502,9 @@
         "battle_points": 4430,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Danny Maloney": {
     "name": "Danny Maloney",
@@ -26109,7 +26591,9 @@
         "battle_points": 4158,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "KhfQMnyuNS",
+    "is_db_matched": true
   },
   "William Ely": {
     "name": "William Ely",
@@ -26138,7 +26622,9 @@
         "battle_points": 126,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Dan Haack": {
     "name": "Dan Haack",
@@ -26294,7 +26780,9 @@
         "battle_points": 4152,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Christopher Choquette": {
     "name": "Christopher Choquette",
@@ -26365,7 +26853,9 @@
         "battle_points": 4379,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "WeNSwEXgZQ",
+    "is_db_matched": true
   },
   "Gabriel Hayes": {
     "name": "Gabriel Hayes",
@@ -26437,7 +26927,9 @@
         "battle_points": 1254,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": "1b4ExycxTHxg",
+    "is_db_matched": true
   },
   "Oz Kimbell": {
     "name": "Oz Kimbell",
@@ -26606,7 +27098,9 @@
         "battle_points": 40,
         "poty_points": 9
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jeff Monroe": {
     "name": "Jeff Monroe",
@@ -26693,7 +27187,9 @@
         "battle_points": 4107,
         "poty_points": 16
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Andy Trimlett": {
     "name": "Andy Trimlett",
@@ -26765,7 +27261,9 @@
         "battle_points": 1110,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Johnny Phillips": {
     "name": "Johnny Phillips",
@@ -26808,7 +27306,9 @@
         "battle_points": 3281,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Joseph Ambrosino-Garcia": {
     "name": "Joseph Ambrosino-Garcia",
@@ -26837,7 +27337,9 @@
         "battle_points": 2301,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Carter Barron": {
     "name": "Carter Barron",
@@ -26866,7 +27368,9 @@
         "battle_points": 1120,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Peter Stewart": {
     "name": "Peter Stewart",
@@ -26940,7 +27444,9 @@
         "battle_points": 3150,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "3DT4JMAHHP",
+    "is_db_matched": true
   },
   "Luis Cardenas": {
     "name": "Luis Cardenas",
@@ -27068,7 +27574,9 @@
         "battle_points": 2079,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": "qgKoHeA9rl",
+    "is_db_matched": true
   },
   "Marshall Rust": {
     "name": "Marshall Rust",
@@ -27198,7 +27706,9 @@
         "battle_points": 1075,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": "yKGZjhj7CX",
+    "is_db_matched": true
   },
   "Ewan Bohannon": {
     "name": "Ewan Bohannon",
@@ -27269,7 +27779,9 @@
         "battle_points": 1177,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Josh Bobb": {
     "name": "Josh Bobb",
@@ -27328,7 +27840,9 @@
         "battle_points": 2289,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "6HHMAPAUF1",
+    "is_db_matched": true
   },
   "James McManus": {
     "name": "James McManus",
@@ -27429,7 +27943,9 @@
         "battle_points": 1100,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jack Allard": {
     "name": "Jack Allard",
@@ -27458,7 +27974,9 @@
         "battle_points": 219,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "vLcPZp3EF6",
+    "is_db_matched": true
   },
   "Jason Dillon": {
     "name": "Jason Dillon",
@@ -27628,7 +28146,9 @@
         "battle_points": 5143,
         "poty_points": 24
       }
-    ]
+    ],
+    "bcp_player_id": "hnfTe14PzU",
+    "is_db_matched": true
   },
   "Luke Harrell": {
     "name": "Luke Harrell",
@@ -27672,7 +28192,9 @@
         "battle_points": 4324,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "y7DOlHa3fS20",
+    "is_db_matched": true
   },
   "Zach Stewart": {
     "name": "Zach Stewart",
@@ -27786,7 +28308,9 @@
         "battle_points": 1053,
         "poty_points": 9
       }
-    ]
+    ],
+    "bcp_player_id": "rUTTHo1Xyg",
+    "is_db_matched": true
   },
   "Rick Santora": {
     "name": "Rick Santora",
@@ -27829,7 +28353,9 @@
         "battle_points": 257,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Junior Aflleje": {
     "name": "Junior Aflleje",
@@ -28031,7 +28557,9 @@
         "poty_points": 3
       }
     ],
-    "championships": 7
+    "championships": 7,
+    "bcp_player_id": "Te1Q9Ip3By",
+    "is_db_matched": true
   },
   "Darius Choksy": {
     "name": "Darius Choksy",
@@ -28104,7 +28632,9 @@
         "battle_points": 4398,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "080AQF1AKU",
+    "is_db_matched": true
   },
   "Paul Watson": {
     "name": "Paul Watson",
@@ -28218,7 +28748,9 @@
         "battle_points": 1104,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "DygLaM0k3b",
+    "is_db_matched": true
   },
   "Kris Schaffer": {
     "name": "Kris Schaffer",
@@ -28275,7 +28807,9 @@
         "battle_points": 1807,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": "R82P3UEY9D",
+    "is_db_matched": true
   },
   "Alex Mody": {
     "name": "Alex Mody",
@@ -28346,7 +28880,9 @@
         "battle_points": 201,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Hector Noriega": {
     "name": "Hector Noriega",
@@ -28404,7 +28940,9 @@
         "battle_points": 111,
         "poty_points": 9
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Travis Throp": {
     "name": "Travis Throp",
@@ -28433,7 +28971,9 @@
         "battle_points": 2277,
         "poty_points": 0
       }
-    ]
+    ],
+    "bcp_player_id": "XVx4pUXub4Pf",
+    "is_db_matched": true
   },
   "RJ Abad": {
     "name": "RJ Abad",
@@ -28576,7 +29116,9 @@
         "battle_points": 1104,
         "poty_points": 23
       }
-    ]
+    ],
+    "bcp_player_id": "5uBVzv6cxo",
+    "is_db_matched": true
   },
   "Matt Sorensen": {
     "name": "Matt Sorensen",
@@ -28633,7 +29175,9 @@
         "battle_points": 3358,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Kelsey Federle": {
     "name": "Kelsey Federle",
@@ -28848,7 +29392,9 @@
         "battle_points": 4106,
         "poty_points": 22
       }
-    ]
+    ],
+    "bcp_player_id": "E6F3KnBFom",
+    "is_db_matched": true
   },
   "Matt Savage": {
     "name": "Matt Savage",
@@ -28991,7 +29537,9 @@
         "battle_points": 3144,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "vmWPCDjsZQ",
+    "is_db_matched": true
   },
   "Danny Affleje": {
     "name": "Danny Affleje",
@@ -29048,7 +29596,9 @@
         "battle_points": 1311,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Chris Vance": {
     "name": "Chris Vance",
@@ -29152,7 +29702,9 @@
         "battle_points": 3123,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Steve Hill": {
     "name": "Steve Hill",
@@ -29181,7 +29733,9 @@
         "battle_points": 5443,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "eRD5rdMj3A",
+    "is_db_matched": true
   },
   "Xavy Melendrez": {
     "name": "Xavy Melendrez",
@@ -29210,7 +29764,9 @@
         "battle_points": 2194,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Daniel Reddehase": {
     "name": "Daniel Reddehase",
@@ -29297,7 +29853,9 @@
         "battle_points": 4400,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": "nfaOLWQZbu",
+    "is_db_matched": true
   },
   "Austin White": {
     "name": "Austin White",
@@ -29354,7 +29912,9 @@
         "battle_points": 5470,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "ffF3m1zmbB",
+    "is_db_matched": true
   },
   "Robert Ouimitte": {
     "name": "Robert Ouimitte",
@@ -29397,7 +29957,9 @@
         "battle_points": 5482,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Cory Szabo": {
     "name": "Cory Szabo",
@@ -29498,7 +30060,9 @@
         "battle_points": 1081,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Steven Rainey": {
     "name": "Steven Rainey",
@@ -29644,7 +30208,9 @@
         "battle_points": 3122,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": "oJAH3fX1NB",
+    "is_db_matched": true
   },
   "Josh Bacon": {
     "name": "Josh Bacon",
@@ -29687,7 +30253,9 @@
         "battle_points": 2256,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "AGE7CCL5KJ",
+    "is_db_matched": true
   },
   "Nick Dedeic": {
     "name": "Nick Dedeic",
@@ -29773,7 +30341,9 @@
         "battle_points": 1303,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Dave Toth": {
     "name": "Dave Toth",
@@ -29831,7 +30401,9 @@
         "battle_points": 4365,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Anthony Cohen": {
     "name": "Anthony Cohen",
@@ -29860,7 +30432,9 @@
         "battle_points": 3242,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "DUN85KH2J9",
+    "is_db_matched": true
   },
   "Noah Evans": {
     "name": "Noah Evans",
@@ -29889,7 +30463,9 @@
         "battle_points": 1059,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Keith Berry": {
     "name": "Keith Berry",
@@ -30033,7 +30609,9 @@
         "battle_points": 4146,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "REg7PVzDjI",
+    "is_db_matched": true
   },
   "Nick Sorensen": {
     "name": "Nick Sorensen",
@@ -30076,7 +30654,9 @@
         "battle_points": 4371,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Joshua Graunke": {
     "name": "Joshua Graunke",
@@ -30133,7 +30713,9 @@
         "battle_points": 174,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Aaron Funderburk": {
     "name": "Aaron Funderburk",
@@ -30233,7 +30815,9 @@
         "battle_points": 4145,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "B29FinMbJH",
+    "is_db_matched": true
   },
   "Shawn Allen": {
     "name": "Shawn Allen",
@@ -30262,7 +30846,9 @@
         "battle_points": 4447,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "NwlFdsO9H3",
+    "is_db_matched": true
   },
   "Jacob Jesionowski": {
     "name": "Jacob Jesionowski",
@@ -30291,7 +30877,9 @@
         "battle_points": 3336,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Adam Fuchs": {
     "name": "Adam Fuchs",
@@ -30320,7 +30908,9 @@
         "battle_points": 1157,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Mark Kerns": {
     "name": "Mark Kerns",
@@ -30377,7 +30967,9 @@
         "battle_points": 4142,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "kTUpgrz1uy",
+    "is_db_matched": true
   },
   "Matthew Torrez": {
     "name": "Matthew Torrez",
@@ -30420,7 +31012,9 @@
         "battle_points": 4418,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "FE7nHIRu3B",
+    "is_db_matched": true
   },
   "Junsu So": {
     "name": "Junsu So",
@@ -30463,7 +31057,9 @@
         "battle_points": 5408,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "WbHv8XXM5P",
+    "is_db_matched": true
   },
   "Nick Hodson": {
     "name": "Nick Hodson",
@@ -30591,7 +31187,9 @@
         "battle_points": 5162,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "xC1xBRBgVZ",
+    "is_db_matched": true
   },
   "Chuck DeGhetto": {
     "name": "Chuck DeGhetto",
@@ -30634,7 +31232,9 @@
         "battle_points": 3399,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Alex Rivera": {
     "name": "Alex Rivera",
@@ -30691,7 +31291,9 @@
         "battle_points": 4642,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Kyle Dame": {
     "name": "Kyle Dame",
@@ -30735,7 +31337,9 @@
         "battle_points": 4411,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "CVAR85K5MG",
+    "is_db_matched": true
   },
   "Mike Puga": {
     "name": "Mike Puga",
@@ -30778,7 +31382,9 @@
         "battle_points": 2293,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "Qdb1QGWzOT",
+    "is_db_matched": true
   },
   "Lundy Burge": {
     "name": "Lundy Burge",
@@ -30864,7 +31470,9 @@
         "battle_points": 48,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": "8OeAGFtJ0F",
+    "is_db_matched": true
   },
   "Jonathan Phousirith": {
     "name": "Jonathan Phousirith",
@@ -30908,7 +31516,9 @@
         "battle_points": 2326,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "NF9WFYRPLX",
+    "is_db_matched": true
   },
   "Matthew Castro": {
     "name": "Matthew Castro",
@@ -30952,7 +31562,9 @@
         "battle_points": 3852,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "TnMW7bd2p7",
+    "is_db_matched": true
   },
   "Kevin McRee": {
     "name": "Kevin McRee",
@@ -30981,7 +31593,9 @@
         "battle_points": 5461,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Ryan Ottensmeier": {
     "name": "Ryan Ottensmeier",
@@ -31024,7 +31638,9 @@
         "battle_points": 1164,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Wyatt Schroder": {
     "name": "Wyatt Schroder",
@@ -31053,7 +31669,9 @@
         "battle_points": 3261,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Tyler McKee": {
     "name": "Tyler McKee",
@@ -31097,7 +31715,9 @@
         "battle_points": 2297,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": "p0pMRCYDUD",
+    "is_db_matched": true
   },
   "Ramyar Ravansari": {
     "name": "Ramyar Ravansari",
@@ -31126,7 +31746,9 @@
         "battle_points": 846,
         "poty_points": 10
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Mark Gesiawhozit": {
     "name": "Mark Gesiawhozit",
@@ -31170,7 +31792,9 @@
         "battle_points": 216,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Michael Passer": {
     "name": "Michael Passer",
@@ -31199,7 +31823,9 @@
         "battle_points": 0,
         "poty_points": 14
       }
-    ]
+    ],
+    "bcp_player_id": "2DCYWK9Y3R",
+    "is_db_matched": true
   },
   "Rafael Reyes": {
     "name": "Rafael Reyes",
@@ -31228,7 +31854,9 @@
         "battle_points": 1247,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "PREW26GRCR",
+    "is_db_matched": true
   },
   "Bill Bouvier": {
     "name": "Bill Bouvier",
@@ -31257,7 +31885,9 @@
         "battle_points": 0,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jonathan Garcia": {
     "name": "Jonathan Garcia",
@@ -31286,7 +31916,9 @@
         "battle_points": 0,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": "xe6b4q8JeF",
+    "is_db_matched": true
   },
   "Jordan Roach": {
     "name": "Jordan Roach",
@@ -31415,7 +32047,9 @@
         "battle_points": 4165,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "MUVhmkOI9e",
+    "is_db_matched": true
   },
   "Erik Trock": {
     "name": "Erik Trock",
@@ -31444,7 +32078,9 @@
         "battle_points": 0,
         "poty_points": 16
       }
-    ]
+    ],
+    "bcp_player_id": "HRSGUvdCiQ",
+    "is_db_matched": true
   },
   "Logan Heath": {
     "name": "Logan Heath",
@@ -31473,7 +32109,9 @@
         "battle_points": 4371,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": "03NzRwjFt4",
+    "is_db_matched": true
   },
   "Nick Heermann": {
     "name": "Nick Heermann",
@@ -31502,7 +32140,9 @@
         "battle_points": 3255,
         "poty_points": 14
       }
-    ]
+    ],
+    "bcp_player_id": "fkWpAsAQMB",
+    "is_db_matched": true
   },
   "Matt Miller": {
     "name": "Matt Miller",
@@ -31561,7 +32201,9 @@
         "battle_points": 2118,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "A2v6s0NTaQ",
+    "is_db_matched": true
   },
   "Brett Cross": {
     "name": "Brett Cross",
@@ -31648,7 +32290,9 @@
         "battle_points": 3084,
         "poty_points": 14
       }
-    ]
+    ],
+    "bcp_player_id": "c4FLMnxwAO",
+    "is_db_matched": true
   },
   "Brennan Klein": {
     "name": "Brennan Klein",
@@ -31719,7 +32363,9 @@
         "battle_points": 2623,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "4kyAqCkrXE",
+    "is_db_matched": true
   },
   "Jacob Halladay": {
     "name": "Jacob Halladay",
@@ -31804,7 +32450,9 @@
         "battle_points": 50,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": "R4hXJ8wQkT",
+    "is_db_matched": true
   },
   "Elliot Aleman": {
     "name": "Elliot Aleman",
@@ -31833,7 +32481,9 @@
         "battle_points": 268,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": "FPxz05RcnD",
+    "is_db_matched": true
   },
   "Keefe Chang": {
     "name": "Keefe Chang",
@@ -31862,7 +32512,9 @@
         "battle_points": 0,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Zach Knuth": {
     "name": "Zach Knuth",
@@ -31891,7 +32543,9 @@
         "battle_points": 4372,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Ryan Hon": {
     "name": "Ryan Hon",
@@ -31920,7 +32574,9 @@
         "battle_points": 3411,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Vincent Chong": {
     "name": "Vincent Chong",
@@ -31949,7 +32605,9 @@
         "battle_points": 283,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jonathan Jenkins": {
     "name": "Jonathan Jenkins",
@@ -32034,7 +32692,9 @@
         "battle_points": 4132,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "VN1L9jYrwmWC",
+    "is_db_matched": true
   },
   "Josh Barille": {
     "name": "Josh Barille",
@@ -32105,7 +32765,9 @@
         "battle_points": 3115,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Ryan Elam": {
     "name": "Ryan Elam",
@@ -32190,7 +32852,9 @@
         "battle_points": 3626,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Dylan Tadlock": {
     "name": "Dylan Tadlock",
@@ -32247,7 +32911,9 @@
         "battle_points": 4655,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Thomas Wickham": {
     "name": "Thomas Wickham",
@@ -32304,7 +32970,9 @@
         "battle_points": 4132,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "8THWR8MY9X",
+    "is_db_matched": true
   },
   "C.J. Marin": {
     "name": "C.J. Marin",
@@ -32418,7 +33086,9 @@
         "battle_points": 1084,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": "DXhMHKOb69",
+    "is_db_matched": true
   },
   "Russell Torres": {
     "name": "Russell Torres",
@@ -32475,7 +33145,9 @@
         "battle_points": 2106,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "DK0tVAziPJ",
+    "is_db_matched": true
   },
   "Cameron Bellerose": {
     "name": "Cameron Bellerose",
@@ -32560,7 +33232,9 @@
         "battle_points": 54,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Matt Whaite": {
     "name": "Matt Whaite",
@@ -32603,7 +33277,9 @@
         "battle_points": 2116,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Caleb Huha": {
     "name": "Caleb Huha",
@@ -32674,7 +33350,9 @@
         "battle_points": 3106,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": "4uWuCnBl0s",
+    "is_db_matched": true
   },
   "Brandon Ramsey": {
     "name": "Brandon Ramsey",
@@ -32703,7 +33381,9 @@
         "battle_points": 4149,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "gvdGq7MNe2yc",
+    "is_db_matched": true
   },
   "Zachary Saadi": {
     "name": "Zachary Saadi",
@@ -32732,7 +33412,9 @@
         "battle_points": 3124,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Daniel Hall": {
     "name": "Daniel Hall",
@@ -32761,7 +33443,9 @@
         "battle_points": 3093,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "9ycYXMqXk6",
+    "is_db_matched": true
   },
   "Alex Roe": {
     "name": "Alex Roe",
@@ -32790,7 +33474,9 @@
         "battle_points": 1079,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": "CPJKXA5LF2",
+    "is_db_matched": true
   },
   "Dustin Chapman": {
     "name": "Dustin Chapman",
@@ -32819,7 +33505,9 @@
         "battle_points": 0,
         "poty_points": 12
       }
-    ]
+    ],
+    "bcp_player_id": "L0PY3AMEKT",
+    "is_db_matched": true
   },
   "Doug Johnson": {
     "name": "Doug Johnson",
@@ -32891,7 +33579,9 @@
         "battle_points": 4932,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": "C3h1VDTYiy",
+    "is_db_matched": true
   },
   "Rob Gailey": {
     "name": "Rob Gailey",
@@ -32978,7 +33668,9 @@
         "battle_points": 2118,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": "HrXye7qfWK",
+    "is_db_matched": true
   },
   "Chris Brewer": {
     "name": "Chris Brewer",
@@ -33078,7 +33770,9 @@
         "battle_points": 45,
         "poty_points": 37
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Garrett Kunz": {
     "name": "Garrett Kunz",
@@ -33136,7 +33830,9 @@
         "battle_points": 67,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Phil Stinnett": {
     "name": "Phil Stinnett",
@@ -33179,7 +33875,9 @@
         "battle_points": 4172,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "tTIDD8rMgS",
+    "is_db_matched": true
   },
   "Ward Schrimsher": {
     "name": "Ward Schrimsher",
@@ -33223,7 +33921,9 @@
         "battle_points": 10,
         "poty_points": 39
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Nick Bredestege": {
     "name": "Nick Bredestege",
@@ -33281,7 +33981,9 @@
         "battle_points": 2084,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jacob Loewke": {
     "name": "Jacob Loewke",
@@ -33310,7 +34012,9 @@
         "battle_points": 1040,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Corky Boucher": {
     "name": "Corky Boucher",
@@ -33354,7 +34058,9 @@
         "battle_points": 1087,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "E9BRVB5QHX",
+    "is_db_matched": true
   },
   "Seth Berozofsky": {
     "name": "Seth Berozofsky",
@@ -33383,7 +34089,9 @@
         "battle_points": 4150,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "SefzzEfEbV",
+    "is_db_matched": true
   },
   "Richard Gregor": {
     "name": "Richard Gregor",
@@ -33412,7 +34120,9 @@
         "battle_points": 77,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Roger Engle": {
     "name": "Roger Engle",
@@ -33441,7 +34151,9 @@
         "battle_points": 24,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Charles Amor": {
     "name": "Charles Amor",
@@ -33513,7 +34225,9 @@
         "battle_points": 5154,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Frankie Giampapa": {
     "name": "Frankie Giampapa",
@@ -33602,7 +34316,9 @@
         "poty_points": 3
       }
     ],
-    "championships": 1
+    "championships": 1,
+    "bcp_player_id": "a6Uc2xSX9b",
+    "is_db_matched": true
   },
   "Reece Robbins": {
     "name": "Reece Robbins",
@@ -33690,7 +34406,9 @@
         "battle_points": 5155,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "B5xd8Q7V9M",
+    "is_db_matched": true
   },
   "Connor Hudgins": {
     "name": "Connor Hudgins",
@@ -33747,7 +34465,9 @@
         "battle_points": 3100,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jose Machado": {
     "name": "Jose Machado",
@@ -33806,7 +34526,9 @@
         "battle_points": 1035,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Chris Macpherson": {
     "name": "Chris Macpherson",
@@ -33877,7 +34599,9 @@
         "battle_points": 83,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Eli Williams": {
     "name": "Eli Williams",
@@ -33921,7 +34645,9 @@
         "battle_points": 1038,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": "Ol0jUl5XWr",
+    "is_db_matched": true
   },
   "Jeremy Treadwell": {
     "name": "Jeremy Treadwell",
@@ -33964,7 +34690,9 @@
         "battle_points": 1084,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Luke Stroth": {
     "name": "Luke Stroth",
@@ -34007,7 +34735,9 @@
         "battle_points": 52,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Richard Denton": {
     "name": "Richard Denton",
@@ -34036,7 +34766,9 @@
         "battle_points": 2063,
         "poty_points": 6
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Patrick Hutton": {
     "name": "Patrick Hutton",
@@ -34065,7 +34797,9 @@
         "battle_points": 1065,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Paul Maxe": {
     "name": "Paul Maxe",
@@ -34124,7 +34858,9 @@
         "battle_points": 5152,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "John Carlson": {
     "name": "John Carlson",
@@ -34182,7 +34918,9 @@
         "battle_points": 3131,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "4oHgE0wChR",
+    "is_db_matched": true
   },
   "Eddy Ochoa": {
     "name": "Eddy Ochoa",
@@ -34254,7 +34992,9 @@
         "battle_points": 0,
         "poty_points": 28
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jordan Roman": {
     "name": "Jordan Roman",
@@ -34340,7 +35080,9 @@
         "battle_points": 0,
         "poty_points": 19
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Steve Longfellow": {
     "name": "Steve Longfellow",
@@ -34412,7 +35154,9 @@
         "battle_points": 14,
         "poty_points": 18
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Adam Carroll": {
     "name": "Adam Carroll",
@@ -34499,7 +35243,9 @@
         "battle_points": 2105,
         "poty_points": 32
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Adam Ardigo": {
     "name": "Adam Ardigo",
@@ -34556,7 +35302,9 @@
         "battle_points": 3161,
         "poty_points": 4
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Steve Turner": {
     "name": "Steve Turner",
@@ -34642,7 +35390,9 @@
         "battle_points": 68,
         "poty_points": 10
       }
-    ]
+    ],
+    "bcp_player_id": "EcpKhNbwFh",
+    "is_db_matched": true
   },
   "Ray Ahumada": {
     "name": "Ray Ahumada",
@@ -34686,7 +35436,9 @@
         "battle_points": 0,
         "poty_points": 21
       }
-    ]
+    ],
+    "bcp_player_id": "GnBVTwYNGa",
+    "is_db_matched": true
   },
   "Alan Schultz": {
     "name": "Alan Schultz",
@@ -34743,7 +35495,9 @@
         "battle_points": 2100,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Steven Showalter": {
     "name": "Steven Showalter",
@@ -34801,7 +35555,9 @@
         "battle_points": 59,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Michael DeForest": {
     "name": "Michael DeForest",
@@ -34860,7 +35616,9 @@
         "battle_points": 4138,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "d03iHK6In4",
+    "is_db_matched": true
   },
   "Aaron McIntyre": {
     "name": "Aaron McIntyre",
@@ -34904,7 +35662,9 @@
         "battle_points": 56,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Robert Francis": {
     "name": "Robert Francis",
@@ -34933,7 +35693,9 @@
         "battle_points": 5169,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Fred Golightly": {
     "name": "Fred Golightly",
@@ -34976,7 +35738,9 @@
         "battle_points": 20,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Howie Chong": {
     "name": "Howie Chong",
@@ -35005,7 +35769,9 @@
         "battle_points": 4153,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "IK0nntuzKU",
+    "is_db_matched": true
   },
   "Pablo Martinez": {
     "name": "Pablo Martinez",
@@ -35079,7 +35845,9 @@
         "battle_points": 1591,
         "poty_points": 9
       }
-    ]
+    ],
+    "bcp_player_id": "35tP2URZQK",
+    "is_db_matched": true
   },
   "Alan Dehesa": {
     "name": "Alan Dehesa",
@@ -35136,7 +35904,9 @@
         "battle_points": 5166,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": "OY6SqV9dHC",
+    "is_db_matched": true
   },
   "Mark Sindell": {
     "name": "Mark Sindell",
@@ -35179,7 +35949,9 @@
         "battle_points": 5172,
         "poty_points": 1
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Josh Petty": {
     "name": "Josh Petty",
@@ -35222,7 +35994,9 @@
         "battle_points": 2118,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "tf3WOR526w",
+    "is_db_matched": true
   },
   "Ted Seabolt": {
     "name": "Ted Seabolt",
@@ -35280,7 +36054,9 @@
         "battle_points": 2122,
         "poty_points": 5
       }
-    ]
+    ],
+    "bcp_player_id": "mvchKBAHDL",
+    "is_db_matched": true
   },
   "Cameron Allen": {
     "name": "Cameron Allen",
@@ -35339,7 +36115,9 @@
         "battle_points": 13,
         "poty_points": 10
       }
-    ]
+    ],
+    "bcp_player_id": "94DNE6XGA3",
+    "is_db_matched": true
   },
   "Daniel Shipps": {
     "name": "Daniel Shipps",
@@ -35382,7 +36160,9 @@
         "battle_points": 72,
         "poty_points": 7
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Daniel Knox": {
     "name": "Daniel Knox",
@@ -35411,7 +36191,9 @@
         "battle_points": 3636,
         "poty_points": 2
       }
-    ]
+    ],
+    "bcp_player_id": "uQoKcutARH",
+    "is_db_matched": true
   },
   "Noah Rainey": {
     "name": "Noah Rainey",
@@ -35455,7 +36237,9 @@
         "battle_points": 0,
         "poty_points": 35
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Jason Hickle": {
     "name": "Jason Hickle",
@@ -35499,7 +36283,9 @@
         "battle_points": 3142,
         "poty_points": 3
       }
-    ]
+    ],
+    "bcp_player_id": "mlcwwGRBou",
+    "is_db_matched": true
   },
   "Larry Dente": {
     "name": "Larry Dente",
@@ -35528,7 +36314,9 @@
         "battle_points": 35,
         "poty_points": 8
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Sean Burbano": {
     "name": "Sean Burbano",
@@ -35571,7 +36359,9 @@
         "battle_points": 2124,
         "poty_points": 29
       }
-    ]
+    ],
+    "bcp_player_id": "j2sHp6f49x",
+    "is_db_matched": true
   },
   "Mike Anderson": {
     "name": "Mike Anderson",
@@ -35600,7 +36390,9 @@
         "battle_points": 18,
         "poty_points": 9
       }
-    ]
+    ],
+    "bcp_player_id": "LUFNT73X2K",
+    "is_db_matched": true
   },
   "Rj Abad": {
     "name": "Rj Abad",
@@ -35629,7 +36421,9 @@
         "battle_points": 61,
         "poty_points": 17
       }
-    ]
+    ],
+    "bcp_player_id": "5uBVzv6cxo",
+    "is_db_matched": true
   },
   "David Fernandes": {
     "name": "David Fernandes",
@@ -35658,7 +36452,9 @@
         "battle_points": 1038,
         "poty_points": 33
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Dave Booth": {
     "name": "Dave Booth",
@@ -35687,7 +36483,9 @@
         "battle_points": 4143,
         "poty_points": 31
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Andrew Stafford": {
     "name": "Andrew Stafford",
@@ -35716,7 +36514,9 @@
         "battle_points": 0,
         "poty_points": 40
       }
-    ]
+    ],
+    "bcp_player_id": null,
+    "is_db_matched": false
   },
   "Hunter Hall": {
     "name": "Hunter Hall",
@@ -35745,7 +36545,9 @@
         "battle_points": 0,
         "poty_points": 42
       }
-    ]
+    ],
+    "bcp_player_id": "OOcRZE1O4NCJ",
+    "is_db_matched": true
   },
   "Eli Waddell": {
     "name": "Eli Waddell",
@@ -35774,6 +36576,8 @@
         "battle_points": 1022,
         "poty_points": 38
       }
-    ]
+    ],
+    "bcp_player_id": "Dh1u3GrHlX",
+    "is_db_matched": true
   }
 }

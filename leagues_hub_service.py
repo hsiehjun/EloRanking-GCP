@@ -245,32 +245,26 @@ class LeaguesHubService:
     def _load_or_init_participants_registry(self):
         """
         Loads or seeds the participant identity registry mapping league participant names
-        to `bcp_player_id` (`players.player_id`) and `user_id` (`users.id`).
-        - Standard tournament competitors in our `players` DB are matched by name assumption (`match_method = 'name_assumption'`, `is_db_matched = True`).
-        - Nicknames / handles or local-only players not found in `players` by name assumption (e.g. 'Kinyaaaanii Padilla', 'Rock Liberty', 'Coop', 'Juno', 'Nick Treuheit') start with `is_db_matched = False` until matched/claimed via their existing `user_id` or `bcp_player_id`.
+        to real PostgreSQL `bcp_player_id` (`players.player_id`) and `user_id` (`users.id`).
+        Only participants who actually exist in our PostgreSQL `players` table have a valid
+        `bcp_player_id` and `is_db_matched = True`. Unmatched participants have `bcp_player_id = None`
+        and `is_db_matched = False` until matched/claimed via an account or player profile.
         """
-        unmatched_by_name_assumption = {
-            "kinyaaaanii padilla",
-            "rock liberty",
-            "nick treuheit",
-            "jan pferdekamper",
-            "coop",
-            "juno",
-            "salty",
-            "big d"
-        }
-        known_registered_users = {
-            "victor campos": {"user_id": "u_victor_campos", "bcp_player_id": "bcp_victor_campos"},
-            "durand smiley": {"user_id": "u_durand_smiley", "bcp_player_id": "bcp_durand_smiley"},
-            "james carmona": {"user_id": "u_james_carmona", "bcp_player_id": "p_james_carmona"},
-            "john hsieh": {"user_id": "u_john_hsieh", "bcp_player_id": "MEV83VFANA"},
-            "junior aflleje": {"user_id": "u_junior_aflleje", "bcp_player_id": "Te1Q9lp3By"},
-        }
         if self._participants_path.exists():
             try:
                 with open(self._participants_path, "r", encoding="utf-8") as f:
-                    self._participants_registry = json.load(f)
-                    if self._participants_registry:
+                    loaded = json.load(f)
+                    if loaded:
+                        # Sanitize any legacy fake bcp_ slugs so only real DB player_ids remain matched
+                        for k, v in loaded.items():
+                            pid = v.get("bcp_player_id")
+                            if pid and str(pid).startswith("bcp_"):
+                                v["bcp_player_id"] = None
+                                v["is_db_matched"] = False
+                                v["match_method"] = "unmatched"
+                            else:
+                                v["is_db_matched"] = bool(pid)
+                        self._participants_registry = loaded
                         return
             except Exception as e:
                 print(f"[LeaguesHubService] Error loading participants registry: {e}")
@@ -288,7 +282,6 @@ class LeaguesHubService:
             if h_num != s_num and isinstance(h_season, dict):
                 all_seasons.append((h_num, h_season))
 
-        # Index historical seasons first, then Active Season 38 so active season pod/season takes precedence
         for curr_s_num, season_obj in sorted(all_seasons, key=lambda x: x[0]):
             for p in season_obj.get("pods", []):
                 p_num = int(p.get("pod_number", 1))
@@ -297,34 +290,21 @@ class LeaguesHubService:
                     if not pname:
                         continue
                     norm_key = pname.lower()
-                    if norm_key in unmatched_by_name_assumption or len(pname.split()) < 2:
-                        self._participants_registry[norm_key] = {
-                            "league_id": "league_sd40k_big_league",
-                            "season_num": curr_s_num,
-                            "pod_num": p_num,
-                            "participant_name": pname,
-                            "primary_faction": st.get("primary_faction", ""),
-                            "bcp_player_id": None,
-                            "user_id": None,
-                            "is_db_matched": False,
-                            "match_method": "unmatched"
-                        }
-                    else:
-                        slug = re.sub(r"[^a-z0-9]+", "_", norm_key).strip("_")
-                        known = known_registered_users.get(norm_key, {})
-                        bcp_id = known.get("bcp_player_id") or f"bcp_{slug}"
-                        uid = known.get("user_id")
-                        self._participants_registry[norm_key] = {
-                            "league_id": "league_sd40k_big_league",
-                            "season_num": curr_s_num,
-                            "pod_num": p_num,
-                            "participant_name": pname,
-                            "primary_faction": st.get("primary_faction", ""),
-                            "bcp_player_id": bcp_id,
-                            "user_id": uid,
-                            "is_db_matched": True,
-                            "match_method": "name_assumption"
-                        }
+                    pid = st.get("bcp_player_id") or st.get("player_id")
+                    if pid and str(pid).startswith("bcp_"):
+                        pid = None
+                    is_matched = bool(pid)
+                    self._participants_registry[norm_key] = {
+                        "league_id": "league_sd40k_big_league",
+                        "season_num": curr_s_num,
+                        "pod_num": p_num,
+                        "participant_name": pname,
+                        "primary_faction": st.get("primary_faction", ""),
+                        "bcp_player_id": pid,
+                        "user_id": st.get("user_id"),
+                        "is_db_matched": is_matched,
+                        "match_method": "postgres_exact_name" if is_matched else "unmatched"
+                    }
         self._save_participants_registry()
 
     def _save_participants_registry(self):
@@ -335,7 +315,7 @@ class LeaguesHubService:
             print(f"[LeaguesHubService] Error saving participants registry: {e}")
 
     def _enrich_season_participants(self, league_obj: Dict[str, Any]) -> Dict[str, Any]:
-        """Enriches all pod standings and pairings with DB match status, bcp_player_id, and user_id."""
+        """Enriches all pod standings and pairings with real PostgreSQL DB match status, bcp_player_id, and user_id."""
         act = league_obj.get("active_season", {})
         s_num = int(act.get("season_number", 38))
         # Ensure season-specific rules live on active_season.season_config
@@ -348,6 +328,7 @@ class LeaguesHubService:
             "games_per_season": 5,
             "duration_weeks": 8
         })
+        round_layouts = act.get("season_config", {}).get("round_layouts", ["Layout A", "Layout B", "Layout C", "Layout A", "Layout B"])
         for p in act.get("pods", []):
             p_num = int(p.get("pod_number", 1))
             for st in p.get("standings", []):
@@ -355,35 +336,49 @@ class LeaguesHubService:
                 norm_key = pname.lower()
                 reg_entry = self._participants_registry.get(norm_key)
                 if not reg_entry:
-                    is_matched = len(pname.split()) >= 2 and norm_key not in {"kinyaaaanii padilla", "rock liberty", "nick treuheit", "jan pferdekamper"}
-                    slug = re.sub(r"[^a-z0-9]+", "_", norm_key).strip("_")
+                    pid = st.get("bcp_player_id") or st.get("player_id")
+                    if pid and str(pid).startswith("bcp_"):
+                        pid = None
+                    is_matched = bool(pid)
                     reg_entry = {
                         "league_id": league_obj.get("league_id", "league_sd40k_big_league"),
                         "season_num": s_num,
                         "pod_num": p_num,
                         "participant_name": pname,
                         "primary_faction": st.get("primary_faction", ""),
-                        "bcp_player_id": f"bcp_{slug}" if is_matched else None,
-                        "user_id": None,
+                        "bcp_player_id": pid,
+                        "user_id": st.get("user_id"),
                         "is_db_matched": is_matched,
-                        "match_method": "name_assumption" if is_matched else "unmatched"
+                        "match_method": "postgres_exact_name" if is_matched else "unmatched"
                     }
                     self._participants_registry[norm_key] = reg_entry
 
-                st["bcp_player_id"] = reg_entry.get("bcp_player_id")
-                st["player_id"] = reg_entry.get("bcp_player_id")
+                pid_val = reg_entry.get("bcp_player_id")
+                if pid_val and str(pid_val).startswith("bcp_"):
+                    pid_val = None
+                st["bcp_player_id"] = pid_val
+                st["player_id"] = pid_val
                 st["user_id"] = reg_entry.get("user_id")
-                st["is_db_matched"] = bool(reg_entry.get("is_db_matched") and reg_entry.get("bcp_player_id"))
-                st["match_method"] = reg_entry.get("match_method", "unmatched")
+                st["is_db_matched"] = bool(reg_entry.get("is_db_matched") and pid_val)
+                st["match_method"] = reg_entry.get("match_method", "unmatched") if st["is_db_matched"] else "unmatched"
                 if reg_entry.get("linked_display_name"):
                     st["linked_display_name"] = reg_entry.get("linked_display_name")
 
-                for pair in st.get("pairings", []):
-                    opp_name = (pair.get("opponent_name") or "").strip()
-                    opp_reg = self._participants_registry.get(opp_name.lower(), {})
-                    pair["opponent_bcp_player_id"] = opp_reg.get("bcp_player_id")
+                for idx, pair in enumerate(st.get("pairings", [])):
+                    opp_raw = (pair.get("opponent_name") or "").strip()
+                    opp_clean = re.sub(r"\s*\([^)]*\)\s*$", "", opp_raw).strip()
+                    if opp_raw.lower() in self._participants_registry:
+                        opp_clean = opp_raw
+                    opp_reg = self._participants_registry.get(opp_clean.lower(), {})
+                    opp_pid = opp_reg.get("bcp_player_id")
+                    if opp_pid and str(opp_pid).startswith("bcp_"):
+                        opp_pid = None
+                    pair["opponent_clean_name"] = opp_clean
+                    pair["opponent_bcp_player_id"] = opp_pid
                     pair["opponent_user_id"] = opp_reg.get("user_id")
-                    pair["opponent_is_db_matched"] = bool(opp_reg.get("is_db_matched") and opp_reg.get("bcp_player_id"))
+                    pair["opponent_is_db_matched"] = bool(opp_reg.get("is_db_matched") and opp_pid)
+                    if not pair.get("layout") and idx < len(round_layouts):
+                        pair["layout"] = round_layouts[idx]
 
         # Attach summary counts of DB-matched vs unmatched participants
         all_season_names = [
@@ -392,10 +387,152 @@ class LeaguesHubService:
             for st in p.get("standings", [])
             if st.get("name")
         ]
-        matched_cnt = sum(1 for k in all_season_names if self._participants_registry.get(k, {}).get("is_db_matched"))
+        matched_cnt = sum(
+            1 for k in all_season_names
+            if self._participants_registry.get(k, {}).get("is_db_matched")
+            and self._participants_registry.get(k, {}).get("bcp_player_id")
+            and not str(self._participants_registry.get(k, {}).get("bcp_player_id")).startswith("bcp_")
+        )
         act["db_matched_players_count"] = matched_cnt
         act["unmatched_players_count"] = max(0, len(all_season_names) - matched_cnt)
         return league_obj
+
+    def get_user_registered_leagues(
+        self,
+        user_id: Optional[str] = None,
+        player_id: Optional[str] = None,
+        player_name: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Returns any active leagues in which the given user/player is participating,
+        formatted for seamless display under `📅 Registered Tournaments` in My Hub
+        along with full Pod & 5-round pairings data for the Quick Popup Modal.
+        """
+        uid_clean = (str(user_id).strip() if user_id else "")
+        pid_clean = (str(player_id).strip() if player_id else "")
+        pname_clean = (str(player_name).strip().lower() if player_name else "")
+        if not uid_clean and not pid_clean and not pname_clean:
+            return []
+
+        league_obj = self.get_league("league_sd40k_big_league")
+        if not league_obj:
+            return []
+
+        act = league_obj.get("active_season", {})
+        s_num = int(act.get("season_number", 38))
+        round_layouts = act.get("season_config", {}).get(
+            "round_layouts", ["Layout A", "Layout B", "Layout C", "Layout A", "Layout B"]
+        )
+
+        matched_entries: List[Dict[str, Any]] = []
+        for p in act.get("pods", []):
+            p_num = int(p.get("pod_number", 1))
+            p_name = p.get("pod_name") or f"Pod #{p_num}"
+            standings = p.get("standings", [])
+            for st in standings:
+                st_uid = str(st.get("user_id") or "").strip()
+                st_pid = str(st.get("bcp_player_id") or st.get("player_id") or "").strip()
+                st_name = (st.get("name") or "").strip()
+                st_name_lower = st_name.lower()
+
+                is_match = False
+                if uid_clean and st_uid and uid_clean == st_uid:
+                    is_match = True
+                elif pid_clean and st_pid and pid_clean == st_pid:
+                    is_match = True
+                elif pname_clean and st_name_lower and pname_clean == st_name_lower:
+                    is_match = True
+
+                if is_match:
+                    w = int(st.get("wins", 0))
+                    l = int(st.get("losses", 0))
+                    d = int(st.get("draws", 0))
+                    record_str = f"{w}-{l}-{d}"
+                    games_played = w + l + d
+                    games_total = len(st.get("pairings", [])) or 5
+
+                    enriched_pairings = []
+                    for idx, pair in enumerate(st.get("pairings", [])):
+                        opp_raw = (pair.get("opponent_name") or "").strip()
+                        opp_clean = pair.get("opponent_clean_name") or re.sub(r"\s*\([^)]*\)\s*$", "", opp_raw).strip()
+                        opp_faction = pair.get("opponent_faction") or ""
+                        if not opp_faction and "(" in opp_raw and opp_raw.endswith(")"):
+                            m = re.search(r"\(([^)]+)\)\s*$", opp_raw)
+                            if m:
+                                opp_faction = m.group(1).strip()
+                        # Also look up opponent in pod standings if faction still empty
+                        if not opp_faction:
+                            for ost in standings:
+                                if (ost.get("name") or "").strip().lower() == opp_clean.lower():
+                                    opp_faction = ost.get("primary_faction") or ""
+                                    break
+                        enriched_pairings.append({
+                            "round": int(pair.get("round", idx + 1)),
+                            "layout": pair.get("layout") or (round_layouts[idx] if idx < len(round_layouts) else "Standard Layout"),
+                            "opponent_name": opp_raw,
+                            "opponent_clean_name": opp_clean,
+                            "opponent_faction": opp_faction or "Unknown Faction",
+                            "opponent_bcp_player_id": pair.get("opponent_bcp_player_id"),
+                            "opponent_user_id": pair.get("opponent_user_id"),
+                            "opponent_is_db_matched": bool(pair.get("opponent_is_db_matched") and pair.get("opponent_bcp_player_id")),
+                            "status": pair.get("status", "scheduled"),
+                            "result": pair.get("result"),
+                            "player_score": pair.get("player_score", 0),
+                            "opponent_score": pair.get("opponent_score", 0),
+                        })
+
+                    matched_entries.append({
+                        "id": f"league_sd40k_s{s_num}_pod{p_num}",
+                        "bcp_event_id": "league_sd40k_big_league",
+                        "league_id": "league_sd40k_big_league",
+                        "is_native_league": True,
+                        "has_explicit_player_data": True,
+                        "event_name": f"{league_obj.get('name', 'San Diego Force Org (SD40K)')} — Season {s_num}",
+                        "name": f"{league_obj.get('name', 'San Diego Force Org (SD40K)')} — Season {s_num}",
+                        "season_number": s_num,
+                        "pod_number": p_num,
+                        "pod_name": p_name,
+                        "player_name": st_name,
+                        "player_id": st_pid or pid_clean,
+                        "bcp_player_id": st_pid or pid_clean,
+                        "user_id": st_uid or uid_clean,
+                        "faction": st.get("primary_faction") or "Army Unassigned",
+                        "primary_faction": st.get("primary_faction") or "Army Unassigned",
+                        "detachment": f"Pod #{p_num} ({p_name})",
+                        "rank": int(st.get("rank", 1)),
+                        "wins": w,
+                        "losses": l,
+                        "draws": d,
+                        "record": record_str,
+                        "battle_points": int(st.get("battle_points", 0)),
+                        "games_played": games_played,
+                        "rounds": games_total,
+                        "points_limit": 2000,
+                        "event_date": act.get("start_date", "2026-09-15"),
+                        "start_date": act.get("start_date", "2026-09-15"),
+                        "end_date": act.get("end_date", "2026-11-10"),
+                        "venue_name": "San Diego Force Org Pods",
+                        "city": "San Diego",
+                        "state": "CA",
+                        "checked_in": True,
+                        "has_list_submitted": True,
+                        "pairings": enriched_pairings,
+                        "pod_standings": [
+                            {
+                                "rank": int(s.get("rank", i + 1)),
+                                "name": s.get("name"),
+                                "primary_faction": s.get("primary_faction"),
+                                "wins": int(s.get("wins", 0)),
+                                "losses": int(s.get("losses", 0)),
+                                "draws": int(s.get("draws", 0)),
+                                "battle_points": int(s.get("battle_points", 0)),
+                                "bcp_player_id": s.get("bcp_player_id"),
+                                "is_db_matched": bool(s.get("is_db_matched") and s.get("bcp_player_id")),
+                            }
+                            for i, s in enumerate(standings)
+                        ]
+                    })
+        return matched_entries
 
     def _save_index(self):
         try:

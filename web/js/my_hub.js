@@ -544,8 +544,9 @@ function getCountdownBadge(dateStr, endDateStr) {
 
 function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
   const events = (tournaments || []).filter(isValidRegisteredTournament);
+  window._hubRegisteredEventsCache = events;
   
-  if (!isBcpConnected) {
+  if (!isBcpConnected && events.length === 0) {
     return `
       <div class="hub-card" id="hub-registered-tournaments-card" style="display: flex; flex-direction: column; justify-content: space-between;">
         <div>
@@ -577,22 +578,69 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
             <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📅 Registered Tournaments</h3>
             ${events.length > 0 ? `<span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.5rem;">${events.length} Active</span>` : ''}
           </div>
-          <button id="hub-bcp-sync-btn" onclick="syncBcpRegisteredTournaments()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.7rem; display: inline-flex; align-items: center; gap: 0.35rem;" title="Refresh tournament registrations and status from Best Coast Pairings">
+          <button id="hub-bcp-sync-btn" onclick="syncBcpRegisteredTournaments()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.7rem; display: inline-flex; align-items: center; gap: 0.35rem;" title="Refresh tournament and league registrations">
             <span id="hub-bcp-sync-icon">🔄</span> Refresh
           </button>
         </div>
 
         ${events.length > 0 ? `
           <div style="margin-bottom: 0.75rem;">
-            <input type="text" class="hub-search-input" placeholder="🔍 Filter registered tournaments..." oninput="filterHubRegisteredEvents(this.value)">
+            <input type="text" class="hub-search-input" placeholder="🔍 Filter registered tournaments & leagues..." oninput="filterHubRegisteredEvents(this.value)">
           </div>
           <div id="hub-registered-events-list" class="hub-events-scroll-container">
             ${events.map(ev => {
-              const evId = ev.bcp_event_id || ev.id || '';
+              const evId = ev.id || ev.bcp_event_id || '';
+              const isNativeLeague = Boolean(ev.is_native_league || String(evId).startsWith('league_'));
               const evName = ev.event_name || ev.name || 'Tournament';
-              const bcpUrl = ev.bcp_url || `https://www.bestcoastpairings.com/event/${encodeURIComponent(evId)}`;
               const evDate = ev.event_date || ev.start_date || '';
               const dateDisplay = (evDate ? evDate.substring(0, 10) : 'TBD');
+
+              if (isNativeLeague) {
+                const podNum = ev.pod_number || 1;
+                const podName = ev.pod_name || `Pod #${podNum}`;
+                const rankNum = ev.rank || 1;
+                const recordStr = ev.record || `${ev.wins || 0}-${ev.losses || 0}-${ev.draws || 0}`;
+                const bpVal = ev.battle_points ?? 0;
+                const pairingsCount = (ev.pairings && ev.pairings.length) || ev.rounds || 5;
+                const safeEntryId = escapeHtml(String(evId)).replace(/'/g, "\\'");
+                return `
+                  <div class="hub-event-item-card" data-native-league-id="${escapeHtml(String(evId))}" style="cursor: pointer; border: 1px solid rgba(56, 189, 248, 0.35); background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 58, 138, 0.22));" onclick="openUserLeagueGamesQuickModal('${safeEntryId}')">
+                    <div class="hub-event-header">
+                      <div style="min-width: 0; flex: 1; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                        <span class="badge" style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.68rem; padding: 2px 6px; font-weight: 800;">🏆 ACTIVE LEAGUE</span>
+                        <span class="hub-event-title" style="color: #38bdf8;">
+                          ${escapeHtml(evName)}
+                        </span>
+                      </div>
+                      <div style="flex-shrink: 0; display: flex; align-items: center; gap: 0.35rem;">
+                        <span class="badge" style="background: rgba(16,185,129,0.16); color: #34d399; border: 1px solid rgba(16,185,129,0.35); font-size: 0.7rem; padding: 2px 7px; font-weight: 700;">🟢 Pod #${podNum} • Rank #${rankNum}</span>
+                        <span class="badge" style="background: rgba(59,130,246,0.18); color: #93c5fd; border: 1px solid rgba(59,130,246,0.35); font-size: 0.7rem; padding: 2px 7px; font-weight: 700;">${escapeHtml(recordStr)} (${bpVal} VP)</span>
+                      </div>
+                    </div>
+
+                    <div class="hub-event-meta">
+                      <span>📅 <b>${escapeHtml(dateDisplay)}</b></span>
+                      <span>📍 <b>${escapeHtml(podName)}</b> (${escapeHtml(ev.city || 'San Diego')}, ${escapeHtml(ev.state || 'CA')})</span>
+                      <span>⚔️ 2000 pts</span>
+                      <span>• ${pairingsCount} Scheduled Pod Games</span>
+                    </div>
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.35rem; border-top: 1px solid rgba(255,255,255,0.07);">
+                      <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                        <span style="font-size: 0.76rem; color: #fff;">
+                          🛡️ <b>${escapeHtml(ev.faction || ev.primary_faction || 'Army Unassigned')}</b>
+                          <span style="color: var(--text-muted);"> (${escapeHtml(ev.player_name || '')})</span>
+                        </span>
+                      </div>
+                      <span class="badge" style="background: rgba(56,189,248,0.16); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); font-size: 0.71rem; padding: 3px 9px; font-weight: 700;">
+                        🎯 View My ${pairingsCount} Scheduled Games →
+                      </span>
+                    </div>
+                  </div>
+                `;
+              }
+
+              const bcpEvId = ev.bcp_event_id || ev.id || '';
               const countdownPill = getCountdownBadge(evDate, ev.end_date);
               const locationStr = [ev.venue_name, ev.city, ev.state].filter(Boolean).join(' • ') || 'Location TBD';
               const hasList = !!(ev.has_list_submitted || ev.army_list || ev.army_list_name);
@@ -610,17 +658,9 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
               } else {
                 checkinStatus = `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); font-size: 0.7rem; padding: 2px 7px;">⚠️ Not Checked In</span>`;
               }
-              const isEnded = Boolean(
-                ev.ended === true ||
-                ev.is_ended === true ||
-                ev.status?.ended === true ||
-                ev.raw_json?.ended === true ||
-                ev.raw_json?.isEnded === true ||
-                ev.raw_json?.status?.ended === true
-              );
 
               return `
-                <div class="hub-event-item-card" style="cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
+                <div class="hub-event-item-card" style="cursor: pointer;" onclick="openEventModal('${encodeURIComponent(bcpEvId)}', false)">
                   <div class="hub-event-header">
                     <div style="min-width: 0; flex: 1;">
                       <span class="hub-event-title">
@@ -667,6 +707,181 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
     </div>
   `;
 }
+
+function closeUserLeagueGamesQuickModal() {
+  const existing = document.getElementById('user-league-games-quick-modal');
+  if (existing) existing.remove();
+}
+window.closeUserLeagueGamesQuickModal = closeUserLeagueGamesQuickModal;
+
+async function openUserLeagueGamesQuickModal(entryId) {
+  closeUserLeagueGamesQuickModal();
+  const cachedList = window._hubRegisteredEventsCache || [];
+  let ev = cachedList.find(item => String(item.id || item.bcp_event_id) === String(entryId))
+    || cachedList.find(item => item.is_native_league);
+
+  if (!ev) {
+    try {
+      const resp = await fetch('/api/user/registered-tournaments');
+      if (resp.ok) {
+        const json = await resp.json();
+        ev = (json.tournaments || []).find(item => String(item.id || item.bcp_event_id) === String(entryId) || item.is_native_league);
+      }
+    } catch (err) {
+      console.warn('[MyHub] Failed to fetch registered league details:', err);
+    }
+  }
+  if (!ev) return;
+
+  const leagueId = ev.league_id || 'league_sd40k_big_league';
+  const podNum = ev.pod_number || 1;
+  const podName = ev.pod_name || `Pod #${podNum}`;
+  const playerName = ev.player_name || 'Player';
+  const playerFaction = ev.faction || ev.primary_faction || 'Warhammer 40K';
+  const rankNum = ev.rank || 1;
+  const recordStr = ev.record || `${ev.wins || 0}-${ev.losses || 0}-${ev.draws || 0}`;
+  const bpVal = ev.battle_points ?? 0;
+  const pairings = Array.isArray(ev.pairings) ? ev.pairings : [];
+
+  const modalOverlay = document.createElement('div');
+  modalOverlay.id = 'user-league-games-quick-modal';
+  modalOverlay.style.cssText = 'position: fixed; inset: 0; z-index: 10050; background: rgba(2, 6, 23, 0.82); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 1rem;';
+  modalOverlay.onclick = (e) => {
+    if (e.target === modalOverlay) closeUserLeagueGamesQuickModal();
+  };
+
+  const safePlayerName = escapeHtml(playerName).replace(/'/g, "\\'");
+  const safePlayerFaction = escapeHtml(playerFaction).replace(/'/g, "\\'");
+  const safeLeagueId = escapeHtml(leagueId).replace(/'/g, "\\'");
+
+  modalOverlay.innerHTML = `
+    <div style="background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; width: 100%; max-width: 780px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 25px 60px rgba(0, 0, 0, 0.75); overflow: hidden;">
+      <!-- Modal Header -->
+      <div style="padding: 1.15rem 1.35rem; background: linear-gradient(135deg, rgba(30, 58, 138, 0.45), rgba(15, 23, 42, 0.95)); border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
+            <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.7rem; font-weight: 800; padding: 2px 8px;">🏆 ACTIVE LEAGUE POD SCHEDULE</span>
+            <span class="badge" style="background: rgba(16, 185, 129, 0.16); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.7rem; font-weight: 700; padding: 2px 8px;">✓ DB Matched Competitor</span>
+          </div>
+          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 800; color: #fff;">
+            ${escapeHtml(ev.event_name || 'San Diego Force Org (SD40K) — Season 38')}
+          </h3>
+          <div style="font-size: 0.84rem; color: #94a3b8; margin-top: 0.25rem;">
+            📍 <strong style="color: #38bdf8;">${escapeHtml(podName)}</strong> • Competitor: <strong style="color: #fff;">${escapeHtml(playerName)}</strong> (<span style="color: #cbd5e1;">${escapeHtml(playerFaction)}</span>)
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+          <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof leagueState !== 'undefined') { leagueState.activePodNumber = ${podNum}; } window.location.hash = '#/40k/league/${safeLeagueId}';" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.76rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8;">
+            🏛️ Full League Hub
+          </button>
+          <button type="button" onclick="closeUserLeagueGamesQuickModal()" style="background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.14); color: #cbd5e1; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center;">
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Strip -->
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.65rem; padding: 0.85rem 1.35rem; background: rgba(2, 6, 23, 0.55); border-bottom: 1px solid rgba(255, 255, 255, 0.06);">
+        <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.5rem 0.75rem;">
+          <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Assigned Pod</div>
+          <div style="font-size: 0.95rem; font-weight: 800; color: #38bdf8; margin-top: 2px;">Pod #${podNum}</div>
+        </div>
+        <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.5rem 0.75rem;">
+          <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Pod Standing</div>
+          <div style="font-size: 0.95rem; font-weight: 800; color: #fbbf24; margin-top: 2px;">Rank #${rankNum}</div>
+        </div>
+        <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.5rem 0.75rem;">
+          <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">W-L-D Record</div>
+          <div style="font-size: 0.95rem; font-weight: 800; color: #34d399; margin-top: 2px;">${escapeHtml(recordStr)}</div>
+        </div>
+        <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.5rem 0.75rem;">
+          <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Battle Points</div>
+          <div style="font-size: 0.95rem; font-weight: 800; color: #60a5fa; margin-top: 2px;">${bpVal} VP</div>
+        </div>
+      </div>
+
+      <!-- Modal Body: 5 Scheduled Season Games / Pairings -->
+      <div style="padding: 1.15rem 1.35rem; overflow-y: auto; flex: 1;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+          <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #fff;">
+            ⚔️ Your ${pairings.length} Scheduled Pod Games &amp; Opponents
+          </h4>
+          <span style="font-size: 0.75rem; color: #94a3b8;">Click any DB-matched opponent to inspect their career dossier &amp; ELO</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.7rem;">
+          ${pairings.map((pair, idx) => {
+            const rNum = pair.round || (idx + 1);
+            const layoutStr = pair.layout || 'Standard Layout';
+            const oppName = pair.opponent_clean_name || (pair.opponent_name || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || 'TBD';
+            const oppFaction = pair.opponent_faction || 'Unknown Faction';
+            const oppPid = (pair.opponent_bcp_player_id && !String(pair.opponent_bcp_player_id).startsWith('bcp_')) ? pair.opponent_bcp_player_id : '';
+            const oppMatched = Boolean(pair.opponent_is_db_matched && oppPid);
+            const safeOppName = escapeHtml(oppName).replace(/'/g, "\\'");
+            const safeOppPid = escapeHtml(oppPid).replace(/'/g, "\\'");
+            const safeLayout = escapeHtml(layoutStr).replace(/'/g, "\\'");
+            const isCompleted = pair.status === 'completed' || Boolean(pair.result);
+
+            return `
+              <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.35)' : 'rgba(255, 255, 255, 0.09)'}; border-radius: 10px; padding: 0.85rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.85rem; min-width: 240px; flex: 1;">
+                  <div style="background: rgba(59, 130, 246, 0.16); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 8px; padding: 0.4rem 0.65rem; text-align: center; min-width: 74px;">
+                    <div style="font-size: 0.72rem; font-weight: 800; color: #60a5fa;">ROUND ${rNum}</div>
+                    <div style="font-size: 0.66rem; color: #93c5fd; font-weight: 600;">${escapeHtml(layoutStr)}</div>
+                  </div>
+                  <div style="min-width: 0; flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                      <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 700;">VS</span>
+                      ${oppMatched ? `
+                        <button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safeOppPid}', '${safeOppName}');" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 800; font-size: 0.95rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;">
+                          ${escapeHtml(oppName)}
+                        </button>
+                        <span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.64rem; font-weight: 700; padding: 1px 5px; border-radius: 4px;">
+                          ✓ DB
+                        </span>
+                      ` : `
+                        <span style="color: #f8fafc; font-weight: 700; font-size: 0.95rem;">
+                          ${escapeHtml(oppName)}
+                        </span>
+                        <span style="background: rgba(148, 163, 184, 0.12); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); font-size: 0.64rem; font-weight: 600; padding: 1px 5px; border-radius: 4px;">
+                          Unlinked
+                        </span>
+                      `}
+                    </div>
+                    <div style="font-size: 0.78rem; color: #cbd5e1; margin-top: 3px;">
+                      🛡️ Opponent Faction: <strong style="color: #e2e8f0;">${escapeHtml(oppFaction)}</strong>
+                      <span style="color: #64748b; margin: 0 6px;">•</span>
+                      <span style="color: ${isCompleted ? '#34d399' : '#fbbf24'}; font-weight: 600;">
+                        ${isCompleted ? `✓ Completed (${pair.player_score || 0} - ${pair.opponent_score || 0})` : '⏳ Scheduled (2,000 pts)'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                  ${oppMatched ? `
+                    <button type="button" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${safeOppPid}', '${safeOppName}');" class="btn btn-outline" style="padding: 0.38rem 0.65rem; font-size: 0.74rem; font-weight: 700;">
+                      👤 Scouting Dossier
+                    </button>
+                  ` : ''}
+                  <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof launchLeagueMatchTracker === 'function') { launchLeagueMatchTracker('${safePlayerName}', '${safeOppName}', '${safePlayerFaction}', '${safeLayout}', ${rNum}, '${safeLeagueId}'); } else { window.location.hash = '#/40k/tracker'; }" class="btn btn-primary" style="padding: 0.38rem 0.75rem; font-size: 0.75rem; font-weight: 700; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none;">
+                    🎲 Launch Tracker
+                  </button>
+                  <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof openLeagueOpponentChat === 'function') { openLeagueOpponentChat('${safeOppName}', '${safePlayerName}', ${rNum}, ${podNum}); }" class="btn btn-outline" style="padding: 0.38rem 0.65rem; font-size: 0.74rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+                    💬 Message
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modalOverlay);
+}
+window.openUserLeagueGamesQuickModal = openUserLeagueGamesQuickModal;
 
 function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
   if (!isBcpConnected) {

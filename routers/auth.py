@@ -387,6 +387,18 @@ async def api_user_registered_tournaments(
     except Exception as e:
         logger.debug(f"Error fetching native registered tournaments from DB: {e}")
 
+    try:
+        from leagues_hub_service import get_leagues_hub_service
+        lh_svc = get_leagues_hub_service()
+        native_leagues = lh_svc.get_user_registered_leagues(
+            user_id=user_id,
+            player_id=user_info.get("bcp_player_id") or user_info.get("player_id"),
+            player_name=user_info.get("bcp_player_name") or user_info.get("display_name")
+        )
+        native_tournaments.extend(native_leagues)
+    except Exception as e:
+        logger.debug(f"Error fetching user registered leagues: {e}")
+
     if not bcp_connected and not native_tournaments:
         return {
             "success": True,

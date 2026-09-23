@@ -2148,7 +2148,25 @@ class AuthManager:
 
         import badges
         user_pinned = user_info.get("pinned_badges") if (user_info and user_info.get("pinned_badges")) else None
-        reg_tournaments = self.db.get_user_registered_tournaments(user_id) if user_id else []
+        reg_tournaments = list(self.db.get_user_registered_tournaments(user_id)) if user_id else []
+        if target_sys == "40k":
+            try:
+                from leagues_hub_service import get_leagues_hub_service
+                lh_svc = get_leagues_hub_service()
+                p_name_lookup = (p_stat.get("full_name") or p_stat.get("name") or "") if isinstance(p_stat, dict) else ""
+                if not p_name_lookup and user_info:
+                    p_name_lookup = user_info.get("bcp_player_name") or user_info.get("display_name") or ""
+                native_leagues = lh_svc.get_user_registered_leagues(
+                    user_id=user_id,
+                    player_id=target_pid,
+                    player_name=p_name_lookup
+                )
+                existing_ids = {str(t.get("id") or t.get("bcp_event_id") or "") for t in reg_tournaments}
+                for nl in native_leagues:
+                    if str(nl.get("id")) not in existing_ids:
+                        reg_tournaments.insert(0, nl)
+            except Exception as e:
+                logger.debug(f"Error merging native leagues into registered_tournaments: {e}")
         user_lists = self.db.get_user_army_lists(user_id) if (user_id and hasattr(self.db, "get_user_army_lists")) else []
         b_eval = badges.evaluate_player_badges(
             player_data=p_stat,

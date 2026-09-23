@@ -388,6 +388,11 @@ class PostgresDatabase:
                         cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_version';")
                         setting = cursor.fetchone()
                         if setting and setting[0] == 'v21_faction_standard_btree_indexes':
+                            try:
+                                self._ensure_native_league_tables()
+                                self.seed_sd40k_league_tables()
+                            except Exception as lg_err:
+                                logger.debug(f"init_db league seed notice: {lg_err}")
                             return
         except Exception as e:
             logger.debug(f"DB schema pre-check notice: {e}")
@@ -1735,7 +1740,12 @@ class PostgresDatabase:
                                         id, league_id, season_num, pod_num, participant_name, primary_faction,
                                         bcp_player_id, user_id, is_db_matched, match_method
                                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    ON CONFLICT (league_id, season_num, pod_num, participant_name) DO NOTHING;
+                                    ON CONFLICT (league_id, season_num, pod_num, participant_name) DO UPDATE SET
+                                        bcp_player_id = EXCLUDED.bcp_player_id,
+                                        user_id = COALESCE(native_league_participants.user_id, EXCLUDED.user_id),
+                                        is_db_matched = EXCLUDED.is_db_matched,
+                                        match_method = CASE WHEN native_league_participants.match_method = 'user_claimed' THEN 'user_claimed' ELSE EXCLUDED.match_method END,
+                                        updated_at = NOW();
                                 """, (
                                     st_id, "league_sd40k_big_league", curr_s_num, p_num, pname,
                                     st.get("primary_faction", ""),
@@ -1751,7 +1761,13 @@ class PostgresDatabase:
                                         rank, wins, losses, draws, battle_points, games_played, poty_points,
                                         relegation_status, pairings_json
                                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                                    ON CONFLICT (id) DO NOTHING;
+                                    ON CONFLICT (id) DO UPDATE SET
+                                        bcp_player_id = EXCLUDED.bcp_player_id,
+                                        player_id = EXCLUDED.player_id,
+                                        user_id = COALESCE(native_league_standings.user_id, EXCLUDED.user_id),
+                                        is_db_matched = EXCLUDED.is_db_matched,
+                                        match_method = CASE WHEN native_league_standings.match_method = 'user_claimed' THEN 'user_claimed' ELSE EXCLUDED.match_method END,
+                                        pairings_json = EXCLUDED.pairings_json;
                                 """, (
                                     st_id, "league_sd40k_big_league", curr_s_num, p_num, pname,
                                     st.get("primary_faction", ""),

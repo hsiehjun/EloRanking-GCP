@@ -333,46 +333,57 @@ function renderPodsSubtab(league, currentPod) {
   const allPodPairings = [];
   const factionByPlayer = {};
   const identityByPlayer = {};
+  const isRealDbPlayerId = (pid) => Boolean(pid && !String(pid).startsWith('bcp_'));
   standings.forEach(st => {
     if (st.name) {
-      const k = st.name.toLowerCase();
+      const k = st.name.trim().toLowerCase();
+      const rawPid = st.bcp_player_id || st.player_id || null;
+      const validPid = isRealDbPlayerId(rawPid) ? rawPid : null;
       factionByPlayer[k] = st.primary_faction || 'Warhammer 40k';
       identityByPlayer[k] = {
-        bcp_player_id: st.bcp_player_id || st.player_id || null,
+        bcp_player_id: validPid,
         user_id: st.user_id || null,
-        is_db_matched: Boolean(st.is_db_matched && (st.bcp_player_id || st.player_id))
+        is_db_matched: Boolean(st.is_db_matched && validPid)
       };
     }
   });
 
   standings.forEach(s => {
-    const p1Name = s.name || '';
+    const p1Name = (s.name || '').trim();
     const p1Faction = s.primary_faction || 'Warhammer 40k';
     const p1Ident = identityByPlayer[p1Name.toLowerCase()] || {};
     (s.pairings || []).forEach(m => {
-      const p2Name = m.opponent_name || '';
+      const p2RawName = (m.opponent_name || '').trim();
+      const p2Name = (m.opponent_clean_name || p2RawName.replace(/\s*\([^)]*\)\s*$/, '')).trim();
       if (!p1Name || !p2Name || p2Name === 'BYE') return;
       const rNum = parseInt(m.round, 10) || 1;
-      const pairNames = [p1Name.trim().toLowerCase(), p2Name.trim().toLowerCase()].sort();
+      const pairNames = [p1Name.toLowerCase(), p2Name.toLowerCase()].sort();
       const key = `R${rNum}_${pairNames[0]}__${pairNames[1]}`;
       if (seenPairs.has(key)) return;
       seenPairs.add(key);
-      const p2Ident = identityByPlayer[p2Name.toLowerCase()] || {
-        bcp_player_id: m.opponent_bcp_player_id || null,
+      const rawOppPid = m.opponent_bcp_player_id || null;
+      const validOppPid = isRealDbPlayerId(rawOppPid) ? rawOppPid : null;
+      const p2Ident = identityByPlayer[p2Name.toLowerCase()] || identityByPlayer[p2RawName.toLowerCase()] || {
+        bcp_player_id: validOppPid,
         user_id: m.opponent_user_id || null,
-        is_db_matched: Boolean(m.opponent_is_db_matched && m.opponent_bcp_player_id)
+        is_db_matched: Boolean(m.opponent_is_db_matched && validOppPid)
       };
+      let p2Faction = factionByPlayer[p2Name.toLowerCase()] || factionByPlayer[p2RawName.toLowerCase()] || m.opponent_faction || '';
+      if (!p2Faction && p2RawName.includes('(') && p2RawName.endsWith(')')) {
+        const matchF = p2RawName.match(/\(([^)]+)\)\s*$/);
+        if (matchF) p2Faction = matchF[1].trim();
+      }
       allPodPairings.push({
         round: rNum,
         layout: m.layout || layouts[(rNum - 1) % layouts.length] || 'Layout A',
         p1_name: p1Name,
         p1_faction: p1Faction,
         p1_bcp_player_id: p1Ident.bcp_player_id,
-        p1_is_db_matched: p1Ident.is_db_matched,
+        p1_is_db_matched: Boolean(p1Ident.is_db_matched && p1Ident.bcp_player_id),
         p2_name: p2Name,
-        p2_faction: factionByPlayer[p2Name.toLowerCase()] || 'Warhammer 40k',
+        p2_faction: p2Faction || 'Warhammer 40k',
         p2_bcp_player_id: p2Ident.bcp_player_id,
-        p2_is_db_matched: p2Ident.is_db_matched,
+        p2_is_db_matched: Boolean(p2Ident.is_db_matched && p2Ident.bcp_player_id),
         score: m.score || null,
         is_completed: !!m.is_completed
       });
@@ -452,7 +463,8 @@ function renderPodsSubtab(league, currentPod) {
               const isFirst = rankNum === 1;
               const rowBg = isFirst ? 'rgba(59, 130, 246, 0.05)' : (idx % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.01)');
               const safePlayerName = escapeHtml(s.name || '').replace(/'/g, "\\'");
-              const bcpPlayerId = s.bcp_player_id || s.player_id || '';
+              const rawBcpPlayerId = s.bcp_player_id || s.player_id || '';
+              const bcpPlayerId = (rawBcpPlayerId && !String(rawBcpPlayerId).startsWith('bcp_')) ? rawBcpPlayerId : '';
               const safeBcpId = escapeHtml(bcpPlayerId || s.name || '').replace(/'/g, "\\'");
               const isDbMatched = Boolean(s.is_db_matched && bcpPlayerId);
 
@@ -952,7 +964,7 @@ async function openHistoricalSeasonArchiveModal(seasonNum) {
         </div>
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.4rem;">
           ${(p.standings || []).map((st, idx) => {
-            const matched = Boolean(st.is_db_matched && st.bcp_player_id);
+            const matched = Boolean(st.is_db_matched && st.bcp_player_id && !String(st.bcp_player_id).startsWith('bcp_'));
             return `
               <div style="padding: 0.35rem 0.55rem; background: rgba(0,0,0,0.28); border-radius: 6px; font-size: 0.78rem; display: flex; justify-content: space-between; align-items: center;">
                 <span>
