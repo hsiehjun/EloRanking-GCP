@@ -38,8 +38,6 @@ async def get_league_details(league_id: str, season: Optional[int] = None):
         try:
             from core import get_database
             db = get_database()
-            if hasattr(db, "seed_sd40k_league_tables"):
-                db.seed_sd40k_league_tables()
             if hasattr(db, "sync_league_participant_identities"):
                 db.sync_league_participant_identities("league_sd40k_big_league", 38)
             _LEAGUE_DB_SYNCED = True
@@ -58,11 +56,11 @@ async def get_league_details(league_id: str, season: Optional[int] = None):
 
 @router.get("/api/league/{league_id}/db-sync", summary="Force sync and audit Cloud SQL native_league_participants")
 @router.post("/api/league/{league_id}/db-sync", summary="Force sync and audit Cloud SQL native_league_participants")
-async def sync_and_audit_league_db(league_id: str):
+async def sync_and_audit_league_db(league_id: str, force_seed: bool = False):
     from core import get_database
     db = get_database()
     if hasattr(db, "seed_sd40k_league_tables"):
-        db.seed_sd40k_league_tables()
+        db.seed_sd40k_league_tables(force=force_seed)
     if hasattr(db, "sync_league_participant_identities"):
         db.sync_league_participant_identities("league_sd40k_big_league", 38)
 
@@ -90,7 +88,12 @@ async def sync_and_audit_league_db(league_id: str):
                         "is_db_matched": r[7],
                         "match_method": r[8]
                     })
-                cur.execute("SELECT COUNT(*) FROM native_league_participants WHERE bcp_player_id LIKE 'bcp_%' OR bcp_player_id LIKE 'p_%' OR user_id LIKE 'u_%';")
+                cur.execute("""
+                    SELECT COUNT(*) FROM native_league_participants
+                    WHERE LEFT(COALESCE(bcp_player_id, ''), 4) = 'bcp_'
+                       OR LEFT(COALESCE(bcp_player_id, ''), 2) = 'p_'
+                       OR LEFT(COALESCE(user_id, ''), 2) = 'u_';
+                """)
                 fake_count = cur.fetchone()[0]
                 cur.execute("SELECT COUNT(*) FROM native_league_participants;")
                 total_count = cur.fetchone()[0]

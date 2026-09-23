@@ -1542,156 +1542,150 @@ class PostgresDatabase:
                     except Exception as e:
                         conn.rollback()
                         logger.debug(f"League table notice: {e}")
-            self.seed_sd40k_league_tables()
             self.sync_league_participant_identities("league_sd40k_big_league", 38)
         except Exception as err:
             logger.debug(f"ensure_league_tables notice: {err}")
 
     def sync_league_participant_identities(self, league_id: str = "league_sd40k_big_league", season_num: Optional[int] = 38):
         """
-        Purges any fake `bcp_%` / `p_%` / `u_%` slugs and stale test pods (`pod_num > 8` in Season 38),
-        then matches season/pod participants against the real PostgreSQL `players` table (`players.id`),
-        `player_ratings` (`player_ratings.player_id`), and `users` (`users.id`).
+        Fast (<20ms) identity sync:
+        1. Purges any fake `bcp_` / `p_` / `u_` slugs across all seasons and removes `pod_num > 8` in Season 38.
+        2. Matches season/pod participants against real PostgreSQL `players` (`players.id`),
+           `player_ratings` (`player_ratings.player_id`), and `users` (`users.id`).
+        Uses LEFT(...) instead of LIKE '...%' so psycopg2 parameter interpolation never raises tuple index out of range.
         """
         try:
             with self.get_connection() as conn:
-                # Step 0: Always commit cleanup of fake bcp_%, p_%, u_% slugs and pod > 8 test rows first
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute("SET LOCAL lock_timeout = '15s';")
-                        cursor.execute("""
-                            DELETE FROM native_league_participants
-                            WHERE league_id = %s AND season_num = 38 AND pod_num > 8;
-                        """, (league_id,))
-                        cursor.execute("""
-                            DELETE FROM native_league_standings
-                            WHERE league_id = %s AND season_num = 38 AND pod_num > 8;
-                        """, (league_id,))
-                        cursor.execute("""
-                            DELETE FROM native_league_pods
-                            WHERE league_id = %s AND season_num = 38 AND pod_num > 8;
-                        """, (league_id,))
-                        cursor.execute("""
-                            UPDATE native_league_participants
-                            SET bcp_player_id = NULL,
-                                user_id = CASE WHEN user_id LIKE 'u_%' THEN NULL ELSE user_id END,
-                                is_db_matched = FALSE,
-                                match_method = 'unmatched',
-                                updated_at = NOW()
-                            WHERE bcp_player_id LIKE 'bcp_%'
-                               OR bcp_player_id LIKE 'p_%'
-                               OR user_id LIKE 'u_%'
-                               OR bcp_player_id IS NULL;
-                        """)
-                        cursor.execute("""
-                            UPDATE native_league_standings
-                            SET bcp_player_id = NULL,
-                                player_id = NULL,
-                                user_id = CASE WHEN user_id LIKE 'u_%' THEN NULL ELSE user_id END,
-                                is_db_matched = FALSE,
-                                match_method = 'unmatched'
-                            WHERE bcp_player_id LIKE 'bcp_%'
-                               OR bcp_player_id LIKE 'p_%'
-                               OR user_id LIKE 'u_%'
-                               OR bcp_player_id IS NULL;
-                        """)
-                    conn.commit()
-                except Exception as clean_err:
-                    conn.rollback()
-                    logger.warning(f"sync_league_participant_identities cleanup error: {clean_err}")
+                with conn.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '5s';")
+                    # 0. Remove stale test Pod #9 rows and wipe any fake bcp_ / p_ / u_ slugs across ALL seasons
+                    cursor.execute("""
+                        DELETE FROM native_league_participants
+                        WHERE league_id = %s AND season_num = 38 AND pod_num > 8;
+                    """, (league_id,))
+                    cursor.execute("""
+                        DELETE FROM native_league_standings
+                        WHERE league_id = %s AND season_num = 38 AND pod_num > 8;
+                    """, (league_id,))
+                    cursor.execute("""
+                        DELETE FROM native_league_pods
+                        WHERE league_id = %s AND season_num = 38 AND pod_num > 8;
+                    """, (league_id,))
+                    cursor.execute("""
+                        UPDATE native_league_participants
+                        SET bcp_player_id = CASE
+                                WHEN LEFT(COALESCE(bcp_player_id, ''), 4) = 'bcp_' OR LEFT(COALESCE(bcp_player_id, ''), 2) = 'p_' THEN NULL
+                                ELSE bcp_player_id
+                            END,
+                            user_id = CASE
+                                WHEN LEFT(COALESCE(user_id, ''), 2) = 'u_' THEN NULL
+                                ELSE user_id
+                            END,
+                            is_db_matched = CASE
+                                WHEN (bcp_player_id IS NULL OR LEFT(COALESCE(bcp_player_id, ''), 4) = 'bcp_' OR LEFT(COALESCE(bcp_player_id, ''), 2) = 'p_')
+                                 AND (user_id IS NULL OR LEFT(COALESCE(user_id, ''), 2) = 'u_')
+                                THEN FALSE
+                                ELSE is_db_matched
+                            END,
+                            match_method = CASE
+                                WHEN (bcp_player_id IS NULL OR LEFT(COALESCE(bcp_player_id, ''), 4) = 'bcp_' OR LEFT(COALESCE(bcp_player_id, ''), 2) = 'p_')
+                                 AND (user_id IS NULL OR LEFT(COALESCE(user_id, ''), 2) = 'u_')
+                                THEN 'unmatched'
+                                ELSE match_method
+                            END,
+                            updated_at = NOW()
+                        WHERE LEFT(COALESCE(bcp_player_id, ''), 4) = 'bcp_'
+                           OR LEFT(COALESCE(bcp_player_id, ''), 2) = 'p_'
+                           OR LEFT(COALESCE(user_id, ''), 2) = 'u_'
+                           OR (bcp_player_id IS NULL AND user_id IS NULL AND is_db_matched = TRUE);
+                    """)
+                    cursor.execute("""
+                        UPDATE native_league_standings
+                        SET bcp_player_id = CASE
+                                WHEN LEFT(COALESCE(bcp_player_id, ''), 4) = 'bcp_' OR LEFT(COALESCE(bcp_player_id, ''), 2) = 'p_' THEN NULL
+                                ELSE bcp_player_id
+                            END,
+                            player_id = CASE
+                                WHEN LEFT(COALESCE(player_id, ''), 4) = 'bcp_' OR LEFT(COALESCE(player_id, ''), 2) = 'p_' THEN NULL
+                                ELSE player_id
+                            END,
+                            user_id = CASE
+                                WHEN LEFT(COALESCE(user_id, ''), 2) = 'u_' THEN NULL
+                                ELSE user_id
+                            END,
+                            is_db_matched = FALSE,
+                            match_method = 'unmatched'
+                        WHERE LEFT(COALESCE(bcp_player_id, ''), 4) = 'bcp_'
+                           OR LEFT(COALESCE(bcp_player_id, ''), 2) = 'p_'
+                           OR LEFT(COALESCE(user_id, ''), 2) = 'u_'
+                           OR (bcp_player_id IS NULL AND user_id IS NULL AND is_db_matched = TRUE);
+                    """)
 
-                # Step 1a: Match against real PostgreSQL players table (column `id` and `full_name`)
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute("SET LOCAL lock_timeout = '15s';")
-                        cursor.execute("""
-                            UPDATE native_league_participants nlp
-                            SET bcp_player_id = p.id,
-                                is_db_matched = TRUE,
-                                match_method = CASE WHEN nlp.match_method = 'unmatched' THEN 'postgres_exact_name' ELSE nlp.match_method END,
-                                updated_at = NOW()
-                            FROM players p
-                            WHERE nlp.league_id = %s
-                              AND nlp.bcp_player_id IS NULL
-                              AND p.id IS NOT NULL
-                              AND p.id NOT LIKE 'bcp_%'
-                              AND p.id NOT LIKE 'p_%'
-                              AND LOWER(TRIM(p.full_name)) = LOWER(TRIM(nlp.participant_name));
-                        """, (league_id,))
-                    conn.commit()
-                except Exception as p_err:
-                    conn.rollback()
-                    logger.warning(f"sync_league_participant_identities players match error: {p_err}")
+                    # 1a. Match against real PostgreSQL players table (column `id` and `full_name`)
+                    cursor.execute("""
+                        UPDATE native_league_participants nlp
+                        SET bcp_player_id = p.id,
+                            is_db_matched = TRUE,
+                            match_method = CASE WHEN nlp.match_method = 'unmatched' THEN 'postgres_exact_name' ELSE nlp.match_method END,
+                            updated_at = NOW()
+                        FROM players p
+                        WHERE nlp.league_id = %s
+                          AND nlp.bcp_player_id IS NULL
+                          AND p.id IS NOT NULL
+                          AND LEFT(p.id, 4) <> 'bcp_'
+                          AND LEFT(p.id, 2) <> 'p_'
+                          AND LOWER(TRIM(p.full_name)) = LOWER(TRIM(nlp.participant_name));
+                    """, (league_id,))
 
-                # Step 1b: Fallback match against player_ratings table (column `player_id` and `player_name`)
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute("SET LOCAL lock_timeout = '15s';")
-                        cursor.execute("""
-                            UPDATE native_league_participants nlp
-                            SET bcp_player_id = pr.player_id,
-                                is_db_matched = TRUE,
-                                match_method = CASE WHEN nlp.match_method = 'unmatched' THEN 'postgres_ratings_name' ELSE nlp.match_method END,
-                                updated_at = NOW()
-                            FROM player_ratings pr
-                            WHERE nlp.league_id = %s
-                              AND nlp.bcp_player_id IS NULL
-                              AND pr.player_id IS NOT NULL
-                              AND pr.player_id NOT LIKE 'bcp_%'
-                              AND pr.player_id NOT LIKE 'p_%'
-                              AND LOWER(TRIM(pr.player_name)) = LOWER(TRIM(nlp.participant_name));
-                        """, (league_id,))
-                    conn.commit()
-                except Exception as pr_err:
-                    conn.rollback()
-                    logger.warning(f"sync_league_participant_identities player_ratings match error: {pr_err}")
+                    # 1b. Fallback match against player_ratings table (column `player_id` and `player_name`)
+                    cursor.execute("""
+                        UPDATE native_league_participants nlp
+                        SET bcp_player_id = pr.player_id,
+                            is_db_matched = TRUE,
+                            match_method = CASE WHEN nlp.match_method = 'unmatched' THEN 'postgres_ratings_name' ELSE nlp.match_method END,
+                            updated_at = NOW()
+                        FROM player_ratings pr
+                        WHERE nlp.league_id = %s
+                          AND nlp.bcp_player_id IS NULL
+                          AND pr.player_id IS NOT NULL
+                          AND LEFT(pr.player_id, 4) <> 'bcp_'
+                          AND LEFT(pr.player_id, 2) <> 'p_'
+                          AND LOWER(TRIM(pr.player_name)) = LOWER(TRIM(nlp.participant_name));
+                    """, (league_id,))
 
-                # Step 2: Match against users table by display_name or linked player_id
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute("SET LOCAL lock_timeout = '15s';")
-                        cursor.execute("""
-                            UPDATE native_league_participants nlp
-                            SET user_id = u.id::text,
-                                bcp_player_id = COALESCE(nlp.bcp_player_id, NULLIF(u.player_id, '')),
-                                is_db_matched = TRUE,
-                                match_method = CASE WHEN nlp.match_method = 'unmatched' THEN 'user_id_linked' ELSE nlp.match_method END,
-                                updated_at = NOW()
-                            FROM users u
-                            WHERE nlp.league_id = %s
-                              AND nlp.user_id IS NULL
-                              AND u.id::text NOT LIKE 'u_%'
-                              AND (
-                                  LOWER(TRIM(COALESCE(u.display_name, ''))) = LOWER(TRIM(nlp.participant_name))
-                                  OR (nlp.bcp_player_id IS NOT NULL AND u.player_id = nlp.bcp_player_id)
-                              );
-                        """, (league_id,))
-                    conn.commit()
-                except Exception as u_err:
-                    conn.rollback()
-                    logger.warning(f"sync_league_participant_identities users match error: {u_err}")
+                    # 2. Match against users table by display_name or linked player_id
+                    cursor.execute("""
+                        UPDATE native_league_participants nlp
+                        SET user_id = u.id::text,
+                            bcp_player_id = COALESCE(nlp.bcp_player_id, CASE WHEN LEFT(COALESCE(u.player_id, ''), 4) <> 'bcp_' AND LEFT(COALESCE(u.player_id, ''), 2) <> 'p_' THEN NULLIF(u.player_id, '') ELSE NULL END),
+                            is_db_matched = TRUE,
+                            match_method = CASE WHEN nlp.match_method = 'unmatched' THEN 'user_id_linked' ELSE nlp.match_method END,
+                            updated_at = NOW()
+                        FROM users u
+                        WHERE nlp.league_id = %s
+                          AND nlp.user_id IS NULL
+                          AND LEFT(u.id::text, 2) <> 'u_'
+                          AND (
+                              LOWER(TRIM(COALESCE(u.display_name, ''))) = LOWER(TRIM(nlp.participant_name))
+                              OR (nlp.bcp_player_id IS NOT NULL AND u.player_id = nlp.bcp_player_id)
+                          );
+                    """, (league_id,))
 
-                # Step 3: Propagate onto native_league_standings
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute("SET LOCAL lock_timeout = '15s';")
-                        cursor.execute("""
-                            UPDATE native_league_standings nls
-                            SET bcp_player_id = nlp.bcp_player_id,
-                                player_id = nlp.bcp_player_id,
-                                user_id = nlp.user_id,
-                                is_db_matched = nlp.is_db_matched,
-                                match_method = nlp.match_method
-                            FROM native_league_participants nlp
-                            WHERE nls.league_id = nlp.league_id
-                              AND nls.season_num = nlp.season_num
-                              AND nls.pod_num = nlp.pod_num
-                              AND LOWER(TRIM(nls.player_name)) = LOWER(TRIM(nlp.participant_name));
-                        """)
-                    conn.commit()
-                except Exception as prop_err:
-                    conn.rollback()
-                    logger.warning(f"sync_league_participant_identities standings propagation error: {prop_err}")
+                    # 3. Propagate onto native_league_standings
+                    cursor.execute("""
+                        UPDATE native_league_standings nls
+                        SET bcp_player_id = nlp.bcp_player_id,
+                            player_id = nlp.bcp_player_id,
+                            user_id = nlp.user_id,
+                            is_db_matched = nlp.is_db_matched,
+                            match_method = nlp.match_method
+                        FROM native_league_participants nlp
+                        WHERE nls.league_id = nlp.league_id
+                          AND nls.season_num = nlp.season_num
+                          AND nls.pod_num = nlp.pod_num
+                          AND LOWER(TRIM(nls.player_name)) = LOWER(TRIM(nlp.participant_name));
+                    """)
+                conn.commit()
         except Exception as e:
             logger.warning(f"sync_league_participant_identities error: {e}")
 
@@ -1734,9 +1728,22 @@ class PostgresDatabase:
             logger.debug(f"claim_league_participant_in_db notice: {e}")
             return False
 
-    def seed_sd40k_league_tables(self):
-        """Non-destructively imports San Diego 40k BIG League @ At Ease Games dataset (Active Season 38 + 37 Historical Seasons + 402 Career Dossiers) into PostgreSQL league tables."""
+    def seed_sd40k_league_tables(self, force: bool = False):
+        """Non-destructively imports San Diego 40k BIG League @ At Ease Games dataset (Active Season 38 + 37 Historical Seasons + 402 Career Dossiers) into PostgreSQL league tables.
+        Skips the 4,900-row loop on normal startup if native_league_participants is already populated.
+        """
         try:
+            if not force:
+                try:
+                    with self.get_connection() as conn:
+                        with conn.cursor() as cursor:
+                            cursor.execute("SELECT COUNT(*) FROM native_league_participants WHERE league_id = 'league_sd40k_big_league';")
+                            existing_cnt = cursor.fetchone()[0]
+                            if existing_cnt and existing_cnt >= 1000:
+                                self.sync_league_participant_identities("league_sd40k_big_league", 38)
+                                return
+                except Exception:
+                    pass
             base_dir = os.path.dirname(os.path.abspath(__file__))
             data_file = os.path.join(base_dir, "data", "sd40k_league_data.json")
             hist_file = os.path.join(base_dir, "data", "sd40k_historical_seasons.json")

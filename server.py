@@ -133,16 +133,13 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
         response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
         if "Pragma" in response.headers:
             del response.headers["Pragma"]
-    elif path.startswith("/css") or path.startswith("/js"):
-        if request.url.query and ("v=" in request.url.query):
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-            if "Pragma" in response.headers:
-                del response.headers["Pragma"]
-        else:
-            response.headers["Cache-Control"] = "no-cache, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
+    elif path.startswith("/css") or path.startswith("/js") or path in ("/", "/app", "/app.html", "/index.html", "/login", "/eventstudio", "/eventstudio.html", "/version.json"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     elif path.startswith("/api/"):
-        response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
 
     return response
 
@@ -347,11 +344,12 @@ async def serve_index(request: Request, token: Optional[str] = Query(None)):
         return FileResponse(
             str(idx_file),
             media_type="text/html",
-            headers={"Cache-Control": "no-cache, must-revalidate"}
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"}
         )
     raise HTTPException(status_code=404, detail="index.html not found")
 
 @app.get("/api/version", include_in_schema=False)
+@app.get("/version.json", include_in_schema=False)
 async def api_version():
     v_file = web_dir / "version.json"
     version_str = "1.0.0"
@@ -394,7 +392,7 @@ async def serve_app(request: Request, token: Optional[str] = Query(None)):
         return FileResponse(
             str(app_file),
             media_type="text/html",
-            headers={"Cache-Control": "no-cache, must-revalidate"}
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"}
         )
     raise HTTPException(status_code=404, detail="app.html not found")
 

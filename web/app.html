@@ -214,7 +214,53 @@
     </div>
   </div>
 
+  <!-- Inline Automatic Cache-Buster & Splash Failsafe for Mobile/PWA -->
+  <script>
+    (function() {
+      document.documentElement.style.backgroundColor = '#070b14';
+      if (document.body) document.body.style.backgroundColor = '#070b14';
+      function forceDismissSplash() {
+        var s = document.getElementById('app-boot-splash');
+        if (s) {
+          s.style.opacity = '0';
+          s.style.pointerEvents = 'none';
+          setTimeout(function() {
+            if (s) s.style.display = 'none';
+          }, 300);
+        }
+      }
+      setTimeout(forceDismissSplash, 1800);
+      window.addEventListener('error', forceDismissSplash);
+
+      // Automatically detect new server deployment and purge stale mobile/PWA cache
+      fetch('/api/version?_t=' + Date.now(), { cache: 'no-store' })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+          if (!data || !data.version) return;
+          var prev = localStorage.getItem('omnitactica_live_version');
+          localStorage.setItem('omnitactica_live_version', String(data.version));
+          if (prev && prev !== String(data.version)) {
+            if ('caches' in window) {
+              caches.keys().then(function(keys) {
+                return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+              }).finally(function() {
+                var u = new URL(window.location.href);
+                u.searchParams.set('_v', String(data.version));
+                window.location.replace(u.toString());
+              });
+            } else {
+              var u = new URL(window.location.href);
+              u.searchParams.set('_v', String(data.version));
+              window.location.replace(u.toString());
+            }
+          }
+        })
+        .catch(function() {});
+    })();
+  </script>
+
   <style>
+    html, body { background-color: #070b14 !important; color: #f8fafc; }
     @keyframes pulseGlow {
       0%, 100% { opacity: 0.4; transform: scale(0.95); }
       50% { opacity: 0.85; transform: scale(1.08); }
