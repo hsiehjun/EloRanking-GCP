@@ -129,8 +129,13 @@ async function loadLeagueData(leagueId, forceRefresh = false) {
     if (cached.data && cached.data.league_id && window.history && window.history.replaceState) {
       window.history.replaceState({ leagueId: cached.data.league_id, sys: '40k' }, '', `/#/40k/league/${cached.data.league_id}`);
     }
-    renderLeagueHub(cached.data);
-    return;
+    try {
+      renderLeagueHub(cached.data);
+      return;
+    } catch (renderErr) {
+      console.error('Cached renderLeagueHub error, refetching:', renderErr);
+      delete leagueState._cache[cleanId];
+    }
   }
 
   leagueState.isLoading = true;
@@ -178,17 +183,17 @@ async function loadLeagueData(leagueId, forceRefresh = false) {
     leagueState.currentLeagueData = leagueObj;
     leagueState.currentLeagueData.selected_season = activeSeasonNum;
     leagueState.currentLeagueData.is_historical = false;
+    renderLeagueHub(leagueObj);
     leagueState._cache[canonicalUuid] = { data: leagueObj, timestamp: Date.now() };
     if (!leagueState._seasonCache) leagueState._seasonCache = {};
     leagueState._seasonCache[`${canonicalUuid}_${activeSeasonNum}`] = leagueObj;
-    renderLeagueHub(leagueObj);
   } catch (err) {
     console.error('Error loading league data:', err);
     container.innerHTML = `
       <div class="empty-state" style="padding: 3rem 1rem; text-align: center;">
         <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">🛡️</div>
         <div style="font-size: 1.25rem; font-weight: 700; color: #ef4444; margin-bottom: 0.5rem;">League Hub Not Found</div>
-        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.5rem;">Could not load data for league "${escapeHtml(leagueId)}".</div>
+        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.5rem;">Could not load data for league "${escapeHtml(cleanId)}".</div>
         <button onclick="switchTab('tournaments')" class="btn btn-outline">← Back to Tournaments &amp; Leagues</button>
       </div>
     `;
@@ -282,6 +287,14 @@ function renderLeagueHub(league) {
   const canonicalUuid = normalizeLeagueIdToUuid(league.league_id || leagueState.activeLeagueId);
   const activeSlug = (league.slug || canonicalUuid).toLowerCase();
   const isGauntlet = activeSlug.includes('gauntlet') || canonicalUuid === GAUNTLET_CANONICAL_UUID;
+  const canManageLeague = Boolean(
+    window.isEventStudioCommissionerView ||
+    (typeof currentUser !== 'undefined' && currentUser && (
+      currentUser.is_admin ||
+      ['admin', 'superuser', 'developer', 'owner', 'to', 'organizer', 'referee'].includes(String(currentUser.role || '').trim().toLowerCase()) ||
+      currentUser.can_access_to
+    ))
+  );
 
   container.innerHTML = `
     <!-- Detailed League Navigation Bar (Event-Hub Style) -->
@@ -1800,8 +1813,15 @@ async function submitMatrixMatchupScore(leagueId, podNum, roundNum, player1, pla
 
     closeMatrixMatchupModal();
     if (data.league && typeof leagueState !== 'undefined') {
+      const canonicalUuid = normalizeLeagueIdToUuid(data.league.league_id || cleanLid);
+      data.league.league_id = canonicalUuid;
       leagueState.currentLeagueData = data.league;
       leagueState.leagueData = data.league;
+      if (!leagueState._cache) leagueState._cache = {};
+      leagueState._cache[canonicalUuid] = { data: data.league, timestamp: Date.now() };
+      renderLeagueHub(data.league);
+    } else {
+      await loadLeagueData(cleanLid, true);
     }
     if (typeof renderLeagueDetailView === 'function') {
       renderLeagueDetailView(cleanLid);

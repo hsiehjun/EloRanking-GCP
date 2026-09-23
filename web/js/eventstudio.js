@@ -5196,7 +5196,7 @@ function navigateToPublicLeagueHub(leagueIdOrSlug) {
   const canonicalId = (typeof normalizeLeagueIdToUuid === 'function')
     ? normalizeLeagueIdToUuid(leagueIdOrSlug)
     : (leagueIdOrSlug || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90');
-  if (typeof openLeagueHubPage === 'function' && document.getElementById('leagues-hub-root')) {
+  if (typeof openLeagueHubPage === 'function' && (document.getElementById('league-hub-container') || document.getElementById('leagues-hub-root'))) {
     openLeagueHubPage(canonicalId, '40k', { replaceUrl: true });
   } else {
     window.location.href = `/#/40k/league/${encodeURIComponent(canonicalId)}`;
