@@ -1230,10 +1230,20 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
 
 
 # API: Tournament Details & Round Pairings
+_event_details_cache: Dict[str, Dict[str, Any]] = {}
+
 @router.get("/api/event/{event_id}", summary="Get tournament metadata, placings, and round pairings")
 async def api_event_details(event_id: str, force_sync: bool = False):
     db = get_database()
     event_id_str = event_id.strip()
+    now_ts = time.time()
+
+    # Fast in-memory cache return (120s for ongoing, 3600s for ended tournaments)
+    if not force_sync and event_id_str in _event_details_cache:
+        entry = _event_details_cache[event_id_str]
+        ttl = 3600 if entry.get("is_ended") else 120
+        if (now_ts - entry.get("timestamp", 0)) < ttl:
+            return entry["data"]
 
     # Check existing data in DB
     event_details = db.get_event_details(event_id_str)
@@ -1789,6 +1799,16 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             pl["has_list"] = bool(pl.get("army_list") or pl.get("list_url") or pl.get("list_id"))
 
     event_details["sync_in_progress"] = False
+    _event_details_cache[event_id_str] = {
+        "timestamp": now_ts,
+        "is_ended": bool(event_details.get("is_ended")),
+        "data": event_details
+    }
+    if len(_event_details_cache) > 500:
+        oldest_keys = sorted(_event_details_cache.keys(), key=lambda k: _event_details_cache[k]["timestamp"])[:100]
+        for k in oldest_keys:
+            _event_details_cache.pop(k, None)
+
     return event_details
 
 

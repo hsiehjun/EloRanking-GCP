@@ -67,6 +67,8 @@ EVENT_LIVESTREAMS_DB = {
     ]
 }
 
+DEV_EVENT_CACHE = {}
+
 DEV_USERS_LIST = [
     {
         "id": "u_innes",
@@ -2948,6 +2950,14 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/event/"):
             ev_param = clean_path.replace("api/event/", "")
+            if ev_param in DEV_EVENT_CACHE:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps(DEV_EVENT_CACHE[ev_param]).encode("utf-8"))
+                return
+
             if len(ev_param) >= 8 and not ev_param.startswith("ev_"):
                 try:
                     b_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{ev_param}"
@@ -3033,6 +3043,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             res["players"] = b_players
                             res["matches"] = b_json.get("matches") or []
                             res["team_standings"] = []
+                            DEV_EVENT_CACHE[ev_param] = res
                             self.send_response(200)
                             self.send_header("Content-Type", "application/json; charset=utf-8")
                             self.end_headers()

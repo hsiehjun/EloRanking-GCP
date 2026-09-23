@@ -235,6 +235,22 @@ window.closeAosTrackerModal = closeAosTrackerModal;
 window.handleTrackerNavClick = handleTrackerNavClick;
 
 function switchTab(tabName) {
+  // Normalize game system prefixes in tab names (e.g. '40k/my-hub' -> 'my-hub')
+  if (typeof tabName === 'string') {
+    if (tabName.startsWith('40k/') || tabName.startsWith('aos/')) {
+      const parts = tabName.split('/');
+      const sys = parts[0].toLowerCase();
+      if (typeof switchGameSystem === 'function') switchGameSystem(sys);
+      tabName = parts.slice(1).join('/');
+    }
+  }
+
+  // Auto-dismiss transient celebration modals so they never block tab navigation
+  const celebModal = document.getElementById('badges-celebration-modal');
+  if (celebModal) {
+    celebModal.remove();
+  }
+
   if (typeof handleAppRoute === 'function' && handleAppRoute(tabName)) {
     return;
   }
@@ -375,7 +391,16 @@ function switchTab(tabName) {
       switchTab('community');
       return;
     }
-    if (typeof initStudio === 'function') initStudio();
+    if (typeof initStudio === 'function') {
+      initStudio();
+    } else {
+      const s = document.createElement('script');
+      s.src = `/js/eventstudio.js?v=${window.APP_VERSION || Date.now()}`;
+      s.onload = () => {
+        if (typeof initStudio === 'function') initStudio();
+      };
+      document.head.appendChild(s);
+    }
   } else if (tabName === 'my-hub') {
     if (!currentUser) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#my-hub');
@@ -385,6 +410,15 @@ function switchTab(tabName) {
       resetMyHubToProfile();
     }
     if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
+  } else if (tabName === 'teams' || tabName === 'team') {
+    if (typeof navigateToUserTeam === 'function') {
+      navigateToUserTeam();
+    } else {
+      const container = document.getElementById('teams-view-container');
+      if (container && typeof renderUnaffiliatedTeamHub === 'function') {
+        container.innerHTML = renderUnaffiliatedTeamHub();
+      }
+    }
   }
 }
 

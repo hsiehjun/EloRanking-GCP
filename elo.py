@@ -231,6 +231,12 @@ def _max_date(d1, d2):
 class EloEngine:
     """Reconstructs historical player trajectories, win paths, and post-constructed Elo ratings."""
 
+    _player_win_path_cache_dict = {}
+
+    @classmethod
+    def invalidate_caches(cls):
+        cls._player_win_path_cache_dict.clear()
+
     def __init__(
         self,
         db: Optional[Database] = None,
@@ -748,6 +754,7 @@ class EloEngine:
                 conn.commit()
 
                 # Invalidate caches
+                self.invalidate_caches()
                 if hasattr(self.db, "invalidate_all_caches"):
                     self.db.invalidate_all_caches()
                 elif hasattr(self.db.__class__, "invalidate_all_caches"):
@@ -1150,6 +1157,7 @@ class EloEngine:
                         write_conn.commit()
 
                         # Invalidate caches
+                        self.invalidate_caches()
                         if hasattr(self.db, "invalidate_all_caches"):
                             self.db.invalidate_all_caches()
                         elif hasattr(self.db.__class__, "invalidate_all_caches"):
@@ -1177,7 +1185,15 @@ class EloEngine:
 
 
     def get_player_win_path(self, player_id: str, game_system: Optional[str] = "40k", player_name: Optional[str] = None) -> Dict[str, Any]:
-        """Returns structured win path, tournament progression, and Elo timeline for a player."""
+        """Returns structured win path, tournament progression, and Elo timeline for a player (instant cached)."""
+        cache_key = f"{(game_system or '40k').strip().lower()}:{(player_id or '').strip()}:{(player_name or '').strip().lower()}"
+        now = time.time()
+        if cache_key in self._player_win_path_cache_dict:
+            cached_val, cached_ts = self._player_win_path_cache_dict[cache_key]
+            if (now - cached_ts) < 180:
+                return cached_val
+            self._player_win_path_cache_dict.pop(cache_key, None)
+
         history = self.db.get_player_history(player_id, game_system=game_system)
         player_info = self.db.search_players(player_id, game_system=game_system)
         player_meta = player_info[0] if player_info else {}
@@ -1365,7 +1381,9 @@ class EloEngine:
         latest_team = all_teams_list[0] if all_teams_list else (player_meta.get("team") or None)
         all_teams_str = ", ".join(all_teams_list) if all_teams_list else (latest_team or "")
 
-        return {
+        tournaments_list = self.db.get_player_tournaments(player_id, game_system=game_system) if hasattr(self.db, "get_player_tournaments") else []
+
+        res = {
             "player_id": player_id,
             "player_name": player_meta.get("player_name") or player_meta.get("full_name") or (history[0].get("opponent_name") if history else "Unknown"),
             "current_elo": player_meta.get("current_elo", self.initial_elo),
@@ -1384,8 +1402,8 @@ class EloEngine:
             "history": history,
             "win_path": history,
             "trajectory": trajectory,
-            "tournaments": self.db.get_player_tournaments(player_id, game_system=game_system) if hasattr(self.db, "get_player_tournaments") else [],
-            "events_attended": self.db.get_player_tournaments(player_id, game_system=game_system) if hasattr(self.db, "get_player_tournaments") else [],
+            "tournaments": tournaments_list,
+            "events_attended": tournaments_list,
             "player": {
                 **player_meta,
                 "team": latest_team,
@@ -1393,6 +1411,10 @@ class EloEngine:
                 "teams_history": all_teams_list
             }
         }
+        if len(self._player_win_path_cache_dict) > 1000:
+            self._player_win_path_cache_dict.clear()
+        self._player_win_path_cache_dict[cache_key] = (res, time.time())
+        return res
 
 
 _elo_engine_instance = None

@@ -620,7 +620,7 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
               );
 
               return `
-                <div class="hub-event-item-card" style="cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', true)">
+                <div class="hub-event-item-card" style="cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
                   <div class="hub-event-header">
                     <div style="min-width: 0; flex: 1;">
                       <span class="hub-event-title">
@@ -711,7 +711,7 @@ function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
         ${countdownPill}
       </div>
       <div>
-        <b style="color: #fff; font-size: 0.95rem; cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', true)">
+        <b style="color: #fff; font-size: 0.95rem; cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
           ${escapeHtml(evName)}
         </b>
         <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 3px;">

@@ -208,6 +208,9 @@ class PostgresDatabase:
     _players_cache_dict = {}
     _teams_cache_dict = {}
     _team_roster_cache_dict = {}
+    _recommended_events_cache_dict = {}
+    _player_tournaments_cache_dict = {}
+    _event_details_cache_dict = {}
     _community_overview_cache_dict = {}
     _bcp_upcoming_cache_dict = {}
     _stores_cache_dict = {}
@@ -248,6 +251,9 @@ class PostgresDatabase:
         cls._players_cache_dict.clear()
         cls._teams_cache_dict.clear()
         cls._team_roster_cache_dict.clear()
+        cls._recommended_events_cache_dict.clear()
+        cls._player_tournaments_cache_dict.clear()
+        cls._event_details_cache_dict.clear()
         cls._community_overview_cache_dict.clear()
         cls._bcp_upcoming_cache_dict.clear()
         cls._stores_cache_dict.clear()
@@ -2752,7 +2758,12 @@ class PostgresDatabase:
                 return res
 
     def get_event_details(self, event_id: str) -> Dict[str, Any]:
-        """Returns tournament details, participant roster with official BCP tiebreaker standings, and all round pairings."""
+        """Returns tournament details, participant roster with official BCP tiebreaker standings, and all round pairings (instant cached)."""
+        cache_key = str(event_id).strip()
+        cached = PostgresDatabase.get_cached(PostgresDatabase._event_details_cache_dict, cache_key, ttl=180)
+        if cached is not None:
+            return cached
+
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 # 1. Event metadata
@@ -3258,6 +3269,7 @@ class PostgresDatabase:
                     res["team_standings"] = []
                     res["is_team_event"] = False
 
+                PostgresDatabase.set_cached(PostgresDatabase._event_details_cache_dict, cache_key, res)
                 return res
 
     def get_recommended_events(
@@ -3272,7 +3284,12 @@ class PostgresDatabase:
         limit: int = 25,
         sort_by: str = "date"
     ) -> Dict[str, Any]:
-        """Returns personalized upcoming event recommendations with Haversine distance calculations, Average Field Elo, and capacity metrics."""
+        """Returns personalized upcoming event recommendations with Haversine distance calculations, Average Field Elo, and capacity metrics (instant cached)."""
+        cache_key = f"{player_id}:{query}:{state}:{city}:{lat}:{lng}:{radius_miles}:{limit}:{sort_by}"
+        cached = PostgresDatabase.get_cached(PostgresDatabase._recommended_events_cache_dict, cache_key, ttl=300)
+        if cached:
+            return cached
+
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 detected_state = None
@@ -3511,7 +3528,7 @@ class PostgresDatabase:
 
                 sorted_events = sorted(rows, key=sort_key)
 
-                return {
+                res = {
                     "detected_state": detected_state,
                     "detected_city": detected_city,
                     "target_state": target_state,
@@ -3521,6 +3538,8 @@ class PostgresDatabase:
                     "events": sorted_events[:limit],
                     "total": len(sorted_events)
                 }
+                PostgresDatabase.set_cached(PostgresDatabase._recommended_events_cache_dict, cache_key, res)
+                return res
 
     def get_events_field_stats(self, event_ids: List[str], game_system: Optional[str] = "40k") -> Dict[str, Dict[str, Any]]:
         """Returns computed average Elo, top seed Elo, and rated player count for a list of event IDs based on enrolled participants."""
@@ -4048,18 +4067,16 @@ class PostgresDatabase:
         seen_event_player = set()
 
         if roster:
+            roster_pids = [str(p.get("player_id") or "").strip() for p in roster if str(p.get("player_id") or "").strip() and int(p.get("matches_played") or 0) > 0]
+            tournaments_by_player = self.get_multiple_players_tournaments(roster_pids, game_system=system)
+
             for p in roster:
                 pid = str(p.get("player_id") or "").strip()
                 pname = str(p.get("player_name") or "Competitor").strip()
                 if not pid or int(p.get("matches_played") or 0) <= 0:
                     continue
 
-                try:
-                    tournaments = self.get_player_tournaments(pid, game_system=system)
-                except Exception as e:
-                    logger.debug(f"Error fetching tournaments for {pname} ({pid}): {e}")
-                    tournaments = []
-
+                tournaments = tournaments_by_player.get(pid, [])
                 if not tournaments:
                     continue
 
@@ -4300,11 +4317,17 @@ class PostgresDatabase:
                     return []
 
     def get_player_tournaments(self, player_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
-        """Returns verified tournament attendances, records, and placements for a competitor."""
+        """Returns verified tournament attendances, records, and placements for a competitor (instant cached)."""
         player_id = (player_id or "").strip()
         system = (game_system or "40k").strip().lower()
         if not player_id:
             return []
+
+        cache_key = f"{system}:{player_id}"
+        cached = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, cache_key, ttl=300)
+        if cached is not None:
+            return cached
+
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 try:
@@ -4330,11 +4353,92 @@ class PostgresDatabase:
                     GROUP BY e.id, e.name, e.event_date, e.city, e.state, e.country, e.total_players, e.num_rounds
                     ORDER BY COALESCE(e.event_date, MAX(m.match_date)) DESC NULLS LAST;
                     """, {"pid": player_id, "system": system})
-                    return [dict(r) for r in cursor.fetchall()]
+                    res = [dict(r) for r in cursor.fetchall()]
+                    PostgresDatabase.set_cached(PostgresDatabase._player_tournaments_cache_dict, cache_key, res)
+                    return res
                 except Exception as e:
                     conn.rollback()
                     logger.warning(f"Error in get_player_tournaments: {e}")
                     return []
+
+    def get_multiple_players_tournaments(self, player_ids: List[str], game_system: Optional[str] = "40k") -> Dict[str, List[Dict[str, Any]]]:
+        """Returns tournament history mapped by player_id for a list of competitors using a single batched query with caching."""
+        system = (game_system or "40k").strip().lower()
+        cleaned_pids = list(set(str(pid).strip() for pid in player_ids if str(pid).strip()))
+        if not cleaned_pids:
+            return {}
+
+        results: Dict[str, List[Dict[str, Any]]] = {}
+        missing_pids: List[str] = []
+
+        for pid in cleaned_pids:
+            cache_key = f"{system}:{pid}"
+            cached = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, cache_key, ttl=300)
+            if cached is not None:
+                results[pid] = cached
+            else:
+                missing_pids.append(pid)
+
+        if not missing_pids:
+            return results
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                try:
+                    cursor.execute("""
+                    WITH p_events AS (
+                        SELECT ep.player_id, ep.event_id, ep.faction, ep.placement
+                        FROM event_participants ep
+                        WHERE ep.player_id = ANY(%(pids)s)
+                        UNION
+                        SELECT m.player1_id AS player_id, m.event_id, m.player1_faction AS faction, NULL::integer AS placement
+                        FROM matches m
+                        WHERE m.player1_id = ANY(%(pids)s) AND m.event_id IS NOT NULL
+                        UNION
+                        SELECT m.player2_id AS player_id, m.event_id, m.player2_faction AS faction, NULL::integer AS placement
+                        FROM matches m
+                        WHERE m.player2_id = ANY(%(pids)s) AND m.event_id IS NOT NULL
+                    )
+                    SELECT 
+                        pe.player_id,
+                        e.id as event_id, e.name as event_name, 
+                        COALESCE(e.event_date, MAX(m.match_date)) as event_date, 
+                        e.city, e.state, e.country,
+                        COALESCE(e.total_players, 0) as total_players, 
+                        COALESCE(e.num_rounds, 0) as num_rounds,
+                        COALESCE(MAX(pe.faction), MAX(CASE WHEN m.player1_id = pe.player_id THEN m.player1_faction ELSE m.player2_faction END), 'Unknown') as registered_faction,
+                        COALESCE(MAX(pe.placement), 0) as placement,
+                        COUNT(DISTINCT m.id) as matches_played,
+                        SUM(CASE WHEN m.winner_id = pe.player_id THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN m.loser_id = pe.player_id THEN 1 ELSE 0 END) as losses,
+                        SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) as draws,
+                        SUM(CASE WHEN m.player1_id = pe.player_id THEN COALESCE(m.player1_score, 0) ELSE COALESCE(m.player2_score, 0) END) as total_battle_points
+                    FROM p_events pe
+                    JOIN events e ON pe.event_id = e.id AND COALESCE(e.game_system, '40k') = %(system)s
+                    LEFT JOIN matches m ON m.event_id = e.id AND (m.player1_id = pe.player_id OR m.player2_id = pe.player_id)
+                    GROUP BY pe.player_id, e.id, e.name, e.event_date, e.city, e.state, e.country, e.total_players, e.num_rounds
+                    ORDER BY pe.player_id, COALESCE(e.event_date, MAX(m.match_date)) DESC NULLS LAST;
+                    """, {"pids": missing_pids, "system": system})
+                    rows = cursor.fetchall()
+                    
+                    fetched_map: Dict[str, List[Dict[str, Any]]] = {pid: [] for pid in missing_pids}
+                    for r in rows:
+                        pid = str(r["player_id"])
+                        row_dict = dict(r)
+                        row_dict.pop("player_id", None)
+                        if pid in fetched_map:
+                            fetched_map[pid].append(row_dict)
+                    
+                    for pid, t_list in fetched_map.items():
+                        results[pid] = t_list
+                        PostgresDatabase.set_cached(PostgresDatabase._player_tournaments_cache_dict, f"{system}:{pid}", t_list)
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Error in get_multiple_players_tournaments: {e}")
+                    for pid in missing_pids:
+                        results[pid] = self.get_player_tournaments(pid, game_system=system)
+
+        return results
 
 
 

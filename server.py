@@ -128,12 +128,18 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
         # Never cache authentication, admin, studio, session, user, connect, chat, live tracker, health, or version endpoints
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
+    elif path.startswith("/assets/"):
+        response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+        if "Pragma" in response.headers:
+            del response.headers["Pragma"]
     elif path.startswith("/css") or path.startswith("/js"):
         if request.url.query and ("v=" in request.url.query):
-            response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            if "Pragma" in response.headers:
+                del response.headers["Pragma"]
         else:
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
-        response.headers["Pragma"] = "no-cache"
+            response.headers["Pragma"] = "no-cache"
     elif path.startswith("/api/"):
         response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
 

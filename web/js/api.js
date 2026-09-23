@@ -3,8 +3,70 @@
    ========================================================================== */
 
 window.api = {
+  // Client-Side In-Memory Cache (sub-millisecond instant tab switching)
+  _cache: new Map(),
+
+  _cacheTtls: {
+    '/api/stats': 60000,
+    '/api/factions': 120000,
+    '/api/leaderboard': 30000,
+    '/api/teams': 60000,
+    '/api/team/': 60000,
+    '/api/players': 45000,
+    '/api/player/': 60000,
+    '/api/events': 45000,
+    '/api/event/': 60000,
+    '/api/armory': 90000,
+    '/api/community': 45000,
+    '/api/badges': 120000,
+    '/api/wahapedia': 180000,
+  },
+
+  clearCache(pattern) {
+    if (!pattern) {
+      this._cache.clear();
+      return;
+    }
+    for (const k of this._cache.keys()) {
+      if (k.includes(pattern)) {
+        this._cache.delete(k);
+      }
+    }
+  },
+
+  _isCacheable(url, method) {
+    if (method && method.toUpperCase() !== 'GET') return false;
+    const noCachePrefixes = [
+      '/api/auth',
+      '/api/tracker',
+      '/api/eventstudio',
+      '/api/chat',
+      '/api/connect',
+      '/api/feedback',
+      '/api/user/dashboard',
+      '/health',
+      '/api/health',
+      '/api/version',
+      '/api/system'
+    ];
+    for (const p of noCachePrefixes) {
+      if (url.startsWith(p)) return false;
+    }
+    return url.startsWith('/api/');
+  },
+
   // Safe Fetch Helper
   async _fetchJson(url, options = {}) {
+    const method = (options.method || 'GET').toUpperCase();
+    const canCache = this._isCacheable(url, method) && !options.forceRefresh;
+
+    if (canCache) {
+      const cached = this._cache.get(url);
+      if (cached && (Date.now() - cached.timestamp) < cached.ttl) {
+        return cached.data;
+      }
+    }
+
     try {
       const token = this.getAuthToken();
       const headers = Object.assign({}, options.headers || {});
@@ -22,6 +84,25 @@ window.api = {
           console.error(`API Error on ${url}:`, json);
           return { error: json.detail || json.error || 'Server error' };
         }
+
+        if (canCache && json && !json.error) {
+          let ttl = 30000;
+          for (const [prefix, customTtl] of Object.entries(this._cacheTtls)) {
+            if (url.startsWith(prefix)) {
+              ttl = customTtl;
+              break;
+            }
+          }
+          this._cache.set(url, { data: json, timestamp: Date.now(), ttl });
+          if (this._cache.size > 250) {
+            const keys = Array.from(this._cache.keys()).slice(0, 50);
+            for (const k of keys) this._cache.delete(k);
+          }
+        } else if (method !== 'GET') {
+          // Invalidate relevant cache on writes
+          this.clearCache();
+        }
+
         return json;
       } catch (parseErr) {
         console.error(`Non-JSON response from ${url}:`, text);

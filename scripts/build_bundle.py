@@ -30,7 +30,6 @@ BUNDLE_MODULES = [
     "predictor.js",
     "auth.js",
     "my_hub.js",
-    "eventstudio.js",
     "connect.js",
     "community.js",
     "app.js"
@@ -112,7 +111,19 @@ def build_bundle():
     version_file.write_text(json.dumps(version_data, indent=2) + "\n", encoding="utf-8")
     print(f"  ✓ Stamped web/version.json with release hash: {bundle_hash}")
 
-    # 2. Update cache-busting query params and APP_VERSION in HTML templates
+    # 2. Minify CSS styles.css -> styles.min.css
+    css_src = ROOT_DIR / "web" / "css" / "styles.css"
+    css_min = ROOT_DIR / "web" / "css" / "styles.min.css"
+    if esbuild_bin and css_src.exists():
+        subprocess.run(
+            [esbuild_bin, str(css_src), "--minify", "--legal-comments=none", f"--outfile={css_min}"],
+            check=True
+        )
+        css_raw = css_src.stat().st_size
+        css_out = css_min.stat().st_size
+        print(f"  ✓ Minified web/css/styles.css ({css_raw / 1024:.1f} KB -> {css_out / 1024:.1f} KB, -{(1 - (css_out / css_raw)) * 100:.1f}%)")
+
+    # 3. Update cache-busting query params and APP_VERSION in HTML templates
     html_targets = [
         ROOT_DIR / "web" / "app.html",
         ROOT_DIR / "web" / "index.html",
@@ -123,9 +134,12 @@ def build_bundle():
             continue
         content = html_path.read_text(encoding="utf-8")
         
+        # Ensure stylesheet points to styles.min.css
+        content = content.replace('/css/styles.css', '/css/styles.min.css')
+
         # Replace ?v=... for styles and scripts
         updated = re.sub(
-            r'((?:/css/[a-zA-Z0-9_-]+\.css|/js/[a-zA-Z0-9_.-]+\.js))\?v=[a-zA-Z0-9._-]+',
+            r'((?:/css/[a-zA-Z0-9_.-]+\.css|/js/[a-zA-Z0-9_.-]+\.js))\?v=[a-zA-Z0-9._-]+',
             rf'\1?v={bundle_hash}',
             content
         )
@@ -135,7 +149,7 @@ def build_bundle():
             f'window.APP_VERSION = "{bundle_hash}"',
             updated
         )
-        if updated != content:
+        if updated != content or content != html_path.read_text(encoding="utf-8"):
             html_path.write_text(updated, encoding="utf-8")
             print(f"  ✓ Updated asset query versions (?v={bundle_hash}) in {html_path.name}")
 

@@ -409,12 +409,27 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
                           currentEventData && String(currentEventData.id) === String(eventId);
   const loadingModal = document.getElementById('event-details-loading-modal');
 
-  // If the event modal is not already the top active modal showing this event, display the dedicated BCP loading screen immediately
-  if (!isTopEventModal && loadingModal) {
+  // Check if we already have warm cached data in memory
+  const hasWarmCache = Boolean(
+    (currentEventData && String(currentEventData.id) === String(eventId)) ||
+    (window.api && window.api._cache && window.api._cache.has(`/api/event/${encodeURIComponent(eventId)}`))
+  );
+
+  // If the event modal is not already the top active modal showing this event, and no warm cache exists, display loading screen
+  if (!isTopEventModal && loadingModal && !hasWarmCache) {
     let previewName = '';
     if (currentEventData && String(currentEventData.id) === String(eventId)) {
       previewName = currentEventData.name || currentEventData.event_name || '';
-    } else if (typeof communityState !== 'undefined' && communityState?.overview) {
+    } else if (typeof myHubData !== 'undefined' && myHubData) {
+      const allHubEvents = [
+        ...(myHubData.registered_tournaments || []),
+        ...(myHubData.upcoming_events || []),
+        ...(myHubData.events_attended || [])
+      ];
+      const found = allHubEvents.find(e => String(e.bcp_event_id || e.id) === String(eventId));
+      if (found) previewName = found.event_name || found.name || '';
+    }
+    if (!previewName && typeof communityState !== 'undefined' && communityState?.overview) {
       const allEvents = [
         ...(communityState.overview.events_upcoming || []),
         ...(communityState.overview.events_recent || []),
@@ -423,7 +438,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       ];
       const found = allEvents.find(e => String(e.id) === String(eventId));
       if (found) previewName = found.name || '';
-    } else if (typeof eventsData !== 'undefined' && Array.isArray(eventsData)) {
+    } else if (!previewName && typeof eventsData !== 'undefined' && Array.isArray(eventsData)) {
       const found = eventsData.find(e => String(e.id) === String(eventId));
       if (found) previewName = found.name || '';
     }
@@ -443,6 +458,12 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       bringModalToFront(loadingModal);
     } else {
       loadingModal.classList.add('active');
+    }
+  } else if (hasWarmCache) {
+    if (typeof bringModalToFront === 'function') {
+      bringModalToFront(modal);
+    } else {
+      modal.classList.add('active');
     }
   }
 
@@ -1300,7 +1321,7 @@ function renderEventTeamsRows() {
               <div class="team-member-col-name" style="display:flex; align-items:center; gap:0.45rem; min-width:0;">
                 <span style="font-size:0.85rem; width:16px; text-align:center; flex-shrink:0;">${isCap ? '👑' : '<span style="color:var(--text-muted, #64748b);">•</span>'}</span>
                 ${memberPlacingTag}
-                <a href="javascript:void(0)" onclick="event.stopPropagation(); if(typeof openPlayerProfilePage==='function'){openPlayerProfilePage('${escapeHtml(m.player_id || '')}');}else{openPlayerModal('${escapeHtml(m.player_id || '')}');}" style="font-weight:600; font-size:0.88rem; color:#38bdf8; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+                <a href="javascript:void(0)" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.player_id || '')}', '${escapeHtml(mName)}');" style="font-weight:600; font-size:0.88rem; color:#38bdf8; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
                   ${mName}
                 </a>
                 ${capTag}
@@ -1570,11 +1591,7 @@ function renderEventResultsRows() {
     const safeName = String(p.full_name || 'Player').trim();
     tr.onclick = (e) => {
       e.stopPropagation();
-      if (typeof openPlayerProfilePage === 'function' && safePid) {
-        openPlayerProfilePage(safePid, typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
-      } else {
-        openPlayerModal(safePid, safeName);
-      }
+      openPlayerModal(safePid, safeName);
     };
 
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
@@ -2178,7 +2195,7 @@ function renderEventPairingsRows() {
         <td>
           <div class="player-name-cell">
             <div style="display:flex; align-items:center; flex-wrap:wrap; gap:2px;">
-              <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); if (typeof openPlayerProfilePage === 'function' && '${targetP1Id}') { openPlayerProfilePage('${targetP1Id}'); } else { openPlayerModal('${targetP1Id}', '${escapeHtml(targetP1Name)}'); }">
+              <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP1Id}', '${escapeHtml(targetP1Name)}');">
                 ${escapeHtml(m.player1_name || 'Player 1')}
               </span>
               ${isP1 ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 5px; margin-left:4px; border:none;">YOU</span>' : ''}
@@ -2198,7 +2215,7 @@ function renderEventPairingsRows() {
             ${isBye
               ? `<span style="color:var(--text-muted); font-weight:600;">BYE</span>`
               : `<div style="display:flex; align-items:center; flex-wrap:wrap; gap:2px;">
-                   <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); if (typeof openPlayerProfilePage === 'function' && '${targetP2Id}') { openPlayerProfilePage('${targetP2Id}'); } else { openPlayerModal('${targetP2Id}', '${escapeHtml(targetP2Name)}'); }">
+                   <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP2Id}', '${escapeHtml(targetP2Name)}');">
                      ${escapeHtml(m.player2_name || 'Player 2')}
                    </span>
                    ${isP2 ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 5px; margin-left:4px; border:none;">YOU</span>' : ''}
@@ -3721,7 +3738,7 @@ function renderQuickModalTable() {
       : '';
 
     return `
-      <tr style="cursor:pointer;" onclick="event.stopPropagation(); closeModal('event-modal'); if (typeof openPlayerProfilePage === 'function' && '${safePid}') { openPlayerProfilePage('${safePid}'); } else { openPlayerModal('${safePid}', '${escapeHtml(safeName)}'); }">
+      <tr style="cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${safePid}', '${escapeHtml(safeName)}');">
         <td class="rank-cell" style="width:55px; text-align:center; padding:0.5rem 0.6rem;">${rankStr}</td>
         <td class="modal-quick-competitor-col" style="min-width:130px; padding:0.5rem 0.65rem;">
           <div class="modal-quick-competitor-name" style="font-weight:600; color:#38bdf8;" title="${escapeHtml(safeName)}">${escapeHtml(safeName)}</div>
@@ -3830,7 +3847,13 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
   }
 
   const heroSection = document.getElementById('event-hub-hero-section');
-  const hasCached = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && !options.forceSync);
+  const clientCached = (window.api && window.api._cache && window.api._cache.get(`/api/event/${encodeURIComponent(eventId)}`))?.data;
+  const hasCached = Boolean(
+    (!options.forceSync && (
+      (currentEventData && String(currentEventData.id) === String(eventId)) ||
+      clientCached
+    ))
+  );
 
   if (!hasCached && heroSection) {
     heroSection.innerHTML = `
@@ -3844,10 +3867,10 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
   }
 
   try {
-    let ev = currentEventData;
+    let ev = (currentEventData && String(currentEventData.id) === String(eventId)) ? currentEventData : clientCached;
     let userRegData = currentEventRegistration;
 
-    if (!hasCached) {
+    if (!hasCached || !ev) {
       const detailsPromise = window.api.getTournamentDetails(eventId, Boolean(options.forceSync));
       const regPromise = (typeof window.api?.getCommunityEventRegistration === 'function')
         ? window.api.getCommunityEventRegistration(eventId, Boolean(options.forceSync)).catch(() => null)
@@ -4789,11 +4812,7 @@ function openEventPlayerListModal(playerIdentifier) {
     const targetId = p?.player_id || p?.id || '';
     btnProfile.onclick = () => {
       closeEventArmyListModal();
-      if (typeof openPlayerProfilePage === 'function' && targetId) {
-        openPlayerProfilePage(targetId);
-      } else if (typeof openPlayerModal === 'function') {
-        openPlayerModal(targetId, p?.full_name || '');
-      }
+      openPlayerModal(targetId, p?.full_name || '');
     };
   }
 

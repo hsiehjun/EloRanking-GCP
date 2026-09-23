@@ -1189,7 +1189,6 @@
     return svg;
   }
 
-  window.ARMORY_FACTION_SVGS = FACTION_SVGS;
   window.getArmoryAvatarSvg = getArmoryAvatarSvg;
 
 })(window);
