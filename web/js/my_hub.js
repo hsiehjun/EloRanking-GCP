@@ -497,17 +497,47 @@ window.filterHubHistory = filterHubHistory;
 window.filterHubMatrix = filterHubMatrix;
 window.filterHubFaction = filterHubFaction;
 
+window._hubRegEventsActiveTab = 'all';
+
+function switchHubRegisteredEventsTab(tab) {
+  window._hubRegEventsActiveTab = tab || 'all';
+  const tabBtns = document.querySelectorAll('.hub-reg-events-tab-btn');
+  tabBtns.forEach(btn => {
+    const isAct = btn.getAttribute('data-reg-tab') === window._hubRegEventsActiveTab;
+    btn.classList.toggle('active', isAct);
+    btn.style.background = isAct ? 'rgba(56, 189, 248, 0.18)' : 'transparent';
+    btn.style.color = isAct ? '#38bdf8' : '#94a3b8';
+    btn.style.borderColor = isAct ? 'rgba(56, 189, 248, 0.45)' : 'transparent';
+  });
+  const searchInput = document.getElementById('hub-registered-events-search');
+  filterHubRegisteredEvents(searchInput ? searchInput.value : '');
+}
+window.switchHubRegisteredEventsTab = switchHubRegisteredEventsTab;
+
 function filterHubRegisteredEvents(query) {
   const q = (query || '').trim().toLowerCase();
+  const activeTab = window._hubRegEventsActiveTab || 'all';
   const items = document.querySelectorAll('#hub-registered-events-list .hub-event-item-card');
+  let visibleCount = 0;
   items.forEach(el => {
-    if (!q) {
-      el.style.display = '';
-      return;
-    }
+    const cat = el.getAttribute('data-event-category') || 'tournaments';
+    const matchesTab = (activeTab === 'all') || (cat === activeTab);
     const text = el.textContent.toLowerCase();
-    el.style.display = text.includes(q) ? '' : 'none';
+    const matchesQuery = !q || text.includes(q);
+    const show = matchesTab && matchesQuery;
+    el.style.display = show ? '' : 'none';
+    if (show) visibleCount++;
   });
+  const emptyEl = document.getElementById('hub-reg-events-empty-tab');
+  if (emptyEl) {
+    if (visibleCount === 0) {
+      const label = activeTab === 'leagues' ? 'registered leagues' : (activeTab === 'tournaments' ? 'registered tournaments' : 'registered events');
+      emptyEl.style.display = 'block';
+      emptyEl.innerHTML = `<div style="padding: 1.35rem 1rem; text-align: center; color: #94a3b8; font-size: 0.82rem; background: rgba(15,23,42,0.5); border: 1px dashed rgba(148,163,184,0.2); border-radius: 10px;">No ${label} match your filter.</div>`;
+    } else {
+      emptyEl.style.display = 'none';
+    }
+  }
 }
 window.filterHubRegisteredEvents = filterHubRegisteredEvents;
 
@@ -545,6 +575,13 @@ function getCountdownBadge(dateStr, endDateStr) {
 function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
   const events = (tournaments || []).filter(isValidRegisteredTournament);
   window._hubRegisteredEventsCache = events;
+  const activeTab = window._hubRegEventsActiveTab || 'all';
+
+  const leaguesCount = events.filter(ev => {
+    const evId = ev.id || ev.bcp_event_id || '';
+    return Boolean(ev.is_native_league || String(evId).startsWith('league_'));
+  }).length;
+  const tournamentsCount = events.length - leaguesCount;
   
   if (!isBcpConnected && events.length === 0) {
     return `
@@ -552,14 +589,14 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
             <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📅 Registered Tournaments</h3>
+              <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📅 Registered Events</h3>
             </div>
           </div>
           <div style="background: rgba(56, 189, 248, 0.05); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 12px; padding: 1.75rem 1.25rem; text-align: center;">
             <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔗</div>
             <h4 style="color: #fff; font-size: 1rem; font-weight: 700; margin: 0 0 0.4rem 0;">Connect Best Coast Pairings</h4>
             <p style="color: var(--text-secondary); font-size: 0.82rem; margin: 0 0 1rem 0; line-height: 1.4;">
-              Link your BCP account to automatically sync tournaments you are playing in, track army list submission deadlines, and view roster countdowns.
+              Link your BCP account to automatically sync tournaments and leagues you are playing in, track army list submission deadlines, and view roster countdowns.
             </p>
             <button class="bcp-login-btn" onclick="openBcpLinkModal()" style="padding: 0.5rem 1.2rem; font-size: 0.82rem; font-weight: 700;">
               <span>🔗</span> Connect BCP Account
@@ -573,9 +610,9 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
   return `
     <div class="hub-card" id="hub-registered-tournaments-card" style="display: flex; flex-direction: column; justify-content: space-between;">
       <div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.7rem; flex-wrap: wrap; gap: 0.5rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📅 Registered Tournaments</h3>
+            <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📅 Registered Events</h3>
             ${events.length > 0 ? `<span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.5rem;">${events.length} Active</span>` : ''}
           </div>
           <button id="hub-bcp-sync-btn" onclick="syncBcpRegisteredTournaments()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.7rem; display: inline-flex; align-items: center; gap: 0.35rem;" title="Refresh tournament and league registrations">
@@ -584,13 +621,31 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
         </div>
 
         ${events.length > 0 ? `
-          <div style="margin-bottom: 0.75rem;">
-            <input type="text" class="hub-search-input" placeholder="🔍 Filter registered tournaments & leagues..." oninput="filterHubRegisteredEvents(this.value)">
+          <div class="hub-reg-events-tabs" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.35rem; background: rgba(15, 23, 42, 0.75); padding: 0.28rem; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.16); margin-bottom: 0.65rem;">
+            <button type="button" class="hub-reg-events-tab-btn ${activeTab === 'all' ? 'active' : ''}" data-reg-tab="all" onclick="switchHubRegisteredEventsTab('all')" style="border: 1px solid ${activeTab === 'all' ? 'rgba(56, 189, 248, 0.45)' : 'transparent'}; background: ${activeTab === 'all' ? 'rgba(56, 189, 248, 0.18)' : 'transparent'}; color: ${activeTab === 'all' ? '#38bdf8' : '#94a3b8'}; border-radius: 7px; padding: 0.38rem 0.4rem; font-size: 0.74rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.3rem; white-space: nowrap;">
+              <span>All</span>
+              <span style="background: rgba(255,255,255,0.1); padding: 1px 6px; border-radius: 999px; font-size: 0.68rem;">${events.length}</span>
+            </button>
+            <button type="button" class="hub-reg-events-tab-btn ${activeTab === 'tournaments' ? 'active' : ''}" data-reg-tab="tournaments" onclick="switchHubRegisteredEventsTab('tournaments')" style="border: 1px solid ${activeTab === 'tournaments' ? 'rgba(56, 189, 248, 0.45)' : 'transparent'}; background: ${activeTab === 'tournaments' ? 'rgba(56, 189, 248, 0.18)' : 'transparent'}; color: ${activeTab === 'tournaments' ? '#38bdf8' : '#94a3b8'}; border-radius: 7px; padding: 0.38rem 0.4rem; font-size: 0.74rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.3rem; white-space: nowrap;">
+              <span>🏆 Tournaments</span>
+              <span style="background: rgba(255,255,255,0.1); padding: 1px 6px; border-radius: 999px; font-size: 0.68rem;">${tournamentsCount}</span>
+            </button>
+            <button type="button" class="hub-reg-events-tab-btn ${activeTab === 'leagues' ? 'active' : ''}" data-reg-tab="leagues" onclick="switchHubRegisteredEventsTab('leagues')" style="border: 1px solid ${activeTab === 'leagues' ? 'rgba(56, 189, 248, 0.45)' : 'transparent'}; background: ${activeTab === 'leagues' ? 'rgba(56, 189, 248, 0.18)' : 'transparent'}; color: ${activeTab === 'leagues' ? '#38bdf8' : '#94a3b8'}; border-radius: 7px; padding: 0.38rem 0.4rem; font-size: 0.74rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.3rem; white-space: nowrap;">
+              <span>⚔️ Leagues</span>
+              <span style="background: rgba(255,255,255,0.1); padding: 1px 6px; border-radius: 999px; font-size: 0.68rem;">${leaguesCount}</span>
+            </button>
           </div>
+
+          <div style="margin-bottom: 0.7rem;">
+            <input type="text" id="hub-registered-events-search" class="hub-search-input" placeholder="🔍 Filter registered tournaments & leagues..." oninput="filterHubRegisteredEvents(this.value)">
+          </div>
+          <div id="hub-reg-events-empty-tab" style="display: none; margin-bottom: 0.5rem;"></div>
           <div id="hub-registered-events-list" class="hub-events-scroll-container">
             ${events.map(ev => {
               const evId = ev.id || ev.bcp_event_id || '';
               const isNativeLeague = Boolean(ev.is_native_league || String(evId).startsWith('league_'));
+              const category = isNativeLeague ? 'leagues' : 'tournaments';
+              const isHiddenByTab = (activeTab !== 'all' && activeTab !== category);
               const evName = ev.event_name || ev.name || 'Tournament';
               const evDate = ev.event_date || ev.start_date || '';
               const dateDisplay = (evDate ? evDate.substring(0, 10) : 'TBD');
@@ -604,35 +659,31 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                 const pairingsCount = (ev.pairings && ev.pairings.length) || ev.rounds || 5;
                 const safeEntryId = escapeHtml(String(evId)).replace(/'/g, "\\'");
                 return `
-                  <div class="hub-event-item-card" data-native-league-id="${escapeHtml(String(evId))}" style="cursor: pointer; border: 1px solid rgba(56, 189, 248, 0.35); background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 58, 138, 0.22));" onclick="openUserLeagueGamesQuickModal('${safeEntryId}')">
-                    <div class="hub-event-header">
-                      <div style="min-width: 0; flex: 1; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-                        <span class="badge" style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.68rem; padding: 2px 6px; font-weight: 800;">🏆 ACTIVE LEAGUE</span>
-                        <span class="hub-event-title" style="color: #38bdf8;">
-                          ${escapeHtml(evName)}
-                        </span>
-                      </div>
-                      <div style="flex-shrink: 0; display: flex; align-items: center; gap: 0.35rem;">
-                        <span class="badge" style="background: rgba(16,185,129,0.16); color: #34d399; border: 1px solid rgba(16,185,129,0.35); font-size: 0.7rem; padding: 2px 7px; font-weight: 700;">🟢 Pod #${podNum} • Rank #${rankNum}</span>
-                        <span class="badge" style="background: rgba(59,130,246,0.18); color: #93c5fd; border: 1px solid rgba(59,130,246,0.35); font-size: 0.7rem; padding: 2px 7px; font-weight: 700;">${escapeHtml(recordStr)} (${bpVal} VP)</span>
+                  <div class="hub-event-item-card" data-event-category="leagues" data-native-league-id="${escapeHtml(String(evId))}" style="${isHiddenByTab ? 'display:none;' : ''} cursor: pointer; border: 1px solid rgba(56, 189, 248, 0.38); background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 58, 138, 0.22)); padding: 0.85rem 0.95rem; gap: 0.5rem;" onclick="openUserLeagueGamesQuickModal('${safeEntryId}')">
+                    <div class="hub-event-badge-row" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.35rem;">
+                      <span class="badge" style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.68rem; padding: 2px 7px; font-weight: 800; letter-spacing: 0.02em;">⚔️ ACTIVE LEAGUE</span>
+                      <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                        <span class="badge" style="background: rgba(16,185,129,0.16); color: #34d399; border: 1px solid rgba(16,185,129,0.35); font-size: 0.69rem; padding: 2px 7px; font-weight: 700;">🟢 Pod #${podNum} • Rank #${rankNum}</span>
+                        <span class="badge" style="background: rgba(59,130,246,0.18); color: #93c5fd; border: 1px solid rgba(59,130,246,0.35); font-size: 0.69rem; padding: 2px 7px; font-weight: 700;">${escapeHtml(recordStr)} (${bpVal} VP)</span>
                       </div>
                     </div>
 
-                    <div class="hub-event-meta">
+                    <div class="hub-event-title" style="color: #38bdf8; font-size: 0.96rem; font-weight: 800; line-height: 1.35; width: 100%; word-break: break-word;">
+                      ${escapeHtml(evName)}
+                    </div>
+
+                    <div class="hub-event-meta" style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem 0.7rem; font-size: 0.76rem; color: #cbd5e1;">
                       <span>📅 <b>${escapeHtml(dateDisplay)}</b></span>
                       <span>📍 <b>${escapeHtml(podName)}</b> (${escapeHtml(ev.city || 'San Diego')}, ${escapeHtml(ev.state || 'CA')})</span>
-                      <span>⚔️ 2000 pts</span>
-                      <span>• ${pairingsCount} Scheduled Pod Games</span>
+                      <span>⚔️ 2000 pts • ${pairingsCount} Games</span>
                     </div>
 
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.35rem; border-top: 1px solid rgba(255,255,255,0.07);">
-                      <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-                        <span style="font-size: 0.76rem; color: #fff;">
-                          🛡️ <b>${escapeHtml(ev.faction || ev.primary_faction || 'Army Unassigned')}</b>
-                          <span style="color: var(--text-muted);"> (${escapeHtml(ev.player_name || '')})</span>
-                        </span>
-                      </div>
-                      <span class="badge" style="background: rgba(56,189,248,0.16); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); font-size: 0.71rem; padding: 3px 9px; font-weight: 700;">
+                    <div class="hub-event-footer-row" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.45rem; padding-top: 0.45rem; border-top: 1px solid rgba(255,255,255,0.08);">
+                      <span style="font-size: 0.76rem; color: #fff; min-width: 0;">
+                        🛡️ <b>${escapeHtml(ev.faction || ev.primary_faction || 'Army Unassigned')}</b>
+                        ${ev.player_name ? `<span style="color: var(--text-muted);"> (${escapeHtml(ev.player_name)})</span>` : ''}
+                      </span>
+                      <span class="badge hub-event-cta-pill" style="background: rgba(56,189,248,0.16); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); font-size: 0.72rem; padding: 4px 10px; font-weight: 800; text-align: center;">
                         🎯 View My ${pairingsCount} Scheduled Games →
                       </span>
                     </div>
@@ -660,34 +711,31 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
               }
 
               return `
-                <div class="hub-event-item-card" style="cursor: pointer;" onclick="openEventModal('${encodeURIComponent(bcpEvId)}', false)">
-                  <div class="hub-event-header">
-                    <div style="min-width: 0; flex: 1;">
-                      <span class="hub-event-title">
-                        ${escapeHtml(evName)}
-                      </span>
-                    </div>
-                    <div style="flex-shrink: 0; display: flex; align-items: center; gap: 0.35rem;">
+                <div class="hub-event-item-card" data-event-category="tournaments" style="${isHiddenByTab ? 'display:none;' : ''} cursor: pointer; padding: 0.85rem 0.95rem; gap: 0.5rem;" onclick="openEventModal('${encodeURIComponent(bcpEvId)}', false)">
+                  <div class="hub-event-badge-row" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.35rem;">
+                    <span class="badge" style="background: rgba(56, 189, 248, 0.12); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 0.68rem; padding: 2px 7px; font-weight: 800;">🏆 TOURNAMENT</span>
+                    <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
                       ${checkinStatus}
                       ${countdownPill}
                     </div>
                   </div>
 
-                  <div class="hub-event-meta">
-                    <span>📅 <b>${escapeHtml(dateDisplay)}</b></span>
-                    <span>📍 ${escapeHtml(locationStr)}</span>
-                    ${ev.points_limit ? `<span>⚔️ ${ev.points_limit} pts</span>` : ''}
-                    ${ev.rounds ? `<span>• ${ev.rounds} Rounds</span>` : ''}
+                  <div class="hub-event-title" style="color: #f8fafc; font-size: 0.96rem; font-weight: 800; line-height: 1.35; width: 100%; word-break: break-word;">
+                    ${escapeHtml(evName)}
                   </div>
 
-                  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.2rem; border-top: 1px solid rgba(255,255,255,0.05);">
-                    <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-                      <span style="font-size: 0.75rem; color: #fff;">
-                        🛡️ <b>${escapeHtml(ev.faction || 'Army Unassigned')}</b>
-                        ${ev.detachment ? `<span style="color: var(--text-muted);"> (${escapeHtml(ev.detachment)})</span>` : ''}
-                      </span>
-                      ${listStatus}
-                    </div>
+                  <div class="hub-event-meta" style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem 0.7rem; font-size: 0.76rem; color: #cbd5e1;">
+                    <span>📅 <b>${escapeHtml(dateDisplay)}</b></span>
+                    <span>📍 ${escapeHtml(locationStr)}</span>
+                    ${ev.points_limit ? `<span>⚔️ ${ev.points_limit} pts${ev.rounds ? ` • ${ev.rounds} Rounds` : ''}</span>` : (ev.rounds ? `<span>⚔️ ${ev.rounds} Rounds</span>` : '')}
+                  </div>
+
+                  <div class="hub-event-footer-row" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.45rem; padding-top: 0.45rem; border-top: 1px solid rgba(255,255,255,0.06);">
+                    <span style="font-size: 0.76rem; color: #fff; min-width: 0;">
+                      🛡️ <b>${escapeHtml(ev.faction || 'Army Unassigned')}</b>
+                      ${ev.detachment ? `<span style="color: var(--text-muted);"> (${escapeHtml(ev.detachment)})</span>` : ''}
+                    </span>
+                    ${listStatus}
                   </div>
                 </div>
               `;
@@ -696,8 +744,8 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
         ` : `
           <div style="padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
             <div style="font-size: 1.5rem; margin-bottom: 0.4rem;">📅</div>
-            <div style="font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">No registered tournaments found on BCP</div>
-            <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">When you register for tournaments on Best Coast Pairings, they will automatically sync here!</div>
+            <div style="font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">No registered events found</div>
+            <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">When you register for tournaments on Best Coast Pairings or join a league, they will automatically appear here!</div>
             <button onclick="syncBcpRegisteredTournaments()" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.8rem;">
               🔄 Refresh Registrations
             </button>
@@ -1061,11 +1109,11 @@ function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
     return `
       <div id="hub-overview-events-preview" class="hub-card" style="border-color: rgba(56,189,248,0.25); background: rgba(56,189,248,0.03);">
         <div style="font-size: 0.72rem; color: #38bdf8; font-weight: 800; font-family: var(--font-mono); margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
-          <span>📅 REGISTERED TOURNAMENTS</span>
-          <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">BCP Sync</span>
+          <span>📅 REGISTERED EVENTS</span>
+          <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">BCP & Leagues</span>
         </div>
         <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0 0 8px 0;">
-          Connect your BCP account to track upcoming tournaments and roster deadlines.
+          Connect your BCP account to track upcoming tournaments, leagues, and roster deadlines.
         </p>
         <button class="hub-view-all-btn" onclick="openBcpLinkModal()" style="margin-top: 4px;">
           <span>🔗 Connect BCP Account</span>
@@ -1085,41 +1133,50 @@ function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
 
   const nextEv = events[0];
   const evId = nextEv.bcp_event_id || nextEv.id || '';
-  const evName = nextEv.event_name || nextEv.name || 'Tournament';
+  const isNativeLeague = Boolean(nextEv.is_native_league || String(evId).startsWith('league_'));
+  const evName = nextEv.event_name || nextEv.name || 'Event';
   const evDate = nextEv.event_date || nextEv.start_date || '';
   const countdownPill = getCountdownBadge(evDate, nextEv.end_date);
   const dateStr = evDate ? evDate.substring(0, 10) : 'Upcoming';
-  const venueStr = [nextEv.venue_name, nextEv.city].filter(Boolean).join(' • ') || 'Tournament';
+  const venueStr = isNativeLeague
+    ? `${nextEv.pod_name || `Pod #${nextEv.pod_number || 1}`} • ${nextEv.city || 'San Diego'}`
+    : ([nextEv.venue_name, nextEv.city].filter(Boolean).join(' • ') || 'Tournament');
   const hasList = !!(nextEv.has_list_submitted || nextEv.army_list || nextEv.army_list_name);
+  const safeEvId = escapeHtml(String(evId)).replace(/'/g, "\\'");
+  const clickHandler = isNativeLeague
+    ? `openUserLeagueGamesQuickModal('${safeEvId}')`
+    : `openEventModal('${encodeURIComponent(evId)}', false)`;
 
   return `
     <div id="hub-overview-events-preview" class="hub-card" style="border-color: rgba(56,189,248,0.3); background: rgba(56,189,248,0.04);">
-      <div style="font-size: 0.72rem; color: #38bdf8; font-weight: 800; font-family: var(--font-mono); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
-        <span>📅 NEXT REGISTERED TOURNAMENT</span>
+      <div style="font-size: 0.72rem; color: #38bdf8; font-weight: 800; font-family: var(--font-mono); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px;">
+        <span>📅 NEXT REGISTERED EVENT</span>
         ${countdownPill}
       </div>
       <div>
-        <b style="color: #fff; font-size: 0.95rem; cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
+        <b style="color: #fff; font-size: 0.95rem; cursor: pointer; display: block; line-height: 1.35;" onclick="${clickHandler}">
           ${escapeHtml(evName)}
         </b>
         <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 3px;">
           📅 ${escapeHtml(dateStr)} • 📍 ${escapeHtml(venueStr)}
         </div>
         <div style="display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
-          <span style="font-size: 0.74rem; color: #fff;">🛡️ <b>${escapeHtml(nextEv.faction || 'Army Unassigned')}</b></span>
-          ${hasList 
-            ? `<span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.68rem; padding: 1px 6px;">✅ List Submitted</span>`
-            : `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; font-size: 0.68rem; padding: 1px 6px;">⚠️ List Pending</span>`}
-          ${nextEv.dropped
+          <span style="font-size: 0.74rem; color: #fff;">🛡️ <b>${escapeHtml(nextEv.faction || nextEv.primary_faction || 'Army Unassigned')}</b></span>
+          ${isNativeLeague
+            ? `<span class="badge" style="background: rgba(16,185,129,0.15); color: #34d399; font-size: 0.68rem; padding: 1px 6px;">⚔️ Active League</span>`
+            : (hasList 
+              ? `<span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.68rem; padding: 1px 6px;">✅ List Submitted</span>`
+              : `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; font-size: 0.68rem; padding: 1px 6px;">⚠️ List Pending</span>`)}
+          ${!isNativeLeague ? (nextEv.dropped
             ? `<span class="badge" style="background: rgba(239,68,68,0.15); color: #ef4444; font-size: 0.68rem; padding: 1px 6px;">🚫 Dropped</span>`
             : (nextEv.checked_in
               ? `<span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.68rem; padding: 1px 6px;">✅ Checked In</span>`
-              : `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; font-size: 0.68rem; padding: 1px 6px;">⚠️ Not Checked In</span>`)}
+              : `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; font-size: 0.68rem; padding: 1px 6px;">⚠️ Not Checked In</span>`)) : ''}
         </div>
       </div>
       <div style="display: flex; gap: 0.5rem; margin-top: 8px;">
         <button class="hub-view-all-btn" style="flex: 1; margin-top: 0;" onclick="switchHubMobileTab('events')">
-          <span>View All Registered Tournaments (${events.length})</span>
+          <span>View All Registered Events (${events.length})</span>
           <span class="hub-btn-arrow">➔</span>
         </button>
       </div>
