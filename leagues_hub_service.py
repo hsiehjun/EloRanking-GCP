@@ -175,9 +175,15 @@ class LeaguesHubService:
             }
         ]
 
+    def _get_db(self):
+        try:
+            return _get_db()
+        except Exception:
+            return None
+
     def get_leagues_list(self, region: Optional[str] = None, game_system: Optional[str] = None) -> List[Dict[str, Any]]:
         """Queries registered community leagues directly from PostgreSQL `native_leagues`."""
-        db = _get_db()
+        db = self._get_db()
         leagues: List[Dict[str, Any]] = []
         try:
             with db.get_connection() as conn:
@@ -189,18 +195,33 @@ class LeaguesHubService:
                                (SELECT COUNT(*) FROM native_league_seasons s WHERE s.league_id = l.id) AS seasons_count,
                                (SELECT s.registration_start FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
                                (SELECT s.registration_end FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
-                               l.owner_user_id, l.owner_player_id, l.owner_email, l.owner_name
+                               l.owner_user_id, l.owner_player_id, l.owner_email, l.owner_name,
+                               (SELECT COUNT(*) FROM native_league_participants p WHERE p.league_id = l.id AND p.season_num = l.active_season_num AND p.is_db_matched = TRUE) AS matched_p_cnt,
+                               (SELECT COUNT(*) FROM native_league_standings st WHERE st.league_id = l.id AND st.season_num = l.active_season_num AND st.is_db_matched = TRUE) AS matched_st_cnt
                         FROM native_leagues l
                         ORDER BY l.created_at ASC;
                     """)
-                    for row in cur.fetchall():
-                        lid, slug, name, gsys, reg, act_s, tot_p, tot_pods, rec_s, reg_open, cfg_raw, s_cnt, reg_start, reg_end, o_uid, o_pid, o_email, o_name = row
+                    rows = cur.fetchall()
+                    for row in rows:
+                        lid, slug, name, gsys, reg, act_s, tot_p, tot_pods, rec_s, reg_open, cfg_raw, s_cnt, reg_start, reg_end, o_uid, o_pid, o_email, o_name, matched_p_cnt, matched_st_cnt = row
                         cfg = cfg_raw if isinstance(cfg_raw, dict) else (json.loads(cfg_raw) if cfg_raw else {})
                         comms = cfg.get("commissioners", [])
                         comm_str = o_name or ", ".join(c.get("name", "") for c in comms[:2] if isinstance(c, dict) and c.get("name")) or "League Commissioner"
                         meth = cfg.get("methodology", {})
                         p_min = int(meth.get("pod_size_min", 6))
                         p_max = int(meth.get("pod_size_max", 8))
+                        matched_cnt = max(int(matched_p_cnt or 0), int(matched_st_cnt or 0))
+                        if matched_cnt == 0 and int(tot_p or 0) > 0:
+                            try:
+                                if hasattr(db, "sync_league_participant_identities"):
+                                    sync_res = db.sync_league_participant_identities(lid, int(act_s or 1))
+                                    if isinstance(sync_res, dict) and sync_res.get("season_matched_count"):
+                                        matched_cnt = int(sync_res["season_matched_count"])
+                            except Exception:
+                                pass
+                            if matched_cnt == 0:
+                                matched_cnt = int(tot_p or 0)
+                        ann_list = self._get_league_announcements(cur, lid, cfg)
                         entry = {
                             "league_id": lid,
                             "slug": slug,
@@ -214,6 +235,7 @@ class LeaguesHubService:
                             "active_season": int(act_s or 1),
                             "active_players": int(tot_p or 0),
                             "pods_count": int(tot_pods or 0),
+                            "db_matched_players_count": matched_cnt,
                             "commissioner": comm_str,
                             "owner_user_id": o_uid,
                             "owner_player_id": o_pid,
@@ -227,7 +249,9 @@ class LeaguesHubService:
                             "games_per_season": int(meth.get("games_per_season", 5)),
                             "pod_size_range": f"{p_min}-{p_max} Players",
                             "preset_type": meth.get("preset_type", "sd40k_pod_league"),
-                            "seasons_count": int(s_cnt or 1)
+                            "seasons_count": int(s_cnt or 1),
+                            "announcements": ann_list,
+                            "announcements_count": len(ann_list)
                         }
                         if region and region.strip().lower() not in (entry["region"] or "").lower():
                             continue
@@ -242,6 +266,7 @@ class LeaguesHubService:
                 if seed_obj:
                     act = seed_obj.get("active_season") or {}
                     meth = seed_obj.get("methodology") or {}
+                    ann_list = seed_obj.get("announcements") or self._get_league_announcements(None, seed_lid, seed_obj)
                     leagues.append({
                         "league_id": seed_obj.get("league_id", seed_lid),
                         "slug": seed_obj.get("slug", "sd40k"),
@@ -267,7 +292,9 @@ class LeaguesHubService:
                         "registration_open": True,
                         "games_per_season": 5,
                         "pod_size_range": f"{meth.get('pod_size_min', 6)}-{meth.get('pod_size_max', 8)} Players",
-                        "seasons_count": len(seed_obj.get("available_seasons") or [1])
+                        "seasons_count": len(seed_obj.get("available_seasons") or [1]),
+                        "announcements": ann_list,
+                        "announcements_count": len(ann_list)
                     })
         return leagues
 
@@ -473,7 +500,9 @@ class LeaguesHubService:
                     cur.execute("""
                         SELECT pod_num, player_name, primary_faction, bcp_player_id, player_id, user_id,
                                is_db_matched, match_method, rank, wins, losses, draws, battle_points,
-                               games_played, poty_points, relegation_status, pairings_json, career_json
+                               games_played, poty_points, relegation_status, pairings_json, career_json,
+                               COALESCE(disciplinary_card, 'none') AS disciplinary_card,
+                               COALESCE(dropped, FALSE) AS dropped
                         FROM native_league_standings
                         WHERE league_id = %s AND season_num = %s
                         ORDER BY pod_num ASC, rank ASC, battle_points DESC;
@@ -500,6 +529,8 @@ class LeaguesHubService:
                         pairings_list = pairings_raw if isinstance(pairings_raw, list) else (json.loads(pairings_raw) if pairings_raw else [])
                         career_raw = srow[17]
                         career_obj = career_raw if isinstance(career_raw, dict) else (json.loads(career_raw) if career_raw else {})
+                        disc_card = str(srow[18] or "none").lower()
+                        is_dropped = bool(srow[19])
 
                         enriched_pairings = []
                         for idx, pair in enumerate(pairings_list):
@@ -543,6 +574,8 @@ class LeaguesHubService:
                             "games_played": int(srow[13] or 0),
                             "poty_points": int(srow[14] or 0),
                             "relegation_status": srow[15] or "None",
+                            "disciplinary_card": disc_card,
+                            "dropped": is_dropped,
                             "pairings": enriched_pairings,
                             "career": career_obj
                         })
@@ -615,6 +648,7 @@ class LeaguesHubService:
                     }
 
                     hof_payload = self._build_league_hall_of_fame(cur, db_lid, cfg, participant_lookup)
+                    ann_list = self._get_league_announcements(cur, db_lid, cfg)
 
                     return {
                         "league_id": db_lid,
@@ -641,6 +675,8 @@ class LeaguesHubService:
                         "partner_venues": cfg.get("partner_venues", []),
                         "clubs": cfg.get("clubs", []),
                         "methodology": cfg.get("methodology", {}),
+                        "announcements": ann_list,
+                        "announcements_count": len(ann_list),
                         "hall_of_fame": hof_payload,
                         "past_finals_champions": hof_payload.get("finals_champions", []),
                         "available_seasons": available_seasons,
@@ -653,9 +689,14 @@ class LeaguesHubService:
     def _load_league_from_seed_json(self, lid: str, season_number: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Loads league payload from seed JSON when running in local offline mode without PostgreSQL."""
         import os
+        norm_lid = _normalize_league_id(lid)
+        if not hasattr(self, "_offline_league_cache"):
+            self._offline_league_cache = {}
+        if norm_lid in self._offline_league_cache and not season_number:
+            return self._offline_league_cache[norm_lid]
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
-            if lid == THE_GAUNTLET_LEAGUE_UUID or "gauntlet" in str(lid).lower():
+            if norm_lid == THE_GAUNTLET_LEAGUE_UUID or "gauntlet" in str(lid).lower():
                 json_path = os.path.join(base_dir, "data", "the_gauntlet_league_data.json")
             else:
                 json_path = os.path.join(base_dir, "data", "sd40k_league_data.json")
@@ -663,9 +704,15 @@ class LeaguesHubService:
                 return None
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            hof_payload = self._build_league_hall_of_fame(None, lid, data, {})
+            data["league_id"] = norm_lid
+            data["id"] = norm_lid
+            hof_payload = self._build_league_hall_of_fame(None, norm_lid, data, {})
             data["hall_of_fame"] = hof_payload
             data["past_finals_champions"] = hof_payload.get("finals_champions", [])
+            data["announcements"] = self._get_league_announcements(None, norm_lid, data)
+            data["announcements_count"] = len(data["announcements"])
+            if not season_number:
+                self._offline_league_cache[norm_lid] = data
             if not data.get("available_seasons"):
                 act = data.get("active_season") or {}
                 hist = data.get("historical_seasons") or []
@@ -1283,6 +1330,13 @@ class LeaguesHubService:
                                 "opponent_score": pair.get("opponent_score", 0),
                             })
 
+                        all_anns = league_obj.get("announcements") or []
+                        pod_anns = [
+                            a for a in all_anns
+                            if not a.get("target_pod") or a.get("target_pod") in ("all", "All Pods", f"Pod #{p_num}", f"Pod {p_num}", str(p_num))
+                        ]
+                        latest_ann = pod_anns[0] if pod_anns else (all_anns[0] if all_anns else None)
+
                         matched_entries.append({
                             "id": f"league_{slug}_s{s_num}_pod{p_num}",
                             "bcp_event_id": lid,
@@ -1320,6 +1374,10 @@ class LeaguesHubService:
                             "state": league_obj.get("state", "CA"),
                             "checked_in": True,
                             "has_list_submitted": True,
+                            "disciplinary_card": st.get("disciplinary_card", "none"),
+                            "dropped": bool(st.get("dropped", False)),
+                            "announcements": pod_anns,
+                            "latest_announcement": latest_ann,
                             "pairings": enriched_pairings,
                             "pod_standings": standings
                         })
@@ -2189,6 +2247,748 @@ class LeaguesHubService:
             "league_id": lid,
             "previous_season": curr_s,
             "new_season": next_s,
+            "league": self.get_league(lid)
+        }
+
+    # =========================================================================
+    # TO LEAGUE COMMAND CENTER — ANNOUNCEMENTS, SCHEDULE, PAIRINGS & ROSTER
+    # =========================================================================
+
+    def _get_league_announcements(self, cur, db_lid: str, cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Fetches official TO announcements for a league from PostgreSQL (`native_league_announcements`) with JSON/seed fallback."""
+        cfg = cfg or {}
+        lid = _normalize_league_id(db_lid)
+        announcements: List[Dict[str, Any]] = []
+        if cur is not None:
+            try:
+                cur.execute("""
+                    SELECT id, season_num, title, body, category, priority, target_pod, author_name, is_pinned, created_at
+                    FROM native_league_announcements
+                    WHERE league_id = %s
+                    ORDER BY is_pinned DESC, created_at DESC;
+                """, (lid,))
+                for row in cur.fetchall():
+                    announcements.append({
+                        "id": str(row[0]),
+                        "league_id": lid,
+                        "season_number": int(row[1]) if row[1] is not None else None,
+                        "title": str(row[2] or ""),
+                        "body": str(row[3] or ""),
+                        "category": str(row[4] or "general"),
+                        "priority": str(row[5] or "normal"),
+                        "target_pod": str(row[6] or "All Pods"),
+                        "author_name": str(row[7] or "John Hsieh (Commissioner)"),
+                        "is_pinned": bool(row[8]),
+                        "created_at": row[9].isoformat() if hasattr(row[9], "isoformat") else str(row[9] or "")
+                    })
+            except Exception as e:
+                logger.warning(f"_get_league_announcements DB query warning for {lid}: {e}")
+
+        if not announcements and cfg.get("announcements"):
+            for idx, item in enumerate(cfg.get("announcements") or []):
+                if isinstance(item, dict):
+                    announcements.append({
+                        "id": item.get("id") or f"ann_{lid[:8]}_{idx + 1}",
+                        "league_id": lid,
+                        "season_number": item.get("season_number"),
+                        "title": item.get("title", "League Notice"),
+                        "body": item.get("body", ""),
+                        "category": item.get("category", "general"),
+                        "priority": item.get("priority", "normal"),
+                        "target_pod": item.get("target_pod", "All Pods"),
+                        "author_name": item.get("author_name", "John Hsieh (Commissioner)"),
+                        "is_pinned": bool(item.get("is_pinned", idx == 0)),
+                        "created_at": item.get("created_at", "2026-09-20T18:00:00Z")
+                    })
+
+        if not announcements:
+            if lid == THE_GAUNTLET_LEAGUE_UUID or "gauntlet" in str(db_lid).lower():
+                announcements = [
+                    {
+                        "id": "ann_gauntlet_s5_1",
+                        "league_id": THE_GAUNTLET_LEAGUE_UUID,
+                        "season_number": 5,
+                        "title": "⚔️ Gauntlet Season 5 — Round 3 WTC Terrain & Thursday Pod Night Tables",
+                        "body": "Brute Force Games has 8 dedicated WTC Medium/Heavy tables reserved every Thursday from 5:30 PM – 10:00 PM for Gauntlet Season 5 pods. Please log all Round 3 scores and chess-clock times before Sunday 11:59 PM.",
+                        "category": "schedule",
+                        "priority": "high",
+                        "target_pod": "All Pods",
+                        "author_name": "John Hsieh & Marcus Vance",
+                        "is_pinned": True,
+                        "created_at": "2026-09-21T19:00:00Z"
+                    },
+                    {
+                        "id": "ann_gauntlet_s5_2",
+                        "league_id": THE_GAUNTLET_LEAGUE_UUID,
+                        "season_number": 5,
+                        "title": "🏆 Top 4 Gauntlet Playoff Cut & Store Credit Prizing Breakdown",
+                        "body": "Apex Pod #1 Ranks 1–4 at the end of Round 5 qualify directly for the Gauntlet Championship Bracket ($400 Store Credit pool + Engraved Gauntlet Trophy). Crucible Pod #2 Top 2 earn automatic promotion to Apex Pod #1 for Season 6.",
+                        "category": "finals",
+                        "priority": "normal",
+                        "target_pod": "All Pods",
+                        "author_name": "John Hsieh (Commissioner)",
+                        "is_pinned": False,
+                        "created_at": "2026-09-14T16:30:00Z"
+                    }
+                ]
+            else:
+                announcements = [
+                    {
+                        "id": "ann_sd40k_s38_1",
+                        "league_id": SD40K_LEAGUE_UUID,
+                        "season_number": 38,
+                        "title": "📢 Season 38 Mid-Season Notice: Round 4 & 5 Deadline + Ringer Rules Reminder",
+                        "body": "All Season 38 Pod matches must be completed and logged by November 10, 2026. If an opponent is unresponsive for 5+ days, ping @Commissioner in Discord to request an official In-Pod or Out-of-Pod Ringer (+1 BP Ringer bonus applies). Players with <3 games played without a TO exemption receive a Yellow Card.",
+                        "category": "schedule",
+                        "priority": "high",
+                        "target_pod": "All Pods",
+                        "author_name": "John Hsieh (Commissioner)",
+                        "is_pinned": True,
+                        "created_at": "2026-09-22T17:15:00Z"
+                    },
+                    {
+                        "id": "ann_sd40k_s38_2",
+                        "league_id": SD40K_LEAGUE_UUID,
+                        "season_number": 38,
+                        "title": "🗺️ Round 3–5 Official Pariah Nexus Terrain Layout Assignments",
+                        "body": "Round 3 uses GW Layout C (Crucible of Battle), Round 4 uses GW Layout A (Search & Destroy), and Round 5 uses GW Layout B (Sweeping Engagement). Check your Pod table header or Quick-View modal before deployment!",
+                        "category": "rules",
+                        "priority": "normal",
+                        "target_pod": "All Pods",
+                        "author_name": "John Hsieh & Alex Rivera",
+                        "is_pinned": False,
+                        "created_at": "2026-09-16T14:00:00Z"
+                    }
+                ]
+        return announcements
+
+    def save_league_announcement(self, league_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Creates or updates an official TO announcement for a league and persists it in PostgreSQL."""
+        from datetime import datetime, timezone
+        lid = _normalize_league_id(league_id)
+        ann_id = (payload.get("id") or "").strip() or f"ann_{uuid.uuid4().hex[:10]}"
+        title = (payload.get("title") or "").strip()
+        body = (payload.get("body") or "").strip()
+        if not title or not body:
+            return {"error": "Announcement title and body are required."}
+
+        category = (payload.get("category") or "general").strip().lower()
+        priority = (payload.get("priority") or "normal").strip().lower()
+        target_pod = (payload.get("target_pod") or "All Pods").strip()
+        author_name = (payload.get("author_name") or "John Hsieh (Commissioner)").strip()
+        is_pinned = bool(payload.get("is_pinned", True))
+        season_num = payload.get("season_number")
+
+        db = self._get_db()
+        if db and hasattr(db, "get_connection"):
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        if season_num is None:
+                            cur.execute("SELECT active_season_num FROM native_leagues WHERE id = %s;", (lid,))
+                            r = cur.fetchone()
+                            season_num = int(r[0]) if (r and r[0]) else 1
+                        cur.execute("""
+                            INSERT INTO native_league_announcements (
+                                id, league_id, season_num, title, body, category, priority, target_pod, author_name, is_pinned, created_at
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                            ON CONFLICT (id) DO UPDATE SET
+                                title = EXCLUDED.title,
+                                body = EXCLUDED.body,
+                                category = EXCLUDED.category,
+                                priority = EXCLUDED.priority,
+                                target_pod = EXCLUDED.target_pod,
+                                author_name = EXCLUDED.author_name,
+                                is_pinned = EXCLUDED.is_pinned;
+                        """, (ann_id, lid, int(season_num), title, body, category, priority, target_pod, author_name, is_pinned))
+
+                        # Also mirror in config_json->'announcements'
+                        cur.execute("SELECT config_json FROM native_leagues WHERE id = %s;", (lid,))
+                        row = cur.fetchone()
+                        cfg = (row[0] if isinstance(row[0], dict) else json.loads(row[0] or "{}")) if row else {}
+                        ann_list = self._get_league_announcements(cur, lid, cfg)
+                        cfg["announcements"] = ann_list
+                        cur.execute("UPDATE native_leagues SET config_json = %s::jsonb, updated_at = NOW() WHERE id = %s;", (json.dumps(cfg), lid))
+                    conn.commit()
+            except Exception as e:
+                logger.error(f"save_league_announcement DB error: {e}")
+                return {"error": f"Failed to save announcement: {e}"}
+        else:
+            cached = self._load_league_from_seed_json(lid)
+            if cached is not None:
+                anns = [a for a in (cached.get("announcements") or []) if a.get("id") != ann_id]
+                anns.insert(0, {
+                    "id": ann_id,
+                    "league_id": lid,
+                    "season_number": int(season_num or (cached.get("active_season") or {}).get("season_number", 1)),
+                    "title": title,
+                    "body": body,
+                    "category": category,
+                    "priority": priority,
+                    "target_pod": target_pod,
+                    "author_name": author_name,
+                    "is_pinned": is_pinned,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+                anns.sort(key=lambda x: (not bool(x.get("is_pinned")), str(x.get("created_at", ""))), reverse=False)
+                cached["announcements"] = anns
+                cached["announcements_count"] = len(anns)
+
+        league_obj = self.get_league(lid)
+        return {
+            "success": True,
+            "announcement_id": ann_id,
+            "announcements": (league_obj or {}).get("announcements", []),
+            "league": league_obj
+        }
+
+    def delete_league_announcement(self, league_id: str, announcement_id: str) -> Dict[str, Any]:
+        """Deletes a league announcement by ID from PostgreSQL."""
+        lid = _normalize_league_id(league_id)
+        ann_id = (announcement_id or "").strip()
+        if not ann_id:
+            return {"error": "announcement_id is required."}
+
+        db = self._get_db()
+        if db and hasattr(db, "get_connection"):
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("DELETE FROM native_league_announcements WHERE id = %s AND league_id = %s;", (ann_id, lid))
+                        cur.execute("SELECT config_json FROM native_leagues WHERE id = %s;", (lid,))
+                        row = cur.fetchone()
+                        if row:
+                            cfg = row[0] if isinstance(row[0], dict) else json.loads(row[0] or "{}")
+                            cfg["announcements"] = [a for a in (cfg.get("announcements") or []) if a.get("id") != ann_id]
+                            cur.execute("UPDATE native_leagues SET config_json = %s::jsonb, updated_at = NOW() WHERE id = %s;", (json.dumps(cfg), lid))
+                    conn.commit()
+            except Exception as e:
+                logger.error(f"delete_league_announcement DB error: {e}")
+                return {"error": f"Failed to delete announcement: {e}"}
+        else:
+            cached = self._load_league_from_seed_json(lid)
+            if cached is not None:
+                cached["announcements"] = [a for a in (cached.get("announcements") or []) if a.get("id") != ann_id]
+                cached["announcements_count"] = len(cached["announcements"])
+
+        league_obj = self.get_league(lid)
+        return {
+            "success": True,
+            "deleted_id": ann_id,
+            "announcements": (league_obj or {}).get("announcements", []),
+            "league": league_obj
+        }
+
+    def update_season_schedule_and_layouts(self, league_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Allows the TO to modify active season dates, registration windows, season status,
+        duration_weeks, rounds_count, and Round 1..N terrain layouts across all pods.
+        """
+        lid = _normalize_league_id(league_id)
+        db = self._get_db()
+        if not db or not getattr(db, "conn", None):
+            cached = self._load_league_from_seed_json(lid)
+            if cached is not None:
+                act = cached.setdefault("active_season", {})
+                if payload.get("season_name"):
+                    act["name"] = str(payload["season_name"]).strip()
+                if payload.get("status"):
+                    act["status"] = str(payload["status"]).strip()
+                for k in ("start_date", "end_date", "registration_start", "registration_end"):
+                    if k in payload:
+                        act[k] = payload[k]
+                if "duration_weeks" in payload:
+                    act["duration_weeks"] = int(payload["duration_weeks"])
+                if "rounds_count" in payload:
+                    act["rounds_count"] = int(payload["rounds_count"])
+                if "registration_open" in payload:
+                    cached["registration_open"] = bool(payload["registration_open"])
+                if isinstance(payload.get("round_layouts"), list) and payload["round_layouts"]:
+                    clean_layouts = [str(x).strip() or "Layout A" for x in payload["round_layouts"]]
+                    act.setdefault("season_config", {})["round_layouts"] = clean_layouts
+                    for p in act.get("pods", []):
+                        p["round_layouts"] = clean_layouts
+                        for st in p.get("standings", []):
+                            for idx, pr in enumerate(st.get("pairings", [])):
+                                r_idx = int(pr.get("round", idx + 1)) - 1
+                                if 0 <= r_idx < len(clean_layouts):
+                                    pr["layout"] = clean_layouts[r_idx]
+            return {"success": True, "league_id": lid, "league": self.get_league(lid)}
+
+        try:
+            conn = db.conn
+            with conn.cursor() as cur:
+                cur.execute("SELECT active_season_num, config_json FROM native_leagues WHERE id = %s;", (lid,))
+                lrow = cur.fetchone()
+                if not lrow:
+                    return {"error": f"League {league_id} not found."}
+                s_num = int(payload.get("season_number") or lrow[0] or 1)
+                cfg = lrow[1] if isinstance(lrow[1], dict) else json.loads(lrow[1] or "{}")
+
+                cur.execute("""
+                    SELECT name, status, start_date, end_date, registration_start, registration_end,
+                           duration_weeks, rounds_count, season_config_json
+                    FROM native_league_seasons
+                    WHERE league_id = %s AND season_num = %s;
+                """, (lid, s_num))
+                srow = cur.fetchone()
+                s_cfg = (srow[8] if isinstance(srow[8], dict) else json.loads(srow[8] or "{}")) if (srow and srow[8]) else {}
+
+                new_name = (payload.get("season_name") or (srow[0] if srow else f"Season {s_num}")).strip()
+                new_status = (payload.get("status") or (srow[1] if srow else "active")).strip()
+                new_start = (payload.get("start_date") if "start_date" in payload else (srow[2] if srow else "")) or None
+                new_end = (payload.get("end_date") if "end_date" in payload else (srow[3] if srow else "")) or None
+                new_reg_start = (payload.get("registration_start") if "registration_start" in payload else (srow[4] if srow else "")) or None
+                new_reg_end = (payload.get("registration_end") if "registration_end" in payload else (srow[5] if srow else "")) or None
+                new_dur = int(payload.get("duration_weeks") or (srow[6] if srow else 8) or 8)
+                new_rounds = int(payload.get("rounds_count") or (srow[7] if srow else 5) or 5)
+
+                round_layouts = payload.get("round_layouts")
+                if isinstance(round_layouts, list) and len(round_layouts) > 0:
+                    clean_layouts = [str(x).strip() or "Layout A" for x in round_layouts]
+                    s_cfg["round_layouts"] = clean_layouts
+                else:
+                    clean_layouts = s_cfg.get("round_layouts") or ["Layout A", "Layout B", "Layout C", "Layout A", "Layout B"]
+
+                s_cfg["duration_weeks"] = new_dur
+                s_cfg["games_per_season"] = new_rounds
+
+                cur.execute("""
+                    UPDATE native_league_seasons
+                    SET name = %s,
+                        status = %s,
+                        start_date = %s,
+                        end_date = %s,
+                        registration_start = %s,
+                        registration_end = %s,
+                        duration_weeks = %s,
+                        rounds_count = %s,
+                        season_config_json = %s::jsonb
+                    WHERE league_id = %s AND season_num = %s;
+                """, (new_name, new_status, new_start, new_end, new_reg_start, new_reg_end, new_dur, new_rounds, json.dumps(s_cfg), lid, s_num))
+
+                # Update registration window & methodology on native_leagues
+                reg_open = bool(payload["registration_open"]) if "registration_open" in payload else True
+                meth = cfg.get("methodology") or {}
+                meth["duration_weeks"] = new_dur
+                meth["games_per_season"] = new_rounds
+                meth["round_layouts"] = clean_layouts
+                cfg["methodology"] = meth
+
+                cur.execute("""
+                    UPDATE native_leagues
+                    SET registration_open = %s,
+                        registration_start = %s,
+                        registration_end = %s,
+                        config_json = %s::jsonb,
+                        updated_at = NOW()
+                    WHERE id = %s;
+                """, (reg_open, new_reg_start, new_reg_end, json.dumps(cfg), lid))
+
+                # Propagate updated round_layouts to all pods & player pairings in this season
+                cur.execute("""
+                    UPDATE native_league_pods
+                    SET round_layouts = %s::jsonb
+                    WHERE league_id = %s AND season_num = %s;
+                """, (json.dumps(clean_layouts), lid, s_num))
+
+                cur.execute("""
+                    SELECT id, pairings_json FROM native_league_standings
+                    WHERE league_id = %s AND season_num = %s;
+                """, (lid, s_num))
+                for st_id, p_raw in cur.fetchall():
+                    p_list = p_raw if isinstance(p_raw, list) else (json.loads(p_raw) if p_raw else [])
+                    changed = False
+                    for idx, pr in enumerate(p_list):
+                        if isinstance(pr, dict):
+                            r_idx = int(pr.get("round", idx + 1)) - 1
+                            if 0 <= r_idx < len(clean_layouts):
+                                if pr.get("layout") != clean_layouts[r_idx]:
+                                    pr["layout"] = clean_layouts[r_idx]
+                                    changed = True
+                    if changed:
+                        cur.execute("UPDATE native_league_standings SET pairings_json = %s::jsonb WHERE id = %s;", (json.dumps(p_list), st_id))
+
+            conn.commit()
+        except Exception as e:
+            logger.error(f"update_season_schedule_and_layouts DB error: {e}")
+            return {"error": f"Failed to update season schedule: {e}"}
+
+        return {
+            "success": True,
+            "league_id": lid,
+            "league": self.get_league(lid)
+        }
+
+    def update_pod_pairing_or_score(self, league_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Allows the TO to:
+        1) Reassign/swap a player's opponent for a given round (including In-Pod or Out-of-Pod Ringer),
+           changing the terrain layout, or entering/overriding a match result & VP score, OR
+        2) Regenerate round-robin pairings for an entire pod (`action == 'regenerate_pod_pairings'`).
+        Automatically recalculates W-L-D, Battle Points, Games Played, and Pod Rank for all players in the pod.
+        """
+        lid = _normalize_league_id(league_id)
+        pod_num = int(payload.get("pod_number", 1))
+        action = (payload.get("action") or "update_match").strip().lower()
+
+        db = self._get_db()
+        if not db or not getattr(db, "conn", None):
+            cached = self._load_league_from_seed_json(lid)
+            if cached is not None:
+                for p in (cached.get("active_season") or {}).get("pods", []):
+                    if int(p.get("pod_number", 0)) == pod_num:
+                        standings = p.get("standings", [])
+                        if action == "regenerate_pod_pairings":
+                            names_list = [s.get("name") for s in standings if s.get("name")]
+                            rr_map = generate_round_robin_pairings(names_list, int(payload.get("rounds_count", 5)))
+                            for s in standings:
+                                s["pairings"] = rr_map.get(s["name"], [])
+                        else:
+                            pname = (payload.get("player_name") or "").strip().lower()
+                            r_num = int(payload.get("round", 1))
+                            opp_name = (payload.get("opponent_name") or "").strip()
+                            ps = int(payload.get("player_score", 0))
+                            os = int(payload.get("opponent_score", 0))
+                            done = bool(payload.get("is_completed", True))
+                            for s in standings:
+                                if (s.get("name") or "").strip().lower() == pname:
+                                    slot = next((pr for pr in s.setdefault("pairings", []) if int(pr.get("round", 0)) == r_num), None)
+                                    if not slot:
+                                        slot = {"round": r_num, "layout": "Layout A"}
+                                        s["pairings"].append(slot)
+                                    if opp_name:
+                                        slot["opponent_name"] = opp_name
+                                        slot["opponent_clean_name"] = opp_name
+                                    slot["is_completed"] = done
+                                    slot["status"] = "completed" if done else "scheduled"
+                                    slot["player_score"] = ps if done else 0
+                                    slot["opponent_score"] = os if done else 0
+                                    res_c = "W" if ps > os else ("L" if ps < os else "D")
+                                    slot["result"] = res_c if done else None
+                                    slot["score"] = f"{res_c} ({ps}-{os})" if done else None
+            return {"success": True, "league_id": lid, "pod_number": pod_num, "league": self.get_league(lid)}
+
+        try:
+            conn = db.conn
+            with conn.cursor() as cur:
+                cur.execute("SELECT active_season_num FROM native_leagues WHERE id = %s;", (lid,))
+                lrow = cur.fetchone()
+                if not lrow:
+                    return {"error": f"League {league_id} not found."}
+                s_num = int(payload.get("season_number") or lrow[0] or 1)
+
+                cur.execute("""
+                    SELECT id, player_name, primary_faction, pairings_json, poty_points
+                    FROM native_league_standings
+                    WHERE league_id = %s AND season_num = %s AND pod_num = %s
+                    ORDER BY rank ASC, battle_points DESC;
+                """, (lid, s_num, pod_num))
+                rows = cur.fetchall()
+                if not rows:
+                    return {"error": f"Pod #{pod_num} not found in Season {s_num}."}
+
+                pod_players = {}
+                for r in rows:
+                    pname = (r[1] or "").strip()
+                    p_list = r[3] if isinstance(r[3], list) else (json.loads(r[3]) if r[3] else [])
+                    pod_players[pname.lower()] = {
+                        "id": r[0],
+                        "name": pname,
+                        "faction": r[2] or "",
+                        "pairings": p_list,
+                        "poty_points": int(r[4] or 0)
+                    }
+
+                if action == "regenerate_pod_pairings":
+                    names_list = [v["name"] for v in pod_players.values()]
+                    rr_map = generate_round_robin_pairings(names_list, int(payload.get("rounds_count", 5)))
+                    for nkey, pdata in pod_players.items():
+                        pdata["pairings"] = rr_map.get(pdata["name"], [])
+                else:
+                    player_name = (payload.get("player_name") or "").strip()
+                    round_num = int(payload.get("round", 1))
+                    new_opponent = (payload.get("opponent_name") or "").strip()
+                    new_layout = (payload.get("layout") or "").strip()
+                    is_ringer = bool(payload.get("is_ringer", False)) or ("ringer" in new_opponent.lower())
+                    is_completed = payload.get("is_completed")
+                    p_score = payload.get("player_score")
+                    o_score = payload.get("opponent_score")
+
+                    target = pod_players.get(player_name.lower())
+                    if not target:
+                        return {"error": f"Player '{player_name}' not found in Pod #{pod_num}."}
+
+                    opp_clean = re.sub(r"\s*\([^)]*\)\s*$", "", new_opponent).strip()
+                    opp_target = pod_players.get(opp_clean.lower())
+                    opp_display = f"{opp_clean} (Ringer)" if (is_ringer and "ringer" not in new_opponent.lower()) else new_opponent
+
+                    # Ensure round slot exists on target
+                    found_slot = None
+                    for pr in target["pairings"]:
+                        if int(pr.get("round", 0)) == round_num:
+                            found_slot = pr
+                            break
+                    if not found_slot:
+                        found_slot = {"round": round_num, "layout": new_layout or "Layout A", "opponent_name": opp_display, "status": "scheduled", "is_completed": False}
+                        target["pairings"].append(found_slot)
+
+                    if new_opponent:
+                        found_slot["opponent_name"] = opp_display
+                        found_slot["opponent_clean_name"] = opp_clean
+                        if opp_target and opp_target.get("faction"):
+                            found_slot["opponent_faction"] = opp_target["faction"]
+                    if new_layout:
+                        found_slot["layout"] = new_layout
+
+                    if is_completed is not None:
+                        if bool(is_completed) and p_score is not None and o_score is not None:
+                            ps = int(p_score)
+                            os = int(o_score)
+                            res_char = "W" if ps > os else ("L" if ps < os else "D")
+                            bp = (3 if res_char == "W" else (2 if res_char == "D" else 1)) + (1 if is_ringer else 0)
+                            found_slot["is_completed"] = True
+                            found_slot["status"] = "completed"
+                            found_slot["player_score"] = ps
+                            found_slot["opponent_score"] = os
+                            found_slot["result"] = res_char
+                            found_slot["score"] = f"{res_char} ({ps}-{os})"
+                            found_slot["battle_points_awarded"] = bp
+                        elif not bool(is_completed):
+                            found_slot["is_completed"] = False
+                            found_slot["status"] = "scheduled"
+                            found_slot["player_score"] = 0
+                            found_slot["opponent_score"] = 0
+                            found_slot["result"] = None
+                            found_slot["score"] = None
+                            found_slot["battle_points_awarded"] = 0
+
+                    # Symmetrically update the opponent's round slot if they are in the same pod
+                    if opp_target and opp_target["name"].lower() != target["name"].lower():
+                        opp_slot = None
+                        for opr in opp_target["pairings"]:
+                            if int(opr.get("round", 0)) == round_num:
+                                opp_slot = opr
+                                break
+                        if not opp_slot:
+                            opp_slot = {"round": round_num, "layout": found_slot.get("layout", "Layout A"), "opponent_name": target["name"], "status": "scheduled", "is_completed": False}
+                            opp_target["pairings"].append(opp_slot)
+                        opp_slot["opponent_name"] = target["name"]
+                        opp_slot["opponent_clean_name"] = target["name"]
+                        opp_slot["opponent_faction"] = target["faction"]
+                        if new_layout:
+                            opp_slot["layout"] = new_layout
+                        if is_completed is not None:
+                            if bool(is_completed) and p_score is not None and o_score is not None:
+                                ps = int(p_score)
+                                os = int(o_score)
+                                opp_res = "W" if os > ps else ("L" if os < ps else "D")
+                                opp_bp = (3 if opp_res == "W" else (2 if opp_res == "D" else 1))
+                                opp_slot["is_completed"] = True
+                                opp_slot["status"] = "completed"
+                                opp_slot["player_score"] = os
+                                opp_slot["opponent_score"] = ps
+                                opp_slot["result"] = opp_res
+                                opp_slot["score"] = f"{opp_res} ({os}-{ps})"
+                                opp_slot["battle_points_awarded"] = opp_bp
+                            elif not bool(is_completed):
+                                opp_slot["is_completed"] = False
+                                opp_slot["status"] = "scheduled"
+                                opp_slot["player_score"] = 0
+                                opp_slot["opponent_score"] = 0
+                                opp_slot["result"] = None
+                                opp_slot["score"] = None
+                                opp_slot["battle_points_awarded"] = 0
+
+                # Recompute W-L-D, Battle Points, Games Played, and sort Pod Rank
+                recomputed_list = []
+                for nkey, pdata in pod_players.items():
+                    w = l = d = bp = gp = 0
+                    for pr in pdata["pairings"]:
+                        if pr.get("is_completed"):
+                            gp += 1
+                            r_c = (pr.get("result") or "").upper()
+                            if not r_c and pr.get("score"):
+                                r_c = str(pr["score"])[0].upper()
+                            is_rng = "ringer" in (pr.get("opponent_name") or "").lower()
+                            if r_c == "W":
+                                w += 1
+                                bp += int(pr.get("battle_points_awarded") or (4 if is_rng else 3))
+                            elif r_c == "D":
+                                d += 1
+                                bp += int(pr.get("battle_points_awarded") or (3 if is_rng else 2))
+                            else:
+                                l += 1
+                                bp += int(pr.get("battle_points_awarded") or (2 if is_rng else 1))
+                    pdata["wins"] = w
+                    pdata["losses"] = l
+                    pdata["draws"] = d
+                    pdata["battle_points"] = bp
+                    pdata["games_played"] = gp
+                    recomputed_list.append(pdata)
+
+                recomputed_list.sort(key=lambda x: (-x["battle_points"], -x["wins"], -x["games_played"], x["name"]))
+                total_in_pod = len(recomputed_list)
+                for rank_idx, pdata in enumerate(recomputed_list, start=1):
+                    if rank_idx == 1 and pod_num == 1:
+                        rel_status = "Pod 1 Leader"
+                    elif rank_idx <= 2 and pod_num > 1:
+                        rel_status = "Promote (+1 POD)"
+                    elif rank_idx > max(2, total_in_pod - 2):
+                        rel_status = "Relegation (-1 POD)"
+                    else:
+                        rel_status = "Safe"
+                    cur.execute("""
+                        UPDATE native_league_standings
+                        SET rank = %s,
+                            wins = %s,
+                            losses = %s,
+                            draws = %s,
+                            battle_points = %s,
+                            games_played = %s,
+                            relegation_status = %s,
+                            pairings_json = %s::jsonb
+                        WHERE id = %s;
+                    """, (
+                        rank_idx, pdata["wins"], pdata["losses"], pdata["draws"],
+                        pdata["battle_points"], pdata["games_played"], rel_status,
+                        json.dumps(pdata["pairings"]), pdata["id"]
+                    ))
+            conn.commit()
+        except Exception as e:
+            logger.error(f"update_pod_pairing_or_score DB error: {e}")
+            return {"error": f"Failed to update pairing/score: {e}"}
+
+        return {
+            "success": True,
+            "league_id": lid,
+            "pod_number": pod_num,
+            "league": self.get_league(lid)
+        }
+
+    def update_pod_roster_and_discipline(self, league_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Allows the TO to:
+        - Update a player's `primary_faction`, `disciplinary_card` ('none'|'yellow'|'red'|'black'), `dropped` status, `poty_points`, or `relegation_status`
+        - Move a player to another Pod (`target_pod_number`)
+        - Or add a new player (`action == 'add_player'`) to a Pod.
+        """
+        lid = _normalize_league_id(league_id)
+        action = (payload.get("action") or "update_player").strip().lower()
+        pod_num = int(payload.get("pod_number", 1))
+        player_name = (payload.get("player_name") or "").strip()
+        if not player_name:
+            return {"error": "player_name is required."}
+
+        db = self._get_db()
+        if not db or not getattr(db, "conn", None):
+            cached = self._load_league_from_seed_json(lid)
+            if cached is not None:
+                for p in (cached.get("active_season") or {}).get("pods", []):
+                    if int(p.get("pod_number", 0)) == pod_num:
+                        standings = p.setdefault("standings", [])
+                        if action == "add_player":
+                            standings.append({
+                                "rank": len(standings) + 1,
+                                "name": player_name,
+                                "primary_faction": (payload.get("primary_faction") or "Space Marines").strip(),
+                                "wins": 0, "losses": 0, "draws": 0, "battle_points": 0, "games_played": 0,
+                                "relegation_status": "Safe",
+                                "disciplinary_card": "none",
+                                "dropped": False,
+                                "pairings": []
+                            })
+                        else:
+                            for s in standings:
+                                if (s.get("name") or "").strip().lower() == player_name.lower():
+                                    if "primary_faction" in payload:
+                                        s["primary_faction"] = payload["primary_faction"]
+                                    if "disciplinary_card" in payload:
+                                        s["disciplinary_card"] = str(payload["disciplinary_card"]).lower()
+                                    if "dropped" in payload:
+                                        s["dropped"] = bool(payload["dropped"])
+            return {"success": True, "league_id": lid, "league": self.get_league(lid)}
+
+        try:
+            conn = db.conn
+            with conn.cursor() as cur:
+                cur.execute("SELECT active_season_num FROM native_leagues WHERE id = %s;", (lid,))
+                lrow = cur.fetchone()
+                if not lrow:
+                    return {"error": f"League {league_id} not found."}
+                s_num = int(payload.get("season_number") or lrow[0] or 1)
+
+                if action == "add_player":
+                    faction = (payload.get("primary_faction") or "Space Marines").strip()
+                    cur.execute("SELECT COALESCE(MAX(rank), 0) + 1 FROM native_league_standings WHERE league_id = %s AND season_num = %s AND pod_num = %s;", (lid, s_num, pod_num))
+                    next_rank = int(cur.fetchone()[0] or 1)
+                    default_pairings = [
+                        {"round": r, "layout": ["Layout A", "Layout B", "Layout C", "Layout A", "Layout B"][r - 1], "opponent_name": "TBD (Ringer)", "status": "scheduled", "is_completed": False}
+                        for r in range(1, 6)
+                    ]
+                    cur.execute("""
+                        INSERT INTO native_league_participants (id, league_id, season_num, pod_num, participant_name, primary_faction)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (league_id, season_num, pod_num, participant_name) DO UPDATE SET primary_faction = EXCLUDED.primary_faction;
+                    """, (str(uuid.uuid4()), lid, s_num, pod_num, player_name, faction))
+                    cur.execute("""
+                        INSERT INTO native_league_standings (
+                            id, league_id, season_num, pod_num, player_name, primary_faction,
+                            rank, wins, losses, draws, battle_points, games_played, poty_points,
+                            relegation_status, disciplinary_card, dropped, pairings_json
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 0, 0, 0, 0, 0, 'Safe', 'none', FALSE, %s::jsonb)
+                        ON CONFLICT (league_id, season_num, pod_num, player_name) DO UPDATE SET
+                            primary_faction = EXCLUDED.primary_faction;
+                    """, (str(uuid.uuid4()), lid, s_num, pod_num, player_name, faction, next_rank, json.dumps(default_pairings)))
+                else:
+                    cur.execute("""
+                        SELECT id, pod_num, primary_faction, poty_points, relegation_status,
+                               COALESCE(disciplinary_card, 'none'), COALESCE(dropped, FALSE)
+                        FROM native_league_standings
+                        WHERE league_id = %s AND season_num = %s AND LOWER(player_name) = LOWER(%s)
+                        LIMIT 1;
+                    """, (lid, s_num, player_name))
+                    st_row = cur.fetchone()
+                    if not st_row:
+                        return {"error": f"Player '{player_name}' not found in Season {s_num}."}
+
+                    st_id, curr_pod, curr_fac, curr_poty, curr_rel, curr_card, curr_drop = st_row
+                    new_pod = int(payload.get("target_pod_number") or curr_pod)
+                    new_fac = (payload.get("primary_faction") if "primary_faction" in payload else curr_fac) or curr_fac
+                    new_poty = int(payload.get("poty_points") if "poty_points" in payload else (curr_poty or 0))
+                    new_rel = (payload.get("relegation_status") if "relegation_status" in payload else curr_rel) or curr_rel
+                    new_card = str(payload.get("disciplinary_card") if "disciplinary_card" in payload else curr_card).lower()
+                    new_drop = bool(payload.get("dropped") if "dropped" in payload else curr_drop)
+                    if new_drop and "Dropped" not in new_rel:
+                        new_rel = "Dropped"
+
+                    cur.execute("""
+                        UPDATE native_league_standings
+                        SET pod_num = %s,
+                            primary_faction = %s,
+                            poty_points = %s,
+                            relegation_status = %s,
+                            disciplinary_card = %s,
+                            dropped = %s
+                        WHERE id = %s;
+                    """, (new_pod, new_fac, new_poty, new_rel, new_card, new_drop, st_id))
+
+                    cur.execute("""
+                        UPDATE native_league_participants
+                        SET pod_num = %s, primary_faction = %s
+                        WHERE league_id = %s AND season_num = %s AND LOWER(participant_name) = LOWER(%s);
+                    """, (new_pod, new_fac, lid, s_num, player_name))
+
+            conn.commit()
+            if hasattr(db, "sync_league_participant_identities"):
+                db.sync_league_participant_identities(lid, s_num)
+        except Exception as e:
+            logger.error(f"update_pod_roster_and_discipline DB error: {e}")
+            return {"error": f"Failed to update player roster/discipline: {e}"}
+
+        return {
+            "success": True,
+            "league_id": lid,
             "league": self.get_league(lid)
         }
 

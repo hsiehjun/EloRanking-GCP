@@ -1573,7 +1573,23 @@ class PostgresDatabase:
                 seasons_played INT DEFAULT 0,
                 UNIQUE(league_id, faction_name)
             );""",
+            """CREATE TABLE IF NOT EXISTS native_league_announcements (
+                id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                league_id VARCHAR(64) NOT NULL,
+                season_num INT DEFAULT 1,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                category VARCHAR(64) DEFAULT 'general',
+                priority VARCHAR(32) DEFAULT 'normal',
+                target_pod INT,
+                author_name VARCHAR(128) DEFAULT 'League Commissioner',
+                is_pinned BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );""",
+            "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS disciplinary_card VARCHAR(32) DEFAULT 'none';",
+            "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS dropped BOOLEAN DEFAULT FALSE;",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_native_league_careers_l_n ON native_league_careers(league_id, player_name);",
+            "CREATE INDEX IF NOT EXISTS idx_league_announcements_l_s ON native_league_announcements(league_id, is_pinned DESC, created_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_league_participants_l_s ON native_league_participants(league_id, season_num, pod_num);",
             "CREATE INDEX IF NOT EXISTS idx_league_participants_bcp ON native_league_participants(bcp_player_id);",
             "CREATE INDEX IF NOT EXISTS idx_league_participants_uid ON native_league_participants(user_id);",
@@ -1593,10 +1609,89 @@ class PostgresDatabase:
                         logger.debug(f"League table notice: {e}")
             self.seed_sd40k_league_tables(force=False)
             self.seed_the_gauntlet_league_tables(force=False)
+            self.seed_default_league_announcements()
             self.sync_league_participant_identities("8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90", 38)
             self.sync_league_participant_identities("7a9e4c1b-3d28-4f6a-9c1e-5b8d2a4f6c91", 5)
         except Exception as err:
             logger.debug(f"ensure_league_tables notice: {err}")
+
+    def seed_default_league_announcements(self):
+        """Seeds initial official TO announcements for SD40K and The Gauntlet if none exist."""
+        default_items = [
+            (
+                "ann_sd40k_s38_ringer_window",
+                "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90",
+                38,
+                "📣 Season 38 Midpoint Check-In & In-Pod Ringer Window Open",
+                "Commissioners' Notice: All Season 38 Pod matches for Rounds 1–3 should now be scheduled or completed at At Ease Games. If an opponent has gone unresponsive for 7+ days, you are cleared to schedule an In-Pod Ringer match (+750 BP win bonus) with one of your unassigned pod companions so you complete all 5 seasonal games.",
+                "schedule",
+                "high",
+                None,
+                "John Hsieh & Coop (SD40K Commissioners)",
+                True
+            ),
+            (
+                "ann_sd40k_s38_layouts",
+                "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90",
+                38,
+                "🗺️ Confirmed GW Pariah Nexus Terrain Layouts for Season 38",
+                "Round 1 & Round 4 use Layout A; Round 2 & Round 5 use Layout B; Round 3 uses Layout C. Remember: Primary Faction is locked for the season (minimum 1,001 pts), but detachments, enhancements, and unit selections may be freely adjusted between rounds!",
+                "rules",
+                "normal",
+                None,
+                "Coop & Ben (SD40K Commissioners)",
+                False
+            ),
+            (
+                "ann_sd40k_s38_finals",
+                "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90",
+                38,
+                "🏆 Road to the 16-Player Annual Championship Finals",
+                "Top Pod 1 finishers and Player of the Year (POTY) leaders after Season 38 will lock their seeds for the 16-Player Single-Elimination Finals Bracket. Ensure all match scores are entered in the Schedule Matrix before the Season 38 cutoff!",
+                "finals",
+                "normal",
+                1,
+                "John Hsieh (Commissioner)",
+                False
+            ),
+            (
+                "ann_gauntlet_s5_cards",
+                "7a9e4c1b-3d28-4f6a-9c1e-5b8d2a4f6c91",
+                5,
+                "⚔️ Season 5 Minimum 3 Games Requirement & Card Policy Reminder",
+                "Gauntlet Competitors: Every player must complete a minimum of 3 of their 5 scheduled games before September 11. Failing to reach 3 GP results in a Yellow Card (1st offense), Red Card 1-season suspension (2nd offense), or Black Card expulsion. Out-of-Pod Ringer games (+500 BP win bonus) are open now at Brute Force Games!",
+                "rules",
+                "high",
+                None,
+                "John Hsieh (Gauntlet Commissioner)",
+                True
+            ),
+            (
+                "ann_gauntlet_s5_paint",
+                "7a9e4c1b-3d28-4f6a-9c1e-5b8d2a4f6c91",
+                5,
+                "🎨 +10 VP Battle Ready Paint Bonus & Pod 1 Store Credit Prizing",
+                "Don't forget to include your +10 VP Battle Ready Paint Score when reporting match scores! Top 2 finishers in Pod 1 (Avatars of War) at the close of Season 5 earn Brute Force Games store credit and automatic Season 6 Premier seeding.",
+                "prizing",
+                "normal",
+                None,
+                "Brute Force Games TO Desk",
+                False
+            )
+        ]
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    for item in default_items:
+                        cur.execute("""
+                            INSERT INTO native_league_announcements
+                                (id, league_id, season_num, title, body, category, priority, target_pod, author_name, is_pinned)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (id) DO NOTHING;
+                        """, item)
+                conn.commit()
+        except Exception as e:
+            logger.debug(f"seed_default_league_announcements notice: {e}")
 
     def sync_league_participant_identities(self, league_id: str = "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90", season_num: Optional[int] = 38):
         """

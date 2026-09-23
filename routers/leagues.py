@@ -322,3 +322,78 @@ async def claim_league_participant_endpoint(league_id: str, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/api/league/{league_id}/announcements", summary="Get official TO announcements for a league")
+async def get_league_announcements_endpoint(league_id: str):
+    svc = leagues_hub_service.get_leagues_hub_service()
+    league = svc.get_league(league_id)
+    if not league:
+        raise HTTPException(status_code=404, detail=f"League '{league_id}' not found")
+    return {
+        "success": True,
+        "league_id": league.get("league_id", league_id),
+        "announcements": league.get("announcements", []),
+        "count": len(league.get("announcements", []))
+    }
+
+
+@router.post("/api/league/{league_id}/announcements", summary="Create or update an official TO announcement for a league")
+async def save_league_announcement_endpoint(league_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    res = svc.save_league_announcement(league_id, payload=body)
+    if res.get("error"):
+        raise HTTPException(status_code=400, detail=res["error"])
+    return res
+
+
+@router.delete("/api/league/{league_id}/announcements/{announcement_id}", summary="Delete a league announcement by ID")
+async def delete_league_announcement_endpoint(league_id: str, announcement_id: str):
+    svc = leagues_hub_service.get_leagues_hub_service()
+    res = svc.delete_league_announcement(league_id, announcement_id)
+    if res.get("error"):
+        raise HTTPException(status_code=400, detail=res["error"])
+    return res
+
+
+@router.post("/api/league/{league_id}/season-schedule", summary="Update season dates, registration windows, and round terrain layouts")
+async def update_league_season_schedule_endpoint(league_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    res = svc.update_season_schedule_and_layouts(league_id, payload=body)
+    if res.get("error"):
+        raise HTTPException(status_code=400, detail=res["error"])
+    return res
+
+
+@router.post("/api/league/{league_id}/pairings/update", summary="Reassign/swap pod pairings, assign Ringers, or override match scores")
+async def update_league_pod_pairings_endpoint(league_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    res = svc.update_pod_pairing_or_score(league_id, payload=body)
+    if res.get("error"):
+        raise HTTPException(status_code=400, detail=res["error"])
+    return res
+
+
+@router.post("/api/league/{league_id}/roster/update", summary="Add/move pod players or assign disciplinary cards (Yellow/Red/Black)")
+async def update_league_pod_roster_endpoint(league_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    res = svc.update_pod_roster_and_discipline(league_id, payload=body)
+    if res.get("error"):
+        raise HTTPException(status_code=400, detail=res["error"])
+    return res
+
+

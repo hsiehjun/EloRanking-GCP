@@ -597,6 +597,30 @@ function getDefaultSd40kRegisteredLeagueEntry() {
     draws: 0,
     record: '4-0-0',
     battle_points: 374,
+    announcements: [
+      {
+        id: 'ann_sd40k_s38_1',
+        title: '📢 Season 38 Mid-Season Notice: Round 4 & 5 Deadline + Ringer Rules Reminder',
+        body: 'All Season 38 Pod matches must be completed and logged by November 10, 2026. If an opponent is unresponsive for 5+ days, ping @Commissioner in Discord to request an official In-Pod or Out-of-Pod Ringer (+1 BP Ringer bonus applies).',
+        category: 'schedule',
+        priority: 'high',
+        target_pod: 'All Pods',
+        author_name: 'John Hsieh (Commissioner)',
+        is_pinned: true,
+        created_at: '2026-09-22'
+      }
+    ],
+    latest_announcement: {
+      id: 'ann_sd40k_s38_1',
+      title: '📢 Season 38 Mid-Season Notice: Round 4 & 5 Deadline + Ringer Rules Reminder',
+      body: 'All Season 38 Pod matches must be completed and logged by November 10, 2026.',
+      category: 'schedule',
+      priority: 'high',
+      target_pod: 'All Pods',
+      author_name: 'John Hsieh (Commissioner)',
+      is_pinned: true,
+      created_at: '2026-09-22'
+    },
     pairings: [
       { round: 1, layout: 'Layout A', opponent_name: 'Marcus Vance', opponent_faction: 'Aeldari', score: '96 - 78', is_completed: true },
       { round: 2, layout: 'Layout B', opponent_name: 'Devon Mercer', opponent_faction: 'Necrons', score: '92 - 81', is_completed: true },
@@ -697,11 +721,14 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                 const bpVal = ev.battle_points ?? 0;
                 const pairingsCount = (ev.pairings && ev.pairings.length) || ev.rounds || 5;
                 const safeEntryId = escapeHtml(String(evId)).replace(/'/g, "\\'");
+                const annList = Array.isArray(ev.announcements) ? ev.announcements : [];
+                const topAnn = ev.latest_announcement || annList[0] || null;
                 return `
                   <div class="hub-event-item-card" data-event-category="leagues" data-native-league-id="${escapeHtml(String(evId))}" style="${isHiddenByTab ? 'display:none;' : ''} cursor: pointer; border: 1px solid rgba(56, 189, 248, 0.38); background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 58, 138, 0.22)); padding: 0.85rem 0.95rem; gap: 0.5rem;" onclick="openUserLeagueGamesQuickModal('${safeEntryId}')">
                     <div class="hub-event-badge-row" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.35rem;">
                       <span class="badge" style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.68rem; padding: 2px 7px; font-weight: 800; letter-spacing: 0.02em;">⚔️ ACTIVE LEAGUE</span>
                       <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                        <span class="badge" style="background: rgba(245, 158, 11, 0.22); color: #fde68a; border: 1px solid rgba(245, 158, 11, 0.45); font-size: 0.68rem; padding: 2px 7px; font-weight: 800;">🔔 ${annList.length || 1} TO Notice${annList.length === 1 ? '' : 's'}</span>
                         <span class="badge" style="background: rgba(16,185,129,0.16); color: #34d399; border: 1px solid rgba(16,185,129,0.35); font-size: 0.69rem; padding: 2px 7px; font-weight: 700;">🟢 Pod #${podNum} • Rank #${rankNum}</span>
                         <span class="badge" style="background: rgba(59,130,246,0.18); color: #93c5fd; border: 1px solid rgba(59,130,246,0.35); font-size: 0.69rem; padding: 2px 7px; font-weight: 700;">${escapeHtml(recordStr)} (${bpVal} VP)</span>
                       </div>
@@ -710,6 +737,12 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                     <div class="hub-event-title" style="color: #38bdf8; font-size: 0.96rem; font-weight: 800; line-height: 1.35; width: 100%; word-break: break-word;">
                       ${escapeHtml(evName)}
                     </div>
+
+                    ${topAnn ? `
+                      <div style="background: rgba(245, 158, 11, 0.12); border-left: 3px solid #f59e0b; border-radius: 5px; padding: 0.35rem 0.55rem; font-size: 0.73rem; color: #fef3c7; line-height: 1.35;">
+                        <strong style="color: #fbbf24;">📢 TO Alert:</strong> ${escapeHtml(topAnn.title || '')}
+                      </div>
+                    ` : ''}
 
                     <div class="hub-event-meta" style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem 0.7rem; font-size: 0.76rem; color: #cbd5e1;">
                       <span>📅 <b>${escapeHtml(dateDisplay)}</b></span>
@@ -723,7 +756,7 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                         ${ev.player_name ? `<span style="color: var(--text-muted);"> (${escapeHtml(ev.player_name)})</span>` : ''}
                       </span>
                       <span class="badge hub-event-cta-pill" style="background: rgba(56,189,248,0.16); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); font-size: 0.72rem; padding: 6px 10px; font-weight: 800; text-align: center; box-sizing: border-box; width: 100%; max-width: 100%; display: block;">
-                        🎯 View My ${pairingsCount} Scheduled Games →
+                        🎯 View My ${pairingsCount} Scheduled Games &amp; TO Alerts →
                       </span>
                     </div>
                   </div>
@@ -841,6 +874,20 @@ async function openUserLeagueGamesQuickModal(entryId) {
   const recordStr = ev.record || `${ev.wins || 0}-${ev.losses || 0}-${ev.draws || 0}`;
   const bpVal = ev.battle_points ?? 0;
   const pairings = Array.isArray(ev.pairings) ? ev.pairings : [];
+
+  // Live-fetch latest announcements from PostgreSQL so any newly published TO announcement appears immediately
+  let liveAnnouncements = Array.isArray(ev.announcements) ? ev.announcements : [];
+  try {
+    const annResp = await fetch(`/api/league/${encodeURIComponent(leagueId)}/announcements`);
+    if (annResp.ok) {
+      const annData = await annResp.json();
+      if (Array.isArray(annData.announcements) && annData.announcements.length > 0) {
+        liveAnnouncements = annData.announcements.filter(a =>
+          !a.target_pod || a.target_pod === 'All Pods' || a.target_pod === `Pod #${podNum}` || a.target_pod === `Pod ${podNum}` || String(a.target_pod) === String(podNum)
+        );
+      }
+    }
+  } catch (_) {}
 
   const modalOverlay = document.createElement('div');
   modalOverlay.id = 'user-league-games-quick-modal';
@@ -969,8 +1016,30 @@ async function openUserLeagueGamesQuickModal(entryId) {
         </div>
       </div>
 
-      <!-- Modal Body: 5 Pod Matchups -->
+      <!-- Modal Body: TO Announcements + 5 Pod Matchups -->
       <div class="quick-league-body" style="padding: 1.15rem 1.35rem; overflow-y: auto; flex: 1;">
+        ${liveAnnouncements.length > 0 ? `
+          <div id="quick-league-announcements-box" style="margin-bottom: 1rem; padding: 0.8rem 0.95rem; background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(245, 158, 11, 0.45); border-left: 4px solid #f59e0b; border-radius: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem;">
+              <span style="font-size: 0.75rem; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.03em;">
+                🔔 Commissioner Announcements &amp; Pod #${podNum} Alerts (${liveAnnouncements.length})
+              </span>
+              <button type="button" onclick="closeUserLeagueGamesQuickModal(); if (typeof leagueState !== 'undefined') { leagueState.activeSubtab = 'announcements'; } window.location.hash = '#/40k/league/${safeLeagueId}';" style="background: none; border: none; color: #38bdf8; font-size: 0.73rem; font-weight: 700; cursor: pointer; text-decoration: underline;">
+                Open News Tab →
+              </button>
+            </div>
+            ${liveAnnouncements.slice(0, 2).map(ann => `
+              <div style="padding: 0.45rem 0.6rem; background: rgba(2, 6, 23, 0.65); border-radius: 7px; margin-bottom: 0.35rem; border: 1px solid rgba(255,255,255,0.06);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap;">
+                  <strong style="color: #fff; font-size: 0.82rem;">${escapeHtml(ann.title || 'League Notice')}</strong>
+                  <span style="font-size: 0.68rem; color: #94a3b8;">${escapeHtml(ann.target_pod || 'All Pods')} • ${escapeHtml(String(ann.created_at || '').slice(0, 10))}</span>
+                </div>
+                <div style="font-size: 0.77rem; color: #cbd5e1; margin-top: 0.2rem; line-height: 1.4;">${escapeHtml(ann.body || '')}</div>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
           <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #fff;">
             ⚔️ Your 5 Pod Opponents

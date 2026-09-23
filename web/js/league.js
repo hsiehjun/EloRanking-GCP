@@ -412,15 +412,48 @@ function renderLeagueHub(league) {
       }
     </style>
 
+    ${(() => {
+      const annList = Array.isArray(league.announcements) ? league.announcements : [];
+      const pinned = annList.find(a => a && a.is_pinned) || annList[0];
+      if (!pinned) return '';
+      return `
+        <div id="league-pinned-announcement-banner" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: linear-gradient(135deg, rgba(245, 158, 11, 0.16), rgba(30, 41, 59, 0.92)); border: 1px solid rgba(245, 158, 11, 0.48); border-left: 4px solid #f59e0b; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; gap: 0.85rem; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 240px;">
+            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.2rem;">
+              <span style="background: rgba(245, 158, 11, 0.22); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.45); padding: 1px 7px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; text-transform: uppercase;">
+                📢 Pinned TO Broadcast • ${escapeHtml(pinned.target_pod || 'All Pods')}
+              </span>
+              <span style="font-size: 0.72rem; color: #94a3b8;">by ${escapeHtml(pinned.author_name || 'Commissioner')} • ${escapeHtml(String(pinned.created_at || '').slice(0, 10))}</span>
+            </div>
+            <div style="font-size: 0.92rem; font-weight: 800; color: #fff;">${escapeHtml(pinned.title || 'League Announcement')}</div>
+            <div style="font-size: 0.8rem; color: #e2e8f0; margin-top: 0.15rem; line-height: 1.4;">${escapeHtml(pinned.body || '')}</div>
+          </div>
+          <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
+            <button type="button" onclick="switchLeagueSubtab('announcements')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(245, 158, 11, 0.5); color: #fbbf24; font-weight: 800;">
+              📢 All News &amp; Alerts (${annList.length})
+            </button>
+            ${canManageLeague ? `
+              <button type="button" onclick="if (typeof openStudioLeagueCommandCenterModal === 'function') { openStudioLeagueCommandCenterModal('${escapeHtml(league.league_id || league.slug || 'sd40k')}', 'announcements'); } else { window.location.href = '/eventstudio.html'; }" class="btn btn-primary" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: 1px solid #60a5fa; font-weight: 800;">
+                🎛️ TO Edit
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    })()}
+
     <!-- Main League Subtabs -->
     <div class="subtabs-bar" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch;">
-      <button class="subtab-btn ${leagueState.activeSubtab === 'pods' ? 'active' : ''}" onclick="switchLeagueSubtab('pods')" style="white-space: nowrap;">
+      <button class="subtab-btn ${leagueState.activeSubtab === 'pods' ? 'active' : ''}" data-league-subtab="pods" onclick="switchLeagueSubtab('pods')" style="white-space: nowrap;">
         <span>🛡️ ${escapeHtml(actSeason.name || `Season ${currentSeasonNum}`)} Pods &amp; Matchups</span>
       </button>
-      <button class="subtab-btn ${leagueState.activeSubtab === 'hof' ? 'active' : ''}" onclick="switchLeagueSubtab('hof')" style="white-space: nowrap;">
+      <button class="subtab-btn ${leagueState.activeSubtab === 'announcements' ? 'active' : ''}" data-league-subtab="announcements" onclick="switchLeagueSubtab('announcements')" style="white-space: nowrap;">
+        <span>📢 News &amp; Announcements (${Array.isArray(league.announcements) ? league.announcements.length : 0})</span>
+      </button>
+      <button class="subtab-btn ${leagueState.activeSubtab === 'hof' ? 'active' : ''}" data-league-subtab="hof" onclick="switchLeagueSubtab('hof')" style="white-space: nowrap;">
         <span>🏆 Hall of Fame &amp; Archives</span>
       </button>
-      <button class="subtab-btn ${leagueState.activeSubtab === 'methodology' ? 'active' : ''}" onclick="switchLeagueSubtab('methodology')" style="white-space: nowrap;">
+      <button class="subtab-btn ${leagueState.activeSubtab === 'methodology' ? 'active' : ''}" data-league-subtab="methodology" onclick="switchLeagueSubtab('methodology')" style="white-space: nowrap;">
         <span>📜 Rules &amp; Format</span>
       </button>
     </div>
@@ -441,9 +474,12 @@ function switchLeagueSubtab(subtab) {
   if (!league) return;
 
   document.querySelectorAll('#tab-league-hub .subtab-btn').forEach(btn => {
-    btn.classList.remove('active');
+    if (btn.getAttribute('data-league-subtab') === subtab) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
   });
-  event?.currentTarget?.classList.add('active');
 
   const content = document.getElementById('league-subtab-content');
   if (content) {
@@ -490,6 +526,8 @@ function switchHofCategory(category) {
 function renderLeagueSubtabContent(league, currentPod) {
   if (leagueState.activeSubtab === 'pods') {
     return renderPodsSubtab(league, currentPod);
+  } else if (leagueState.activeSubtab === 'announcements') {
+    return renderAnnouncementsSubtab(league);
   } else if (leagueState.activeSubtab === 'hof') {
     return renderHallOfFameSubtab(league);
   } else if (leagueState.activeSubtab === 'methodology') {
@@ -497,6 +535,70 @@ function renderLeagueSubtabContent(league, currentPod) {
   }
   return '';
 }
+
+function renderAnnouncementsSubtab(league) {
+  const annList = Array.isArray(league.announcements) ? league.announcements : [];
+  const actSeason = league.active_season || {};
+  const layouts = (actSeason.season_config && actSeason.season_config.round_layouts) || ["Layout A", "Layout B", "Layout C", "Layout A", "Layout B"];
+  const lid = escapeHtml(league.league_id || league.slug || 'sd40k');
+
+  return `
+    <div class="card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; padding-bottom: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.08);">
+        <div>
+          <h3 style="margin: 0; font-size: 1.12rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+            <span>📢 Official Commissioner Announcements &amp; Season Schedule Bulletin</span>
+            <span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.45); border-radius: 999px; font-size: 0.72rem; padding: 2px 8px; font-weight: 800;">${annList.length} Active</span>
+          </h3>
+          <p style="margin: 0.25rem 0 0; font-size: 0.8rem; color: var(--text-muted);">
+            Broadcasts published by the League Commissioner in Event Studio automatically notify registered players in their League Quick-View popup.
+          </p>
+        </div>
+        <button type="button" onclick="if (typeof openStudioLeagueCommandCenterModal === 'function') { openStudioLeagueCommandCenterModal('${lid}', 'announcements'); } else { window.location.href = '/eventstudio.html'; }" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.42rem 0.9rem; background: linear-gradient(135deg, #f59e0b, #d97706); border: 1px solid #fbbf24; color: #0f172a; font-weight: 800;">
+          🎛️ Post / Manage Announcements in TO Studio
+        </button>
+      </div>
+
+      <!-- Current Season Dates & Round Layout Summary Bar -->
+      <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 0.8rem 1rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="font-size: 0.8rem; color: #e2e8f0;">
+          <strong style="color: #38bdf8;">📅 ${escapeHtml(actSeason.name || 'Active Season')} Window:</strong>
+          <span style="margin-left: 0.35rem;">${escapeHtml(actSeason.start_date || '2026-09-15')} → ${escapeHtml(actSeason.end_date || '2026-11-10')} (${Number(actSeason.duration_weeks || 8)} Weeks • ${Number(actSeason.rounds_count || 5)} Rounds)</span>
+        </div>
+        <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+          ${layouts.map((ly, i) => `
+            <span style="background: rgba(56, 189, 248, 0.14); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; border-radius: 5px; padding: 2px 7px; font-size: 0.72rem; font-weight: 700;">
+              R${i + 1}: ${escapeHtml(ly)}
+            </span>
+          `).join('')}
+        </div>
+      </div>
+
+      ${annList.length === 0 ? `
+        <div style="text-align: center; padding: 2rem; color: #94a3b8; font-size: 0.86rem;">
+          No official announcements have been posted for this season yet.
+        </div>
+      ` : annList.map(ann => `
+        <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid ${ann.is_pinned ? 'rgba(245, 158, 11, 0.5)' : 'rgba(255, 255, 255, 0.09)'}; border-left: 4px solid ${ann.priority === 'high' ? '#ef4444' : '#38bdf8'}; border-radius: 10px; padding: 1rem; margin-bottom: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.4rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              ${ann.is_pinned ? `<span style="background: rgba(245, 158, 11, 0.22); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.45); padding: 2px 8px; border-radius: 4px; font-size: 0.68rem; font-weight: 800;">📌 PINNED</span>` : ''}
+              ${ann.priority === 'high' ? `<span style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.45); padding: 2px 8px; border-radius: 4px; font-size: 0.68rem; font-weight: 800;">🔴 HIGH PRIORITY ALERT</span>` : ''}
+              <span style="background: rgba(56, 189, 248, 0.16); color: #38bdf8; padding: 2px 8px; border-radius: 4px; font-size: 0.68rem; font-weight: 800; text-transform: uppercase;">${escapeHtml(ann.category || 'general')}</span>
+              <span style="background: rgba(16, 185, 129, 0.16); color: #34d399; padding: 2px 8px; border-radius: 4px; font-size: 0.68rem; font-weight: 800;">🎯 ${escapeHtml(ann.target_pod || 'All Pods')}</span>
+            </div>
+            <div style="font-size: 0.74rem; color: #94a3b8;">
+              👤 ${escapeHtml(ann.author_name || 'Commissioner')} • 🕒 ${escapeHtml(String(ann.created_at || '').slice(0, 10))}
+            </div>
+          </div>
+          <h4 style="margin: 0.2rem 0 0.4rem; font-size: 1rem; font-weight: 800; color: #fff;">${escapeHtml(ann.title || 'League Announcement')}</h4>
+          <div style="font-size: 0.85rem; color: #cbd5e1; line-height: 1.55; white-space: pre-line;">${escapeHtml(ann.body || '')}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+window.renderAnnouncementsSubtab = renderAnnouncementsSubtab;
 
 function switchLeaguePairingRound(roundVal) {
   leagueState.activePairingRound = roundVal === 'all' ? 'all' : (parseInt(roundVal, 10) || 'all');
@@ -655,6 +757,17 @@ function renderPodsSubtab(league, currentPod) {
               const bcpPlayerId = (rawBcpPlayerId && !String(rawBcpPlayerId).startsWith('bcp_') && !String(rawBcpPlayerId).startsWith('p_')) ? rawBcpPlayerId : '';
               const safeBcpId = escapeHtml(bcpPlayerId || s.name || '').replace(/'/g, "\\'");
               const isDbMatched = Boolean(s.is_db_matched && bcpPlayerId);
+              const discCard = String(s.disciplinary_card || 'none').toLowerCase();
+              const cardBadge = discCard === 'yellow'
+                ? `<span title="Yellow Card (<3 GP Warning)" style="background:rgba(245,158,11,0.2);color:#fbbf24;border:1px solid rgba(245,158,11,0.45);padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:800;">🟨 Yellow Card</span>`
+                : discCard === 'red'
+                ? `<span title="Red Card (1-Season Suspension)" style="background:rgba(239,68,68,0.2);color:#f87171;border:1px solid rgba(239,68,68,0.45);padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:800;">🟥 Red Card</span>`
+                : discCard === 'black'
+                ? `<span title="Black Card (Expulsion)" style="background:rgba(15,23,42,0.9);color:#e2e8f0;border:1px solid rgba(255,255,255,0.4);padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:800;">⬛ Black Card</span>`
+                : '';
+              const dropBadge = s.dropped
+                ? `<span style="background:rgba(239,68,68,0.18);color:#f87171;border:1px solid rgba(239,68,68,0.4);padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:800;">Dropped</span>`
+                : '';
 
               return `
                 <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04); background: ${rowBg};">
@@ -662,7 +775,7 @@ function renderPodsSubtab(league, currentPod) {
                     #${rankNum}
                   </td>
                   <td style="padding: 0.7rem 0.85rem; font-weight: 600; color: #fff;">
-                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                    <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
                       ${isDbMatched ? `
                         <button type="button" onclick="openPlayerModal('${safeBcpId}', '${safePlayerName}')" style="background: none; border: none; padding: 0; color: #38bdf8; font-weight: 700; font-size: 0.88rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-align: left;">
                           ${escapeHtml(s.name)}
@@ -673,6 +786,8 @@ function renderPodsSubtab(league, currentPod) {
                         </span>
                       `}
                       ${s.career?.championships ? `<span title="${s.career.championships} All-time Championships" style="cursor: help;">🏆</span>` : ''}
+                      ${cardBadge}
+                      ${dropBadge}
                     </div>
                     <div class="league-mob-subinfo" style="display: none; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 3px; font-size: 0.7rem; color: #94a3b8;">
                       <span>${escapeHtml(s.primary_faction || 'Unassigned')}</span>

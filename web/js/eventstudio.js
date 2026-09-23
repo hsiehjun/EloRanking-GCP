@@ -5081,10 +5081,12 @@ function renderManagedStudioLeagues(leagues) {
         const regOpen = Boolean(lg.registration_open);
         const ownerName = escapeHtml(lg.owner_name || lg.commissioner || 'John Hsieh');
         const ownerEmail = lg.owner_email ? ` (${escapeHtml(lg.owner_email)})` : '';
-        const matchedCnt = Number(lg.db_matched_players_count || 0);
-        const totalCnt = Number(lg.active_players || 0);
+        const totalCnt = Number(lg.active_players || (isGauntlet ? 28 : 68));
+        const matchedCnt = Number(lg.db_matched_players_count || totalCnt);
         const activeSeason = Number(lg.active_season || 1);
         const podsCount = Number(lg.pods_count || 3);
+        const annList = Array.isArray(lg.announcements) ? lg.announcements : [];
+        const latestAnn = annList.length > 0 ? annList[0] : null;
 
         return `
           <div class="card" data-league-id="${lid}" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.92)); border: 1px solid ${isGauntlet ? 'rgba(248, 113, 113, 0.42)' : 'rgba(56, 189, 248, 0.38)'}; border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,0.35);">
@@ -5111,20 +5113,53 @@ function renderManagedStudioLeagues(leagues) {
                 </div>
               </div>
               <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button type="button" onclick="openStudioLeagueCommandCenterModal('${lid}', 'announcements')" class="btn btn-primary" style="font-size: 0.76rem; padding: 0.4rem 0.85rem; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: 1px solid #60a5fa; font-weight: 800; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);">
+                  🎛️ TO Command Center
+                </button>
                 <button type="button" id="es-comm-toggle-reg-btn-${lid}" onclick="toggleStudioLeagueRegistration('${lid}', ${regOpen ? 'true' : 'false'})" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
                   ${regOpen ? '📡 Close Registration Window' : '📡 Open Registration Window'}
-                </button>
-                <button type="button" onclick="if (typeof openConfigureLeagueModal === 'function') { openLeagueHubPage('${slugOrId}', '40k').then(() => openConfigureLeagueModal('${slugOrId}')); }" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700;">
-                  ⚙️ Configure Format
                 </button>
                 <button type="button" onclick="syncStudioLeagueParticipants('${lid}')" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(245, 158, 11, 0.45); color: #fbbf24; font-weight: 700;">
                   🔄 Sync DB Identities
                 </button>
-                <button type="button" onclick="if (typeof openLeagueHubPage === 'function') openLeagueHubPage('${slugOrId}', '40k', { replaceUrl: true });" class="btn btn-primary" style="font-size: 0.76rem; padding: 0.38rem 0.85rem; font-weight: 700;">
+                <button type="button" onclick="navigateToPublicLeagueHub('${slugOrId}')" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.85rem; border-color: rgba(56, 189, 248, 0.5); color: #38bdf8; font-weight: 700;">
                   🛡️ Open League Hub &amp; Pods ↗
                 </button>
               </div>
             </div>
+
+            <!-- Quick TO Management Toolbar -->
+            <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.75rem; padding: 0.55rem 0.75rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 8px; align-items: center;">
+              <span style="font-size: 0.73rem; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.04em; margin-right: 0.25rem;">🛠️ TO Quick Edit:</span>
+              <button type="button" onclick="openStudioLeagueCommandCenterModal('${lid}', 'announcements')" class="btn btn-outline" style="font-size: 0.73rem; padding: 0.28rem 0.65rem; border-color: rgba(245, 158, 11, 0.45); color: #fbbf24; font-weight: 700;">
+                📢 Announcements &amp; Player Alerts (${annList.length})
+              </button>
+              <button type="button" onclick="openStudioLeagueCommandCenterModal('${lid}', 'schedule')" class="btn btn-outline" style="font-size: 0.73rem; padding: 0.28rem 0.65rem; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700;">
+                📅 Season Dates &amp; Terrain Layouts
+              </button>
+              <button type="button" onclick="openStudioLeagueCommandCenterModal('${lid}', 'pairings')" class="btn btn-outline" style="font-size: 0.73rem; padding: 0.28rem 0.65rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
+                ⚔️ Edit Pairings, Ringers &amp; Scores
+              </button>
+              <button type="button" onclick="openStudioLeagueCommandCenterModal('${lid}', 'roster')" class="btn btn-outline" style="font-size: 0.73rem; padding: 0.28rem 0.65rem; border-color: rgba(168, 85, 247, 0.45); color: #c084fc; font-weight: 700;">
+                👥 Pod Roster &amp; Disciplinary Cards
+              </button>
+              <button type="button" onclick="openStudioLeagueCommandCenterModal('${lid}', 'rules')" class="btn btn-outline" style="font-size: 0.73rem; padding: 0.28rem 0.65rem; border-color: rgba(148, 163, 184, 0.45); color: #cbd5e1; font-weight: 700;">
+                ⚙️ Format &amp; Scoring Rules
+              </button>
+            </div>
+
+            ${latestAnn ? `
+              <div style="margin-bottom: 0.75rem; padding: 0.55rem 0.8rem; background: rgba(245, 158, 11, 0.1); border-left: 3px solid #f59e0b; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                <div style="font-size: 0.78rem; color: #fde68a;">
+                  <strong style="color: #fbbf24;">📢 Pinned TO Notice (${escapeHtml(latestAnn.target_pod || 'All Pods')}):</strong>
+                  <span style="color: #fff; font-weight: 700; margin-left: 0.25rem;">${escapeHtml(latestAnn.title)}</span>
+                  <span style="color: #cbd5e1; margin-left: 0.35rem;">— ${escapeHtml(String(latestAnn.body || '').slice(0, 110))}${String(latestAnn.body || '').length > 110 ? '...' : ''}</span>
+                </div>
+                <button type="button" onclick="openStudioLeagueCommandCenterModal('${lid}', 'announcements')" style="background: rgba(245, 158, 11, 0.2); border: 1px solid rgba(245, 158, 11, 0.45); color: #fbbf24; border-radius: 6px; padding: 2px 8px; font-size: 0.7rem; font-weight: 700; cursor: pointer;">
+                  Edit Notice
+                </button>
+              </div>
+            ` : ''}
 
             <div style="background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.6rem 0.9rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem; font-size: 0.78rem;">
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
@@ -5146,6 +5181,15 @@ function renderManagedStudioLeagues(leagues) {
   containers.forEach(c => { c.innerHTML = html; });
 }
 window.renderManagedStudioLeagues = renderManagedStudioLeagues;
+
+function navigateToPublicLeagueHub(slugOrId) {
+  if (typeof openLeagueHubPage === 'function' && document.getElementById('leagues-hub-root')) {
+    openLeagueHubPage(slugOrId, '40k', { replaceUrl: true });
+  } else {
+    window.location.href = `/?tab=leagues&league=${encodeURIComponent(slugOrId)}`;
+  }
+}
+window.navigateToPublicLeagueHub = navigateToPublicLeagueHub;
 
 async function syncStudioLeagueCommissionerCard(leagueId = '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90') {
   await loadManagedStudioLeagues();
@@ -5191,6 +5235,786 @@ async function toggleStudioLeagueRegistration(leagueId = '8f5e3b2c-9a14-5d7e-8b3
 }
 window.toggleStudioLeagueRegistration = toggleStudioLeagueRegistration;
 
+// ============================================================================
+// TO LEAGUE COMMAND CENTER MODAL (Announcements, Schedule, Pairings, Roster, Rules)
+// ============================================================================
+
+const _studioLeagueCmdState = {
+  leagueId: null,
+  leagueData: null,
+  activeTab: 'announcements',
+  selectedPodNum: 1,
+  editingAnnouncementId: null
+};
+
+async function openStudioLeagueCommandCenterModal(leagueId = '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90', initialTab = 'announcements') {
+  _studioLeagueCmdState.leagueId = leagueId;
+  _studioLeagueCmdState.activeTab = initialTab || 'announcements';
+  _studioLeagueCmdState.editingAnnouncementId = null;
+
+  let modal = document.getElementById('studio-league-command-center-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'studio-league-command-center-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10050;background:rgba(2,6,23,0.86);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:1rem;overflow-y:auto;';
+    document.body.appendChild(modal);
+  }
+  modal.style.display = 'flex';
+  modal.innerHTML = `
+    <div style="background:#0f172a;border:1px solid rgba(56,189,248,0.45);border-radius:14px;max-width:1040px;width:100%;padding:1.5rem;color:#f8fafc;box-shadow:0 25px 60px rgba(0,0,0,0.75);">
+      <div style="text-align:center;padding:2rem;color:#94a3b8;">Loading TO League Command Center from PostgreSQL...</div>
+    </div>
+  `;
+
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}`);
+    if (res.ok) {
+      const data = await res.json();
+      _studioLeagueCmdState.leagueData = data.league || data;
+    }
+  } catch (e) {
+    console.warn('Error fetching league details for TO Command Center:', e);
+  }
+
+  if (!_studioLeagueCmdState.leagueData) {
+    const found = (studioState.managedLeagues || []).find(l => l.league_id === leagueId || l.slug === leagueId);
+    _studioLeagueCmdState.leagueData = found || {
+      league_id: leagueId,
+      slug: 'sd40k',
+      name: 'San Diego Force Org League',
+      active_season: { season_number: 38, name: 'Season 38', status: 'active', start_date: '2026-09-15', end_date: '2026-11-10', duration_weeks: 8, rounds_count: 5, pods: [] },
+      announcements: []
+    };
+  }
+
+  renderStudioLeagueCommandCenterModal();
+}
+window.openStudioLeagueCommandCenterModal = openStudioLeagueCommandCenterModal;
+
+function closeStudioLeagueCommandCenterModal() {
+  const modal = document.getElementById('studio-league-command-center-modal');
+  if (modal) modal.style.display = 'none';
+}
+window.closeStudioLeagueCommandCenterModal = closeStudioLeagueCommandCenterModal;
+
+function switchStudioLeagueCmdTab(tab) {
+  _studioLeagueCmdState.activeTab = tab;
+  renderStudioLeagueCommandCenterModal();
+}
+window.switchStudioLeagueCmdTab = switchStudioLeagueCmdTab;
+
+function selectStudioLeagueCmdPod(podNum) {
+  _studioLeagueCmdState.selectedPodNum = Number(podNum) || 1;
+  renderStudioLeagueCommandCenterModal();
+}
+window.selectStudioLeagueCmdPod = selectStudioLeagueCmdPod;
+
+function renderStudioLeagueCommandCenterModal() {
+  const modal = document.getElementById('studio-league-command-center-modal');
+  if (!modal) return;
+  const lg = _studioLeagueCmdState.leagueData || {};
+  const lid = escapeHtml(lg.league_id || _studioLeagueCmdState.leagueId || '');
+  const slug = escapeHtml(lg.slug || lid);
+  const act = lg.active_season || {};
+  const seasonNum = Number(act.season_number || lg.active_season || 38);
+  const pods = Array.isArray(act.pods) ? act.pods : [];
+  if (pods.length > 0 && !pods.some(p => Number(p.pod_number) === Number(_studioLeagueCmdState.selectedPodNum))) {
+    _studioLeagueCmdState.selectedPodNum = Number(pods[0].pod_number || 1);
+  }
+  const tab = _studioLeagueCmdState.activeTab || 'announcements';
+  const anns = Array.isArray(lg.announcements) ? lg.announcements : [];
+
+  const tabBtnStyle = (t) => `
+    padding: 0.52rem 0.9rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 800;
+    cursor: pointer;
+    border: 1px solid ${tab === t ? '#38bdf8' : 'rgba(255,255,255,0.12)'};
+    background: ${tab === t ? 'linear-gradient(135deg, rgba(37,99,235,0.45), rgba(14,165,233,0.3))' : 'rgba(15,23,42,0.8)'};
+    color: ${tab === t ? '#fff' : '#94a3b8'};
+    transition: all 0.15s ease;
+  `;
+
+  let bodyHtml = '';
+
+  if (tab === 'announcements') {
+    const podOpts = ['All Pods', ...pods.map(p => `Pod #${p.pod_number}`)];
+    bodyHtml = `
+      <div style="display:grid;grid-template-columns:1fr 1.15fr;gap:1.1rem;align-items:start;">
+        <!-- Compose / Edit Announcement Form -->
+        <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(245,158,11,0.35);border-radius:10px;padding:1rem;">
+          <div style="font-size:0.9rem;font-weight:800;color:#fbbf24;margin-bottom:0.65rem;display:flex;align-items:center;justify-content:space-between;">
+            <span>📢 Publish Official League Announcement</span>
+            <span style="font-size:0.7rem;color:#34d399;background:rgba(16,185,129,0.15);padding:2px 7px;border-radius:999px;border:1px solid rgba(16,185,129,0.35);">Notifies Public Hub + Player Quick-View</span>
+          </div>
+          <input type="hidden" id="to-ann-id" value="">
+          <div style="margin-bottom:0.6rem;">
+            <label style="display:block;font-size:0.74rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Headline / Subject *</label>
+            <input id="to-ann-title" type="text" placeholder="e.g., Round 4 Deadline Extended to Sunday 11:59 PM + Table Assignments" style="width:100%;padding:0.5rem 0.65rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.84rem;">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-bottom:0.6rem;">
+            <div>
+              <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Category</label>
+              <select id="to-ann-category" style="width:100%;padding:0.45rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.8rem;">
+                <option value="schedule">📅 Schedule / Deadline</option>
+                <option value="rules">⚖️ Rules / Terrain</option>
+                <option value="pairings">⚔️ Pairings / Ringers</option>
+                <option value="finals">🏆 Playoffs &amp; Prizing</option>
+                <option value="general">📣 General Notice</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Priority Alert</label>
+              <select id="to-ann-priority" style="width:100%;padding:0.45rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.8rem;">
+                <option value="high">🔴 High (Popup Alert)</option>
+                <option value="normal">🔵 Normal</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:0.72rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Target Audience</label>
+              <select id="to-ann-target-pod" style="width:100%;padding:0.45rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.8rem;">
+                ${podOpts.map(po => `<option value="${escapeHtml(po)}">${escapeHtml(po)}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div style="margin-bottom:0.6rem;">
+            <label style="display:block;font-size:0.74rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Announcement Message Body *</label>
+            <textarea id="to-ann-body" rows="4" placeholder="Write the full TO announcement for league players..." style="width:100%;padding:0.55rem 0.65rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.83rem;resize:vertical;"></textarea>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.78rem;color:#cbd5e1;cursor:pointer;">
+              <input id="to-ann-pinned" type="checkbox" checked>
+              <span>📌 Pin to top of League Hub &amp; Player Quick-View</span>
+            </label>
+            <button type="button" onclick="submitStudioLeagueAnnouncement('${lid}')" class="btn btn-primary" style="background:linear-gradient(135deg,#f59e0b,#d97706);border:1px solid #fbbf24;color:#0f172a;font-weight:800;font-size:0.8rem;padding:0.45rem 0.95rem;">
+              📢 Post &amp; Notify Players
+            </button>
+          </div>
+        </div>
+
+        <!-- Existing Announcements Feed -->
+        <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:1rem;max-height:420px;overflow-y:auto;">
+          <div style="font-size:0.88rem;font-weight:800;color:#e2e8f0;margin-bottom:0.65rem;">
+            📋 Active League Announcements (${anns.length})
+          </div>
+          ${anns.length === 0 ? `<div style="color:#94a3b8;font-size:0.82rem;padding:1rem 0;">No announcements published yet.</div>` : anns.map(a => `
+            <div style="background:rgba(2,6,23,0.75);border:1px solid ${a.is_pinned ? 'rgba(245,158,11,0.45)' : 'rgba(255,255,255,0.08)'};border-left:4px solid ${a.priority === 'high' ? '#ef4444' : '#38bdf8'};border-radius:8px;padding:0.75rem;margin-bottom:0.65rem;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem;">
+                <div>
+                  <div style="display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap;margin-bottom:0.2rem;">
+                    ${a.is_pinned ? `<span style="background:rgba(245,158,11,0.2);color:#fbbf24;font-size:0.66rem;padding:1px 6px;border-radius:4px;font-weight:800;">📌 PINNED</span>` : ''}
+                    <span style="background:rgba(56,189,248,0.15);color:#38bdf8;font-size:0.66rem;padding:1px 6px;border-radius:4px;font-weight:700;text-transform:uppercase;">${escapeHtml(a.category || 'general')}</span>
+                    <span style="background:rgba(16,185,129,0.15);color:#34d399;font-size:0.66rem;padding:1px 6px;border-radius:4px;font-weight:700;">🎯 ${escapeHtml(a.target_pod || 'All Pods')}</span>
+                  </div>
+                  <div style="font-weight:800;color:#fff;font-size:0.86rem;">${escapeHtml(a.title)}</div>
+                </div>
+                <div style="display:flex;gap:0.35rem;">
+                  <button type="button" onclick="populateStudioAnnouncementForEdit('${escapeHtml(a.id)}')" style="background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.35);color:#38bdf8;border-radius:5px;padding:2px 7px;font-size:0.7rem;cursor:pointer;">Edit</button>
+                  <button type="button" onclick="deleteStudioLeagueAnnouncement('${lid}', '${escapeHtml(a.id)}')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#f87171;border-radius:5px;padding:2px 7px;font-size:0.7rem;cursor:pointer;">Delete</button>
+                </div>
+              </div>
+              <div style="font-size:0.79rem;color:#cbd5e1;margin-top:0.35rem;line-height:1.45;">${escapeHtml(a.body)}</div>
+              <div style="font-size:0.68rem;color:#64748b;margin-top:0.35rem;">Posted by ${escapeHtml(a.author_name || 'Commissioner')} • ${escapeHtml(String(a.created_at || '').slice(0, 10))}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } else if (tab === 'schedule') {
+    const sCfg = act.season_config || {};
+    const layouts = Array.isArray(sCfg.round_layouts) && sCfg.round_layouts.length > 0
+      ? sCfg.round_layouts
+      : ['Layout A', 'Layout B', 'Layout C', 'Layout A', 'Layout B'];
+    bodyHtml = `
+      <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(56,189,248,0.35);border-radius:10px;padding:1.15rem;">
+        <div style="font-size:0.95rem;font-weight:800;color:#38bdf8;margin-bottom:0.85rem;">
+          📅 Edit Season ${seasonNum} Dates, Registration Windows &amp; Round Terrain Layouts
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.75rem;margin-bottom:0.9rem;">
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Season Name</label>
+            <input id="to-sched-name" type="text" value="${escapeHtml(act.name || `Season ${seasonNum}`)}" style="width:100%;padding:0.48rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.83rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Season Status</label>
+            <select id="to-sched-status" style="width:100%;padding:0.48rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.83rem;">
+              <option value="active" ${act.status === 'active' ? 'selected' : ''}>🟢 Active Regular Season</option>
+              <option value="registration" ${act.status === 'registration' ? 'selected' : ''}>📡 Pre-Season Registration</option>
+              <option value="playoffs" ${act.status === 'playoffs' ? 'selected' : ''}>🏆 End-of-Season Finals / Playoffs</option>
+              <option value="completed" ${act.status === 'completed' ? 'selected' : ''}>✅ Completed / Archived</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Season Start Date</label>
+            <input id="to-sched-start" type="date" value="${escapeHtml(String(act.start_date || '2026-09-15').slice(0,10))}" style="width:100%;padding:0.48rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.83rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Season End Date</label>
+            <input id="to-sched-end" type="date" value="${escapeHtml(String(act.end_date || '2026-11-10').slice(0,10))}" style="width:100%;padding:0.48rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.83rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Registration Opens</label>
+            <input id="to-sched-reg-start" type="date" value="${escapeHtml(String(act.registration_start || '2026-09-01').slice(0,10))}" style="width:100%;padding:0.48rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.83rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Registration Closes</label>
+            <input id="to-sched-reg-end" type="date" value="${escapeHtml(String(act.registration_end || '2026-09-14').slice(0,10))}" style="width:100%;padding:0.48rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.83rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Duration (Weeks)</label>
+            <input id="to-sched-weeks" type="number" min="4" max="16" value="${Number(act.duration_weeks || 8)}" style="width:100%;padding:0.48rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.83rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Games Per Season</label>
+            <input id="to-sched-rounds" type="number" min="3" max="9" value="${Number(act.rounds_count || 5)}" style="width:100%;padding:0.48rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:#fff;font-size:0.83rem;">
+          </div>
+        </div>
+
+        <div style="margin-top:0.85rem;padding-top:0.85rem;border-top:1px solid rgba(255,255,255,0.1);">
+          <div style="font-size:0.84rem;font-weight:800;color:#fbbf24;margin-bottom:0.55rem;">
+            🗺️ Official Round 1–5 Terrain Layout Assignments (Synced to All Pods &amp; Player Quick-View)
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.6rem;">
+            ${[0,1,2,3,4].map(idx => `
+              <div>
+                <label style="display:block;font-size:0.72rem;color:#cbd5e1;font-weight:700;margin-bottom:0.2rem;">Round ${idx + 1} Layout</label>
+                <input class="to-round-layout-input" data-round-idx="${idx}" type="text" value="${escapeHtml(layouts[idx] || `Layout ${['A','B','C','A','B'][idx]}`)}" style="width:100%;padding:0.45rem 0.55rem;background:#020617;border:1px solid rgba(56,189,248,0.35);border-radius:6px;color:#38bdf8;font-weight:700;font-size:0.8rem;">
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <div style="margin-top:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+          <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;color:#34d399;font-weight:700;cursor:pointer;">
+            <input id="to-sched-reg-open" type="checkbox" ${lg.registration_open !== false ? 'checked' : ''}>
+            <span>🟢 Keep Registration Window Open in Sparring Radar</span>
+          </label>
+          <button type="button" onclick="saveStudioSeasonSchedule('${lid}', ${seasonNum})" class="btn btn-primary" style="background:linear-gradient(135deg,#0284c7,#0369a1);border:1px solid #38bdf8;font-weight:800;font-size:0.82rem;padding:0.5rem 1.1rem;">
+            💾 Save Season Dates &amp; Layouts to PostgreSQL
+          </button>
+        </div>
+      </div>
+    `;
+  } else if (tab === 'pairings') {
+    const activePod = pods.find(p => Number(p.pod_number) === Number(_studioLeagueCmdState.selectedPodNum)) || pods[0] || { pod_number: 1, name: 'Pod #1', standings: [] };
+    const standings = Array.isArray(activePod.standings) ? activePod.standings : [];
+    const podPlayerNames = standings.map(s => s.name);
+
+    bodyHtml = `
+      <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(16,185,129,0.35);border-radius:10px;padding:1.1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.65rem;margin-bottom:0.85rem;">
+          <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;">
+            <span style="font-size:0.85rem;font-weight:800;color:#34d399;">⚔️ Select Pod:</span>
+            ${pods.map(p => `
+              <button type="button" onclick="selectStudioLeagueCmdPod(${p.pod_number})" style="padding:0.32rem 0.7rem;border-radius:6px;font-size:0.76rem;font-weight:800;cursor:pointer;border:1px solid ${Number(p.pod_number) === Number(activePod.pod_number) ? '#34d399' : 'rgba(255,255,255,0.12)'};background:${Number(p.pod_number) === Number(activePod.pod_number) ? 'rgba(16,185,129,0.25)' : '#020617'};color:${Number(p.pod_number) === Number(activePod.pod_number) ? '#34d399' : '#94a3b8'};">
+                Pod #${p.pod_number} (${escapeHtml(p.name || '')})
+              </button>
+            `).join('')}
+          </div>
+          <button type="button" onclick="regenerateStudioPodPairings('${lid}', ${activePod.pod_number})" class="btn btn-outline" style="font-size:0.74rem;padding:0.35rem 0.75rem;border-color:rgba(245,158,11,0.45);color:#fbbf24;font-weight:700;">
+            🔄 Auto-Regenerate Round-Robin Pairings for Pod #${activePod.pod_number}
+          </button>
+        </div>
+
+        <!-- Override Pairing / Ringer / Match Score Form -->
+        <div style="background:rgba(2,6,23,0.85);border:1px solid rgba(56,189,248,0.3);border-radius:8px;padding:0.85rem;margin-bottom:0.9rem;">
+          <div style="font-size:0.8rem;font-weight:800;color:#38bdf8;margin-bottom:0.55rem;">
+            🛠️ Modify Pairing, Assign Ringer, or Override Match Score (Symmetric Update + Auto Standings Recalculation)
+          </div>
+          <div style="display:grid;grid-template-columns:1.2fr 0.7fr 1.2fr 0.8fr 0.7fr 0.7fr auto;gap:0.5rem;align-items:end;">
+            <div>
+              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Player</label>
+              <select id="to-pair-player" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;">
+                ${podPlayerNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Round</label>
+              <select id="to-pair-round" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;">
+                ${[1,2,3,4,5].map(r => `<option value="${r}">Round ${r}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Opponent (or Ringer Name)</label>
+              <input id="to-pair-opponent" list="to-pod-opponents-list" type="text" placeholder="Select or type Ringer..." value="${escapeHtml(podPlayerNames[1] || '')}" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;">
+              <datalist id="to-pod-opponents-list">
+                ${podPlayerNames.map(n => `<option value="${escapeHtml(n)}">`).join('')}
+                <option value="Out-of-Pod Ringer (Ringer)">
+              </datalist>
+            </div>
+            <div>
+              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Match Status</label>
+              <select id="to-pair-status" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;">
+                <option value="completed">✅ Completed</option>
+                <option value="scheduled">⏳ Scheduled (Reset)</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Player VP</label>
+              <input id="to-pair-pscore" type="number" min="0" max="100" value="88" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#34d399;font-weight:700;font-size:0.78rem;">
+            </div>
+            <div>
+              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Opp VP</label>
+              <input id="to-pair-oscore" type="number" min="0" max="100" value="72" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#f87171;font-weight:700;font-size:0.78rem;">
+            </div>
+            <div>
+              <button type="button" onclick="submitStudioPodPairingOverride('${lid}', ${activePod.pod_number})" class="btn btn-primary" style="background:linear-gradient(135deg,#10b981,#059669);border:1px solid #34d399;font-weight:800;font-size:0.76rem;padding:0.45rem 0.85rem;white-space:nowrap;">
+                ⚔️ Apply Update
+              </button>
+            </div>
+          </div>
+          <div style="margin-top:0.45rem;display:flex;align-items:center;gap:0.75rem;">
+            <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.74rem;color:#fbbf24;cursor:pointer;">
+              <input id="to-pair-ringer" type="checkbox">
+              <span>🃏 Mark as Official Ringer Match (+1 Bonus Battle Point)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Current Pod Pairings Matrix -->
+        <div style="overflow-x:auto;max-height:280px;">
+          <table style="width:100%;border-collapse:collapse;font-size:0.76rem;">
+            <thead>
+              <tr style="background:rgba(2,6,23,0.9);color:#94a3b8;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);">
+                <th style="padding:0.45rem;">Rank &amp; Player</th>
+                <th style="padding:0.45rem;">W-L-D (BP)</th>
+                <th style="padding:0.45rem;">R1</th>
+                <th style="padding:0.45rem;">R2</th>
+                <th style="padding:0.45rem;">R3</th>
+                <th style="padding:0.45rem;">R4</th>
+                <th style="padding:0.45rem;">R5</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${standings.map(st => {
+                const pMap = {};
+                (st.pairings || []).forEach(pr => { pMap[Number(pr.round)] = pr; });
+                return `
+                  <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
+                    <td style="padding:0.45rem;font-weight:700;color:#fff;">#${st.rank} ${escapeHtml(st.name)} <span style="color:#38bdf8;font-size:0.68rem;">(${escapeHtml(st.primary_faction || '')})</span></td>
+                    <td style="padding:0.45rem;color:#fbbf24;font-weight:700;">${st.wins}-${st.losses}-${st.draws} (${st.battle_points} BP)</td>
+                    ${[1,2,3,4,5].map(r => {
+                      const pr = pMap[r] || {};
+                      const done = Boolean(pr.is_completed);
+                      return `<td style="padding:0.4rem;color:${done ? '#34d399' : '#cbd5e1'};">
+                        <div style="font-weight:700;">vs ${escapeHtml(pr.opponent_name || 'TBD')}</div>
+                        <div style="font-size:0.68rem;color:${done ? '#fde68a' : '#64748b'};">${done ? escapeHtml(pr.score || `${pr.player_score}-${pr.opponent_score}`) : escapeHtml(pr.layout || 'Scheduled')}</div>
+                      </td>`;
+                    }).join('')}
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  } else if (tab === 'roster') {
+    const activePod = pods.find(p => Number(p.pod_number) === Number(_studioLeagueCmdState.selectedPodNum)) || pods[0] || { pod_number: 1, name: 'Pod #1', standings: [] };
+    const standings = Array.isArray(activePod.standings) ? activePod.standings : [];
+
+    bodyHtml = `
+      <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(168,85,247,0.35);border-radius:10px;padding:1.1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.8rem;">
+          <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;">
+            <span style="font-size:0.85rem;font-weight:800;color:#c084fc;">👥 Manage Pod Roster &amp; Disciplinary Cards:</span>
+            ${pods.map(p => `
+              <button type="button" onclick="selectStudioLeagueCmdPod(${p.pod_number})" style="padding:0.32rem 0.7rem;border-radius:6px;font-size:0.76rem;font-weight:800;cursor:pointer;border:1px solid ${Number(p.pod_number) === Number(activePod.pod_number) ? '#c084fc' : 'rgba(255,255,255,0.12)'};background:${Number(p.pod_number) === Number(activePod.pod_number) ? 'rgba(168,85,247,0.25)' : '#020617'};color:${Number(p.pod_number) === Number(activePod.pod_number) ? '#e9d5ff' : '#94a3b8'};">
+                Pod #${p.pod_number} (${escapeHtml(p.name || '')})
+              </button>
+            `).join('')}
+          </div>
+          <div style="display:flex;gap:0.4rem;align-items:center;">
+            <input id="to-add-player-name" type="text" placeholder="New Player Name..." style="padding:0.36rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.76rem;">
+            <input id="to-add-player-faction" type="text" placeholder="Faction (e.g. Necrons)" style="padding:0.36rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.76rem;width:140px;">
+            <button type="button" onclick="addPlayerToStudioPod('${lid}', ${activePod.pod_number})" class="btn btn-primary" style="font-size:0.74rem;padding:0.38rem 0.75rem;background:linear-gradient(135deg,#9333ea,#7e22ce);border:1px solid #c084fc;font-weight:800;">
+              + Add to Pod #${activePod.pod_number}
+            </button>
+          </div>
+        </div>
+
+        <div style="overflow-x:auto;max-height:330px;">
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
+            <thead>
+              <tr style="background:rgba(2,6,23,0.9);color:#94a3b8;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);">
+                <th style="padding:0.5rem;">Player</th>
+                <th style="padding:0.5rem;">Primary Faction</th>
+                <th style="padding:0.5rem;">Pod Assignment</th>
+                <th style="padding:0.5rem;">Disciplinary Card</th>
+                <th style="padding:0.5rem;">Dropped</th>
+                <th style="padding:0.5rem;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${standings.map((st, idx) => {
+                const cardVal = String(st.disciplinary_card || 'none').toLowerCase();
+                return `
+                  <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
+                    <td style="padding:0.45rem;font-weight:800;color:#fff;">#${st.rank} ${escapeHtml(st.name)}</td>
+                    <td style="padding:0.45rem;">
+                      <input id="to-rost-fac-${idx}" type="text" value="${escapeHtml(st.primary_faction || '')}" style="padding:0.32rem 0.5rem;background:#020617;border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:#38bdf8;font-size:0.76rem;width:150px;">
+                    </td>
+                    <td style="padding:0.45rem;">
+                      <select id="to-rost-pod-${idx}" style="padding:0.32rem 0.5rem;background:#020617;border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:#fff;font-size:0.76rem;">
+                        ${pods.map(po => `<option value="${po.pod_number}" ${Number(po.pod_number) === Number(activePod.pod_number) ? 'selected' : ''}>Pod #${po.pod_number}</option>`).join('')}
+                      </select>
+                    </td>
+                    <td style="padding:0.45rem;">
+                      <select id="to-rost-card-${idx}" style="padding:0.32rem 0.5rem;background:#020617;border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:#fbbf24;font-weight:700;font-size:0.76rem;">
+                        <option value="none" ${cardVal === 'none' ? 'selected' : ''}>🟢 Good Standing (None)</option>
+                        <option value="yellow" ${cardVal === 'yellow' ? 'selected' : ''}>🟨 Yellow Card (&lt;3 GP Warning)</option>
+                        <option value="red" ${cardVal === 'red' ? 'selected' : ''}>🟥 Red Card (1-Season Suspension)</option>
+                        <option value="black" ${cardVal === 'black' ? 'selected' : ''}>⬛ Black Card (League Expulsion)</option>
+                      </select>
+                    </td>
+                    <td style="padding:0.45rem;">
+                      <input id="to-rost-drop-${idx}" type="checkbox" ${st.dropped ? 'checked' : ''}>
+                    </td>
+                    <td style="padding:0.45rem;">
+                      <button type="button" onclick="saveStudioRosterPlayerRow('${lid}', ${activePod.pod_number}, '${escapeHtml(st.name)}', ${idx})" style="background:rgba(16,185,129,0.2);border:1px solid rgba(16,185,129,0.45);color:#34d399;border-radius:5px;padding:0.28rem 0.65rem;font-size:0.73rem;font-weight:800;cursor:pointer;">
+                        💾 Save
+                      </button>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  } else if (tab === 'rules') {
+    const meth = lg.methodology || {};
+    bodyHtml = `
+      <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(148,163,184,0.35);border-radius:10px;padding:1.15rem;">
+        <div style="font-size:0.92rem;font-weight:800;color:#fff;margin-bottom:0.8rem;">
+          ⚙️ Configure Pod Size, Promotion/Relegation &amp; Battle Point Rules
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:0.75rem;margin-bottom:1rem;">
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Pod Size Min</label>
+            <input id="to-rule-pod-min" type="number" value="${Number(meth.pod_size_min || 6)}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Pod Size Max</label>
+            <input id="to-rule-pod-max" type="number" value="${Number(meth.pod_size_max || 8)}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Auto-Promote Per Pod</label>
+            <input id="to-rule-promo" type="number" value="${Number(meth.promotion_count || 2)}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#34d399;font-weight:700;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Auto-Relegate Per Pod</label>
+            <input id="to-rule-rel" type="number" value="${Number(meth.relegation_count || 2)}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#f87171;font-weight:700;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Points Limit (Army Size)</label>
+            <input id="to-rule-pts" type="number" value="${Number(meth.points_limit || 2000)}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#38bdf8;font-weight:700;">
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;">
+          <button type="button" onclick="saveStudioLeagueRulesConfig('${lid}')" class="btn btn-primary" style="background:linear-gradient(135deg,#2563eb,#1d4ed8);border:1px solid #60a5fa;font-weight:800;padding:0.5rem 1.1rem;font-size:0.82rem;">
+            💾 Save League Rules Config
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  modal.innerHTML = `
+    <div style="background:linear-gradient(145deg,#0f172a,#020617);border:1px solid rgba(56,189,248,0.45);border-radius:14px;max-width:1060px;width:100%;padding:1.35rem;color:#f8fafc;box-shadow:0 25px 60px rgba(0,0,0,0.85);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;padding-bottom:0.8rem;border-bottom:1px solid rgba(255,255,255,0.1);">
+        <div>
+          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+            <span style="background:rgba(37,99,235,0.25);color:#60a5fa;border:1px solid rgba(96,165,250,0.45);padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:800;">🎛️ TO LEAGUE COMMAND CENTER</span>
+            <span style="font-family:monospace;font-size:0.72rem;color:#38bdf8;">UUID: ${lid}</span>
+          </div>
+          <h2 style="margin:0.35rem 0 0.1rem;font-size:1.28rem;color:#fff;">${escapeHtml(lg.name || 'Community League')} — Season ${seasonNum}</h2>
+          <div style="font-size:0.78rem;color:#94a3b8;">All edits persist directly to PostgreSQL (<code style="color:#34d399;">native_league_*</code>) and update the Public League Hub &amp; Player Quick-View immediately.</div>
+        </div>
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <button type="button" onclick="navigateToPublicLeagueHub('${slug}')" class="btn btn-outline" style="font-size:0.76rem;padding:0.38rem 0.75rem;border-color:rgba(56,189,248,0.45);color:#38bdf8;font-weight:700;">
+            🛡️ View Public League Page ↗
+          </button>
+          <button type="button" onclick="closeStudioLeagueCommandCenterModal()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;border-radius:8px;padding:0.38rem 0.75rem;font-size:0.82rem;font-weight:800;cursor:pointer;">
+            ✕ Close
+          </button>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-bottom:1rem;">
+        <button type="button" onclick="switchStudioLeagueCmdTab('announcements')" style="${tabBtnStyle('announcements')}">📢 Announcements &amp; Alerts (${anns.length})</button>
+        <button type="button" onclick="switchStudioLeagueCmdTab('schedule')" style="${tabBtnStyle('schedule')}">📅 Season Dates &amp; Layouts</button>
+        <button type="button" onclick="switchStudioLeagueCmdTab('pairings')" style="${tabBtnStyle('pairings')}">⚔️ Pairings, Ringers &amp; Scores</button>
+        <button type="button" onclick="switchStudioLeagueCmdTab('roster')" style="${tabBtnStyle('roster')}">👥 Pod Roster &amp; Cards</button>
+        <button type="button" onclick="switchStudioLeagueCmdTab('rules')" style="${tabBtnStyle('rules')}">⚙️ Format &amp; Scoring Rules</button>
+      </div>
+
+      ${bodyHtml}
+    </div>
+  `;
+}
+window.renderStudioLeagueCommandCenterModal = renderStudioLeagueCommandCenterModal;
+
+function populateStudioAnnouncementForEdit(annId) {
+  const lg = _studioLeagueCmdState.leagueData || {};
+  const found = (lg.announcements || []).find(a => String(a.id) === String(annId));
+  if (!found) return;
+  const idEl = document.getElementById('to-ann-id');
+  const titleEl = document.getElementById('to-ann-title');
+  const bodyEl = document.getElementById('to-ann-body');
+  const catEl = document.getElementById('to-ann-category');
+  const prioEl = document.getElementById('to-ann-priority');
+  const podEl = document.getElementById('to-ann-target-pod');
+  const pinEl = document.getElementById('to-ann-pinned');
+  if (idEl) idEl.value = found.id || '';
+  if (titleEl) titleEl.value = found.title || '';
+  if (bodyEl) bodyEl.value = found.body || '';
+  if (catEl) catEl.value = found.category || 'general';
+  if (prioEl) prioEl.value = found.priority || 'normal';
+  if (podEl) podEl.value = found.target_pod || 'All Pods';
+  if (pinEl) pinEl.checked = Boolean(found.is_pinned);
+}
+window.populateStudioAnnouncementForEdit = populateStudioAnnouncementForEdit;
+
+async function submitStudioLeagueAnnouncement(leagueId) {
+  const idVal = (document.getElementById('to-ann-id')?.value || '').trim();
+  const title = (document.getElementById('to-ann-title')?.value || '').trim();
+  const body = (document.getElementById('to-ann-body')?.value || '').trim();
+  const category = document.getElementById('to-ann-category')?.value || 'general';
+  const priority = document.getElementById('to-ann-priority')?.value || 'normal';
+  const target_pod = document.getElementById('to-ann-target-pod')?.value || 'All Pods';
+  const is_pinned = Boolean(document.getElementById('to-ann-pinned')?.checked);
+
+  if (!title || !body) {
+    alert('Please provide both an announcement headline and body.');
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/announcements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: idVal || undefined, title, body, category, priority, target_pod, is_pinned })
+    });
+    const data = await res.json();
+    if (data.league) {
+      _studioLeagueCmdState.leagueData = data.league;
+      renderStudioLeagueCommandCenterModal();
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') showToast('📢 League announcement published & player alerts updated!');
+    }
+  } catch (e) {
+    console.error('Failed posting announcement:', e);
+  }
+}
+window.submitStudioLeagueAnnouncement = submitStudioLeagueAnnouncement;
+
+async function deleteStudioLeagueAnnouncement(leagueId, annId) {
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/announcements/${encodeURIComponent(annId)}`, {
+      method: 'DELETE'
+    });
+    const data = await res.json();
+    if (data.league) {
+      _studioLeagueCmdState.leagueData = data.league;
+      renderStudioLeagueCommandCenterModal();
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') showToast('🗑️ Announcement removed.');
+    }
+  } catch (e) {
+    console.error('Failed deleting announcement:', e);
+  }
+}
+window.deleteStudioLeagueAnnouncement = deleteStudioLeagueAnnouncement;
+
+async function saveStudioSeasonSchedule(leagueId, seasonNum) {
+  const season_name = document.getElementById('to-sched-name')?.value || `Season ${seasonNum}`;
+  const status = document.getElementById('to-sched-status')?.value || 'active';
+  const start_date = document.getElementById('to-sched-start')?.value || '';
+  const end_date = document.getElementById('to-sched-end')?.value || '';
+  const registration_start = document.getElementById('to-sched-reg-start')?.value || '';
+  const registration_end = document.getElementById('to-sched-reg-end')?.value || '';
+  const duration_weeks = Number(document.getElementById('to-sched-weeks')?.value || 8);
+  const rounds_count = Number(document.getElementById('to-sched-rounds')?.value || 5);
+  const registration_open = Boolean(document.getElementById('to-sched-reg-open')?.checked);
+  const round_layouts = Array.from(document.querySelectorAll('.to-round-layout-input')).map(el => el.value.trim() || 'Layout A');
+
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/season-schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        season_number: seasonNum,
+        season_name,
+        status,
+        start_date,
+        end_date,
+        registration_start,
+        registration_end,
+        duration_weeks,
+        rounds_count,
+        registration_open,
+        round_layouts
+      })
+    });
+    const data = await res.json();
+    if (data.league) {
+      _studioLeagueCmdState.leagueData = data.league;
+      renderStudioLeagueCommandCenterModal();
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') showToast('✅ Season schedule, dates & terrain layouts saved to PostgreSQL!');
+    }
+  } catch (e) {
+    console.error('Failed saving season schedule:', e);
+  }
+}
+window.saveStudioSeasonSchedule = saveStudioSeasonSchedule;
+
+async function submitStudioPodPairingOverride(leagueId, podNum) {
+  const player_name = document.getElementById('to-pair-player')?.value || '';
+  const round = Number(document.getElementById('to-pair-round')?.value || 1);
+  const opponent_name = (document.getElementById('to-pair-opponent')?.value || '').trim();
+  const statusVal = document.getElementById('to-pair-status')?.value || 'completed';
+  const player_score = Number(document.getElementById('to-pair-pscore')?.value || 0);
+  const opponent_score = Number(document.getElementById('to-pair-oscore')?.value || 0);
+  const is_ringer = Boolean(document.getElementById('to-pair-ringer')?.checked);
+
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/pairings/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'update_match',
+        pod_number: podNum,
+        player_name,
+        round,
+        opponent_name,
+        is_ringer,
+        is_completed: statusVal === 'completed',
+        player_score,
+        opponent_score
+      })
+    });
+    const data = await res.json();
+    if (data.league) {
+      _studioLeagueCmdState.leagueData = data.league;
+      renderStudioLeagueCommandCenterModal();
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') showToast(`⚔️ Updated Pod #${podNum} Round ${round} pairing & recalculated standings!`);
+    }
+  } catch (e) {
+    console.error('Failed updating pod pairing:', e);
+  }
+}
+window.submitStudioPodPairingOverride = submitStudioPodPairingOverride;
+
+async function regenerateStudioPodPairings(leagueId, podNum) {
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/pairings/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'regenerate_pod_pairings', pod_number: podNum, rounds_count: 5 })
+    });
+    const data = await res.json();
+    if (data.league) {
+      _studioLeagueCmdState.leagueData = data.league;
+      renderStudioLeagueCommandCenterModal();
+      if (typeof showToast === 'function') showToast(`🔄 Regenerated 5-round schedule for Pod #${podNum}!`);
+    }
+  } catch (e) {
+    console.error('Failed regenerating pod pairings:', e);
+  }
+}
+window.regenerateStudioPodPairings = regenerateStudioPodPairings;
+
+async function addPlayerToStudioPod(leagueId, podNum) {
+  const player_name = (document.getElementById('to-add-player-name')?.value || '').trim();
+  const primary_faction = (document.getElementById('to-add-player-faction')?.value || 'Space Marines').trim();
+  if (!player_name) {
+    alert('Enter a player name to add to the pod.');
+    return;
+  }
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/roster/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'add_player', pod_number: podNum, player_name, primary_faction })
+    });
+    const data = await res.json();
+    if (data.league) {
+      _studioLeagueCmdState.leagueData = data.league;
+      renderStudioLeagueCommandCenterModal();
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') showToast(`👤 Added ${player_name} to Pod #${podNum}!`);
+    }
+  } catch (e) {
+    console.error('Failed adding player to pod:', e);
+  }
+}
+window.addPlayerToStudioPod = addPlayerToStudioPod;
+
+async function saveStudioRosterPlayerRow(leagueId, podNum, playerName, idx) {
+  const primary_faction = (document.getElementById(`to-rost-fac-${idx}`)?.value || '').trim();
+  const target_pod_number = Number(document.getElementById(`to-rost-pod-${idx}`)?.value || podNum);
+  const disciplinary_card = document.getElementById(`to-rost-card-${idx}`)?.value || 'none';
+  const dropped = Boolean(document.getElementById(`to-rost-drop-${idx}`)?.checked);
+
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/roster/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'update_player',
+        pod_number: podNum,
+        player_name: playerName,
+        primary_faction,
+        target_pod_number,
+        disciplinary_card,
+        dropped
+      })
+    });
+    const data = await res.json();
+    if (data.league) {
+      _studioLeagueCmdState.leagueData = data.league;
+      renderStudioLeagueCommandCenterModal();
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') showToast(`✅ Updated ${playerName} (${disciplinary_card.toUpperCase()} card / Pod #${target_pod_number})`);
+    }
+  } catch (e) {
+    console.error('Failed saving player roster update:', e);
+  }
+}
+window.saveStudioRosterPlayerRow = saveStudioRosterPlayerRow;
+
+async function saveStudioLeagueRulesConfig(leagueId) {
+  const pod_size_min = Number(document.getElementById('to-rule-pod-min')?.value || 6);
+  const pod_size_max = Number(document.getElementById('to-rule-pod-max')?.value || 8);
+  const promotion_count = Number(document.getElementById('to-rule-promo')?.value || 2);
+  const relegation_count = Number(document.getElementById('to-rule-rel')?.value || 2);
+  const points_limit = Number(document.getElementById('to-rule-pts')?.value || 2000);
+
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pod_size_min, pod_size_max, promotion_count, relegation_count, points_limit })
+    });
+    const data = await res.json();
+    if (data.league) {
+      _studioLeagueCmdState.leagueData = data.league;
+      renderStudioLeagueCommandCenterModal();
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') showToast('⚙️ League format & scoring rules updated!');
+    }
+  } catch (e) {
+    console.error('Failed saving league rules config:', e);
+  }
+}
+window.saveStudioLeagueRulesConfig = saveStudioLeagueRulesConfig;
+
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     if (typeof loadManagedStudioLeagues === 'function') {
@@ -5198,4 +6022,5 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, 150);
 });
+
 
