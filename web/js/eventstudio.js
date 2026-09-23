@@ -5514,9 +5514,21 @@ function renderStudioLeagueCommandCenterModal() {
     const standings = Array.isArray(activePod.standings) ? activePod.standings : [];
     const podPlayerNames = standings.map(s => s.name);
 
+    const selectedPlayer = (_studioLeagueCmdState.selectedPairPlayer && podPlayerNames.includes(_studioLeagueCmdState.selectedPairPlayer))
+      ? _studioLeagueCmdState.selectedPairPlayer
+      : (podPlayerNames[0] || '');
+    const selectedRound = Number(_studioLeagueCmdState.selectedPairRound || 1);
+    const selectedSt = standings.find(s => String(s.name || '').trim() === selectedPlayer) || standings[0] || {};
+    const currentPair = ((selectedSt.pairings || []).find(pr => Number(pr.round) === selectedRound)) || {};
+    const initOpponent = currentPair.opponent_name || podPlayerNames.find(n => n !== selectedPlayer) || '';
+    const initCompleted = Boolean(currentPair.is_completed);
+    const initPScore = currentPair.player_score != null ? Number(currentPair.player_score) : 85;
+    const initOScore = currentPair.opponent_score != null ? Number(currentPair.opponent_score) : 70;
+    const initRinger = Boolean(currentPair.is_ringer);
+
     bodyHtml = `
       <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(16,185,129,0.35);border-radius:10px;padding:1.1rem;">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.65rem;margin-bottom:0.85rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.8rem;">
           <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;">
             <span style="font-size:0.85rem;font-weight:800;color:#34d399;">⚔️ Select Pod:</span>
             ${pods.map(p => `
@@ -5531,26 +5543,29 @@ function renderStudioLeagueCommandCenterModal() {
         </div>
 
         <!-- Override Pairing / Ringer / Match Score Form -->
-        <div style="background:rgba(2,6,23,0.85);border:1px solid rgba(56,189,248,0.3);border-radius:8px;padding:0.85rem;margin-bottom:0.9rem;">
-          <div style="font-size:0.8rem;font-weight:800;color:#38bdf8;margin-bottom:0.55rem;">
-            🛠️ Modify Pairing, Assign Ringer, or Override Match Score (Symmetric Update + Auto Standings Recalculation)
+        <div id="to-pairings-editor-box" style="background:rgba(2,6,23,0.85);border:1px solid rgba(56,189,248,0.35);border-radius:8px;padding:0.85rem;margin-bottom:0.9rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.55rem;">
+            <div style="font-size:0.8rem;font-weight:800;color:#38bdf8;">
+              🛠️ Modify Pairing, Assign Ringer, or Override Match Score (Symmetric 4-Way Swap + Auto Standings Recalc)
+            </div>
+            <span style="font-size:0.7rem;color:#94a3b8;">💡 Tip: Click any <strong style="color:#fff;">R1–R5 cell</strong> in the table below to load that matchup here</span>
           </div>
-          <div style="display:grid;grid-template-columns:1.2fr 0.7fr 1.2fr 0.8fr 0.7fr 0.7fr auto;gap:0.5rem;align-items:end;">
+          <div style="display:grid;grid-template-columns:1.2fr 0.7fr 1.3fr 0.95fr 0.65fr 0.65fr auto;gap:0.5rem;align-items:end;">
             <div>
               <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Player</label>
-              <select id="to-pair-player" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;">
-                ${podPlayerNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
+              <select id="to-pair-player" onchange="syncStudioPairingsFormFromSelection()" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;">
+                ${podPlayerNames.map(n => `<option value="${escapeHtml(n)}" ${n === selectedPlayer ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('')}
               </select>
             </div>
             <div>
               <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Round</label>
-              <select id="to-pair-round" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;">
-                ${[1,2,3,4,5].map(r => `<option value="${r}">Round ${r}</option>`).join('')}
+              <select id="to-pair-round" onchange="syncStudioPairingsFormFromSelection()" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;">
+                ${[1,2,3,4,5].map(r => `<option value="${r}" ${r === selectedRound ? 'selected' : ''}>Round ${r}</option>`).join('')}
               </select>
             </div>
             <div>
-              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Opponent (or Ringer Name)</label>
-              <input id="to-pair-opponent" list="to-pod-opponents-list" type="text" placeholder="Select or type Ringer..." value="${escapeHtml(podPlayerNames[1] || '')}" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;">
+              <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">New Opponent (or Ringer Name)</label>
+              <input id="to-pair-opponent" list="to-pod-opponents-list" type="text" placeholder="Select pod player or type Ringer..." value="${escapeHtml(initOpponent)}" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(56,189,248,0.45);border-radius:6px;color:#fff;font-size:0.78rem;font-weight:700;">
               <datalist id="to-pod-opponents-list">
                 ${podPlayerNames.map(n => `<option value="${escapeHtml(n)}">`).join('')}
                 <option value="Out-of-Pod Ringer (Ringer)">
@@ -5559,17 +5574,17 @@ function renderStudioLeagueCommandCenterModal() {
             <div>
               <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Match Status</label>
               <select id="to-pair-status" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;">
-                <option value="completed">✅ Completed</option>
-                <option value="scheduled">⏳ Scheduled (Reset)</option>
+                <option value="completed" ${initCompleted ? 'selected' : ''}>✅ Completed (Save Score)</option>
+                <option value="scheduled" ${!initCompleted ? 'selected' : ''}>⏳ Scheduled (Pairing Only)</option>
               </select>
             </div>
             <div>
               <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Player VP</label>
-              <input id="to-pair-pscore" type="number" min="0" max="100" value="88" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#34d399;font-weight:700;font-size:0.78rem;">
+              <input id="to-pair-pscore" type="number" min="0" max="100" value="${initPScore}" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#34d399;font-weight:700;font-size:0.78rem;">
             </div>
             <div>
               <label style="display:block;font-size:0.7rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Opp VP</label>
-              <input id="to-pair-oscore" type="number" min="0" max="100" value="72" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#f87171;font-weight:700;font-size:0.78rem;">
+              <input id="to-pair-oscore" type="number" min="0" max="100" value="${initOScore}" style="width:100%;padding:0.42rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#f87171;font-weight:700;font-size:0.78rem;">
             </div>
             <div>
               <button type="button" onclick="submitStudioPodPairingOverride('${lid}', ${activePod.pod_number})" class="btn btn-primary" style="background:linear-gradient(135deg,#10b981,#059669);border:1px solid #34d399;font-weight:800;font-size:0.76rem;padding:0.45rem 0.85rem;white-space:nowrap;">
@@ -5577,32 +5592,41 @@ function renderStudioLeagueCommandCenterModal() {
               </button>
             </div>
           </div>
-          <div style="margin-top:0.45rem;display:flex;align-items:center;gap:0.75rem;">
+          <div style="margin-top:0.45rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;">
             <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.74rem;color:#fbbf24;cursor:pointer;">
-              <input id="to-pair-ringer" type="checkbox">
-              <span>🃏 Mark as Official Ringer Match (+1 Bonus Battle Point)</span>
+              <input id="to-pair-ringer" type="checkbox" ${initRinger ? 'checked' : ''}>
+              <span>🃏 Mark as Official Ringer Match (+750 In-Pod / +500 Out-of-Pod Ringer Bonus BP)</span>
             </label>
+            <div style="font-size:0.72rem;color:#cbd5e1;">
+              Quick Pick Opponent:
+              ${podPlayerNames.map(n => `
+                <button type="button" onclick="const el=document.getElementById('to-pair-opponent');if(el){el.value='${escapeHtml(n).replace(/'/g, "\\'")}';}" style="background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;border-radius:4px;padding:1px 6px;font-size:0.68rem;font-weight:700;cursor:pointer;margin-left:3px;">
+                  ${escapeHtml(n)}
+                </button>
+              `).join('')}
+            </div>
           </div>
         </div>
 
         <!-- Current Pod Pairings Matrix -->
-        <div style="overflow-x:auto;max-height:280px;">
+        <div style="overflow-x:auto;max-height:300px;">
           <table style="width:100%;border-collapse:collapse;font-size:0.76rem;">
             <thead>
               <tr style="background:rgba(2,6,23,0.9);color:#94a3b8;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);">
                 <th style="padding:0.45rem;">Rank &amp; Player</th>
                 <th style="padding:0.45rem;">W-L-D (BP)</th>
-                <th style="padding:0.45rem;">R1</th>
-                <th style="padding:0.45rem;">R2</th>
-                <th style="padding:0.45rem;">R3</th>
-                <th style="padding:0.45rem;">R4</th>
-                <th style="padding:0.45rem;">R5</th>
+                <th style="padding:0.45rem;">R1 (Click to Edit)</th>
+                <th style="padding:0.45rem;">R2 (Click to Edit)</th>
+                <th style="padding:0.45rem;">R3 (Click to Edit)</th>
+                <th style="padding:0.45rem;">R4 (Click to Edit)</th>
+                <th style="padding:0.45rem;">R5 (Click to Edit)</th>
               </tr>
             </thead>
             <tbody>
               ${standings.map(st => {
                 const pMap = {};
                 (st.pairings || []).forEach(pr => { pMap[Number(pr.round)] = pr; });
+                const safeStName = escapeHtml(st.name || '').replace(/'/g, "\\'");
                 return `
                   <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
                     <td style="padding:0.45rem;font-weight:700;color:#fff;">#${st.rank} ${escapeHtml(st.name)} <span style="color:#38bdf8;font-size:0.68rem;">(${escapeHtml(st.primary_faction || '')})</span></td>
@@ -5610,8 +5634,9 @@ function renderStudioLeagueCommandCenterModal() {
                     ${[1,2,3,4,5].map(r => {
                       const pr = pMap[r] || {};
                       const done = Boolean(pr.is_completed);
-                      return `<td style="padding:0.4rem;color:${done ? '#34d399' : '#cbd5e1'};">
-                        <div style="font-weight:700;">vs ${escapeHtml(pr.opponent_name || 'TBD')}</div>
+                      const isSel = (st.name === selectedPlayer && r === selectedRound);
+                      return `<td onclick="selectStudioMatchCellForEdit('${safeStName}', ${r})" title="Click to load ${escapeHtml(st.name)} Round ${r} into the pairing editor" style="padding:0.4rem;cursor:pointer;border-radius:6px;transition:background 0.15s;background:${isSel ? 'rgba(56,189,248,0.18)' : 'transparent'};border:${isSel ? '1px solid rgba(56,189,248,0.5)' : '1px solid transparent'};color:${done ? '#34d399' : '#cbd5e1'};" onmouseover="if(!${isSel})this.style.background='rgba(255,255,255,0.05)'" onmouseout="if(!${isSel})this.style.background='transparent'">
+                        <div style="font-weight:700;">vs ${escapeHtml(pr.opponent_name || 'TBD')} ✏️</div>
                         <div style="font-size:0.68rem;color:${done ? '#fde68a' : '#64748b'};">${done ? escapeHtml(pr.score || `${pr.player_score}-${pr.opponent_score}`) : escapeHtml(pr.layout || 'Scheduled')}</div>
                       </td>`;
                     }).join('')}
@@ -5942,6 +5967,46 @@ async function saveStudioSeasonSchedule(leagueId, seasonNum) {
 }
 window.saveStudioSeasonSchedule = saveStudioSeasonSchedule;
 
+function syncStudioPairingsFormFromSelection() {
+  const playerVal = document.getElementById('to-pair-player')?.value || '';
+  const roundVal = Number(document.getElementById('to-pair-round')?.value || 1);
+  _studioLeagueCmdState.selectedPairPlayer = playerVal;
+  _studioLeagueCmdState.selectedPairRound = roundVal;
+
+  const lg = _studioLeagueCmdState.leagueData || {};
+  const pods = (lg.active_season && Array.isArray(lg.active_season.pods)) ? lg.active_season.pods : [];
+  const activePod = pods.find(p => Number(p.pod_number) === Number(_studioLeagueCmdState.selectedPodNum)) || pods[0] || {};
+  const standings = Array.isArray(activePod.standings) ? activePod.standings : [];
+  const st = standings.find(s => String(s.name || '').trim() === playerVal);
+  if (!st) return;
+
+  const pr = (st.pairings || []).find(x => Number(x.round) === roundVal) || {};
+  const oppEl = document.getElementById('to-pair-opponent');
+  const statusEl = document.getElementById('to-pair-status');
+  const pScoreEl = document.getElementById('to-pair-pscore');
+  const oScoreEl = document.getElementById('to-pair-oscore');
+  const ringerEl = document.getElementById('to-pair-ringer');
+
+  if (oppEl) oppEl.value = pr.opponent_name || '';
+  if (statusEl) statusEl.value = pr.is_completed ? 'completed' : 'scheduled';
+  if (pScoreEl) pScoreEl.value = pr.player_score != null ? Number(pr.player_score) : 85;
+  if (oScoreEl) oScoreEl.value = pr.opponent_score != null ? Number(pr.opponent_score) : 70;
+  if (ringerEl) ringerEl.checked = Boolean(pr.is_ringer);
+}
+window.syncStudioPairingsFormFromSelection = syncStudioPairingsFormFromSelection;
+
+function selectStudioMatchCellForEdit(playerName, roundNum) {
+  _studioLeagueCmdState.selectedPairPlayer = String(playerName || '');
+  _studioLeagueCmdState.selectedPairRound = Number(roundNum || 1);
+  renderStudioLeagueCommandCenterModal();
+  const box = document.getElementById('to-pairings-editor-box');
+  if (box) {
+    box.style.boxShadow = '0 0 0 2px #38bdf8';
+    setTimeout(() => { if (box) box.style.boxShadow = 'none'; }, 1200);
+  }
+}
+window.selectStudioMatchCellForEdit = selectStudioMatchCellForEdit;
+
 async function submitStudioPodPairingOverride(leagueId, podNum) {
   const player_name = document.getElementById('to-pair-player')?.value || '';
   const round = Number(document.getElementById('to-pair-round')?.value || 1);
@@ -5950,6 +6015,9 @@ async function submitStudioPodPairingOverride(leagueId, podNum) {
   const player_score = Number(document.getElementById('to-pair-pscore')?.value || 0);
   const opponent_score = Number(document.getElementById('to-pair-oscore')?.value || 0);
   const is_ringer = Boolean(document.getElementById('to-pair-ringer')?.checked);
+
+  _studioLeagueCmdState.selectedPairPlayer = player_name;
+  _studioLeagueCmdState.selectedPairRound = round;
 
   try {
     const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/pairings/update`, {
@@ -5972,10 +6040,22 @@ async function submitStudioPodPairingOverride(leagueId, podNum) {
       _studioLeagueCmdState.leagueData = data.league;
       renderStudioLeagueCommandCenterModal();
       await loadManagedStudioLeagues();
-      if (typeof showToast === 'function') showToast(`⚔️ Updated Pod #${podNum} Round ${round} pairing & recalculated standings!`);
+      if (typeof window.leagueState !== 'undefined' && window.leagueState) {
+        if (String(window.leagueState.activeLeagueId || '') === String(data.league.league_id || leagueId)) {
+          window.leagueState.currentLeagueData = data.league;
+          window.leagueState.leagueData = data.league;
+          if (typeof renderLeagueDetailView === 'function') {
+            renderLeagueDetailView(data.league.league_id || leagueId);
+          }
+        }
+      }
+      if (typeof showToast === 'function') showToast(`⚔️ Updated Pod #${podNum} Round ${round} (${player_name} vs ${opponent_name}) & recalculated standings!`);
+    } else if (data.error) {
+      alert(`Failed to update pairing: ${data.error}`);
     }
   } catch (e) {
     console.error('Failed updating pod pairing:', e);
+    alert(`Failed updating pod pairing: ${e.message}`);
   }
 }
 window.submitStudioPodPairingOverride = submitStudioPodPairingOverride;

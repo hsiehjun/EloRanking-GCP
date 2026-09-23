@@ -874,9 +874,12 @@ function renderPodsSubtab(league, currentPod) {
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.95rem; flex-wrap: wrap; gap: 0.65rem;">
         <div>
           <h3 style="margin: 0; font-size: 1.02rem; font-weight: 700; color: #fff;">⚔️ Pod #${currentPod.pod_number} Player Matchups &amp; Scores (5 Games)</h3>
-          <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">Each row shows a player and their 5 assigned opponents. Tap any matchup to launch Tracker, enter scores manually, or chat.</div>
+          <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">Each row shows a player and their 5 assigned opponents. Tap any matchup cell to launch Tracker, enter scores, or reassign opponents/ringers.</div>
         </div>
         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.73rem; font-weight: 700;">
+          <button type="button" onclick="if(typeof _studioLeagueCmdState!=='undefined'){_studioLeagueCmdState.selectedPodNum=${currentPod.pod_number};} if(typeof openStudioLeagueCommandCenterModal==='function'){openStudioLeagueCommandCenterModal('${escapeHtml(league.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90')}', 'pairings');}" class="btn btn-outline" style="font-size: 0.73rem; padding: 3px 9px; border-color: rgba(16, 185, 129, 0.5); color: #34d399; font-weight: 800; background: rgba(16, 185, 129, 0.1);">
+            ⚔️ Edit Pod #${currentPod.pod_number} Pairings &amp; Ringers
+          </button>
           <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.18); border: 1px solid rgba(16, 185, 129, 0.5); color: #34d399; padding: 3px 8px; border-radius: 6px;">
             🟢 Played (Score)
           </span>
@@ -1684,8 +1687,8 @@ function openMatrixMatchupModal(p1Name, p2Name, p1Faction, p2Faction, roundNum, 
         <button type="button" onclick="closeMatrixMatchupModal(); launchLeagueMatchTracker('${safeP1}', '${safeP2}', '${safeF1}', '${safeLayout}', ${rNum}, '${safeLeagueId}', ${pNum}, '${safeF2}')" class="btn btn-primary" style="flex: 1.3; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 800; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none;">
           🎲 Launch Tracker
         </button>
-        <button type="button" onclick="const f = document.getElementById('matrix-inline-score-form'); if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';" class="btn btn-outline" style="flex: 1; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 700; border-color: rgba(16, 185, 129, 0.45); color: #34d399;">
-          📝 Enter Score
+        <button type="button" onclick="const f = document.getElementById('matrix-inline-score-form'); if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';" class="btn btn-outline" style="flex: 1.2; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 700; border-color: rgba(16, 185, 129, 0.45); color: #34d399;">
+          ⚔️ Edit Pairing / Score
         </button>
         ${canShowChat ? `
           <button type="button" onclick="closeMatrixMatchupModal(); openLeagueOpponentChat('${safeChatTarget}', '${safeChatSender}', ${rNum}, ${pNum}, '${safeChatTargetPid}', '${safeChatTargetUid}')" class="btn btn-outline" style="flex: 0.9; padding: 0.55rem 0.75rem; font-size: 0.82rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
@@ -1694,20 +1697,53 @@ function openMatrixMatchupModal(p1Name, p2Name, p1Faction, p2Faction, roundNum, 
         ` : ''}
       </div>
 
-      <!-- Inline Score Entry Drawer -->
-      <div id="matrix-inline-score-form" style="display: none; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px dashed rgba(255,255,255,0.14);">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 0.65rem;">
-          <div>
-            <label style="display: block; font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">${escapeHtml(p1Name)} VP</label>
-            <input id="matrix-score-p1" type="number" min="0" max="100" placeholder="0 - 100" style="width: 100%; padding: 0.45rem 0.6rem; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.45); background: #020617; color: #fff; font-weight: 800; font-size: 0.9rem;">
-          </div>
-          <div>
-            <label style="display: block; font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">${escapeHtml(p2Name)} VP</label>
-            <input id="matrix-score-p2" type="number" min="0" max="100" placeholder="0 - 100" style="width: 100%; padding: 0.45rem 0.6rem; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.45); background: #020617; color: #fff; font-weight: 800; font-size: 0.9rem;">
-          </div>
-        </div>
+      <!-- Inline Pairing & Score Entry Drawer -->
+      <div id="matrix-inline-score-form" style="display: block; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px dashed rgba(255,255,255,0.14);">
+        ${(() => {
+          const curLg = (typeof leagueState !== 'undefined' && (leagueState.currentLeagueData || leagueState.leagueData)) || {};
+          const curPodObj = (curLg.active_season?.pods || []).find(p => Number(p.pod_number) === Number(pNum)) || {};
+          const podNames = (curPodObj.standings || []).map(s => s.name).filter(Boolean);
+          let initS1 = 85, initS2 = 70;
+          if (scoreLabel && String(scoreLabel).includes('-')) {
+            const pts = String(scoreLabel).split('-').map(x => parseInt(x.trim(), 10));
+            if (!isNaN(pts[0]) && !isNaN(pts[1])) { initS1 = pts[0]; initS2 = pts[1]; }
+          }
+          return `
+            <div style="display: grid; grid-template-columns: 1.3fr 1fr; gap: 0.55rem; margin-bottom: 0.6rem;">
+              <div>
+                <label style="display: block; font-size: 0.71rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">Opponent / Ringer (Round ${rNum})</label>
+                <input id="matrix-modal-opponent" list="matrix-modal-opp-list" type="text" value="${escapeHtml(p2Name || '')}" style="width: 100%; padding: 0.44rem 0.55rem; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.45); background: #020617; color: #fff; font-weight: 700; font-size: 0.84rem;">
+                <datalist id="matrix-modal-opp-list">
+                  ${podNames.map(n => `<option value="${escapeHtml(n)}">`).join('')}
+                  <option value="Out-of-Pod Ringer (Ringer)">
+                </datalist>
+              </div>
+              <div>
+                <label style="display: block; font-size: 0.71rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">Match Status</label>
+                <select id="matrix-modal-status" style="width: 100%; padding: 0.44rem 0.55rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: #020617; color: #fff; font-weight: 700; font-size: 0.82rem;">
+                  <option value="completed" ${isCompleted ? 'selected' : ''}>✅ Completed (Save Score)</option>
+                  <option value="scheduled" ${!isCompleted ? 'selected' : ''}>⏳ Scheduled (Pairing Only)</option>
+                </select>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 0.55rem;">
+              <div>
+                <label style="display: block; font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">${escapeHtml(p1Name)} VP</label>
+                <input id="matrix-score-p1" type="number" min="0" max="100" value="${initS1}" style="width: 100%; padding: 0.45rem 0.6rem; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.45); background: #020617; color: #34d399; font-weight: 800; font-size: 0.9rem;">
+              </div>
+              <div>
+                <label style="display: block; font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">Opponent VP</label>
+                <input id="matrix-score-p2" type="number" min="0" max="100" value="${initS2}" style="width: 100%; padding: 0.45rem 0.6rem; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.45); background: #020617; color: #f87171; font-weight: 800; font-size: 0.9rem;">
+              </div>
+            </div>
+            <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; color: #fbbf24; margin-bottom: 0.65rem; cursor: pointer;">
+              <input id="matrix-modal-ringer" type="checkbox">
+              <span>🃏 Official Ringer Match (+750 In-Pod / +500 Out-of-Pod Ringer Bonus BP)</span>
+            </label>
+          `;
+        })()}
         <button type="button" id="matrix-score-save-btn" onclick="submitMatrixMatchupScore('${safeLeagueId}', ${pNum}, ${rNum}, '${safeP1}', '${safeP2}')" class="btn btn-primary" style="width: 100%; padding: 0.55rem; font-size: 0.82rem; font-weight: 800; background: #10b981; border: none; color: #022c22;">
-          ✓ Submit Official Match Score
+          ✓ Save Pairing &amp; Match Update
         </button>
       </div>
     </div>
@@ -1719,47 +1755,65 @@ window.openMatrixMatchupModal = openMatrixMatchupModal;
 async function submitMatrixMatchupScore(leagueId, podNum, roundNum, player1, player2) {
   const p1El = document.getElementById('matrix-score-p1');
   const p2El = document.getElementById('matrix-score-p2');
+  const oppEl = document.getElementById('matrix-modal-opponent');
+  const statusEl = document.getElementById('matrix-modal-status');
+  const ringerEl = document.getElementById('matrix-modal-ringer');
   const btn = document.getElementById('matrix-score-save-btn');
   if (!p1El || !p2El) return;
 
-  const s1 = parseInt(p1El.value, 10);
-  const s2 = parseInt(p2El.value, 10);
-  if (isNaN(s1) || isNaN(s2) || s1 < 0 || s2 < 0 || s1 > 100 || s2 > 100) {
+  const newOpponent = (oppEl ? oppEl.value.trim() : player2) || player2;
+  const statusVal = statusEl ? statusEl.value : 'completed';
+  const isCompleted = statusVal === 'completed';
+  const isRinger = Boolean(ringerEl?.checked);
+
+  const s1 = parseInt(p1El.value, 10) || 0;
+  const s2 = parseInt(p2El.value, 10) || 0;
+  if (isCompleted && (s1 < 0 || s2 < 0 || s1 > 100 || s2 > 100)) {
     alert('Please enter valid Victory Points between 0 and 100 for both players.');
     return;
   }
 
   if (btn) {
     btn.disabled = true;
-    btn.textContent = 'Saving Score...';
+    btn.textContent = 'Saving Update...';
   }
 
   try {
-    const res = await fetch(`/api/league/${encodeURIComponent(leagueId || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90')}/match/report`, {
+    const cleanLid = leagueId || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90';
+    const res = await fetch(`/api/league/${encodeURIComponent(cleanLid)}/pairings/update`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        action: 'update_match',
         pod_number: podNum,
-        round_number: roundNum,
-        player1: player1,
-        player2: player2,
-        score1: s1,
-        score2: s2,
-        source: 'Schedule Matrix Manual Entry'
+        round: roundNum,
+        player_name: player1,
+        opponent_name: newOpponent,
+        is_completed: isCompleted,
+        is_ringer: isRinger,
+        player_score: s1,
+        opponent_score: s2
       })
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
 
     closeMatrixMatchupModal();
+    if (data.league && typeof leagueState !== 'undefined') {
+      leagueState.currentLeagueData = data.league;
+      leagueState.leagueData = data.league;
+    }
     if (typeof renderLeagueDetailView === 'function') {
-      renderLeagueDetailView(leagueId || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90');
+      renderLeagueDetailView(cleanLid);
+    }
+    if (typeof showToast === 'function') {
+      showToast(`⚔️ Updated Pod #${podNum} Round ${roundNum}: ${player1} vs ${newOpponent}!`);
     }
   } catch (err) {
-    alert(`Failed to save score: ${err.message}`);
+    alert(`Failed to save pairing/score: ${err.message}`);
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '✓ Submit Official Match Score';
+      btn.textContent = '✓ Save Pairing & Match Update';
     }
   }
 }
