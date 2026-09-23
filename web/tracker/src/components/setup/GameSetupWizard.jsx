@@ -63,9 +63,9 @@ export function GameSetupWizard({ onGameStarted }) {
   };
 
   return (
-    <div className="gtk gtk-page max-w-2xl mx-auto px-3 pb-28 pt-2">
-      {/* Top Stepper Indicator */}
-      <div className="mb-6">
+    <div className="gtk gtk-page max-w-2xl mx-auto px-3 pb-24 pt-1">
+      {/* Compact Top Stepper Indicator */}
+      <div className="mb-3">
         <div className="flex items-center justify-center gap-1">
           {Array.from({ length: 7 }, (_, i) => i + 1).map(num => {
             const isCompleted = num < step;
@@ -74,9 +74,12 @@ export function GameSetupWizard({ onGameStarted }) {
             return (
               <React.Fragment key={num}>
                 <div
-                  className="gtk-mono flex h-7 w-7 items-center justify-center rounded-full border text-[12px] font-bold transition-all"
-                  style={
-                    isCurrent
+                  className="gtk-mono flex items-center justify-center rounded-full border font-bold transition-all"
+                  style={{
+                    width: "22px",
+                    height: "22px",
+                    fontSize: "11px",
+                    ...(isCurrent
                       ? {
                           background: "var(--gtk-accent)",
                           color: "#15171b",
@@ -92,14 +95,14 @@ export function GameSetupWizard({ onGameStarted }) {
                           color: "var(--gtk-muted)",
                           borderColor: "var(--gtk-line)",
                           background: "var(--gtk-tile)"
-                        }
-                  }
+                        })
+                  }}
                 >
-                  {isCompleted ? <CheckIcon className="h-4 w-4" strokeWidth={3} /> : num}
+                  {isCompleted ? <CheckIcon className="h-3.5 w-3.5" strokeWidth={3} /> : num}
                 </div>
                 {num < 7 && (
                   <span
-                    className="h-px w-2.5"
+                    className="h-px w-2"
                     style={{ background: "var(--gtk-line)" }}
                   />
                 )}
@@ -108,19 +111,21 @@ export function GameSetupWizard({ onGameStarted }) {
           })}
         </div>
 
-        {/* Step Title & Subtitle */}
-        <h2 className="gtk-h2 mt-3 text-center text-[28px] font-bold uppercase leading-tight">
-          {STEP_TITLES[step - 1]}
-        </h2>
-        <p
-          className="gtk-mono mt-1 text-center text-[11px] font-bold uppercase tracking-[0.14em]"
-          style={{ color: "var(--gtk-muted)" }}
-        >
-          Step {step} of 7
-        </p>
+        {/* Compact Step Title & Subtitle */}
+        <div className="mt-1.5 flex items-baseline justify-center gap-2">
+          <span
+            className="gtk-mono text-[10px] font-bold uppercase tracking-[0.12em]"
+            style={{ color: "var(--gtk-muted)" }}
+          >
+            Step {step}/7 ·
+          </span>
+          <h2 className="gtk-h2 text-center text-[21px] font-bold uppercase leading-tight">
+            {STEP_TITLES[step - 1]}
+          </h2>
+        </div>
         {STEP_SUBTITLES[step] && (
           <p
-            className="gtk-mono mt-1 text-center text-[10.5px] font-bold uppercase tracking-[0.12em]"
+            className="gtk-mono mt-0.5 text-center text-[10px] font-bold uppercase tracking-[0.1em]"
             style={{ color: "var(--gtk-accent)" }}
           >
             {STEP_SUBTITLES[step]}
@@ -129,7 +134,7 @@ export function GameSetupWizard({ onGameStarted }) {
       </div>
 
       {/* Step Content */}
-      <div className="mb-6">
+      <div className="mb-4">
         {step === 1 && <Step1Players />}
         {step === 2 && <Step2Detachments />}
         {step === 3 && <Step3Dispositions />}
@@ -141,26 +146,28 @@ export function GameSetupWizard({ onGameStarted }) {
 
       {/* Fixed Bottom Navigation Bar */}
       <div
-        className="fixed inset-x-0 bottom-0 z-40 border-t px-4 pt-3.5"
+        className="fixed inset-x-0 bottom-0 z-40 border-t px-3"
         style={{
           background: "var(--gtk-panel)",
           borderColor: "var(--gtk-line)",
-          paddingBottom: "calc(14px + env(safe-area-inset-bottom))",
-          boxShadow: "0 -10px 30px rgba(0,0,0,.22)"
+          paddingTop: "6px",
+          paddingBottom: "calc(6px + env(safe-area-inset-bottom, 0px))",
+          boxShadow: "0 -8px 24px rgba(0,0,0,.25)"
         }}
       >
-        <div className="mx-auto flex max-w-[540px] items-center gap-3 md:max-w-[720px]">
+        <div className="mx-auto flex max-w-[540px] items-center gap-2.5 md:max-w-[720px]">
           <button
             type="button"
             onClick={handleBack}
             disabled={step === 1}
-            className="flex h-12 flex-none items-center justify-center gap-2 rounded-[11px] border-2 px-5 font-mono text-[13px] font-bold uppercase tracking-[0.12em] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="flex flex-none items-center justify-center gap-1.5 rounded-[10px] border-2 px-4 font-mono text-[12px] font-bold uppercase tracking-[0.1em] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             style={{
+              height: "38px",
               borderColor: "var(--gtk-line)",
               color: "var(--gtk-text)"
             }}
           >
-            <ArrowLeftIcon className="h-4 w-4" />
+            <ArrowLeftIcon className="h-3.5 w-3.5" />
             Back
           </button>
 
@@ -168,14 +175,15 @@ export function GameSetupWizard({ onGameStarted }) {
             type="button"
             onClick={handleNext}
             disabled={!canProceed}
-            className="flex h-12 flex-1 items-center justify-center gap-2 rounded-[11px] px-6 font-mono text-[14px] font-bold uppercase tracking-[0.12em] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-[10px] px-5 font-mono text-[13px] font-bold uppercase tracking-[0.1em] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
+              height: "38px",
               background: "var(--gtk-accent)",
               color: "#15171b"
             }}
           >
             {isLastStep ? "Start Game" : "Next"}
-            <ArrowRightIcon className="h-4 w-4" />
+            <ArrowRightIcon className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>

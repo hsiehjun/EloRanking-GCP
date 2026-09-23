@@ -7,7 +7,7 @@ export function Step5Roles() {
   const game = state.game;
 
   return (
-    <section className="flex flex-col gap-5">
+    <section className="flex flex-col gap-3.5">
       {[1, 2].map(playerNum => {
         const isP1 = playerNum === 1;
         const name = (isP1 ? game.p1Name : game.p2Name) || `Player ${playerNum}`;
@@ -15,15 +15,15 @@ export function Step5Roles() {
         const playerColor = PLAYER_COLORS[playerNum];
 
         return (
-          <div key={playerNum} className="flex flex-col gap-2">
+          <div key={playerNum} className="flex flex-col gap-1.5">
             <span
-              className="gtk-mono text-[11px] font-bold uppercase tracking-[0.16em]"
+              className="gtk-mono text-[10.5px] font-bold uppercase tracking-[0.16em]"
               style={{ color: playerColor }}
             >
               {name}
             </span>
 
-            <div className="flex gap-3">
+            <div className="flex gap-2.5">
               {["attacker", "defender"].map(role => {
                 const isActive = currentRole === role;
                 const label = role.charAt(0).toUpperCase() + role.slice(1);
@@ -34,7 +34,7 @@ export function Step5Roles() {
                     type="button"
                     aria-pressed={isActive}
                     onClick={() => selectRole(playerNum, role)}
-                    className="flex flex-1 flex-col items-center justify-center gap-1 rounded-[13px] border-2 py-4 px-3 transition-colors"
+                    className="flex flex-1 flex-col items-center justify-center gap-1 rounded-[11px] border-2 py-3 px-3 transition-colors"
                     style={
                       isActive
                         ? {
@@ -49,7 +49,7 @@ export function Step5Roles() {
                           }
                     }
                   >
-                    <span className="gtk-display text-[22px] font-bold uppercase leading-none">
+                    <span className="gtk-display text-[19px] font-bold uppercase leading-none">
                       {label}
                     </span>
                   </button>

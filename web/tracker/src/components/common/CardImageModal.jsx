@@ -55,7 +55,8 @@ export function CardImageModal({
       aria-modal="true"
       aria-label={title || alt}
       onClick={onClose}
-      className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-3 overflow-y-auto bg-black/90 p-4 backdrop-blur-sm"
+      className="fixed inset-0 flex flex-col items-center justify-center gap-3 overflow-y-auto bg-black/90 p-4 backdrop-blur-sm"
+      style={{ position: "fixed", inset: 0, zIndex: 100060 }}
     >
       {/* Title Header */}
       <div
@@ -68,14 +69,15 @@ export function CardImageModal({
       {/* Card Image Container */}
       <div
         onClick={e => e.stopPropagation()}
-        className="relative flex items-center justify-center max-h-[72vh] sm:max-h-[80vh] max-w-[95vw]"
+        className="relative flex items-center justify-center"
+        style={{ maxHeight: "72dvh", maxWidth: "95vw" }}
       >
         <img
           key={currentImage}
           src={currentImage}
           alt={alt}
-          className="max-h-[68vh] sm:max-h-[76vh] w-auto rounded-[12px] border-2 shadow-2xl object-contain transition-all"
-          style={{ borderColor: borderColor || "#fff" }}
+          className="w-auto rounded-[12px] border-2 shadow-2xl object-contain transition-all"
+          style={{ maxHeight: "68dvh", maxWidth: "92vw", borderColor: borderColor || "#fff" }}
         />
       </div>
 

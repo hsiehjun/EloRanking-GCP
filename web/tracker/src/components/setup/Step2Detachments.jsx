@@ -12,16 +12,16 @@ export function Step2Detachments() {
   const [editingPlayer, setEditingPlayer] = useState(null);
 
   return (
-    <section className="flex flex-col gap-5">
+    <section className="flex flex-col gap-3.5">
       <p
-        className="gtk-mono text-center text-[12px] leading-snug"
+        className="gtk-mono text-center text-[11px] leading-snug"
         style={{ color: "var(--gtk-muted)" }}
       >
         Optional. Spend up to {MAX_DETACHMENT_POINTS} Detachment Points. Each detachment grants a
-        force disposition. Skip to keep it open.
+        force disposition.
       </p>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
         {[1, 2].map(playerNum => {
           const isP1 = playerNum === 1;
           const name = (isP1 ? game.p1Name : game.p2Name) || `Player ${playerNum}`;
@@ -38,9 +38,9 @@ export function Step2Detachments() {
           }, 0);
 
           return (
-            <div key={playerNum} className="flex flex-col gap-2">
+            <div key={playerNum} className="flex flex-col gap-1.5">
               <span
-                className="gtk-mono text-[11px] font-bold uppercase tracking-[0.16em]"
+                className="gtk-mono text-[10.5px] font-bold uppercase tracking-[0.16em]"
                 style={{ color: playerColor }}
               >
                 {name} {factionLabel ? `· ${factionLabel}` : ""}
@@ -48,7 +48,7 @@ export function Step2Detachments() {
 
               {/* Detachment Chips */}
               {detachments.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-1">
+                <div className="flex flex-wrap gap-1.5 mb-0.5">
                   {detachments.map(dName => {
                     const info = getDetachmentInfo(faction, dName);
                     if (!info) return null;
@@ -56,14 +56,14 @@ export function Step2Detachments() {
                     return (
                       <span
                         key={dName}
-                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1"
+                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5"
                         style={{
                           background: `${dispoColor}1f`,
                           border: `1px solid ${dispoColor}`
                         }}
                       >
                         <span
-                          className="gtk-display text-[13px] font-bold leading-none"
+                          className="gtk-display text-[12.5px] font-bold leading-none"
                           style={{ color: "var(--gtk-text)" }}
                         >
                           {info.name}
@@ -85,7 +85,7 @@ export function Step2Detachments() {
                 type="button"
                 disabled={!hasFaction}
                 onClick={() => setEditingPlayer(playerNum)}
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-[12px] border-2 font-mono text-[13px] font-bold uppercase tracking-[0.1em] transition-colors disabled:opacity-40"
+                className="flex h-10 w-full items-center justify-center gap-2 rounded-[10px] border-2 font-mono text-[12px] font-bold uppercase tracking-[0.1em] transition-colors disabled:opacity-40"
                 style={
                   detachments.length > 0
                     ? {

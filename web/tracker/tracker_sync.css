@@ -540,26 +540,26 @@ body {
 
 /* Unified Match Navigation Bar Top Spacing & Horizontal Slide Scrolling */
 body:has(#gt-sync-hud) {
-  padding-top: max(56px, calc(56px + env(safe-area-inset-top, 0px))) !important;
+  padding-top: max(42px, calc(42px + env(safe-area-inset-top, 0px))) !important;
 }
 
 #gt-sync-hud {
   position: fixed !important;
-  top: max(8px, calc(6px + env(safe-area-inset-top, 0px))) !important;
-  left: max(8px, env(safe-area-inset-left, 0px)) !important;
-  right: max(8px, env(safe-area-inset-right, 0px)) !important;
+  top: max(4px, calc(4px + env(safe-area-inset-top, 0px))) !important;
+  left: max(6px, env(safe-area-inset-left, 0px)) !important;
+  right: max(6px, env(safe-area-inset-right, 0px)) !important;
   z-index: 99999 !important;
   display: flex !important;
   align-items: center !important;
   justify-content: flex-start !important;
-  gap: 8px !important;
+  gap: 6px !important;
   background: rgba(15, 23, 42, 0.97) !important;
   border: 1px solid rgba(56, 189, 248, 0.35) !important;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7) !important;
   backdrop-filter: blur(16px) !important;
   -webkit-backdrop-filter: blur(16px) !important;
-  padding: 6px 10px !important;
-  border-radius: 12px !important;
+  padding: 4px 8px !important;
+  border-radius: 10px !important;
   overflow-x: auto !important;
   overflow-y: hidden !important;
   -webkit-overflow-scrolling: touch !important;
@@ -898,22 +898,22 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
     display: flex !important;
     align-items: center !important;
     justify-content: space-around !important;
-    gap: 4px !important;
+    gap: 3px !important;
     background: rgba(11, 17, 32, 0.98) !important;
     backdrop-filter: blur(16px) !important;
     -webkit-backdrop-filter: blur(16px) !important;
     border-top: 1px solid rgba(56, 189, 248, 0.3) !important;
-    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.7) !important;
-    padding: 3px 6px calc(3px + env(safe-area-inset-bottom, 0px)) 6px !important;
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.7) !important;
+    padding: 2px 5px calc(2px + env(safe-area-inset-bottom, 0px)) 5px !important;
     box-sizing: border-box !important;
-    height: 44px !important;
-    height: calc(44px + env(safe-area-inset-bottom, 0px)) !important;
+    height: 36px !important;
+    height: calc(36px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
   /* When wizard navigation bar or scorecard turn dock is present, position it cleanly directly above the bottom action dock */
   .fixed.inset-x-0.bottom-0,
   .fixed.bottom-0.left-0.right-0 {
-    bottom: calc(44px + env(safe-area-inset-bottom, 0px)) !important;
+    bottom: calc(36px + env(safe-area-inset-bottom, 0px)) !important;
     z-index: 99997 !important;
   }
 
@@ -924,20 +924,20 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
   .gtk-page,
   body.is-tracker-play,
   .max-w-4xl {
-    padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px)) !important;
+    padding-bottom: calc(95px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
   .gt-dock-btn {
     flex: 1 1 0 !important;
     min-width: 0 !important;
-    height: 40px !important;
-    padding: 2px 3px !important;
-    border-radius: 8px !important;
+    height: 30px !important;
+    padding: 1px 4px !important;
+    border-radius: 7px !important;
     display: flex !important;
-    flex-direction: column !important;
+    flex-direction: row !important;
     align-items: center !important;
     justify-content: center !important;
-    gap: 2px !important;
+    gap: 3px !important;
     cursor: pointer !important;
     border: 1px solid rgba(255, 255, 255, 0.12) !important;
     background: #181d28 !important;
@@ -955,14 +955,14 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
   }
 
   .gt-dock-btn .gt-dock-icon {
-    font-size: 16px !important;
+    font-size: 13px !important;
     line-height: 1 !important;
   }
 
   .gt-dock-btn .gt-dock-label {
     font-size: 9px !important;
     font-weight: 700 !important;
-    letter-spacing: 0.02em !important;
+    letter-spacing: 0.01em !important;
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;

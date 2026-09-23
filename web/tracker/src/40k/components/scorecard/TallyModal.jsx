@@ -167,7 +167,7 @@ export function TallyModal({
       )}
 
       {/* Checklist Body */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 max-h-[55vh]">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4" style={{ flex: "1 1 auto", minHeight: 0, maxHeight: "calc(100dvh - 160px)", overflowY: "auto" }}>
         <p className="gtk-mono text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--gtk-muted, #94a3b8)" }}>
           Tally what you scored
         </p>

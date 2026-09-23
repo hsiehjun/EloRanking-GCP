@@ -31,28 +31,27 @@ export function Step4Terrain() {
   };
 
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-2.5">
       <p
-        className="gtk-mono text-center text-[12px] leading-snug"
+        className="gtk-mono text-center text-[11px] leading-snug"
         style={{ color: "var(--gtk-muted)" }}
       >
-        These are the recommended terrain layouts for your matchup — pick the one on your table,
-        or skip this step if you create your own battlefield layout.
+        Pick a recommended terrain layout for your matchup, or skip for custom layout.
       </p>
 
       {/* Info Notice */}
       <div
         role="note"
-        className="flex items-start gap-3 rounded-xl border p-3.5 text-left"
+        className="flex items-center gap-2.5 rounded-xl border px-3 py-2 text-left"
         style={{
           borderColor: "var(--gtk-line)",
           background: "var(--gtk-tile)",
           color: "var(--gtk-text)"
         }}
       >
-        <InfoIcon className="mt-0.5 h-5 w-5 flex-none" style={{ color: "#3b82f6" }} />
-        <p className="gtk-mono text-[13px] leading-snug">
-          The terrain layouts come from{" "}
+        <InfoIcon className="h-4 w-4 flex-none" style={{ color: "#3b82f6" }} />
+        <p className="gtk-mono text-[11.5px] leading-snug">
+          Terrain layouts from{" "}
           <a
             href="https://battlemaster.online"
             target="_blank"
@@ -61,20 +60,20 @@ export function Step4Terrain() {
           >
             Battlemaster
           </a>{" "}
-          and match official layouts.
+          matching official competitive layouts.
         </p>
       </div>
 
       {/* 3 Layout Thumbnails Header & Measurements Toggle */}
       <div className="flex items-center justify-between px-0.5">
-        <span className="gtk-mono text-[11px] font-bold text-[var(--gtk-muted)] uppercase tracking-wider">
+        <span className="gtk-mono text-[10.5px] font-bold text-[var(--gtk-muted)] uppercase tracking-wider">
           Recommended Layouts
         </span>
         <button
           type="button"
           onClick={toggleMeasurements}
           aria-pressed={measurements}
-          className="flex items-center gap-2 rounded-full px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.08em] transition-all hover:brightness-110 active:scale-95"
+          className="flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.08em] transition-all hover:brightness-110 active:scale-95"
           style={{
             background: measurements ? "#2563eb" : "rgba(255,255,255,0.08)",
             border: measurements ? "1px solid #60a5fa" : "1px solid var(--gtk-line)",
@@ -91,7 +90,7 @@ export function Step4Terrain() {
       </div>
 
       {/* 3 Layout Thumbnails */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2.5">
         {matchup.layouts.map(layout => {
           const isSelected = game.terrainLayout === layout.number;
           return (
@@ -100,7 +99,7 @@ export function Step4Terrain() {
               type="button"
               aria-pressed={isSelected}
               onClick={() => selectTerrainLayout(isSelected ? null : layout.number)}
-              className="flex flex-col items-center gap-2 rounded-[12px] border-2 p-2 transition-colors"
+              className="flex flex-col items-center gap-1.5 rounded-[10px] border-2 p-1.5 transition-colors"
               style={{
                 borderColor: isSelected ? "var(--gtk-accent)" : "var(--gtk-line)",
                 background: isSelected
@@ -108,16 +107,20 @@ export function Step4Terrain() {
                   : "var(--gtk-tile)"
               }}
             >
-              <div className="w-full aspect-[9/16] overflow-hidden rounded-[8px] bg-black/25 flex items-center justify-center">
+              <div
+                className="w-full overflow-hidden rounded-[7px] bg-black/25 flex items-center justify-center"
+                style={{ maxHeight: "145px" }}
+              >
                 <img
                   src={measurements ? layout.measurementsImage : layout.image}
                   alt={`Layout ${layout.number}`}
                   loading="lazy"
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
+                  style={{ maxHeight: "145px" }}
                 />
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.1em]">
+              <div className="flex items-center gap-1">
+                <span className="gtk-mono text-[10.5px] font-bold uppercase tracking-[0.08em]">
                   Layout {layout.number}
                 </span>
                 {isSelected && (

@@ -35,8 +35,8 @@ export function Step3Dispositions() {
   const bothSelected = !!game.p1Disposition && !!game.p2Disposition;
 
   return (
-    <section className="flex flex-col gap-5">
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+    <section className="flex flex-col gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {[1, 2].map(playerNum => {
           const isP1 = playerNum === 1;
           const name = (isP1 ? game.p1Name : game.p2Name) || `Player ${playerNum}`;
@@ -45,15 +45,15 @@ export function Step3Dispositions() {
           const playerColor = PLAYER_COLORS[playerNum];
 
           return (
-            <div key={playerNum} className="flex flex-col gap-2">
+            <div key={playerNum} className="flex flex-col gap-1.5">
               <span
-                className="gtk-mono text-[11px] font-bold uppercase tracking-[0.16em]"
+                className="gtk-mono text-[10.5px] font-bold uppercase tracking-[0.16em]"
                 style={{ color: playerColor }}
               >
                 {name}
               </span>
 
-              <div className="gtk-tiles flex flex-col gap-2">
+              <div className="gtk-tiles flex flex-col gap-1.5">
                 {FORCE_DISPOSITIONS.map(dispo => {
                   const isSelected = currentVal === dispo.key;
                   // If one is selected, hide the others unless clicked to unselect
@@ -68,7 +68,7 @@ export function Step3Dispositions() {
                       type="button"
                       aria-pressed={isSelected}
                       onClick={() => selectDisposition(playerNum, isSelected ? null : dispo.key)}
-                      className={`gtk-tile flex items-center justify-between rounded-[12px] border-2 p-3 transition-colors ${
+                      className={`gtk-tile flex items-center justify-between rounded-[10px] border-2 px-3 py-2 transition-colors ${
                         isSelected ? "gtk-on" : ""
                       }`}
                       style={{
@@ -80,14 +80,14 @@ export function Step3Dispositions() {
                           : "var(--gtk-tile)"
                       }}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2.5">
                         <span
-                          className="gtk-ic flex h-7 w-7 items-center justify-center"
+                          className="gtk-ic flex h-5 w-5 items-center justify-center"
                           style={{ color: isSelected ? color : "var(--gtk-text)" }}
                         >
                           {DISPOSITION_ICONS[dispo.key]}
                         </span>
-                        <span className="gtk-nm font-display text-[18px] font-bold uppercase leading-none">
+                        <span className="gtk-nm font-display text-[15px] font-bold uppercase leading-none">
                           {dispo.name}
                         </span>
                       </div>
@@ -95,14 +95,14 @@ export function Step3Dispositions() {
                       <div className="flex items-center gap-2">
                         {isGranted && !isSelected && (
                           <span
-                            className="gtk-mono rounded-full px-2 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.1em] text-white"
+                            className="gtk-mono rounded-full px-2 py-0.5 text-[8px] font-bold uppercase tracking-[0.1em] text-white"
                             style={{ background: color }}
                           >
                             Detachment
                           </span>
                         )}
                         {isSelected && (
-                          <CheckIcon className="h-5 w-5 flex-none" style={{ color }} />
+                          <CheckIcon className="h-4 w-4 flex-none" style={{ color }} />
                         )}
                       </div>
                     </button>

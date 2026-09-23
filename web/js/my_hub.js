@@ -1291,7 +1291,7 @@ function renderMyHub(data) {
               <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">${sys === 'aos' ? 'AoS' : '11th Ed'}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <a href="${(typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker'}" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Game Tracker ➔</a>
+              <a href="${(typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker'}" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Game Tracker ➔</a>
             </div>
           </div>
 
@@ -1336,7 +1336,7 @@ function renderMyHub(data) {
                           </div>
                         </div>
                         <div style="display: flex; gap: 6px; align-items: center;">
-                          <a href="${resumeUrl}" target="_blank" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
+                          <a href="${resumeUrl}" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
                             ▶️ Resume Match
                           </a>
                           ${!(String(mid).toUpperCase().startsWith('BCP-') || String(mid).toUpperCase().startsWith('ES-') || m.event_id || m.tournament_id) ? `
@@ -1409,7 +1409,7 @@ function renderMyHub(data) {
             <div style="padding: 2.25rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
               <div style="font-size: 1.05rem; margin-bottom: 0.35rem;">🎲 No Live Game Tracker matches logged.</div>
               <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">Track live games with automated scoring & real-time sync!</div>
-              <a href="${(typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker'}" target="_blank" class="bcp-login-btn" style="text-decoration:none; display:inline-block; font-size:0.8rem; padding:0.4rem 0.9rem;">+ Open Game Tracker</a>
+              <a href="${(typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker'}" class="bcp-login-btn" style="text-decoration:none; display:inline-block; font-size:0.8rem; padding:0.4rem 0.9rem;">+ Open Game Tracker</a>
             </div>
           ` : ''}
         </div>
@@ -3489,10 +3489,16 @@ async function deleteHubArmyList(listId, fromModal = false) {
 }
 
 function launchTrackerWithList(listId) {
-  const list = hubSavedLists.find(l => l.id === listId);
-  // Launch tracker with preloaded state
-  const trackerUrl = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker';
-  window.open(trackerUrl, '_blank');
+  const list = (hubSavedLists || []).find(l => l.id === listId);
+  const isAos = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos');
+  const trackerUrl = isAos ? '/11th/tracker/aos' : '/11th/tracker';
+  if (list) {
+    try {
+      localStorage.setItem('omni_preloaded_list', JSON.stringify(list));
+      sessionStorage.setItem('omni_preloaded_list', JSON.stringify(list));
+    } catch (e) {}
+  }
+  window.location.href = trackerUrl;
 }
 
 function discardTrackerSession(matchId) {

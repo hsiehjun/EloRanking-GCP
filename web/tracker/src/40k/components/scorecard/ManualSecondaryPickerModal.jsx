@@ -45,7 +45,7 @@ export function ManualSecondaryPickerModal({ player, available = [], round = 1, 
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto p-4 max-h-[55vh]">
+      <div className="flex-1 overflow-y-auto p-4" style={{ flex: "1 1 auto", minHeight: 0, maxHeight: "calc(100dvh - 160px)", overflowY: "auto" }}>
         {cards.length === 0 ? (
           <p className="gtk-mono text-[12px] text-center py-4" style={{ color: "var(--gtk-muted)" }}>
             No secondaries left in the deck.

@@ -44,7 +44,7 @@ export function GameSettingsModal({ onClose }) {
       </div>
 
       {/* Body */}
-      <div className="flex flex-col gap-4 p-4 max-h-[65vh] overflow-y-auto">
+      <div className="flex flex-col gap-4 p-4 overflow-y-auto" style={{ flex: "1 1 auto", minHeight: 0, maxHeight: "calc(100dvh - 150px)", overflowY: "auto" }}>
         {/* Player Name and Battle Ready */}
         {[1, 2].map(playerNum => {
           const isP1 = playerNum === 1;

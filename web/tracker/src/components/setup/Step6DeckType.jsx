@@ -13,7 +13,7 @@ export function Step6DeckType() {
   const game = state.game;
 
   return (
-    <section className="flex flex-col gap-5">
+    <section className="flex flex-col gap-3.5">
       {[1, 2].map(playerNum => {
         const isP1 = playerNum === 1;
         const name = (isP1 ? game.p1Name : game.p2Name) || `Player ${playerNum}`;
@@ -21,15 +21,15 @@ export function Step6DeckType() {
         const playerColor = PLAYER_COLORS[playerNum];
 
         return (
-          <div key={playerNum} className="flex flex-col gap-2">
+          <div key={playerNum} className="flex flex-col gap-1.5">
             <span
-              className="gtk-mono text-[11px] font-bold uppercase tracking-[0.16em]"
+              className="gtk-mono text-[10.5px] font-bold uppercase tracking-[0.16em]"
               style={{ color: playerColor }}
             >
               {name}
             </span>
 
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-3 gap-2">
               {MISSION_TYPES.map(type => {
                 const isActive = currentType === type.key;
                 return (
@@ -38,7 +38,7 @@ export function Step6DeckType() {
                     type="button"
                     aria-pressed={isActive}
                     onClick={() => selectMissionType(playerNum, type.key)}
-                    className="flex flex-col items-center justify-start gap-1 rounded-[13px] border-2 px-2.5 py-3 text-center transition-colors"
+                    className="flex flex-col items-center justify-start gap-1 rounded-[11px] border-2 px-2 py-2.5 text-center transition-colors"
                     style={
                       isActive
                         ? {
@@ -53,11 +53,11 @@ export function Step6DeckType() {
                           }
                     }
                   >
-                    <span className="gtk-display text-[20px] font-bold uppercase leading-none">
+                    <span className="gtk-display text-[17px] font-bold uppercase leading-none">
                       {type.name}
                     </span>
                     <span
-                      className="gtk-mono text-[9.5px] font-semibold uppercase tracking-[0.06em]"
+                      className="gtk-mono text-[9px] font-semibold uppercase tracking-[0.04em]"
                       style={{ opacity: isActive ? 0.9 : 0.6 }}
                     >
                       {type.desc}

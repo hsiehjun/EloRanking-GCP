@@ -268,6 +268,11 @@ function switchTab(tabName) {
   }
   if (tabName === 'eventstudio') tabName = 'event-studio';
   if (tabName === 'myhub') tabName = 'my-hub';
+  if (tabName === 'tracker' || tabName === 'game-tracker' || tabName === 'gametracker') {
+    const isAos = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos');
+    window.location.href = isAos ? '/11th/tracker/aos' : '/11th/tracker';
+    return;
+  }
 
   activeTab = tabName;
 
@@ -886,13 +891,35 @@ window.checkAppVersionForUpdates = checkAppVersionForUpdates;
 window.applyAppUpdateNow = applyAppUpdateNow;
 window.dismissAppUpdateBanner = dismissAppUpdateBanner;
 
+function dismissBootSplash() {
+  const splash = document.getElementById('app-boot-splash');
+  if (splash && splash.style.display !== 'none') {
+    splash.style.opacity = '0';
+    splash.style.pointerEvents = 'none';
+    setTimeout(() => {
+      splash.style.display = 'none';
+      try { splash.remove(); } catch(e) {}
+    }, 450);
+  }
+}
+window.dismissBootSplash = dismissBootSplash;
+// Safety fallback so splash never blocks user under slow network
+setTimeout(dismissBootSplash, 3500);
+
 document.addEventListener('DOMContentLoaded', async () => {
+  const updateBootStatus = (msg) => {
+    const el = document.getElementById('app-boot-status-text');
+    if (el) el.textContent = msg;
+  };
+
+  updateBootStatus('AUTHENTICATING HIGH COMMAND...');
   if (typeof initGameSystem === 'function') {
     initGameSystem();
   }
   if (typeof initAuth === 'function') {
     await initAuth();
   }
+  updateBootStatus('SYNCHRONIZING TACTICAL DOSSIER...');
   if (typeof syncAppAuthView === 'function') {
     syncAppAuthView();
   }
@@ -911,6 +938,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Gate all features behind login
   if (!currentUser) {
+    dismissBootSplash();
     const params = new URLSearchParams(window.location.search);
     const authAction = params.get('auth');
     if (authAction === 'register') {
@@ -939,6 +967,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const hashVal = window.location.hash ? window.location.hash.trim() : null;
   if (hashVal && typeof handleAppRoute === 'function' && handleAppRoute(hashVal)) {
+    setTimeout(dismissBootSplash, 150);
     return;
   }
   const params = new URLSearchParams(window.location.search);
@@ -969,6 +998,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       toggleFloatingChat(true);
     }
   }
+  setTimeout(dismissBootSplash, 150);
 });
 
 function openMobileMoreSheet() {

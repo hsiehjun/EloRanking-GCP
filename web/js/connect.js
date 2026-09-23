@@ -1776,7 +1776,7 @@ function renderChatMessages(messages, scrollOnlyIfNearBottom = true) {
             <div style="font-size: 0.7rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.04em;">🎲 Live Game Tracker Room</div>
             <div style="font-family: monospace; font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(m.room_key)}</div>
           </div>
-          <a href="/11th/tracker/play?room=${encodeURIComponent(m.room_key)}" target="_blank" class="btn btn-primary" style="padding: 5px 12px; font-size: 0.74rem; font-weight: 700; text-decoration: none; min-height: 32px; display: inline-flex; align-items: center; white-space: nowrap;">
+          <a href="/11th/tracker/play?room=${encodeURIComponent(m.room_key)}" class="btn btn-primary" style="padding: 5px 12px; font-size: 0.74rem; font-weight: 700; text-decoration: none; min-height: 32px; display: inline-flex; align-items: center; white-space: nowrap;">
             Join Room ↗
           </a>
         </div>

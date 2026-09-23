@@ -19,8 +19,8 @@ export function DetachmentPickerModal({ player, name, faction, selected, onToggl
     <Modal isOpen onClose={onClose} ariaLabel={`Player ${player} Detachments`}>
       {/* Header */}
       <div
-        className="flex items-center justify-between border-b px-4 py-3"
-        style={{ borderColor: "var(--gtk-line)" }}
+        className="flex items-center justify-between border-b px-4 py-2.5"
+        style={{ flexShrink: 0, borderColor: "var(--gtk-line)" }}
       >
         <div>
           <span
@@ -29,7 +29,7 @@ export function DetachmentPickerModal({ player, name, faction, selected, onToggl
           >
             {name} · {factionLabel}
           </span>
-          <h3 className="gtk-display text-[22px] font-bold uppercase leading-none">
+          <h3 className="gtk-display text-[20px] font-bold uppercase leading-none">
             Choose Detachments ({spentDP}/{MAX_DETACHMENT_POINTS} DP)
           </h3>
         </div>
@@ -37,15 +37,24 @@ export function DetachmentPickerModal({ player, name, faction, selected, onToggl
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="flex h-9 w-9 items-center justify-center rounded-[9px] border"
+          className="flex h-8 w-8 items-center justify-center rounded-[8px] border"
           style={{ borderColor: "var(--gtk-line)", color: "var(--gtk-text)" }}
         >
-          <CloseIcon className="h-5 w-5" />
+          <CloseIcon className="h-4 w-4" />
         </button>
       </div>
 
       {/* Detachments List */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2 max-h-[60vh]">
+      <div
+        className="flex-1 overflow-y-auto p-3 space-y-2"
+        style={{
+          flex: "1 1 auto",
+          minHeight: 0,
+          maxHeight: "calc(100dvh - 150px)",
+          overflowY: "auto",
+          WebkitOverflowScrolling: "touch"
+        }}
+      >
         {detachments.map(det => {
           const isSelected = selected.includes(det.name);
           const tooExpensive = !isSelected && spentDP + det.dp > MAX_DETACHMENT_POINTS;
@@ -58,25 +67,25 @@ export function DetachmentPickerModal({ player, name, faction, selected, onToggl
               type="button"
               disabled={tooExpensive}
               onClick={() => onToggle(det.name)}
-              className="flex w-full items-center justify-between gap-3 rounded-[11px] border-2 px-3.5 py-3 text-left transition-colors disabled:opacity-40"
+              className="flex w-full items-center justify-between gap-3 rounded-[10px] border-2 px-3 py-2.5 text-left transition-colors disabled:opacity-40"
               style={{
                 borderColor: isSelected ? playerColor : "var(--gtk-line)",
                 background: isSelected ? `${playerColor}14` : "var(--gtk-tile)"
               }}
             >
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <span
-                  className="gtk-num flex-none rounded-[7px] px-2.5 py-1 text-[13px] font-bold text-white"
+                  className="gtk-num flex-none rounded-[6px] px-2 py-0.5 text-[12px] font-bold text-white"
                   style={{ background: dispoColor }}
                 >
                   {det.dp} DP
                 </span>
                 <div className="min-w-0">
-                  <span className="gtk-display block truncate text-[17px] font-bold leading-none">
+                  <span className="gtk-display block truncate text-[16px] font-bold leading-none">
                     {det.name}
                   </span>
                   <span
-                    className="gtk-mono text-[10px] font-bold tracking-[0.06em]"
+                    className="gtk-mono text-[9.5px] font-bold tracking-[0.06em]"
                     style={{ color: dispoColor }}
                   >
                     {dispoObj?.name || det.disposition}
@@ -94,15 +103,19 @@ export function DetachmentPickerModal({ player, name, faction, selected, onToggl
       {/* Done Button */}
       <div
         className="border-t p-3"
-        style={{ borderColor: "var(--gtk-line)" }}
+        style={{
+          flexShrink: 0,
+          borderColor: "var(--gtk-line)",
+          background: "var(--gtk-panel, #12161f)"
+        }}
       >
         <button
           type="button"
           onClick={onClose}
-          className="flex h-11 w-full items-center justify-center rounded-[10px] font-mono text-[13px] font-bold uppercase tracking-[0.1em]"
+          className="flex h-10 w-full items-center justify-center rounded-[10px] font-mono text-[13px] font-bold uppercase tracking-[0.1em]"
           style={{ background: "var(--gtk-accent)", color: "#15171b" }}
         >
-          Done
+          Done ({selected.length} Selected · {spentDP}/{MAX_DETACHMENT_POINTS} DP)
         </button>
       </div>
     </Modal>

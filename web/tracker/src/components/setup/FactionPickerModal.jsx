@@ -102,7 +102,16 @@ export function FactionPickerModal({ player, value, onPick, onClose }) {
       </div>
 
       {/* Factions List */}
-      <div className="flex-1 overflow-y-auto px-4 py-2 space-y-4 max-h-[50vh]">
+      <div
+        className="flex-1 overflow-y-auto px-4 py-2 space-y-4"
+        style={{
+          flex: "1 1 auto",
+          minHeight: 0,
+          maxHeight: "calc(100dvh - 175px)",
+          overflowY: "auto",
+          WebkitOverflowScrolling: "touch"
+        }}
+      >
         {/* Clear selection option */}
         <button
           type="button"

@@ -23,10 +23,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=ea34bb39f3">
-  <link rel="stylesheet" href="/css/styles.css?v=ea34bb39f3">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=ea34bb39f3">
-  <link rel="preload" href="/js/app.bundle.min.js?v=ea34bb39f3" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=8d6d08ec07">
+  <link rel="stylesheet" href="/css/styles.css?v=8d6d08ec07">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=8d6d08ec07">
+  <link rel="preload" href="/js/app.bundle.min.js?v=8d6d08ec07" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 
   <style>
@@ -183,12 +183,55 @@
   </script>
 </head>
 <body class="is-authenticated">
+  <!-- OmniTactica Tactical Boot Splash Screen -->
+  <div id="app-boot-splash" style="position: fixed; inset: 0; z-index: 999999; background: radial-gradient(circle at 50% 42%, #0f172a 0%, #070b14 70%, #03060c 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.4s;">
+    <div style="position: relative; display: flex; flex-direction: column; align-items: center; padding: 2rem; text-align: center;">
+      <!-- Ambient Halo Glow -->
+      <div style="position: absolute; width: 200px; height: 200px; border-radius: 50%; background: radial-gradient(circle, rgba(56,189,248,0.22) 0%, rgba(56,189,248,0) 70%); filter: blur(18px); animation: pulseGlow 2.4s ease-in-out infinite; pointer-events: none;"></div>
+
+      <!-- OmniTactica Emblem -->
+      <div style="position: relative; width: 72px; height: 72px; border-radius: 18px; background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.9)); border: 1.5px solid rgba(56,189,248,0.45); box-shadow: 0 0 32px rgba(56,189,248,0.25), inset 0 1px 1px rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; margin-bottom: 1.15rem;">
+        <img src="/assets/logo.svg" alt="OmniTactica" style="width: 48px; height: 48px; border-radius: 10px;" onerror="this.onerror=null; this.src='/logo-mark.svg';">
+      </div>
+
+      <!-- Brand Title -->
+      <div style="font-size: 1.55rem; font-weight: 900; letter-spacing: 0.06em; background: linear-gradient(135deg, #ffffff 0%, #38bdf8 60%, #0284c7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 0.25rem;">
+        OMNITACTICA
+      </div>
+      <div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; letter-spacing: 0.2em; text-transform: uppercase; font-family: var(--font-mono); margin-bottom: 1.5rem;">
+        TACTICAL COMMAND SUITE
+      </div>
+
+      <!-- Loading Progress Bar -->
+      <div style="width: 210px; height: 4px; background: rgba(30, 41, 59, 0.85); border-radius: 999px; overflow: hidden; border: 1px solid rgba(56, 189, 248, 0.2); position: relative;">
+        <div id="app-boot-progress-bar" style="position: absolute; top: 0; left: 0; height: 100%; width: 45%; background: linear-gradient(90deg, #0284c7, #38bdf8, #7dd3fc); border-radius: 999px; box-shadow: 0 0 12px rgba(56, 189, 248, 0.8); animation: tacticalProgressRunner 1.3s cubic-bezier(0.4, 0, 0.2, 1) infinite;"></div>
+      </div>
+
+      <!-- Status Indicator -->
+      <div id="app-boot-status-text" style="font-size: 0.68rem; color: #64748b; font-family: var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 0.85rem; transition: all 0.2s ease;">
+        Connecting to High Command...
+      </div>
+    </div>
+  </div>
+
+  <style>
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 0.4; transform: scale(0.95); }
+      50% { opacity: 0.85; transform: scale(1.08); }
+    }
+    @keyframes tacticalProgressRunner {
+      0% { left: -50%; width: 30%; }
+      50% { width: 60%; }
+      100% { left: 100%; width: 30%; }
+    }
+  </style>
+
   <div id="app-shell" style="display: flex; width: 100%; flex-direction: column;">
 
   <!-- Top Navigation Header -->
   <header id="app-header">
     <div class="header-inner">
-      <a href="#" class="logo-group" onclick="switchTab('leaderboard'); return false;">
+      <a href="#" class="logo-group" onclick="navigateToMyHub(true); return false;">
         <img src="/assets/logo.svg" alt="OmniTactica" style="width:36px; height:36px; border-radius:8px; border:1px solid rgba(56,189,248,0.3); flex-shrink:0;" onerror="this.onerror=null; this.src='/logo-mark.svg';">
         <div>
           <div class="logo-title" style="display:flex; align-items:center; gap:6px;">
@@ -199,7 +242,7 @@
       </a>
 
       <div class="nav-tabs">
-        <button class="nav-btn" id="nav-btn-my-hub" onclick="navigateToMyHub(true)">
+        <button class="nav-btn active" id="nav-btn-my-hub" onclick="navigateToMyHub(true)">
           🏠 My Hub
         </button>
         <button class="nav-btn" id="nav-btn-team" onclick="navigateToUserTeam()">
@@ -211,7 +254,7 @@
         <a class="nav-btn" id="nav-btn-tracker" href="/11th/tracker" onclick="return handleTrackerNavClick(event);" style="text-decoration: none;">
           🎲 Game Tracker
         </a>
-        <button class="nav-btn active" id="nav-btn-leaderboard" onclick="switchTab('leaderboard')">
+        <button class="nav-btn" id="nav-btn-leaderboard" onclick="switchTab('leaderboard')">
           🏆 Leaderboard
         </button>
         <button class="nav-btn" id="nav-btn-meta-intel" onclick="switchTab('meta-intel')">
@@ -228,11 +271,11 @@
       <!-- Mobile Tab Action Controls (Strictly mobile viewports <= 768px only; replaces dropdown on mobile) -->
       <div class="mobile-nav-wrapper">
         <select id="mobile-nav-select" class="mobile-nav-select" style="display: none;" onchange="handleMobileNavChange(this.value)" oninput="handleMobileNavChange(this.value)" aria-label="Switch Tab">
-          <option value="my-hub">🏠 My Hub</option>
+          <option value="my-hub" selected>🏠 My Hub</option>
           <option value="teams">🛡️ Teams &amp; Clubs</option>
           <option value="community">👥 Community Hub</option>
           <option value="tracker">🎲 Game Tracker</option>
-          <option value="leaderboard" selected>🏆 Leaderboard</option>
+          <option value="leaderboard">🏆 Leaderboard</option>
           <option value="meta-intel">📊 Meta Intel</option>
           <option value="search">🔍 Search Directory</option>
           <option disabled id="mobile-opt-divider">──────────</option>
@@ -276,7 +319,7 @@
   <main>
 
     <!-- TAB 1: MY COMPETITOR HUB -->
-    <section id="tab-my-hub" class="tab-panel">
+    <section id="tab-my-hub" class="tab-panel active">
       <div id="my-hub-content"></div>
     </section>
 
@@ -917,7 +960,7 @@
     </section>
 
     <!-- TAB 2: COMPETITIVE LEADERBOARDS -->
-    <section id="tab-leaderboard" class="tab-panel active">
+    <section id="tab-leaderboard" class="tab-panel">
       <!-- Subtabs Bar: Individual Standings, Team Rankings -->
       <div class="subtabs-bar" style="margin-bottom: 1.25rem;">
         <button id="lead-subtab-players" class="subtab-btn active" onclick="switchLeaderboardSubtab('players')">
@@ -3279,8 +3322,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "ea34bb39f3";</script>
-  <script src="/js/app.bundle.min.js?v=ea34bb39f3"></script>
+  <script>window.APP_VERSION = "8d6d08ec07";</script>
+  <script src="/js/app.bundle.min.js?v=8d6d08ec07"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
@@ -3942,7 +3985,7 @@
 
   <!-- Mobile Bottom Navigation Bar (Fixed thumb navigation on <= 768px viewports) -->
   <nav id="mobile-bottom-nav" class="mobile-bottom-nav" aria-label="Mobile Navigation">
-    <button type="button" class="mobile-nav-item" data-tab="my-hub" onclick="navigateToMyHub(true)">
+    <button type="button" class="mobile-nav-item active" data-tab="my-hub" onclick="navigateToMyHub(true)">
       <div class="mobile-nav-icon">🏠</div>
       <span class="mobile-nav-label">My Hub</span>
     </button>
@@ -3954,7 +3997,7 @@
       <div class="mobile-nav-icon">👥</div>
       <span class="mobile-nav-label">Community</span>
     </button>
-    <button type="button" class="mobile-nav-item active" data-tab="leaderboard" onclick="switchTab('leaderboard')">
+    <button type="button" class="mobile-nav-item" data-tab="leaderboard" onclick="switchTab('leaderboard')">
       <div class="mobile-nav-icon">🏆</div>
       <span class="mobile-nav-label">Leaderboard</span>
     </button>

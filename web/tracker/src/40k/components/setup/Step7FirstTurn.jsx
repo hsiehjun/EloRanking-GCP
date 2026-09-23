@@ -11,15 +11,15 @@ export function Step7FirstTurn() {
   const winner = game.rollOffWinner;
 
   return (
-    <section className="flex flex-col gap-5">
+    <section className="flex flex-col gap-3.5">
       <p
-        className="gtk-mono text-center text-[12px] font-bold uppercase tracking-[0.12em]"
+        className="gtk-mono text-center text-[11.5px] font-bold uppercase tracking-[0.12em]"
         style={{ color: "var(--gtk-muted)" }}
       >
         Who won the roll-off?
       </p>
 
-      <div className="flex gap-3">
+      <div className="flex gap-2.5">
         {[
           { key: "player1", name: p1Name, color: PLAYER_COLORS[1] },
           { key: "player2", name: p2Name, color: PLAYER_COLORS[2] }
@@ -31,7 +31,7 @@ export function Step7FirstTurn() {
               type="button"
               aria-pressed={isActive}
               onClick={() => selectRollOffWinner(opt.key)}
-              className="flex flex-1 items-center justify-center rounded-[13px] border-2 py-5 px-3 transition-colors"
+              className="flex flex-1 items-center justify-center rounded-[11px] border-2 py-4 px-3 transition-colors"
               style={
                 isActive
                   ? {
@@ -46,7 +46,7 @@ export function Step7FirstTurn() {
                     }
               }
             >
-              <span className="gtk-display text-[24px] font-bold uppercase leading-none">
+              <span className="gtk-display text-[20px] font-bold uppercase leading-none">
                 {opt.name}
               </span>
             </button>
@@ -56,7 +56,7 @@ export function Step7FirstTurn() {
 
       {winner && (
         <p
-          className="gtk-mono mt-4 text-center text-[13px] font-bold uppercase tracking-[0.12em]"
+          className="gtk-mono mt-2 text-center text-[12px] font-bold uppercase tracking-[0.12em]"
           role="status"
           style={{ color: PLAYER_COLORS[winner === "player1" ? 1 : 2] }}
         >

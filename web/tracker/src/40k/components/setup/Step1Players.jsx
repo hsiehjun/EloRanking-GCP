@@ -11,15 +11,15 @@ export function Step1Players() {
   const [editingFactionPlayer, setEditingFactionPlayer] = useState(null);
 
   return (
-    <section className="flex flex-col gap-5">
+    <section className="flex flex-col gap-3">
       <p
-        className="gtk-mono text-center text-[12px] leading-snug"
+        className="gtk-mono text-center text-[11px] leading-snug"
         style={{ color: "var(--gtk-muted)" }}
       >
-        Name the players and pick their faction. These are used throughout the tracker.
+        Name the players and pick their faction.
       </p>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
         {[1, 2].map(playerNum => {
           const isP1 = playerNum === 1;
           const name = isP1 ? game.p1Name : game.p2Name;
@@ -29,9 +29,9 @@ export function Step1Players() {
           const playerColor = PLAYER_COLORS[playerNum];
 
           return (
-            <div key={playerNum} className="flex flex-col gap-2">
+            <div key={playerNum} className="flex flex-col gap-1.5">
               <span
-                className="gtk-mono text-[11px] font-bold uppercase tracking-[0.16em]"
+                className="gtk-mono text-[10.5px] font-bold uppercase tracking-[0.16em]"
                 style={{ color: playerColor }}
               >
                 Player {playerNum}
@@ -45,7 +45,7 @@ export function Step1Players() {
                 maxLength={24}
                 placeholder={`Player ${playerNum}`}
                 aria-label={`Player ${playerNum} name`}
-                className="gtk-display w-full rounded-[12px] border-2 px-4 py-3 text-[22px] font-bold uppercase leading-none outline-none"
+                className="gtk-display w-full rounded-[10px] border-2 px-3.5 py-2.5 text-[19px] font-bold uppercase leading-none outline-none"
                 style={{
                   borderColor: playerColor,
                   background: "var(--gtk-tile)",
@@ -59,7 +59,7 @@ export function Step1Players() {
                 aria-haspopup="dialog"
                 aria-label={`Player ${playerNum} faction`}
                 onClick={() => setEditingFactionPlayer(playerNum)}
-                className="gtk-display flex w-full items-center justify-between gap-2 rounded-[12px] border-2 px-3.5 py-3 text-[17px] font-bold leading-none transition-colors"
+                className="gtk-display flex w-full items-center justify-between gap-2 rounded-[10px] border-2 px-3.5 py-2.5 text-[16px] font-bold leading-none transition-colors"
                 style={{
                   borderColor: "var(--gtk-line)",
                   background: "var(--gtk-tile)",
@@ -75,7 +75,7 @@ export function Step1Players() {
                 type="button"
                 aria-pressed={battleReady}
                 onClick={() => setBattleReady(playerNum, !battleReady)}
-                className="mt-1 flex h-10 w-full items-center justify-center gap-2 rounded-[10px] border-2 font-mono text-[11px] font-bold uppercase tracking-[0.1em] transition-colors"
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-[9px] border-2 font-mono text-[11px] font-bold uppercase tracking-[0.1em] transition-colors"
                 style={
                   battleReady
                     ? { background: "#1e9d52", borderColor: "#1e9d52", color: "#fff" }

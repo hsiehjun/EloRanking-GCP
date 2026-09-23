@@ -34,17 +34,29 @@ export function Modal({ isOpen = true, onClose, ariaLabel, children, maxWidth = 
       aria-modal="true"
       aria-label={ariaLabel}
       onClick={onClose}
-      className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6"
+      className="fixed inset-0 flex items-center justify-center p-3 sm:p-6"
       style={{
-        background: "rgba(4, 6, 10, 0.72)",
-        backdropFilter: "blur(3px)"
+        position: "fixed",
+        inset: 0,
+        zIndex: 100050,
+        background: "rgba(4, 6, 10, 0.85)",
+        backdropFilter: "blur(5px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "12px"
       }}
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="flex max-h-full w-full flex-col overflow-hidden rounded-[16px] border shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
+        className="flex w-full flex-col overflow-hidden rounded-[16px] border shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
         style={{
+          width: "100%",
           maxWidth,
+          maxHeight: "calc(100dvh - 24px)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
           background: "var(--gtk-panel, #12161f)",
           borderColor: "var(--gtk-line, #273042)"
         }}
