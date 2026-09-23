@@ -5701,7 +5701,7 @@
             "player_id": "MEV83VFANA",
             "user_id": "u_john_hsieh",
             "is_db_matched": true,
-            "match_method": "name_assumption",
+            "match_method": "self_claimed",
             "linked_display_name": "John Hsieh"
           },
           {
@@ -5934,7 +5934,7 @@
             "player_id": "MEV83VFANA",
             "user_id": "u_john_hsieh",
             "is_db_matched": true,
-            "match_method": "name_assumption",
+            "match_method": "self_claimed",
             "linked_display_name": "John Hsieh"
           }
         ]

@@ -136,19 +136,6 @@ function renderLeagueHub(league) {
   const currentSeasonNum = parseInt(league.selected_season || actSeason.season_number || 38, 10);
 
   container.innerHTML = `
-    ${league.is_historical ? `
-      <!-- Historical Archive Banner -->
-      <div style="margin-bottom: 1rem; padding: 0.75rem 1.25rem; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-        <div style="display: flex; align-items: center; gap: 0.6rem; color: #fbbf24; font-size: 0.88rem; font-weight: 600;">
-          <span>📜</span>
-          <span>Viewing Historical Archive: <strong>${escapeHtml(actSeason.name || `Season ${actSeason.season_number}`)}</strong> (${actSeason.total_pods || 7} Pods, ${actSeason.total_players || 60} Competitors)</span>
-        </div>
-        <button onclick="selectLeagueSeason(38)" class="btn btn-primary" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none; font-weight: 700;">
-          ⚡ Return to Live Season 38
-        </button>
-      </div>
-    ` : ''}
-
     <!-- League Hero Banner -->
     <div class="card" style="margin-bottom: 1.25rem; background: linear-gradient(135deg, rgba(30, 58, 138, 0.25) 0%, rgba(15, 23, 42, 0.8) 100%); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 1.25rem; position: relative; overflow: hidden;">
       <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
@@ -159,18 +146,9 @@ function renderLeagueHub(league) {
           <div style="flex: 1 1 220px; min-width: 0; max-width: 100%;">
             <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.35rem; max-width: 100%;">
               <h1 style="margin: 0; font-size: clamp(1.25rem, 3.2vw, 1.65rem); font-weight: 800; color: #fff; letter-spacing: -0.02em; word-break: break-word;">${escapeHtml(league.name)}</h1>
-              
-              <!-- Interactive Season Selector -->
-              <div style="display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.25); padding: 4px 10px; border-radius: 8px; max-width: 100%; overflow: hidden;">
-                <span style="font-size: 0.72rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0;">Season:</span>
-                <select id="league-season-picker" onchange="selectLeagueSeason(this.value)" style="background: transparent; border: none; color: #fbbf24; font-weight: 800; font-size: 0.85rem; cursor: pointer; outline: none; padding-right: 0.25rem; max-width: 100%; text-overflow: ellipsis;">
-                  ${availableSeasons.map(s => `
-                    <option value="${s.season_number}" ${s.season_number === currentSeasonNum ? 'selected' : ''} style="background: #0f172a; color: #fff;">
-                      ${escapeHtml(s.name)} ${s.status === 'active' ? '• Active (8 Pods)' : `(${s.total_pods || 7} Pods)`}
-                    </option>
-                  `).join('')}
-                </select>
-              </div>
+              <span style="background: rgba(16, 185, 129, 0.16); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.38); padding: 3px 9px; border-radius: 999px; font-size: 0.74rem; font-weight: 800; letter-spacing: 0.03em;">
+                ⚡ ${escapeHtml(actSeason.name || 'Season 38 (Fall 2026)')} • Current Active Season
+              </span>
             </div>
             <div style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 0.5rem; word-break: break-word;">
               ${escapeHtml(league.tagline || 'Southern California Premier 40k Pod League')}
@@ -738,8 +716,8 @@ function renderHistoricalSeasonsList(seasons) {
                   ${s.total_players}
                 </td>
                 <td style="padding: 0.75rem 1rem; text-align: right;">
-                  <button onclick="selectLeagueSeason(${s.season_number}); switchLeagueSubtab('pods');" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600;">
-                    Explore Standings →
+                  <button onclick="openHistoricalSeasonArchiveModal(${s.season_number})" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600;">
+                    📜 View Historical Archive →
                   </button>
                 </td>
               </tr>
@@ -959,43 +937,66 @@ function launchLeagueMatchTracker(p1Name, p2Name, p1Faction, layout, roundNum = 
 /**
  * Switches the active season viewed in League Hub
  */
-async function selectLeagueSeason(seasonNum) {
-  seasonNum = parseInt(seasonNum, 10) || 38;
-  const cleanId = 'sd40k';
-  const container = document.getElementById('league-hub-container');
-  if (!container) return;
-
-  if (!leagueState._seasonCache) leagueState._seasonCache = {};
-  if (leagueState._seasonCache[seasonNum]) {
-    const cachedLeague = leagueState._seasonCache[seasonNum];
-    cachedLeague.selected_season = seasonNum;
-    cachedLeague.is_historical = (seasonNum !== 38);
-    leagueState.currentLeagueData = cachedLeague;
-    leagueState.activePodNumber = 1;
-    renderLeagueHub(cachedLeague);
-    return;
-  }
-
+async function openHistoricalSeasonArchiveModal(seasonNum) {
+  seasonNum = parseInt(seasonNum, 10) || 37;
+  const league = leagueState.currentLeagueData;
+  const cleanId = league?.league_id || leagueState.activeLeagueId || 'league_sd40k_big_league';
   try {
     const res = await fetch(`/api/league/${encodeURIComponent(cleanId)}?season=${seasonNum}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
-    if (json.success && json.league) {
-      json.league.selected_season = seasonNum;
-      json.league.is_historical = (seasonNum !== 38);
-      if ((!json.league.available_seasons || !json.league.available_seasons.length) && leagueState.currentLeagueData?.available_seasons) {
-        json.league.available_seasons = leagueState.currentLeagueData.available_seasons;
-      }
-      leagueState._seasonCache[seasonNum] = json.league;
-      leagueState.currentLeagueData = json.league;
-      leagueState.activePodNumber = 1;
-      renderLeagueHub(json.league);
-    }
+    const histSeason = json.league?.active_season || {};
+    const pods = histSeason.pods || [];
+    const existing = document.getElementById('league-hist-archive-modal');
+    if (existing) existing.remove();
+
+    const podsHtml = pods.map(p => `
+      <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.75rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <strong style="color: #fff; font-size: 0.9rem;">Pod #${p.pod_number} — ${escapeHtml(p.name || '')}</strong>
+          <span style="font-size: 0.75rem; color: #94a3b8;">${(p.standings || []).length} Competitors</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.4rem;">
+          ${(p.standings || []).map((st, idx) => {
+            const matched = Boolean(st.is_db_matched && st.bcp_player_id);
+            return `
+              <div style="padding: 0.35rem 0.55rem; background: rgba(0,0,0,0.28); border-radius: 6px; font-size: 0.78rem; display: flex; justify-content: space-between; align-items: center;">
+                <span>
+                  <strong style="color: ${idx === 0 ? '#fbbf24' : '#94a3b8'}; margin-right: 4px;">#${st.rank || (idx + 1)}</strong>
+                  ${matched
+                    ? `<a href="javascript:void(0)" onclick="if (typeof openPlayerModal === 'function') openPlayerModal('${escapeHtml(st.bcp_player_id)}', '${escapeHtml(st.name)}');" style="color: #60a5fa; text-decoration: underline; font-weight: 700;">${escapeHtml(st.name)}</a>`
+                    : `<span style="color: #e2e8f0;">${escapeHtml(st.name)}</span>`
+                  }
+                </span>
+                <span style="color: #34d399; font-weight: 700;">${st.wins || 0}W-${st.losses || 0}L (${st.battle_points || 0} BP)</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `).join('');
+
+    const modalHtml = `
+      <div id="league-hist-archive-modal" class="modal-backdrop" onclick="if(event.target===this)this.remove()" style="position: fixed; inset: 0; background: rgba(0,0,0,0.78); backdrop-filter: blur(6px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 1.25rem;">
+        <div class="card" style="width: 100%; max-width: 820px; max-height: 85vh; overflow-y: auto; background: #0f172a; border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 14px; padding: 1.35rem; color: #f8fafc;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.75rem;">
+            <div>
+              <div style="font-size: 0.72rem; color: #fbbf24; text-transform: uppercase; font-weight: 800;">📜 Historical Database Archive (Read-Only)</div>
+              <h3 style="margin: 0.2rem 0 0 0; font-size: 1.2rem; font-weight: 800; color: #fff;">${escapeHtml(histSeason.name || `Season ${seasonNum}`)} • ${pods.length} Pods (${histSeason.total_players || 60} Players)</h3>
+            </div>
+            <button onclick="document.getElementById('league-hist-archive-modal').remove()" class="btn btn-outline" style="padding: 0.3rem 0.65rem;">✕ Close</button>
+          </div>
+          ${podsHtml}
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
   } catch (err) {
-    console.error('Error switching league season:', err);
+    console.error('Error opening historical season archive modal:', err);
   }
 }
-window.selectLeagueSeason = selectLeagueSeason;
+window.openHistoricalSeasonArchiveModal = openHistoricalSeasonArchiveModal;
+window.selectLeagueSeason = openHistoricalSeasonArchiveModal;
 
 /**
  * Modal to view player profile & stats within the league

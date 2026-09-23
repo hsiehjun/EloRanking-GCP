@@ -1628,13 +1628,25 @@ class PostgresDatabase:
             return False
 
     def seed_sd40k_league_tables(self):
-        """Non-destructively imports San Diego 40k BIG League @ At Ease Games dataset into PostgreSQL league tables."""
+        """Non-destructively imports San Diego 40k BIG League @ At Ease Games dataset (Active Season 38 + 37 Historical Seasons + 402 Career Dossiers) into PostgreSQL league tables."""
         try:
-            data_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "sd40k_league_data.json")
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            data_file = os.path.join(base_dir, "data", "sd40k_league_data.json")
+            hist_file = os.path.join(base_dir, "data", "sd40k_historical_seasons.json")
+            careers_file = os.path.join(base_dir, "data", "sd40k_player_careers.json")
             if not os.path.exists(data_file):
                 return
             with open(data_file, "r", encoding="utf-8") as f:
                 lg = json.load(f)
+            hist_seasons = {}
+            if os.path.exists(hist_file):
+                with open(hist_file, "r", encoding="utf-8") as hf:
+                    hist_seasons = json.load(hf)
+            careers_data = {}
+            if os.path.exists(careers_file):
+                with open(careers_file, "r", encoding="utf-8") as cf:
+                    careers_data = json.load(cf)
+
             act = lg.get("active_season", {})
             s_num = int(act.get("season_number", 38))
             pods = act.get("pods", [])
@@ -1647,6 +1659,15 @@ class PostgresDatabase:
                 "games_per_season": 5,
                 "duration_weeks": 8
             }
+            all_seasons_to_seed = [(s_num, act, False)]
+            for h_key, h_season in hist_seasons.items():
+                try:
+                    h_num = int(h_key)
+                except ValueError:
+                    continue
+                if h_num != s_num and isinstance(h_season, dict):
+                    all_seasons_to_seed.append((h_num, h_season, True))
+
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("SET LOCAL lock_timeout = '2s';")
@@ -1665,79 +1686,118 @@ class PostgresDatabase:
                         len(pods),
                         json.dumps(lg.get("methodology", {}))
                     ))
-                    cursor.execute("""
-                        INSERT INTO native_league_seasons (id, league_id, season_num, name, status, duration_weeks, rounds_count, total_players, total_pods, is_historical, season_config_json)
-                        VALUES (%s, %s, %s, %s, 'active', 8, 5, %s, %s, FALSE, %s::jsonb)
-                        ON CONFLICT (id) DO UPDATE SET season_config_json = EXCLUDED.season_config_json;
-                    """, (
-                        f"league_sd40k_big_league_s{s_num}",
-                        "league_sd40k_big_league",
-                        s_num,
-                        act.get("name", f"Season {s_num}"),
-                        int(act.get("total_players", 68)),
-                        len(pods),
-                        json.dumps(season_cfg)
-                    ))
-                    for p in pods:
-                        p_num = int(p.get("pod_number", 1))
-                        pod_id = f"league_sd40k_big_league_s{s_num}_p{p_num}"
+
+                    for curr_s_num, season_obj, is_hist in all_seasons_to_seed:
+                        s_pods = season_obj.get("pods", [])
                         cursor.execute("""
-                            INSERT INTO native_league_pods (id, league_id, season_num, pod_num, name, tier, round_layouts, player_count)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
-                            ON CONFLICT (id) DO NOTHING;
+                            INSERT INTO native_league_seasons (
+                                id, league_id, season_num, name, status, duration_weeks, rounds_count,
+                                total_players, total_pods, pod_champion, pod_champion_faction, is_historical, season_config_json
+                            )
+                            VALUES (%s, %s, %s, %s, %s, 8, 5, %s, %s, %s, %s, %s, %s::jsonb)
+                            ON CONFLICT (id) DO UPDATE SET
+                                is_historical = EXCLUDED.is_historical,
+                                season_config_json = EXCLUDED.season_config_json;
                         """, (
-                            pod_id, "league_sd40k_big_league", s_num, p_num,
-                            p.get("name", f"Pod {p_num}"),
-                            p.get("tier", f"Division {p_num}"),
-                            json.dumps(p.get("round_layouts", [])),
-                            len(p.get("standings", []))
+                            f"league_sd40k_big_league_s{curr_s_num}",
+                            "league_sd40k_big_league",
+                            curr_s_num,
+                            season_obj.get("name", f"Season {curr_s_num}"),
+                            "completed" if is_hist else "active",
+                            int(season_obj.get("total_players", 60)),
+                            len(s_pods),
+                            season_obj.get("pod_champion"),
+                            season_obj.get("pod_champion_faction"),
+                            is_hist,
+                            json.dumps(season_cfg)
                         ))
-                        for st in p.get("standings", []):
-                            pname = st.get("name", "")
-                            if not pname:
-                                continue
-                            st_id = f"league_sd40k_big_league_s{s_num}_p{p_num}_{pname.lower().replace(' ', '_')}"
+                        for p in s_pods:
+                            p_num = int(p.get("pod_number", 1))
+                            pod_id = f"league_sd40k_big_league_s{curr_s_num}_p{p_num}"
                             cursor.execute("""
-                                INSERT INTO native_league_participants (
-                                    id, league_id, season_num, pod_num, participant_name, primary_faction,
-                                    bcp_player_id, user_id, is_db_matched, match_method
-                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                ON CONFLICT (league_id, season_num, pod_num, participant_name) DO NOTHING;
-                            """, (
-                                st_id, "league_sd40k_big_league", s_num, p_num, pname,
-                                st.get("primary_faction", ""),
-                                st.get("bcp_player_id") or st.get("player_id"),
-                                st.get("user_id"),
-                                bool(st.get("is_db_matched", False)),
-                                st.get("match_method", "unmatched")
-                            ))
-                            cursor.execute("""
-                                INSERT INTO native_league_standings (
-                                    id, league_id, season_num, pod_num, player_name, primary_faction,
-                                    bcp_player_id, player_id, user_id, is_db_matched, match_method,
-                                    rank, wins, losses, draws, battle_points, games_played, poty_points,
-                                    relegation_status, pairings_json
-                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                                INSERT INTO native_league_pods (id, league_id, season_num, pod_num, name, tier, round_layouts, player_count)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
                                 ON CONFLICT (id) DO NOTHING;
                             """, (
-                                st_id, "league_sd40k_big_league", s_num, p_num, pname,
-                                st.get("primary_faction", ""),
-                                st.get("bcp_player_id") or st.get("player_id"),
-                                st.get("bcp_player_id") or st.get("player_id"),
-                                st.get("user_id"),
-                                bool(st.get("is_db_matched", False)),
-                                st.get("match_method", "unmatched"),
-                                int(st.get("rank", 1)),
-                                int(st.get("wins", 0)),
-                                int(st.get("losses", 0)),
-                                int(st.get("draws", 0)),
-                                int(st.get("battle_points", 0)),
-                                int(st.get("games_played", 0)),
-                                int(st.get("poty_points", 0)),
-                                st.get("relegation_status", "None"),
-                                json.dumps(st.get("pairings", []))
+                                pod_id, "league_sd40k_big_league", curr_s_num, p_num,
+                                p.get("name", f"Pod {p_num}"),
+                                p.get("tier", f"Division {p_num}"),
+                                json.dumps(p.get("round_layouts", [])),
+                                len(p.get("standings", []))
                             ))
+                            for st in p.get("standings", []):
+                                pname = st.get("name", "")
+                                if not pname:
+                                    continue
+                                st_id = f"league_sd40k_big_league_s{curr_s_num}_p{p_num}_{pname.lower().replace(' ', '_')}"
+                                cursor.execute("""
+                                    INSERT INTO native_league_participants (
+                                        id, league_id, season_num, pod_num, participant_name, primary_faction,
+                                        bcp_player_id, user_id, is_db_matched, match_method
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    ON CONFLICT (league_id, season_num, pod_num, participant_name) DO NOTHING;
+                                """, (
+                                    st_id, "league_sd40k_big_league", curr_s_num, p_num, pname,
+                                    st.get("primary_faction", ""),
+                                    st.get("bcp_player_id") or st.get("player_id"),
+                                    st.get("user_id"),
+                                    bool(st.get("is_db_matched", False)),
+                                    st.get("match_method", "unmatched")
+                                ))
+                                cursor.execute("""
+                                    INSERT INTO native_league_standings (
+                                        id, league_id, season_num, pod_num, player_name, primary_faction,
+                                        bcp_player_id, player_id, user_id, is_db_matched, match_method,
+                                        rank, wins, losses, draws, battle_points, games_played, poty_points,
+                                        relegation_status, pairings_json
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                                    ON CONFLICT (id) DO NOTHING;
+                                """, (
+                                    st_id, "league_sd40k_big_league", curr_s_num, p_num, pname,
+                                    st.get("primary_faction", ""),
+                                    st.get("bcp_player_id") or st.get("player_id"),
+                                    st.get("bcp_player_id") or st.get("player_id"),
+                                    st.get("user_id"),
+                                    bool(st.get("is_db_matched", False)),
+                                    st.get("match_method", "unmatched"),
+                                    int(st.get("rank", 1)),
+                                    int(st.get("wins", 0)),
+                                    int(st.get("losses", 0)),
+                                    int(st.get("draws", 0)),
+                                    int(st.get("battle_points", 0)),
+                                    int(st.get("games_played", 0)),
+                                    int(st.get("poty_points", 0)),
+                                    st.get("relegation_status", "None"),
+                                    json.dumps(st.get("pairings", []))
+                                ))
+
+                    for c_name, c_obj in careers_data.items():
+                        if not isinstance(c_obj, dict):
+                            continue
+                        c_id = f"league_sd40k_big_league_career_{c_name.lower().replace(' ', '_')}"
+                        cursor.execute("""
+                            INSERT INTO native_league_careers (
+                                id, league_id, player_name, bcp_player_id, seasons_played,
+                                total_wins, total_losses, total_draws, career_battle_points,
+                                pod1_titles, pod_promotions, career_history_json
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                            ON CONFLICT (id) DO NOTHING;
+                        """, (
+                            c_id,
+                            "league_sd40k_big_league",
+                            c_name,
+                            c_obj.get("bcp_player_id"),
+                            int(c_obj.get("seasons_played", 0)),
+                            int(c_obj.get("total_wins", 0)),
+                            int(c_obj.get("total_losses", 0)),
+                            int(c_obj.get("total_draws", 0)),
+                            int(c_obj.get("career_battle_points", 0)),
+                            int(c_obj.get("pod1_titles", 0)),
+                            int(c_obj.get("pod_promotions", 0)),
+                            json.dumps(c_obj.get("seasons", []))
+                        ))
                 conn.commit()
+            self.sync_league_participant_identities("league_sd40k_big_league")
         except Exception as e:
             logger.debug(f"seed_sd40k_league_tables notice: {e}")
 

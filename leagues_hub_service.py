@@ -278,41 +278,53 @@ class LeaguesHubService:
         sd_data = self._leagues_cache.get("lg_sd40k") or {}
         act = sd_data.get("active_season", {})
         s_num = int(act.get("season_number", 38))
-        for p in act.get("pods", []):
-            p_num = int(p.get("pod_number", 1))
-            for st in p.get("standings", []):
-                pname = (st.get("name") or "").strip()
-                if not pname:
-                    continue
-                norm_key = pname.lower()
-                if norm_key in unmatched_by_name_assumption or len(pname.split()) < 2:
-                    self._participants_registry[norm_key] = {
-                        "league_id": "league_sd40k_big_league",
-                        "season_num": s_num,
-                        "pod_num": p_num,
-                        "participant_name": pname,
-                        "primary_faction": st.get("primary_faction", ""),
-                        "bcp_player_id": None,
-                        "user_id": None,
-                        "is_db_matched": False,
-                        "match_method": "unmatched"
-                    }
-                else:
-                    slug = re.sub(r"[^a-z0-9]+", "_", norm_key).strip("_")
-                    known = known_registered_users.get(norm_key, {})
-                    bcp_id = known.get("bcp_player_id") or f"bcp_{slug}"
-                    uid = known.get("user_id")
-                    self._participants_registry[norm_key] = {
-                        "league_id": "league_sd40k_big_league",
-                        "season_num": s_num,
-                        "pod_num": p_num,
-                        "participant_name": pname,
-                        "primary_faction": st.get("primary_faction", ""),
-                        "bcp_player_id": bcp_id,
-                        "user_id": uid,
-                        "is_db_matched": True,
-                        "match_method": "name_assumption"
-                    }
+
+        all_seasons = [(s_num, act)]
+        for h_key, h_season in (self._historical_cache or {}).items():
+            try:
+                h_num = int(h_key)
+            except ValueError:
+                continue
+            if h_num != s_num and isinstance(h_season, dict):
+                all_seasons.append((h_num, h_season))
+
+        # Index historical seasons first, then Active Season 38 so active season pod/season takes precedence
+        for curr_s_num, season_obj in sorted(all_seasons, key=lambda x: x[0]):
+            for p in season_obj.get("pods", []):
+                p_num = int(p.get("pod_number", 1))
+                for st in p.get("standings", []):
+                    pname = (st.get("name") or "").strip()
+                    if not pname:
+                        continue
+                    norm_key = pname.lower()
+                    if norm_key in unmatched_by_name_assumption or len(pname.split()) < 2:
+                        self._participants_registry[norm_key] = {
+                            "league_id": "league_sd40k_big_league",
+                            "season_num": curr_s_num,
+                            "pod_num": p_num,
+                            "participant_name": pname,
+                            "primary_faction": st.get("primary_faction", ""),
+                            "bcp_player_id": None,
+                            "user_id": None,
+                            "is_db_matched": False,
+                            "match_method": "unmatched"
+                        }
+                    else:
+                        slug = re.sub(r"[^a-z0-9]+", "_", norm_key).strip("_")
+                        known = known_registered_users.get(norm_key, {})
+                        bcp_id = known.get("bcp_player_id") or f"bcp_{slug}"
+                        uid = known.get("user_id")
+                        self._participants_registry[norm_key] = {
+                            "league_id": "league_sd40k_big_league",
+                            "season_num": curr_s_num,
+                            "pod_num": p_num,
+                            "participant_name": pname,
+                            "primary_faction": st.get("primary_faction", ""),
+                            "bcp_player_id": bcp_id,
+                            "user_id": uid,
+                            "is_db_matched": True,
+                            "match_method": "name_assumption"
+                        }
         self._save_participants_registry()
 
     def _save_participants_registry(self):
