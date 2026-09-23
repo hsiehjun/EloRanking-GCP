@@ -15,12 +15,15 @@ Zero hardcoded season/pod/participant data or runtime JSON file dependencies.
 """
 
 import re
+import uuid
 import json
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger("LeaguesHubService")
+
+SD40K_LEAGUE_UUID = "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90"
 
 
 def _get_db():
@@ -30,8 +33,8 @@ def _get_db():
 
 def _normalize_league_id(league_id_or_slug: str) -> str:
     key = (league_id_or_slug or "").strip().lower()
-    if key in ("league_sd40k_big_league", "lg_sd40k_big_league", "sd40k_big_league", "lg_sd40k", "sd40k", ""):
-        return "league_sd40k_big_league"
+    if key in ("league_sd40k_big_league", "lg_sd40k_big_league", "sd40k_big_league", "lg_sd40k", "sd40k", "", SD40K_LEAGUE_UUID):
+        return SD40K_LEAGUE_UUID
     return league_id_or_slug.strip()
 
 
@@ -1063,7 +1066,8 @@ class LeaguesHubService:
         is_matched = bool(valid_pid or valid_uid)
         faction = (player_data.get("primary_faction") or player_data.get("faction") or "Undeclared").strip()
 
-        st_id = f"{lid}_s{s_num}_p{bottom_pod_num}_{p_name.lower().replace(' ', '_')}"
+        part_uuid = str(uuid.uuid4())
+        st_uuid = str(uuid.uuid4())
         new_rank = len(standings) + 1
 
         with db.get_connection() as conn:
@@ -1079,7 +1083,7 @@ class LeaguesHubService:
                         user_id = COALESCE(EXCLUDED.user_id, native_league_participants.user_id),
                         is_db_matched = EXCLUDED.is_db_matched,
                         updated_at = NOW();
-                """, (st_id, lid, s_num, bottom_pod_num, p_name, faction, valid_pid, valid_uid, is_matched, "self_claimed" if is_matched else "unmatched"))
+                """, (part_uuid, lid, s_num, bottom_pod_num, p_name, faction, valid_pid, valid_uid, is_matched, "self_claimed" if is_matched else "unmatched"))
 
                 cur.execute("""
                     INSERT INTO native_league_standings (
@@ -1088,8 +1092,8 @@ class LeaguesHubService:
                         rank, wins, losses, draws, battle_points, games_played, poty_points,
                         relegation_status, pairings_json
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, 0, 0, 0, 0, 0, 'None', '[]'::jsonb)
-                    ON CONFLICT (id) DO NOTHING;
-                """, (st_id, lid, s_num, bottom_pod_num, p_name, faction, valid_pid, valid_pid, valid_uid, is_matched, "self_claimed" if is_matched else "unmatched", new_rank))
+                    ON CONFLICT (league_id, season_num, pod_num, player_name) DO NOTHING;
+                """, (st_uuid, lid, s_num, bottom_pod_num, p_name, faction, valid_pid, valid_pid, valid_uid, is_matched, "self_claimed" if is_matched else "unmatched", new_rank))
             conn.commit()
 
         return {

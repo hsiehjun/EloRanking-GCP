@@ -1397,7 +1397,7 @@ class PostgresDatabase:
         """Guarantees native_leagues, native_league_seasons, native_league_pods, native_league_participants, native_league_standings, and native_league_matches exist and seeds SD40K league data."""
         stmts = [
             """CREATE TABLE IF NOT EXISTS native_leagues (
-                id VARCHAR(64) PRIMARY KEY,
+                id VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::text,
                 slug VARCHAR(64) UNIQUE NOT NULL,
                 name TEXT NOT NULL,
                 game_system VARCHAR(32) DEFAULT '40k',
@@ -1412,7 +1412,7 @@ class PostgresDatabase:
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             );""",
             """CREATE TABLE IF NOT EXISTS native_league_seasons (
-                id VARCHAR(128) PRIMARY KEY,
+                id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
                 league_id VARCHAR(64),
                 season_num INT NOT NULL,
                 name TEXT NOT NULL,
@@ -1430,11 +1430,13 @@ class PostgresDatabase:
                 is_historical BOOLEAN DEFAULT FALSE,
                 season_config_json JSONB DEFAULT '{}'::jsonb,
                 raw_json JSONB DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ DEFAULT NOW()
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(league_id, season_num)
             );""",
             "ALTER TABLE native_league_seasons ADD COLUMN IF NOT EXISTS season_config_json JSONB DEFAULT '{}'::jsonb;",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_native_league_seasons_l_s ON native_league_seasons(league_id, season_num);",
             """CREATE TABLE IF NOT EXISTS native_league_pods (
-                id VARCHAR(128) PRIMARY KEY,
+                id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
                 league_id VARCHAR(64),
                 season_num INT NOT NULL,
                 pod_num INT NOT NULL,
@@ -1442,10 +1444,12 @@ class PostgresDatabase:
                 tier TEXT,
                 round_layouts JSONB DEFAULT '[]'::jsonb,
                 player_count INT DEFAULT 0,
-                created_at TIMESTAMPTZ DEFAULT NOW()
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(league_id, season_num, pod_num)
             );""",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_native_league_pods_l_s_p ON native_league_pods(league_id, season_num, pod_num);",
             """CREATE TABLE IF NOT EXISTS native_league_participants (
-                id VARCHAR(128) PRIMARY KEY,
+                id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
                 league_id VARCHAR(64) NOT NULL,
                 season_num INT NOT NULL,
                 pod_num INT NOT NULL,
@@ -1461,7 +1465,7 @@ class PostgresDatabase:
                 UNIQUE(league_id, season_num, pod_num, participant_name)
             );""",
             """CREATE TABLE IF NOT EXISTS native_league_standings (
-                id VARCHAR(128) PRIMARY KEY,
+                id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
                 league_id VARCHAR(64),
                 season_num INT NOT NULL,
                 pod_num INT NOT NULL,
@@ -1482,15 +1486,17 @@ class PostgresDatabase:
                 relegation_status VARCHAR(64) DEFAULT 'None',
                 pairings_json JSONB DEFAULT '[]'::jsonb,
                 career_json JSONB DEFAULT '{}'::jsonb,
-                updated_at TIMESTAMPTZ DEFAULT NOW()
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(league_id, season_num, pod_num, player_name)
             );""",
             "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS bcp_player_id VARCHAR(64);",
             "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS player_id VARCHAR(64);",
             "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS user_id VARCHAR(64);",
             "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS is_db_matched BOOLEAN DEFAULT FALSE;",
             "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS match_method VARCHAR(32) DEFAULT 'unmatched';",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_native_league_standings_l_s_p_n ON native_league_standings(league_id, season_num, pod_num, player_name);",
             """CREATE TABLE IF NOT EXISTS native_league_matches (
-                id VARCHAR(128) PRIMARY KEY,
+                id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
                 league_id VARCHAR(64),
                 season_num INT NOT NULL,
                 pod_num INT NOT NULL,
@@ -1506,7 +1512,7 @@ class PostgresDatabase:
                 completed_at TIMESTAMPTZ DEFAULT NOW()
             );""",
             """CREATE TABLE IF NOT EXISTS native_league_careers (
-                id VARCHAR(128) PRIMARY KEY,
+                id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
                 league_id VARCHAR(64),
                 player_name TEXT NOT NULL,
                 bcp_player_id VARCHAR(64),
@@ -1518,8 +1524,10 @@ class PostgresDatabase:
                 pod1_titles INT DEFAULT 0,
                 pod_promotions INT DEFAULT 0,
                 career_history_json JSONB DEFAULT '[]'::jsonb,
-                updated_at TIMESTAMPTZ DEFAULT NOW()
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(league_id, player_name)
             );""",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_native_league_careers_l_n ON native_league_careers(league_id, player_name);",
             "CREATE INDEX IF NOT EXISTS idx_league_participants_l_s ON native_league_participants(league_id, season_num, pod_num);",
             "CREATE INDEX IF NOT EXISTS idx_league_participants_bcp ON native_league_participants(bcp_player_id);",
             "CREATE INDEX IF NOT EXISTS idx_league_participants_uid ON native_league_participants(user_id);",
@@ -1537,22 +1545,33 @@ class PostgresDatabase:
                     except Exception as e:
                         conn.rollback()
                         logger.debug(f"League table notice: {e}")
-            self.sync_league_participant_identities("league_sd40k_big_league", 38)
+            self.sync_league_participant_identities("8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90", 38)
         except Exception as err:
             logger.debug(f"ensure_league_tables notice: {err}")
 
-    def sync_league_participant_identities(self, league_id: str = "league_sd40k_big_league", season_num: Optional[int] = 38):
+    def sync_league_participant_identities(self, league_id: str = "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90", season_num: Optional[int] = 38):
         """
-        Fast (<20ms) identity sync:
-        1. Purges any fake `bcp_` / `p_` / `u_` slugs across all seasons and removes `pod_num > 8` in Season 38.
-        2. Matches season/pod participants against real PostgreSQL `players` (`players.id`),
+        Fast (<20ms) identity & UUID primary-key sync:
+        1. Migrates any legacy string-concatenated IDs (`league_sd40k_big_league...`) across all `native_league_*` tables
+           to collision-free PostgreSQL UUIDs (`gen_random_uuid()::text` and `8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90` for SD40K league_id).
+        2. Purges any fake `bcp_` / `p_` / `u_` slugs across all seasons and removes `pod_num > 8` in Season 38.
+        3. Matches season/pod participants against real PostgreSQL `players` (`players.id`),
            `player_ratings` (`player_ratings.player_id`), and `users` (`users.id`).
-        Uses LEFT(...) instead of LIKE '...%' so psycopg2 parameter interpolation never raises tuple index out of range.
         """
+        sd40k_uuid = "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90"
+        if league_id in ("league_sd40k_big_league", "lg_sd40k", "sd40k", ""):
+            league_id = sd40k_uuid
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute("SET LOCAL lock_timeout = '5s';")
+                    cursor.execute("SET LOCAL lock_timeout = '10s';")
+                    # Migrate legacy string-concatenated league_id ('league_sd40k_big_league' / 'lg_sd40k') to UUID
+                    for tbl in ("native_league_seasons", "native_league_pods", "native_league_participants", "native_league_standings", "native_league_matches", "native_league_careers"):
+                        cursor.execute(f"UPDATE {tbl} SET league_id = %s WHERE league_id IN ('league_sd40k_big_league', 'lg_sd40k', 'sd40k');", (sd40k_uuid,))
+                        cursor.execute(f"UPDATE {tbl} SET id = gen_random_uuid()::text WHERE LEFT(id, 7) = 'league_' OR LEFT(id, 3) = 'lg_';")
+                    cursor.execute("UPDATE native_leagues SET id = %s WHERE id IN ('league_sd40k_big_league', 'lg_sd40k') AND NOT EXISTS (SELECT 1 FROM native_leagues WHERE id = %s);", (sd40k_uuid, sd40k_uuid))
+                    cursor.execute("DELETE FROM native_leagues WHERE id IN ('league_sd40k_big_league', 'lg_sd40k') AND EXISTS (SELECT 1 FROM native_leagues WHERE id = %s);", (sd40k_uuid,))
+
                     # 0. Remove stale test Pod #9 rows and wipe any fake bcp_ / p_ / u_ slugs across ALL seasons
                     cursor.execute("""
                         DELETE FROM native_league_participants
@@ -1689,11 +1708,13 @@ class PostgresDatabase:
                                        bcp_player_id: Optional[str] = None,
                                        match_method: str = "user_id_linked") -> bool:
         """Links an existing user_id and/or bcp_player_id (players.player_id) to a season/pod participant row."""
+        if league_id in ("league_sd40k_big_league", "lg_sd40k", "sd40k", ""):
+            league_id = "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90"
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("SET LOCAL lock_timeout = '5s';")
-                    part_id = f"{league_id}_s{season_num}_p{pod_num}_{participant_name.lower().replace(' ', '_')}"
+                    part_id = str(uuid.uuid4())
                     cursor.execute("""
                         INSERT INTO native_league_participants (
                             id, league_id, season_num, pod_num, participant_name,
@@ -1727,6 +1748,7 @@ class PostgresDatabase:
         """Non-destructively imports San Diego 40k BIG League @ At Ease Games dataset (Active Season 38 + 37 Historical Seasons + 402 Career Dossiers) into PostgreSQL league tables.
         Skips the 4,900-row loop on normal startup if native_league_participants is already populated.
         """
+        sd40k_uuid = "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90"
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
             data_file = os.path.join(base_dir, "data", "sd40k_league_data.json")
@@ -1758,18 +1780,18 @@ class PostgresDatabase:
                 try:
                     with self.get_connection() as conn:
                         with conn.cursor() as cursor:
-                            cursor.execute("SELECT COUNT(*) FROM native_league_participants WHERE league_id = 'league_sd40k_big_league';")
+                            cursor.execute("SELECT COUNT(*) FROM native_league_participants WHERE league_id IN (%s, 'league_sd40k_big_league');", (sd40k_uuid,))
                             existing_cnt = cursor.fetchone()[0]
                             if existing_cnt and existing_cnt >= 1000:
                                 if full_config_obj.get("hall_of_fame"):
                                     cursor.execute("""
                                         UPDATE native_leagues
                                         SET config_json = %s::jsonb
-                                        WHERE id = 'league_sd40k_big_league'
+                                        WHERE id IN (%s, 'league_sd40k_big_league')
                                           AND (config_json IS NULL OR NOT (config_json ? 'hall_of_fame'));
-                                    """, (json.dumps(full_config_obj),))
+                                    """, (json.dumps(full_config_obj), sd40k_uuid))
                                     conn.commit()
-                                self.sync_league_participant_identities("league_sd40k_big_league", 38)
+                                self.sync_league_participant_identities(sd40k_uuid, 38)
                                 return
                 except Exception:
                     pass
@@ -1808,22 +1830,18 @@ class PostgresDatabase:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("SET LOCAL lock_timeout = '20s';")
-                    # Clean out any stale Pod #9 rows and fake bcp_% slugs before upserting
-                    cursor.execute("DELETE FROM native_league_participants WHERE league_id = 'league_sd40k_big_league' AND season_num = 38 AND pod_num > 8;")
-                    cursor.execute("DELETE FROM native_league_standings WHERE league_id = 'league_sd40k_big_league' AND season_num = 38 AND pod_num > 8;")
-                    cursor.execute("DELETE FROM native_league_pods WHERE league_id = 'league_sd40k_big_league' AND season_num = 38 AND pod_num > 8;")
-                    cursor.execute("UPDATE native_league_participants SET bcp_player_id = NULL, user_id = CASE WHEN user_id LIKE 'u_%' THEN NULL ELSE user_id END, is_db_matched = FALSE, match_method = 'unmatched' WHERE bcp_player_id LIKE 'bcp_%' OR bcp_player_id LIKE 'p_%' OR user_id LIKE 'u_%';")
-                    cursor.execute("UPDATE native_league_standings SET bcp_player_id = NULL, player_id = NULL, user_id = CASE WHEN user_id LIKE 'u_%' THEN NULL ELSE user_id END, is_db_matched = FALSE, match_method = 'unmatched' WHERE bcp_player_id LIKE 'bcp_%' OR bcp_player_id LIKE 'p_%' OR user_id LIKE 'u_%';")
+                    # First migrate any legacy string-concatenated IDs
+                    self.sync_league_participant_identities(sd40k_uuid, 38)
 
                     cursor.execute("""
                         INSERT INTO native_leagues (id, slug, name, game_system, region, active_season_num, total_players, total_pods, recurring_seasons, registration_open, config_json)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, FALSE, %s::jsonb)
-                        ON CONFLICT (id) DO UPDATE SET
+                        ON CONFLICT (slug) DO UPDATE SET
                             total_players = EXCLUDED.total_players,
                             total_pods = EXCLUDED.total_pods,
                             config_json = EXCLUDED.config_json;
                     """, (
-                        "league_sd40k_big_league",
+                        sd40k_uuid,
                         "sd40k",
                         lg.get("name", "San Diego 40k BIG League @ At Ease Games"),
                         "40k",
@@ -1842,7 +1860,7 @@ class PostgresDatabase:
                                 total_players, total_pods, champion_name, champion_faction, is_historical, season_config_json
                             )
                             VALUES (%s, %s, %s, %s, %s, 8, 5, %s, %s, %s, %s, %s, %s::jsonb)
-                            ON CONFLICT (id) DO UPDATE SET
+                            ON CONFLICT (league_id, season_num) DO UPDATE SET
                                 total_players = EXCLUDED.total_players,
                                 total_pods = EXCLUDED.total_pods,
                                 champion_name = EXCLUDED.champion_name,
@@ -1850,8 +1868,8 @@ class PostgresDatabase:
                                 is_historical = EXCLUDED.is_historical,
                                 season_config_json = EXCLUDED.season_config_json;
                         """, (
-                            f"league_sd40k_big_league_s{curr_s_num}",
-                            "league_sd40k_big_league",
+                            str(uuid.uuid4()),
+                            sd40k_uuid,
                             curr_s_num,
                             season_obj.get("name", f"Season {curr_s_num}"),
                             "completed" if is_hist else "active",
@@ -1864,14 +1882,13 @@ class PostgresDatabase:
                         ))
                         for p in s_pods:
                             p_num = int(p.get("pod_number", 1))
-                            pod_id = f"league_sd40k_big_league_s{curr_s_num}_p{p_num}"
                             cursor.execute("""
                                 INSERT INTO native_league_pods (id, league_id, season_num, pod_num, name, tier, round_layouts, player_count)
                                 VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
-                                ON CONFLICT (id) DO UPDATE SET
+                                ON CONFLICT (league_id, season_num, pod_num) DO UPDATE SET
                                     player_count = EXCLUDED.player_count;
                             """, (
-                                pod_id, "league_sd40k_big_league", curr_s_num, p_num,
+                                str(uuid.uuid4()), sd40k_uuid, curr_s_num, p_num,
                                 p.get("name", f"Pod {p_num}"),
                                 p.get("tier", f"Division {p_num}"),
                                 json.dumps(p.get("round_layouts", [])),
@@ -1887,7 +1904,6 @@ class PostgresDatabase:
                                 valid_uid = raw_uid if (raw_uid and not str(raw_uid).startswith("u_")) else None
                                 is_matched = bool(valid_pid or valid_uid)
                                 m_method = "postgres_exact_name" if is_matched else "unmatched"
-                                st_id = f"league_sd40k_big_league_s{curr_s_num}_p{p_num}_{pname.lower().replace(' ', '_')}"
                                 cursor.execute("""
                                     INSERT INTO native_league_participants (
                                         id, league_id, season_num, pod_num, participant_name, primary_faction,
@@ -1900,7 +1916,7 @@ class PostgresDatabase:
                                         match_method = EXCLUDED.match_method,
                                         updated_at = NOW();
                                 """, (
-                                    st_id, "league_sd40k_big_league", curr_s_num, p_num, pname,
+                                    str(uuid.uuid4()), sd40k_uuid, curr_s_num, p_num, pname,
                                     st.get("primary_faction", ""),
                                     valid_pid,
                                     valid_uid,
@@ -1914,7 +1930,7 @@ class PostgresDatabase:
                                         rank, wins, losses, draws, battle_points, games_played, poty_points,
                                         relegation_status, pairings_json
                                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                                    ON CONFLICT (id) DO UPDATE SET
+                                    ON CONFLICT (league_id, season_num, pod_num, player_name) DO UPDATE SET
                                         bcp_player_id = EXCLUDED.bcp_player_id,
                                         player_id = EXCLUDED.player_id,
                                         user_id = EXCLUDED.user_id,
@@ -1922,7 +1938,7 @@ class PostgresDatabase:
                                         match_method = EXCLUDED.match_method,
                                         pairings_json = EXCLUDED.pairings_json;
                                 """, (
-                                    st_id, "league_sd40k_big_league", curr_s_num, p_num, pname,
+                                    str(uuid.uuid4()), sd40k_uuid, curr_s_num, p_num, pname,
                                     st.get("primary_faction", ""),
                                     valid_pid,
                                     valid_pid,
@@ -1951,18 +1967,17 @@ class PostgresDatabase:
                                 continue
                             raw_cpid = c_obj.get("bcp_player_id")
                             valid_cpid = raw_cpid if (raw_cpid and not str(raw_cpid).startswith("bcp_")) else None
-                            c_id = f"league_sd40k_big_league_career_{c_name.lower().replace(' ', '_')}"
                             cursor.execute("""
                                 INSERT INTO native_league_careers (
                                     id, league_id, player_name, bcp_player_id, seasons_played,
                                     total_wins, total_losses, total_draws, career_battle_points,
                                     pod1_titles, pod_promotions, career_history_json
                                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                                ON CONFLICT (id) DO UPDATE SET
+                                ON CONFLICT (league_id, player_name) DO UPDATE SET
                                     bcp_player_id = EXCLUDED.bcp_player_id;
                             """, (
-                                c_id,
-                                "league_sd40k_big_league",
+                                str(uuid.uuid4()),
+                                sd40k_uuid,
                                 c_name,
                                 valid_cpid,
                                 int(c_obj.get("seasons_played", 0)),
@@ -1978,7 +1993,7 @@ class PostgresDatabase:
             except Exception as ce:
                 logger.warning(f"seed_sd40k_league_tables careers notice: {ce}")
 
-            self.sync_league_participant_identities("league_sd40k_big_league", 38)
+            self.sync_league_participant_identities(sd40k_uuid, 38)
         except Exception as e:
             logger.warning(f"seed_sd40k_league_tables error: {e}")
 
@@ -1986,8 +2001,10 @@ class PostgresDatabase:
                                   p1_name: str, p2_name: str, p1_score: int, p2_score: int,
                                   p1_bp: int, p2_bp: int, scorecard_id: Optional[str] = None,
                                   is_ringer: bool = False) -> bool:
-        """Persists a concluded league match to PostgreSQL native_league_matches."""
-        match_uid = f"{league_id}_s{season_num}_p{pod_num}_r{round_num}_{int(time.time())}"
+        """Persists a concluded league match to PostgreSQL native_league_matches using a collision-free UUID."""
+        if league_id in ("league_sd40k_big_league", "lg_sd40k", "sd40k", ""):
+            league_id = "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90"
+        match_uid = str(uuid.uuid4())
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
