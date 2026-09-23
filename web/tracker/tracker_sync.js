@@ -1003,10 +1003,63 @@
     window.location.replace(isStandalone ? '/login' : '/');
   };
 
+  window.__showGtLoadingOverlay = function (title, subtitle) {
+    let overlay = document.getElementById('gt-loading-overlay');
+    if (!overlay && document.body) {
+      overlay = document.createElement('div');
+      overlay.id = 'gt-loading-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:999990;background:radial-gradient(circle at 50% 35%, rgba(18, 26, 44, 0.96), rgba(7, 11, 20, 0.99));backdrop-filter:blur(12px);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;transition:opacity 0.28s ease, visibility 0.28s ease;';
+      overlay.innerHTML = `
+        <div style="background: rgba(18, 22, 31, 0.92); border: 1px solid rgba(56, 189, 248, 0.28); border-radius: 20px; padding: 32px 28px; max-width: 380px; width: 100%; text-align: center; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 40px rgba(56, 189, 248, 0.08);">
+          <div style="position: relative; width: 58px; height: 58px; margin: 0 auto 18px; display: flex; align-items: center; justify-content: center;">
+            <div style="position: absolute; inset: 0; border-radius: 50%; border: 3px solid rgba(56, 189, 248, 0.16); border-top-color: #38bdf8; border-right-color: #f59e0b; animation: gtLobbySpin 0.9s linear infinite;"></div>
+            <span style="font-size: 24px;">🎲</span>
+          </div>
+          <div id="gt-loading-title" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 800; color: #f8fafc; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px;"></div>
+          <div id="gt-loading-subtitle" style="font-size: 12px; color: #94a3b8; line-height: 1.45;"></div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+    }
+    if (overlay) {
+      const tEl = document.getElementById('gt-loading-title');
+      const sEl = document.getElementById('gt-loading-subtitle');
+      if (tEl && title) tEl.textContent = title;
+      if (sEl && subtitle) sEl.textContent = subtitle;
+      overlay.classList.remove('gt-loading-hidden');
+      overlay.style.opacity = '1';
+      overlay.style.visibility = 'visible';
+      overlay.style.pointerEvents = 'auto';
+    }
+  };
+
+  window.__hideGtLoadingOverlay = function () {
+    const overlay = document.getElementById('gt-loading-overlay');
+    if (overlay) {
+      overlay.classList.add('gt-loading-hidden');
+      overlay.style.opacity = '0';
+      overlay.style.visibility = 'hidden';
+      overlay.style.pointerEvents = 'none';
+    }
+  };
+
   // 3. Initialize Match Room / Play / Setup / Landing
   async function init() {
+    setTimeout(() => {
+      if (typeof window.__hideGtLoadingOverlay === 'function') {
+        window.__hideGtLoadingOverlay();
+      }
+    }, 2200);
+
+    if (!isPlay) {
+      injectLobbyHub();
+    }
+
     const isAuthed = await verifySession();
-    if (!isAuthed) return;
+    if (!isAuthed) {
+      window.__hideGtLoadingOverlay();
+      return;
+    }
 
     if (isPlay) {
       const params = new URLSearchParams(window.location.search);
@@ -1135,11 +1188,14 @@
       injectPlayer2InviteWidget();
       attachDomActionInterceptors();
       startHybridSync();
+      window.__hideGtLoadingOverlay();
     } else {
       // Landing page (/11th/tracker or /tracker)
       injectLobbyHub();
+      renderUserBar();
       syncHistoryFromDatabase();
       startHistoryPolling();
+      window.__hideGtLoadingOverlay();
     }
   }
 
@@ -1150,6 +1206,10 @@
       window.location.search.includes('game_system=aos') ||
       window.location.search.includes('system=aos');
     const sysId = isAosMode ? 'aos' : '40k';
+    window.__showGtLoadingOverlay(
+      isAosMode ? '⚡ Creating Age of Sigmar Room' : '🎲 Creating Match Room',
+      'Allocating tabletop room key & initializing mission setup...'
+    );
     try {
       const resp = await fetch('/api/tracker/room/create', {
         method: 'POST',
@@ -1216,6 +1276,7 @@
 
     if (errDiv) errDiv.style.display = 'none';
     if (btn) { btn.disabled = true; btn.textContent = '...'; }
+    window.__showGtLoadingOverlay('🔗 Joining Tabletop Room', `Connecting to Room #${code}...`);
 
     // Verify if room exists on the server!
     try {
@@ -1227,6 +1288,7 @@
       });
       const data = await resp.json();
       if (!resp.ok || !data.exists) {
+        window.__hideGtLoadingOverlay();
         if (errDiv) {
           errDiv.textContent = `❌ Room "${code}" does not exist. Please check with your opponent.`;
           errDiv.style.display = 'block';
@@ -1239,6 +1301,7 @@
       const playBaseUrl = isAosMatch ? '/11th/tracker/aos' : '/11th/tracker/play';
 
       if (data.is_full) {
+        window.__hideGtLoadingOverlay();
         const proceed = confirm(`⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). View Scorecard as Spectator?`);
         if (!proceed) {
           if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
@@ -1250,6 +1313,7 @@
 
       window.location.href = `${playBaseUrl}?match_id=${encodeURIComponent(data.match_id || code)}&role=player2`;
     } catch (err) {
+      window.__hideGtLoadingOverlay();
       if (errDiv) {
         errDiv.textContent = 'Connection error checking room status. Please try again.';
         errDiv.style.display = 'block';
@@ -1355,7 +1419,14 @@
       hideNativeGdmEmptyState();
       renderHistoryList(dbHistoryCache);
       syncHistoryFromDatabase();
+      if (typeof window.__hideGtLoadingOverlay === 'function') {
+        window.__hideGtLoadingOverlay();
+      }
     }
+
+    // Immediately render the Lobby Hub and User Bar so it never waits on a DOM mutation!
+    tryInject();
+    renderUserBar();
 
     let isObserverRunning = false;
     const observer = new MutationObserver(() => {
@@ -2974,7 +3045,7 @@
         <a href="/#my-hub" style="display:inline-flex; align-items:center; gap:3px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:800; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
           🏠 Hub
         </a>
-        <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
+        <a href="/11th/tracker" onclick="if(window.__showGtLoadingOverlay) window.__showGtLoadingOverlay('🎲 Entering Game Tracker Lobby', 'Loading active tabletop rooms & match history...');" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
           🎲 Lobby
         </a>
         <span style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:4px 7px; border-radius:6px; border:1px solid #334155; font-weight:800;">

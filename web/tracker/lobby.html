@@ -56,8 +56,8 @@
   <!-- RETRIBUTION ARMORY & COSMETICS -->
   <script src="/js/armory_svgs.js"></script>
   <script src="/js/armory.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=65.0">
-  <script src="/tracker/tracker_sync.js?v=65.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=67.0">
+  <script src="/tracker/tracker_sync.js?v=67.0"></script>
 
   <style>
     :root {
@@ -88,9 +88,49 @@
         linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px) !important;
       background-size: 40px 40px !important;
     }
+    @keyframes gtLobbySpin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes gtLobbyPulse {
+      0%, 100% { opacity: 0.95; transform: scale(1); }
+      50% { opacity: 0.65; transform: scale(0.98); }
+    }
+    #gt-loading-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 999990;
+      background: radial-gradient(circle at 50% 35%, rgba(18, 26, 44, 0.96), rgba(7, 11, 20, 0.99));
+      backdrop-filter: blur(12px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      transition: opacity 0.28s ease, visibility 0.28s ease;
+    }
+    #gt-loading-overlay.gt-loading-hidden {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
   </style>
 </head>
 <body class="__variable_4fe6d1 __variable_52f0b0 __variable_e896d9 antialiased is-tracker-lobby">
+  <div id="gt-loading-overlay">
+    <div style="background: rgba(18, 22, 31, 0.92); border: 1px solid rgba(56, 189, 248, 0.28); border-radius: 20px; padding: 32px 28px; max-width: 380px; width: 100%; text-align: center; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 40px rgba(56, 189, 248, 0.08);">
+      <div style="position: relative; width: 58px; height: 58px; margin: 0 auto 18px; display: flex; align-items: center; justify-content: center;">
+        <div style="position: absolute; inset: 0; border-radius: 50%; border: 3px solid rgba(56, 189, 248, 0.16); border-top-color: #38bdf8; border-right-color: #f59e0b; animation: gtLobbySpin 0.9s linear infinite;"></div>
+        <span style="font-size: 24px; animation: gtLobbyPulse 1.8s ease-in-out infinite;">🎲</span>
+      </div>
+      <div id="gt-loading-title" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 800; color: #f8fafc; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px;">
+        Entering Game Tracker Lobby
+      </div>
+      <div id="gt-loading-subtitle" style="font-size: 12px; color: #94a3b8; line-height: 1.45;">
+        Verifying commander profile &amp; syncing active tabletop rooms...
+      </div>
+    </div>
+  </div>
   <main id="main-content" tabindex="-1" class="flex-1 w-full relative z-[1] outline-none flex flex-col"></main>
 </body>
 </html>

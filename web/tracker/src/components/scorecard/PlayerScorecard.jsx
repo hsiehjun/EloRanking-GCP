@@ -118,36 +118,59 @@ export function PlayerScorecard({ player }) {
       {/* Optional Command Points Bar */}
       {settings.trackCP && (
         <div
-          className="flex items-center justify-between px-4 py-2.5 border-b"
+          className="flex items-center justify-between px-4 py-3 border-b"
           style={{ borderColor: "var(--gtk-line)" }}
         >
-          <span className="gtk-mono text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: "var(--gtk-muted)" }}>
+          <span className="gtk-mono text-[10.5px] font-bold uppercase tracking-[0.16em]" style={{ color: "var(--gtk-muted)" }}>
             Command Points
           </span>
           <div
-            className="inline-flex items-stretch overflow-hidden rounded-[8px] border-2"
-            style={{ borderColor: "var(--gtk-line)" }}
+            className="inline-flex items-stretch overflow-hidden rounded-[10px] border-2"
+            style={{
+              borderColor: "var(--gtk-line)",
+              background: "rgba(10, 14, 23, 0.75)",
+              height: "38px",
+            }}
           >
             <button
               type="button"
               disabled={commandPoints <= 0}
               onClick={() => setCP(player, commandPoints - 1)}
-              className="flex w-9 items-center justify-center transition-colors disabled:opacity-30"
-              style={{ borderRight: "1px solid var(--gtk-line)" }}
+              className="flex items-center justify-center transition-colors disabled:opacity-30"
+              style={{
+                width: "38px",
+                minWidth: "38px",
+                height: "100%",
+                borderRight: "1px solid var(--gtk-line)",
+                background: "rgba(255, 255, 255, 0.03)",
+              }}
             >
               <MinusIcon className="h-4 w-4" />
             </button>
             <span
-              className="gtk-num flex min-w-[2.5rem] items-center justify-center text-[18px] font-bold"
-              style={{ color: "var(--gtk-text)" }}
+              className="gtk-num flex items-center justify-center font-bold"
+              style={{
+                color: "var(--gtk-text)",
+                minWidth: "52px",
+                padding: "0 14px",
+                fontSize: "18px",
+                fontWeight: 800,
+                fontVariantNumeric: "tabular-nums",
+              }}
             >
               {commandPoints}
             </span>
             <button
               type="button"
               onClick={() => setCP(player, commandPoints + 1)}
-              className="flex w-9 items-center justify-center text-white transition-[filter]"
-              style={{ background: playerColor, borderLeft: "1px solid var(--gtk-line)" }}
+              className="flex items-center justify-center text-white transition-[filter]"
+              style={{
+                width: "38px",
+                minWidth: "38px",
+                height: "100%",
+                background: playerColor,
+                borderLeft: "1px solid var(--gtk-line)",
+              }}
             >
               <PlusIcon className="h-4 w-4" />
             </button>

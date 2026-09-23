@@ -100,7 +100,7 @@ export function AosPlayerScorecard({ playerKey, round, isTurnActive, turnNumber 
 
           {/* Command Points Widget */}
           <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-[10px] border"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-[10px] border"
             style={{
               background: "var(--gtk-panel)",
               borderColor: "var(--gtk-line)"
@@ -109,18 +109,18 @@ export function AosPlayerScorecard({ playerKey, round, isTurnActive, turnNumber 
             <span className="gtk-mono text-[10px] uppercase font-bold" style={{ color: "var(--gtk-muted)" }}>CP</span>
             <button
               onClick={() => adjustCP(playerKey, -1)}
-              className="w-5 h-5 rounded border text-xs font-bold text-white flex items-center justify-center transition-colors hover:border-white"
-              style={{ background: "var(--gtk-tile)", borderColor: "var(--gtk-line)" }}
+              className="rounded border text-xs font-bold text-white flex items-center justify-center transition-colors hover:border-white"
+              style={{ width: "26px", height: "26px", background: "var(--gtk-tile)", borderColor: "var(--gtk-line)" }}
             >
               -
             </button>
-            <span className="gtk-display text-[16px] font-bold px-1 leading-none" style={{ color: "var(--gtk-accent)" }}>
+            <span className="gtk-display text-[17px] font-bold leading-none" style={{ color: "var(--gtk-accent)", minWidth: "32px", padding: "0 8px", textAlign: "center" }}>
               {player.cp || 0}
             </span>
             <button
               onClick={() => adjustCP(playerKey, 1)}
-              className="w-5 h-5 rounded border text-xs font-bold text-white flex items-center justify-center transition-colors hover:border-white"
-              style={{ background: "var(--gtk-tile)", borderColor: "var(--gtk-line)" }}
+              className="rounded border text-xs font-bold text-white flex items-center justify-center transition-colors hover:border-white"
+              style={{ width: "26px", height: "26px", background: "var(--gtk-tile)", borderColor: "var(--gtk-line)" }}
             >
               +
             </button>
