@@ -388,11 +388,6 @@ class PostgresDatabase:
                         cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_version';")
                         setting = cursor.fetchone()
                         if setting and setting[0] == 'v21_faction_standard_btree_indexes':
-                            try:
-                                self._ensure_native_league_tables()
-                                self.seed_sd40k_league_tables()
-                            except Exception as lg_err:
-                                logger.debug(f"init_db league seed notice: {lg_err}")
                             return
         except Exception as e:
             logger.debug(f"DB schema pre-check notice: {e}")
