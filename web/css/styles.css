@@ -15230,6 +15230,285 @@ table.desktop-only,
   }
 }
 
+/* ==========================================================================
+   Event Studio: League Organizer Guided Workspace (Desktop / Tablet / Mobile)
+   ========================================================================== */
+.to-league-studio-shell {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.97), rgba(2, 6, 23, 0.95));
+  border: 1px solid rgba(56, 189, 248, 0.38);
+  border-radius: 14px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.42);
+}
+
+.to-league-switcher-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.to-league-switcher-tab {
+  flex: 1 1 260px;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  color: #cbd5e1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.to-league-switcher-tab:hover {
+  border-color: rgba(56, 189, 248, 0.55);
+  background: rgba(30, 41, 59, 0.88);
+}
+
+.to-league-switcher-tab.active {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.28), rgba(14, 165, 233, 0.16));
+  border: 1.5px solid #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(14, 165, 233, 0.22);
+}
+
+.to-league-pillars-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.to-league-pillar-card {
+  background: rgba(2, 6, 23, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  min-width: 0;
+}
+
+.to-league-pillar-card:hover {
+  border-color: rgba(56, 189, 248, 0.55);
+  background: rgba(15, 23, 42, 0.92);
+  transform: translateY(-1px);
+}
+
+.to-league-pillar-kicker {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  margin-bottom: 0.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.to-league-pillar-val {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.to-league-pillar-sub {
+  font-size: 0.7rem;
+  color: #64748b;
+  margin-top: 0.15rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.to-league-workflow-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  background: rgba(2, 6, 23, 0.65);
+  padding: 0.4rem;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.to-workflow-step-btn {
+  padding: 0.6rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.to-workflow-step-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+}
+
+.to-workflow-step-btn.active {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.42), rgba(2, 132, 199, 0.32));
+  border-color: rgba(56, 189, 248, 0.65);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+}
+
+.to-workflow-step-num {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #38bdf8;
+}
+
+.to-workflow-step-title {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.to-workflow-step-desc {
+  font-size: 0.68rem;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.to-workflow-step-btn.active .to-workflow-step-desc {
+  color: #bae6fd;
+}
+
+.to-league-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 0.9rem;
+}
+
+.to-league-config-card {
+  background: rgba(2, 6, 23, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 0.95rem;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.to-league-studio-shell input,
+.to-league-studio-shell select,
+.to-league-studio-shell textarea {
+  min-width: 0 !important;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.to-updown-pod-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 0.85rem;
+}
+
+.to-ann-split-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.to-pairings-form-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.7fr 1.3fr 0.95fr 0.65fr 0.65fr auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.to-layouts-5col-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+@media (max-width: 1100px) {
+  .to-league-pillars-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .to-league-workflow-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .to-pairings-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .to-league-studio-shell {
+    padding: 0.9rem;
+  }
+  .to-league-config-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .to-ann-split-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .to-pairings-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .to-layouts-5col-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .to-updown-pod-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.to-date-pair-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.65rem;
+}
+
+@media (max-width: 640px) {
+  .to-date-pair-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .to-league-pillars-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .to-league-workflow-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .to-workflow-step-btn:last-child {
+    grid-column: 1 / -1;
+  }
+  .to-pairings-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+
 
 
 
