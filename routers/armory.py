@@ -907,15 +907,28 @@ async def get_armory_transactions(request: Request):
     for entry in ledger_entries:
         cat = str(entry.get("category") or "")
         tx_id = entry.get("tx_id")
+        bucket = str(entry.get("bucket") or "GRANTED").upper()
         if entry.get("direction") == "CREDIT" and cat not in ("genesis_career_sync", "career_achievement_sync"):
+            if cat == "genesis_pioneer_grant":
+                friendly_cat = "Official Account Grant"
+                friendly_detail = "Early Adopter & Armory Unlock Allocation"
+            elif cat == "topup_purchase" or bucket == "PURCHASED":
+                friendly_cat = "Glory Store Top-Up"
+                friendly_detail = "Purchased Glory Honor Credit"
+            elif bucket == "REFUND":
+                friendly_cat = "Official Refund"
+                friendly_detail = "Returned to Spendable Balance"
+            else:
+                friendly_cat = "Quartermaster Grant"
+                friendly_detail = "Official Account Credit"
             credits.insert(0, {
                 "id": tx_id,
                 "tx_id": tx_id,
                 "type": "credit",
-                "bucket": entry.get("bucket", "PURCHASED"),
-                "category": f"{entry.get('bucket', 'CREDIT')} • {cat}",
+                "bucket": bucket,
+                "category": friendly_cat,
                 "name": f"💎 {entry.get('description')}",
-                "detail": f"TX: {tx_id} • Balance: {entry.get('balance_before'):,} → {entry.get('balance_after'):,} • SHA-256: {str(entry.get('entry_hash') or '')[:12]}…",
+                "detail": friendly_detail,
                 "amount": int(entry.get("amount") or 0),
                 "balance_before": int(entry.get("balance_before") or 0),
                 "balance_after": int(entry.get("balance_after") or 0),
@@ -926,13 +939,19 @@ async def get_armory_transactions(request: Request):
             ref_id = entry.get("reference_id")
             if ref_id and ref_id in seen_items and cat == "armory_purchase":
                 continue
+            if cat == "event_registration":
+                friendly_wing = "Tournament Registration"
+            elif cat == "league_registration":
+                friendly_wing = "League Registration"
+            else:
+                friendly_wing = "Armory Requisition"
             debits.insert(0, {
                 "id": tx_id,
                 "tx_id": tx_id,
                 "type": "debit",
                 "item_id": ref_id or cat,
                 "name": entry.get("description") or cat,
-                "wing": f"TX: {tx_id} • Balance: {entry.get('balance_before'):,} → {entry.get('balance_after'):,} • SHA-256: {str(entry.get('entry_hash') or '')[:12]}…",
+                "wing": friendly_wing,
                 "cost": int(entry.get("amount") or 0),
                 "balance_before": int(entry.get("balance_before") or 0),
                 "balance_after": int(entry.get("balance_after") or 0),

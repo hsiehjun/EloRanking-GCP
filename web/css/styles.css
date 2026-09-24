@@ -15508,6 +15508,145 @@ table.desktop-only,
   }
 }
 
+/* =========================================================================
+   RETRIBUTION ARMORY QUARTERMASTER LOADING SCREEN
+   ========================================================================= */
+.armory-loading-screen {
+  min-height: 360px;
+  background: radial-gradient(circle at center, rgba(245, 158, 11, 0.08) 0%, rgba(15, 23, 42, 0) 70%);
+  border-radius: 14px;
+}
+
+.armory-loading-emblem-wrap {
+  position: relative;
+  width: 86px;
+  height: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.armory-loading-orbital-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(245, 158, 11, 0.22);
+  border-top-color: #fbbf24;
+  border-right-color: #38bdf8;
+  animation: armoryOrbitalSpin 1.25s cubic-bezier(0.5, 0.15, 0.5, 0.85) infinite;
+  box-shadow: 0 0 24px rgba(245, 158, 11, 0.25);
+}
+
+.armory-loading-orbital-ring.armory-loading-orbital-inner {
+  inset: 10px;
+  border-width: 2px;
+  border-color: rgba(56, 189, 248, 0.18);
+  border-bottom-color: #38bdf8;
+  animation: armoryOrbitalSpinReverse 1.6s linear infinite;
+}
+
+.armory-loading-crest-icon {
+  font-size: 2.1rem;
+  filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.55));
+  animation: armoryCrestPulse 1.8s ease-in-out infinite;
+}
+
+.armory-loading-progress-track {
+  width: 100%;
+  max-width: 320px;
+  height: 6px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 1.75rem;
+}
+
+.armory-loading-progress-bar {
+  width: 45%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #f59e0b, #38bdf8, #f59e0b);
+  background-size: 200% 100%;
+  animation: armoryProgressSlide 1.3s ease-in-out infinite;
+}
+
+.armory-loading-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  width: 100%;
+  max-width: 780px;
+}
+
+.armory-loading-skeleton-card {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.armory-skel-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(30, 41, 59, 0.7) 25%, rgba(51, 65, 85, 0.85) 50%, rgba(30, 41, 59, 0.7) 75%);
+  background-size: 200% 100%;
+  animation: armoryShimmer 1.5s infinite;
+}
+
+.armory-skel-line {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(30, 41, 59, 0.7) 25%, rgba(51, 65, 85, 0.85) 50%, rgba(30, 41, 59, 0.7) 75%);
+  background-size: 200% 100%;
+  animation: armoryShimmer 1.5s infinite;
+}
+
+.armory-skel-w70 {
+  width: 72%;
+}
+
+.armory-skel-w45 {
+  width: 46%;
+}
+
+@media (max-width: 640px) {
+  .armory-loading-skeleton-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@keyframes armoryOrbitalSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes armoryOrbitalSpinReverse {
+  0% { transform: rotate(360deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes armoryCrestPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes armoryProgressSlide {
+  0% { transform: translateX(-90%); }
+  100% { transform: translateX(210%); }
+}
+
+@keyframes armoryShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+
 
 
 

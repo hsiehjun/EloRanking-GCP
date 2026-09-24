@@ -38,6 +38,11 @@
       t.classList.toggle('active', t.getAttribute('data-sys') === sys);
     });
 
+    var gridEl = document.getElementById('armory-products-grid');
+    if (gridEl) {
+      gridEl.innerHTML = buildArmoryLoadingHtml(sys === 'aos' ? 'Synchronizing Age of Sigmar Grand Alliance Relics...' : 'Synchronizing Warhammer 40,000 Command Vault...');
+    }
+
     await loadArmoryData(sys);
     renderArmoryGrid();
   }
@@ -1311,6 +1316,34 @@
   }
 
   /**
+   * Builds the themed Quartermaster loading screen HTML for the Retribution Armory modal
+   */
+  function buildArmoryLoadingHtml(statusText) {
+    var msg = statusText || 'Synchronizing Command Vault, Equipped Relics & Glory Balance...';
+    return [
+      '<div class="armory-loading-screen" style="grid-column: 1 / -1; width: 100%; padding: 2.5rem 1.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">',
+      '  <div class="armory-loading-emblem-wrap">',
+      '    <div class="armory-loading-orbital-ring"></div>',
+      '    <div class="armory-loading-orbital-ring armory-loading-orbital-inner"></div>',
+      '    <div class="armory-loading-crest-icon">🏛️</div>',
+      '  </div>',
+      '  <div style="font-size: 0.72rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #fbbf24; margin-top: 1.15rem;">QUARTERMASTER VAULT DISPATCH</div>',
+      '  <h3 style="margin: 0.3rem 0 0.35rem; font-size: 1.28rem; font-weight: 800; color: #ffffff;">Opening Retribution Armory...</h3>',
+      '  <div style="font-size: 0.84rem; color: #94a3b8; max-width: 440px; margin-bottom: 1.1rem;">' + escapeHtml(msg) + '</div>',
+      '  <div class="armory-loading-progress-track">',
+      '    <div class="armory-loading-progress-bar"></div>',
+      '  </div>',
+      '  <div class="armory-loading-skeleton-grid">',
+      '    <div class="armory-loading-skeleton-card"><div class="armory-skel-icon"></div><div class="armory-skel-line armory-skel-w70"></div><div class="armory-skel-line armory-skel-w45"></div></div>',
+      '    <div class="armory-loading-skeleton-card"><div class="armory-skel-icon"></div><div class="armory-skel-line armory-skel-w70"></div><div class="armory-skel-line armory-skel-w45"></div></div>',
+      '    <div class="armory-loading-skeleton-card"><div class="armory-skel-icon"></div><div class="armory-skel-line armory-skel-w70"></div><div class="armory-skel-line armory-skel-w45"></div></div>',
+      '    <div class="armory-loading-skeleton-card"><div class="armory-skel-icon"></div><div class="armory-skel-line armory-skel-w70"></div><div class="armory-skel-line armory-skel-w45"></div></div>',
+      '  </div>',
+      '</div>'
+    ].join('\n');
+  }
+
+  /**
    * Opens the full Retribution Armory Modal
    */
   async function openArmoryModal(initialWing, system) {
@@ -1337,9 +1370,32 @@
     modal.id = 'retribution-armory-modal';
     modal.className = 'modal-backdrop active';
     modal.style.zIndex = '100005';
+
+    // Immediately render the modal frame & Quartermaster loading screen so there is zero blank state
+    var isStore = (currentArmoryMode === 'store');
+    modal.innerHTML = [
+      '<div class="modal-card armory-modal-card">',
+      '  <div class="armory-modal-header">',
+      '    <div class="armory-header-branding">',
+      '      <div class="armory-header-icon">' + (isStore ? '🛒' : '🏛️') + '</div>',
+      '      <div>',
+      '        <div class="armory-header-kicker">' + (isStore ? 'OMNITACTICA QUARTERMASTER CATALOG' : 'COMMAND VAULT &amp; PERSONAL REQUISITIONS') + '</div>',
+      '        <h2 class="armory-header-title">' + (isStore ? 'Retribution Store' : 'Retribution Armory') + '</h2>',
+      '      </div>',
+      '    </div>',
+      '    <button type="button" class="modal-close" onclick="window.Armory.closeArmoryModal()" aria-label="Close">✕</button>',
+      '  </div>',
+      '  <div class="armory-modal-body">',
+      '    <div id="armory-products-grid" class="armory-grid">',
+      buildArmoryLoadingHtml(isStore ? 'Loading Quartermaster Catalog, Relics & Glory Pricing...' : 'Synchronizing Command Vault, Equipped Relics & Glory Balance...'),
+      '    </div>',
+      '  </div>',
+      '</div>'
+    ].join('\n');
+
     document.body.appendChild(modal);
 
-    // Load data and render
+    // Load data and render full interactive Vault / Store
     await loadArmoryData(currentGameSystem);
     renderArmoryModalShell();
   }
@@ -1347,6 +1403,61 @@
   var currentLedgerData = null;
   var currentLedgerFilter = 'all'; // 'all', 'credit', 'debit'
   var currentLedgerSearch = '';
+
+  /**
+   * Sanitizes internal technical audit fields (TX IDs, balance steps, SHA-256 hashes, raw snake_case keys)
+   * into clean, human-friendly labels for players.
+   */
+  var WING_LABELS = {
+    'dice_forge': 'Dice Forge',
+    'profile_forge': 'Profile Forge',
+    'card_finishes': 'Card Finishes',
+    'avatars': 'Faction Avatars',
+    'titles': 'Titles & Honors',
+    'pokes': 'Rival Hexes & Pokes'
+  };
+
+  function cleanLedgerRowMeta(rawCategory, rawDetail) {
+    var cat = String(rawCategory || '').trim();
+    var det = String(rawDetail || '').trim();
+
+    if (WING_LABELS[cat.toLowerCase()]) {
+      cat = WING_LABELS[cat.toLowerCase()];
+    }
+
+    if (cat.indexOf('genesis_pioneer_grant') !== -1 || cat.indexOf('GRANTED') !== -1) {
+      cat = 'Official Account Grant';
+      if (!det || det.indexOf('TX:') !== -1 || det.indexOf('SHA-256:') !== -1) {
+        det = 'Early Adopter & Armory Unlock Allocation';
+      }
+    } else if (cat.indexOf('topup_purchase') !== -1 || cat.indexOf('PURCHASED') !== -1) {
+      cat = 'Glory Store Top-Up';
+      if (!det || det.indexOf('TX:') !== -1 || det.indexOf('SHA-256:') !== -1) {
+        det = 'Purchased Glory Honor Credit';
+      }
+    } else if (cat.indexOf('REFUND') !== -1) {
+      cat = 'Official Refund';
+    } else if (cat.indexOf('TX:') !== -1 || cat.indexOf('SHA-256:') !== -1) {
+      cat = 'Armory Requisition';
+    }
+
+    if (det.indexOf('TX:') !== -1 || det.indexOf('SHA-256:') !== -1 || det.indexOf('Balance:') !== -1) {
+      det = det
+        .replace(/TX:\s*[A-Za-z0-9_-]+\s*•?\s*/g, '')
+        .replace(/Balance:\s*[\d,]+\s*→\s*[\d,]+\s*•?\s*/g, '')
+        .replace(/SHA-256:\s*[A-Za-z0-9….]+\s*/g, '')
+        .replace(/^[•\s]+|[•\s]+$/g, '')
+        .trim();
+      if (!det) {
+        det = (cat === 'Official Account Grant') ? 'Early Adopter & Armory Unlock Allocation' : 'Verified Quartermaster Record';
+      }
+    }
+
+    return {
+      category: cat || 'Glory Honor',
+      detail: det
+    };
+  }
 
   /**
    * Fetch itemized Glory transaction ledger
@@ -1414,9 +1525,9 @@
       credits.push({
         id: 'pioneer_grant_reconcile',
         type: 'credit',
-        category: 'GRANTED • genesis_pioneer_grant',
+        category: 'Official Account Grant',
         name: '💎 Founder & Pioneer Armory Requisition Grant',
-        detail: 'Verified historical Armory requisition allocation',
+        detail: 'Early Adopter & Armory Unlock Allocation',
         amount: grantedBucket,
         date: ''
       });
@@ -1493,7 +1604,7 @@
    */
   async function renderArmoryLedger(container) {
     if (!container) return;
-    container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 2.5rem;"><div class="spinner" style="margin: 0 auto 1rem;"></div>Loading auditable Glory ledger...</div>';
+    container.innerHTML = buildArmoryLoadingHtml('Loading Glory Honor Statement & Balance History...');
 
     var data = await fetchArmoryLedger();
     container.innerHTML = buildLedgerHtml(data);
@@ -1516,13 +1627,13 @@
       if (neededGrant > grantedBucket) {
         var grantDiff = neededGrant - grantedBucket;
         grantedBucket = neededGrant;
-        if (!creditsList.some(function(c) { return c.id === 'pioneer_grant_reconcile' || String(c.category || '').indexOf('genesis_pioneer_grant') !== -1; })) {
+        if (!creditsList.some(function(c) { return c.id === 'pioneer_grant_reconcile' || String(c.category || '').indexOf('genesis_pioneer_grant') !== -1 || String(c.category || '').indexOf('Account Grant') !== -1; })) {
           creditsList = [{
             id: 'pioneer_grant_reconcile',
             type: 'credit',
-            category: 'GRANTED • genesis_pioneer_grant',
+            category: 'Official Account Grant',
             name: '💎 Founder & Pioneer Armory Requisition Grant',
-            detail: 'Verified historical Armory requisition allocation',
+            detail: 'Early Adopter & Armory Unlock Allocation',
             amount: grantDiff,
             date: ''
           }].concat(creditsList);
@@ -1535,24 +1646,26 @@
 
     var rows = [];
     creditsList.forEach(function(c) {
+      var cleaned = cleanLedgerRowMeta(c.category || 'Glory Earned', c.detail || '');
       rows.push({
         id: c.id,
         type: 'credit',
         amount: Number(c.amount || 0),
         title: c.name || 'Glory Honor Bounty',
-        category: c.category || 'Glory Earned',
-        detail: c.detail || '',
+        category: cleaned.category,
+        detail: cleaned.detail,
         date: c.date || ''
       });
     });
     debitsList.forEach(function(d) {
+      var cleanedD = cleanLedgerRowMeta(d.wing || 'Armory Requisition', 'Unlocked in Retribution Armory');
       rows.push({
         id: d.id,
         type: 'debit',
         amount: Number(d.cost || 0),
         title: d.name || d.item_id || 'Armory Requisition',
-        category: d.wing || 'Requisition Spent',
-        detail: 'Requisition from Retribution Armory',
+        category: cleanedD.category,
+        detail: cleanedD.detail,
         date: d.date || ''
       });
     });
@@ -1572,10 +1685,6 @@
     });
 
     var rowsHtml = renderLedgerRows(filteredRows);
-    var chainHead = String(summary.chain_head_hash || 'GENESIS');
-    var shortHash = chainHead.length > 16 ? (chainHead.slice(0, 10) + '…' + chainHead.slice(-6)) : chainHead;
-    var auditId = String(summary.audit_id || 'AUD-VERIFIED');
-    var txVerifiedCnt = Number(summary.transactions_verified || (data.hash_chain_ledger || []).length || 3);
 
     return [
       '<div class="armory-ledger-container" style="grid-column: 1/-1; width: 100%;">',
@@ -1584,17 +1693,14 @@
       '      <div style="display: flex; align-items: center; gap: 0.75rem;">',
       '        <span class="ledger-crest-icon">📜</span>',
       '        <div>',
-      '          <h3 class="ledger-hero-title">Glory Honor Financial Ledger &amp; SHA-256 Audit Engine</h3>',
-      '          <div class="ledger-hero-sub">ACID Double-Entry Wallet • Row-Locked (<code style="color:#38bdf8;">FOR UPDATE</code>) • Cryptographic Hash-Chained Ledger</div>',
+      '          <h3 class="ledger-hero-title">Glory Honor Balance &amp; Transaction Statement</h3>',
+      '          <div class="ledger-hero-sub">Complete history of your earned Glory Honors, account grants, and Armory requisitions.</div>',
       '        </div>',
       '      </div>',
       '      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">',
       '        <div class="ledger-status-pill" style="' + (isBalanced ? '' : 'background:rgba(239,68,68,0.15);color:#ef4444;border-color:rgba(239,68,68,0.35);') + '">',
-      '          ' + (isBalanced ? '🔒 SHA-256 Audit Verified: 100% Intact' : '⚠️ Balance Discrepancy Detected') + '',
+      '          ' + (isBalanced ? '✅ Account Balance Verified' : '⚠️ Balance Discrepancy Detected') + '',
       '        </div>',
-      '        <button type="button" onclick="window.Armory.runLiveGloryAudit()" class="btn btn-outline" style="font-size:0.74rem;padding:0.32rem 0.7rem;border-color:rgba(56,189,248,0.45);color:#38bdf8;font-weight:800;">',
-      '          🔍 Verify Hash Chain Now',
-      '        </button>',
       '      </div>',
       '    </div>',
       '    <div class="ledger-metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));">',
@@ -1604,34 +1710,33 @@
       '        <div class="ledger-metric-sub">(' + Number(summary.glory_40k || 0).toLocaleString() + ' 40K + ' + Number(summary.glory_aos || 0).toLocaleString() + ' AoS)</div>',
       '      </div>',
       '      <div class="ledger-metric-box">',
-      '        <div class="ledger-metric-lbl">Purchased &amp; Prize Credits</div>',
+      '        <div class="ledger-metric-lbl">Account Grants &amp; Credits</div>',
       '        <div class="ledger-metric-val" style="color: #fbbf24;">+' + (purchasedBucket + grantedBucket).toLocaleString() + '</div>',
-      '        <div class="ledger-metric-sub">' + purchasedBucket.toLocaleString() + ' Top-Up • ' + grantedBucket.toLocaleString() + ' Grants</div>',
+      '        <div class="ledger-metric-sub">' + (purchasedBucket > 0 ? purchasedBucket.toLocaleString() + ' Top-Up • ' : '') + grantedBucket.toLocaleString() + ' Grants</div>',
       '      </div>',
       '      <div class="ledger-metric-box">',
       '        <div class="ledger-metric-lbl">Total Spent (Events / Armory)</div>',
       '        <div class="ledger-metric-val" style="color: #ef4444;">-' + totalSpent.toLocaleString() + '</div>',
-      '        <div class="ledger-metric-sub">(' + debitsList.length + ' Verified Debits)</div>',
+      '        <div class="ledger-metric-sub">(' + debitsList.length + ' Items &amp; Entries)</div>',
       '      </div>',
       '      <div class="ledger-metric-box">',
-      '        <div class="ledger-metric-lbl">Verified Spendable Balance</div>',
+      '        <div class="ledger-metric-lbl">Spendable Balance</div>',
       '        <div class="ledger-metric-val" style="color: #38bdf8;">' + spendable.toLocaleString() + '</div>',
-      '        <div class="ledger-metric-sub">ACID Locked Vault Reserve</div>',
+      '        <div class="ledger-metric-sub">Available in Armory &amp; Events</div>',
       '      </div>',
       '    </div>',
       '    <div class="ledger-math-formula" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">',
-      '      <div><strong>5-Point Invariant Check:</strong> Total Credits (<strong>' + totalCredits.toLocaleString() + '</strong>) − Total Spent (<strong>' + totalSpent.toLocaleString() + '</strong>) = Spendable Balance (<strong>' + spendable.toLocaleString() + '</strong> Glory) ' + (isBalanced ? '✅ Reconciled' : '⚠️ Discrepancy') + '</div>',
-      '      <div style="font-family:monospace;font-size:0.72rem;color:#94a3b8;">Chain Tip: <strong style="color:#38bdf8;">' + shortHash + '</strong> • ' + txVerifiedCnt + ' Blocks • ' + auditId + '</div>',
+      '      <div><strong>Balance Summary:</strong> Total Credits (<strong>' + totalCredits.toLocaleString() + '</strong>) − Total Spent (<strong>' + totalSpent.toLocaleString() + '</strong>) = Spendable Balance (<strong>' + spendable.toLocaleString() + '</strong> Glory) ' + (isBalanced ? '✅ Reconciled' : '⚠️ Discrepancy') + '</div>',
       '    </div>',
       '  </div>',
       '  <div class="ledger-controls-bar">',
       '    <div class="ledger-tabs-row">',
       '      <button type="button" class="ledger-tab-btn ' + (currentLedgerFilter === 'all' ? 'active' : '') + '" onclick="window.Armory.filterLedgerType(\'all\')">All Records (' + rows.length + ')</button>',
-      '      <button type="button" class="ledger-tab-btn ' + (currentLedgerFilter === 'credit' ? 'active' : '') + '" onclick="window.Armory.filterLedgerType(\'credit\')">🟢 Credits &amp; Top-Ups (' + creditsList.length + ')</button>',
-      '      <button type="button" class="ledger-tab-btn ' + (currentLedgerFilter === 'debit' ? 'active' : '') + '" onclick="window.Armory.filterLedgerType(\'debit\')">🔴 Requisitions &amp; Fees (' + debitsList.length + ')</button>',
+      '      <button type="button" class="ledger-tab-btn ' + (currentLedgerFilter === 'credit' ? 'active' : '') + '" onclick="window.Armory.filterLedgerType(\'credit\')">🟢 Credits &amp; Honors (' + creditsList.length + ')</button>',
+      '      <button type="button" class="ledger-tab-btn ' + (currentLedgerFilter === 'debit' ? 'active' : '') + '" onclick="window.Armory.filterLedgerType(\'debit\')">🔴 Requisitions &amp; Entries (' + debitsList.length + ')</button>',
       '    </div>',
       '    <div>',
-      '      <input type="text" class="ledger-search-input" placeholder="Search TX ID, item, event, league, or honor..." value="' + (currentLedgerSearch || '') + '" oninput="window.Armory.filterLedgerSearch(this.value)">',
+      '      <input type="text" class="ledger-search-input" placeholder="Search item, tournament, league, or honor..." value="' + (currentLedgerSearch || '') + '" oninput="window.Armory.filterLedgerSearch(this.value)">',
       '    </div>',
       '  </div>',
       '  <div id="armory-ledger-stream" class="ledger-records-list">',
@@ -1650,18 +1755,18 @@
       var data = await res.json();
       if (data && data.audit) {
         var a = data.audit;
-        showArmoryNotification('🔒 Audit ' + a.audit_id + ': ' + a.status + ' (' + a.transactions_verified + ' blocks verified • Balance: ' + Number(a.verified_balance || 0).toLocaleString() + ' Glory)', a.is_valid ? 'success' : 'error');
+        showArmoryNotification('✅ Account Balance Verified (' + Number(a.verified_balance || 0).toLocaleString() + ' Spendable Glory)', a.is_valid ? 'success' : 'error');
         var container = document.getElementById('armory-products-grid') || document.getElementById('standalone-ledger-container');
         if (container) await renderArmoryLedger(container);
       }
     } catch (e) {
-      showArmoryNotification('❌ Audit verification failed: ' + e.message, 'error');
+      showArmoryNotification('❌ Verification check failed: ' + e.message, 'error');
     }
   }
 
   function renderLedgerRows(rows) {
     if (!rows || rows.length === 0) {
-      return '<div class="ledger-empty-msg">No audit records match your current filter.</div>';
+      return '<div class="ledger-empty-msg">No records match your current filter.</div>';
     }
     return rows.map(function(r) {
       var isCredit = r.type === 'credit';
@@ -1669,6 +1774,7 @@
       var sign = isCredit ? '+' : '−';
       var amtClass = isCredit ? 'amt-credit' : 'amt-debit';
       var dateStr = r.date ? '<span class="ledger-row-date">' + r.date.split('T')[0] + '</span>' : '';
+      var cleaned = cleanLedgerRowMeta(r.category, r.detail);
 
       return [
         '<div class="ledger-record-row">',
@@ -1676,7 +1782,7 @@
         '    <span class="ledger-entry-type-pill ' + badgeClass + '">' + (isCredit ? 'CREDIT' : 'DEBIT') + '</span>',
         '    <div class="ledger-record-info">',
         '      <div class="ledger-record-title">' + r.title + '</div>',
-        '      <div class="ledger-record-meta">' + r.category + (r.detail ? ' • ' + r.detail : '') + '</div>',
+        '      <div class="ledger-record-meta">' + cleaned.category + (cleaned.detail ? ' • ' + cleaned.detail : '') + '</div>',
         '    </div>',
         '  </div>',
         '  <div class="ledger-record-right">',
