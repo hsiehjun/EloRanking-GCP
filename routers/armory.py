@@ -52,6 +52,46 @@ def _ensure_armory_db(auth_mgr):
 import glory_ledger_service
 
 
+def _compute_actual_armory_spent(auth_mgr, user_id: str, user_data: Dict[str, Any]) -> int:
+    """Computes total verified Glory Honor spent across armory_transactions and vault inventory."""
+    total_cost = 0
+    seen_items = set()
+    if auth_mgr and hasattr(auth_mgr, "db") and auth_mgr.db and user_id:
+        try:
+            with auth_mgr.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT item_id, COALESCE(glory_cost, 0)
+                        FROM armory_transactions
+                        WHERE user_id = %s;
+                    """, (str(user_id),))
+                    for r in cur.fetchall():
+                        item_id = r[0]
+                        cost = max(0, int(r[1] or 0))
+                        total_cost += cost
+                        if item_id:
+                            seen_items.add(item_id)
+        except Exception:
+            pass
+
+    vault = user_data.get("armory_vault")
+    if isinstance(vault, str):
+        try:
+            vault = json.loads(vault)
+        except Exception:
+            vault = {}
+    if isinstance(vault, dict):
+        inv = vault.get("inventory")
+        if isinstance(inv, dict):
+            for item_id, inv_item in inv.items():
+                if item_id in seen_items:
+                    continue
+                c_item = armory_catalog.get_item_by_id(item_id) or {}
+                cost = int(c_item.get("cost_glory") or c_item.get("cost") or (inv_item.get("cost") if isinstance(inv_item, dict) else 0) or 0)
+                total_cost += max(0, cost)
+    return total_cost
+
+
 def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str, Any]:
     """Calculates total earned unified glory across 40K and AoS, syncs with the ACID Glory Ledger, and returns the verified wallet state."""
     target_pid = user_data.get("player_id")
@@ -79,7 +119,8 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
         evaluated_glory = int(user_data.get("total_glory") or 0)
 
     db_total = int(user_data.get("total_glory") or 0)
-    effective_earned = max(evaluated_glory, db_total)
+    effective_earned = evaluated_glory if evaluated_glory > 0 else db_total
+    actual_armory_spent = _compute_actual_armory_spent(auth_mgr, target_uid, user_data)
 
     if target_uid:
         ledger_svc = glory_ledger_service.get_glory_ledger_service()
@@ -87,7 +128,8 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
             user_id=target_uid,
             evaluated_earned_glory=effective_earned,
             glory_40k=total_40k,
-            glory_aos=total_aos
+            glory_aos=total_aos,
+            actual_armory_spent=actual_armory_spent
         )
         user_data["total_glory"] = wallet_resp["total_glory"]
         user_data["glory_spent"] = wallet_resp["glory_spent"]
@@ -99,10 +141,11 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
             "championships": user_championships
         }
 
-    db_spent = int(user_data.get("glory_spent") or 0)
+    db_spent = max(int(user_data.get("glory_spent") or 0), actual_armory_spent)
     db_balance = max(0, effective_earned - db_spent)
     return {
         "total_earned": effective_earned,
+        "total_credits": effective_earned,
         "total_glory": effective_earned,
         "earned_glory_total": effective_earned,
         "purchased_glory_total": 0,
@@ -345,9 +388,14 @@ async def get_user_glory_ledger(request: Request, limit: int = 50):
     auth_mgr = get_auth_manager()
     user_data = auth_mgr.get_user_by_id(user_id) or session
     glory_state = _calculate_user_glory_state(auth_mgr, user_data)
+    actual_spent = _compute_actual_armory_spent(auth_mgr, user_id, user_data)
     ledger_svc = glory_ledger_service.get_glory_ledger_service()
+    audit = ledger_svc.audit_user_wallet(
+        user_id=user_id,
+        evaluated_earned_glory=int(glory_state.get("earned_glory_total") or 0),
+        actual_armory_spent=actual_spent
+    )
     entries = ledger_svc.get_user_ledger_history(user_id=user_id, limit=limit)
-    audit = ledger_svc.audit_user_wallet(user_id=user_id)
     return {
         "success": True,
         "user_id": user_id,
@@ -367,9 +415,14 @@ async def run_user_glory_audit(request: Request, target_user_id: Optional[str] =
     uid = str(target_user_id).strip() if (target_user_id and is_admin) else caller_uid
     auth_mgr = get_auth_manager()
     user_data = auth_mgr.get_user_by_id(uid) or session
-    _calculate_user_glory_state(auth_mgr, user_data)
+    glory_state = _calculate_user_glory_state(auth_mgr, user_data)
+    actual_spent = _compute_actual_armory_spent(auth_mgr, uid, user_data)
     ledger_svc = glory_ledger_service.get_glory_ledger_service()
-    report = ledger_svc.audit_user_wallet(user_id=uid)
+    report = ledger_svc.audit_user_wallet(
+        user_id=uid,
+        evaluated_earned_glory=int(glory_state.get("earned_glory_total") or 0),
+        actual_armory_spent=actual_spent
+    )
     return {
         "success": True,
         "audit": report
@@ -840,11 +893,16 @@ async def get_armory_transactions(request: Request):
         except Exception as he:
             logger.debug(f"Notice building glory credits: {he}")
 
+    actual_debits_sum = sum(int(d.get("cost") or 0) for d in debits)
     ledger_svc = glory_ledger_service.get_glory_ledger_service()
+    audit_report = ledger_svc.audit_user_wallet(
+        user_id=str(user_id),
+        evaluated_earned_glory=int(glory_state.get("earned_glory_total") or 0),
+        actual_armory_spent=actual_debits_sum
+    )
     ledger_entries = ledger_svc.get_user_ledger_history(user_id=str(user_id), limit=200)
-    audit_report = ledger_svc.audit_user_wallet(user_id=str(user_id))
 
-    # Merge any non-badge ledger credits (Fiat Top-Ups, TO/Admin Grants, Refunds) into credits
+    # Merge any non-badge ledger credits (Fiat Top-Ups, TO/Admin Grants, Pioneer Armory Grants, Refunds) into credits
     # and any non-Armory ledger debits (Event Registration Fees, League Registration Fees, Model Purchases) into debits
     for entry in ledger_entries:
         cat = str(entry.get("category") or "")
@@ -882,23 +940,28 @@ async def get_armory_transactions(request: Request):
                 "date": str(entry.get("created_at") or "")
             })
 
-    total_earned = int(glory_state.get("total_earned", 0))
-    total_spent = int(glory_state.get("glory_spent", 0))
-    spendable = int(glory_state.get("spendable_glory", 0))
+    breakdown = audit_report.get("breakdown") or {}
+    earned_bucket = int(breakdown.get("earned_glory_total", glory_state.get("earned_glory_total", 0)))
+    purchased_bucket = int(breakdown.get("purchased_glory_total", glory_state.get("purchased_glory_total", 0)))
+    granted_bucket = int(breakdown.get("granted_glory_total", glory_state.get("granted_glory_total", 0)))
+    total_spent = int(breakdown.get("spent_glory_total", max(int(glory_state.get("glory_spent", 0)), actual_debits_sum)))
+    total_credits = earned_bucket + purchased_bucket + granted_bucket
+    spendable = int(audit_report.get("verified_balance", glory_state.get("spendable_glory", max(0, total_credits - total_spent))))
 
     return {
         "success": True,
         "summary": {
-            "total_earned": total_earned,
-            "earned_glory_total": int(glory_state.get("earned_glory_total", total_earned)),
-            "purchased_glory_total": int(glory_state.get("purchased_glory_total", 0)),
-            "granted_glory_total": int(glory_state.get("granted_glory_total", 0)),
+            "total_earned": total_credits,
+            "total_credits": total_credits,
+            "earned_glory_total": earned_bucket,
+            "purchased_glory_total": purchased_bucket,
+            "granted_glory_total": granted_bucket,
             "total_spent": total_spent,
-            "refunded_glory_total": int(glory_state.get("refunded_glory_total", 0)),
+            "refunded_glory_total": int(breakdown.get("refunded_glory_total", glory_state.get("refunded_glory_total", 0))),
             "spendable_glory": spendable,
             "glory_40k": int(glory_state.get("glory_40k", 0)),
             "glory_aos": int(glory_state.get("glory_aos", 0)),
-            "is_balanced": bool(audit_report.get("is_valid", True)) and ((total_earned - total_spent) == spendable),
+            "is_balanced": bool(audit_report.get("is_valid", True)) and ((total_credits - total_spent) == spendable),
             "audit_id": audit_report.get("audit_id"),
             "audit_status": audit_report.get("status", "VERIFIED_INTACT"),
             "chain_head_hash": audit_report.get("chain_head_hash", "GENESIS"),

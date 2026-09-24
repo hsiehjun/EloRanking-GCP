@@ -177,12 +177,29 @@ class GloryLedgerService:
         except Exception as e:
             logger.debug(f"GloryLedgerService schema ensure notice: {e}")
 
-    def _bootstrap_wallet_row_locked(self, cur, user_id: str) -> Dict[str, Any]:
+    def _bootstrap_wallet_row_locked(
+        self,
+        cur,
+        user_id: str,
+        evaluated_earned_glory: int = 0,
+        actual_armory_spent: int = 0
+    ) -> Dict[str, Any]:
         """
-        Acquires a row-level `FOR UPDATE` lock on `glory_wallets` for `user_id`.
-        If the user does not yet have a `glory_wallets` row, initializes it from `users` and `armory_transactions`
-        with genesis ledger entries so 100% of historical Glory is accounted for in `glory_honor_ledger`.
+        Ensures a row exists in `glory_wallets` BEFORE acquiring a row-level `FOR UPDATE` lock
+        (preventing concurrent first-time bootstrap races), and automatically heals any legacy/bootstrap
+        hash-chain or Armory inventory spend mismatch.
         """
+        # 1. Guarantee the row exists first so `SELECT ... FOR UPDATE` always locks an actual row
+        cur.execute("""
+            INSERT INTO glory_wallets (
+                user_id, earned_glory_total, purchased_glory_total, granted_glory_total,
+                spent_glory_total, refunded_glory_total, current_balance,
+                last_tx_id, last_entry_hash, tx_count, version
+            ) VALUES (%s, 0, 0, 0, 0, 0, 0, NULL, 'GENESIS', 0, 0)
+            ON CONFLICT (user_id) DO NOTHING;
+        """, (user_id,))
+
+        # 2. Acquire exclusive row-level lock on glory_wallets
         cur.execute("""
             SELECT user_id, earned_glory_total, purchased_glory_total, granted_glory_total,
                    spent_glory_total, refunded_glory_total, current_balance,
@@ -192,24 +209,82 @@ class GloryLedgerService:
             FOR UPDATE;
         """, (user_id,))
         row = cur.fetchone()
-        if row:
-            return {
-                "user_id": row[0],
-                "earned_glory_total": int(row[1] or 0),
-                "purchased_glory_total": int(row[2] or 0),
-                "granted_glory_total": int(row[3] or 0),
-                "spent_glory_total": int(row[4] or 0),
-                "refunded_glory_total": int(row[5] or 0),
-                "current_balance": int(row[6] or 0),
-                "last_tx_id": row[7],
-                "last_entry_hash": row[8] or "GENESIS",
-                "tx_count": int(row[9] or 0),
-                "version": int(row[10] or 1),
-                "is_frozen": bool(row[11]),
-                "freeze_reason": row[12]
-            }
+        wallet = {
+            "user_id": row[0] if row else user_id,
+            "earned_glory_total": int(row[1] or 0) if row else 0,
+            "purchased_glory_total": int(row[2] or 0) if row else 0,
+            "granted_glory_total": int(row[3] or 0) if row else 0,
+            "spent_glory_total": int(row[4] or 0) if row else 0,
+            "refunded_glory_total": int(row[5] or 0) if row else 0,
+            "current_balance": int(row[6] or 0) if row else 0,
+            "last_tx_id": row[7] if row else None,
+            "last_entry_hash": (row[8] or "GENESIS") if row else "GENESIS",
+            "tx_count": int(row[9] or 0) if row else 0,
+            "version": int(row[10] or 0) if row else 0,
+            "is_frozen": bool(row[11]) if row else False,
+            "freeze_reason": row[12] if row else None
+        }
 
-        # Read legacy users row to bootstrap existing earned & spent glory into the immutable ledger
+        # 3. Inspect existing ledger blocks for hash-chain continuity and Armory spend reconciliation
+        cur.execute("""
+            SELECT seq_num, tx_id, idempotency_key, direction, bucket, category,
+                   amount, signed_delta, balance_before, balance_after,
+                   prev_hash, entry_hash
+            FROM glory_honor_ledger
+            WHERE user_id = %s
+            ORDER BY seq_num ASC;
+        """, (user_id,))
+        ledger_rows = cur.fetchall()
+
+        has_chain_issue = False
+        expected_prev = "GENESIS"
+        running_bal = 0
+        for lr in ledger_rows:
+            _, l_tx_id, l_idem, l_dir, l_bucket, l_cat, l_amt, l_delta, l_before, l_after, l_prev, l_hash = lr
+            l_amt = int(l_amt)
+            l_delta = int(l_delta)
+            l_before = int(l_before)
+            l_after = int(l_after)
+            if l_prev != expected_prev or l_before != running_bal or (l_before + l_delta) != l_after:
+                has_chain_issue = True
+                break
+            expected_hash = self.compute_entry_hash(
+                tx_id=l_tx_id,
+                user_id=user_id,
+                idempotency_key=l_idem,
+                direction=l_dir,
+                bucket=l_bucket,
+                category=l_cat,
+                amount=l_amt,
+                signed_delta=l_delta,
+                balance_before=l_before,
+                balance_after=l_after,
+                prev_hash=l_prev
+            )
+            if expected_hash != l_hash:
+                has_chain_issue = True
+                break
+            running_bal = l_after
+            expected_prev = l_hash
+
+        if running_bal != wallet["current_balance"] or len(ledger_rows) != wallet["tx_count"]:
+            has_chain_issue = True
+
+        clean_actual_spent = max(0, int(actual_armory_spent or 0))
+        clean_eval_earned = max(0, int(evaluated_earned_glory or 0))
+
+        needs_bootstrap = (wallet["tx_count"] == 0 and len(ledger_rows) == 0)
+        needs_spend_reconcile = (clean_actual_spent > wallet["spent_glory_total"])
+        needs_earned_reconcile = (
+            clean_eval_earned > 0
+            and wallet["earned_glory_total"] != clean_eval_earned
+            and wallet["earned_glory_total"] == (clean_eval_earned + wallet["granted_glory_total"])
+        )
+
+        if not (needs_bootstrap or has_chain_issue or needs_spend_reconcile or needs_earned_reconcile):
+            return wallet
+
+        # Read legacy users row to reconcile earned, spent, and balance accurately
         cur.execute("""
             SELECT COALESCE(total_glory, 0), COALESCE(glory_spent, 0), COALESCE(glory_balance, 0)
             FROM users
@@ -217,19 +292,39 @@ class GloryLedgerService:
             FOR UPDATE;
         """, (user_id,))
         u_row = cur.fetchone()
-        legacy_earned = max(0, int(u_row[0] if u_row else 0))
-        legacy_spent = max(0, int(u_row[1] if u_row else 0))
-        if legacy_spent > legacy_earned:
-            legacy_earned = legacy_spent + max(0, int(u_row[2] if u_row else 0))
-        net_balance = max(0, legacy_earned - legacy_spent)
+        u_total = max(0, int(u_row[0] if u_row else 0))
+        u_spent = max(0, int(u_row[1] if u_row else 0))
+        u_bal = max(0, int(u_row[2] if u_row else 0))
 
+        target_earned = clean_eval_earned if clean_eval_earned > 0 else max(wallet["earned_glory_total"], u_total)
+        target_spent = max(wallet["spent_glory_total"], u_spent, clean_actual_spent)
+        target_purchased = max(0, wallet["purchased_glory_total"])
+
+        if target_spent > (target_earned + target_purchased):
+            # Player owns more Armory items than career earned Glory alone (e.g. Founder / Pioneer / Admin Requisition Grants)
+            desired_balance = max(wallet["current_balance"], u_bal, target_earned)
+            target_granted = (target_spent + desired_balance) - (target_earned + target_purchased)
+        else:
+            existing_granted = max(0, wallet["granted_glory_total"])
+            desired_balance = (target_earned + target_purchased + existing_granted) - target_spent
+            target_granted = existing_granted
+
+        # Rebuild clean, contiguous SHA-256 hash-chained genesis ledger blocks for this wallet
+        cur.execute("DELETE FROM glory_honor_ledger WHERE user_id = %s;", (user_id,))
         cur.execute("""
-            INSERT INTO glory_wallets (
-                user_id, earned_glory_total, purchased_glory_total, granted_glory_total,
-                spent_glory_total, refunded_glory_total, current_balance,
-                last_tx_id, last_entry_hash, tx_count, version
-            ) VALUES (%s, 0, 0, 0, 0, 0, 0, NULL, 'GENESIS', 0, 1)
-            ON CONFLICT (user_id) DO NOTHING;
+            UPDATE glory_wallets
+            SET earned_glory_total = 0,
+                purchased_glory_total = 0,
+                granted_glory_total = 0,
+                spent_glory_total = 0,
+                refunded_glory_total = 0,
+                current_balance = 0,
+                last_tx_id = NULL,
+                last_entry_hash = 'GENESIS',
+                tx_count = 0,
+                version = COALESCE(version, 0) + 1,
+                updated_at = NOW()
+            WHERE user_id = %s;
         """, (user_id,))
 
         wallet = {
@@ -243,43 +338,73 @@ class GloryLedgerService:
             "last_tx_id": None,
             "last_entry_hash": "GENESIS",
             "tx_count": 0,
-            "version": 1,
+            "version": int(wallet.get("version") or 0) + 1,
             "is_frozen": False,
             "freeze_reason": None
         }
 
-        # Record Genesis Earned Credit if legacy_earned > 0
-        if legacy_earned > 0:
+        if target_earned > 0:
             wallet = self._append_ledger_entry_locked(
                 cur=cur,
                 wallet=wallet,
-                idempotency_key=f"genesis_earned:{user_id}",
+                idempotency_key=f"genesis_earned:{user_id}:{target_earned}",
                 direction="CREDIT",
                 bucket="EARNED",
                 category="genesis_career_sync",
-                amount=legacy_earned,
+                amount=target_earned,
                 reference_type="user_bootstrap",
                 reference_id=user_id,
-                description="Initial Career Earned Glory Honor balance migrated to immutable ledger",
+                description="Career Earned Glory Honor balance verified in immutable ledger",
                 actor_user_id="system",
-                metadata={"legacy_earned": legacy_earned, "legacy_spent": legacy_spent}
+                metadata={"earned_glory_total": target_earned}
             )
 
-        # Record Genesis Spent Debit if legacy_spent > 0
-        if legacy_spent > 0:
+        if target_granted > 0:
             wallet = self._append_ledger_entry_locked(
                 cur=cur,
                 wallet=wallet,
-                idempotency_key=f"genesis_spent:{user_id}",
+                idempotency_key=f"genesis_granted:{user_id}:{target_granted}",
+                direction="CREDIT",
+                bucket="GRANTED",
+                category="genesis_pioneer_grant",
+                amount=target_granted,
+                reference_type="pioneer_armory_grant",
+                reference_id=user_id,
+                description="Founder & Pioneer Armory Requisition Grant",
+                actor_user_id="system",
+                metadata={"granted_glory_total": target_granted, "reconciled_armory_spent": target_spent}
+            )
+
+        if target_purchased > 0:
+            wallet = self._append_ledger_entry_locked(
+                cur=cur,
+                wallet=wallet,
+                idempotency_key=f"genesis_purchased:{user_id}:{target_purchased}",
+                direction="CREDIT",
+                bucket="PURCHASED",
+                category="genesis_fiat_topup",
+                amount=target_purchased,
+                reference_type="user_bootstrap",
+                reference_id=user_id,
+                description="Purchased Glory Honor top-up credits verified in immutable ledger",
+                actor_user_id="system",
+                metadata={"purchased_glory_total": target_purchased}
+            )
+
+        if target_spent > 0:
+            wallet = self._append_ledger_entry_locked(
+                cur=cur,
+                wallet=wallet,
+                idempotency_key=f"genesis_spent:{user_id}:{target_spent}",
                 direction="DEBIT",
                 bucket="SPENT",
                 category="genesis_armory_spend",
-                amount=legacy_spent,
+                amount=target_spent,
                 reference_type="user_bootstrap",
                 reference_id=user_id,
-                description="Historical Armory Glory Honor requisitions migrated to immutable ledger",
+                description="Verified Armory Requisitions & Loadout Debits migrated to immutable ledger",
                 actor_user_id="system",
-                metadata={"legacy_spent": legacy_spent}
+                metadata={"spent_glory_total": target_spent}
             )
 
         return wallet
@@ -413,7 +538,6 @@ class GloryLedgerService:
         ))
 
         # 4. Keep legacy columns on `users` 100% synchronized inside the same transaction
-        total_credits = earned_tot + purchased_tot + granted_tot
         cur.execute("""
             UPDATE users
             SET total_glory = %s,
@@ -421,7 +545,7 @@ class GloryLedgerService:
                 glory_balance = %s,
                 updated_at = NOW()
             WHERE id = %s;
-        """, (total_credits, spent_tot, balance_after, user_id))
+        """, (earned_tot, spent_tot, balance_after, user_id))
 
         wallet.update({
             "earned_glory_total": earned_tot,
@@ -447,11 +571,12 @@ class GloryLedgerService:
         user_id: str,
         evaluated_earned_glory: int,
         glory_40k: int = 0,
-        glory_aos: int = 0
+        glory_aos: int = 0,
+        actual_armory_spent: int = 0
     ) -> Dict[str, Any]:
         """
         Synchronizes a user's earned achievement/tournament Glory (`evaluated_earned_glory`)
-        with their `glory_wallets.earned_glory_total`.
+        with their `glory_wallets.earned_glory_total`, and reconciles historical Armory requisitions (`actual_armory_spent`).
         If the player earned new Glory from tournaments/leagues/badges (`evaluated_earned_glory > wallet.earned_glory_total`),
         records an immutable `CREDIT` (`EARNED`) ledger transaction for the exact delta!
         Never overwrites or wipes out `purchased_glory_total` or `granted_glory_total`.
@@ -467,7 +592,12 @@ class GloryLedgerService:
             self.ensure_schema()
             with db.get_connection() as conn:
                 with conn.cursor() as cur:
-                    wallet = self._bootstrap_wallet_row_locked(cur, user_id)
+                    wallet = self._bootstrap_wallet_row_locked(
+                        cur,
+                        user_id,
+                        evaluated_earned_glory=evaluated_earned_glory,
+                        actual_armory_spent=actual_armory_spent
+                    )
                     current_earned = int(wallet["earned_glory_total"])
                     target_earned = max(0, int(evaluated_earned_glory or 0))
                     if target_earned > current_earned:
@@ -641,7 +771,12 @@ class GloryLedgerService:
     # CRYPTOGRAPHIC & MATHEMATICAL AUDIT RECONCILIATION ENGINE
     # =========================================================================
 
-    def audit_user_wallet(self, user_id: str) -> Dict[str, Any]:
+    def audit_user_wallet(
+        self,
+        user_id: str,
+        evaluated_earned_glory: int = 0,
+        actual_armory_spent: int = 0
+    ) -> Dict[str, Any]:
         """
         Verifies all 5 mathematical and cryptographic invariants for `user_id`:
         1. Hash-chain continuity (`GENESIS` -> `prev_hash` -> `entry_hash` SHA-256 verification)
@@ -657,7 +792,12 @@ class GloryLedgerService:
         self.ensure_schema()
         with db.get_connection() as conn:
             with conn.cursor() as cur:
-                wallet = self._bootstrap_wallet_row_locked(cur, user_id)
+                wallet = self._bootstrap_wallet_row_locked(
+                    cur,
+                    user_id,
+                    evaluated_earned_glory=evaluated_earned_glory,
+                    actual_armory_spent=actual_armory_spent
+                )
                 conn.commit()
 
                 cur.execute("""
@@ -827,6 +967,7 @@ class GloryLedgerService:
         return {
             "user_id": user_id,
             "total_earned": 0,
+            "total_credits": 0,
             "total_glory": 0,
             "earned_glory_total": 0,
             "purchased_glory_total": 0,
@@ -853,7 +994,8 @@ class GloryLedgerService:
         return {
             "user_id": wallet.get("user_id"),
             "total_earned": total_credits,
-            "total_glory": total_credits,
+            "total_credits": total_credits,
+            "total_glory": earned,
             "earned_glory_total": earned,
             "purchased_glory_total": purchased,
             "granted_glory_total": granted,
