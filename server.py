@@ -189,41 +189,31 @@ async def _periodic_firestore_cleanup():
 async def on_server_startup():
     logger.info("Warhammer 40,000 Elo Backend online and ready.")
     asyncio.create_task(_periodic_firestore_cleanup())
-    try:
-        get_database().sync_player_latest_teams(force=False)
-    except Exception as e:
-        logger.warning(f"Notice during startup team sync: {e}")
 
-    async def _prewarm_stats_cache():
+    async def _deferred_startup_tasks():
+        await asyncio.sleep(2)
         try:
-            db = get_database()
+            db = await asyncio.to_thread(get_database)
+            await asyncio.to_thread(db.sync_player_latest_teams, False)
             await asyncio.to_thread(db.get_summary_stats, "40k")
             logger.info("🔥 Global summary stats 40k cache pre-warmed")
         except Exception as se:
             logger.warning(f"Notice during stats cache pre-warming: {se}")
 
-    asyncio.create_task(_prewarm_stats_cache())
-
-    async def _prewarm_meta_intel_cache():
         try:
+            await asyncio.sleep(3)
             now = datetime.now(timezone.utc)
             d90 = now - timedelta(days=90)
             start_str = d90.strftime("%Y-%m-%d")
             end_str = now.strftime("%Y-%m-%d")
-            db = get_database()
+            db = await asyncio.to_thread(get_database)
             await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k")
             await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos")
             logger.info(f"🔥 Meta Intel 90-day cache pre-warmed for 40k and AoS ({start_str} to {end_str})")
-            if hasattr(db, "prewarm_faction_details_cache"):
-                await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "6mo", 12)
-                await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 12)
-                await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo", 12)
-                await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr", 12)
-                logger.info("🔥 Meta Intel top 12 faction details cache pre-warmed for 40k and AoS (6mo & 1yr)")
         except Exception as me:
             logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
 
-    asyncio.create_task(_prewarm_meta_intel_cache())
+    asyncio.create_task(_deferred_startup_tasks())
 
 # Mount Modular Domain APIRouters
 app.include_router(admin.router)

@@ -270,14 +270,40 @@ class PostgresDatabase:
         try:
             self._ensure_pool()
             if not PostgresDatabase._db_initialized:
-                self.init_db()
-                self.ensure_tracker_table()
-                self.ensure_league_tables()
-                self._ensure_event_participant_columns()
-                self._heal_unlinked_user_profiles()
                 PostgresDatabase._db_initialized = True
+                if not self._is_startup_schema_already_current():
+                    self.init_db()
+                    self.ensure_tracker_table()
+                    self.ensure_league_tables()
+                    self._ensure_event_participant_columns()
+                    self._heal_unlinked_user_profiles()
+                    self._mark_startup_schema_current()
         except Exception as e:
             logger.warning(f"Initial DB connect notice (will retry on query): {e}")
+
+    def _is_startup_schema_already_current(self) -> bool:
+        """Fast 2ms check in system_settings so warm Cloud Run boots skip redundant DDL & full-table scans."""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT value FROM system_settings WHERE key = 'startup_schema_seed_v4';")
+                    row = cur.fetchone()
+                    return bool(row and row[0] == 'ready')
+        except Exception:
+            return False
+
+    def _mark_startup_schema_current(self) -> None:
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO system_settings (key, value, updated_at)
+                        VALUES ('startup_schema_seed_v4', 'ready', NOW())
+                        ON CONFLICT (key) DO UPDATE SET value = 'ready', updated_at = NOW();
+                    """)
+                conn.commit()
+        except Exception:
+            pass
 
     def _heal_unlinked_user_profiles(self):
         """Cleanses legacy user rows that were auto-assigned player_ids prior to BCP verification."""
