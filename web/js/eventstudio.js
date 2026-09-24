@@ -5094,6 +5094,23 @@ function renderManagedStudioLeagues(leagues) {
         const paintBp = Number(meth.paint_bonus_bp ?? 0);
         const seasonWks = Number(meth.season_duration_weeks ?? 8);
         const gamesCnt = Number(meth.games_per_season ?? 5);
+        const rawStart = String(lg.start_date || (lg.active_season && lg.active_season.start_date) || (isGauntlet ? '2026-09-01' : '2026-09-15')).slice(0, 10);
+        const rawEnd = String(lg.end_date || (lg.active_season && lg.active_season.end_date) || (isGauntlet ? '2026-10-26' : '2026-11-10')).slice(0, 10);
+        const fmtDate = (dStr) => {
+          if (!dStr) return 'TBD';
+          const clean = String(dStr).trim().slice(0, 10);
+          const pts = clean.split('-');
+          if (pts.length === 3) {
+            const dt = new Date(Date.UTC(parseInt(pts[0], 10), parseInt(pts[1], 10) - 1, parseInt(pts[2], 10)));
+            if (!isNaN(dt.getTime())) {
+              return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+            }
+          }
+          return clean;
+        };
+        window.formatLeagueDateShort = window.formatLeagueDateShort || fmtDate;
+        const prettyStart = fmtDate(rawStart);
+        const prettyEnd = fmtDate(rawEnd);
         const annList = Array.isArray(lg.announcements) ? lg.announcements : [];
         const latestAnn = annList.length > 0 ? annList[0] : null;
 
@@ -5108,6 +5125,9 @@ function renderManagedStudioLeagues(leagues) {
                   <span id="es-comm-reg-badge-${lid}" style="background: ${regOpen ? 'rgba(16, 185, 129, 0.2)' : 'rgba(148, 163, 184, 0.2)'}; color: ${regOpen ? '#34d399' : '#94a3b8'}; border: 1px solid ${regOpen ? 'rgba(16, 185, 129, 0.45)' : 'rgba(148, 163, 184, 0.35)'}; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 800;">
                     ${regOpen ? '🟢 REGISTRATION OPEN IN SPARRING RADAR' : '🔒 REGISTRATION CLOSED'}
                   </span>
+                  <span id="es-comm-dates-badge-${lid}" style="background: rgba(56, 189, 248, 0.16); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.42); padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 800;">
+                    📅 Started: ${escapeHtml(prettyStart)} • Ends: ${escapeHtml(prettyEnd)}
+                  </span>
                   <span style="font-family: monospace; font-size: 0.73rem; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 7px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3);">
                     🔑 UUID: ${lid}
                   </span>
@@ -5119,6 +5139,8 @@ function renderManagedStudioLeagues(leagues) {
                   <span>⚔️ <strong>${podsCount} Tiered Pods</strong> (${totalCnt} Active Players)</span>
                   <span>•</span>
                   <span>🔁 <strong>Season Cadence:</strong> ${seasonWks} Wks • ${gamesCnt} Games</span>
+                  <span>•</span>
+                  <span style="color: #7dd3fc;">🗓️ <strong>League Dates:</strong> ${escapeHtml(rawStart)} → ${escapeHtml(rawEnd)}</span>
                 </div>
               </div>
               <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
@@ -5134,6 +5156,28 @@ function renderManagedStudioLeagues(leagues) {
                 <button type="button" onclick="navigateToPublicLeagueHub('${lid}')" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.85rem; border-color: rgba(56, 189, 248, 0.5); color: #38bdf8; font-weight: 700;">
                   🛡️ Open League Hub &amp; Pods ↗
                 </button>
+              </div>
+            </div>
+
+            <!-- Inline League Start & End Date Editor Bar for TO -->
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; flex-wrap: wrap; margin-bottom: 0.75rem; padding: 0.55rem 0.8rem; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px;">
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.78rem; color: #e2e8f0;">
+                <span style="font-weight: 800; color: #38bdf8; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.03em;">📅 Season Start &amp; End Dates:</span>
+                <label style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: #94a3b8; font-weight: 700;">
+                  <span>Started:</span>
+                  <input id="es-inline-start-${lid}" type="date" value="${escapeHtml(rawStart)}" style="padding: 0.25rem 0.45rem; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 6px; color: #fff; font-size: 0.76rem; font-weight: 700;">
+                </label>
+                <span style="color: #64748b;">→</span>
+                <label style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: #94a3b8; font-weight: 700;">
+                  <span>Ends:</span>
+                  <input id="es-inline-end-${lid}" type="date" value="${escapeHtml(rawEnd)}" style="padding: 0.25rem 0.45rem; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 6px; color: #fff; font-size: 0.76rem; font-weight: 700;">
+                </label>
+                <button type="button" id="es-inline-save-dates-btn-${lid}" onclick="saveStudioInlineLeagueDates('${lid}', ${activeSeason})" class="btn btn-primary" style="font-size: 0.73rem; padding: 0.28rem 0.7rem; background: linear-gradient(135deg, #0284c7, #0369a1); border: 1px solid #38bdf8; font-weight: 800;">
+                  💾 Save Dates
+                </button>
+              </div>
+              <div style="font-size: 0.74rem; color: #7dd3fc; font-weight: 700;">
+                Active Window: <strong>${escapeHtml(prettyStart)} – ${escapeHtml(prettyEnd)}</strong> (${seasonWks} Weeks)
               </div>
             </div>
 
@@ -5815,12 +5859,18 @@ function renderStudioLeagueCommandCenterModal() {
     `;
   }
 
+  const cmdStart = String(act.start_date || lg.start_date || '2026-09-15').slice(0, 10);
+  const cmdEnd = String(act.end_date || lg.end_date || '2026-11-10').slice(0, 10);
+  const cmdPrettyStart = (typeof formatLeagueDateShort === 'function') ? formatLeagueDateShort(cmdStart) : cmdStart;
+  const cmdPrettyEnd = (typeof formatLeagueDateShort === 'function') ? formatLeagueDateShort(cmdEnd) : cmdEnd;
+
   modal.innerHTML = `
     <div style="background:linear-gradient(145deg,#0f172a,#020617);border:1px solid rgba(56,189,248,0.45);border-radius:14px;max-width:1060px;width:100%;padding:1.35rem;color:#f8fafc;box-shadow:0 25px 60px rgba(0,0,0,0.85);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;padding-bottom:0.8rem;border-bottom:1px solid rgba(255,255,255,0.1);">
         <div>
           <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
             <span style="background:rgba(37,99,235,0.25);color:#60a5fa;border:1px solid rgba(96,165,250,0.45);padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:800;">🎛️ TO LEAGUE COMMAND CENTER</span>
+            <span style="background:rgba(56,189,248,0.16);color:#38bdf8;border:1px solid rgba(56,189,248,0.42);padding:2px 9px;border-radius:999px;font-size:0.72rem;font-weight:800;">📅 Started: ${escapeHtml(cmdPrettyStart)} (${escapeHtml(cmdStart)}) • Ends: ${escapeHtml(cmdPrettyEnd)} (${escapeHtml(cmdEnd)})</span>
             <span style="font-family:monospace;font-size:0.72rem;color:#38bdf8;">UUID: ${lid}</span>
           </div>
           <h2 style="margin:0.35rem 0 0.1rem;font-size:1.28rem;color:#fff;">${escapeHtml(lg.name || 'Community League')} — Season ${seasonNum}</h2>
@@ -5895,6 +5945,9 @@ async function submitStudioLeagueAnnouncement(leagueId) {
     const data = await res.json();
     if (data.league) {
       _studioLeagueCmdState.leagueData = data.league;
+      if (typeof leagueState !== 'undefined' && leagueState._cache) {
+        delete leagueState._cache[leagueId];
+      }
       renderStudioLeagueCommandCenterModal();
       await loadManagedStudioLeagues();
       if (typeof showToast === 'function') showToast('📢 League announcement published & player alerts updated!');
@@ -5913,6 +5966,9 @@ async function deleteStudioLeagueAnnouncement(leagueId, annId) {
     const data = await res.json();
     if (data.league) {
       _studioLeagueCmdState.leagueData = data.league;
+      if (typeof leagueState !== 'undefined' && leagueState._cache) {
+        delete leagueState._cache[leagueId];
+      }
       renderStudioLeagueCommandCenterModal();
       await loadManagedStudioLeagues();
       if (typeof showToast === 'function') showToast('🗑️ Announcement removed.');
@@ -5922,6 +5978,44 @@ async function deleteStudioLeagueAnnouncement(leagueId, annId) {
   }
 }
 window.deleteStudioLeagueAnnouncement = deleteStudioLeagueAnnouncement;
+
+async function saveStudioInlineLeagueDates(leagueId, seasonNum) {
+  const start_date = document.getElementById(`es-inline-start-${leagueId}`)?.value || '';
+  const end_date = document.getElementById(`es-inline-end-${leagueId}`)?.value || '';
+  if (!start_date || !end_date) {
+    alert('Please specify both a League Start Date and End Date.');
+    return;
+  }
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/season-schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        season_number: seasonNum || 1,
+        start_date,
+        end_date
+      })
+    });
+    const data = await res.json();
+    if (data.league) {
+      if (_studioLeagueCmdState && _studioLeagueCmdState.leagueId === leagueId) {
+        _studioLeagueCmdState.leagueData = data.league;
+      }
+      if (typeof leagueState !== 'undefined') {
+        if (leagueState._cache) delete leagueState._cache[leagueId];
+        if (leagueState.activeLeagueId === leagueId) {
+          leagueState.currentLeagueData = data.league;
+          if (typeof renderLeagueHub === 'function') renderLeagueHub(data.league);
+        }
+      }
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') showToast(`✅ League Start (${start_date}) & End (${end_date}) Dates saved!`);
+    }
+  } catch (e) {
+    console.error('Failed saving inline league dates:', e);
+  }
+}
+window.saveStudioInlineLeagueDates = saveStudioInlineLeagueDates;
 
 async function saveStudioSeasonSchedule(leagueId, seasonNum) {
   const season_name = document.getElementById('to-sched-name')?.value || `Season ${seasonNum}`;
@@ -5956,6 +6050,13 @@ async function saveStudioSeasonSchedule(leagueId, seasonNum) {
     const data = await res.json();
     if (data.league) {
       _studioLeagueCmdState.leagueData = data.league;
+      if (typeof leagueState !== 'undefined') {
+        if (leagueState._cache) delete leagueState._cache[leagueId];
+        if (leagueState.activeLeagueId === leagueId) {
+          leagueState.currentLeagueData = data.league;
+          if (typeof renderLeagueHub === 'function') renderLeagueHub(data.league);
+        }
+      }
       renderStudioLeagueCommandCenterModal();
       await loadManagedStudioLeagues();
       if (typeof showToast === 'function') showToast('✅ Season schedule, dates & terrain layouts saved to PostgreSQL!');

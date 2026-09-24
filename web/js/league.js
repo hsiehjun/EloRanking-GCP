@@ -202,6 +202,23 @@ async function loadLeagueData(leagueId, forceRefresh = false) {
   }
 }
 
+function formatLeagueDateShort(rawDate) {
+  if (!rawDate) return 'TBD';
+  const clean = String(rawDate).trim().slice(0, 10);
+  const parts = clean.split('-');
+  if (parts.length === 3) {
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    const d = parseInt(parts[2], 10);
+    const dt = new Date(Date.UTC(y, m, d));
+    if (!isNaN(dt.getTime())) {
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+    }
+  }
+  return clean;
+}
+window.formatLeagueDateShort = formatLeagueDateShort;
+
 function getFallbackSd40kLeagueData() {
   return {
     league_id: '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90',
@@ -216,6 +233,10 @@ function getFallbackSd40kLeagueData() {
     owner_email: 'hsiehjun@google.com',
     owner_name: 'John Hsieh',
     registration_open: true,
+    start_date: '2026-09-15',
+    end_date: '2026-11-10',
+    registration_start: '2026-09-01',
+    registration_end: '2026-09-14',
     commissioners: [
       { name: 'John Hsieh (League Owner)', role: 'Owner & Head Commissioner' },
       { name: 'Coop (San Diego 40k)', role: 'Pod Commissioner' },
@@ -228,6 +249,10 @@ function getFallbackSd40kLeagueData() {
       season_number: 38,
       name: 'Season 38 (Fall 2026)',
       status: 'active',
+      start_date: '2026-09-15',
+      end_date: '2026-11-10',
+      registration_start: '2026-09-01',
+      registration_end: '2026-09-14',
       duration_weeks: 8,
       rounds_count: 5,
       total_players: 68,
@@ -249,7 +274,7 @@ function getFallbackSd40kLeagueData() {
             { rank: 8, player_id: 'SD40K_P08', bcp_player_id: 'SD40K_P08', name: 'Liam O\'Connor', display_name: 'Liam O\'Connor', primary_faction: 'T\'au Empire', faction: 'T\'au Empire', detachment: 'Retaliation Cadre', wins: 0, losses: 4, draws: 0, games_played: 4, battle_points: 218, vp_diff: '-88', elo: 1604.5, is_db_matched: true, db_matched: true, promotion_zone: 'relegate', pairings: [] }
           ]
         },
-        { pod_number: 2, name: 'POD #2 - Primarch Division', pod_name: 'Pod 2 — Primarch Division', tier_badge: 'TIER 2', standings: [] },
+        { pod_number: 2, name: 'POD #2 - Warlord Division', pod_name: 'Pod 2 — Primarch Division', tier_badge: 'TIER 2', standings: [] },
         { pod_number: 3, name: 'POD #3 - Chapter Master Division', pod_name: 'Pod 3 — Chapter Master Division', tier_badge: 'TIER 3', standings: [] },
         { pod_number: 4, name: 'POD #4 - Captain Division', pod_name: 'Pod 4 — Captain Division', tier_badge: 'TIER 4', standings: [] },
         { pod_number: 5, name: 'POD #5 - Lieutenant Division', pod_name: 'Pod 5 — Lieutenant Division', tier_badge: 'TIER 5', standings: [] },
@@ -287,6 +312,10 @@ function renderLeagueHub(league) {
   const canonicalUuid = normalizeLeagueIdToUuid(league.league_id || leagueState.activeLeagueId);
   const activeSlug = (league.slug || canonicalUuid).toLowerCase();
   const isGauntlet = activeSlug.includes('gauntlet') || canonicalUuid === GAUNTLET_CANONICAL_UUID;
+  const rawStartDate = String(actSeason.start_date || league.start_date || (isGauntlet ? '2026-09-01' : '2026-09-15')).slice(0, 10);
+  const rawEndDate = String(actSeason.end_date || league.end_date || (isGauntlet ? '2026-10-26' : '2026-11-10')).slice(0, 10);
+  const prettyStartDate = formatLeagueDateShort(rawStartDate);
+  const prettyEndDate = formatLeagueDateShort(rawEndDate);
   const canManageLeague = Boolean(
     window.isEventStudioCommissionerView ||
     (typeof currentUser !== 'undefined' && currentUser && (
@@ -310,6 +339,9 @@ function renderLeagueHub(league) {
               <span style="background: rgba(16, 185, 129, 0.16); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.38); padding: 3px 9px; border-radius: 999px; font-size: 0.74rem; font-weight: 800; letter-spacing: 0.03em;">
                 ⚡ ${escapeHtml(actSeason.name || `Season ${currentSeasonNum}`)} • Current Active Season
               </span>
+              <span id="league-hero-dates-pill" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); padding: 3px 10px; border-radius: 999px; font-size: 0.74rem; font-weight: 800;">
+                📅 Started: ${escapeHtml(prettyStartDate)} • Ends: ${escapeHtml(prettyEndDate)}
+              </span>
             </div>
             <div style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 0.5rem; word-break: break-word;">
               ${escapeHtml(league.tagline || 'Southern California Premier 40k Pod League')}
@@ -320,6 +352,8 @@ function renderLeagueHub(league) {
               <span>👔 Commissioners: <strong>${escapeHtml((league.commissioners || []).map(c => c.name).join(' & ') || 'Coop & Ben')}</strong></span>
               <span>•</span>
               <span>🏢 Host Store: <strong>${escapeHtml((league.partner_venues && league.partner_venues[0]?.name) || 'At Ease Games')}</strong></span>
+              <span>•</span>
+              <span style="color: #7dd3fc;">🗓️ <strong>League Schedule:</strong> ${escapeHtml(prettyStartDate)} (${escapeHtml(rawStartDate)}) → ${escapeHtml(prettyEndDate)} (${escapeHtml(rawEndDate)})</span>
             </div>
           </div>
         </div>
@@ -341,8 +375,8 @@ function renderLeagueHub(league) {
         </div>
       </div>
 
-      <!-- 4 Season KPI Badges -->
-      <div class="league-hero-kpi-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.65rem; margin-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem;">
+      <!-- 5 Season KPI Badges (Including Season Start & End Dates) -->
+      <div class="league-hero-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 0.65rem; margin-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem;">
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
           <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Active Players</div>
           <div style="font-size: 1.2rem; font-weight: 800; color: #60a5fa;">${actSeason.total_players || 28}</div>
@@ -354,6 +388,11 @@ function renderLeagueHub(league) {
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
           <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Season Format</div>
           <div style="font-size: 1.2rem; font-weight: 800; color: #34d399;">${actSeason.rounds_count || 5} Games / ${actSeason.duration_weeks || 8} Wks</div>
+        </div>
+        <div id="league-hero-kpi-dates" style="background: rgba(56, 189, 248, 0.1); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.35);">
+          <div style="font-size: 0.68rem; color: #7dd3fc; text-transform: uppercase; font-weight: 700;">Season Timeline (Start → End)</div>
+          <div style="font-size: 0.95rem; font-weight: 800; color: #f8fafc; margin-top: 2px;">${escapeHtml(prettyStartDate)} → ${escapeHtml(prettyEndDate)}</div>
+          <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 1px;">Started: ${escapeHtml(rawStartDate)} • Ends: ${escapeHtml(rawEndDate)}</div>
         </div>
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
           <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">History</div>
@@ -2746,6 +2785,9 @@ async function renderSparringRadarLeagueRegistrations() {
 
     container.innerHTML = openLeagues.map(l => {
       const lid = l.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90';
+      const isG = String(l.slug || l.name || '').toLowerCase().includes('gauntlet');
+      const sDate = formatLeagueDateShort(l.start_date || (isG ? '2026-09-01' : '2026-09-15'));
+      const eDate = formatLeagueDateShort(l.end_date || (isG ? '2026-10-26' : '2026-11-10'));
       return `
         <div class="card" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(15, 23, 42, 0.92) 100%); border: 1px solid rgba(16, 185, 129, 0.45); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 0.85rem; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);">
           <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.85rem;">
@@ -2753,6 +2795,9 @@ async function renderSparringRadarLeagueRegistrations() {
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.3rem;">
                 <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.45); font-size: 0.68rem; font-weight: 800; padding: 2px 8px; border-radius: 999px; text-transform: uppercase;">
                   📡 LIVE REGISTRATION OPEN • SPARRING RADAR
+                </span>
+                <span style="font-size: 0.74rem; color: #38bdf8; font-weight: 700;">
+                  📅 Started: ${escapeHtml(sDate)} • Ends: ${escapeHtml(eDate)}
                 </span>
                 <span style="font-size: 0.74rem; color: #fbbf24; font-weight: 700;">
                   🔁 Auto-Recurring 8-Week Seasons • 5 Games / Season

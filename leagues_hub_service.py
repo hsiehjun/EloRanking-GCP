@@ -231,13 +231,17 @@ class LeaguesHubService:
                                (SELECT s.registration_end FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
                                l.owner_user_id, l.owner_player_id, l.owner_email, l.owner_name,
                                (SELECT COUNT(*) FROM native_league_participants p WHERE p.league_id = l.id AND p.season_num = l.active_season_num AND p.is_db_matched = TRUE) AS matched_p_cnt,
-                               (SELECT COUNT(*) FROM native_league_standings st WHERE st.league_id = l.id AND st.season_num = l.active_season_num AND st.is_db_matched = TRUE) AS matched_st_cnt
+                               (SELECT COUNT(*) FROM native_league_standings st WHERE st.league_id = l.id AND st.season_num = l.active_season_num AND st.is_db_matched = TRUE) AS matched_st_cnt,
+                               (SELECT s.start_date FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
+                               (SELECT s.end_date FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
+                               (SELECT s.name FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
+                               (SELECT s.duration_weeks FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1)
                         FROM native_leagues l
                         ORDER BY l.created_at ASC;
                     """)
                     rows = cur.fetchall()
                     for row in rows:
-                        lid, slug, name, gsys, reg, act_s, tot_p, tot_pods, rec_s, reg_open, cfg_raw, s_cnt, reg_start, reg_end, o_uid, o_pid, o_email, o_name, matched_p_cnt, matched_st_cnt = row
+                        lid, slug, name, gsys, reg, act_s, tot_p, tot_pods, rec_s, reg_open, cfg_raw, s_cnt, reg_start, reg_end, o_uid, o_pid, o_email, o_name, matched_p_cnt, matched_st_cnt, s_start_date, s_end_date, s_name_val, s_dur_wks = row
                         cfg = cfg_raw if isinstance(cfg_raw, dict) else (json.loads(cfg_raw) if cfg_raw else {})
                         comms = cfg.get("commissioners", [])
                         comm_str = o_name or ", ".join(c.get("name", "") for c in comms[:2] if isinstance(c, dict) and c.get("name")) or "League Commissioner"
@@ -257,6 +261,11 @@ class LeaguesHubService:
                                 matched_cnt = int(tot_p or 0)
                         norm_lid = _normalize_league_id(lid)
                         ann_list = self._get_league_announcements(cur, lid, cfg)
+                        is_g = "gauntlet" in str(slug or name or "").lower()
+                        eff_start = str(s_start_date or ("2026-09-01" if is_g else "2026-09-15"))
+                        eff_end = str(s_end_date or ("2026-10-26" if is_g else "2026-11-10"))
+                        eff_reg_start = str(reg_start or ("2026-08-18" if is_g else "2026-09-01"))
+                        eff_reg_end = str(reg_end or ("2026-08-31" if is_g else "2026-09-14"))
                         entry = {
                             "league_id": norm_lid,
                             "slug": slug,
@@ -268,6 +277,7 @@ class LeaguesHubService:
                             "city": cfg.get("city", "San Diego"),
                             "state": cfg.get("state", "CA"),
                             "active_season": int(act_s or 1),
+                            "active_season_name": str(s_name_val or f"Season {int(act_s or 1)}"),
                             "active_players": int(tot_p or 0),
                             "pods_count": int(tot_pods or 0),
                             "db_matched_players_count": matched_cnt,
@@ -279,8 +289,11 @@ class LeaguesHubService:
                             "status": "active",
                             "recurring_seasons": bool(rec_s),
                             "registration_open": bool(reg_open),
-                            "registration_start": str(reg_start or ""),
-                            "registration_end": str(reg_end or ""),
+                            "start_date": eff_start,
+                            "end_date": eff_end,
+                            "registration_start": eff_reg_start,
+                            "registration_end": eff_reg_end,
+                            "duration_weeks": int(s_dur_wks or meth.get("season_duration_weeks", 8) or 8),
                             "games_per_season": int(meth.get("games_per_season", 5)),
                             "pod_size_range": f"{p_min}-{p_max} Players",
                             "preset_type": meth.get("preset_type", "community_pod_league"),
@@ -311,6 +324,11 @@ class LeaguesHubService:
                 act = seed_obj.get("active_season") or {}
                 meth = seed_obj.get("methodology") or {}
                 ann_list = seed_obj.get("announcements") or self._get_league_announcements(None, norm_seed_lid, seed_obj)
+                is_g = "gauntlet" in str(seed_obj.get("slug") or seed_obj.get("name") or "").lower()
+                eff_start = str(act.get("start_date") or seed_obj.get("start_date") or ("2026-09-01" if is_g else "2026-09-15"))
+                eff_end = str(act.get("end_date") or seed_obj.get("end_date") or ("2026-10-26" if is_g else "2026-11-10"))
+                eff_reg_start = str(act.get("registration_start") or ("2026-08-18" if is_g else "2026-09-01"))
+                eff_reg_end = str(act.get("registration_end") or ("2026-08-31" if is_g else "2026-09-14"))
                 entry = {
                     "league_id": norm_seed_lid,
                     "slug": seed_obj.get("slug", "sd40k"),
@@ -329,11 +347,17 @@ class LeaguesHubService:
                     "owner_email": seed_obj.get("owner_email", "hsiehjun@google.com"),
                     "owner_name": seed_obj.get("owner_name", "John Hsieh"),
                     "active_season": int(act.get("season_number", 1)),
+                    "active_season_name": str(act.get("name") or f"Season {int(act.get('season_number', 1))}"),
                     "active_players": int(act.get("total_players", 28)),
                     "pods_count": int(act.get("total_pods", 3)),
                     "db_matched_players_count": int(act.get("total_players", 28)),
                     "recurring_seasons": True,
                     "registration_open": bool(seed_obj.get("registration_open", True)),
+                    "start_date": eff_start,
+                    "end_date": eff_end,
+                    "registration_start": eff_reg_start,
+                    "registration_end": eff_reg_end,
+                    "duration_weeks": int(act.get("duration_weeks") or meth.get("season_duration_weeks", 8) or 8),
                     "games_per_season": int(meth.get("games_per_season", 5)),
                     "pod_size_range": f"{meth.get('pod_size_min', 6)}-{meth.get('pod_size_max', 8)} Players",
                     "seasons_count": len(seed_obj.get("available_seasons") or [1]),
@@ -798,6 +822,16 @@ class LeaguesHubService:
                     s_cfg.setdefault("games_per_season", int(target_season_row[13] or 5) if target_season_row else 5)
                     s_cfg.setdefault("duration_weeks", int(target_season_row[12] or 8) if target_season_row else 8)
 
+                    is_gauntlet = "gauntlet" in str(slug or name or "").lower()
+                    default_start = "2026-09-01" if is_gauntlet else "2026-09-15"
+                    default_end = "2026-10-26" if is_gauntlet else "2026-11-10"
+                    default_reg_start = "2026-08-18" if is_gauntlet else "2026-09-01"
+                    default_reg_end = "2026-08-31" if is_gauntlet else "2026-09-14"
+                    eff_start = str((target_season_row[8] if target_season_row else None) or s_cfg.get("start_date") or default_start)
+                    eff_end = str((target_season_row[9] if target_season_row else None) or s_cfg.get("end_date") or default_end)
+                    eff_reg_start = str((target_season_row[10] if target_season_row else None) or s_cfg.get("registration_start") or default_reg_start)
+                    eff_reg_end = str((target_season_row[11] if target_season_row else None) or s_cfg.get("registration_end") or default_reg_end)
+
                     active_season_obj = {
                         "season_number": target_s_num,
                         "name": (target_season_row[1] if target_season_row else f"Season {target_s_num}"),
@@ -806,10 +840,10 @@ class LeaguesHubService:
                         "total_pods": len(pods_list) or (int(target_season_row[4] or 0) if target_season_row else 0),
                         "pod_champion": (target_season_row[5] if target_season_row else None),
                         "pod_champion_faction": (target_season_row[6] if target_season_row else None),
-                        "start_date": str(target_season_row[8] or "") if target_season_row else "",
-                        "end_date": str(target_season_row[9] or "") if target_season_row else "",
-                        "registration_start": str(target_season_row[10] or "") if target_season_row else "",
-                        "registration_end": str(target_season_row[11] or "") if target_season_row else "",
+                        "start_date": eff_start,
+                        "end_date": eff_end,
+                        "registration_start": eff_reg_start,
+                        "registration_end": eff_reg_end,
                         "duration_weeks": int(target_season_row[12] or 8) if target_season_row else 8,
                         "rounds_count": int(target_season_row[13] or 5) if target_season_row else 5,
                         "season_config": s_cfg,
@@ -837,6 +871,10 @@ class LeaguesHubService:
                         "established_year": cfg.get("established_year", 2013),
                         "recurring_seasons": bool(rec_seasons),
                         "registration_open": bool(reg_open),
+                        "start_date": eff_start,
+                        "end_date": eff_end,
+                        "registration_start": eff_reg_start,
+                        "registration_end": eff_reg_end,
                         "owner_user_id": o_uid,
                         "owner_player_id": o_pid,
                         "owner_email": o_email,
@@ -1012,6 +1050,20 @@ class LeaguesHubService:
                 data = json.load(f)
             data["league_id"] = norm_lid
             data["id"] = norm_lid
+            is_gauntlet_seed = (norm_lid == THE_GAUNTLET_LEAGUE_UUID or "gauntlet" in str(data.get("slug") or data.get("name") or lid).lower())
+            act_season_dict = data.setdefault("active_season", {})
+            eff_start = str(act_season_dict.get("start_date") or data.get("start_date") or ("2026-09-01" if is_gauntlet_seed else "2026-09-15"))
+            eff_end = str(act_season_dict.get("end_date") or data.get("end_date") or ("2026-10-26" if is_gauntlet_seed else "2026-11-10"))
+            eff_reg_start = str(act_season_dict.get("registration_start") or data.get("registration_start") or ("2026-08-18" if is_gauntlet_seed else "2026-09-01"))
+            eff_reg_end = str(act_season_dict.get("registration_end") or data.get("registration_end") or ("2026-08-31" if is_gauntlet_seed else "2026-09-14"))
+            act_season_dict["start_date"] = eff_start
+            act_season_dict["end_date"] = eff_end
+            act_season_dict["registration_start"] = eff_reg_start
+            act_season_dict["registration_end"] = eff_reg_end
+            data["start_date"] = eff_start
+            data["end_date"] = eff_end
+            data["registration_start"] = eff_reg_start
+            data["registration_end"] = eff_reg_end
             if not data.get("pods") and isinstance(data.get("active_season"), dict):
                 data["pods"] = data["active_season"].get("pods", [])
             for pod in (data.get("pods") or []):
@@ -2992,6 +3044,7 @@ class LeaguesHubService:
             for k in ("start_date", "end_date", "registration_start", "registration_end"):
                 if k in payload:
                     act[k] = payload[k]
+                    cached[k] = payload[k]
             if "duration_weeks" in payload:
                 act["duration_weeks"] = int(payload["duration_weeks"])
             if "rounds_count" in payload:
