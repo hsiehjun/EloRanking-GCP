@@ -18,7 +18,7 @@ steps:
       - '--all-tags'
       - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking'
 
-  # 3. Deploy Cloud Run Web Service: elo-ranking
+  # 3. Deploy Cloud Run Web Service: elo-ranking (min-instances=1 to eliminate cold starts)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'deploy-web-service'
     entrypoint: gcloud
@@ -30,6 +30,11 @@ steps:
       - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
       - '--region'
       - 'us-central1'
+      - '--min-instances'
+      - '1'
+      - '--max-instances'
+      - '10'
+      - '--cpu-throttling'
 
   # 4. Update Cloud Run Job: elo-tournament-sync-job
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'

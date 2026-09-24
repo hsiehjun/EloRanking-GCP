@@ -54,7 +54,7 @@ gcloud builds submit --tag ${IMAGE_TAG} .
 echo "--> Deploying to Cloud Run..."
 DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@/${DB_NAME}?host=/cloudsql/${INSTANCE_CONNECTION_NAME}"
 
-gcloud run deploy ${SERVICE_NAME}     --image ${IMAGE_TAG}     --region ${REGION}     --platform managed     --allow-unauthenticated     --add-cloudsql-instances ${INSTANCE_CONNECTION_NAME}     --set-env-vars "DATABASE_URL=${DATABASE_URL},CRON_SECRET_KEY=${CRON_SECRET}"     --memory 2Gi     --cpu 2     --min-instances 0     --max-instances 10     --concurrency 80     --timeout 300
+gcloud run deploy ${SERVICE_NAME}     --image ${IMAGE_TAG}     --region ${REGION}     --platform managed     --allow-unauthenticated     --add-cloudsql-instances ${INSTANCE_CONNECTION_NAME}     --set-env-vars "DATABASE_URL=${DATABASE_URL},CRON_SECRET_KEY=${CRON_SECRET}"     --memory 1Gi     --cpu 1     --min-instances 1     --max-instances 10     --cpu-throttling     --concurrency 80     --timeout 300
 
 SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --region=${REGION} --format="value(status.url)")
 echo "--> Service successfully deployed at: ${SERVICE_URL}"

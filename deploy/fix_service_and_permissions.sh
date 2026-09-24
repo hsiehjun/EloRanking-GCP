@@ -30,7 +30,10 @@ gcloud run deploy ${SERVICE_NAME} \
   --set-cloudsql-instances=${CLOUDSQL_INSTANCE} \
   --set-env-vars="DATABASE_URL=dbname=elo_ranking user=elo_user password=${DB_PASS} host=/cloudsql/${CLOUDSQL_INSTANCE},CRON_SECRET_KEY=wh40k-elo-secret-cron-key" \
   --memory 1Gi \
-  --cpu 1
+  --cpu 1 \
+  --min-instances 1 \
+  --max-instances 10 \
+  --cpu-throttling
 
 echo ""
 echo "--> 3. Verifying Live Site API Health..."
