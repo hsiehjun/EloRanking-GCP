@@ -34,6 +34,10 @@ steps:
       - '1'
       - '--max-instances'
       - '10'
+      - '--min'
+      - '1'
+      - '--max'
+      - '10'
       - '--cpu-throttling'
 
   # 4. Update Cloud Run Job: elo-tournament-sync-job
