@@ -297,29 +297,6 @@ function renderLeagueHub(league) {
   );
 
   container.innerHTML = `
-    <!-- Detailed League Navigation Bar (Event-Hub Style) -->
-    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; flex-wrap: wrap; margin-bottom: 0.85rem; padding: 0.55rem 0.85rem; background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 10px;">
-      <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-        <button type="button" onclick="if (typeof switchTab === 'function') switchTab('tournaments');" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.36rem 0.8rem; font-weight: 700; color: #e2e8f0; border-color: rgba(255,255,255,0.16);">
-          ← Back to Tournaments &amp; Leagues
-        </button>
-        <span style="font-family: monospace; font-size: 0.72rem; color: #38bdf8; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.28); padding: 3px 8px; border-radius: 6px;">
-          🔑 League ID: ${escapeHtml(canonicalUuid)}
-        </span>
-      </div>
-      <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-        <button type="button" onclick="copyLeagueHubLink('${escapeHtml(canonicalUuid)}', '40k')" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.36rem 0.75rem; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700;">
-          🔗 Share League Link
-        </button>
-        <button type="button" onclick="loadLeagueData('${escapeHtml(canonicalUuid)}', true)" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.36rem 0.75rem; font-weight: 700;">
-          🔄 Refresh
-        </button>
-        <button type="button" onclick="openConfigureLeagueModal('${escapeHtml(canonicalUuid)}')" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.36rem 0.75rem; border-color: rgba(245, 158, 11, 0.45); color: #fbbf24; font-weight: 700;">
-          ⚙️ League Rules &amp; Format Config
-        </button>
-      </div>
-    </div>
-
     <!-- League Hero Banner -->
     <div class="card" style="margin-bottom: 1.25rem; background: linear-gradient(135deg, rgba(30, 58, 138, 0.25) 0%, rgba(15, 23, 42, 0.8) 100%); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 1.25rem; position: relative; overflow: hidden;">
       <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
@@ -347,8 +324,11 @@ function renderLeagueHub(league) {
           </div>
         </div>
 
-        <!-- External Link Only -->
+        <!-- Back & External Links -->
         <div style="display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" onclick="if (typeof switchTab === 'function') switchTab('tournaments');" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.45rem 0.85rem; font-weight: 700; color: #e2e8f0; border-color: rgba(255,255,255,0.18);">
+            ← All Leagues
+          </button>
           ${isGauntlet ? `
             <a href="https://docs.google.com/spreadsheets/d/13BLLEaRpReB5MbPQS-vqd5oMqbCRBf4ca0fX-qm1V0U/edit?usp=sharing" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.45rem 0.95rem; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
               <span>📊 Official Gauntlet Sheet</span>
@@ -360,31 +340,6 @@ function renderLeagueHub(league) {
           `}
         </div>
       </div>
-
-      ${window.isEventStudioCommissionerView ? `
-      <!-- Commissioner-Only Control Strip -->
-      <div id="league-commissioner-strip" style="margin-top: 1rem; padding: 0.75rem 1rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; font-size: 0.8rem; color: #cbd5e1;">
-          <span id="league-comm-reg-badge" style="background: ${league.registration_open !== false ? 'rgba(16, 185, 129, 0.2)' : 'rgba(148, 163, 184, 0.2)'}; color: ${league.registration_open !== false ? '#34d399' : '#94a3b8'}; border: 1px solid ${league.registration_open !== false ? 'rgba(16, 185, 129, 0.4)' : 'rgba(148, 163, 184, 0.3)'}; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.72rem;">
-            ${league.registration_open !== false ? '🟢 REGISTRATION OPEN IN SPARRING RADAR' : '🔒 REGISTRATION CLOSED'}
-          </span>
-          <span>🔁 <strong>Auto-Recurring Seasons:</strong> Enabled (${actSeason.duration_weeks || 8} Wks • ${actSeason.rounds_count || 5} Games)</span>
-          <span>•</span>
-          <span>⚖️ <strong>Pod Rules:</strong> ${methodology.pod_size_min || 6}–${methodology.pod_size_max || 8} Players / Pod • Top 2 ▲ Up 1 • Bottom 2 ▼ Down 1 • Middle ● Stay</span>
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <button id="league-comm-toggle-reg-btn" onclick="toggleLeagueRegistrationWindow('${escapeHtml(league.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90')}')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
-            📡 ${league.registration_open !== false ? 'Close Registration Window' : 'Open Registration in Sparring Radar'}
-          </button>
-          <button onclick="openConfigureLeagueModal('${escapeHtml(league.league_id || league.slug || 'sd40k')}')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700;">
-            ⚙️ Configure Rules
-          </button>
-          <button onclick="openLeagueRolloverPreviewModal('${escapeHtml(league.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90')}')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(245, 158, 11, 0.45); color: #fbbf24; font-weight: 700;">
-            🔄 Preview Season Rollover
-          </button>
-        </div>
-      </div>
-      ` : ''}
 
       <!-- 4 Season KPI Badges -->
       <div class="league-hero-kpi-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.65rem; margin-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem;">
@@ -463,86 +418,6 @@ function renderLeagueHub(league) {
         }
       }
     </style>
-
-    ${(() => {
-      const lid = escapeHtml(league.league_id || league.slug || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90');
-      const annList = Array.isArray(league.announcements) ? league.announcements : [];
-      const pinned = annList.find(a => a && a.is_pinned) || annList[0];
-      const opsData = (window._unifiedFloorOpsState && window._unifiedFloorOpsState.byEntity && window._unifiedFloorOpsState.byEntity[lid]) || null;
-      if (!opsData && typeof window.fetchUnifiedFloorOps === 'function' && !window._fetchingLeagueFloorOps) {
-        window._fetchingLeagueFloorOps = true;
-        window.fetchUnifiedFloorOps(lid).then(() => {
-          window._fetchingLeagueFloorOps = false;
-          const clockPill = document.getElementById('league-live-clock-pill');
-          const d = window._unifiedFloorOpsState?.byEntity?.[lid];
-          if (clockPill && d && d.clock) {
-            const rem = Number(d.clock.remaining_seconds ?? 10800);
-            const h = Math.floor(rem / 3600);
-            const m = Math.floor((rem % 3600) / 60);
-            const s = rem % 60;
-            clockPill.textContent = `⏱️ Round ${d.clock.round_number || 1} (${String(d.clock.status || 'paused').toUpperCase()}): ${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-          }
-        }).catch(() => { window._fetchingLeagueFloorOps = false; });
-      }
-      const clock = opsData?.clock || { round_number: 1, status: 'paused', remaining_seconds: 10800 };
-      const rem = Number(clock.remaining_seconds ?? 10800);
-      const ch = Math.floor(rem / 3600);
-      const cm = Math.floor((rem % 3600) / 60);
-      const cs = rem % 60;
-      const openFlagsCount = Number(opsData?.open_flags_count || 0);
-
-      return `
-        <!-- Unified Player Live Floor Deck Bar -->
-        <div id="league-player-floor-deck-bar" style="margin-bottom: 0.75rem; padding: 0.65rem 0.95rem; background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.92)); border: 1px solid rgba(56, 189, 248, 0.38); border-radius: 10px; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
-            <span id="league-live-clock-pill" style="background: rgba(16, 185, 129, 0.16); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 0.28rem 0.65rem; border-radius: 999px; font-family: monospace; font-size: 0.78rem; font-weight: 800;">
-              ⏱️ Round ${clock.round_number || 1} (${String(clock.status || 'paused').toUpperCase()}): ${ch}:${String(cm).padStart(2, '0')}:${String(cs).padStart(2, '0')}
-            </span>
-            <span style="font-size: 0.76rem; color: #cbd5e1;">
-              🚩 Active Table Flags: <strong style="color: ${openFlagsCount > 0 ? '#f87171' : '#34d399'};">${openFlagsCount}</strong>
-            </span>
-          </div>
-          <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
-            <button type="button" id="league-raise-table-flag-btn" onclick="if (typeof openUnifiedFloorOpsModal === 'function') { openUnifiedFloorOpsModal('${lid}', 'flags'); } else { alert('Floor Ops module loading...'); }" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.34rem 0.75rem; border-color: rgba(239, 68, 68, 0.55); color: #f87171; font-weight: 800;">
-              🚩 Raise Table Flag / Call Judge
-            </button>
-            ${canManageLeague ? `
-              <button type="button" onclick="if (typeof openUnifiedFloorOpsModal === 'function') { openUnifiedFloorOpsModal('${lid}', 'clock'); }" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.34rem 0.75rem; border-color: rgba(56, 189, 248, 0.5); color: #38bdf8; font-weight: 800;">
-                ⏱️ Manage Floor Clock
-              </button>
-            ` : ''}
-          </div>
-        </div>
-
-        ${pinned ? `
-          <div id="league-pinned-announcement-banner" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: linear-gradient(135deg, rgba(245, 158, 11, 0.16), rgba(30, 41, 59, 0.92)); border: 1px solid rgba(245, 158, 11, 0.48); border-left: 4px solid #f59e0b; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; gap: 0.85rem; flex-wrap: wrap;">
-            <div style="flex: 1; min-width: 240px;">
-              <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.2rem;">
-                <span style="background: rgba(245, 158, 11, 0.22); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.45); padding: 1px 7px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; text-transform: uppercase;">
-                  📢 Pinned TO Broadcast • ${escapeHtml(pinned.target_pod || 'All Pods')}
-                </span>
-                <span style="font-size: 0.72rem; color: #94a3b8;">by ${escapeHtml(pinned.author_name || 'Commissioner')} • ${escapeHtml(String(pinned.created_at || '').slice(0, 10))}</span>
-              </div>
-              <div style="font-size: 0.92rem; font-weight: 800; color: #fff;">${escapeHtml(pinned.title || 'League Announcement')}</div>
-              <div style="font-size: 0.8rem; color: #e2e8f0; margin-top: 0.15rem; line-height: 1.4;">${escapeHtml(pinned.body || '')}</div>
-            </div>
-            <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
-              <button type="button" id="league-ack-broadcast-btn" onclick="if (typeof acknowledgeBroadcastNotice === 'function') { acknowledgeBroadcastNotice('${lid}', '${escapeHtml(String(pinned.id || 'pinned-1'))}'); }" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(16, 185, 129, 0.5); color: #34d399; font-weight: 800;">
-                ✓ Acknowledge Notice ${pinned.ack_count ? `(${pinned.ack_count})` : ''}
-              </button>
-              <button type="button" onclick="switchLeagueSubtab('announcements')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; border-color: rgba(245, 158, 11, 0.5); color: #fbbf24; font-weight: 800;">
-                📢 All News &amp; Alerts (${annList.length})
-              </button>
-              ${canManageLeague ? `
-                <button type="button" onclick="if (typeof openStudioLeagueCommandCenterModal === 'function') { openStudioLeagueCommandCenterModal('${lid}', 'announcements'); } else { window.location.href = '/eventstudio.html'; }" class="btn btn-primary" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: 1px solid #60a5fa; font-weight: 800;">
-                  🎛️ TO Edit
-                </button>
-              ` : ''}
-            </div>
-          </div>
-        ` : ''}
-      `;
-    })()}
 
     <!-- Main League Subtabs -->
     <div class="subtabs-bar" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch;">
@@ -642,7 +517,7 @@ function renderAnnouncementsSubtab(league) {
   const annList = Array.isArray(league.announcements) ? league.announcements : [];
   const actSeason = league.active_season || {};
   const layouts = (actSeason.season_config && actSeason.season_config.round_layouts) || ["Layout A", "Layout B", "Layout C", "Layout A", "Layout B"];
-  const lid = escapeHtml(league.league_id || league.slug || 'sd40k');
+  const lid = escapeHtml(league.league_id || league.slug || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90');
 
   return `
     <div class="card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem;">
@@ -653,12 +528,9 @@ function renderAnnouncementsSubtab(league) {
             <span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.45); border-radius: 999px; font-size: 0.72rem; padding: 2px 8px; font-weight: 800;">${annList.length} Active</span>
           </h3>
           <p style="margin: 0.25rem 0 0; font-size: 0.8rem; color: var(--text-muted);">
-            Broadcasts published by the League Commissioner in Event Studio automatically notify registered players in their League Quick-View popup.
+            Official commissioner updates, midpoint check-ins, and seasonal round schedule.
           </p>
         </div>
-        <button type="button" onclick="if (typeof openStudioLeagueCommandCenterModal === 'function') { openStudioLeagueCommandCenterModal('${lid}', 'announcements'); } else { window.location.href = '/eventstudio.html'; }" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.42rem 0.9rem; background: linear-gradient(135deg, #f59e0b, #d97706); border: 1px solid #fbbf24; color: #0f172a; font-weight: 800;">
-          🎛️ Post / Manage Announcements in TO Studio
-        </button>
       </div>
 
       <!-- Current Season Dates & Round Layout Summary Bar -->
@@ -680,7 +552,10 @@ function renderAnnouncementsSubtab(league) {
         <div style="text-align: center; padding: 2rem; color: #94a3b8; font-size: 0.86rem;">
           No official announcements have been posted for this season yet.
         </div>
-      ` : annList.map(ann => `
+      ` : annList.map((ann, idx) => {
+        const annId = escapeHtml(String(ann.id || ann.broadcast_id || `ann-${idx + 1}`));
+        const ackCount = Number(ann.ack_count || 0);
+        return `
         <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid ${ann.is_pinned ? 'rgba(245, 158, 11, 0.5)' : 'rgba(255, 255, 255, 0.09)'}; border-left: 4px solid ${ann.priority === 'high' ? '#ef4444' : '#38bdf8'}; border-radius: 10px; padding: 1rem; margin-bottom: 0.85rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.4rem;">
             <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
@@ -689,18 +564,52 @@ function renderAnnouncementsSubtab(league) {
               <span style="background: rgba(56, 189, 248, 0.16); color: #38bdf8; padding: 2px 8px; border-radius: 4px; font-size: 0.68rem; font-weight: 800; text-transform: uppercase;">${escapeHtml(ann.category || 'general')}</span>
               <span style="background: rgba(16, 185, 129, 0.16); color: #34d399; padding: 2px 8px; border-radius: 4px; font-size: 0.68rem; font-weight: 800;">🎯 ${escapeHtml(ann.target_pod || 'All Pods')}</span>
             </div>
-            <div style="font-size: 0.74rem; color: #94a3b8;">
-              👤 ${escapeHtml(ann.author_name || 'Commissioner')} • 🕒 ${escapeHtml(String(ann.created_at || '').slice(0, 10))}
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <span style="font-size: 0.74rem; color: #94a3b8;">
+                👤 ${escapeHtml(ann.author_name || 'Commissioner')} • 🕒 ${escapeHtml(String(ann.created_at || '').slice(0, 10))}
+              </span>
+              <button type="button" id="league-ann-ack-btn-${annId}" onclick="acknowledgeLeagueAnnouncement('${lid}', '${annId}', this)" class="btn btn-outline" style="font-size: 0.72rem; padding: 0.25rem 0.65rem; border-color: rgba(16, 185, 129, 0.5); color: #34d399; font-weight: 800;">
+                ✓ Acknowledge Notice${ackCount > 0 ? ` (${ackCount})` : ''}
+              </button>
             </div>
           </div>
           <h4 style="margin: 0.2rem 0 0.4rem; font-size: 1rem; font-weight: 800; color: #fff;">${escapeHtml(ann.title || 'League Announcement')}</h4>
           <div style="font-size: 0.85rem; color: #cbd5e1; line-height: 1.55; white-space: pre-line;">${escapeHtml(ann.body || '')}</div>
         </div>
-      `).join('')}
+      `;}).join('')}
     </div>
   `;
 }
 window.renderAnnouncementsSubtab = renderAnnouncementsSubtab;
+
+async function acknowledgeLeagueAnnouncement(leagueId, broadcastId, btnEl) {
+  const player_name = (typeof currentUser !== 'undefined' && (currentUser?.display_name || currentUser?.name)) || 'Registered Player';
+  const player_id = (typeof currentUser !== 'undefined' && (currentUser?.player_id || currentUser?.id)) || 'player_anon';
+  try {
+    const res = await fetch(`/api/eventstudio/ops/${encodeURIComponent(leagueId)}/broadcast/ack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ broadcast_id: broadcastId, player_id, player_name })
+    });
+    const data = await res.json();
+    const targetBtn = btnEl || document.getElementById(`league-ann-ack-btn-${broadcastId}`);
+    if (targetBtn) {
+      const matched = (data?.broadcasts || []).find(b => String(b.broadcast_id || b.id) === String(broadcastId));
+      const newCount = matched ? Number(matched.ack_count || 1) : 1;
+      targetBtn.textContent = `✓ Acknowledged (${newCount})`;
+      targetBtn.style.background = 'rgba(16, 185, 129, 0.25)';
+      targetBtn.style.borderColor = '#10b981';
+      targetBtn.style.color = '#fff';
+    }
+    if (typeof showToast === 'function') {
+      showToast(`✓ Acknowledged Commissioner Notice (${player_name})`);
+    }
+  } catch (e) {
+    console.error('Error acknowledging league notice:', e);
+  }
+}
+window.acknowledgeLeagueAnnouncement = acknowledgeLeagueAnnouncement;
+window.acknowledgeBroadcastNotice = acknowledgeLeagueAnnouncement;
 
 function switchLeaguePairingRound(roundVal) {
   leagueState.activePairingRound = roundVal === 'all' ? 'all' : (parseInt(roundVal, 10) || 'all');
@@ -771,6 +680,10 @@ function renderPodsSubtab(league, currentPod) {
         const matchF = p2RawName.match(/\(([^)]+)\)\s*$/);
         if (matchF) p2Faction = matchF[1].trim();
       }
+      const rawP1Score = (m.score !== undefined && m.score !== null && m.score !== '') ? Number(m.score) : null;
+      const rawP2Score = (m.opponent_score !== undefined && m.opponent_score !== null && m.opponent_score !== '') ? Number(m.opponent_score) : null;
+      const rawRes = String(m.result || '').trim().toUpperCase();
+      const rawBp = (m.battle_points !== undefined && m.battle_points !== null) ? Number(m.battle_points) : null;
       allPodPairings.push({
         round: rNum,
         layout: m.layout || layouts[(rNum - 1) % layouts.length] || 'Layout A',
@@ -782,7 +695,11 @@ function renderPodsSubtab(league, currentPod) {
         p2_faction: p2Faction || 'Warhammer 40k',
         p2_bcp_player_id: p2Ident.bcp_player_id,
         p2_is_db_matched: Boolean(p2Ident.is_db_matched && p2Ident.bcp_player_id),
-        score: m.score || null,
+        p1_score: !isNaN(rawP1Score) ? rawP1Score : null,
+        p2_score: !isNaN(rawP2Score) ? rawP2Score : null,
+        p1_result: rawRes,
+        p1_bp: !isNaN(rawBp) ? rawBp : null,
+        score: (m.score !== undefined && m.score !== null) ? m.score : null,
         is_completed: !!m.is_completed
       });
     });
@@ -937,14 +854,14 @@ function renderPodsSubtab(league, currentPod) {
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.95rem; flex-wrap: wrap; gap: 0.65rem;">
         <div>
           <h3 style="margin: 0; font-size: 1.02rem; font-weight: 700; color: #fff;">⚔️ Pod #${currentPod.pod_number} Player Matchups &amp; Scores (5 Games)</h3>
-          <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">Each row shows a player and their 5 assigned opponents. Tap any matchup cell to launch Tracker, enter scores, or reassign opponents/ringers.</div>
+          <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">Each row shows a player and their 5 assigned opponents. Tap any matchup cell to launch Tracker or submit scores.</div>
         </div>
         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.73rem; font-weight: 700;">
-          <button type="button" onclick="if(typeof _studioLeagueCmdState!=='undefined'){_studioLeagueCmdState.selectedPodNum=${currentPod.pod_number};} if(typeof openStudioLeagueCommandCenterModal==='function'){openStudioLeagueCommandCenterModal('${escapeHtml(league.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90')}', 'pairings');}" class="btn btn-outline" style="font-size: 0.73rem; padding: 3px 9px; border-color: rgba(16, 185, 129, 0.5); color: #34d399; font-weight: 800; background: rgba(16, 185, 129, 0.1);">
-            ⚔️ Edit Pod #${currentPod.pod_number} Pairings &amp; Ringers
-          </button>
-          <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.18); border: 1px solid rgba(16, 185, 129, 0.5); color: #34d399; padding: 3px 8px; border-radius: 6px;">
-            🟢 Played (Score)
+          <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.22); border: 1px solid rgba(16, 185, 129, 0.6); color: #34d399; padding: 3px 8px; border-radius: 6px;">
+            🟢 Win (Score)
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(239, 68, 68, 0.22); border: 1px solid rgba(239, 68, 68, 0.6); color: #fca5a5; padding: 3px 8px; border-radius: 6px;">
+            🔴 Loss (Score)
           </span>
           <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(56, 189, 248, 0.14); border: 1px solid rgba(56, 189, 248, 0.45); color: #38bdf8; padding: 3px 8px; border-radius: 6px;">
             🔵 Yet to Play
@@ -959,12 +876,22 @@ function renderPodsSubtab(league, currentPod) {
           const k1 = (m.p1_name || '').trim().toLowerCase();
           const k2 = (m.p2_name || '').trim().toLowerCase();
           if (!k1 || !k2) return;
-          let s1 = null, s2 = null;
-          if (m.score && String(m.score).includes('-')) {
+          let s1 = (m.p1_score !== undefined && m.p1_score !== null) ? m.p1_score : null;
+          let s2 = (m.p2_score !== undefined && m.p2_score !== null) ? m.p2_score : null;
+          if ((s1 === null || s2 === null) && m.score && String(m.score).includes('-')) {
             const pts = String(m.score).split('-').map(x => parseInt(x.trim(), 10));
             if (!isNaN(pts[0]) && !isNaN(pts[1])) { s1 = pts[0]; s2 = pts[1]; }
           }
           const done = Boolean(m.is_completed || (s1 !== null && s2 !== null && (s1 > 0 || s2 > 0)));
+          const r1 = m.p1_result || (s1 !== null && s2 !== null ? (s1 > s2 ? 'W' : (s1 < s2 ? 'L' : 'D')) : '');
+          const r2 = r1 === 'W' ? 'L' : (r1 === 'L' ? 'W' : (r1 === 'D' ? 'D' : ''));
+          const p1Label = (s1 !== null && s2 !== null && done)
+            ? ((s1 === 0 && m.p1_bp && m.p1_bp >= 1000 && r1 === 'W') ? `${m.p1_bp} - ${s2} BP` : `${s1} - ${s2}`)
+            : (m.score !== null && m.score !== undefined ? String(m.score) : '');
+          const p2Label = (s1 !== null && s2 !== null && done)
+            ? ((s1 === 0 && m.p1_bp && m.p1_bp >= 1000 && r1 === 'W') ? `${s2} - ${m.p1_bp} BP` : `${s2} - ${s1}`)
+            : (m.score !== null && m.score !== undefined ? String(m.score) : '');
+
           pairMap[`${k1}__${k2}`] = {
             round: m.round || 1,
             layout: m.layout || 'Layout A',
@@ -975,7 +902,8 @@ function renderPodsSubtab(league, currentPod) {
             is_completed: done,
             row_score: s1,
             col_score: s2,
-            score_label: (s1 !== null && s2 !== null && done) ? `${s1} - ${s2}` : (m.score || '')
+            result: r1,
+            score_label: p1Label
           };
           pairMap[`${k2}__${k1}`] = {
             round: m.round || 1,
@@ -987,7 +915,8 @@ function renderPodsSubtab(league, currentPod) {
             is_completed: done,
             row_score: s2,
             col_score: s1,
-            score_label: (s1 !== null && s2 !== null && done) ? `${s2} - ${s1}` : (m.score || '')
+            result: r2,
+            score_label: p2Label
           };
         });
 
@@ -1032,6 +961,22 @@ function renderPodsSubtab(league, currentPod) {
                     const rawItemPid = pItem.opponent_bcp_player_id || oppIdent.bcp_player_id || mapped?.opp_bcp_player_id || '';
                     const validItemPid = (rawItemPid && !String(rawItemPid).startsWith('bcp_') && !String(rawItemPid).startsWith('p_')) ? rawItemPid : '';
                     const itemMatched = Boolean((pItem.opponent_is_db_matched || oppIdent.is_db_matched || mapped?.opp_is_db_matched) && validItemPid);
+                    const pScore = (pItem.score !== undefined && pItem.score !== null && pItem.score !== '') ? Number(pItem.score) : (mapped ? mapped.row_score : null);
+                    const oScore = (pItem.opponent_score !== undefined && pItem.opponent_score !== null && pItem.opponent_score !== '') ? Number(pItem.opponent_score) : (mapped ? mapped.col_score : null);
+                    const itemRes = String(pItem.result || mapped?.result || '').trim().toUpperCase();
+                    const itemBp = (pItem.battle_points !== undefined && pItem.battle_points !== null) ? Number(pItem.battle_points) : null;
+                    let computedLabel = '';
+                    if (pScore !== null && !isNaN(pScore) && oScore !== null && !isNaN(oScore)) {
+                      if (pScore === 0 && itemBp && itemBp >= 1000 && itemRes === 'W') {
+                        computedLabel = `${itemBp} - ${oScore} BP`;
+                      } else {
+                        computedLabel = `${pScore} - ${oScore}`;
+                      }
+                    } else if (mapped && mapped.score_label) {
+                      computedLabel = mapped.score_label;
+                    } else if (pItem.score !== undefined && pItem.score !== null) {
+                      computedLabel = String(pItem.score);
+                    }
                     oppList.push({
                       round: pItem.round || mapped?.round || (idx + 1),
                       layout: pItem.layout || mapped?.layout || 'Layout A',
@@ -1040,9 +985,10 @@ function renderPodsSubtab(league, currentPod) {
                       opp_bcp_player_id: validItemPid,
                       opp_is_db_matched: itemMatched,
                       is_completed: Boolean(pItem.is_completed || mapped?.is_completed),
-                      row_score: mapped ? mapped.row_score : (pItem.player_score ?? null),
-                      col_score: mapped ? mapped.col_score : (pItem.opponent_score ?? null),
-                      score_label: (mapped && mapped.score_label) ? mapped.score_label : (pItem.score || '')
+                      row_score: !isNaN(pScore) ? pScore : null,
+                      col_score: !isNaN(oScore) ? oScore : null,
+                      result: itemRes,
+                      score_label: computedLabel
                     });
                   });
                   // Fill any remaining matchups from pairMap if < 5
@@ -1107,26 +1053,42 @@ function renderPodsSubtab(league, currentPod) {
                         `;
 
                         if (matchInfo.is_completed) {
-                          const won = (matchInfo.row_score !== null && matchInfo.col_score !== null) ? (matchInfo.row_score > matchInfo.col_score) : true;
-                          const draw = (matchInfo.row_score !== null && matchInfo.col_score !== null && matchInfo.row_score === matchInfo.col_score);
-                          const bgCol = draw ? 'rgba(245, 158, 11, 0.18)' : (won ? 'rgba(16, 185, 129, 0.22)' : 'rgba(239, 68, 68, 0.16)');
-                          const borderCol = draw ? 'rgba(245, 158, 11, 0.5)' : (won ? 'rgba(16, 185, 129, 0.55)' : 'rgba(239, 68, 68, 0.45)');
+                          const resCode = String(matchInfo.result || '').toUpperCase();
+                          let won = true;
+                          let draw = false;
+                          if (resCode === 'W') {
+                            won = true;
+                            draw = false;
+                          } else if (resCode === 'L') {
+                            won = false;
+                            draw = false;
+                          } else if (resCode === 'D' || resCode === 'T') {
+                            won = false;
+                            draw = true;
+                          } else if (matchInfo.row_score !== null && matchInfo.col_score !== null) {
+                            won = matchInfo.row_score > matchInfo.col_score;
+                            draw = matchInfo.row_score === matchInfo.col_score;
+                          }
+                          const bgCol = draw ? 'rgba(245, 158, 11, 0.22)' : (won ? 'rgba(16, 185, 129, 0.24)' : 'rgba(239, 68, 68, 0.24)');
+                          const borderCol = draw ? 'rgba(245, 158, 11, 0.55)' : (won ? 'rgba(16, 185, 129, 0.65)' : 'rgba(239, 68, 68, 0.65)');
                           const scoreCol = draw ? '#fbbf24' : (won ? '#34d399' : '#fca5a5');
+                          const outcomePrefix = draw ? '🟡 DRAW' : (won ? '🟢 WIN' : '🔴 LOSS');
+                          const displayScoreText = matchInfo.score_label ? `${outcomePrefix} • ${escapeHtml(matchInfo.score_label)}` : outcomePrefix;
                           return `
-                            <td class="league-schedule-opp-cell" onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round || (slotIdx + 1)}, '${safeLayout}', '${safeScore}', true, ${currentPod.pod_number}, '${safeLeagueId}', '${safeRowPid}', '${safeColPid}')" style="padding: 0.55rem 0.7rem; background: ${bgCol}; border: 1px solid ${borderCol}; border-radius: 7px; cursor: pointer; transition: transform 0.12s;">
+                            <td class="league-schedule-opp-cell ${won ? 'matrix-cell-win' : (draw ? 'matrix-cell-draw' : 'matrix-cell-loss')}" onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round || (slotIdx + 1)}, '${safeLayout}', '${safeScore}', true, ${currentPod.pod_number}, '${safeLeagueId}', '${safeRowPid}', '${safeColPid}')" style="padding: 0.55rem 0.7rem; background: ${bgCol}; border: 1px solid ${borderCol}; border-radius: 7px; cursor: pointer; transition: transform 0.12s;">
                               <div>${oppNameLabelHtml}</div>
                               <div style="font-size: 0.69rem; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;">
                                 ${escapeHtml(colFaction)}
                               </div>
                               <div style="margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; font-weight: 800; font-size: 0.74rem; color: ${scoreCol};">
-                                <span>✓ ${escapeHtml(matchInfo.score_label || 'Played')}</span>
+                                <span>${displayScoreText}</span>
                               </div>
                             </td>
                           `;
                         }
 
                         return `
-                          <td class="league-schedule-opp-cell" onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round || (slotIdx + 1)}, '${safeLayout}', '', false, ${currentPod.pod_number}, '${safeLeagueId}', '${safeRowPid}', '${safeColPid}')" style="padding: 0.55rem 0.7rem; background: rgba(56, 189, 248, 0.11); border: 1px solid rgba(56, 189, 248, 0.36); border-radius: 7px; cursor: pointer; transition: transform 0.12s;">
+                          <td class="league-schedule-opp-cell matrix-cell-unplayed" onclick="openMatrixMatchupModal('${safeRowName}', '${safeColName}', '${safeRowFaction}', '${safeColFaction}', ${matchInfo.round || (slotIdx + 1)}, '${safeLayout}', '', false, ${currentPod.pod_number}, '${safeLeagueId}', '${safeRowPid}', '${safeColPid}')" style="padding: 0.55rem 0.7rem; background: rgba(56, 189, 248, 0.11); border: 1px solid rgba(56, 189, 248, 0.36); border-radius: 7px; cursor: pointer; transition: transform 0.12s;">
                             <div>${oppNameLabelHtml}</div>
                             <div style="font-size: 0.69rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;">
                               ${escapeHtml(colFaction)}

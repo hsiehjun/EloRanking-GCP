@@ -735,7 +735,10 @@ function renderEventsDirectory() {
           </div>
 
           <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 0.85rem; margin-top: 0.25rem; gap: 0.5rem; flex-wrap: wrap;">
-            <button class="btn btn-primary" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="switchStudioTab('manage', '${escapeHtml(ev.id)}')">👑 Direct Event</button>
+            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+              <button class="btn btn-primary" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="switchStudioTab('manage', '${escapeHtml(ev.id)}')">👑 Direct Event</button>
+              <button type="button" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.32rem 0.65rem; border-color: rgba(239, 68, 68, 0.45); color: #f87171; font-weight: 700;" onclick="openUnifiedFloorOpsModal('${escapeHtml(ev.id)}', 'flags')">🚩 Live Floor &amp; Clocks</button>
+            </div>
             <div style="display: flex; gap: 0.35rem; align-items: center;">
               ${(isBcp && !isDeletedOnBcp) ? `<a href="${bcpUrl}" target="_blank" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; text-decoration: none;">🔗 BCP</a>` : ''}
               <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.35);" onclick="deleteStudioTournament('${escapeHtml(ev.id)}')">🗑️</button>
@@ -1066,6 +1069,18 @@ async function loadTournamentWorkspace(eventId) {
         }
       } else if (wb) {
         wb.style.display = "none";
+      }
+
+      // Render Live Floor Clock & Table Judge Flags Bar strictly for Tournament events
+      let floorHost = ws.querySelector("#tournament-floor-command-bar-host");
+      if (!floorHost) {
+        floorHost = document.createElement("div");
+        floorHost.id = "tournament-floor-command-bar-host";
+        const header = ws.querySelector(".es-manage-header");
+        if (header) header.parentNode.insertBefore(floorHost, header.nextSibling);
+      }
+      if (floorHost && typeof renderUnifiedFloorCommandBar === "function") {
+        floorHost.innerHTML = renderUnifiedFloorCommandBar(ev.id);
       }
     });
 
@@ -5110,9 +5125,6 @@ function renderManagedStudioLeagues(leagues) {
                 <button type="button" onclick="openStudioLeagueCommandCenterModal('${lid}', 'announcements')" class="btn btn-primary" style="font-size: 0.76rem; padding: 0.4rem 0.85rem; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: 1px solid #60a5fa; font-weight: 800; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);">
                   🎛️ TO Command Center
                 </button>
-                <button type="button" onclick="openUnifiedFloorOpsModal('${lid}', 'flags')" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(239, 68, 68, 0.45); color: #f87171; font-weight: 700;">
-                  🚩 Live Floor &amp; Clocks
-                </button>
                 <button type="button" id="es-comm-toggle-reg-btn-${lid}" onclick="toggleStudioLeagueRegistration('${lid}', ${regOpen ? 'true' : 'false'})" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.38rem 0.75rem; border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 700;">
                   ${regOpen ? '📡 Close Registration Window' : '📡 Open Registration Window'}
                 </button>
@@ -5124,8 +5136,6 @@ function renderManagedStudioLeagues(leagues) {
                 </button>
               </div>
             </div>
-
-            ${typeof renderUnifiedFloorCommandBar === 'function' ? renderUnifiedFloorCommandBar(lid) : ''}
 
             <!-- Quick TO Management Toolbar -->
             <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.75rem; padding: 0.55rem 0.75rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 8px; align-items: center;">
@@ -5825,8 +5835,6 @@ function renderStudioLeagueCommandCenterModal() {
           </button>
         </div>
       </div>
-
-      ${typeof renderUnifiedFloorCommandBar === 'function' ? renderUnifiedFloorCommandBar(lid) : ''}
 
       <!-- Navigation Tabs -->
       <div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-bottom:1rem;">
