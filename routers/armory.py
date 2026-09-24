@@ -122,6 +122,8 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
     effective_earned = evaluated_glory if evaluated_glory > 0 else db_total
     actual_armory_spent = _compute_actual_armory_spent(auth_mgr, target_uid, user_data)
 
+    effective_spent = max(int(user_data.get("glory_spent") or 0), actual_armory_spent)
+
     if target_uid:
         ledger_svc = glory_ledger_service.get_glory_ledger_service()
         wallet_resp = ledger_svc.sync_earned_career_glory(
@@ -129,7 +131,7 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
             evaluated_earned_glory=effective_earned,
             glory_40k=total_40k,
             glory_aos=total_aos,
-            actual_armory_spent=actual_armory_spent
+            actual_armory_spent=effective_spent
         )
         user_data["total_glory"] = wallet_resp["total_glory"]
         user_data["glory_spent"] = wallet_resp["glory_spent"]

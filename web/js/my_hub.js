@@ -7,6 +7,14 @@ if (typeof window !== 'undefined') window.myHubData = myHubData;
 
 function buildMyHubShellData(u) {
   if (!u) return null;
+  let initialGlory = Number(u.spendable_glory ?? u.glory_balance ?? 0);
+  if (!initialGlory && typeof window !== 'undefined' && window.Armory && typeof window.Armory.getGlory === 'function') {
+    const g = window.Armory.getGlory();
+    if (g && g.spendable_glory != null) initialGlory = Number(g.spendable_glory);
+  }
+  if (!initialGlory) {
+    try { initialGlory = Number(localStorage.getItem('omnitactica_cached_spendable_glory') || 0); } catch (e) {}
+  }
   return {
     player: {
       player_name: u.display_name || '',
@@ -23,6 +31,8 @@ function buildMyHubShellData(u) {
       global_rank: u.global_rank || null,
       faction_rank: u.faction_rank || null
     },
+    spendable_glory: initialGlory,
+    glory_balance: initialGlory,
     history: [],
     faction_mastery: [],
     matchup_matrix: [],
@@ -1829,10 +1839,23 @@ function renderMyHub(data) {
         <span>🏆 Trophies</span>
         <span class="profile-subtab-count">${data.badge_count || 0}/${data.total_badges || 105}</span>
       </button>
-      <button type="button" class="profile-subtab-btn hub-subtab-armory-btn" data-tab="armory" onclick="switchHubSubtab('armory')" title="${(data.spendable_glory != null ? data.spendable_glory : (data.glory_balance != null ? data.glory_balance : 0)).toLocaleString()} Spendable Glory Points Remaining">
-        <span>🏛️ Armory</span>
-        <span class="profile-subtab-count" style="color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 800;">💰 <span id="hub-armory-balance-count">${(data.spendable_glory != null ? data.spendable_glory : (data.glory_balance != null ? data.glory_balance : 0)).toLocaleString()}</span> Left</span>
-      </button>
+      ${(() => {
+        const armoryGloryObj = (typeof window !== 'undefined' && window.Armory && typeof window.Armory.getGlory === 'function') ? window.Armory.getGlory() : null;
+        const armorySpendable = armoryGloryObj && armoryGloryObj.spendable_glory != null ? Number(armoryGloryObj.spendable_glory) : 0;
+        const dataSpendable = data.spendable_glory != null ? Number(data.spendable_glory) : (data.glory_balance != null ? Number(data.glory_balance) : 0);
+        let cachedSpendable = 0;
+        try { cachedSpendable = Number(localStorage.getItem('omnitactica_cached_spendable_glory') || 0); } catch (e) {}
+        const effectiveSpendableGlory = armorySpendable > 0 ? armorySpendable : (dataSpendable > 0 ? dataSpendable : cachedSpendable);
+        if (effectiveSpendableGlory > 0) {
+          try { localStorage.setItem('omnitactica_cached_spendable_glory', String(effectiveSpendableGlory)); } catch (e) {}
+        }
+        return `
+          <button type="button" class="profile-subtab-btn hub-subtab-armory-btn" data-tab="armory" onclick="switchHubSubtab('armory')" title="${effectiveSpendableGlory.toLocaleString()} Spendable Glory Points Remaining">
+            <span>🏛️ Armory</span>
+            <span class="profile-subtab-count" style="color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 800;">💰 <span id="hub-armory-balance-count">${effectiveSpendableGlory.toLocaleString()}</span> Left</span>
+          </button>
+        `;
+      })()}
     </div>
 
     <!-- TAB PANEL 1: Active Matches, Army Lists & Registered Tournaments -->

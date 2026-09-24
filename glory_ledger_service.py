@@ -586,7 +586,7 @@ class GloryLedgerService:
 
         db = self._get_db()
         if not db or not hasattr(db, "get_connection"):
-            return self._memory_sync_earned(user_id, evaluated_earned_glory, glory_40k, glory_aos)
+            return self._memory_sync_earned(user_id, evaluated_earned_glory, glory_40k, glory_aos, actual_armory_spent=actual_armory_spent)
 
         try:
             self.ensure_schema()
@@ -626,7 +626,7 @@ class GloryLedgerService:
             return self._format_wallet_response(wallet, glory_40k=glory_40k, glory_aos=glory_aos)
         except Exception as e:
             logger.warning(f"sync_earned_career_glory fallback notice for {user_id}: {e}")
-            return self._memory_sync_earned(user_id, evaluated_earned_glory, glory_40k, glory_aos)
+            return self._memory_sync_earned(user_id, evaluated_earned_glory, glory_40k, glory_aos, actual_armory_spent=actual_armory_spent)
 
     def execute_transaction(
         self,
@@ -1014,7 +1014,7 @@ class GloryLedgerService:
             "was_idempotent_replay": bool(wallet.get("was_idempotent_replay", False))
         }
 
-    def _memory_sync_earned(self, user_id: str, evaluated_earned_glory: int, glory_40k: int = 0, glory_aos: int = 0) -> Dict[str, Any]:
+    def _memory_sync_earned(self, user_id: str, evaluated_earned_glory: int, glory_40k: int = 0, glory_aos: int = 0, actual_armory_spent: int = 0) -> Dict[str, Any]:
         w = self._memory_wallets.get(user_id)
         if not w:
             w = {
@@ -1046,6 +1046,35 @@ class GloryLedgerService:
                 idempotency_key=f"career_glory_milestone:{user_id}:{w['earned_glory_total']}_to_{target}",
                 reference_type="competitor_hub",
                 reference_id=f"40k:{glory_40k}|aos:{glory_aos}",
+                actor_user_id="system"
+            )
+        target_spent = max(0, int(actual_armory_spent or 0))
+        if target_spent > w["spent_glory_total"]:
+            spent_delta = target_spent - w["spent_glory_total"]
+            if w["current_balance"] < spent_delta:
+                grant_needed = spent_delta - w["current_balance"]
+                self._memory_execute_tx(
+                    user_id=user_id,
+                    direction="CREDIT",
+                    bucket="GRANTED",
+                    category="genesis_pioneer_grant",
+                    amount=grant_needed,
+                    description="Founder & Pioneer Armory Requisition Grant",
+                    idempotency_key=f"pioneer_grant_mem:{user_id}:{grant_needed}",
+                    reference_type="armory_reconcile",
+                    reference_id=user_id,
+                    actor_user_id="system"
+                )
+            self._memory_execute_tx(
+                user_id=user_id,
+                direction="DEBIT",
+                bucket="ARMORY_REQUISITION",
+                category="armory_requisition_sync",
+                amount=spent_delta,
+                description="Historical Armory Requisition Sync",
+                idempotency_key=f"armory_spent_mem:{user_id}:{w['spent_glory_total']}_to_{target_spent}",
+                reference_type="armory_reconcile",
+                reference_id=user_id,
                 actor_user_id="system"
             )
         return self._format_wallet_response(self._memory_wallets[user_id], glory_40k=glory_40k, glory_aos=glory_aos)

@@ -2189,6 +2189,34 @@ class AuthManager:
         other_sys = "aos" if target_sys == "40k" else "40k"
         other_glory = self.get_authentic_system_glory(target_pid, other_sys)
         unified_glory = current_sys_glory + other_glory
+        g_40k = current_sys_glory if target_sys == "40k" else other_glory
+        g_aos = other_glory if target_sys == "40k" else current_sys_glory
+
+        raw_spent = int(user_info.get("glory_spent") or 0) if user_info else 0
+        stored_balance = int(user_info.get("glory_balance") or 0) if user_info else 0
+        spendable_glory = max(stored_balance, max(0, unified_glory - raw_spent))
+        total_glory_credits = max(unified_glory, raw_spent + spendable_glory)
+
+        if user_id:
+            try:
+                import glory_ledger_service
+                ledger_svc = glory_ledger_service.get_glory_ledger_service()
+                wallet_resp = ledger_svc.sync_earned_career_glory(
+                    user_id=user_id,
+                    evaluated_earned_glory=unified_glory,
+                    glory_40k=g_40k,
+                    glory_aos=g_aos,
+                    actual_armory_spent=raw_spent,
+                )
+                spendable_glory = int(wallet_resp.get("spendable_glory", spendable_glory))
+                raw_spent = int(wallet_resp.get("glory_spent", raw_spent))
+                total_glory_credits = int(wallet_resp.get("total_glory", total_glory_credits))
+                if user_info is not None:
+                    user_info["glory_balance"] = spendable_glory
+                    user_info["glory_spent"] = raw_spent
+                    user_info["total_glory"] = total_glory_credits
+            except Exception as e:
+                logger.warning(f"Notice syncing ledger balance in get_user_hub_data for {user_id}: {e}")
 
         return {
             "player": p_stat,
@@ -2210,14 +2238,14 @@ class AuthManager:
             "glory_score": b_eval["glory_score"],
             "career_glory": b_eval.get("career_glory", b_eval.get("glory_score", 0)),
             "seasonal_glory": b_eval.get("seasonal_glory", 0),
-            "glory_balance": max(0, unified_glory - (int(user_info.get("glory_spent") or 0) if user_info else 0)),
-            "spendable_glory": max(0, unified_glory - (int(user_info.get("glory_spent") or 0) if user_info else 0)),
+            "glory_balance": spendable_glory,
+            "spendable_glory": spendable_glory,
             "unified_glory": unified_glory,
-            "total_glory": unified_glory,
+            "total_glory": total_glory_credits,
             "total_earned": unified_glory,
-            "glory_spent": int(user_info.get("glory_spent") or 0) if user_info else 0,
-            "glory_40k": current_sys_glory if target_sys == "40k" else other_glory,
-            "glory_aos": other_glory if target_sys == "40k" else current_sys_glory,
+            "glory_spent": raw_spent,
+            "glory_40k": g_40k,
+            "glory_aos": g_aos,
             "championships": b_eval.get("championships", {}),
             "championship_glory": b_eval.get("championship_glory", 0),
             "championship_pill": (b_eval.get("championships") or {}).get("championship_pill"),

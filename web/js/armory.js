@@ -104,6 +104,7 @@
         });
       }
 
+      updateArmoryHeaderBalance();
       return currentCatalog;
     } catch (e) {
       console.warn('Notice loading armory catalog:', e);
@@ -869,10 +870,20 @@
       }
     }
 
+    if (spendable > 0) {
+      try {
+        localStorage.setItem('omnitactica_cached_spendable_glory', String(spendable));
+      } catch (e) {}
+    }
+
     // Synchronize the My Hub tab button in real-time
     var hubCounter = document.getElementById('hub-armory-balance-count');
     if (hubCounter) {
       hubCounter.textContent = spendable.toLocaleString();
+    }
+    var hubBtn = document.querySelector('.hub-subtab-armory-btn');
+    if (hubBtn) {
+      hubBtn.setAttribute('title', spendable.toLocaleString() + ' Spendable Glory Points Remaining');
     }
   }
 
