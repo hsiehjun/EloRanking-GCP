@@ -49,15 +49,19 @@ def _ensure_armory_db(auth_mgr):
         logger.debug(f"Notice ensuring armory schema in db: {e}")
 
 
+import glory_ledger_service
+
+
 def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Calculates total earned unified glory across 40K and AoS, spent glory, and remaining spendable balance."""
+    """Calculates total earned unified glory across 40K and AoS, syncs with the ACID Glory Ledger, and returns the verified wallet state."""
     target_pid = user_data.get("player_id")
-    target_uid = user_data.get("id")
-    
+    target_uid = str(user_data.get("id") or user_data.get("user_id") or "")
+
     total_40k = 0
     total_aos = 0
     crest_tier = 1
     peak_elo = float(user_data.get("peak_elo") or user_data.get("elo") or 1500.0)
+    user_championships = {}
 
     if auth_mgr and (target_pid or target_uid):
         try:
@@ -71,51 +75,45 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
         except Exception as e:
             logger.warning(f"Notice computing glory for user {target_uid}: {e}")
             evaluated_glory = total_40k + total_aos
-            user_championships = {}
     else:
-        evaluated_glory = 0
-        user_championships = {}
+        evaluated_glory = int(user_data.get("total_glory") or 0)
+
     db_total = int(user_data.get("total_glory") or 0)
+    effective_earned = max(evaluated_glory, db_total)
+
+    if target_uid:
+        ledger_svc = glory_ledger_service.get_glory_ledger_service()
+        wallet_resp = ledger_svc.sync_earned_career_glory(
+            user_id=target_uid,
+            evaluated_earned_glory=effective_earned,
+            glory_40k=total_40k,
+            glory_aos=total_aos
+        )
+        user_data["total_glory"] = wallet_resp["total_glory"]
+        user_data["glory_spent"] = wallet_resp["glory_spent"]
+        user_data["glory_balance"] = wallet_resp["glory_balance"]
+        return {
+            **wallet_resp,
+            "crest_tier": crest_tier,
+            "peak_elo": peak_elo,
+            "championships": user_championships
+        }
+
     db_spent = int(user_data.get("glory_spent") or 0)
-    db_balance = int(user_data.get("glory_balance") or 0)
-
-    # Sync and persist: If evaluated_glory is greater than db_total, award new points!
-    if evaluated_glory > db_total:
-        db_total = evaluated_glory
-        db_balance = max(0, db_total - db_spent)
-        user_data["total_glory"] = db_total
-        user_data["glory_balance"] = db_balance
-        if auth_mgr and hasattr(auth_mgr, "db") and auth_mgr.db and target_uid:
-            try:
-                _ensure_armory_db(auth_mgr)
-                with auth_mgr.db.get_connection() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("""
-                        UPDATE users SET total_glory = %s, glory_balance = %s, updated_at = NOW() WHERE id = %s;
-                        """, (db_total, db_balance, target_uid))
-                    conn.commit()
-            except Exception as e:
-                logger.debug(f"Notice persisting synced glory balance: {e}")
-    elif db_total > 0 and evaluated_glory == 0:
-        # Transient disconnect or timeout: fall back to persistent database values!
-        evaluated_glory = db_total
-        db_balance = max(0, db_total - db_spent)
-    elif db_balance == 0 and db_total > 0:
-        db_balance = max(0, db_total - db_spent)
-    elif db_total == 0 and evaluated_glory > 0:
-        db_total = evaluated_glory
-        db_balance = max(0, db_total - db_spent)
-        user_data["total_glory"] = db_total
-        user_data["glory_balance"] = db_balance
-
+    db_balance = max(0, effective_earned - db_spent)
     return {
-        "total_earned": db_total or evaluated_glory,
-        "total_glory": db_total or evaluated_glory,
+        "total_earned": effective_earned,
+        "total_glory": effective_earned,
+        "earned_glory_total": effective_earned,
+        "purchased_glory_total": 0,
+        "granted_glory_total": 0,
         "glory_40k": total_40k,
         "glory_aos": total_aos,
         "glory_spent": db_spent,
+        "spent_glory_total": db_spent,
         "spendable_glory": db_balance,
         "glory_balance": db_balance,
+        "current_balance": db_balance,
         "crest_tier": crest_tier,
         "peak_elo": peak_elo,
         "championships": user_championships
@@ -276,48 +274,168 @@ async def purchase_item(request: Request):
             "slot": item.get("slot")
         }
 
-    # 5. Persist to database
-    new_spent = glory_state["glory_spent"] + cost
-    new_balance = max(0, glory_state["spendable_glory"] - cost)
-    user_data["armory_vault"] = vault
-    user_data["glory_spent"] = new_spent
-    user_data["glory_balance"] = new_balance
-    session["armory_vault"] = vault
-    session["glory_spent"] = new_spent
-    session["glory_balance"] = new_balance
+    # 5. Execute atomic ACID debit + inventory update in GloryLedgerService
+    ledger_svc = glory_ledger_service.get_glory_ledger_service()
+    client_idem_key = (body.get("idempotency_key") or "").strip()
+    if not client_idem_key:
+        if not item.get("is_consumable"):
+            # Permanent items have a natural deterministic idempotency key per user+item
+            client_idem_key = f"armory_perm:{user_id}:{item_id}"
+        else:
+            new_qty = inventory.get(item_id, {}).get("quantity", 0)
+            client_idem_key = f"armory_cons:{user_id}:{item_id}:qty_{new_qty}:{int(datetime.now(timezone.utc).timestamp() // 2)}"
+
+    def _persist_vault_inside_tx(cur, _wallet):
+        if cur is not None:
+            cur.execute("""
+                UPDATE users
+                SET armory_vault = %s, updated_at = NOW()
+                WHERE id = %s;
+            """, (json.dumps(vault), user_id))
 
     try:
-        _ensure_armory_db(auth_mgr)
-        with auth_mgr.db.get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                UPDATE users
-                SET armory_vault = %s, glory_spent = %s, glory_balance = %s, updated_at = NOW()
-                WHERE id = %s;
-                """, (json.dumps(vault), new_spent, new_balance, user_id))
-            conn.commit()
-
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                    INSERT INTO armory_transactions (user_id, item_id, glory_cost, transaction_type, metadata, created_at)
-                    VALUES (%s, %s, %s, 'purchase', %s, NOW());
-                    """, (user_id, item_id, cost, json.dumps({"item_name": item["name"], "wing": item["wing"]})))
-                conn.commit()
-            except Exception as te:
-                logger.debug(f"Transaction logging notice: {te}")
+        tx_wallet = ledger_svc.execute_transaction(
+            user_id=str(user_id),
+            direction="DEBIT",
+            bucket="SPENT",
+            category="armory_purchase",
+            amount=int(cost),
+            description=f"Armory Requisition: {item['name']} ({item['wing']})",
+            idempotency_key=client_idem_key,
+            reference_type="armory_item",
+            reference_id=item_id,
+            actor_user_id=str(user_id),
+            metadata={"item_id": item_id, "item_name": item["name"], "wing": item["wing"], "cost_glory": int(cost)},
+            vault_updater=_persist_vault_inside_tx
+        )
+    except glory_ledger_service.GloryLedgerError as gle:
+        raise HTTPException(status_code=gle.status_code, detail=gle.message)
     except Exception as dbe:
-        logger.warning(f"Database persist error in armory purchase (proceeding with session state): {dbe}")
+        logger.error(f"ACID ledger error in armory purchase for {user_id}: {dbe}")
+        raise HTTPException(status_code=500, detail="Transaction aborted by Glory Honor Ledger safety check. No Glory was deducted.")
 
-    updated_glory = _calculate_user_glory_state(auth_mgr, user_data)
+    user_data["armory_vault"] = vault
+    user_data["glory_spent"] = tx_wallet["glory_spent"]
+    user_data["glory_balance"] = tx_wallet["glory_balance"]
+    session["armory_vault"] = vault
+    session["glory_spent"] = tx_wallet["glory_spent"]
+    session["glory_balance"] = tx_wallet["glory_balance"]
+
+    updated_glory = {
+        **glory_state,
+        **tx_wallet
+    }
 
     return {
         "success": True,
-        "message": f"Successfully requisitioned {item['name']} for {cost} Glory!",
+        "message": f"Successfully requisitioned {item['name']} for {cost} Glory! (TX: {tx_wallet.get('last_tx_id')})",
+        "tx_id": tx_wallet.get("last_tx_id"),
+        "entry_hash": tx_wallet.get("last_entry_hash"),
         "item": item,
         "vault": vault,
         "glory": updated_glory
     }
+
+
+@router.get("/api/glory/ledger", summary="Get user's immutable hash-chained Glory Honor transaction ledger")
+@router.get("/api/armory/ledger", summary="Get user's immutable hash-chained Glory Honor transaction ledger")
+async def get_user_glory_ledger(request: Request, limit: int = 50):
+    session = _get_user_session_or_401(request)
+    user_id = str(session.get("user_id") or session.get("id") or "")
+    auth_mgr = get_auth_manager()
+    user_data = auth_mgr.get_user_by_id(user_id) or session
+    glory_state = _calculate_user_glory_state(auth_mgr, user_data)
+    ledger_svc = glory_ledger_service.get_glory_ledger_service()
+    entries = ledger_svc.get_user_ledger_history(user_id=user_id, limit=limit)
+    audit = ledger_svc.audit_user_wallet(user_id=user_id)
+    return {
+        "success": True,
+        "user_id": user_id,
+        "wallet": glory_state,
+        "audit": audit,
+        "ledger": entries,
+        "count": len(entries)
+    }
+
+
+@router.get("/api/glory/audit", summary="Run 5-point mathematical & SHA-256 cryptographic hash-chain audit on Glory wallet")
+@router.get("/api/armory/audit", summary="Run 5-point mathematical & SHA-256 cryptographic hash-chain audit on Glory wallet")
+async def run_user_glory_audit(request: Request, target_user_id: Optional[str] = None):
+    session = _get_user_session_or_401(request)
+    caller_uid = str(session.get("user_id") or session.get("id") or "")
+    is_admin = bool(session.get("is_admin") or str(session.get("role") or "").lower() in ("admin", "superuser", "developer", "owner"))
+    uid = str(target_user_id).strip() if (target_user_id and is_admin) else caller_uid
+    auth_mgr = get_auth_manager()
+    user_data = auth_mgr.get_user_by_id(uid) or session
+    _calculate_user_glory_state(auth_mgr, user_data)
+    ledger_svc = glory_ledger_service.get_glory_ledger_service()
+    report = ledger_svc.audit_user_wallet(user_id=uid)
+    return {
+        "success": True,
+        "audit": report
+    }
+
+
+@router.post("/api/glory/transact", summary="Execute an atomic, idempotent Glory Honor transaction (Event/League fee, Fiat Top-Up, Refund, or Grant)")
+async def execute_glory_transaction(request: Request):
+    session = _get_user_session_or_401(request)
+    caller_uid = str(session.get("user_id") or session.get("id") or "")
+    is_admin = bool(session.get("is_admin") or str(session.get("role") or "").lower() in ("admin", "superuser", "developer", "owner"))
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    target_uid = str(body.get("user_id") or caller_uid).strip()
+    direction = str(body.get("direction") or "DEBIT").upper().strip()
+    bucket = str(body.get("bucket") or ("SPENT" if direction == "DEBIT" else "PURCHASED")).upper().strip()
+    category = str(body.get("category") or "general").strip()
+    amount = int(body.get("amount") or 0)
+    description = str(body.get("description") or f"Glory Honor {direction}: {category}").strip()
+    idempotency_key = str(body.get("idempotency_key") or "").strip()
+    reference_type = str(body.get("reference_type") or "").strip() or None
+    reference_id = str(body.get("reference_id") or "").strip() or None
+    metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+
+    # Security rule: Non-admin users can only DEBIT their own wallet (e.g., event/league registration fees, model purchases)
+    # or process verified top-ups with a valid payment reference. Admin grants/refunds require admin privilege.
+    if target_uid != caller_uid and not is_admin:
+        raise HTTPException(status_code=403, detail="Cannot execute transactions on another user's Glory wallet.")
+    if direction == "CREDIT" and bucket in ("GRANTED", "REFUND") and not is_admin:
+        raise HTTPException(status_code=403, detail="Only administrators can issue manual Glory Honor grants or refunds.")
+    if not idempotency_key:
+        raise HTTPException(status_code=400, detail="idempotency_key is mandatory for all Glory Honor financial transactions.")
+
+    auth_mgr = get_auth_manager()
+    user_data = auth_mgr.get_user_by_id(target_uid) or session
+    _calculate_user_glory_state(auth_mgr, user_data)
+
+    ledger_svc = glory_ledger_service.get_glory_ledger_service()
+    try:
+        wallet_res = ledger_svc.execute_transaction(
+            user_id=target_uid,
+            direction=direction,
+            bucket=bucket,
+            category=category,
+            amount=amount,
+            description=description,
+            idempotency_key=idempotency_key,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            actor_user_id=caller_uid,
+            metadata=metadata
+        )
+        audit_report = ledger_svc.audit_user_wallet(user_id=target_uid)
+        return {
+            "success": True,
+            "tx_id": wallet_res.get("last_tx_id"),
+            "entry_hash": wallet_res.get("last_entry_hash"),
+            "was_idempotent_replay": wallet_res.get("was_idempotent_replay", False),
+            "wallet": wallet_res,
+            "audit": audit_report
+        }
+    except glory_ledger_service.GloryLedgerError as gle:
+        raise HTTPException(status_code=gle.status_code, detail=gle.message)
 
 
 @router.post("/api/armory/equip", summary="Equip an item from inventory to active loadout")
@@ -722,20 +840,72 @@ async def get_armory_transactions(request: Request):
         except Exception as he:
             logger.debug(f"Notice building glory credits: {he}")
 
-    total_earned = glory_state.get("total_earned", 0)
-    total_spent = glory_state.get("glory_spent", 0)
-    spendable = glory_state.get("spendable_glory", 0)
+    ledger_svc = glory_ledger_service.get_glory_ledger_service()
+    ledger_entries = ledger_svc.get_user_ledger_history(user_id=str(user_id), limit=200)
+    audit_report = ledger_svc.audit_user_wallet(user_id=str(user_id))
+
+    # Merge any non-badge ledger credits (Fiat Top-Ups, TO/Admin Grants, Refunds) into credits
+    # and any non-Armory ledger debits (Event Registration Fees, League Registration Fees, Model Purchases) into debits
+    for entry in ledger_entries:
+        cat = str(entry.get("category") or "")
+        tx_id = entry.get("tx_id")
+        if entry.get("direction") == "CREDIT" and cat not in ("genesis_career_sync", "career_achievement_sync"):
+            credits.insert(0, {
+                "id": tx_id,
+                "tx_id": tx_id,
+                "type": "credit",
+                "bucket": entry.get("bucket", "PURCHASED"),
+                "category": f"{entry.get('bucket', 'CREDIT')} • {cat}",
+                "name": f"💎 {entry.get('description')}",
+                "detail": f"TX: {tx_id} • Balance: {entry.get('balance_before'):,} → {entry.get('balance_after'):,} • SHA-256: {str(entry.get('entry_hash') or '')[:12]}…",
+                "amount": int(entry.get("amount") or 0),
+                "balance_before": int(entry.get("balance_before") or 0),
+                "balance_after": int(entry.get("balance_after") or 0),
+                "entry_hash": entry.get("entry_hash"),
+                "date": str(entry.get("created_at") or "")
+            })
+        elif entry.get("direction") == "DEBIT" and cat not in ("genesis_armory_spend",):
+            ref_id = entry.get("reference_id")
+            if ref_id and ref_id in seen_items and cat == "armory_purchase":
+                continue
+            debits.insert(0, {
+                "id": tx_id,
+                "tx_id": tx_id,
+                "type": "debit",
+                "item_id": ref_id or cat,
+                "name": entry.get("description") or cat,
+                "wing": f"TX: {tx_id} • Balance: {entry.get('balance_before'):,} → {entry.get('balance_after'):,} • SHA-256: {str(entry.get('entry_hash') or '')[:12]}…",
+                "cost": int(entry.get("amount") or 0),
+                "balance_before": int(entry.get("balance_before") or 0),
+                "balance_after": int(entry.get("balance_after") or 0),
+                "entry_hash": entry.get("entry_hash"),
+                "date": str(entry.get("created_at") or "")
+            })
+
+    total_earned = int(glory_state.get("total_earned", 0))
+    total_spent = int(glory_state.get("glory_spent", 0))
+    spendable = int(glory_state.get("spendable_glory", 0))
 
     return {
         "success": True,
         "summary": {
             "total_earned": total_earned,
+            "earned_glory_total": int(glory_state.get("earned_glory_total", total_earned)),
+            "purchased_glory_total": int(glory_state.get("purchased_glory_total", 0)),
+            "granted_glory_total": int(glory_state.get("granted_glory_total", 0)),
             "total_spent": total_spent,
+            "refunded_glory_total": int(glory_state.get("refunded_glory_total", 0)),
             "spendable_glory": spendable,
-            "glory_40k": glory_state.get("glory_40k", 0),
-            "glory_aos": glory_state.get("glory_aos", 0),
-            "is_balanced": (total_earned - total_spent) == spendable
+            "glory_40k": int(glory_state.get("glory_40k", 0)),
+            "glory_aos": int(glory_state.get("glory_aos", 0)),
+            "is_balanced": bool(audit_report.get("is_valid", True)) and ((total_earned - total_spent) == spendable),
+            "audit_id": audit_report.get("audit_id"),
+            "audit_status": audit_report.get("status", "VERIFIED_INTACT"),
+            "chain_head_hash": audit_report.get("chain_head_hash", "GENESIS"),
+            "transactions_verified": int(audit_report.get("transactions_verified", len(ledger_entries)))
         },
+        "audit": audit_report,
+        "hash_chain_ledger": ledger_entries,
         "debits": debits,
         "credits": credits
     }
