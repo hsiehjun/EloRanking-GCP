@@ -117,7 +117,13 @@ except ImportError:
             self.status_code = status_code
             self.detail = detail
     class Request: pass
-    class Response: pass
+    class Response:
+        def __init__(self, content: str = "", status_code: int = 200, headers: dict = None, media_type: str = None, *args, **kwargs):
+            self.content = content
+            self.body = content.encode("utf-8") if isinstance(content, str) else content
+            self.status_code = status_code
+            self.headers = headers or {}
+            self.media_type = media_type
     class FileResponse:
         def __init__(self, path: str = "", *args, **kwargs):
             self.path = path
@@ -141,6 +147,7 @@ except ImportError:
     class HTMLResponse:
         def __init__(self, content: str = "", status_code: int = 200, headers: dict = None, *args, **kwargs):
             self.content = content
+            self.body = content.encode("utf-8") if isinstance(content, str) else content
             self.status_code = status_code
             self.headers = headers or {}
     class StreamingResponse:

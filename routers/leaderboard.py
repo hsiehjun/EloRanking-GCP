@@ -1941,6 +1941,7 @@ async def api_faction_details(
 
 # API: Match Win Probability Predictor
 @router.get("/api/predict", summary="Calculate win odds and simulated Elo changes")
+@router.get("/api/predict/match", include_in_schema=False)
 async def api_predict(
     p1: Optional[str] = Query(None),
     p2: Optional[str] = Query(None),
@@ -1953,6 +1954,220 @@ async def api_predict(
     if not p1_name or not p2_name:
         raise HTTPException(status_code=400, detail="Missing p1 (player1) or p2 (player2) parameters")
     return get_elo_engine().predict_match_outcome(p1_name.strip(), p2_name.strip(), game_system=game_system)
+
+
+def _xml_escape(val: Any) -> str:
+    s = str(val if val is not None else "")
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+def _get_elo_tier_label(elo: float, matches: int, sys: str = "40k") -> Tuple[str, str]:
+    if matches < 5:
+        return ("Uncalibrated", "#94a3b8")
+    is_aos = (sys or "40k").lower() == "aos"
+    if elo >= 2400:
+        return ("Everchosen" if is_aos else "Warmaster", "#f43f5e")
+    if elo >= 2250:
+        return ("Archaon's Chosen" if is_aos else "Primarch", "#fbbf24")
+    if elo >= 2100:
+        return ("Lord-Commander" if is_aos else "Chapter Master", "#f59e0b")
+    if elo >= 1950:
+        return ("Lord-Celestant" if is_aos else "Lord Commander", "#a855f7")
+    if elo >= 1800:
+        return ("Knight-Vexillor" if is_aos else "Force Commander", "#38bdf8")
+    if elo >= 1650:
+        return ("Varanguard" if is_aos else "Company Captain", "#10b981")
+    if elo >= 1500:
+        return ("Stormcast Veteran" if is_aos else "Veteran Sergeant", "#2dd4bf")
+    return ("Battle-Line Initiate", "#94a3b8")
+
+
+@router.get("/api/og/player/{sys}/{player_id}.svg", summary="Generate dynamic SVG social card for player profile")
+@router.get("/api/og/player/{sys}/{player_id}", include_in_schema=False)
+async def api_og_player_card_svg(sys: str, player_id: str, name: Optional[str] = Query(None)):
+    gs = "aos" if (sys or "").lower() == "aos" else "40k"
+    sys_title = "WARHAMMER: AGE OF SIGMAR" if gs == "aos" else "WARHAMMER 40,000"
+    pid = urllib.parse.unquote(player_id or "").strip()
+
+    try:
+        data = await asyncio.to_thread(get_elo_engine().get_player_win_path, pid, gs, name)
+    except Exception:
+        data = {}
+
+    p = data.get("player") or data or {}
+    p_name = p.get("player_name") or name or pid or "Commander"
+    curr_elo = float(p.get("current_elo") or data.get("current_elo") or 1500.0)
+    peak_elo = float(p.get("peak_elo") or data.get("peak_elo") or curr_elo)
+    wins = int(p.get("wins") or data.get("wins") or 0)
+    losses = int(p.get("losses") or data.get("losses") or 0)
+    draws = int(p.get("draws") or data.get("draws") or 0)
+    matches = int(p.get("matches_played") or data.get("matches_played") or (wins + losses + draws))
+    win_rate = float(p.get("win_rate") or data.get("win_rate") or (wins / matches * 100.0 if matches > 0 else 0.0))
+    top_faction = str(p.get("top_faction") or data.get("top_faction") or "Commander").split(",")[0].strip() or "Unaligned"
+    team_name = str(p.get("team") or data.get("team") or "").strip()
+    streak = int(data.get("longest_win_streak") or p.get("streak") or 0)
+
+    tier_name, tier_color = _get_elo_tier_label(curr_elo, matches, gs)
+
+    # Build sparkline points from match history
+    history = data.get("history") or []
+    elos = [1500.0]
+    for m in history[-30:]:
+        if m.get("new_elo") is not None:
+            elos.append(float(m["new_elo"]))
+    if len(elos) < 2:
+        elos.append(curr_elo)
+
+    min_e = min(elos) - 15.0
+    max_e = max(elos) + 15.0
+    span_e = max(30.0, max_e - min_e)
+    chart_x, chart_y, chart_w, chart_h = 660, 340, 460, 150
+    pts_list = []
+    for idx, val in enumerate(elos):
+        px = chart_x + (idx / max(1, len(elos) - 1)) * chart_w
+        py = chart_y + chart_h - ((val - min_e) / span_e) * chart_h
+        pts_list.append(f"{px:.1f},{py:.1f}")
+    poly_points = " ".join(pts_list)
+    area_points = f"{chart_x},{chart_y + chart_h} {poly_points} {chart_x + chart_w},{chart_y + chart_h}"
+
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#060a12"/>
+      <stop offset="55%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect x="24" y="24" width="1152" height="582" rx="22" fill="none" stroke="url(#accent)" stroke-width="2" stroke-opacity="0.45"/>
+
+  <!-- Top Branding Header -->
+  <text x="64" y="82" fill="#38bdf8" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="800" letter-spacing="3">⚔ OMNITACTICA COMMANDER DOSSIER</text>
+  <rect x="910" y="54" width="226" height="38" rx="19" fill="#1e293b" stroke="#38bdf8" stroke-opacity="0.4"/>
+  <text x="1023" y="79" fill="#f8fafc" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="800" text-anchor="middle" letter-spacing="1.5">{_xml_escape(sys_title)}</text>
+
+  <!-- Player Identity -->
+  <text x="64" y="162" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="54" font-weight="900">{_xml_escape(p_name[:26])}</text>
+  <text x="64" y="205" fill="{tier_color}" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="800" letter-spacing="1">{_xml_escape(tier_name.upper())}  •  🛡️ {_xml_escape(top_faction[:28])}{f"  •  {team_name[:22]}" if team_name else ""}</text>
+
+  <!-- Primary Elo Rating Box -->
+  <rect x="64" y="242" width="270" height="130" rx="16" fill="#111c33" stroke="#38bdf8" stroke-opacity="0.45" stroke-width="1.5"/>
+  <text x="90" y="280" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="700" letter-spacing="1.5">CURRENT ELO RATING</text>
+  <text x="90" y="344" fill="#38bdf8" font-family="monospace" font-size="54" font-weight="900">{curr_elo:.1f}</text>
+
+  <!-- All-Time Peak Box -->
+  <rect x="354" y="242" width="266" height="130" rx="16" fill="#111c33" stroke="#fbbf24" stroke-opacity="0.4" stroke-width="1.5"/>
+  <text x="380" y="280" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="700" letter-spacing="1.5">ALL-TIME PEAK 👑</text>
+  <text x="380" y="344" fill="#fbbf24" font-family="monospace" font-size="54" font-weight="900">{peak_elo:.1f}</text>
+
+  <!-- Combat Telemetry Grid -->
+  <rect x="64" y="392" width="175" height="115" rx="14" fill="#0d1526" stroke="#334155"/>
+  <text x="86" y="426" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700">RECORD</text>
+  <text x="86" y="476" fill="#f8fafc" font-family="monospace" font-size="30" font-weight="800">{wins}W - {losses}L{f" - {draws}D" if draws else ""}</text>
+
+  <rect x="255" y="392" width="175" height="115" rx="14" fill="#0d1526" stroke="#334155"/>
+  <text x="277" y="426" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700">WIN RATE</text>
+  <text x="277" y="476" fill="#10b981" font-family="monospace" font-size="34" font-weight="900">{win_rate:.1f}%</text>
+
+  <rect x="446" y="392" width="174" height="115" rx="14" fill="#0d1526" stroke="#334155"/>
+  <text x="468" y="426" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700">PEAK STREAK</text>
+  <text x="468" y="476" fill="#fb923c" font-family="monospace" font-size="32" font-weight="800">🔥 {streak}W</text>
+
+  <!-- Right Panel: Elo Trajectory Sparkline -->
+  <rect x="640" y="242" width="500" height="265" rx="16" fill="#0b1324" stroke="#1e293b" stroke-width="1.5"/>
+  <text x="668" y="282" fill="#e2e8f0" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="800">📈 ELO RATING TRAJECTORY ({matches} MATCHES)</text>
+  <polygon points="{area_points}" fill="url(#sparkFill)"/>
+  <polyline points="{poly_points}" fill="none" stroke="#38bdf8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Footer -->
+  <text x="64" y="568" fill="#64748b" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="600">Verified Competitive Wargaming Analytics &amp; Live Elo Rankings  •  omnitactica.com</text>
+</svg>"""
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=300"}
+    )
+
+
+@router.get("/p/{sys}/{player_id}", summary="Public Player Share Link with OpenGraph Social Preview")
+async def public_player_share_page(sys: str, player_id: str, request: Request, name: Optional[str] = Query(None)):
+    gs = "aos" if (sys or "").lower() == "aos" else "40k"
+    sys_label = "Age of Sigmar" if gs == "aos" else "Warhammer 40K"
+    pid = urllib.parse.unquote(player_id or "").strip()
+
+    try:
+        data = await asyncio.to_thread(get_elo_engine().get_player_win_path, pid, gs, name)
+    except Exception:
+        data = {}
+
+    p = data.get("player") or data or {}
+    p_name = p.get("player_name") or name or pid or "Commander"
+    curr_elo = float(p.get("current_elo") or data.get("current_elo") or 1500.0)
+    peak_elo = float(p.get("peak_elo") or data.get("peak_elo") or curr_elo)
+    wins = int(p.get("wins") or data.get("wins") or 0)
+    losses = int(p.get("losses") or data.get("losses") or 0)
+    draws = int(p.get("draws") or data.get("draws") or 0)
+    matches = int(p.get("matches_played") or data.get("matches_played") or (wins + losses + draws))
+    win_rate = float(p.get("win_rate") or data.get("win_rate") or (wins / matches * 100.0 if matches > 0 else 0.0))
+    top_faction = str(p.get("top_faction") or data.get("top_faction") or "Unaligned").split(",")[0].strip()
+    tier_name, _ = _get_elo_tier_label(curr_elo, matches, gs)
+
+    base_url = str(request.base_url).rstrip("/")
+    encoded_pid = urllib.parse.quote(str(p.get("player_id") or pid), safe="")
+    target_hash_url = f"/#/{gs}/player/{encoded_pid}"
+    og_image_url = f"{base_url}/api/og/player/{gs}/{encoded_pid}.svg"
+    og_title = f"{p_name} — {curr_elo:.1f} Elo ({tier_name}) | OmniTactica {sys_label}"
+    rec_str = f"{wins}W-{losses}L" + (f"-{draws}D" if draws else "")
+    og_desc = (
+        f"⚔️ {curr_elo:.1f} Elo (Peak {peak_elo:.1f} 👑) • {rec_str} ({win_rate:.1f}% Win Rate across {matches} matches) "
+        f"• Primary Army: {top_faction}. View full tournament dossier & Elo trajectory on OmniTactica."
+    )
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{_xml_escape(og_title)}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{_xml_escape(og_desc)}">
+  <meta property="og:type" content="profile">
+  <meta property="og:site_name" content="OmniTactica Competitive Wargaming Suite">
+  <meta property="og:title" content="{_xml_escape(og_title)}">
+  <meta property="og:description" content="{_xml_escape(og_desc)}">
+  <meta property="og:image" content="{_xml_escape(og_image_url)}">
+  <meta property="og:url" content="{_xml_escape(f'{base_url}/p/{gs}/{encoded_pid}')}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{_xml_escape(og_title)}">
+  <meta name="twitter:description" content="{_xml_escape(og_desc)}">
+  <meta name="twitter:image" content="{_xml_escape(og_image_url)}">
+  <script>
+    window.location.replace({json.dumps(target_hash_url)});
+  </script>
+</head>
+<body style="background:#070b14; color:#f8fafc; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;">
+  <div style="text-align:center; padding:2rem;">
+    <div style="font-size:1.25rem; font-weight:800; color:#38bdf8; margin-bottom:0.5rem;">⚔️ Opening Commander Dossier...</div>
+    <div style="color:#94a3b8; font-size:0.9rem;">Redirecting to <a href="{_xml_escape(target_hash_url)}" style="color:#fbbf24;">{_xml_escape(p_name)} on OmniTactica</a></div>
+  </div>
+</body>
+</html>"""
+    return HTMLResponse(content=html, headers=NO_CACHE_HEADERS)
+
 
 
 

@@ -1386,6 +1386,7 @@ window.addEventListener('tournaments-updated', () => {
 function renderMyHub(data) {
   const container = document.getElementById('my-hub-content');
   if (!container || !data) return;
+  window.currentHubData = data;
 
   const p = data.player || {};
   const rankings = data.rankings || {};
@@ -1747,8 +1748,8 @@ function renderMyHub(data) {
             <button type="button" class="btn btn-primary" onclick="openPlayerProfilePage('${escapeHtml(playerIdForActions)}', '${sys}')" style="font-weight: 700; font-size: 0.82rem; padding: 0.45rem 0.9rem;">
               ↗ Public Profile
             </button>
-            <button type="button" class="btn btn-outline" onclick="copyPlayerProfileLink('${escapeHtml(playerIdForActions)}', '${sys}')" title="Copy shareable link to your public profile" style="font-weight: 600; font-size: 0.82rem; padding: 0.45rem 0.85rem;">
-              🔗 Share Profile
+            <button type="button" class="btn btn-outline" onclick="openShareProfileModal('${escapeHtml(playerIdForActions)}', '${sys}')" title="Generate shareable profile picture, trading card, or share to other platforms" style="font-weight: 600; font-size: 0.82rem; padding: 0.45rem 0.85rem; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+              🪪 Share Profile
             </button>
           </div>
         </div>

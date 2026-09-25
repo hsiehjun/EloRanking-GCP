@@ -489,8 +489,8 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
               💬 Message
             </button>
           ` : ''}
-          <button type="button" class="btn btn-outline" onclick="copyPlayerProfileLink('${escapeHtml(currentProfilePlayerId)}', '${sys}')" title="Copy shareable link to this profile" style="font-weight: 600; font-size: 0.85rem; padding: 0.5rem 0.9rem;">
-            🔗 Share Profile
+          <button type="button" class="btn btn-outline" onclick="openShareProfileModal('${escapeHtml(currentProfilePlayerId)}', '${sys}')" title="Generate shareable profile picture, trading card, or share to other platforms" style="font-weight: 600; font-size: 0.85rem; padding: 0.5rem 0.9rem; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+            🪪 Share Profile
           </button>
         </div>
       </div>
@@ -721,10 +721,12 @@ function updateToggleAllButtonState(containerSelector = '#profile-events-accordi
 /**
  * Copy public profile link to clipboard with toast notification
  */
-function copyPlayerProfileLink(playerId, sys = '') {
+function copyPlayerProfileLink(playerId, sys = '', useSmartOgUrl = true) {
   const targetSys = (sys || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
   const sysLabel = (targetSys === 'aos') ? 'AoS' : '40K';
-  const url = `${window.location.origin}/#/${targetSys}/player/${encodeURIComponent(playerId)}`;
+  const url = useSmartOgUrl
+    ? `${window.location.origin}/p/${targetSys}/${encodeURIComponent(playerId)}`
+    : `${window.location.origin}/#/${targetSys}/player/${encodeURIComponent(playerId)}`;
   
   if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
     navigator.clipboard.writeText(url).then(() => showProfileToast(`✓ ${sysLabel} profile link copied to clipboard!`)).catch(() => {
@@ -751,13 +753,13 @@ function fallbackCopyText(text, sysLabel = 'Profile') {
   document.body.removeChild(ta);
 }
 
-function showProfileToast(msg) {
+function showProfileToast(msg, icon = '🔗') {
   const existing = document.querySelector('.profile-toast');
   if (existing) existing.remove();
 
   const toast = document.createElement('div');
   toast.className = 'profile-toast';
-  toast.innerHTML = `<span>🔗</span><span>${escapeHtml(msg)}</span>`;
+  toast.innerHTML = `<span>${icon}</span><span>${escapeHtml(msg)}</span>`;
   document.body.appendChild(toast);
 
   setTimeout(() => {
@@ -766,6 +768,1184 @@ function showProfileToast(msg) {
     toast.style.transform = 'translateY(10px)';
     setTimeout(() => toast.remove(), 300);
   }, 2800);
+}
+
+// ============================================================================
+// 🪪 SHARE COMMANDER DOSSIER & SOCIAL CARD STUDIO (Canvas 2x Generator + Multi-Platform Share)
+// ============================================================================
+let _shareStudioState = {
+  playerId: '',
+  sys: '40k',
+  data: null,
+  format: 'banner', // 'banner' (1200x630) | 'story' (1080x1350) | 'avatar' (1080x1080)
+  theme: 'tactical', // 'tactical' | 'auramite' | 'crimson' | 'warp' | 'emerald'
+  showSparkline: true,
+  showArmies: true,
+  showSeal: true
+};
+
+const _SHARE_THEMES = {
+  tactical: {
+    id: 'tactical',
+    label: '⚡ Tactical Cyan',
+    bgStart: '#060a14',
+    bgMid: '#0d172a',
+    bgEnd: '#070b14',
+    panelBg: 'rgba(13, 23, 42, 0.85)',
+    panelBorder: 'rgba(56, 189, 248, 0.32)',
+    accent: '#38bdf8',
+    accentSecondary: '#fbbf24',
+    glow: 'rgba(56, 189, 248, 0.38)',
+    textSub: '#94a3b8'
+  },
+  auramite: {
+    id: 'auramite',
+    label: '👑 Imperium Gold',
+    bgStart: '#120d04',
+    bgMid: '#231907',
+    bgEnd: '#0d0903',
+    panelBg: 'rgba(30, 21, 7, 0.85)',
+    panelBorder: 'rgba(245, 158, 11, 0.42)',
+    accent: '#fbbf24',
+    accentSecondary: '#38bdf8',
+    glow: 'rgba(251, 191, 36, 0.4)',
+    textSub: '#fcd34d'
+  },
+  crimson: {
+    id: 'crimson',
+    label: '🩸 Blood & Brass',
+    bgStart: '#140507',
+    bgMid: '#260a10',
+    bgEnd: '#0d0305',
+    panelBg: 'rgba(34, 9, 14, 0.85)',
+    panelBorder: 'rgba(244, 63, 94, 0.42)',
+    accent: '#f43f5e',
+    accentSecondary: '#fbbf24',
+    glow: 'rgba(244, 63, 94, 0.4)',
+    textSub: '#fda4af'
+  },
+  warp: {
+    id: 'warp',
+    label: '🔮 Warp Aether',
+    bgStart: '#0c0517',
+    bgMid: '#1b0b30',
+    bgEnd: '#080311',
+    panelBg: 'rgba(24, 10, 44, 0.85)',
+    panelBorder: 'rgba(168, 85, 247, 0.42)',
+    accent: '#c084fc',
+    accentSecondary: '#38bdf8',
+    glow: 'rgba(192, 132, 252, 0.4)',
+    textSub: '#d8b4fe'
+  },
+  emerald: {
+    id: 'emerald',
+    label: '❇️ Xenos Necrodermis',
+    bgStart: '#03120d',
+    bgMid: '#072419',
+    bgEnd: '#020b08',
+    panelBg: 'rgba(7, 31, 22, 0.85)',
+    panelBorder: 'rgba(16, 185, 129, 0.42)',
+    accent: '#10b981',
+    accentSecondary: '#fbbf24',
+    glow: 'rgba(16, 185, 129, 0.4)',
+    textSub: '#6ee7b7'
+  }
+};
+
+function _extractNormalizedShareData(rawData, fallbackPlayerId, sys) {
+  const d = rawData || {};
+  const p = d.player || d || {};
+  const history = Array.isArray(d.history) ? d.history : (Array.isArray(d.win_path) ? d.win_path : []);
+  const factionMastery = typeof computeProfileFactionMastery === 'function'
+    ? computeProfileFactionMastery(history, d.faction_mastery || d.factions_breakdown)
+    : (d.faction_mastery || d.factions_breakdown || []);
+
+  const currentElo = Number(p.current_elo ?? d.current_elo ?? 1500.0);
+  const peakElo = Math.max(currentElo, Number(p.peak_elo ?? d.peak_elo ?? currentElo));
+  const wins = Number(p.wins ?? d.wins ?? 0);
+  const losses = Number(p.losses ?? d.losses ?? 0);
+  const draws = Number(p.draws ?? d.draws ?? 0);
+  const totalMatches = Number(p.matches_played ?? d.matches_played ?? (wins + losses + draws));
+  const winRate = totalMatches > 0 ? Number(p.win_rate ?? d.win_rate ?? ((wins / totalMatches) * 100)) : 0;
+
+  let peakStreak = Number(d.longest_win_streak ?? p.peak_streak ?? p.streak ?? 0);
+  let currentStreak = Number(d.current_streak ?? 0);
+  if (history.length > 0 && !peakStreak) {
+    let tmp = 0;
+    history.forEach(m => {
+      if (m.result === 'W') { tmp++; if (tmp > peakStreak) peakStreak = tmp; }
+      else tmp = 0;
+    });
+  }
+
+  let playerName = p.player_name || d.player_name || '';
+  if (!playerName || playerName.toLowerCase() === 'competitor' || playerName.toLowerCase() === 'unknown') {
+    if (typeof currentUser !== 'undefined' && currentUser && currentUser.display_name) {
+      playerName = currentUser.display_name;
+    } else {
+      playerName = fallbackPlayerId || 'Commander';
+    }
+  }
+
+  const playerId = p.player_id || d.player_id || fallbackPlayerId || playerName;
+  const team = p.team || d.team || '';
+  const topArmies = factionMastery.length > 0
+    ? factionMastery.slice(0, 3).map(f => ({ name: f.faction, games: f.games, wr: Number(f.win_rate || 0) }))
+    : (p.top_faction || d.top_faction
+        ? String(p.top_faction || d.top_faction).split(',').slice(0, 2).map(s => ({ name: s.trim(), games: totalMatches, wr: winRate }))
+        : []);
+
+  const tier = typeof getEloTier === 'function'
+    ? getEloTier(currentElo, totalMatches, sys)
+    : { name: 'Veteran', shortName: 'Veteran', icon: '⚔️' };
+
+  const allEq = d.equipped || (d.armory_vault && d.armory_vault.equipped) || (window.Armory && window.Armory.getCurrentVault && window.Armory.getCurrentVault().equipped) || {};
+  const eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
+  const activeTitleId = eq.active_title || '';
+  const activeTitleText = activeTitleId ? activeTitleId.replace(/^title_/, '').replace(/_/g, ' ').toUpperCase() : '';
+  const activeAvatarId = eq.active_avatar || '';
+  const avatarSvg = (activeAvatarId && typeof window.getArmoryAvatarSvg === 'function')
+    ? window.getArmoryAvatarSvg(activeAvatarId)
+    : '';
+
+  const champs = d.championships || {};
+  const champPill = (champs && champs.total > 0) ? (champs.championship_pill || `🏆 ${champs.total}x Champion`) : '';
+  const globalRank = (d.rankings && d.rankings.global_rank) || p.rank || d.global_rank || null;
+  const gloryScore = Number(d.glory_score || d.career_glory || 0);
+
+  // Sort history chronologically for sparkline
+  const chronHistory = history.slice().sort((a, b) => {
+    const dA = String(a.match_date || a.event_date || '');
+    const dB = String(b.match_date || b.event_date || '');
+    if (dA !== dB) return dA.localeCompare(dB);
+    return Number(a.round || 0) - Number(b.round || 0);
+  });
+
+  // Sort newest first for recent form beads
+  const recentForm = chronHistory.slice(-8).reverse().map(m => m.result || '-');
+
+  return {
+    playerId,
+    playerName,
+    sys: (sys || '40k').toLowerCase(),
+    sysLabel: (sys || '40k').toLowerCase() === 'aos' ? 'AGE OF SIGMAR' : 'WARHAMMER 40,000',
+    sysShort: (sys || '40k').toLowerCase() === 'aos' ? 'AoS' : '40K',
+    currentElo,
+    peakElo,
+    wins,
+    losses,
+    draws,
+    totalMatches,
+    winRate,
+    peakStreak,
+    currentStreak,
+    team,
+    topArmies,
+    tier,
+    activeTitleText,
+    avatarSvg,
+    champPill,
+    globalRank,
+    gloryScore,
+    chronHistory,
+    recentForm
+  };
+}
+
+function ensureShareProfileModalDom() {
+  let modal = document.getElementById('share-profile-studio-modal');
+  if (modal) return modal;
+
+  modal = document.createElement('div');
+  modal.id = 'share-profile-studio-modal';
+  modal.className = 'modal-backdrop';
+  modal.setAttribute('onclick', 'if(event.target === this) closeModal("share-profile-studio-modal")');
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 920px; width: 95%; padding: 0; overflow: hidden; border: 1px solid rgba(56, 189, 248, 0.35); background: linear-gradient(165deg, #090e1a 0%, #0f172a 100%); box-shadow: 0 25px 65px rgba(0, 0, 0, 0.85);">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.35rem; border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(6, 10, 20, 0.75);">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <span style="font-size: 1.35rem;">🪪</span>
+          <div>
+            <h3 style="margin: 0; font-size: 1.08rem; font-weight: 800; color: #fff; letter-spacing: 0.02em;">Commander Dossier &amp; Social Card Studio</h3>
+            <div style="font-size: 0.76rem; color: #94a3b8;">Generate a custom Profile Picture (PFP), Trading Card, or Social Banner &amp; share anywhere</div>
+          </div>
+        </div>
+        <button type="button" class="modal-close" onclick="closeModal('share-profile-studio-modal')" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1.1rem;">&times;</button>
+      </div>
+
+      <div id="share-profile-studio-body" style="padding: 1.2rem 1.35rem; max-height: 84vh; overflow-y: auto;">
+        <!-- Populated dynamically -->
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+async function openShareProfileModal(playerId = '', sys = '', optionalData = null) {
+  const targetSys = (sys || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
+  const modal = ensureShareProfileModalDom();
+  const body = document.getElementById('share-profile-studio-body');
+
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  } else {
+    modal.classList.add('active');
+    modal.style.display = 'flex';
+  }
+
+  // Determine if we already have matching profile data in memory
+  let sourceData = optionalData;
+  if (!sourceData) {
+    if (currentProfileData && (
+      String(currentProfileData.player_id || '') === String(playerId) ||
+      String(currentProfileData.player?.player_id || '') === String(playerId) ||
+      String(currentProfilePlayerId || '') === String(playerId)
+    )) {
+      sourceData = currentProfileData;
+    } else if (window.currentHubData && (
+      String(window.currentHubData.player?.player_id || '') === String(playerId) ||
+      (typeof currentUser !== 'undefined' && currentUser && String(currentUser.player_id || '') === String(playerId))
+    )) {
+      sourceData = window.currentHubData;
+    }
+  }
+
+  if (!sourceData && playerId && window.api && typeof window.api.getPlayerProfile === 'function') {
+    body.innerHTML = `
+      <div style="padding: 3rem 1rem; text-align: center; color: #94a3b8;">
+        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+        <div style="font-weight: 700; color: #e2e8f0;">Forging Commander Dossier &amp; High-Res Social Card...</div>
+      </div>
+    `;
+    try {
+      sourceData = await window.api.getPlayerProfile(playerId, targetSys);
+    } catch (e) {
+      console.warn('Could not fetch profile for share modal, using fallback:', e);
+      sourceData = { player_id: playerId, player_name: playerId };
+    }
+  }
+
+  const norm = _extractNormalizedShareData(sourceData, playerId, targetSys);
+  _shareStudioState.playerId = norm.playerId;
+  _shareStudioState.sys = targetSys;
+  _shareStudioState.data = norm;
+
+  // Auto-pick theme if player has an Armory frame/title equipped on first open
+  if (!_shareStudioState._userPickedTheme) {
+    if (norm.tier && norm.currentElo >= 2200) _shareStudioState.theme = 'auramite';
+    else _shareStudioState.theme = 'tactical';
+  }
+
+  renderShareStudioContent();
+}
+
+function renderShareStudioContent() {
+  const body = document.getElementById('share-profile-studio-body');
+  if (!body || !_shareStudioState.data) return;
+  const d = _shareStudioState.data;
+  const shareUrl = `${window.location.origin}/p/${d.sys}/${encodeURIComponent(d.playerId)}`;
+  const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+  const formatButtonsHtml = [
+    { id: 'banner', icon: '🖼️', title: 'Social Banner', sub: '1200×630 • Discord / X / Reddit' },
+    { id: 'story', icon: '📱', title: 'Trading Card / Story', sub: '1080×1350 • IG / TikTok / Mobile' },
+    { id: 'avatar', icon: '🛡️', title: 'Square Avatar / PFP', sub: '1080×1080 • Profile Picture' }
+  ].map(f => {
+    const active = _shareStudioState.format === f.id;
+    return `
+      <button type="button" onclick="setShareProfileFormat('${f.id}')" style="flex: 1; min-width: 155px; text-align: left; padding: 0.6rem 0.8rem; border-radius: 10px; cursor: pointer; transition: all 0.15s ease; background: ${active ? 'rgba(56, 189, 248, 0.16)' : 'rgba(15, 23, 42, 0.7)'}; border: 1.5px solid ${active ? '#38bdf8' : 'rgba(255,255,255,0.1)'}; color: #fff;">
+        <div style="font-weight: 800; font-size: 0.84rem; display: flex; align-items: center; gap: 0.4rem; color: ${active ? '#38bdf8' : '#f8fafc'};">
+          <span>${f.icon}</span>
+          <span>${f.title}</span>
+        </div>
+        <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 2px;">${f.sub}</div>
+      </button>
+    `;
+  }).join('');
+
+  const themeButtonsHtml = Object.values(_SHARE_THEMES).map(t => {
+    const active = _shareStudioState.theme === t.id;
+    return `
+      <button type="button" onclick="setShareProfileTheme('${t.id}')" style="padding: 0.38rem 0.7rem; border-radius: 999px; font-size: 0.76rem; font-weight: 700; cursor: pointer; background: ${active ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.75)'}; border: 1.5px solid ${active ? t.accent : 'rgba(255,255,255,0.12)'}; color: ${active ? '#fff' : '#cbd5e1'}; display: inline-flex; align-items: center; gap: 0.35rem;">
+        <span style="width: 10px; height: 10px; border-radius: 50%; background: ${t.accent}; box-shadow: 0 0 6px ${t.accent};"></span>
+        <span>${t.label}</span>
+      </button>
+    `;
+  }).join('');
+
+  body.innerHTML = `
+    <div style="display: grid; grid-template-columns: 1fr; gap: 1rem;">
+      <!-- 1. Format & Theme Selector Bar -->
+      <div style="display: flex; flex-direction: column; gap: 0.75rem; background: rgba(6, 10, 19, 0.65); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 0.85rem;">
+        <div style="display: flex; gap: 0.55rem; flex-wrap: wrap;">
+          ${formatButtonsHtml}
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem; padding-top: 0.35rem; border-top: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <span style="font-size: 0.72rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-right: 0.2rem;">Theme:</span>
+            ${themeButtonsHtml}
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.65rem; font-size: 0.75rem; color: #cbd5e1;">
+            ${_shareStudioState.format !== 'avatar' ? `
+              <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+                <input type="checkbox" ${_shareStudioState.showSparkline ? 'checked' : ''} onchange="toggleShareProfileOption('showSparkline', this.checked)">
+                <span>📈 Elo Graph</span>
+              </label>
+            ` : ''}
+            <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+              <input type="checkbox" ${_shareStudioState.showArmies ? 'checked' : ''} onchange="toggleShareProfileOption('showArmies', this.checked)">
+              <span>🛡️ Armies</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Live High-Resolution Canvas Preview -->
+      <div style="background: radial-gradient(circle at center, rgba(30, 41, 59, 0.55) 0%, rgba(6, 10, 18, 0.92) 100%); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 1rem; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 280px;">
+        <canvas id="share-profile-canvas" style="max-width: 100%; max-height: 410px; width: auto; height: auto; border-radius: 12px; box-shadow: 0 18px 45px rgba(0,0,0,0.75); border: 1px solid rgba(255,255,255,0.12);"></canvas>
+        <div style="margin-top: 0.65rem; font-size: 0.74rem; color: #94a3b8; text-align: center;">
+          💡 <b>Tip:</b> Copy the generated image to paste directly into Discord, Slack, Reddit, or X — or download the HD PNG to set as your Profile Picture!
+        </div>
+      </div>
+
+      <!-- 3. Primary Image Export Actions -->
+      <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: center;">
+        ${canNativeShare ? `
+          <button type="button" class="btn btn-primary" onclick="nativeShareProfileCard()" style="flex: 1; min-width: 190px; padding: 0.65rem 1rem; font-weight: 800; font-size: 0.88rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; background: linear-gradient(135deg, #0284c7, #2563eb); border: none;">
+            <span>📲</span> <span>Share Image + Link...</span>
+          </button>
+        ` : ''}
+        <button type="button" class="btn btn-primary" onclick="copyShareProfileImage()" style="flex: 1; min-width: 190px; padding: 0.65rem 1rem; font-weight: 800; font-size: 0.88rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;">
+          <span>📋</span> <span>Copy Image to Clipboard</span>
+        </button>
+        <button type="button" class="btn btn-outline" onclick="downloadShareProfileImage()" style="flex: 1; min-width: 180px; padding: 0.65rem 1rem; font-weight: 800; font-size: 0.88rem; border-color: rgba(251, 191, 36, 0.45); color: #fbbf24; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;">
+          <span>⬇️</span> <span>Download HD PNG</span>
+        </button>
+      </div>
+
+      <!-- 4. Share TO Other Platforms & Direct Link -->
+      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 0.9rem 1rem;">
+        <div style="font-size: 0.74rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.6rem;">
+          🚀 Share To Other Platforms (Rich Social Preview Enabled)
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 0.5rem; margin-bottom: 0.8rem;">
+          <button type="button" class="btn btn-outline" onclick="copyShareProfileDiscordCard()" style="padding: 0.5rem 0.65rem; font-size: 0.8rem; font-weight: 700; border-color: rgba(88, 101, 242, 0.45); color: #a5b4fc; background: rgba(88, 101, 242, 0.1); display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+            <span>💬</span> <span>Discord / Slack</span>
+          </button>
+          <button type="button" class="btn btn-outline" onclick="shareProfileToPlatform('twitter')" style="padding: 0.5rem 0.65rem; font-size: 0.8rem; font-weight: 700; border-color: rgba(255, 255, 255, 0.22); color: #f8fafc; background: rgba(255, 255, 255, 0.05); display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+            <span>𝕏</span> <span>Post to X</span>
+          </button>
+          <button type="button" class="btn btn-outline" onclick="shareProfileToPlatform('reddit')" style="padding: 0.5rem 0.65rem; font-size: 0.8rem; font-weight: 700; border-color: rgba(255, 69, 0, 0.4); color: #fdba74; background: rgba(255, 69, 0, 0.1); display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+            <span>🤖</span> <span>Reddit</span>
+          </button>
+          <button type="button" class="btn btn-outline" onclick="shareProfileToPlatform('whatsapp')" style="padding: 0.5rem 0.65rem; font-size: 0.8rem; font-weight: 700; border-color: rgba(34, 197, 94, 0.4); color: #86efac; background: rgba(34, 197, 94, 0.1); display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+            <span>🟢</span> <span>WhatsApp</span>
+          </button>
+          <button type="button" class="btn btn-outline" onclick="shareProfileToPlatform('telegram')" style="padding: 0.5rem 0.65rem; font-size: 0.8rem; font-weight: 700; border-color: rgba(56, 189, 248, 0.4); color: #7dd3fc; background: rgba(56, 189, 248, 0.1); display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+            <span>✈️</span> <span>Telegram</span>
+          </button>
+          <button type="button" class="btn btn-outline" onclick="shareProfileToPlatform('facebook')" style="padding: 0.5rem 0.65rem; font-size: 0.8rem; font-weight: 700; border-color: rgba(59, 130, 246, 0.4); color: #93c5fd; background: rgba(59, 130, 246, 0.1); display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+            <span>📘</span> <span>Facebook</span>
+          </button>
+        </div>
+
+        <!-- Direct Smart Share Link Input + Copy Button -->
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <input type="text" readonly value="${escapeHtml(shareUrl)}" onclick="this.select()" style="flex: 1; background: rgba(6, 10, 19, 0.85); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 0.48rem 0.75rem; color: #38bdf8; font-family: var(--font-mono); font-size: 0.78rem; outline: none;">
+          <button type="button" class="btn btn-outline" onclick="copyPlayerProfileLink('${escapeHtml(d.playerId)}', '${escapeHtml(d.sys)}', true)" style="padding: 0.48rem 0.95rem; font-size: 0.8rem; font-weight: 800; white-space: nowrap;">
+            🔗 Copy Link
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  setTimeout(() => renderShareProfileCanvas(), 15);
+}
+
+function setShareProfileFormat(fmt) {
+  _shareStudioState.format = fmt;
+  renderShareStudioContent();
+}
+
+function setShareProfileTheme(themeId) {
+  if (_SHARE_THEMES[themeId]) {
+    _shareStudioState.theme = themeId;
+    _shareStudioState._userPickedTheme = true;
+    renderShareStudioContent();
+  }
+}
+
+function toggleShareProfileOption(optKey, checked) {
+  _shareStudioState[optKey] = Boolean(checked);
+  renderShareProfileCanvas();
+}
+
+function _roundRectPath(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+function _drawTacticalGridAndBg(ctx, w, h, theme) {
+  const grad = ctx.createLinearGradient(0, 0, w, h);
+  grad.addColorStop(0, theme.bgStart);
+  grad.addColorStop(0.5, theme.bgMid);
+  grad.addColorStop(1, theme.bgEnd);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Radial ambient glow in upper-left and lower-right
+  const rad1 = ctx.createRadialGradient(w * 0.2, h * 0.2, 10, w * 0.2, h * 0.2, w * 0.55);
+  rad1.addColorStop(0, theme.glow);
+  rad1.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = rad1;
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle sci-fi tactical grid lines
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.028)';
+  ctx.lineWidth = 1;
+  const step = 48;
+  for (let x = 0; x < w; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+  }
+  for (let y = 0; y < h; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Outer frame border
+  ctx.save();
+  _roundRectPath(ctx, 22, 22, w - 44, h - 44, 24);
+  ctx.strokeStyle = theme.panelBorder;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Corner brackets
+  const bLen = 28;
+  const pad = 16;
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 3.5;
+  // Top-left
+  ctx.beginPath();
+  ctx.moveTo(pad, pad + bLen); ctx.lineTo(pad, pad); ctx.lineTo(pad + bLen, pad);
+  // Top-right
+  ctx.moveTo(w - pad - bLen, pad); ctx.lineTo(w - pad, pad); ctx.lineTo(w - pad, pad + bLen);
+  // Bottom-left
+  ctx.moveTo(pad, h - pad - bLen); ctx.lineTo(pad, h - pad); ctx.lineTo(pad + bLen, h - pad);
+  // Bottom-right
+  ctx.moveTo(w - pad - bLen, h - pad); ctx.lineTo(w - pad, h - pad); ctx.lineTo(w - pad, h - pad - bLen);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function _drawCrestOrSigil(ctx, cx, cy, radius, d, theme, svgImg) {
+  ctx.save();
+  // Outer glowing aura ring
+  const aura = ctx.createRadialGradient(cx, cy, radius * 0.3, cx, cy, radius * 1.25);
+  aura.addColorStop(0, theme.glow);
+  aura.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 1.25, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Medallion core circle
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = '#090f1d';
+  ctx.fill();
+  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = theme.accent;
+  ctx.stroke();
+
+  // Inner dashed tactical ring
+  ctx.beginPath();
+  ctx.setLineDash([6, 5]);
+  ctx.arc(cx, cy, radius - 8, 0, Math.PI * 2);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = theme.accentSecondary;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (svgImg) {
+    const iconSize = radius * 1.32;
+    ctx.drawImage(svgImg, cx - iconSize / 2, cy - iconSize / 2, iconSize, iconSize);
+  } else {
+    ctx.font = `${Math.round(radius * 0.95)}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText((d.tier && d.tier.icon) || '⚔️', cx, cy + 3);
+  }
+  ctx.restore();
+}
+
+function _drawSparklinePanel(ctx, x, y, w, h, d, theme) {
+  ctx.save();
+  _roundRectPath(ctx, x, y, w, h, 16);
+  ctx.fillStyle = theme.panelBg;
+  ctx.fill();
+  ctx.strokeStyle = theme.panelBorder;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = '800 16px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('📈 ELO RATING TRAJECTORY', x + 22, y + 32);
+
+  const hist = d.chronHistory || [];
+  const firstPt = hist[0] || {};
+  const startElo = firstPt.old_elo !== undefined && firstPt.old_elo !== null
+    ? Number(firstPt.old_elo)
+    : 1500.0;
+  const ptsRaw = [{ elo: startElo, res: 'S' }, ...hist.slice(-35).map(m => ({ elo: Number(m.new_elo || d.currentElo), res: m.result || '-' }))];
+  if (ptsRaw.length < 2) {
+    ptsRaw.push({ elo: d.currentElo, res: 'W' });
+  }
+
+  const netDelta = d.currentElo - startElo;
+  const netStr = `${netDelta >= 0 ? '+' : ''}${netDelta.toFixed(1)} Career Δ`;
+  ctx.font = '800 15px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = netDelta >= 0 ? '#10b981' : '#ef4444';
+  ctx.fillText(netStr, x + w - 22, y + 32);
+
+  const padL = 52;
+  const padR = 22;
+  const padT = 52;
+  const padB = 26;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+
+  const elos = ptsRaw.map(p => p.elo);
+  const minE = Math.floor((Math.min(...elos) - 20) / 25) * 25;
+  const maxE = Math.ceil((Math.max(...elos) + 20) / 25) * 25;
+  const range = Math.max(50, maxE - minE);
+
+  // 3 Horizontal guide lines
+  [minE, Math.round((minE + maxE) / 2), maxE].forEach(val => {
+    const gy = y + padT + plotH - ((val - minE) / range) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(x + padL, gy);
+    ctx.lineTo(x + w - padR, gy);
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = '700 12px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(val), x + padL - 8, gy + 4);
+  });
+
+  const coords = ptsRaw.map((pt, idx) => ({
+    cx: x + padL + (idx / Math.max(1, ptsRaw.length - 1)) * plotW,
+    cy: y + padT + plotH - ((pt.elo - minE) / range) * plotH,
+    res: pt.res
+  }));
+
+  // Gradient fill under line
+  const areaGrad = ctx.createLinearGradient(0, y + padT, 0, y + padT + plotH);
+  areaGrad.addColorStop(0, theme.glow);
+  areaGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.beginPath();
+  ctx.moveTo(coords[0].cx, y + padT + plotH);
+  coords.forEach(c => ctx.lineTo(c.cx, c.cy));
+  ctx.lineTo(coords[coords.length - 1].cx, y + padT + plotH);
+  ctx.closePath();
+  ctx.fillStyle = areaGrad;
+  ctx.fill();
+
+  // Trajectory polyline
+  ctx.beginPath();
+  coords.forEach((c, i) => {
+    if (i === 0) ctx.moveTo(c.cx, c.cy);
+    else ctx.lineTo(c.cx, c.cy);
+  });
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 3.2;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Dots
+  coords.forEach((c, i) => {
+    const isLast = i === coords.length - 1;
+    ctx.beginPath();
+    ctx.arc(c.cx, c.cy, isLast ? 5.5 : (coords.length > 22 ? 2.5 : 3.5), 0, Math.PI * 2);
+    ctx.fillStyle = c.res === 'W' ? '#10b981' : (c.res === 'L' ? '#ef4444' : theme.accent);
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#070b14';
+    ctx.stroke();
+  });
+
+  ctx.restore();
+}
+
+function _drawRecentFormBeads(ctx, x, y, w, d, theme) {
+  const form = d.recentForm || [];
+  if (form.length === 0) return;
+  ctx.save();
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '800 13px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('RECENT FORM (NEWEST FIRST):', x, y + 20);
+
+  let bx = x + 215;
+  form.slice(0, 8).forEach(res => {
+    const col = res === 'W' ? '#10b981' : (res === 'L' ? '#ef4444' : '#f59e0b');
+    const bg = res === 'W' ? 'rgba(16,185,129,0.18)' : (res === 'L' ? 'rgba(239,68,68,0.18)' : 'rgba(245,158,11,0.18)');
+    _roundRectPath(ctx, bx, y + 2, 28, 26, 7);
+    ctx.fillStyle = bg;
+    ctx.fill();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = col;
+    ctx.font = '900 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(res, bx + 14, y + 20);
+    bx += 34;
+  });
+  ctx.restore();
+}
+
+async function renderShareProfileCanvas() {
+  const canvas = document.getElementById('share-profile-canvas');
+  if (!canvas || !_shareStudioState.data) return;
+  const d = _shareStudioState.data;
+  const theme = _SHARE_THEMES[_shareStudioState.theme] || _SHARE_THEMES.tactical;
+  const fmt = _shareStudioState.format || 'banner';
+
+  // Load equipped SVG avatar sigil into an Image if present
+  let svgImg = null;
+  if (d.avatarSvg && d.avatarSvg.includes('<svg')) {
+    svgImg = await new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      let rawSvg = d.avatarSvg;
+      if (!rawSvg.includes('xmlns=')) {
+        rawSvg = rawSvg.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+      }
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(rawSvg);
+    });
+  }
+
+  const ctx = canvas.getContext('2d');
+  if (fmt === 'banner') {
+    canvas.width = 1200;
+    canvas.height = 630;
+    _renderBannerFormat(ctx, 1200, 630, d, theme, svgImg);
+  } else if (fmt === 'story') {
+    canvas.width = 1080;
+    canvas.height = 1350;
+    _renderStoryTradingCardFormat(ctx, 1080, 1350, d, theme, svgImg);
+  } else {
+    canvas.width = 1080;
+    canvas.height = 1080;
+    _renderSquareAvatarFormat(ctx, 1080, 1080, d, theme, svgImg);
+  }
+}
+
+function _renderBannerFormat(ctx, w, h, d, theme, svgImg) {
+  _drawTacticalGridAndBg(ctx, w, h, theme);
+
+  // Header Bar
+  ctx.fillStyle = theme.accent;
+  ctx.font = '900 19px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('⚔ OMNITACTICA COMMANDER DOSSIER', 56, 68);
+
+  // Game System Pill
+  const sysText = `🛡️ ${d.sysLabel}`;
+  ctx.font = '800 14px system-ui, -apple-system, sans-serif';
+  const sysW = ctx.measureText(sysText).width + 36;
+  _roundRectPath(ctx, w - 56 - sysW, 44, sysW, 34, 17);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+  ctx.fill();
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#f8fafc';
+  ctx.textAlign = 'center';
+  ctx.fillText(sysText, w - 56 - sysW / 2, 66);
+
+  // Left Column Identity Group
+  _drawCrestOrSigil(ctx, 114, 156, 54, d, theme, svgImg);
+
+  // Commander Name
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ffffff';
+  const nameLen = d.playerName.length;
+  const nameFontPx = nameLen > 22 ? 34 : (nameLen > 16 ? 40 : 46);
+  ctx.font = `900 ${nameFontPx}px system-ui, -apple-system, sans-serif`;
+  ctx.fillText(d.playerName.slice(0, 28), 188, 142);
+
+  // Subtitle row: Rank Tier + Title + Team + Champ Pill
+  const tierName = ((d.tier && d.tier.name) || 'Veteran').toUpperCase();
+  let subParts = [tierName];
+  if (d.activeTitleText) subParts.push(`🏷️ ${d.activeTitleText}`);
+  if (d.champPill) subParts.push(d.champPill);
+  else if (d.globalRank) subParts.push(`WORLD #${d.globalRank}`);
+  if (d.team) subParts.push(`🛡️ ${d.team}`);
+
+  ctx.fillStyle = theme.accentSecondary;
+  ctx.font = '800 17px system-ui, -apple-system, sans-serif';
+  ctx.fillText(subParts.join('  •  ').slice(0, 62), 188, 174);
+
+  // Primary Army Subtitle
+  if (_shareStudioState.showArmies && d.topArmies.length > 0) {
+    const armiesStr = d.topArmies.map((a, idx) => `#${idx + 1} ${a.name} (${a.games}G · ${a.wr.toFixed(0)}% WR)`).join('   ');
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = '700 15px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`Armies: ${armiesStr}`.slice(0, 72), 188, 202);
+  }
+
+  // Elo Rating Cards (Current Elo & All-Time Peak)
+  const leftW = _shareStudioState.showSparkline ? 560 : (w - 112);
+  const cardW = (leftW - 18) / 2;
+
+  // Box 1: Current Elo
+  _roundRectPath(ctx, 56, 234, cardW, 126, 16);
+  ctx.fillStyle = theme.panelBg;
+  ctx.fill();
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '800 14px system-ui, -apple-system, sans-serif';
+  ctx.fillText('CURRENT ELO RATING', 78, 266);
+  ctx.fillStyle = theme.accent;
+  ctx.font = '900 50px monospace';
+  ctx.fillText(d.currentElo.toFixed(1), 78, 324);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = '700 13px system-ui, -apple-system, sans-serif';
+  ctx.fillText(`${d.tier.icon || '⚔️'} ${tierName}`, 78, 346);
+
+  // Box 2: Peak Elo
+  const box2X = 56 + cardW + 18;
+  _roundRectPath(ctx, box2X, 234, cardW, 126, 16);
+  ctx.fillStyle = theme.panelBg;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(251, 191, 36, 0.45)';
+  ctx.lineWidth = 1.8;
+  ctx.stroke();
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '800 14px system-ui, -apple-system, sans-serif';
+  ctx.fillText('ALL-TIME PEAK ELO 👑', box2X + 22, 266);
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = '900 50px monospace';
+  ctx.fillText(d.peakElo.toFixed(1), box2X + 22, 324);
+  ctx.fillStyle = '#fde68a';
+  ctx.font = '700 13px system-ui, -apple-system, sans-serif';
+  ctx.fillText(d.currentElo >= d.peakElo - 0.5 ? '★ Standing at Career Peak!' : `Career High Watermark`, box2X + 22, 346);
+
+  // 4-Box Combat Telemetry Grid
+  const statY = 378;
+  const statGap = 14;
+  const statW = (leftW - statGap * 3) / 4;
+  const stats = [
+    { label: 'RECORD', val: `${d.wins}W-${d.losses}L${d.draws ? `-${d.draws}D` : ''}`, col: '#f8fafc' },
+    { label: 'WIN RATE', val: `${d.winRate.toFixed(1)}%`, col: d.winRate >= 55 ? '#10b981' : theme.accent },
+    { label: 'MATCHES', val: `${d.totalMatches}`, col: '#e2e8f0' },
+    { label: 'PEAK STREAK', val: `🔥 ${d.peakStreak}W`, col: '#fb923c' }
+  ];
+
+  stats.forEach((st, idx) => {
+    const sx = 56 + idx * (statW + statGap);
+    _roundRectPath(ctx, sx, statY, statW, 104, 14);
+    ctx.fillStyle = 'rgba(10, 16, 30, 0.85)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '800 12px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(st.label, sx + 16, statY + 30);
+
+    ctx.fillStyle = st.col;
+    ctx.font = `900 ${st.val.length > 7 ? 22 : 26}px monospace`;
+    ctx.fillText(st.val, sx + 16, statY + 74);
+  });
+
+  // Recent Form Strip
+  _drawRecentFormBeads(ctx, 56, 502, leftW, d, theme);
+
+  // Right Panel: Sparkline
+  if (_shareStudioState.showSparkline) {
+    _drawSparklinePanel(ctx, 636, 234, 508, 288, d, theme);
+  }
+
+  // Footer
+  ctx.fillStyle = '#64748b';
+  ctx.font = '700 15px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('omnitactica.com  •  Official Warhammer Competitive Elo Rankings & Analytics', 56, 580);
+
+  const shortLink = `${window.location.host || 'omnitactica.com'}/p/${d.sys}/${d.playerId}`;
+  ctx.fillStyle = theme.accent;
+  ctx.font = '700 15px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(shortLink.slice(0, 48), w - 56, 580);
+}
+
+function _renderStoryTradingCardFormat(ctx, w, h, d, theme, svgImg) {
+  _drawTacticalGridAndBg(ctx, w, h, theme);
+
+  // Top Trading Card Header
+  ctx.textAlign = 'center';
+  ctx.fillStyle = theme.accent;
+  ctx.font = '900 22px system-ui, -apple-system, sans-serif';
+  ctx.fillText('⚔ OMNITACTICA COMMANDER TRADING CARD ⚔', w / 2, 78);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '800 16px system-ui, -apple-system, sans-serif';
+  ctx.fillText(`${d.sysLabel}  •  OFFICIAL COMPETITIVE DOSSIER`, w / 2, 108);
+
+  // Center Medallion
+  _drawCrestOrSigil(ctx, w / 2, 238, 88, d, theme, svgImg);
+
+  // Tier Ribbon Pill overlapping bottom of medallion
+  const tierName = ((d.tier && d.tier.name) || 'Veteran').toUpperCase();
+  ctx.font = '900 18px system-ui, -apple-system, sans-serif';
+  const tPillW = Math.max(220, ctx.measureText(tierName).width + 60);
+  _roundRectPath(ctx, (w - tPillW) / 2, 308, tPillW, 40, 20);
+  ctx.fillStyle = '#090f1d';
+  ctx.fill();
+  ctx.strokeStyle = theme.accentSecondary;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.fillStyle = theme.accentSecondary;
+  ctx.fillText(`${d.tier.icon || '⚔️'} ${tierName}`, w / 2, 334);
+
+  // Commander Name
+  ctx.fillStyle = '#ffffff';
+  const namePx = d.playerName.length > 20 ? 44 : 54;
+  ctx.font = `900 ${namePx}px system-ui, -apple-system, sans-serif`;
+  ctx.fillText(d.playerName.slice(0, 26), w / 2, 408);
+
+  // Title / Team / Laurels
+  const badgesLine = [
+    d.activeTitleText ? `🏷️ ${d.activeTitleText}` : '',
+    d.champPill || '',
+    d.team ? `🛡️ ${d.team}` : '',
+    d.globalRank ? `World #${d.globalRank}` : ''
+  ].filter(Boolean).join('   •   ');
+  if (badgesLine) {
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = '800 20px system-ui, -apple-system, sans-serif';
+    ctx.fillText(badgesLine.slice(0, 56), w / 2, 446);
+  }
+
+  // Dual Elo Showcase Banner
+  const boxY = 480;
+  const boxW = (w - 140) / 2;
+  _roundRectPath(ctx, 60, boxY, boxW, 150, 20);
+  ctx.fillStyle = theme.panelBg;
+  ctx.fill();
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '800 16px system-ui, -apple-system, sans-serif';
+  ctx.fillText('CURRENT ELO RATING', 60 + boxW / 2, boxY + 40);
+  ctx.fillStyle = theme.accent;
+  ctx.font = '900 64px monospace';
+  ctx.fillText(d.currentElo.toFixed(1), 60 + boxW / 2, boxY + 116);
+
+  const rBoxX = 80 + boxW;
+  _roundRectPath(ctx, rBoxX, boxY, boxW, 150, 20);
+  ctx.fillStyle = theme.panelBg;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(251, 191, 36, 0.5)';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '800 16px system-ui, -apple-system, sans-serif';
+  ctx.fillText('ALL-TIME PEAK 👑', rBoxX + boxW / 2, boxY + 40);
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = '900 64px monospace';
+  ctx.fillText(d.peakElo.toFixed(1), rBoxX + boxW / 2, boxY + 116);
+
+  // 4-Stat Telemetry Row
+  const sY = 654;
+  const sGap = 16;
+  const sW = (w - 120 - sGap * 3) / 4;
+  const stats = [
+    { label: 'RECORD', val: `${d.wins}W-${d.losses}L${d.draws ? `-${d.draws}D` : ''}`, col: '#ffffff' },
+    { label: 'WIN RATE', val: `${d.winRate.toFixed(1)}%`, col: '#10b981' },
+    { label: 'MATCHES', val: `${d.totalMatches}`, col: '#e2e8f0' },
+    { label: 'PEAK STREAK', val: `🔥 ${d.peakStreak}W`, col: '#fb923c' }
+  ];
+  stats.forEach((st, idx) => {
+    const sx = 60 + idx * (sW + sGap);
+    _roundRectPath(ctx, sx, sY, sW, 120, 16);
+    ctx.fillStyle = 'rgba(10, 16, 30, 0.88)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '800 14px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(st.label, sx + sW / 2, sY + 38);
+
+    ctx.fillStyle = st.col;
+    ctx.font = '900 32px monospace';
+    ctx.fillText(st.val, sx + sW / 2, sY + 88);
+  });
+
+  // Signature Armies Bar
+  let nextY = 800;
+  if (_shareStudioState.showArmies && d.topArmies.length > 0) {
+    _roundRectPath(ctx, 60, nextY, w - 120, 74, 14);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.stroke();
+
+    const armiesText = d.topArmies.map((a, i) => `#${i + 1} ${a.name} (${a.games}G · ${a.wr.toFixed(0)}% WR)`).join('   •   ');
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = '800 18px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`🛡️ ${armiesText}`.slice(0, 68), w / 2, nextY + 44);
+    nextY += 96;
+  }
+
+  // Sparkline Chart
+  if (_shareStudioState.showSparkline) {
+    _drawSparklinePanel(ctx, 60, nextY, w - 120, 290, d, theme);
+    nextY += 312;
+  }
+
+  // Recent Form
+  _drawRecentFormBeads(ctx, 60, nextY, w - 120, d, theme);
+
+  // Footer
+  ctx.fillStyle = '#64748b';
+  ctx.font = '800 18px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(`omnitactica.com/p/${d.sys}/${d.playerId}`, w / 2, h - 48);
+}
+
+function _renderSquareAvatarFormat(ctx, w, h, d, theme, svgImg) {
+  _drawTacticalGridAndBg(ctx, w, h, theme);
+
+  const cx = w / 2;
+  const cy = h / 2 - 45;
+
+  // Safe-zone circular orbital rings (so Discord/Twitter circular PFP crops look awesome!)
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, h / 2, 490, 0, Math.PI * 2);
+  ctx.strokeStyle = theme.panelBorder;
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.setLineDash([14, 10]);
+  ctx.arc(cx, h / 2, 468, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Top Pill inside circular safe zone
+  const topLabel = `⚔ OMNITACTICA • ${d.sysShort}`;
+  ctx.font = '900 22px system-ui, -apple-system, sans-serif';
+  const topW = ctx.measureText(topLabel).width + 54;
+  _roundRectPath(ctx, cx - topW / 2, 92, topW, 48, 24);
+  ctx.fillStyle = 'rgba(9, 15, 29, 0.92)';
+  ctx.fill();
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = theme.accent;
+  ctx.textAlign = 'center';
+  ctx.fillText(topLabel, cx, 124);
+
+  // Massive Central Faction Sigil / Rank Medallion
+  _drawCrestOrSigil(ctx, cx, cy, 195, d, theme, svgImg);
+
+  // Overlapping Armored Nameplate & Elo Banner
+  const plateY = cy + 155;
+  _roundRectPath(ctx, cx - 390, plateY, 780, 190, 26);
+  ctx.fillStyle = 'rgba(7, 11, 22, 0.95)';
+  ctx.fill();
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 3.5;
+  ctx.stroke();
+
+  // Commander Name
+  ctx.fillStyle = '#ffffff';
+  const namePx = d.playerName.length > 18 ? 44 : 54;
+  ctx.font = `900 ${namePx}px system-ui, -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(d.playerName.slice(0, 22), cx, plateY + 66);
+
+  // Elo & Rank Tier Highlight
+  const tierName = ((d.tier && d.tier.name) || 'Veteran').toUpperCase();
+  ctx.fillStyle = theme.accentSecondary;
+  ctx.font = '900 34px monospace';
+  ctx.fillText(`${d.currentElo.toFixed(1)} ELO  •  ${tierName}`, cx, plateY + 122);
+
+  // Win Rate + Record + Primary Army sub-ribbon
+  const primaryArmy = (_shareStudioState.showArmies && d.topArmies[0]) ? `  •  🛡️ ${d.topArmies[0].name}` : '';
+  ctx.fillStyle = '#cbd5e1';
+  ctx.font = '800 22px system-ui, -apple-system, sans-serif';
+  ctx.fillText(`${d.wins}W-${d.losses}L (${d.winRate.toFixed(0)}% WR)${primaryArmy}`.slice(0, 46), cx, plateY + 164);
+
+  // Bottom Championship or Peak Badge inside circle
+  const bottomBadge = d.champPill || `👑 Peak Elo: ${d.peakElo.toFixed(1)}`;
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '800 20px system-ui, -apple-system, sans-serif';
+  ctx.fillText(bottomBadge, cx, 935);
+}
+
+function _getCanvasBlob() {
+  return new Promise(resolve => {
+    const canvas = document.getElementById('share-profile-canvas');
+    if (!canvas) return resolve(null);
+    canvas.toBlob(blob => resolve(blob), 'image/png', 1.0);
+  });
+}
+
+async function downloadShareProfileImage() {
+  const canvas = document.getElementById('share-profile-canvas');
+  if (!canvas || !_shareStudioState.data) return;
+  const d = _shareStudioState.data;
+  const safeName = String(d.playerName || 'commander').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const filename = `omnitactica-${safeName}-${_shareStudioState.format}.png`;
+
+  const blob = await _getCanvasBlob();
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+  showProfileToast(`Downloaded ${filename}!`, '⬇️');
+}
+
+async function copyShareProfileImage() {
+  const blob = await _getCanvasBlob();
+  if (!blob) return;
+  if (navigator.clipboard && typeof window.ClipboardItem !== 'undefined') {
+    try {
+      const item = new ClipboardItem({ 'image/png': blob });
+      await navigator.clipboard.write([item]);
+      showProfileToast('✓ High-res Dossier Card image copied! Paste (Ctrl+V / Cmd+V) into Discord, X, or Slack.', '🖼️');
+      return;
+    } catch (e) {
+      console.warn('Clipboard image write fallback:', e);
+    }
+  }
+  await downloadShareProfileImage();
+}
+
+async function nativeShareProfileCard() {
+  if (!_shareStudioState.data) return;
+  const d = _shareStudioState.data;
+  const shareUrl = `${window.location.origin}/p/${d.sys}/${encodeURIComponent(d.playerId)}`;
+  const shareTitle = `${d.playerName} — ${d.currentElo.toFixed(1)} Elo (${d.tier.name}) | OmniTactica`;
+  const shareText = `⚔️ ${d.playerName}'s ${d.sysLabel} Dossier: ${d.currentElo.toFixed(1)} Elo (Peak ${d.peakElo.toFixed(1)} 👑) • ${d.wins}W-${d.losses}L (${d.winRate.toFixed(1)}% WR).`;
+
+  const blob = await _getCanvasBlob();
+  if (navigator.share) {
+    try {
+      if (blob && navigator.canShare) {
+        const safeName = String(d.playerName || 'commander').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const file = new File([blob], `omnitactica-${safeName}.png`, { type: 'image/png' });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ title: shareTitle, text: shareText, url: shareUrl, files: [file] });
+          return;
+        }
+      }
+      await navigator.share({ title: shareTitle, text: shareText, url: shareUrl });
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
+  }
+  copyPlayerProfileLink(d.playerId, d.sys, true);
+}
+
+async function copyShareProfileDiscordCard() {
+  if (!_shareStudioState.data) return;
+  const d = _shareStudioState.data;
+  const shareUrl = `${window.location.origin}/p/${d.sys}/${encodeURIComponent(d.playerId)}`;
+  const armyStr = d.topArmies.length > 0 ? ` • 🛡️ **${d.topArmies[0].name}**` : '';
+  const discordText = [
+    `⚔️ **${d.playerName}** — *${d.tier.name}* (${d.sysLabel})`,
+    `> 📈 **${d.currentElo.toFixed(1)} Elo** (Peak: **${d.peakElo.toFixed(1)}** 👑) • 🏆 **${d.wins}W - ${d.losses}L** (**${d.winRate.toFixed(1)}% WR**)${armyStr}`,
+    `🔗 ${shareUrl}`
+  ].join('\n');
+
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(discordText);
+    showProfileToast('✓ Formatted Discord / Slack summary + preview link copied!', '💬');
+  } else {
+    fallbackCopyText(discordText, 'Discord summary');
+  }
+}
+
+function shareProfileToPlatform(platform) {
+  if (!_shareStudioState.data) return;
+  const d = _shareStudioState.data;
+  const shareUrl = `${window.location.origin}/p/${d.sys}/${encodeURIComponent(d.playerId)}`;
+  const armyTag = d.topArmies.length > 0 ? ` playing ${d.topArmies[0].name}` : '';
+  const text = `⚔️ Check out ${d.playerName}'s ${d.sysLabel} Commander Dossier on OmniTactica: ${d.currentElo.toFixed(1)} Elo (${d.tier.name}) • ${d.wins}W-${d.losses}L (${d.winRate.toFixed(1)}% WR)${armyTag}!`;
+
+  let targetUrl = '';
+  if (platform === 'twitter') {
+    targetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
+  } else if (platform === 'reddit') {
+    const title = `${d.playerName} — ${d.currentElo.toFixed(1)} Elo (${d.tier.name}) | OmniTactica ${d.sysLabel} Dossier`;
+    targetUrl = `https://www.reddit.com/submit?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(title)}`;
+  } else if (platform === 'whatsapp') {
+    targetUrl = `https://wa.me/?text=${encodeURIComponent(text + ' ' + shareUrl)}`;
+  } else if (platform === 'telegram') {
+    targetUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`;
+  } else if (platform === 'facebook') {
+    targetUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+  }
+
+  if (targetUrl) {
+    window.open(targetUrl, '_blank', 'noopener,noreferrer,width=680,height=620');
+  }
 }
 
 /**
@@ -1519,6 +2699,16 @@ if (typeof window !== 'undefined') {
   window.toggleAllProfileEventCards = toggleAllProfileEventCards;
   window.toggleProfileCareerDetails = toggleProfileCareerDetails;
   window.copyPlayerProfileLink = copyPlayerProfileLink;
+  window.openShareProfileModal = openShareProfileModal;
+  window.renderShareProfileCanvas = renderShareProfileCanvas;
+  window.setShareProfileFormat = setShareProfileFormat;
+  window.setShareProfileTheme = setShareProfileTheme;
+  window.toggleShareProfileOption = toggleShareProfileOption;
+  window.downloadShareProfileImage = downloadShareProfileImage;
+  window.copyShareProfileImage = copyShareProfileImage;
+  window.nativeShareProfileCard = nativeShareProfileCard;
+  window.copyShareProfileDiscordCard = copyShareProfileDiscordCard;
+  window.shareProfileToPlatform = shareProfileToPlatform;
   window.navigateBackFromProfile = navigateBackFromProfile;
   window.openPredictorWithPlayer = openPredictorWithPlayer;
   window.openPredictorWithPlayers = openPredictorWithPlayers;

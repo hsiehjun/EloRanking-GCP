@@ -704,9 +704,87 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
 
         print("✓ test_discarded_room_removed_for_player2_and_never_resurrected passed")
 
+    def test_share_profile_studio_and_opengraph_routes(self):
+        """Verify Share Profile Studio modal, Canvas generator formats, multi-platform share helpers, and OpenGraph /p/{sys}/{player_id} & SVG card routes."""
+        import asyncio
+        from unittest.mock import patch
+        import routers.leaderboard as lb_mod
+        from routers.leaderboard import public_player_share_page, api_og_player_card_svg
+
+        profile_js = (ROOT_DIR / "web" / "js" / "player_profile.js").read_text(encoding="utf-8")
+        hub_js = (ROOT_DIR / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
+
+        # 1. Verify buttons in player_profile.js and my_hub.js open Share Profile Studio
+        self.assertIn("openShareProfileModal(", profile_js)
+        self.assertIn("openShareProfileModal(", hub_js)
+        self.assertIn("🪪 Share Profile", profile_js)
+        self.assertIn("🪪 Share Profile", hub_js)
+
+        # 2. Verify Canvas formats (banner, story, avatar) and platform share launchers
+        for symbol in (
+            "function openShareProfileModal",
+            "function renderShareProfileCanvas",
+            "_renderBannerFormat",
+            "_renderStoryTradingCardFormat",
+            "_renderSquareAvatarFormat",
+            "function downloadShareProfileImage",
+            "function copyShareProfileImage",
+            "function nativeShareProfileCard",
+            "function copyShareProfileDiscordCard",
+            "function shareProfileToPlatform",
+        ):
+            self.assertIn(symbol, profile_js)
+
+        # 3. Verify backend OpenGraph HTML & dynamic SVG social card endpoints
+        fake_win_path = {
+            "player": {
+                "player_id": "p_test_99",
+                "player_name": "Commander Dante",
+                "current_elo": 2145.6,
+                "peak_elo": 2180.0,
+                "wins": 28,
+                "losses": 4,
+                "draws": 0,
+                "matches_played": 32,
+                "win_rate": 87.5,
+                "top_faction": "Blood Angels",
+                "team": "Baal Vanguard",
+            },
+            "longest_win_streak": 11,
+            "history": [
+                {"new_elo": 1600.0, "result": "W"},
+                {"new_elo": 1850.0, "result": "W"},
+                {"new_elo": 2145.6, "result": "W"},
+            ],
+        }
+
+        mock_engine = MagicMock()
+        mock_engine.get_player_win_path.return_value = fake_win_path
+        mock_req = MagicMock()
+        mock_req.base_url = "https://omnitactica.com/"
+
+        with patch.object(lb_mod, "get_elo_engine", return_value=mock_engine):
+            og_resp = asyncio.run(public_player_share_page("40k", "p_test_99", mock_req, name=None))
+            html_body = og_resp.body.decode("utf-8") if hasattr(og_resp, "body") else str(getattr(og_resp, "content", og_resp))
+            self.assertIn("Commander Dante — 2145.6 Elo", html_body)
+            self.assertIn('property="og:image" content="https://omnitactica.com/api/og/player/40k/p_test_99.svg"', html_body)
+            self.assertIn('name="twitter:card" content="summary_large_image"', html_body)
+            self.assertIn("/#/40k/player/p_test_99", html_body)
+
+            svg_resp = asyncio.run(api_og_player_card_svg("40k", "p_test_99", name=None))
+            svg_body = svg_resp.body.decode("utf-8") if hasattr(svg_resp, "body") else str(getattr(svg_resp, "content", svg_resp))
+            self.assertIn("Commander Dante", svg_body)
+            self.assertIn("2145.6", svg_body)
+            self.assertIn("CHAPTER MASTER", svg_body)
+            self.assertIn("Blood Angels", svg_body)
+            self.assertIn("<polyline", svg_body)
+
+        print("✓ test_share_profile_studio_and_opengraph_routes passed")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 
