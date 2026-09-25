@@ -281,9 +281,10 @@
 
     <!-- EMAIL 2FA VERIFICATION STAGE -->
     <div id="verify-auth-form" class="login-body" style="display: none; text-align: center;">
-      <div style="font-size: 38px; margin-bottom: 8px;">📬</div>
-      <h3 style="font-family: 'Cinzel', serif; font-size: 18px; color: #fff; margin-bottom: 6px;">VERIFY YOUR EMAIL</h3>
-      <div style="font-size: 13px; color: #94a3b8; line-height: 1.5; margin-bottom: 18px;">
+      <div id="verify-stage-icon" style="font-size: 38px; margin-bottom: 8px;">📬</div>
+      <h3 id="verify-stage-title" style="font-family: 'Cinzel', serif; font-size: 18px; color: #fff; margin-bottom: 6px;">VERIFY YOUR EMAIL</h3>
+      <div id="verify-device-badge" style="display: none; margin: 8px auto 12px; padding: 7px 12px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; font-size: 11px; color: #fcd34d; font-weight: 700; letter-spacing: 0.03em;"></div>
+      <div id="verify-stage-subtitle" style="font-size: 13px; color: #94a3b8; line-height: 1.5; margin-bottom: 18px;">
         We sent a 6-digit activation code to<br><strong id="verify-email-display" style="color: #38bdf8;"></strong>
       </div>
 
@@ -292,7 +293,7 @@
 
       <div class="form-group" style="text-align: left;">
         <label style="text-align: center;">Enter 6-Digit Code</label>
-        <input id="verify-code" type="text" maxlength="6" placeholder="123456" autocomplete="one-time-code" style="font-family: 'JetBrains Mono', monospace; font-size: 22px; letter-spacing: 6px; text-align: center; color: #38bdf8; width: 100%; padding: 12px; background: #070b14; border: 1px solid #1e293b; border-radius: 10px; outline: none;" />
+        <input id="verify-code" type="text" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code" onkeydown="if(event.key==='Enter'){event.preventDefault(); handleVerifyRegistration();}" style="font-family: 'JetBrains Mono', monospace; font-size: 22px; letter-spacing: 6px; text-align: center; color: #38bdf8; width: 100%; padding: 12px; background: #070b14; border: 1px solid #1e293b; border-radius: 10px; outline: none;" />
       </div>
 
       <button id="btn-do-verify" type="button" onclick="handleVerifyRegistration()" class="btn-submit">
@@ -303,7 +304,7 @@
         <button type="button" id="btn-resend-code" onclick="handleResendVerificationCode()" style="background: transparent; border: none; color: #38bdf8; cursor: pointer; text-decoration: underline;">
           Resend Code
         </button>
-        <button type="button" onclick="switchTab('register')" style="background: transparent; border: none; color: #94a3b8; cursor: pointer;">
+        <button type="button" id="btn-cancel-verify" onclick="switchTab(pendingVerifyMode === 'login_2fa' ? 'login' : 'register')" style="background: transparent; border: none; color: #94a3b8; cursor: pointer;">
           Change Email
         </button>
       </div>
@@ -390,10 +391,32 @@
     let activeTab = 'login';
     let resetTokenFromUrl = '';
     let pendingVerifyEmail = '';
+    let pendingVerifyMode = 'register';
+    let pendingLoginToken = '';
     let isRegistrationLocked = false;
     let inviteValidateTimer = null;
     const params = new URLSearchParams(window.location.search);
     const redirectUrl = (params.get('redirect') && params.get('redirect') !== '/') ? params.get('redirect') : '/app';
+
+    function getOrCreateDeviceId() {
+      try {
+        let devId = localStorage.getItem('omnitactica_device_id');
+        if (!devId) {
+          const m = document.cookie.match(new RegExp('(^| )omni_device_id=([^;]+)'));
+          if (m && m[2]) devId = decodeURIComponent(m[2]);
+        }
+        if (!devId) {
+          devId = 'dev_' + ((typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : (Math.random().toString(36).substring(2, 12) + Date.now().toString(36)));
+        }
+        localStorage.setItem('omnitactica_device_id', devId);
+        document.cookie = `omni_device_id=${encodeURIComponent(devId)}; path=/; max-age=31536000; SameSite=Lax`;
+        return devId;
+      } catch (e) {
+        return '';
+      }
+    }
 
     async function checkRegistrationStatus() {
       try {
@@ -761,7 +784,8 @@
           new_password: newPassword,
           token: resetTokenFromUrl || undefined,
           code: code || undefined,
-          email: email || undefined
+          email: email || undefined,
+          device_id: getOrCreateDeviceId() || undefined
         };
 
         const resp = await fetch('/api/auth/reset-password', {
@@ -795,6 +819,10 @@
           sessionStorage.setItem('elo_auth_token', token);
           if (data.user) {
             localStorage.setItem('native_user_profile', JSON.stringify(data.user));
+          }
+          if (data.device_id) {
+            localStorage.setItem('omnitactica_device_id', data.device_id);
+            document.cookie = `omni_device_id=${encodeURIComponent(data.device_id)}; path=/; max-age=31536000; SameSite=Lax`;
           }
           document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
         }
@@ -844,14 +872,18 @@
       btn.textContent = 'AUTHENTICATING...';
 
       try {
+        const deviceId = getOrCreateDeviceId();
         const endpoint = activeTab === 'login' ? '/api/auth/login' : '/api/auth/register';
         const payload = activeTab === 'login' 
-          ? { email, password }
+          ? { email, password, device_id: deviceId }
           : { email, password, display_name: name || email.split('@')[0], invite_code: inviteCode };
 
         const resp = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(deviceId ? { 'X-Device-Id': deviceId } : {})
+          },
           body: JSON.stringify(payload)
         });
 
@@ -864,11 +896,48 @@
           return;
         }
 
-        // If 2FA email verification is required
-        if (data.requires_verification) {
-          pendingVerifyEmail = email;
-          const vEmail = document.getElementById('verify-email-display');
-          if (vEmail) vEmail.textContent = email;
+        // If 2FA email verification is required (either Login 2FA for unregistered device or Registration 2FA)
+        if (data.requires_2fa || data.requires_verification) {
+          const isLogin2FA = (activeTab === 'login' || data.requires_2fa || data.verification_type === 'login_2fa');
+          pendingVerifyMode = isLogin2FA ? 'login_2fa' : 'register';
+          pendingVerifyEmail = data.email || email;
+          pendingLoginToken = data.login_token || '';
+
+          const stageIcon = document.getElementById('verify-stage-icon');
+          const stageTitle = document.getElementById('verify-stage-title');
+          const stageSubtitle = document.getElementById('verify-stage-subtitle');
+          const devBadge = document.getElementById('verify-device-badge');
+          const verifyBtn = document.getElementById('btn-do-verify');
+          const cancelBtn = document.getElementById('btn-cancel-verify');
+          const verifyErr = document.getElementById('verify-error');
+          const verifySuccess = document.getElementById('verify-success');
+
+          if (verifyErr) verifyErr.style.display = 'none';
+          if (verifySuccess) verifySuccess.style.display = 'none';
+
+          if (isLogin2FA) {
+            if (stageIcon) stageIcon.textContent = '🛡️';
+            if (stageTitle) stageTitle.textContent = 'DEVICE 2FA VERIFICATION';
+            if (devBadge) {
+              devBadge.textContent = `🔒 Unrecognized Active Session • ${data.device_name || 'New Device'}`;
+              devBadge.style.display = 'inline-block';
+            }
+            if (stageSubtitle) {
+              stageSubtitle.innerHTML = `This device is not registered as an active session.<br>We sent a 6-digit security code to<br><strong id="verify-email-display" style="color: #38bdf8;">${escapeHtml(pendingVerifyEmail)}</strong>`;
+            }
+            if (verifyBtn) verifyBtn.textContent = 'VERIFY DEVICE & SIGN IN';
+            if (cancelBtn) cancelBtn.textContent = '❮ Back to Sign In';
+          } else {
+            if (stageIcon) stageIcon.textContent = '📬';
+            if (stageTitle) stageTitle.textContent = 'VERIFY YOUR EMAIL';
+            if (devBadge) devBadge.style.display = 'none';
+            if (stageSubtitle) {
+              stageSubtitle.innerHTML = `We sent a 6-digit activation code to<br><strong id="verify-email-display" style="color: #38bdf8;">${escapeHtml(pendingVerifyEmail)}</strong>`;
+            }
+            if (verifyBtn) verifyBtn.textContent = 'ACTIVATE ACCOUNT & ENTER';
+            if (cancelBtn) cancelBtn.textContent = 'Change Email';
+          }
+
           const mainForm = document.getElementById('main-auth-form');
           const verifyForm = document.getElementById('verify-auth-form');
           if (mainForm) mainForm.style.display = 'none';
@@ -879,7 +948,7 @@
             setTimeout(() => codeInput.focus(), 50);
           }
           btn.disabled = false;
-          btn.textContent = 'CREATE ACCOUNT';
+          btn.textContent = activeTab === 'login' ? 'LOGIN' : 'CREATE ACCOUNT';
           return;
         }
 
@@ -890,6 +959,10 @@
           sessionStorage.setItem('elo_auth_token', token);
           if (data.user) {
             localStorage.setItem('native_user_profile', JSON.stringify(data.user));
+          }
+          if (data.device_id) {
+            localStorage.setItem('omnitactica_device_id', data.device_id);
+            document.cookie = `omni_device_id=${encodeURIComponent(data.device_id)}; path=/; max-age=31536000; SameSite=Lax`;
           }
           document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
         }
@@ -913,6 +986,8 @@
       const errEl = document.getElementById('verify-error');
       const successEl = document.getElementById('verify-success');
       const btn = document.getElementById('btn-do-verify');
+      const isLogin2FA = (pendingVerifyMode === 'login_2fa');
+      const defaultBtnLabel = isLogin2FA ? 'VERIFY DEVICE & SIGN IN' : 'ACTIVATE ACCOUNT & ENTER';
 
       const code = codeInput ? codeInput.value.trim() : '';
       if (!code || code.length < 6) {
@@ -926,14 +1001,23 @@
       if (errEl) errEl.style.display = 'none';
       if (btn) {
         btn.disabled = true;
-        btn.textContent = 'ACTIVATING ACCOUNT...';
+        btn.textContent = isLogin2FA ? 'VERIFYING DEVICE...' : 'ACTIVATING ACCOUNT...';
       }
 
       try {
-        const resp = await fetch('/api/auth/verify-registration', {
+        const deviceId = getOrCreateDeviceId();
+        const verifyEndpoint = isLogin2FA ? '/api/auth/verify-login-2fa' : '/api/auth/verify-registration';
+        const verifyBody = isLogin2FA
+          ? { email: pendingVerifyEmail, code, login_token: pendingLoginToken || undefined, device_id: deviceId }
+          : { email: pendingVerifyEmail, code, device_id: deviceId };
+
+        const resp = await fetch(verifyEndpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: pendingVerifyEmail, code })
+          headers: {
+            'Content-Type': 'application/json',
+            ...(deviceId ? { 'X-Device-Id': deviceId } : {})
+          },
+          body: JSON.stringify(verifyBody)
         });
         const data = await resp.json();
         if (!resp.ok || !data.success) {
@@ -943,13 +1027,15 @@
           }
           if (btn) {
             btn.disabled = false;
-            btn.textContent = 'ACTIVATE ACCOUNT & ENTER';
+            btn.textContent = defaultBtnLabel;
           }
           return;
         }
 
         if (successEl) {
-          successEl.textContent = '🎉 Account activated! Entering OmniTactica...';
+          successEl.textContent = isLogin2FA
+            ? '🛡️ Device verified & registered as active session! Signing you in...'
+            : '🎉 Account activated! Entering OmniTactica...';
           successEl.style.display = 'block';
         }
 
@@ -961,12 +1047,19 @@
           if (data.user) {
             localStorage.setItem('native_user_profile', JSON.stringify(data.user));
           }
+          if (data.device_id) {
+            localStorage.setItem('omnitactica_device_id', data.device_id);
+            document.cookie = `omni_device_id=${encodeURIComponent(data.device_id)}; path=/; max-age=31536000; SameSite=Lax`;
+          }
           document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
         }
 
+        const pass = document.getElementById('auth-password');
+        if (pass) pass.value = '';
+
         setTimeout(() => {
           window.location.href = redirectUrl;
-        }, 800);
+        }, 650);
       } catch (err) {
         if (errEl) {
           errEl.textContent = 'Connection error: ' + err.message;
@@ -974,7 +1067,7 @@
         }
         if (btn) {
           btn.disabled = false;
-          btn.textContent = 'ACTIVATE ACCOUNT & ENTER';
+          btn.textContent = defaultBtnLabel;
         }
       }
     }
@@ -983,23 +1076,30 @@
       const btn = document.getElementById('btn-resend-code');
       const errEl = document.getElementById('verify-error');
       const successEl = document.getElementById('verify-success');
+      const isLogin2FA = (pendingVerifyMode === 'login_2fa');
 
       if (!pendingVerifyEmail) return;
+      if (errEl) errEl.style.display = 'none';
       if (btn) {
         btn.disabled = true;
         btn.textContent = 'Sending...';
       }
 
       try {
-        const resp = await fetch('/api/auth/resend-verification', {
+        const resendEndpoint = isLogin2FA ? '/api/auth/resend-login-2fa' : '/api/auth/resend-verification';
+        const resendBody = isLogin2FA
+          ? { email: pendingVerifyEmail, login_token: pendingLoginToken || undefined }
+          : { email: pendingVerifyEmail };
+
+        const resp = await fetch(resendEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: pendingVerifyEmail })
+          body: JSON.stringify(resendBody)
         });
         const data = await resp.json();
         if (resp.ok && data.success) {
           if (successEl) {
-            successEl.textContent = 'New verification code sent to your email!';
+            successEl.textContent = 'New 6-digit verification code sent to your email!';
             successEl.style.display = 'block';
           }
         } else {

@@ -436,6 +436,8 @@ async function initAuth() {
 }
 
 let pendingVerifyEmail = "";
+let pendingVerifyMode = "register";
+let pendingLoginToken = "";
 
 function setAuthCardTab(tab) {
   const btnLogin = document.getElementById('auth-tab-btn-login');
@@ -494,13 +496,27 @@ async function handleNativeLogin(e) {
 
   try {
     const res = await window.api.login(email, password);
-    if (res && res.success) {
+    if (res && (res.requires_2fa || res.requires_verification)) {
+      pendingVerifyEmail = res.email || email;
+      pendingVerifyMode = 'login_2fa';
+      pendingLoginToken = res.login_token || '';
+      const targetSpan = document.getElementById('verify-email-target');
+      if (targetSpan) targetSpan.textContent = pendingVerifyEmail;
+      const submitVerifyBtn = document.getElementById('btn-submit-verify');
+      if (submitVerifyBtn) submitVerifyBtn.innerText = '✓ Verify Device & Sign In';
+      setAuthCardTab('verify');
+    } else if (res && res.success && res.session_token) {
       if (passInput) passInput.value = '';
       if (emailInput) emailInput.value = '';
       const loginForm = document.getElementById('auth-form-login');
       if (loginForm) loginForm.reset();
       localStorage.setItem('native_session_token', res.session_token);
+      localStorage.setItem('elo_auth_token', res.session_token);
       localStorage.setItem('native_user_profile', JSON.stringify(res.user));
+      if (res.device_id) {
+        localStorage.setItem('omnitactica_device_id', res.device_id);
+        document.cookie = `omni_device_id=${encodeURIComponent(res.device_id)}; path=/; max-age=31536000; SameSite=Lax`;
+      }
       currentUser = res.user;
       document.cookie = `session_token=${res.session_token}; path=/; max-age=2592000; SameSite=Lax`;
       if (window.location.pathname !== '/app' && window.location.pathname !== '/app.html') {
@@ -511,7 +527,7 @@ async function handleNativeLogin(e) {
       switchTab('my-hub');
     } else {
       if (errorDiv) {
-        errorDiv.innerText = res.error || 'Invalid email or password.';
+        errorDiv.innerText = (res && res.error) ? res.error : 'Invalid email or password.';
         errorDiv.style.display = 'block';
       }
     }
@@ -565,11 +581,16 @@ async function handleNativeRegister(e) {
     const res = await window.api.register(email, password, displayName);
     if (res && res.requires_verification) {
       pendingVerifyEmail = email;
+      pendingVerifyMode = 'register';
+      pendingLoginToken = '';
       const targetSpan = document.getElementById('verify-email-target');
       if (targetSpan) targetSpan.textContent = email;
+      const submitVerifyBtn = document.getElementById('btn-submit-verify');
+      if (submitVerifyBtn) submitVerifyBtn.innerText = '✓ Activate Account & Enter';
       setAuthCardTab('verify');
     } else if (res && res.success && res.session_token) {
       localStorage.setItem('native_session_token', res.session_token);
+      localStorage.setItem('elo_auth_token', res.session_token);
       localStorage.setItem('native_user_profile', JSON.stringify(res.user));
       currentUser = res.user;
       document.cookie = `session_token=${res.session_token}; path=/; max-age=2592000; SameSite=Lax`;
@@ -603,9 +624,10 @@ async function handleVerifyRegistrationCode(e) {
   const codeInput = document.getElementById('verify-code-input');
   const errorDiv = document.getElementById('verify-error');
   const submitBtn = document.getElementById('btn-submit-verify');
+  const isLogin2FA = (pendingVerifyMode === 'login_2fa');
 
   const code = codeInput ? codeInput.value.trim() : '';
-  const email = pendingVerifyEmail || (document.getElementById('reg-email') ? document.getElementById('reg-email').value.trim() : '');
+  const email = pendingVerifyEmail || (document.getElementById('reg-email') ? document.getElementById('reg-email').value.trim() : '') || (document.getElementById('login-email') ? document.getElementById('login-email').value.trim() : '');
 
   if (!code || code.length < 6) {
     if (errorDiv) {
@@ -617,15 +639,22 @@ async function handleVerifyRegistrationCode(e) {
 
   if (submitBtn) {
     submitBtn.disabled = true;
-    submitBtn.innerText = 'Activating Account...';
+    submitBtn.innerText = isLogin2FA ? 'Verifying Device...' : 'Activating Account...';
   }
   if (errorDiv) errorDiv.style.display = 'none';
 
   try {
-    const res = await window.api.verifyRegistrationCode(email, code);
+    const res = isLogin2FA
+      ? await window.api.verifyLogin2FA(email, code, pendingLoginToken)
+      : await window.api.verifyRegistrationCode(email, code);
     if (res && res.success) {
       localStorage.setItem('native_session_token', res.session_token);
+      localStorage.setItem('elo_auth_token', res.session_token);
       localStorage.setItem('native_user_profile', JSON.stringify(res.user));
+      if (res.device_id) {
+        localStorage.setItem('omnitactica_device_id', res.device_id);
+        document.cookie = `omni_device_id=${encodeURIComponent(res.device_id)}; path=/; max-age=31536000; SameSite=Lax`;
+      }
       currentUser = res.user;
       document.cookie = `session_token=${res.session_token}; path=/; max-age=2592000; SameSite=Lax`;
       if (window.location.pathname !== '/app' && window.location.pathname !== '/app.html') {
@@ -633,7 +662,9 @@ async function handleVerifyRegistrationCode(e) {
         return;
       }
       syncAppAuthView();
-      alert('🎉 Welcome to OmniTactica! Your account has been verified successfully.');
+      if (!isLogin2FA) {
+        alert('🎉 Welcome to OmniTactica! Your account has been verified successfully.');
+      }
       switchTab('my-hub');
     } else {
       if (errorDiv) {
@@ -649,15 +680,16 @@ async function handleVerifyRegistrationCode(e) {
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.innerText = '✓ Activate Account & Enter';
+      submitBtn.innerText = isLogin2FA ? '✓ Verify Device & Sign In' : '✓ Activate Account & Enter';
     }
   }
 }
 
 async function handleResendVerificationCode() {
-  const email = pendingVerifyEmail || (document.getElementById('reg-email') ? document.getElementById('reg-email').value.trim() : '');
+  const email = pendingVerifyEmail || (document.getElementById('reg-email') ? document.getElementById('reg-email').value.trim() : '') || (document.getElementById('login-email') ? document.getElementById('login-email').value.trim() : '');
   const btn = document.getElementById('btn-resend-code');
   const errorDiv = document.getElementById('verify-error');
+  const isLogin2FA = (pendingVerifyMode === 'login_2fa');
   if (!email) return;
 
   if (btn) {
@@ -666,7 +698,9 @@ async function handleResendVerificationCode() {
   }
 
   try {
-    const res = await window.api.resendRegistrationCode(email);
+    const res = isLogin2FA
+      ? await window.api.resendLogin2FA(email, pendingLoginToken)
+      : await window.api.resendRegistrationCode(email);
     if (res && res.success) {
       if (errorDiv) {
         errorDiv.style.display = 'block';

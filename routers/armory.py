@@ -804,6 +804,7 @@ async def get_armory_transactions(request: Request):
     db_txs = []
     if auth_mgr and hasattr(auth_mgr, "db") and auth_mgr.db:
         try:
+            from psycopg2 import extras
             with auth_mgr.db.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                     cur.execute("""

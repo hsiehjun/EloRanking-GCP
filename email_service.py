@@ -302,3 +302,149 @@ OmniTactica 40k Competitor Network
         return {"success": False, "error": str(e), "to_email": to_email, "simulated": True, "verify_code": verify_code}
 
 
+def send_login_2fa_email(
+    to_email: str,
+    verify_code: str,
+    display_name: Optional[str] = None,
+    device_name: Optional[str] = None,
+    ip_address: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Dispatches a 6-digit 2FA verification email when signing in from a device not registered as an active session."""
+    config = get_email_config()
+    app_url = config["app_url"]
+    name_greeting = f"Commander {display_name}" if display_name else "Commander"
+    device_label = device_name or "Unrecognized Device"
+    ip_label = ip_address or "Unknown IP"
+
+    subject = f"OmniTactica - Sign-In 2FA Code: {verify_code}"
+
+    text_content = f"""Greetings {name_greeting},
+
+A sign-in attempt was detected on a device that is not currently registered as an active session on your OmniTactica account:
+- Device: {device_label}
+- IP Address: {ip_label}
+
+Enter the following 6-Digit Security Code to authorize this device and sign in:
+{verify_code}
+
+This code will expire in 15 minutes.
+If you did not attempt to sign in, someone may have your password—please reset your password immediately.
+
+OmniTactica 40k Competitor Network
+{app_url}
+"""
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ background-color: #07090e; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; }}
+    .container {{ max-width: 520px; margin: 30px auto; background: #0f1523; border: 1px solid #1e293b; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }}
+    .header {{ padding: 28px 24px 20px; text-align: center; border-bottom: 1px solid #1e293b; background: linear-gradient(180deg, rgba(30, 41, 59, 0.5) 0%, transparent 100%); }}
+    .logo-text {{ font-family: 'Cinzel', Georgia, serif; font-size: 22px; font-weight: 800; color: #f8fafc; letter-spacing: 2px; margin-top: 8px; }}
+    .subhead {{ font-size: 12px; color: #f59e0b; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }}
+    .body {{ padding: 28px 28px 32px; font-size: 14px; line-height: 1.6; color: #cbd5e1; }}
+    .device-meta {{ margin: 14px 0; padding: 12px 14px; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; font-size: 12px; color: #e2e8f0; }}
+    .code-box {{ margin: 22px 0; padding: 18px; background: #070b14; border: 1px solid #1e293b; border-radius: 12px; text-align: center; }}
+    .code-label {{ font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 8px; font-weight: 700; }}
+    .code {{ font-family: 'JetBrains Mono', Courier, monospace; font-size: 34px; font-weight: 800; letter-spacing: 8px; color: #38bdf8; text-shadow: 0 0 12px rgba(56, 189, 248, 0.4); }}
+    .footer {{ padding: 20px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #1e293b; background: #090d18; }}
+    .warning {{ font-size: 12px; color: #94a3b8; background: rgba(148, 163, 184, 0.08); padding: 12px; border-radius: 8px; margin-top: 20px; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div style="font-size: 36px; line-height: 1;">🛡️</div>
+      <div class="logo-text">OMNITACTICA</div>
+      <div class="subhead">New Device Sign-In 2FA</div>
+    </div>
+    <div class="body">
+      <p style="margin-top: 0;">Greetings <strong>{name_greeting}</strong>,</p>
+      <p>We detected a sign-in attempt from a device that is not currently registered as an active session on your account:</p>
+
+      <div class="device-meta">
+        <div><strong>Device:</strong> {device_label}</div>
+        <div style="margin-top: 4px;"><strong>IP Address:</strong> {ip_label}</div>
+      </div>
+
+      <p>Enter this 6-digit verification code to authorize the device and complete sign-in:</p>
+
+      <div class="code-box">
+        <div class="code-label">Device 2FA Verification Code</div>
+        <div class="code">{verify_code}</div>
+      </div>
+
+      <div class="warning">
+        ⏳ <strong>Security Note:</strong> This verification code expires in <strong>15 minutes</strong>. If you did not initiate this sign-in, please reset your password immediately.
+      </div>
+    </div>
+    <div class="footer">
+      OmniTactica &bull; Warhammer 40k Elo, Tournament Companion & Live Game Tracker<br>
+      <a href="{app_url}" style="color: #38bdf8; text-decoration: none;">{app_url}</a>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+    if not config["host"]:
+        logger.info(f"📧 [DEV EMAIL SIMULATOR] Login 2FA code for {to_email} ({device_label}): Code={verify_code}")
+        return {
+            "success": True,
+            "simulated": True,
+            "to_email": to_email,
+            "verify_code": verify_code
+        }
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = config["from_addr"]
+        msg["To"] = to_email
+
+        part1 = MIMEText(text_content, "plain", "utf-8")
+        part2 = MIMEText(html_content, "html", "utf-8")
+        msg.attach(part1)
+        msg.attach(part2)
+
+        host = config["host"]
+        port = config["port"]
+        user = config["user"]
+        pwd = config["password"]
+        secure = config["secure"]
+
+        if secure == "ssl" or port == 465:
+            server = smtplib.SMTP_SSL(host, port, timeout=12)
+        else:
+            server = smtplib.SMTP(host, port, timeout=12)
+            if secure != "none":
+                server.starttls()
+
+        if user and pwd:
+            server.login(user, pwd)
+
+        import email.utils
+        sender_email = email.utils.parseaddr(config["from_addr"])[1] or config["from_addr"]
+        recipient_email = email.utils.parseaddr(to_email)[1] or to_email
+
+        try:
+            server.sendmail(sender_email, [recipient_email], msg.as_string())
+        except smtplib.SMTPResponseException as resp_err:
+            if resp_err.smtp_code == 550 and "resend.com" in host and sender_email != "onboarding@resend.dev":
+                logger.warning(f"⚠️ Resend domain '{sender_email}' not verified (550). Retrying with 'onboarding@resend.dev'...")
+                del msg["From"]
+                msg["From"] = "OmniTactica <onboarding@resend.dev>"
+                server.sendmail("onboarding@resend.dev", [recipient_email], msg.as_string())
+            else:
+                raise
+        server.quit()
+        logger.info(f"✅ Login 2FA verification email successfully delivered to {to_email}")
+        return {"success": True, "simulated": False, "to_email": to_email}
+    except Exception as e:
+        logger.error(f"❌ Failed to dispatch Login 2FA email to {to_email}: {e}")
+        logger.warning(f"📧 [FALLBACK CODE] Login 2FA code for {to_email}: {verify_code}")
+        return {"success": False, "error": str(e), "to_email": to_email, "simulated": True, "verify_code": verify_code}
+
+

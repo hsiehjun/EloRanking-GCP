@@ -27,14 +27,20 @@ except ImportError:
         from database import Database, get_db
 
 try:
-    from email_service import send_password_reset_email, send_registration_verification_email
+    from email_service import send_password_reset_email, send_registration_verification_email, send_login_2fa_email
 except ImportError:
     try:
-        from google3.experimental.users.hsiehjun.EloRanking.email_service import send_password_reset_email, send_registration_verification_email
+        from google3.experimental.users.hsiehjun.EloRanking.email_service import (
+            send_password_reset_email,
+            send_registration_verification_email,
+            send_login_2fa_email,
+        )
     except ImportError:
         def send_password_reset_email(*args, **kwargs):
             return {"success": True, "simulated": True}
         def send_registration_verification_email(*args, **kwargs):
+            return {"success": True, "simulated": True}
+        def send_login_2fa_email(*args, **kwargs):
             return {"success": True, "simulated": True}
 
 try:
@@ -65,6 +71,7 @@ logger = logging.getLogger("NativeAuth")
 COGNITO_ENDPOINT = "https://cognito-idp.us-east-1.amazonaws.com/"
 BCP_COGNITO_CLIENT_ID = "5083iih0nitpn5enl02fkpr9bc"
 _FAILED_VERIFY_ATTEMPTS: Dict[str, Tuple[int, float]] = {}
+_FAILED_LOGIN_2FA_ATTEMPTS: Dict[str, Tuple[int, float]] = {}
 
 
 def _hash_password(password: str) -> str:
@@ -132,6 +139,7 @@ def parse_device_info(ua_string: Optional[str]) -> str:
 
 class AuthManager:
     _tables_initialized = False
+    _login_2fa_table_ensured = False
     """Manages native user accounts, sessions, and BCP linked credentials."""
 
     def __init__(self, db: Optional[Database] = None):
@@ -144,27 +152,31 @@ class AuthManager:
     def _ensure_tables(self):
         """Creates native users and sessions tables safely without heavy indexing locks or deadlocks."""
         try:
-            # Fast check: If users, user_sessions, system_settings exist AND modern user columns exist, return immediately
+            # Fast check: If users, user_sessions, pending_login_2fa, system_settings exist AND modern user columns exist, return immediately
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
                     SELECT 
                         to_regclass('public.users') IS NOT NULL 
                         AND to_regclass('public.user_sessions') IS NOT NULL
+                        AND to_regclass('public.pending_login_2fa') IS NOT NULL
                         AND to_regclass('public.system_settings') IS NOT NULL;
                     """)
                     row = cur.fetchone()
                     if row and row[0]:
                         cur.execute("""
                         SELECT COUNT(*) FROM information_schema.columns 
-                        WHERE table_schema = 'public' AND table_name = 'users' 
-                          AND column_name IN ('pinned_badges', 'badges_celebrated', 'acknowledged_badge_ids', 'role', 'bcp_id_token', 'invited_by_user_id', 'invite_code_used');
+                        WHERE table_schema = 'public' AND (
+                            (table_name = 'users' AND column_name IN ('pinned_badges', 'badges_celebrated', 'acknowledged_badge_ids', 'role', 'bcp_id_token', 'invited_by_user_id', 'invite_code_used'))
+                            OR (table_name = 'user_sessions' AND column_name = 'device_id')
+                        );
                         """)
                         col_cnt = cur.fetchone()
-                        if col_cnt and col_cnt[0] >= 7:
+                        if col_cnt and col_cnt[0] >= 8:
                             cur.execute("SELECT value FROM system_settings WHERE key = 'auth_schema_ready';")
                             setting = cur.fetchone()
                             if setting and setting[0] == 'true':
+                                AuthManager._login_2fa_table_ensured = True
                                 return
         except Exception as e:
             logger.debug(f"Auth schema pre-check notice: {e}")
@@ -178,6 +190,7 @@ class AuthManager:
                     if not acquired:
                         logger.info("Another process is currently ensuring auth tables; running non-blocking column check.")
                         self._ensure_user_columns()
+                        self._ensure_login_2fa_table()
                         return
 
                 try:
@@ -241,11 +254,30 @@ class AuthManager:
                             expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '60 days')
                         );
                         ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_id VARCHAR(64);
+                        ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS device_id VARCHAR(128);
                         ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT;
                         ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS ip_address TEXT;
                         ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ DEFAULT NOW();
                         CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
                         CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+                        CREATE INDEX IF NOT EXISTS idx_user_sessions_device_id ON user_sessions(user_id, device_id);
+                        """,
+                        # Table: pending_login_2fa
+                        """
+                        SET lock_timeout = '2s';
+                        CREATE TABLE IF NOT EXISTS pending_login_2fa (
+                            email TEXT PRIMARY KEY,
+                            user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+                            verify_code VARCHAR(16) NOT NULL,
+                            login_token VARCHAR(128) NOT NULL,
+                            device_id VARCHAR(128),
+                            user_agent TEXT,
+                            ip_address TEXT,
+                            expires_at TIMESTAMPTZ NOT NULL,
+                            created_at TIMESTAMPTZ DEFAULT NOW()
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_pending_login_2fa_email ON pending_login_2fa(email);
+                        CREATE INDEX IF NOT EXISTS idx_pending_login_2fa_token ON pending_login_2fa(login_token);
                         """,
                         # Table: password_resets
                         """
@@ -336,6 +368,7 @@ class AuthManager:
                         except Exception as step_err:
                             conn.rollback()
                             logger.debug(f"Auth schema step notice (continuing): {step_err}")
+                    AuthManager._login_2fa_table_ensured = True
                 finally:
                     try:
                         with conn.cursor() as cur:
@@ -345,6 +378,36 @@ class AuthManager:
                         pass
         except Exception as e:
             logger.debug(f"Ensure tables notice: {e}")
+
+    def _ensure_login_2fa_table(self, force: bool = False):
+        """Self-healing helper ensuring user_sessions.device_id and pending_login_2fa exist."""
+        if AuthManager._login_2fa_table_ensured and not force:
+            return
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                    SET lock_timeout = '2s';
+                    ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS device_id VARCHAR(128);
+                    CREATE INDEX IF NOT EXISTS idx_user_sessions_device_id ON user_sessions(user_id, device_id);
+                    CREATE TABLE IF NOT EXISTS pending_login_2fa (
+                        email TEXT PRIMARY KEY,
+                        user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+                        verify_code VARCHAR(16) NOT NULL,
+                        login_token VARCHAR(128) NOT NULL,
+                        device_id VARCHAR(128),
+                        user_agent TEXT,
+                        ip_address TEXT,
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_pending_login_2fa_email ON pending_login_2fa(email);
+                    CREATE INDEX IF NOT EXISTS idx_pending_login_2fa_token ON pending_login_2fa(login_token);
+                    """)
+                conn.commit()
+            AuthManager._login_2fa_table_ensured = True
+        except Exception as e:
+            logger.debug(f"_ensure_login_2fa_table notice: {e}")
 
     def _ensure_user_columns(self):
         """Ensures modern user columns (pinned_badges, badges_celebrated, acknowledged_badge_ids, etc.) exist safely with short lock_timeout."""
@@ -537,7 +600,14 @@ class AuthManager:
             "message": f"Verification code sent to {email}. Please enter the 6-digit code to activate your account."
         }
 
-    def verify_registration_code(self, email: str, code: str, user_agent: Optional[str] = None, ip_address: Optional[str] = None) -> Dict[str, Any]:
+    def verify_registration_code(
+        self,
+        email: str,
+        code: str,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        device_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Verifies the 6-digit code and creates the active user account."""
         if not self.are_registrations_open():
             return {"success": False, "error": "Account registration is currently locked by the administrator. All invitation codes are suspended."}
@@ -546,6 +616,9 @@ class AuthManager:
         code = str(code).strip()
         if not email or not code:
             return {"success": False, "error": "Email and 6-digit verification code are required."}
+
+        self._ensure_login_2fa_table()
+        clean_device_id = (device_id or "").strip() or str(uuid.uuid4())
 
         now_ts = time.time()
         attempts, first_ts = _FAILED_VERIFY_ATTEMPTS.get(email, (0, now_ts))
@@ -613,9 +686,9 @@ class AuthManager:
 
                 session_token = str(uuid.uuid4())
                 cur.execute("""
-                INSERT INTO user_sessions (session_token, user_id, user_agent, ip_address, created_at, last_active_at, expires_at)
-                VALUES (%s, %s, %s, %s, NOW(), NOW(), NOW() + INTERVAL '60 days');
-                """, (session_token, user_id, user_agent, ip_address))
+                INSERT INTO user_sessions (session_token, user_id, device_id, user_agent, ip_address, created_at, last_active_at, expires_at)
+                VALUES (%s, %s, %s, %s, %s, NOW(), NOW(), NOW() + INTERVAL '60 days');
+                """, (session_token, user_id, clean_device_id, user_agent, ip_address))
 
                 # Clean up pending registration
                 cur.execute("DELETE FROM pending_registrations WHERE email = %s;", (email,))
@@ -626,6 +699,7 @@ class AuthManager:
         return {
             "success": True,
             "session_token": session_token,
+            "device_id": clean_device_id,
             "user": user_info
         }
 
@@ -654,31 +728,292 @@ class AuthManager:
         send_registration_verification_email(email, new_code, display_name)
         return {"success": True, "message": f"A new verification code has been sent to {email}."}
 
-    def login(self, email: str, password: str, user_agent: Optional[str] = None, ip_address: Optional[str] = None) -> Dict[str, Any]:
-        """Authenticates native user with email and password."""
-        email = email.strip().lower()
+    def _find_active_device_session(
+        self,
+        cur,
+        user_id: str,
+        device_id: Optional[str] = None,
+        session_token: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Checks if this device is already registered as an active, non-expired session in user_sessions."""
+        clean_device_id = (device_id or "").strip() or None
+        clean_token = (session_token or "").strip() or None
+        clean_ua = (user_agent or "").strip()
+        clean_ip = (ip_address or "").strip()
+
+        cur.execute("""
+        SELECT session_token, device_id, user_agent, ip_address, created_at, last_active_at, expires_at
+        FROM user_sessions
+        WHERE user_id = %s AND expires_at > NOW()
+        ORDER BY last_active_at DESC NULLS LAST, created_at DESC;
+        """, (user_id,))
+        active_rows = cur.fetchall() or []
+
+        for s in active_rows:
+            if clean_token and s.get("session_token") == clean_token:
+                return dict(s)
+            if clean_device_id and s.get("device_id") and s.get("device_id") == clean_device_id:
+                return dict(s)
+            # Legacy / non-device_id fallback: only match by (user_agent, ip_address) when either the client
+            # did not provide a device_id or the existing active session row predates device_id tracking.
+            row_dev_id = (s.get("device_id") or "").strip()
+            if (not clean_device_id or not row_dev_id) and clean_ua and clean_ip:
+                if (s.get("user_agent") or "").strip() == clean_ua and (s.get("ip_address") or "").strip() == clean_ip:
+                    return dict(s)
+        return None
+
+    def login(
+        self,
+        email: str,
+        password: str,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        device_id: Optional[str] = None,
+        session_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Authenticates native user with email and password.
+        If the device is not already registered as an active session in user_sessions,
+        requires Email 2FA verification before issuing a session token."""
+        email = (email or "").strip().lower()
+        if not email or not password:
+            return {"success": False, "error": "Invalid email or password."}
+
+        self._ensure_login_2fa_table()
+        clean_device_id = (device_id or "").strip() or None
+
         from psycopg2 import extras
+        matched_session = None
+        user_id = None
+        user_email = email
+        display_name = None
+        verify_code = None
+        login_token = None
+
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute("SELECT id, password_hash FROM users WHERE email = %s;", (email,))
+                cur.execute("SELECT id, email, display_name, password_hash FROM users WHERE LOWER(email) = %s;", (email,))
                 row = cur.fetchone()
                 if not row or not _verify_password(password, row["password_hash"]):
                     return {"success": False, "error": "Invalid email or password."}
 
                 user_id = row["id"]
+                user_email = (row.get("email") or email).strip().lower()
+                display_name = row.get("display_name")
+
+                matched_session = self._find_active_device_session(
+                    cur,
+                    user_id=user_id,
+                    device_id=clean_device_id,
+                    session_token=session_token,
+                    user_agent=user_agent,
+                    ip_address=ip_address,
+                )
+
+                if matched_session:
+                    active_token = matched_session["session_token"]
+                    effective_device_id = clean_device_id or matched_session.get("device_id") or str(uuid.uuid4())
+                    cur.execute("""
+                    UPDATE user_sessions
+                    SET device_id = COALESCE(%s, device_id),
+                        user_agent = COALESCE(%s, user_agent),
+                        ip_address = COALESCE(%s, ip_address),
+                        last_active_at = NOW(),
+                        expires_at = NOW() + INTERVAL '60 days'
+                    WHERE session_token = %s;
+                    """, (effective_device_id, user_agent, ip_address, active_token))
+                else:
+                    verify_code = f"{secrets.randbelow(900000) + 100000}"
+                    login_token = secrets.token_urlsafe(32)
+                    cur.execute("""
+                    INSERT INTO pending_login_2fa (email, user_id, verify_code, login_token, device_id, user_agent, ip_address, expires_at, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW() + INTERVAL '15 minutes', NOW())
+                    ON CONFLICT (email) DO UPDATE SET
+                        user_id = EXCLUDED.user_id,
+                        verify_code = EXCLUDED.verify_code,
+                        login_token = EXCLUDED.login_token,
+                        device_id = EXCLUDED.device_id,
+                        user_agent = EXCLUDED.user_agent,
+                        ip_address = EXCLUDED.ip_address,
+                        expires_at = NOW() + INTERVAL '15 minutes',
+                        created_at = NOW();
+                    """, (user_email, user_id, verify_code, login_token, clean_device_id, user_agent, ip_address))
+            conn.commit()
+
+        if matched_session:
+            user_info = self.get_user_by_id(user_id)
+            return {
+                "success": True,
+                "requires_2fa": False,
+                "requires_verification": False,
+                "session_token": matched_session["session_token"],
+                "device_id": clean_device_id or matched_session.get("device_id"),
+                "user": user_info
+            }
+
+        # Device is not registered as an active session -> dispatch Email 2FA
+        _FAILED_LOGIN_2FA_ATTEMPTS.pop(user_email, None)
+        device_label = parse_device_info(user_agent)
+        mail_res = send_login_2fa_email(
+            to_email=user_email,
+            verify_code=verify_code,
+            display_name=display_name,
+            device_name=device_label,
+            ip_address=ip_address,
+        )
+        logger.info(f"🛡️ Login 2FA verification code dispatched for {user_email} on {device_label}: {verify_code}")
+
+        return {
+            "success": True,
+            "requires_2fa": True,
+            "requires_verification": True,
+            "verification_type": "login_2fa",
+            "email": user_email,
+            "login_token": login_token,
+            "device_name": device_label,
+            "simulated": bool(mail_res.get("simulated")),
+            "mail_error": mail_res.get("error") if mail_res.get("error") else None,
+            "smtp_configured": bool(os.environ.get("SMTP_HOST", "").strip()),
+            "message": f"Verification code sent to {user_email}. Please enter the 6-digit code to authorize this device."
+        }
+
+    def verify_login_2fa(
+        self,
+        email: str,
+        code: str,
+        login_token: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        device_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Verifies the 6-digit login 2FA code and registers the device as an active session in user_sessions."""
+        email = (email or "").strip().lower()
+        code = str(code or "").strip()
+        if not email or not code:
+            return {"success": False, "error": "Email and 6-digit verification code are required."}
+
+        self._ensure_login_2fa_table()
+
+        now_ts = time.time()
+        attempts, first_ts = _FAILED_LOGIN_2FA_ATTEMPTS.get(email, (0, now_ts))
+        if (now_ts - first_ts) > 900:
+            attempts, first_ts = 0, now_ts
+        if attempts >= 5:
+            return {"success": False, "error": "Too many failed attempts. Please sign in again or request a new verification code."}
+
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("""
+                SELECT email, user_id, verify_code, login_token, device_id, user_agent, ip_address, expires_at
+                FROM pending_login_2fa
+                WHERE LOWER(email) = %s;
+                """, (email,))
+                row = cur.fetchone()
+
+                if not row:
+                    return {"success": False, "error": "No pending sign-in verification found for this email. Please sign in again."}
+
+                clean_login_token = (login_token or "").strip()
+                if clean_login_token and row.get("login_token") and row["login_token"] != clean_login_token:
+                    return {"success": False, "error": "Invalid or expired sign-in verification session. Please sign in again."}
+
+                if row["verify_code"] != code:
+                    _FAILED_LOGIN_2FA_ATTEMPTS[email] = (attempts + 1, first_ts)
+                    rem = max(0, 5 - (attempts + 1))
+                    return {"success": False, "error": f"Incorrect verification code. {rem} attempt(s) remaining."}
+
+                _FAILED_LOGIN_2FA_ATTEMPTS.pop(email, None)
+
+                if row["expires_at"] < datetime.now(timezone.utc):
+                    return {"success": False, "error": "Verification code has expired. Please request a new code."}
+
+                user_id = row["user_id"]
+                final_device_id = (device_id or row.get("device_id") or "").strip() or str(uuid.uuid4())
+                final_ua = user_agent or row.get("user_agent")
+                final_ip = ip_address or row.get("ip_address")
+
+                # Remove any stale/expired session entries for this same (user_id, device_id)
+                cur.execute("DELETE FROM user_sessions WHERE user_id = %s AND device_id = %s;", (user_id, final_device_id))
+
                 session_token = str(uuid.uuid4())
                 cur.execute("""
-                INSERT INTO user_sessions (session_token, user_id, user_agent, ip_address, created_at, last_active_at, expires_at)
-                VALUES (%s, %s, %s, %s, NOW(), NOW(), NOW() + INTERVAL '60 days');
-                """, (session_token, user_id, user_agent, ip_address))
+                INSERT INTO user_sessions (session_token, user_id, device_id, user_agent, ip_address, created_at, last_active_at, expires_at)
+                VALUES (%s, %s, %s, %s, %s, NOW(), NOW(), NOW() + INTERVAL '60 days');
+                """, (session_token, user_id, final_device_id, final_ua, final_ip))
+
+                cur.execute("DELETE FROM pending_login_2fa WHERE LOWER(email) = %s;", (email,))
             conn.commit()
 
         user_info = self.get_user_by_id(user_id)
+        logger.info(f"🛡️ User {email} completed Login 2FA and registered active session for device {final_device_id}")
         return {
             "success": True,
+            "requires_2fa": False,
             "session_token": session_token,
-            "user": user_info
+            "device_id": final_device_id,
+            "user": user_info,
+            "message": "Device verified and signed in successfully."
         }
+
+    def resend_login_2fa_code(
+        self,
+        email: str,
+        login_token: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generates and dispatches a fresh 6-digit code for a pending login 2FA challenge."""
+        email = (email or "").strip().lower()
+        if not email:
+            return {"success": False, "error": "Email address is required."}
+
+        self._ensure_login_2fa_table()
+
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("""
+                SELECT p.email, p.user_id, p.login_token, p.user_agent, p.ip_address, u.display_name
+                FROM pending_login_2fa p
+                LEFT JOIN users u ON u.id = p.user_id
+                WHERE LOWER(p.email) = %s;
+                """, (email,))
+                row = cur.fetchone()
+                if not row:
+                    return {"success": False, "error": "No pending sign-in verification found for this email. Please sign in again."}
+
+                clean_login_token = (login_token or "").strip()
+                if clean_login_token and row.get("login_token") and row["login_token"] != clean_login_token:
+                    return {"success": False, "error": "Invalid sign-in verification session. Please sign in again."}
+
+                display_name = row.get("display_name")
+                effective_ua = user_agent or row.get("user_agent")
+                effective_ip = ip_address or row.get("ip_address")
+                new_code = f"{secrets.randbelow(900000) + 100000}"
+
+                cur.execute("""
+                UPDATE pending_login_2fa SET
+                    verify_code = %s,
+                    user_agent = COALESCE(%s, user_agent),
+                    ip_address = COALESCE(%s, ip_address),
+                    expires_at = NOW() + INTERVAL '15 minutes',
+                    created_at = NOW()
+                WHERE LOWER(email) = %s;
+                """, (new_code, effective_ua, effective_ip, email))
+            conn.commit()
+
+        _FAILED_LOGIN_2FA_ATTEMPTS.pop(email, None)
+        device_label = parse_device_info(effective_ua)
+        send_login_2fa_email(
+            to_email=email,
+            verify_code=new_code,
+            display_name=display_name,
+            device_name=device_label,
+            ip_address=effective_ip,
+        )
+        return {"success": True, "message": f"A new 6-digit verification code has been sent to {email}."}
 
     # =========================================================================
     # PASSWORD RESET FLOW VIA EMAIL
@@ -771,7 +1106,16 @@ class AuthManager:
                     return {"valid": True, "email": row["email"], "display_name": row.get("display_name")}
                 return {"valid": False, "error": "Password reset token or code has expired or is invalid."}
 
-    def reset_password(self, new_password: str, token: Optional[str] = None, code: Optional[str] = None, email: Optional[str] = None) -> Dict[str, Any]:
+    def reset_password(
+        self,
+        new_password: str,
+        token: Optional[str] = None,
+        code: Optional[str] = None,
+        email: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        device_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Resets user password, marks reset token as used, and returns fresh session."""
         if not new_password or len(new_password) < 6:
             return {"success": False, "error": "Password must be at least 6 characters."}
@@ -782,6 +1126,9 @@ class AuthManager:
 
         if not token and not (code and email):
             return {"success": False, "error": "Reset token or email and 6-digit code is required."}
+
+        self._ensure_login_2fa_table()
+        clean_device_id = (device_id or "").strip() or str(uuid.uuid4())
 
         from psycopg2 import extras
         with self.db.get_connection() as conn:
@@ -818,9 +1165,9 @@ class AuthManager:
                 # 4. Create fresh session so user is logged in immediately
                 session_token = str(uuid.uuid4())
                 cur.execute("""
-                INSERT INTO user_sessions (session_token, user_id, created_at, expires_at)
-                VALUES (%s, %s, NOW(), NOW() + INTERVAL '60 days');
-                """, (session_token, user_id))
+                INSERT INTO user_sessions (session_token, user_id, device_id, user_agent, ip_address, created_at, last_active_at, expires_at)
+                VALUES (%s, %s, %s, %s, %s, NOW(), NOW(), NOW() + INTERVAL '60 days');
+                """, (session_token, user_id, clean_device_id, user_agent, ip_address))
             conn.commit()
 
         updated_user = self.get_user_by_id(user_id)
@@ -830,18 +1177,27 @@ class AuthManager:
             "success": True,
             "message": "Password successfully reset!",
             "session_token": session_token,
+            "device_id": clean_device_id,
             "user": updated_user
         }
 
-    def create_session(self, user_id: str, user_agent: Optional[str] = None, ip_address: Optional[str] = None) -> str:
+    def create_session(
+        self,
+        user_id: str,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        device_id: Optional[str] = None,
+    ) -> str:
         """Creates and stores a fresh session token for user with device tracking."""
+        self._ensure_login_2fa_table()
         session_token = str(uuid.uuid4())
+        clean_device_id = (device_id or "").strip() or None
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                INSERT INTO user_sessions (session_token, user_id, user_agent, ip_address, created_at, last_active_at, expires_at)
-                VALUES (%s, %s, %s, %s, NOW(), NOW(), NOW() + INTERVAL '60 days');
-                """, (session_token, user_id, user_agent, ip_address))
+                INSERT INTO user_sessions (session_token, user_id, device_id, user_agent, ip_address, created_at, last_active_at, expires_at)
+                VALUES (%s, %s, %s, %s, %s, NOW(), NOW(), NOW() + INTERVAL '60 days');
+                """, (session_token, user_id, clean_device_id, user_agent, ip_address))
             conn.commit()
         return session_token
 
@@ -1217,12 +1573,13 @@ class AuthManager:
         """Returns list of active device sessions for user."""
         if not user_id:
             return []
+        self._ensure_login_2fa_table()
         from psycopg2 import extras
         sessions = []
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute("""
-                SELECT session_token, user_agent, ip_address, created_at, last_active_at, expires_at
+                SELECT session_token, device_id, user_agent, ip_address, created_at, last_active_at, expires_at
                 FROM user_sessions
                 WHERE user_id = %s AND expires_at > NOW()
                 ORDER BY last_active_at DESC NULLS LAST, created_at DESC;
@@ -1232,6 +1589,7 @@ class AuthManager:
                     ua = row.get("user_agent")
                     sessions.append({
                         "session_token": tok,
+                        "device_id": row.get("device_id"),
                         "masked_token": tok[:8] + "..." if tok else "",
                         "is_current": (tok == current_token) if current_token else False,
                         "device_name": parse_device_info(ua),

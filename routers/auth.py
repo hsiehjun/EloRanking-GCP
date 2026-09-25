@@ -39,6 +39,18 @@ class RegisterPayload(BaseModel):
 class LoginPayload(BaseModel):
     email: str
     password: str
+    device_id: Optional[str] = None
+    session_token: Optional[str] = None
+
+class VerifyLogin2FAPayload(BaseModel):
+    email: str
+    code: str
+    login_token: Optional[str] = None
+    device_id: Optional[str] = None
+
+class ResendLogin2FAPayload(BaseModel):
+    email: str
+    login_token: Optional[str] = None
 
 class BCPConnectPayload(BaseModel):
     bcp_email: Optional[str] = None
@@ -54,6 +66,7 @@ class ResetPasswordPayload(BaseModel):
     token: Optional[str] = None
     code: Optional[str] = None
     email: Optional[str] = None
+    device_id: Optional[str] = None
 
 class UserSettingsPayload(BaseModel):
     display_name: Optional[str] = None
@@ -69,6 +82,7 @@ class PinBadgesPayload(BaseModel):
 class VerifyRegistrationPayload(BaseModel):
     email: str
     code: str
+    device_id: Optional[str] = None
 
 class ResendVerificationPayload(BaseModel):
     email: str
@@ -124,13 +138,16 @@ async def api_auth_verify_registration(request: Request, payload: VerifyRegistra
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
     if ip and "," in ip:
         ip = ip.split(",")[0].strip()
-    res = auth_mgr.verify_registration_code(payload.email, payload.code, user_agent=ua, ip_address=ip)
+    dev_id = payload.device_id or request.headers.get("X-Device-Id") or request.cookies.get("omni_device_id")
+    res = auth_mgr.verify_registration_code(payload.email, payload.code, user_agent=ua, ip_address=ip, device_id=dev_id)
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error", "Verification failed"))
     token = res.get("session_token")
+    is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
     if token:
-        is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
         response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=True, samesite="lax", secure=is_sec)
+    if res.get("device_id"):
+        response.set_cookie(key="omni_device_id", value=res["device_id"], max_age=31536000, path="/", httponly=False, samesite="lax", secure=is_sec)
     return res
 
 @router.post("/api/auth/resend-verification", summary="Resend 6-digit email verification code")
@@ -141,20 +158,79 @@ async def api_auth_resend_verification(payload: ResendVerificationPayload):
         raise HTTPException(status_code=400, detail=res.get("error", "Failed to resend code"))
     return res
 
-@router.post("/api/auth/login", summary="Login to native user account")
+@router.post("/api/auth/login", summary="Login to native user account (with Email 2FA for unregistered devices)")
 async def api_auth_login(request: Request, payload: LoginPayload, response: Response):
     auth_mgr = get_auth_manager()
     ua = request.headers.get("User-Agent")
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
     if ip and "," in ip:
         ip = ip.split(",")[0].strip()
-    res = auth_mgr.login(payload.email, payload.password, user_agent=ua, ip_address=ip)
+    dev_id = payload.device_id or request.headers.get("X-Device-Id") or request.cookies.get("omni_device_id")
+    auth_header = request.headers.get("Authorization", "")
+    existing_token = (
+        payload.session_token
+        or request.cookies.get("session_token")
+        or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    )
+    res = auth_mgr.login(
+        payload.email,
+        payload.password,
+        user_agent=ua,
+        ip_address=ip,
+        device_id=dev_id,
+        session_token=existing_token,
+    )
     if not res.get("success"):
         raise HTTPException(status_code=401, detail=res.get("error", "Invalid credentials"))
     token = res.get("session_token")
-    if token:
-        is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
+    is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
+    if token and not res.get("requires_2fa"):
         response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=True, samesite="lax", secure=is_sec)
+    if res.get("device_id") and not res.get("requires_2fa"):
+        response.set_cookie(key="omni_device_id", value=res["device_id"], max_age=31536000, path="/", httponly=False, samesite="lax", secure=is_sec)
+    return res
+
+@router.post("/api/auth/verify-login-2fa", summary="Verify 6-digit email 2FA code to register device as active session and login")
+async def api_auth_verify_login_2fa(request: Request, payload: VerifyLogin2FAPayload, response: Response):
+    auth_mgr = get_auth_manager()
+    ua = request.headers.get("User-Agent")
+    ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
+    if ip and "," in ip:
+        ip = ip.split(",")[0].strip()
+    dev_id = payload.device_id or request.headers.get("X-Device-Id") or request.cookies.get("omni_device_id")
+    res = auth_mgr.verify_login_2fa(
+        email=payload.email,
+        code=payload.code,
+        login_token=payload.login_token,
+        user_agent=ua,
+        ip_address=ip,
+        device_id=dev_id,
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "Verification failed"))
+    token = res.get("session_token")
+    is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
+    if token:
+        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=True, samesite="lax", secure=is_sec)
+    if res.get("device_id"):
+        response.set_cookie(key="omni_device_id", value=res["device_id"], max_age=31536000, path="/", httponly=False, samesite="lax", secure=is_sec)
+    return res
+
+@router.post("/api/auth/resend-login-2fa", summary="Resend 6-digit email 2FA verification code for login")
+async def api_auth_resend_login_2fa(request: Request, payload: ResendLogin2FAPayload):
+    auth_mgr = get_auth_manager()
+    ua = request.headers.get("User-Agent")
+    ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
+    if ip and "," in ip:
+        ip = ip.split(",")[0].strip()
+    res = auth_mgr.resend_login_2fa_code(
+        email=payload.email,
+        login_token=payload.login_token,
+        user_agent=ua,
+        ip_address=ip,
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "Failed to resend code"))
     return res
 
 @router.post("/api/auth/forgot-password", summary="Request password reset link and verification code via email")
@@ -172,18 +248,28 @@ async def api_auth_validate_reset_token(token: Optional[str] = Query(None), code
 @router.post("/api/auth/reset-password", summary="Reset account password using token or email & code")
 async def api_auth_reset_password(request: Request, payload: ResetPasswordPayload, response: Response):
     auth_mgr = get_auth_manager()
+    ua = request.headers.get("User-Agent")
+    ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
+    if ip and "," in ip:
+        ip = ip.split(",")[0].strip()
+    dev_id = payload.device_id or request.headers.get("X-Device-Id") or request.cookies.get("omni_device_id")
     res = auth_mgr.reset_password(
         new_password=payload.new_password,
         token=payload.token,
         code=payload.code,
-        email=payload.email
+        email=payload.email,
+        user_agent=ua,
+        ip_address=ip,
+        device_id=dev_id,
     )
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error", "Password reset failed"))
     token = res.get("session_token")
+    is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
     if token:
-        is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
         response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=True, samesite="lax", secure=is_sec)
+    if res.get("device_id"):
+        response.set_cookie(key="omni_device_id", value=res["device_id"], max_age=31536000, path="/", httponly=False, samesite="lax", secure=is_sec)
     return res
 
 @router.get("/api/auth/me", summary="Check active user session and BCP link status")

@@ -147,6 +147,28 @@ window.api = {
     document.cookie = 'session_token=; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
   },
 
+  getDeviceId() {
+    try {
+      let devId = localStorage.getItem('omnitactica_device_id');
+      if (!devId && typeof document !== 'undefined' && document.cookie) {
+        const m = document.cookie.match(new RegExp('(^| )omni_device_id=([^;]+)'));
+        if (m && m[2]) devId = decodeURIComponent(m[2]);
+      }
+      if (!devId) {
+        devId = 'dev_' + ((typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : (Math.random().toString(36).substring(2, 12) + Date.now().toString(36)));
+      }
+      localStorage.setItem('omnitactica_device_id', devId);
+      if (typeof document !== 'undefined') {
+        document.cookie = `omni_device_id=${encodeURIComponent(devId)}; path=/; max-age=31536000; SameSite=Lax`;
+      }
+      return devId;
+    } catch (e) {
+      return '';
+    }
+  },
+
   // Native Auth: Register
   async register(email, password, displayName = '') {
     try {
@@ -168,10 +190,14 @@ window.api = {
   // Native Auth: Verify Registration 2FA Code
   async verifyRegistrationCode(email, code) {
     try {
+      const deviceId = this.getDeviceId();
       const res = await fetch('/api/auth/verify-registration', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code })
+        headers: {
+          'Content-Type': 'application/json',
+          ...(deviceId ? { 'X-Device-Id': deviceId } : {})
+        },
+        body: JSON.stringify({ email, code, device_id: deviceId })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -204,14 +230,63 @@ window.api = {
   // Native Auth: Login
   async login(email, password) {
     try {
+      const deviceId = this.getDeviceId();
       const res = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        headers: {
+          'Content-Type': 'application/json',
+          ...(deviceId ? { 'X-Device-Id': deviceId } : {})
+        },
+        body: JSON.stringify({ email, password, device_id: deviceId })
       });
       const data = await res.json();
       if (!res.ok) {
         return { success: false, error: data.detail || data.error || 'Login failed' };
+      }
+      return data;
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Native Auth: Verify Login 2FA Code (Unregistered Device)
+  async verifyLogin2FA(email, code, loginToken = '') {
+    try {
+      const deviceId = this.getDeviceId();
+      const res = await fetch('/api/auth/verify-login-2fa', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(deviceId ? { 'X-Device-Id': deviceId } : {})
+        },
+        body: JSON.stringify({
+          email,
+          code,
+          login_token: loginToken || undefined,
+          device_id: deviceId
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.detail || data.error || 'Verification failed' };
+      }
+      return data;
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Native Auth: Resend Login 2FA Code
+  async resendLogin2FA(email, loginToken = '') {
+    try {
+      const res = await fetch('/api/auth/resend-login-2fa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, login_token: loginToken || undefined })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.detail || data.error || 'Failed to resend verification code' };
       }
       return data;
     } catch (e) {
@@ -249,10 +324,14 @@ window.api = {
   // Reset Password
   async resetPassword(newPassword, token = '', code = '', email = '') {
     try {
+      const deviceId = this.getDeviceId();
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ new_password: newPassword, token, code, email })
+        headers: {
+          'Content-Type': 'application/json',
+          ...(deviceId ? { 'X-Device-Id': deviceId } : {})
+        },
+        body: JSON.stringify({ new_password: newPassword, token, code, email, device_id: deviceId })
       });
       const data = await res.json();
       if (!res.ok) {
