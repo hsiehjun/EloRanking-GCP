@@ -610,11 +610,21 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
             u_id = candidate_user.get("id") or candidate_user.get("user_id")
         else:
             u_id = getattr(candidate_user, "id", None) or getattr(candidate_user, "user_id", None)
-    p1_id = room_dict.get("user_id_p1")
-    p2_id = room_dict.get("user_id_p2")
 
     st = room_dict.get("state", {}) if isinstance(room_dict.get("state"), dict) else {}
     game = st.get("game", {}) if isinstance(st.get("game"), dict) else {}
+    participants = room_dict.get("participants", {}) if isinstance(room_dict.get("participants"), dict) else {}
+
+    p1_id = (
+        room_dict.get("user_id_p1")
+        or st.get("user_id_p1")
+        or (participants.get("player1", {}).get("uid") if isinstance(participants.get("player1"), dict) else None)
+    )
+    p2_id = (
+        room_dict.get("user_id_p2")
+        or st.get("user_id_p2")
+        or (participants.get("player2", {}).get("uid") if isinstance(participants.get("player2"), dict) else None)
+    )
 
     p1_assigned_name = room_dict.get("p1_name") or game.get("p1Name") or getattr(payload, "p1_name", None) or "Player 1"
     p2_assigned_name = room_dict.get("p2_name") or game.get("p2Name") or getattr(payload, "p2_name", None) or "Player 2"
@@ -656,32 +666,22 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
             return ("referee", None)
         return ("spectator", None)
     else:
-        user_role = candidate_user.get("role") if isinstance(candidate_user, dict) else getattr(candidate_user, "role", None) if candidate_user else None
-        is_admin = candidate_user.get("is_admin") if isinstance(candidate_user, dict) else getattr(candidate_user, "is_admin", False) if candidate_user else False
-        can_access_to = candidate_user.get("can_access_to") if isinstance(candidate_user, dict) else getattr(candidate_user, "can_access_to", False) if candidate_user else False
-
-        is_staff = bool(candidate_user and (
-            (u_id and u_id in room_dict.get("referee_ids", [])) or
-            user_role in ("admin", "referee", "to", "organizer") or
-            is_admin or
-            can_access_to
-        ))
-
         if u_id and p1_id == u_id:
             return ("player1", None)
         if u_id and p2_id == u_id:
             return ("player2", None)
 
-        # Casual match logic
-        claim_role = getattr(payload, "claim_role", None)
+        # Casual match logic: 1st user gets player1, 2nd user gets player2, 3rd user gets spectator
         if claim_role == "player2" and not p2_id:
             return ("player2", "user_id_p2")
         if claim_role == "player1" and not p1_id:
             return ("player1", "user_id_p1")
-        if not p2_id and u_id != p1_id:
-            return ("player2", "user_id_p2")
         if not p1_id:
             return ("player1", "user_id_p1")
+        if not p2_id and u_id != p1_id:
+            return ("player2", "user_id_p2")
+        if u_id and u_id in (room_dict.get("referee_ids") or []):
+            return ("referee", None)
         return ("spectator" if (p1_id and p2_id) else "player1", None)
 
 @router.post("/api/tracker/room/create", summary="Create or connect to a multiplayer match room with host player")
@@ -1128,10 +1128,19 @@ async def api_tracker_check_room(match_id: str, request: Request):
                 else:
                     return {"exists": False, "match_id": match_id, "error": f"Room key '{match_id}' does not exist."}
             
-    p1_id = room.get("user_id_p1")
-    p2_id = room.get("user_id_p2")
     st = room.get("state", {}) if isinstance(room.get("state"), dict) else {}
     game = st.get("game", {}) if isinstance(st.get("game"), dict) else {}
+    participants = room.get("participants", {}) if isinstance(room.get("participants"), dict) else {}
+    p1_id = (
+        room.get("user_id_p1")
+        or st.get("user_id_p1")
+        or (participants.get("player1", {}).get("uid") if isinstance(participants.get("player1"), dict) else None)
+    )
+    p2_id = (
+        room.get("user_id_p2")
+        or st.get("user_id_p2")
+        or (participants.get("player2", {}).get("uid") if isinstance(participants.get("player2"), dict) else None)
+    )
     p1_assigned_name = room.get("p1_name") or game.get("p1Name") or "Player 1"
     p2_assigned_name = room.get("p2_name") or game.get("p2Name") or "Player 2"
     p1_target_id = game.get("p1Id")
@@ -1173,19 +1182,11 @@ async def api_tracker_check_room(match_id: str, request: Request):
             "scorecard_url": f"/scorecard/{match_id}"
         }
     else:
-        user_role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None) if user else None
-        is_admin = user.get("is_admin") if isinstance(user, dict) else getattr(user, "is_admin", False) if user else False
-        can_access_to = user.get("can_access_to") if isinstance(user, dict) else getattr(user, "can_access_to", False) if user else False
-        is_staff = bool(user and (
-            (user_id and user_id in room.get("referee_ids", [])) or
-            user_role in ("admin", "referee", "to", "organizer") or
-            is_admin or
-            can_access_to
-        ))
+        is_staff = bool(user_id and user_id in (room.get("referee_ids") or []))
         is_open_for_p2 = bool(not is_finished and p2_id is None and not is_p1)
         is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2 and not is_staff))
-        is_spectator = False
-        assigned_role = "player1" if (is_p1 or not p1_id) else ("player2" if (is_p2 or not p2_id) else ("referee" if is_staff else "spectator"))
+        assigned_role = "player1" if (is_p1 or not p1_id) else ("player2" if (is_p2 or (not p2_id and not is_p1)) else ("referee" if is_staff else "spectator"))
+        is_spectator = bool(assigned_role == "spectator")
         return {
             "exists": True,
             "match_id": match_id,
@@ -1204,30 +1205,39 @@ async def api_tracker_check_room(match_id: str, request: Request):
 @router.post("/api/tracker/room/{match_id}/join", summary="Join match room and claim Player 2 slot or Spectator")
 async def api_tracker_join_room(match_id: str, request: Request, payload: Optional[TrackerJoinPayload] = None):
     match_id = normalize_tracker_match_id(match_id)
-    db = get_database()
+    db = None
+    try:
+        db = get_database()
+    except Exception:
+        pass
     fs_engine = get_firestore_engine()
-    auth_mgr = get_auth_manager()
     
-    auth_header = request.headers.get("Authorization", "")
-    session_token = (payload.token if payload and payload.token else None) or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    user = auth_mgr.get_session(session_token) if session_token else None
+    user = getattr(request, "_mock_user", None) if request else None
+    if user is None and request:
+        try:
+            auth_mgr = get_auth_manager()
+            auth_header = request.headers.get("Authorization", "") if hasattr(request, "headers") else ""
+            session_token = (payload.token if payload and payload.token else None) or (request.cookies.get("session_token") if hasattr(request, "cookies") else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+            user = auth_mgr.get_session(session_token) if session_token else None
+        except Exception:
+            pass
     user_id = user["id"] if user else None
-    user_name = user.get("display_name") if user else None
+    user_name = (user.get("display_name") or user.get("name")) if user else None
     
     if match_id not in TRACKER_ROOMS:
         fs_doc = fs_engine.get_room(match_id)
         if fs_doc and fs_doc.get("state"):
             TRACKER_ROOMS[match_id] = {
                 "match_id": match_id,
-                "user_id_p1": fs_doc.get("user_id_p1"),
-                "user_id_p2": fs_doc.get("user_id_p2"),
+                "user_id_p1": fs_doc.get("user_id_p1") or (fs_doc["state"].get("user_id_p1") if isinstance(fs_doc.get("state"), dict) else None),
+                "user_id_p2": fs_doc.get("user_id_p2") or (fs_doc["state"].get("user_id_p2") if isinstance(fs_doc.get("state"), dict) else None),
                 "referee_ids": fs_doc.get("referee_ids", []),
                 "version": fs_doc.get("version", 1),
                 "state": fs_doc["state"],
                 "updated_at": fs_doc.get("updated_at")
             }
         else:
-            saved = db.get_tracker_game(match_id)
+            saved = db.get_tracker_game(match_id) if (db and hasattr(db, "get_tracker_game")) else None
             if saved and saved.get("state"):
                 is_fin = bool(saved.get("is_finished") or (isinstance(saved.get("state"), dict) and saved["state"].get("is_finished")))
                 if is_fin:
@@ -1241,8 +1251,8 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
                     }
                 TRACKER_ROOMS[match_id] = {
                     "match_id": match_id,
-                    "user_id_p1": saved.get("user_id_p1"),
-                    "user_id_p2": saved.get("user_id_p2"),
+                    "user_id_p1": saved.get("user_id_p1") or (saved["state"].get("user_id_p1") if isinstance(saved.get("state"), dict) else None),
+                    "user_id_p2": saved.get("user_id_p2") or (saved["state"].get("user_id_p2") if isinstance(saved.get("state"), dict) else None),
                     "referee_ids": saved.get("referee_ids", []),
                     "version": saved.get("version", 1),
                     "state": saved["state"],
@@ -1253,7 +1263,7 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
                 except Exception:
                     pass
             else:
-                chat_room = db.find_chat_room_key(match_id)
+                chat_room = db.find_chat_room_key(match_id) if (db and hasattr(db, "find_chat_room_key")) else None
                 if chat_room:
                     room = init_tracker_room_from_chat(match_id, chat_room, fs_engine)
                 elif match_id.startswith("BCP-") or match_id.startswith("ES-"):
@@ -1276,6 +1286,8 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
 
     if claim_slot == "user_id_p1":
         room["user_id_p1"] = user_id or f"p1_{secrets.token_hex(3)}"
+        if isinstance(st, dict):
+            st["user_id_p1"] = room["user_id_p1"]
         room["version"] = room.get("version", 1) + 1
         try:
             fs_engine.update_room(match_id, {
@@ -1288,6 +1300,8 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
             pass
     elif claim_slot == "user_id_p2":
         room["user_id_p2"] = user_id or f"p2_{secrets.token_hex(3)}"
+        if isinstance(st, dict):
+            st["user_id_p2"] = room["user_id_p2"]
         if payload and payload.faction and not game.get("p2Faction"):
             game["p2Faction"] = payload.faction
         if payload and payload.detachment and not game.get("p2Detachment"):

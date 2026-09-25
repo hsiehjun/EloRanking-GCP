@@ -479,7 +479,114 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
             self.assertNotIn("user", params, f"{fn.__name__} must not expose unvalidated 'user' route parameter")
         print("✓ test_tracker_route_signatures_valid_for_fastapi passed")
 
+    def test_casual_room_third_user_spectator_loading_screen_and_clean_share_links(self):
+        """Verify 3rd user entering casual room WH40K-56D5-6F47 is detected as spectator on /check and /join, share links omit &role=, and loading screen gates #root until role verification."""
+        import asyncio
+        from routers.tracker import (
+            api_tracker_check_room,
+            api_tracker_join_room,
+            TrackerJoinPayload,
+            TRACKER_ROOMS,
+        )
+
+        match_id = "WH40K-56D5-6F47"
+        TRACKER_ROOMS[match_id] = {
+            "match_id": match_id,
+            "user_id_p1": "user_p1_id",
+            "p1_name": "Commander One",
+            "user_id_p2": "",
+            "p2_name": "",
+            "version": 1,
+            "state": {
+                "user_id_p1": "user_p1_id",
+                "game": {"p1Name": "Commander One", "p2Name": ""}
+            },
+            "participants": {"player1": "Commander One"}
+        }
+
+        def _mock_req(u):
+            req = MagicMock()
+            req._mock_user = u
+            req.headers = {}
+            req.cookies = {}
+            return req
+
+        try:
+            u1 = {"id": "user_p1_id", "name": "Commander One", "role": "user"}
+            u2 = {"id": "user_p2_id", "name": "Commander Two", "role": "user"}
+            u3_regular = {"id": "user_p3_id", "name": "Spectator Three", "role": "user"}
+            u3_to = {"id": "user_p3_to_id", "name": "Organizer Three", "role": "to", "can_access_to": True}
+
+            # 1. User 2 checks and joins -> becomes player2
+            chk_u2_before = asyncio.run(api_tracker_check_room(match_id, _mock_req(u2)))
+            self.assertFalse(chk_u2_before["is_spectator"])
+            self.assertEqual(chk_u2_before["role"], "player2")
+
+            join_u2 = asyncio.run(
+                api_tracker_join_room(
+                    match_id,
+                    request=_mock_req(u2),
+                    payload=TrackerJoinPayload(player_name="Commander Two", player_id="user_p2_id")
+                )
+            )
+            self.assertEqual(join_u2["role"], "player2")
+            self.assertEqual(TRACKER_ROOMS[match_id]["user_id_p2"], "user_p2_id")
+            self.assertEqual(TRACKER_ROOMS[match_id]["state"]["user_id_p2"], "user_p2_id")
+
+            # 2. Both player1 and player2 continue to be recognized as players on /check
+            chk_u1 = asyncio.run(api_tracker_check_room(match_id, _mock_req(u1)))
+            self.assertFalse(chk_u1["is_spectator"])
+            self.assertEqual(chk_u1["role"], "player1")
+
+            chk_u2 = asyncio.run(api_tracker_check_room(match_id, _mock_req(u2)))
+            self.assertFalse(chk_u2["is_spectator"])
+            self.assertEqual(chk_u2["role"], "player2")
+
+            # 3. 3rd user (regular OR TO) is immediately identified as spectator on BOTH /check and /join
+            for third_user in (u3_regular, u3_to):
+                chk_u3 = asyncio.run(api_tracker_check_room(match_id, _mock_req(third_user)))
+                self.assertTrue(chk_u3["is_spectator"], f"Expected is_spectator=True for {third_user}")
+                self.assertEqual(chk_u3["role"], "spectator")
+
+                join_u3 = asyncio.run(
+                    api_tracker_join_room(
+                        match_id,
+                        request=_mock_req(third_user),
+                        payload=TrackerJoinPayload(
+                            player_name=third_user["name"],
+                            player_id=third_user["id"],
+                            claim_role="player2"  # Even if URL or payload had player2
+                        )
+                    )
+                )
+                self.assertEqual(join_u3["role"], "spectator")
+        finally:
+            if match_id in TRACKER_ROOMS:
+                del TRACKER_ROOMS[match_id]
+
+        # 4. Verify frontend clean share links, URL role stripping, loading screen gate, and Feedback label
+        ts_js = (ROOT_DIR / "web" / "tracker" / "tracker_sync.js").read_text(encoding="utf-8")
+        ts_aos_js = (ROOT_DIR / "web" / "tracker" / "tracker_sync_aos.js").read_text(encoding="utf-8")
+        play_html = (ROOT_DIR / "web" / "tracker" / "play.html").read_text(encoding="utf-8")
+        aos_html = (ROOT_DIR / "web" / "tracker" / "aos.html").read_text(encoding="utf-8")
+
+        self.assertIn("function getCleanRoomShareUrl(mid)", ts_js)
+        self.assertIn("function getCleanRoomShareUrl(mid)", ts_aos_js)
+        self.assertNotIn("&role=player1", ts_js)
+        self.assertNotIn("&role=player2", ts_js)
+        self.assertNotIn("&role=player1", ts_aos_js)
+        self.assertNotIn("&role=player2", ts_aos_js)
+        self.assertIn(".searchParams.delete('role')", ts_js)
+        self.assertIn(".searchParams.delete('role')", ts_aos_js)
+        self.assertIn("💬 Feedback", ts_js)
+        self.assertIn("body.is-tracker-play:not(.gt-role-verified) #root", play_html)
+        self.assertIn("body.is-tracker-aos:not(.gt-role-verified) #root", aos_html)
+        self.assertIn("document.body.classList.add('gt-role-verified')", ts_js)
+        self.assertIn("document.body.classList.add('gt-role-verified')", ts_aos_js)
+        print("✓ test_casual_room_third_user_spectator_loading_screen_and_clean_share_links passed")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

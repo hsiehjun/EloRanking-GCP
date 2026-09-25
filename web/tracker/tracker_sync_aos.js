@@ -80,7 +80,48 @@
   let broadcastTimer = null;
   let isRemoteUpdating = false;
 
-  const role = urlParams.get('role') || 'player1';
+  let role = urlParams.get('role') || 'player1';
+
+  function getAuthToken() {
+    return localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token') || sessionStorage.getItem('elo_auth_token') || '';
+  }
+
+  function getCleanRoomShareUrl(mid) {
+    const cleanId = mid || matchId || '';
+    if (!cleanId) {
+      const u = new URL(window.location.href);
+      u.searchParams.delete('role');
+      u.searchParams.delete('mode');
+      return u.toString();
+    }
+    return `${window.location.origin}/11th/tracker/aos?match_id=${encodeURIComponent(cleanId)}`;
+  }
+
+  window.__copyRoomShareLink = function (mid) {
+    const shareUrl = getCleanRoomShareUrl(mid);
+    navigator.clipboard.writeText(shareUrl);
+    alert('🔗 Room Link Copied! Share with your opponent.');
+  };
+
+  function hideAosLoadingOverlay() {
+    if (document.body) {
+      document.body.classList.add('gt-role-verified');
+    }
+    const overlay = document.getElementById('gt-loading-overlay');
+    if (overlay) {
+      overlay.classList.add('gt-loading-hidden');
+      overlay.style.opacity = '0';
+      overlay.style.visibility = 'hidden';
+      overlay.style.pointerEvents = 'none';
+    }
+  }
+
+  function updateAosLoadingOverlay(title, subtitle) {
+    const tEl = document.getElementById('gt-loading-title');
+    const sEl = document.getElementById('gt-loading-subtitle');
+    if (tEl && title) tEl.textContent = title;
+    if (sEl && subtitle) sEl.textContent = subtitle;
+  }
 
   let trackerFirestoreDb = null;
   function getTrackerFirestoreDb() {
@@ -191,14 +232,72 @@
     } catch (e) {}
   }
 
-  if (matchId) {
-    initFirestoreDirectSync();
-    syncFromRemote();
-    setInterval(() => {
-      if (!firestoreConnected) {
-        syncFromRemote();
-      }
-    }, 1000);
+  async function initAosRoomAccess() {
+    if (isSpectator && matchId) {
+      updateAosLoadingOverlay('👀 Spectator Mode Detected', 'Opening Live Digital Scorecard...');
+      window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
+      return;
+    }
+
+    if (matchId) {
+      // Strip &role=... from browser URL bar so copied/shared links only have ?match_id=...
+      try {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.set('match_id', matchId);
+        cleanUrl.searchParams.delete('role');
+        cleanUrl.searchParams.delete('mode');
+        window.history.replaceState({}, '', cleanUrl.toString());
+      } catch (e) {}
+
+      const token = getAuthToken();
+      try {
+        const chk = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/check`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        if (chk.ok) {
+          const chkData = await chk.json();
+          if (chkData.is_finished || (!chkData.is_referee && chkData.role !== 'referee' && (chkData.is_spectator || chkData.role === 'spectator' || (chkData.is_full && !chkData.is_open_for_p2)))) {
+            updateAosLoadingOverlay('👀 Spectator Mode Detected', 'Room has 2 active players — redirecting to Live Digital Scorecard...');
+            window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
+            return;
+          }
+        }
+      } catch (e) {}
+
+      try {
+        const joinResp = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/join`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ token: token || undefined })
+        });
+        if (joinResp.ok) {
+          const joinData = await joinResp.json();
+          if (joinData.is_finished || joinData.role === 'spectator') {
+            updateAosLoadingOverlay('👀 Spectator Mode Detected', 'Room has 2 active players — redirecting to Live Digital Scorecard...');
+            window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
+            return;
+          }
+          if (joinData.role) {
+            role = joinData.role;
+          }
+        }
+      } catch (e) {}
+
+      initFirestoreDirectSync();
+      await syncFromRemote();
+      setInterval(() => {
+        if (!firestoreConnected) {
+          syncFromRemote();
+        }
+      }, 1000);
+    }
+
+    hideAosLoadingOverlay();
+    injectAosSyncHUD();
+    injectMobileBottomDock();
   }
 
   // Listen to state mutations
@@ -1002,7 +1101,7 @@
             🏁 Finish
           </button>
         ` : ''}
-        <button onclick="const shareUrl = window.location.origin + '/11th/tracker/aos?match_id=' + encodeURIComponent('${matchId || ''}') + '&role=player2'; navigator.clipboard.writeText(shareUrl); alert('🔗 Player 2 Invite Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Link">
+        <button onclick="const shareUrl = window.location.origin + '/11th/tracker/aos?match_id=' + encodeURIComponent('${matchId || ''}'); navigator.clipboard.writeText(shareUrl); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Room Link">
           🔗 Share
         </button>
       </div>
@@ -1019,12 +1118,10 @@
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      injectAosSyncHUD();
-      injectMobileBottomDock();
+      initAosRoomAccess();
     });
   } else {
-    injectAosSyncHUD();
-    injectMobileBottomDock();
+    initAosRoomAccess();
   }
 
   // Expose global helper for testing

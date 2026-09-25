@@ -1043,15 +1043,29 @@
     }
   };
 
+  function getCleanRoomShareUrl(mid) {
+    const targetId = mid || (clientState && clientState.matchId) || getActiveMatchId() || '';
+    const isAos = window.location.pathname.includes('/aos') || String(targetId).toUpperCase().startsWith('AOS-');
+    const basePath = isAos ? '/11th/tracker/aos' : '/11th/tracker/play';
+    return targetId
+      ? `${window.location.origin}${basePath}?match_id=${encodeURIComponent(targetId)}`
+      : `${window.location.origin}${basePath}`;
+  }
+
+  window.__copyRoomShareLink = function (mid) {
+    const shareUrl = getCleanRoomShareUrl(mid);
+    navigator.clipboard.writeText(shareUrl);
+    alert('🔗 Room Link Copied! Share with your opponent.');
+  };
+
   // 3. Initialize Match Room / Play / Setup / Landing
   async function init() {
-    setTimeout(() => {
-      if (typeof window.__hideGtLoadingOverlay === 'function') {
-        window.__hideGtLoadingOverlay();
-      }
-    }, 2200);
-
     if (!isPlay) {
+      setTimeout(() => {
+        if (typeof window.__hideGtLoadingOverlay === 'function') {
+          window.__hideGtLoadingOverlay();
+        }
+      }, 2200);
       injectLobbyHub();
     }
 
@@ -1077,6 +1091,10 @@
 
       const isSpectatorExplicit = params.get('role') === 'spectator' || params.get('spectate') === 'true';
       if (isSpectatorExplicit && matchId) {
+        window.__showGtLoadingOverlay(
+          '👀 Spectator Mode Detected',
+          'Opening Live Digital Scorecard...'
+        );
         window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
         return;
       }
@@ -1084,14 +1102,24 @@
       let chkData = {};
 
       if (matchId) {
-        // Direct URL or History access: verify that this room exists on the server!
+        window.__showGtLoadingOverlay(
+          '⚔️ Entering Tabletop Room',
+          `Verifying player seat for Room #${matchId}...`
+        );
+        // Direct URL or History access: verify room and determine if player or spectator during loading screen!
         try {
           const chk = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/check`, {
             headers: { 'Authorization': `Bearer ${getAuthToken()}` }
           });
           chkData = await chk.json();
-          if (chk.ok && (chkData.is_finished || (!chkData.is_referee && chkData.role !== 'referee' && (chkData.is_spectator || (chkData.is_full && !chkData.is_open_for_p2))))) {
-            // Concluded matches or spectator/non-competitor roles open Digital Scorecard directly
+          if (chk.ok && (chkData.is_finished || (!chkData.is_referee && chkData.role !== 'referee' && (chkData.is_spectator || chkData.role === 'spectator' || (chkData.is_full && !chkData.is_open_for_p2))))) {
+            // Concluded matches or 3rd user spectator/non-competitor roles redirect to Digital Scorecard while still on loading screen
+            window.__showGtLoadingOverlay(
+              chkData.is_finished ? '🏁 Match Concluded' : '👀 Spectator Mode Detected',
+              chkData.is_finished
+                ? 'Opening Verified Final Digital Scorecard...'
+                : 'Room has 2 active players — redirecting to Live Digital Scorecard...'
+            );
             window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
             return;
           }
@@ -1121,6 +1149,7 @@
             clientState.matchId = matchId;
             clientState.role = data.role || 'player1';
             updateSpectatorModeUI();
+            if (clientState.role === 'spectator') return;
             applyRemoteState(data.state);
           }
         } catch (e) {}
@@ -1141,18 +1170,16 @@
         diceRollerState.history = [];
         diceRollerState.tray = [];
       }
+      // Clean URL bar: keep only match_id (strip &role=... and &mode=...) so shared/copied links never leak role
       const url = new URL(window.location.href);
       url.searchParams.set('match_id', clientState.matchId);
       url.searchParams.delete('mode');
+      url.searchParams.delete('role');
       window.history.replaceState({}, '', url.toString());
 
-      injectMultiplayerHUD();
-
-      // Join room to bind Player 2 slot or Spectator (Strict 2-Player Capacity)
+      // Join room during loading screen to bind Player 1 / Player 2 slot or detect 3rd-user Spectator (Strict 2-Player Capacity)
       try {
         const myName = currentUser ? (currentUser.display_name || (currentUser.email ? currentUser.email.split('@')[0] : '')) : '';
-        const urlParamsJoin = new URLSearchParams(window.location.search);
-        const isSpectateExplicit = urlParamsJoin.get('role') === 'spectator' || urlParamsJoin.get('spectate') === 'true';
         const resp = await fetch(`/api/tracker/room/${clientState.matchId}/join`, {
           method: 'POST',
           headers: {
@@ -1162,12 +1189,18 @@
           body: JSON.stringify({
             token: getAuthToken(),
             player_name: myName || undefined,
-            claim_role: isSpectateExplicit ? 'spectator' : undefined
+            claim_role: isSpectatorExplicit ? 'spectator' : undefined
           })
         });
         if (resp.ok) {
           const joinData = await resp.json();
           if (joinData.is_finished || joinData.role === 'spectator') {
+            window.__showGtLoadingOverlay(
+              joinData.is_finished ? '🏁 Match Concluded' : '👀 Spectator Mode Detected',
+              joinData.is_finished
+                ? 'Opening Verified Final Digital Scorecard...'
+                : 'Room has 2 active players — redirecting to Live Digital Scorecard...'
+            );
             window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
             return;
           }
@@ -1176,15 +1209,23 @@
           if (joinData.state) {
             applyRemoteState(joinData.state);
           }
-          injectMultiplayerHUD(); // Update HUD with confirmed role!
         }
       } catch (e) {}
 
       if (clientState.role === 'spectator') {
+        window.__showGtLoadingOverlay(
+          '👀 Spectator Mode Detected',
+          'Room has 2 active players — redirecting to Live Digital Scorecard...'
+        );
         window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
         return;
       }
 
+      // Role verified as active player/referee — reveal Game Tracker UI and dismiss loading overlay
+      if (document.body) {
+        document.body.classList.add('gt-role-verified');
+      }
+      injectMultiplayerHUD();
       injectPlayer2InviteWidget();
       attachDomActionInterceptors();
       startHybridSync();
@@ -1234,14 +1275,14 @@
             data.state.match_id = mid;
             originalSetItem('omni-aos-tracker-state', JSON.stringify(data.state));
           }
-          window.location.href = `/11th/tracker/aos?match_id=${encodeURIComponent(mid)}&role=player1`;
+          window.location.href = `/11th/tracker/aos?match_id=${encodeURIComponent(mid)}`;
         } else {
           if (data.state) {
             data.state.id = mid;
             data.state.match_id = mid;
             originalSetItem('gdm-11e-tracker-state', JSON.stringify(data.state));
           }
-          window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(mid)}&role=player1`;
+          window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(mid)}`;
         }
         return;
       }
@@ -1311,7 +1352,7 @@
         return;
       }
 
-      window.location.href = `${playBaseUrl}?match_id=${encodeURIComponent(data.match_id || code)}&role=player2`;
+      window.location.href = `${playBaseUrl}?match_id=${encodeURIComponent(data.match_id || code)}`;
     } catch (err) {
       window.__hideGtLoadingOverlay();
       if (errDiv) {
@@ -1561,7 +1602,7 @@
         try { stateObj = JSON.parse(rawState); } catch(e) {}
 
         const p2Connected = clientState.onlineCount >= 2 || !!(stateObj.user_id_p2 || (stateObj.game && stateObj.game.p2Name && stateObj.game.p2Name !== 'Player 2'));
-        const inviteUrl = window.location.href;
+        const inviteUrl = getCleanRoomShareUrl(clientState.matchId);
 
         const widget = document.createElement('div');
         widget.id = 'gt-invite-widget';
@@ -1579,7 +1620,7 @@
             <p style="margin:0 0 10px; font-size:12px; color:#94a3b8;">Share this Room Key with Player 2 to collaborate live on army setup:</p>
             <div style="display:flex; gap:8px;">
               <input readonly value="${inviteUrl}" style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 10px; font-size:11px; color:#cbd5e1; font-family:'JetBrains Mono',monospace; outline:none;" />
-              <button onclick="navigator.clipboard.writeText('${inviteUrl}'); alert('📋 Invite Link Copied! Send this to Player 2.');" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:11px; text-transform:uppercase; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; letter-spacing:0.04em;">
+              <button onclick="window.__copyRoomShareLink('${escapeHtml(clientState.matchId)}');" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:11px; text-transform:uppercase; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; letter-spacing:0.04em;">
                 📋 COPY LINK
               </button>
             </div>
@@ -1708,7 +1749,7 @@
 
               const isAosGame = isAosMode || String(mid).toUpperCase().startsWith('AOS-') || m.game_system === 'aos';
               const resumeUrl = isAosGame
-                ? `/11th/tracker/aos?match_id=${encodeURIComponent(mid)}&role=player1`
+                ? `/11th/tracker/aos?match_id=${encodeURIComponent(mid)}`
                 : `/11th/tracker/play?match_id=${encodeURIComponent(mid)}`;
 
               return `
@@ -3141,11 +3182,11 @@
             📄 Scorecard
           </button>
         ` : '')}
-        <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Link">
+        <button onclick="window.__copyRoomShareLink();" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Room Link">
           🔗 Share
         </button>
-        <button onclick="window.gtOpenFeedbackModal()" style="background:rgba(255,255,255,0.06); color:#94a3b8; border:1px solid rgba(255,255,255,0.12); padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Send Feedback or Report an Issue">
-          💬
+        <button onclick="window.gtOpenFeedbackModal()" style="background:rgba(255,255,255,0.06); color:#94a3b8; border:1px solid rgba(255,255,255,0.12); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Send Feedback or Report an Issue">
+          💬 Feedback
         </button>
       </div>
     `;

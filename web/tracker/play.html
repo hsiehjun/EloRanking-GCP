@@ -56,8 +56,8 @@
   <!-- RETRIBUTION ARMORY & COSMETICS -->
   <script src="/js/armory_svgs.js"></script>
   <script src="/js/armory.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=67.0">
-  <script src="/tracker/tracker_sync.js?v=67.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=68.0">
+  <script src="/tracker/tracker_sync.js?v=68.0"></script>
 
   <style>
     :root {
@@ -123,6 +123,13 @@
       visibility: hidden !important;
       pointer-events: none !important;
     }
+    body.is-tracker-play:not(.gt-role-verified) #root,
+    body.is-tracker-play:not(.gt-role-verified) #gt-sync-hud,
+    body.is-tracker-play:not(.gt-role-verified) #gt-mobile-bottom-dock {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
   </style>
 </head>
 <body class="__variable_4fe6d1 __variable_52f0b0 __variable_e896d9 antialiased is-tracker-play">
@@ -136,7 +143,7 @@
         Initializing Live Tabletop
       </div>
       <div id="gt-loading-subtitle" style="font-size: 12px; color: #94a3b8; line-height: 1.45;">
-        Syncing room state, mission objectives &amp; command telemetry...
+        Verifying player seat, mission objectives &amp; command telemetry...
       </div>
     </div>
   </div>
