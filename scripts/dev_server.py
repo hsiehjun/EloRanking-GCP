@@ -1087,6 +1087,24 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         clean_path = self.path.split("?")[0].strip("/")
+        if clean_path.startswith("api/league/") and "/announcements/" in clean_path:
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = urllib.parse.unquote(parts[2])
+            ann_id = urllib.parse.unquote(parts[4]) if len(parts) > 4 else ""
+            try:
+                result = l_svc.delete_league_announcement(l_id, ann_id)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+            return
         if (clean_path.startswith("api/events/") or clean_path.startswith("api/eventstudio/event/")) and "/livestreams/" in clean_path:
             parts = clean_path.split("/")
             ev_id = parts[2] if clean_path.startswith("api/events/") else parts[3]
@@ -1112,6 +1130,25 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 p_data = json.loads(body.decode("utf-8")) if body else {}
                 result = l_svc.create_league(p_data)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/league/") and clean_path.endswith("/config"):
+            import leagues_hub_service
+            l_svc = leagues_hub_service.get_leagues_hub_service()
+            parts = clean_path.split("/")
+            l_id = urllib.parse.unquote(parts[2])
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+                result = l_svc.update_league_config(l_id, p_data)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()

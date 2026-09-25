@@ -5034,9 +5034,201 @@ const _studioOrganizerUiState = {
   selectedLeagueId: null,
   activeStep: 'format', // 'format' | 'roster' | 'pairings' | 'updown' | 'announcements'
   selectedPodNum: 1,
+  selectedPairingsBoardRound: 1,
+  swapSourcePlayer: null,
+  swapSourceRound: null,
   detailedCache: {},
   loadingLeagueId: null
 };
+
+function computeLeagueActiveWeekClient(startDateStr, endDateStr, fallbackWeeks = 8) {
+  const cleanS = String(startDateStr || '').trim().slice(0, 10);
+  const cleanE = String(endDateStr || '').trim().slice(0, 10);
+  const parseUtc = (s) => {
+    const pts = s.split('-');
+    if (pts.length !== 3) return null;
+    const dt = new Date(Date.UTC(parseInt(pts[0], 10), parseInt(pts[1], 10) - 1, parseInt(pts[2], 10)));
+    return isNaN(dt.getTime()) ? null : dt;
+  };
+  let dStart = parseUtc(cleanS);
+  let dEnd = parseUtc(cleanE);
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  if (!dStart) dStart = today;
+  if (!dEnd || dEnd <= dStart) {
+    const wks = Math.max(1, Number(fallbackWeeks || 8));
+    dEnd = new Date(dStart.getTime() + wks * 7 * 86400000);
+  }
+  const totalDays = Math.max(7, Math.round((dEnd.getTime() - dStart.getTime()) / 86400000));
+  const totalWeeks = Math.max(1, Math.min(52, Math.round(totalDays / 7)));
+  const fmtShort = (dt) => dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+  if (today < dStart) {
+    const daysUntil = Math.max(1, Math.round((dStart.getTime() - today.getTime()) / 86400000));
+    return {
+      status: 'pre_season',
+      current_week: 0,
+      total_weeks: totalWeeks,
+      days_until_start: daysUntil,
+      label: `Pre-Season • Starts ${fmtShort(dStart)} (${daysUntil}d)`,
+      short_label: `Pre-Season (Starts ${fmtShort(dStart)})`
+    };
+  }
+  if (today > dEnd) {
+    return {
+      status: 'completed',
+      current_week: totalWeeks,
+      total_weeks: totalWeeks,
+      days_until_start: 0,
+      label: `Season Complete • Week ${totalWeeks} of ${totalWeeks}`,
+      short_label: `Week ${totalWeeks} of ${totalWeeks} (Complete)`
+    };
+  }
+  const elapsedDays = Math.max(0, Math.floor((today.getTime() - dStart.getTime()) / 86400000));
+  const currentWeek = Math.max(1, Math.min(totalWeeks, Math.floor(elapsedDays / 7) + 1));
+  return {
+    status: 'active',
+    current_week: currentWeek,
+    total_weeks: totalWeeks,
+    days_until_start: 0,
+    label: `Week ${currentWeek} of ${totalWeeks} Active`,
+    short_label: `Week ${currentWeek} of ${totalWeeks}`
+  };
+}
+window.computeLeagueActiveWeekClient = computeLeagueActiveWeekClient;
+
+function syncStudioLeagueCacheAfterMutation(leagueId, updatedLeague) {
+  if (!leagueId) return;
+  const canonical = (typeof normalizeLeagueIdToUuid === 'function') ? normalizeLeagueIdToUuid(leagueId) : leagueId;
+  if (updatedLeague && typeof updatedLeague === 'object') {
+    _studioOrganizerUiState.detailedCache[canonical] = updatedLeague;
+    _studioOrganizerUiState.detailedCache[leagueId] = updatedLeague;
+    _studioLeagueCmdState.leagueData = updatedLeague;
+    if (Array.isArray(studioState.managedLeagues)) {
+      studioState.managedLeagues = studioState.managedLeagues.map(item => {
+        const itemCid = (typeof normalizeLeagueIdToUuid === 'function') ? normalizeLeagueIdToUuid(item.league_id) : item.league_id;
+        if (itemCid === canonical || item.league_id === leagueId || item.slug === leagueId) {
+          const actS = (typeof updatedLeague.active_season === 'object' && updatedLeague.active_season) ? updatedLeague.active_season : {};
+          return {
+            ...item,
+            ...updatedLeague,
+            league_id: canonical,
+            start_date: updatedLeague.start_date || actS.start_date || item.start_date,
+            end_date: updatedLeague.end_date || actS.end_date || item.end_date,
+            registration_start: updatedLeague.registration_start || actS.registration_start || item.registration_start,
+            registration_end: updatedLeague.registration_end || actS.registration_end || item.registration_end,
+            registration_open: updatedLeague.registration_open !== undefined ? Boolean(updatedLeague.registration_open) : item.registration_open,
+            publish_to_community_hub: updatedLeague.publish_to_community_hub !== undefined ? Boolean(updatedLeague.publish_to_community_hub) : item.publish_to_community_hub,
+            methodology: { ...(item.methodology || {}), ...(updatedLeague.methodology || {}) },
+            active_week_info: updatedLeague.active_week_info || item.active_week_info,
+            announcements: Array.isArray(updatedLeague.announcements) ? updatedLeague.announcements : item.announcements
+          };
+        }
+        return item;
+      });
+    }
+  } else {
+    delete _studioOrganizerUiState.detailedCache[canonical];
+    delete _studioOrganizerUiState.detailedCache[leagueId];
+  }
+  if (typeof window.leagueState !== 'undefined' && window.leagueState) {
+    if (window.leagueState._cache) {
+      delete window.leagueState._cache[canonical];
+      delete window.leagueState._cache[leagueId];
+    }
+    if (updatedLeague && (window.leagueState.activeLeagueId === canonical || window.leagueState.activeLeagueId === leagueId)) {
+      window.leagueState.currentLeagueData = updatedLeague;
+      window.leagueState.leagueData = updatedLeague;
+      if (typeof renderLeagueHub === 'function') renderLeagueHub(updatedLeague);
+    }
+  }
+  if (typeof renderSparringRadarLeagueRegistrations === 'function') {
+    try { renderSparringRadarLeagueRegistrations(); } catch (_) {}
+  }
+}
+window.syncStudioLeagueCacheAfterMutation = syncStudioLeagueCacheAfterMutation;
+
+function onStudioSeasonDatesChanged(leagueId) {
+  const startEl = document.getElementById(`es-inline-start-${leagueId}`) || document.getElementById('to-sched-start');
+  const endEl = document.getElementById(`es-inline-end-${leagueId}`) || document.getElementById('to-sched-end');
+  const weeksEl = document.getElementById('to-rule-weeks') || document.getElementById('to-sched-weeks');
+  if (!startEl || !endEl) return;
+
+  const sVal = (startEl.value || '').trim().slice(0, 10);
+  let eVal = (endEl.value || '').trim().slice(0, 10);
+  if (!sVal) return;
+
+  const parseUtc = (s) => {
+    const pts = s.split('-');
+    if (pts.length !== 3) return null;
+    const dt = new Date(Date.UTC(parseInt(pts[0], 10), parseInt(pts[1], 10) - 1, parseInt(pts[2], 10)));
+    return isNaN(dt.getTime()) ? null : dt;
+  };
+  const dStart = parseUtc(sVal);
+  let dEnd = parseUtc(eVal);
+  if (!dStart) return;
+
+  if (!dEnd || dEnd <= dStart) {
+    const fallbackWks = Math.max(2, Number(weeksEl?.value || 8));
+    dEnd = new Date(dStart.getTime() + fallbackWks * 7 * 86400000);
+    eVal = dEnd.toISOString().slice(0, 10);
+    endEl.value = eVal;
+  }
+
+  const wkInfo = computeLeagueActiveWeekClient(sVal, eVal, Number(weeksEl?.value || 8));
+  if (weeksEl) {
+    weeksEl.value = wkInfo.total_weeks;
+  }
+
+  const fmtDate = window.formatLeagueDateShort || ((s) => s);
+  const prettyS = fmtDate(sVal);
+  const prettyE = fmtDate(eVal);
+  const gamesCnt = Number(document.getElementById('to-rule-games')?.value || 5);
+
+  const card2Badge = document.getElementById(`es-inline-week-live-badge-${leagueId}`);
+  if (card2Badge) {
+    card2Badge.textContent = `🗓️ ${wkInfo.short_label} • ${wkInfo.total_weeks} Wks • ${gamesCnt} Games`;
+  }
+  const hdrWeekBadge = document.getElementById(`es-comm-week-badge-${leagueId}`);
+  if (hdrWeekBadge) {
+    hdrWeekBadge.textContent = `🗓️ ${wkInfo.label}`;
+  }
+  const hdrDatesBadge = document.getElementById(`es-comm-dates-badge-${leagueId}`);
+  if (hdrDatesBadge) {
+    hdrDatesBadge.textContent = `📅 Started: ${prettyS} • Ends: ${prettyE}`;
+  }
+  const pillarDurVal = document.getElementById(`es-pillar-duration-val-${leagueId}`);
+  if (pillarDurVal) {
+    pillarDurVal.textContent = `${wkInfo.short_label} (${gamesCnt}G)`;
+  }
+  const pillarDurSub = document.getElementById(`es-pillar-duration-sub-${leagueId}`);
+  if (pillarDurSub) {
+    pillarDurSub.textContent = `${prettyS} – ${prettyE} (${wkInfo.total_weeks} Wks)`;
+  }
+  const footerWin = document.getElementById(`es-footer-window-summary-${leagueId}`);
+  if (footerWin) {
+    footerWin.innerHTML = `📅 Active Season Window: <strong style="color:#38bdf8;">${escapeHtml(prettyS)} – ${escapeHtml(prettyE)}</strong> (<strong style="color:#34d399;">${escapeHtml(wkInfo.label)}</strong> • ${wkInfo.total_weeks} Weeks • ${gamesCnt} Games)`;
+  }
+}
+window.onStudioSeasonDatesChanged = onStudioSeasonDatesChanged;
+
+function onStudioDurationWeeksChanged(leagueId) {
+  const startEl = document.getElementById(`es-inline-start-${leagueId}`) || document.getElementById('to-sched-start');
+  const endEl = document.getElementById(`es-inline-end-${leagueId}`) || document.getElementById('to-sched-end');
+  const weeksEl = document.getElementById('to-rule-weeks') || document.getElementById('to-sched-weeks');
+  if (!startEl || !endEl || !weeksEl) return;
+  const wks = Math.max(2, Math.min(52, Number(weeksEl.value || 8)));
+  const pts = String(startEl.value || '').trim().slice(0, 10).split('-');
+  if (pts.length === 3) {
+    const dStart = new Date(Date.UTC(parseInt(pts[0], 10), parseInt(pts[1], 10) - 1, parseInt(pts[2], 10)));
+    if (!isNaN(dStart.getTime())) {
+      const dEnd = new Date(dStart.getTime() + wks * 7 * 86400000);
+      endEl.value = dEnd.toISOString().slice(0, 10);
+    }
+  }
+  onStudioSeasonDatesChanged(leagueId);
+}
+window.onStudioDurationWeeksChanged = onStudioDurationWeeksChanged;
 
 async function selectStudioOrganizerLeague(leagueId, step = null) {
   const canonical = (typeof normalizeLeagueIdToUuid === 'function') ? normalizeLeagueIdToUuid(leagueId) : leagueId;
@@ -5071,6 +5263,7 @@ function switchStudioOrganizerStep(step, leagueId = null) {
     _studioOrganizerUiState.selectedLeagueId = canonical;
   }
   _studioOrganizerUiState.activeStep = step || 'format';
+  _studioOrganizerUiState.swapSourcePlayer = null;
   const activeId = _studioOrganizerUiState.selectedLeagueId;
   if (activeId && !_studioOrganizerUiState.detailedCache[activeId]) {
     selectStudioOrganizerLeague(activeId, step);
@@ -5083,17 +5276,100 @@ window.switchStudioOrganizerStep = switchStudioOrganizerStep;
 function selectStudioOrganizerPod(podNum) {
   _studioOrganizerUiState.selectedPodNum = Number(podNum) || 1;
   _studioLeagueCmdState.selectedPodNum = Number(podNum) || 1;
+  _studioOrganizerUiState.swapSourcePlayer = null;
   renderManagedStudioLeagues(studioState.managedLeagues || []);
 }
 window.selectStudioOrganizerPod = selectStudioOrganizerPod;
 
+function selectStudioPairingsBoardRound(roundNum) {
+  _studioOrganizerUiState.selectedPairingsBoardRound = Number(roundNum) || 1;
+  _studioLeagueCmdState.selectedPairRound = Number(roundNum) || 1;
+  _studioOrganizerUiState.swapSourcePlayer = null;
+  renderManagedStudioLeagues(studioState.managedLeagues || []);
+}
+window.selectStudioPairingsBoardRound = selectStudioPairingsBoardRound;
+
 async function saveStudioUnifiedFormatAndDates(leagueId, seasonNum) {
-  await saveStudioInlineLeagueDates(leagueId, seasonNum);
-  if (document.getElementById('to-rule-pod-min')) {
-    await saveStudioLeagueRulesConfig(leagueId);
+  // IMPORTANT: Read ALL DOM inputs BEFORE any network request or DOM re-render!
+  const start_date = (document.getElementById(`es-inline-start-${leagueId}`)?.value || '').trim();
+  const end_date = (document.getElementById(`es-inline-end-${leagueId}`)?.value || '').trim();
+  const registration_start = (document.getElementById(`es-inline-reg-start-${leagueId}`)?.value || '').trim();
+  const registration_end = (document.getElementById(`es-inline-reg-end-${leagueId}`)?.value || '').trim();
+  const regOpenEl = document.getElementById(`es-inline-reg-open-${leagueId}`);
+  const pubHubEl = document.getElementById(`es-inline-pub-hub-${leagueId}`);
+
+  const podMinEl = document.getElementById('to-rule-pod-min');
+  const podMaxEl = document.getElementById('to-rule-pod-max');
+  const ptsEl = document.getElementById('to-rule-pts');
+  const weeksEl = document.getElementById('to-rule-weeks');
+  const gamesEl = document.getElementById('to-rule-games');
+  const repModeEl = document.getElementById('to-rule-repeating-mode');
+  const promoEl = document.getElementById('to-rule-promo');
+  const relEl = document.getElementById('to-rule-rel');
+  const minGamesEl = document.getElementById('to-rule-min-games');
+  const finalsEl = document.getElementById('to-rule-finals');
+  const winBpEl = document.getElementById('to-rule-win-bp');
+  const drawBpEl = document.getElementById('to-rule-draw-bp');
+  const paintBpEl = document.getElementById('to-rule-paint-bp');
+  const inpodRingerEl = document.getElementById('to-rule-inpod-ringer');
+  const outpodRingerEl = document.getElementById('to-rule-outpod-ringer');
+  const outpodAllowedEl = document.getElementById('to-rule-outpod-allowed');
+  const cardsEnabledEl = document.getElementById('to-rule-cards-enabled');
+  const podNamesEl = document.getElementById('to-rule-pod-names');
+
+  const wkInfo = computeLeagueActiveWeekClient(start_date, end_date, Number(weeksEl?.value || 8));
+  const finalsVal = finalsEl && finalsEl.value !== '' ? Number(finalsEl.value) : 16;
+  const rawNames = (podNamesEl?.value || '').trim();
+  const custom_pod_names = rawNames
+    ? rawNames.split(',').map(s => s.trim()).filter(Boolean)
+    : undefined;
+
+  const payload = {
+    season_number: Number(seasonNum || 1),
+    start_date: start_date || undefined,
+    end_date: end_date || undefined,
+    registration_start: registration_start || undefined,
+    registration_end: registration_end || undefined,
+    registration_open: regOpenEl ? Boolean(regOpenEl.checked) : undefined,
+    publish_to_community_hub: pubHubEl ? Boolean(pubHubEl.checked) : undefined,
+    pod_size_min: Number(podMinEl?.value || 6),
+    pod_size_max: Number(podMaxEl?.value || 8),
+    points_limit: Number(ptsEl?.value || 2000),
+    season_duration_weeks: Number(weeksEl?.value || wkInfo.total_weeks || 8),
+    games_per_season: Number(gamesEl?.value || 5),
+    repeating_mode: repModeEl?.value || 'auto_repeat',
+    promotion_count: promoEl && promoEl.value !== '' ? Number(promoEl.value) : 2,
+    relegation_count: relEl && relEl.value !== '' ? Number(relEl.value) : 2,
+    min_games_required: minGamesEl && minGamesEl.value !== '' ? Number(minGamesEl.value) : 4,
+    finals_bracket_size: finalsVal,
+    has_playoff_finals: finalsVal > 0,
+    win_bp_bonus: winBpEl && winBpEl.value !== '' ? Number(winBpEl.value) : 1000,
+    draw_bp_bonus: drawBpEl && drawBpEl.value !== '' ? Number(drawBpEl.value) : 500,
+    paint_bonus_bp: paintBpEl && paintBpEl.value !== '' ? Number(paintBpEl.value) : 0,
+    in_pod_ringer_bonus_bp: inpodRingerEl && inpodRingerEl.value !== '' ? Number(inpodRingerEl.value) : 750,
+    out_of_pod_ringer_bonus_bp: outpodRingerEl && outpodRingerEl.value !== '' ? Number(outpodRingerEl.value) : 500,
+    out_of_pod_ringer_allowed: outpodAllowedEl ? Boolean(outpodAllowedEl.checked) : true,
+    enable_disciplinary_cards: cardsEnabledEl ? Boolean(cardsEnabledEl.checked) : true,
+    custom_pod_names
+  };
+
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data && data.league) {
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') {
+        showToast(`✅ Saved League Format, Dates (${ data.league.active_week_info?.short_label || wkInfo.short_label }) & Registration Window!`);
+      }
+    }
+  } catch (e) {
+    console.error('Failed saving unified format and dates:', e);
   }
-  delete _studioOrganizerUiState.detailedCache[leagueId];
-  await selectStudioOrganizerLeague(leagueId, _studioOrganizerUiState.activeStep);
 }
 window.saveStudioUnifiedFormatAndDates = saveStudioUnifiedFormatAndDates;
 
@@ -5178,6 +5454,7 @@ function renderManagedStudioLeagues(leagues) {
   const lid = escapeHtml(selectedCid);
   const isGauntlet = String(lg.slug || lg.name || '').toLowerCase().includes('gauntlet');
   const regOpen = Boolean(lg.registration_open);
+  const pubToCommunityHub = lg.publish_to_community_hub !== undefined ? Boolean(lg.publish_to_community_hub) : (lg.methodology && lg.methodology.publish_to_community_hub !== undefined ? Boolean(lg.methodology.publish_to_community_hub) : true);
   const totalCnt = Number(lg.active_players || activeLgBase.active_players || 0);
   const activeSeasonObj = (typeof lg.active_season === 'object' && lg.active_season !== null) ? lg.active_season : {};
   const activeSeason = Number(activeSeasonObj.season_number || activeLgBase.active_season || 1);
@@ -5194,16 +5471,21 @@ function renderManagedStudioLeagues(leagues) {
   const outOfPodAllowed = meth.out_of_pod_ringer_allowed !== undefined ? Boolean(meth.out_of_pod_ringer_allowed) : true;
   const outOfPodRingerBp = Number(meth.out_of_pod_ringer_bonus_bp ?? 500);
   const paintBp = Number(meth.paint_bonus_bp ?? 0);
-  const seasonWks = Number(meth.season_duration_weeks ?? 8);
+  const rawStart = String(lg.start_date || activeSeasonObj.start_date || activeLgBase.start_date || (isGauntlet ? '2026-09-01' : '2026-09-15')).slice(0, 10);
+  const rawEnd = String(lg.end_date || activeSeasonObj.end_date || activeLgBase.end_date || (isGauntlet ? '2026-10-26' : '2026-11-10')).slice(0, 10);
+  const rawRegStart = String(lg.registration_start || activeSeasonObj.registration_start || meth.registration_start || (isGauntlet ? '2026-08-15' : '2026-09-01')).slice(0, 10);
+  const rawRegEnd = String(lg.registration_end || activeSeasonObj.registration_end || meth.registration_end || rawStart).slice(0, 10);
+  const wkInfo = lg.active_week_info || computeLeagueActiveWeekClient(rawStart, rawEnd, Number(meth.season_duration_weeks ?? 8));
+  const seasonWks = Number(wkInfo.total_weeks || meth.season_duration_weeks || 8);
   const gamesCnt = Number(meth.games_per_season ?? 5);
   const minGamesReq = Number(meth.min_games_required ?? 4);
   const ptsLimit = Number(meth.points_limit ?? 2000);
-  const finalsSize = Number(meth.finals_bracket_size ?? 16);
+  const finalsSize = meth.finals_bracket_size !== undefined && meth.finals_bracket_size !== null ? Number(meth.finals_bracket_size) : 16;
   const repeatingMode = String(meth.repeating_mode || 'auto_repeat');
-  const rawStart = String(lg.start_date || activeSeasonObj.start_date || activeLgBase.start_date || (isGauntlet ? '2026-09-01' : '2026-09-15')).slice(0, 10);
-  const rawEnd = String(lg.end_date || activeSeasonObj.end_date || activeLgBase.end_date || (isGauntlet ? '2026-10-26' : '2026-11-10')).slice(0, 10);
   const prettyStart = fmtDate(rawStart);
   const prettyEnd = fmtDate(rawEnd);
+  const prettyRegStart = fmtDate(rawRegStart);
+  const prettyRegEnd = fmtDate(rawRegEnd);
   const annList = Array.isArray(lg.announcements) ? lg.announcements : (Array.isArray(activeLgBase.announcements) ? activeLgBase.announcements : []);
   const latestAnn = annList.length > 0 ? annList[0] : null;
   const step = _studioOrganizerUiState.activeStep || 'format';
@@ -5228,7 +5510,7 @@ function renderManagedStudioLeagues(leagues) {
         <div class="to-league-config-card" style="border-top: 3px solid #38bdf8;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.65rem;">
             <div style="font-size:0.88rem;font-weight:800;color:#fff;">📐 1. Pod Size &amp; Division Structure</div>
-            <span style="font-size:0.68rem;background:rgba(56,189,248,0.15);color:#38bdf8;padding:2px 8px;border-radius:999px;font-weight:800;">${podsCount} Active Pods</span>
+            <span style="font-size:0.68rem;background:rgba(56,189,248,0.15);color:#38bdf8;padding:2px 8px;border-radius:999px;font-weight:800;">${podsCount} Active Pods (${podMin}–${podMax}p)</span>
           </div>
           <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0.6rem;margin-bottom:0.65rem;">
             <div>
@@ -5252,28 +5534,28 @@ function renderManagedStudioLeagues(leagues) {
 
         <!-- Card 2: League Duration & Repeating Season Automation -->
         <div class="to-league-config-card" style="border-top: 3px solid #34d399;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.65rem;">
-            <div style="font-size:0.88rem;font-weight:800;color:#fff;">🗓️ 2. League Duration &amp; Repeating Cadence</div>
-            <span style="font-size:0.68rem;background:rgba(16,185,129,0.15);color:#34d399;padding:2px 8px;border-radius:999px;font-weight:800;">${seasonWks} Wks • ${gamesCnt} Games</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.65rem;flex-wrap:wrap;gap:0.35rem;">
+            <div style="font-size:0.88rem;font-weight:800;color:#fff;">🗓️ 2. League Duration &amp; Auto-Week Cadence</div>
+            <span id="es-inline-week-live-badge-${lid}" style="font-size:0.68rem;background:rgba(16,185,129,0.18);border:1px solid rgba(16,185,129,0.4);color:#34d399;padding:2px 8px;border-radius:999px;font-weight:800;">🗓️ ${escapeHtml(wkInfo.short_label)} • ${seasonWks} Wks • ${gamesCnt} Games</span>
           </div>
           <div class="to-date-pair-grid">
             <div>
               <label style="display:block;font-size:0.71rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Season Start Date</label>
-              <input id="es-inline-start-${lid}" type="date" value="${escapeHtml(rawStart)}" style="width:100%;padding:0.42rem 0.5rem;background:#0f172a;border:1px solid rgba(16,185,129,0.45);border-radius:6px;color:#fff;font-weight:700;font-size:0.8rem;">
+              <input id="es-inline-start-${lid}" type="date" value="${escapeHtml(rawStart)}" onchange="onStudioSeasonDatesChanged('${lid}')" style="width:100%;padding:0.42rem 0.5rem;background:#0f172a;border:1px solid rgba(16,185,129,0.45);border-radius:6px;color:#fff;font-weight:700;font-size:0.8rem;">
             </div>
             <div>
               <label style="display:block;font-size:0.71rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Season End Date</label>
-              <input id="es-inline-end-${lid}" type="date" value="${escapeHtml(rawEnd)}" style="width:100%;padding:0.42rem 0.5rem;background:#0f172a;border:1px solid rgba(16,185,129,0.45);border-radius:6px;color:#fff;font-weight:700;font-size:0.8rem;">
+              <input id="es-inline-end-${lid}" type="date" value="${escapeHtml(rawEnd)}" onchange="onStudioSeasonDatesChanged('${lid}')" style="width:100%;padding:0.42rem 0.5rem;background:#0f172a;border:1px solid rgba(16,185,129,0.45);border-radius:6px;color:#fff;font-weight:700;font-size:0.8rem;">
             </div>
           </div>
           <div style="display:grid;grid-template-columns:0.6fr 0.6fr 1.4fr;gap:0.6rem;">
             <div>
               <label style="display:block;font-size:0.71rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Duration (Wks)</label>
-              <input id="to-rule-weeks" type="number" min="2" max="24" value="${seasonWks}" style="width:100%;padding:0.44rem;background:#0f172a;border:1px solid rgba(255,255,255,0.16);border-radius:6px;color:#fff;font-weight:700;font-size:0.8rem;">
+              <input id="to-rule-weeks" type="number" min="2" max="24" value="${seasonWks}" onchange="onStudioDurationWeeksChanged('${lid}')" style="width:100%;padding:0.44rem;background:#0f172a;border:1px solid rgba(255,255,255,0.16);border-radius:6px;color:#fff;font-weight:700;font-size:0.8rem;">
             </div>
             <div>
               <label style="display:block;font-size:0.71rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Games / Season</label>
-              <input id="to-rule-games" type="number" min="3" max="10" value="${gamesCnt}" style="width:100%;padding:0.44rem;background:#0f172a;border:1px solid rgba(255,255,255,0.16);border-radius:6px;color:#fff;font-weight:700;font-size:0.8rem;">
+              <input id="to-rule-games" type="number" min="3" max="10" value="${gamesCnt}" onchange="onStudioSeasonDatesChanged('${lid}')" style="width:100%;padding:0.44rem;background:#0f172a;border:1px solid rgba(255,255,255,0.16);border-radius:6px;color:#fff;font-weight:700;font-size:0.8rem;">
             </div>
             <div>
               <label style="display:block;font-size:0.71rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Repeating Season Mode</label>
@@ -5321,7 +5603,7 @@ function renderManagedStudioLeagues(leagues) {
         <div class="to-league-config-card" style="border-top: 3px solid #f59e0b;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.65rem;">
             <div style="font-size:0.88rem;font-weight:800;color:#fff;">🏆 4. Season Championship &amp; Scoring Rules</div>
-            <span style="font-size:0.68rem;background:rgba(245,158,11,0.18);color:#fbbf24;padding:2px 8px;border-radius:999px;font-weight:800;">${finalsSize > 0 ? `Top ${finalsSize} Playoffs` : 'Pod Titles'}</span>
+            <span style="font-size:0.68rem;background:rgba(245,158,11,0.18);color:#fbbf24;padding:2px 8px;border-radius:999px;font-weight:800;">${finalsSize > 0 ? `Top ${finalsSize} Playoffs` : 'No Bracket (Pod Titles)'}</span>
           </div>
           <div style="margin-bottom:0.65rem;">
             <label style="display:block;font-size:0.71rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">End-of-Season Championship Format</label>
@@ -5352,13 +5634,48 @@ function renderManagedStudioLeagues(leagues) {
         </div>
       </div>
 
+      <!-- Card 5: Registration Window & Community Hub Exposure (Sparring Radar + Community Events) -->
+      <div class="to-league-config-card" style="border-top: 3px solid #10b981; margin-bottom: 0.85rem; background: linear-gradient(135deg, rgba(6, 78, 59, 0.22), rgba(15, 23, 42, 0.92));">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.65rem;">
+          <div style="display:flex;align-items:center;gap:0.55rem;flex-wrap:wrap;">
+            <span style="font-size:0.9rem;font-weight:800;color:#fff;">📡 5. Registration Window &amp; Community Hub Visibility</span>
+            <span style="font-size:0.69rem;background:${regOpen ? 'rgba(16,185,129,0.22)' : 'rgba(148,163,184,0.18)'};border:1px solid ${regOpen ? 'rgba(16,185,129,0.45)' : 'rgba(148,163,184,0.35)'};color:${regOpen ? '#34d399' : '#cbd5e1'};padding:2px 9px;border-radius:999px;font-weight:800;">
+              ${regOpen ? `🟢 Live in Sparring Radar (${escapeHtml(prettyRegStart)} – ${escapeHtml(prettyRegEnd)})` : '🔒 Signups Closed'}
+            </span>
+          </div>
+          <button type="button" onclick="if (typeof viewLeagueInSparringRadar === 'function') { viewLeagueInSparringRadar(); } else if (typeof switchTab === 'function') { switchTab('community'); setTimeout(() => { if (typeof switchCommunitySubtab === 'function') switchCommunitySubtab('radar'); }, 120); }" style="background:rgba(16,185,129,0.16);border:1px solid rgba(16,185,129,0.45);color:#34d399;border-radius:6px;padding:0.28rem 0.7rem;font-size:0.73rem;font-weight:800;cursor:pointer;">
+            📡 View in Community Hub → Sparring Radar ↗
+          </button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.75rem;align-items:center;">
+          <div>
+            <label style="display:block;font-size:0.71rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Registration Opens Date</label>
+            <input id="es-inline-reg-start-${lid}" type="date" value="${escapeHtml(rawRegStart)}" style="width:100%;padding:0.42rem 0.5rem;background:#0f172a;border:1px solid rgba(16,185,129,0.45);border-radius:6px;color:#fff;font-weight:700;font-size:0.8rem;">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.71rem;color:#94a3b8;font-weight:700;margin-bottom:0.2rem;">Registration Closes Date</label>
+            <input id="es-inline-reg-end-${lid}" type="date" value="${escapeHtml(rawRegEnd)}" style="width:100%;padding:0.42rem 0.5rem;background:#0f172a;border:1px solid rgba(16,185,129,0.45);border-radius:6px;color:#fff;font-weight:700;font-size:0.8rem;">
+          </div>
+          <div style="display:flex;flex-direction:column;gap:0.4rem;padding-top:0.25rem;">
+            <label style="display:inline-flex;align-items:center;gap:0.45rem;font-size:0.78rem;color:#34d399;font-weight:800;cursor:pointer;">
+              <input id="es-inline-reg-open-${lid}" type="checkbox" ${regOpen ? 'checked' : ''} style="accent-color:#10b981;width:16px;height:16px;">
+              <span>🟢 Registration Window Open for Player Signups</span>
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:0.45rem;font-size:0.76rem;color:#7dd3fc;font-weight:700;cursor:pointer;">
+              <input id="es-inline-pub-hub-${lid}" type="checkbox" ${pubToCommunityHub ? 'checked' : ''} style="accent-color:#38bdf8;width:16px;height:16px;">
+              <span>📡 Show in Community Hub (Sparring Radar &amp; Community Events)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.65rem;padding:0.75rem 1rem;background:rgba(2,6,23,0.78);border:1px solid rgba(56,189,248,0.3);border-radius:10px;">
-        <div style="font-size:0.78rem;color:#cbd5e1;">
-          📅 Active Season Window: <strong style="color:#38bdf8;">${escapeHtml(prettyStart)} – ${escapeHtml(prettyEnd)}</strong> (${seasonWks} Weeks • ${gamesCnt} Games)
+        <div id="es-footer-window-summary-${lid}" style="font-size:0.78rem;color:#cbd5e1;">
+          📅 Active Season Window: <strong style="color:#38bdf8;">${escapeHtml(prettyStart)} – ${escapeHtml(prettyEnd)}</strong> (<strong style="color:#34d399;">${escapeHtml(wkInfo.label)}</strong> • ${seasonWks} Weeks • ${gamesCnt} Games)
         </div>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
           <button type="button" id="es-inline-save-dates-btn-${lid}" onclick="saveStudioUnifiedFormatAndDates('${lid}', ${activeSeason})" class="btn btn-primary" style="font-size:0.8rem;padding:0.48rem 1.05rem;background:linear-gradient(135deg,#0284c7,#2563eb);border:1px solid #38bdf8;font-weight:800;">
-            💾 Save League Format, Dates &amp; Automation
+            💾 Save League Format, Dates &amp; Registration Window
           </button>
           <button type="button" onclick="switchStudioOrganizerStep('roster', '${lid}')" class="btn btn-outline" style="font-size:0.78rem;padding:0.48rem 0.9rem;border-color:rgba(56,189,248,0.45);color:#38bdf8;font-weight:800;">
             Next: 2. Roster &amp; Seeding →
@@ -5377,10 +5694,14 @@ function renderManagedStudioLeagues(leagues) {
                 Pod #${p.pod_number} (${(p.standings || []).length})
               </button>
             `).join('')}
+            <button type="button" id="to-reseed-pod-elo-btn" onclick="reseedStudioPodByElo('${lid}', ${activePod.pod_number})" class="btn btn-outline" style="font-size:0.75rem;padding:0.36rem 0.78rem;border-color:rgba(56,189,248,0.55);background:rgba(56,189,248,0.12);color:#38bdf8;font-weight:800;" title="Sort and re-rank all players in this pod from highest Elo to lowest Elo">
+              ⚡ Auto-Seed Pod #${activePod.pod_number} by Elo
+            </button>
           </div>
           <div style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:center;">
-            <input id="to-add-player-name" type="text" placeholder="Add Player Name..." style="padding:0.38rem 0.6rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;">
-            <input id="to-add-player-faction" type="text" placeholder="Faction (e.g. Necrons)" style="padding:0.38rem 0.6rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;width:145px;">
+            <input id="to-add-player-name" type="text" placeholder="Add Player Name..." style="padding:0.38rem 0.6rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;width:150px;">
+            <input id="to-add-player-faction" type="text" placeholder="Faction (e.g. Necrons)" style="padding:0.38rem 0.6rem;background:#0f172a;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.78rem;width:135px;">
+            <input id="to-add-player-elo" type="number" min="800" max="3000" placeholder="Seed Elo (1600)" style="padding:0.38rem 0.5rem;background:#0f172a;border:1px solid rgba(56,189,248,0.4);border-radius:6px;color:#38bdf8;font-weight:800;font-size:0.78rem;width:115px;">
             <button type="button" onclick="addPlayerToStudioPod('${lid}', ${activePod.pod_number})" class="btn btn-primary" style="font-size:0.76rem;padding:0.4rem 0.8rem;background:linear-gradient(135deg,#9333ea,#7e22ce);border:1px solid #c084fc;font-weight:800;">
               + Add to Pod #${activePod.pod_number}
             </button>
@@ -5395,6 +5716,7 @@ function renderManagedStudioLeagues(leagues) {
             <thead>
               <tr style="background:rgba(15,23,42,0.9);color:#94a3b8;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);">
                 <th style="padding:0.5rem;">Seed &amp; Player</th>
+                <th style="padding:0.5rem;">⚡ Player Elo / Seed Rating</th>
                 <th style="padding:0.5rem;">Faction</th>
                 <th style="padding:0.5rem;">Move Pod</th>
                 <th style="padding:0.5rem;">Activity / Conduct Card</th>
@@ -5403,13 +5725,30 @@ function renderManagedStudioLeagues(leagues) {
               </tr>
             </thead>
             <tbody>
-              ${podStandings.length === 0 ? `<tr><td colspan="6" style="padding:1rem;color:#94a3b8;text-align:center;">Loading pod roster...</td></tr>` : podStandings.map((st, idx) => {
+              ${podStandings.length === 0 ? `<tr><td colspan="7" style="padding:1rem;color:#94a3b8;text-align:center;">Loading pod roster...</td></tr>` : podStandings.map((st, idx) => {
                 const cardVal = String(st.disciplinary_card || 'none').toLowerCase();
+                const fallbackElo = Math.max(1150, 1740 - (Number(activePod.pod_number || 1) - 1) * 110 - idx * 22);
+                const playerElo = Number(st.seed_elo || st.current_elo || fallbackElo);
+                const eloTierColor = playerElo >= 1700 ? '#fbbf24' : (playerElo >= 1520 ? '#38bdf8' : '#34d399');
+                const eloSourceLabel = st.elo_source === 'verified_40k' ? 'Verified 40K' : (st.elo_source === 'seed_override' ? 'Custom Seed' : 'Division Seed');
+                const safePlayerName = escapeHtml(st.name || '').replace(/'/g, "\\'");
                 return `
                   <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
-                    <td style="padding:0.45rem;font-weight:800;color:#fff;">#${st.rank || (idx + 1)} ${escapeHtml(st.name)}</td>
+                    <td style="padding:0.45rem;font-weight:800;color:#fff;">
+                      #${st.rank || (idx + 1)} ${escapeHtml(st.name)}
+                      <span style="display:block;font-size:0.68rem;color:#64748b;font-weight:600;">${st.wins ?? 0}W-${st.losses ?? 0}L (${st.battle_points ?? 0} BP)</span>
+                    </td>
                     <td style="padding:0.45rem;">
-                      <input id="to-rost-fac-${idx}" type="text" value="${escapeHtml(st.primary_faction || '')}" style="padding:0.32rem 0.5rem;background:#0f172a;border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:#38bdf8;font-size:0.76rem;width:145px;">
+                      <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                        <span style="background:rgba(15,23,42,0.95);border:1px solid ${eloTierColor};color:${eloTierColor};padding:2px 7px;border-radius:999px;font-size:0.72rem;font-weight:800;white-space:nowrap;">
+                          ⚡ ${playerElo} ELO
+                        </span>
+                        <input id="to-rost-elo-${idx}" type="number" min="800" max="3000" value="${playerElo}" title="Override player seed Elo rating" style="padding:0.28rem 0.45rem;background:#0f172a;border:1px solid rgba(56,189,248,0.35);border-radius:5px;color:#fff;font-weight:700;font-size:0.74rem;width:74px;">
+                        <span style="font-size:0.65rem;color:#64748b;">${eloSourceLabel}</span>
+                      </div>
+                    </td>
+                    <td style="padding:0.45rem;">
+                      <input id="to-rost-fac-${idx}" type="text" value="${escapeHtml(st.primary_faction || '')}" style="padding:0.32rem 0.5rem;background:#0f172a;border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:#38bdf8;font-size:0.76rem;width:140px;">
                     </td>
                     <td style="padding:0.45rem;">
                       <select id="to-rost-pod-${idx}" style="padding:0.32rem 0.5rem;background:#0f172a;border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:#fff;font-size:0.76rem;">
@@ -5428,7 +5767,7 @@ function renderManagedStudioLeagues(leagues) {
                       <input id="to-rost-drop-${idx}" type="checkbox" ${st.dropped ? 'checked' : ''}>
                     </td>
                     <td style="padding:0.45rem;">
-                      <button type="button" onclick="saveStudioRosterPlayerRow('${lid}', ${activePod.pod_number}, '${escapeHtml(st.name)}', ${idx})" style="background:rgba(16,185,129,0.2);border:1px solid rgba(16,185,129,0.45);color:#34d399;border-radius:5px;padding:0.28rem 0.65rem;font-size:0.73rem;font-weight:800;cursor:pointer;">
+                      <button type="button" onclick="saveStudioRosterPlayerRow('${lid}', ${activePod.pod_number}, '${safePlayerName}', ${idx})" style="background:rgba(16,185,129,0.2);border:1px solid rgba(16,185,129,0.45);color:#34d399;border-radius:5px;padding:0.28rem 0.65rem;font-size:0.73rem;font-weight:800;cursor:pointer;">
                         💾 Save
                       </button>
                     </td>
@@ -5449,14 +5788,64 @@ function renderManagedStudioLeagues(leagues) {
     const selectedPlayer = (_studioLeagueCmdState.selectedPairPlayer && podPlayerNames.includes(_studioLeagueCmdState.selectedPairPlayer))
       ? _studioLeagueCmdState.selectedPairPlayer
       : (podPlayerNames[0] || '');
-    const selectedRound = Number(_studioLeagueCmdState.selectedPairRound || 1);
+    const selectedRound = Number(_studioLeagueCmdState.selectedPairRound || _studioOrganizerUiState.selectedPairingsBoardRound || 1);
+    const boardRound = Number(_studioOrganizerUiState.selectedPairingsBoardRound || selectedRound || 1);
+    const activeBoardLayout = layouts[boardRound - 1] || `Layout ${['A','B','C','A','B'][(boardRound - 1) % 5]}`;
+
     const selectedSt = podStandings.find(s => String(s.name || '').trim() === selectedPlayer) || podStandings[0] || {};
     const currentPair = ((selectedSt.pairings || []).find(pr => Number(pr.round) === selectedRound)) || {};
     const initOpponent = currentPair.opponent_name || podPlayerNames.find(n => n !== selectedPlayer) || '';
     const initCompleted = Boolean(currentPair.is_completed);
-    const initPScore = currentPair.player_score != null ? Number(currentPair.player_score) : 85;
-    const initOScore = currentPair.opponent_score != null ? Number(currentPair.opponent_score) : 70;
+    const initPScore = currentPair.player_score !== undefined && currentPair.player_score !== null ? Number(currentPair.player_score) : 85;
+    const initOScore = currentPair.opponent_score !== undefined && currentPair.opponent_score !== null ? Number(currentPair.opponent_score) : 70;
     const initRinger = Boolean(currentPair.is_ringer);
+
+    // Build visual Matchup Tables for boardRound
+    const stByName = {};
+    podStandings.forEach((st, idx) => {
+      stByName[String(st.name || '').trim()] = {
+        ...st,
+        displayElo: Number(st.seed_elo || st.current_elo || Math.max(1150, 1740 - (Number(activePod.pod_number || 1) - 1) * 110 - idx * 22))
+      };
+    });
+    const pairedPlayers = new Set();
+    const roundTables = [];
+    podStandings.forEach((st) => {
+      const pAName = String(st.name || '').trim();
+      if (!pAName || pairedPlayers.has(pAName)) return;
+      const prA = (st.pairings || []).find(x => Number(x.round) === boardRound) || {};
+      const pBName = String(prA.opponent_name || 'TBD').trim();
+      pairedPlayers.add(pAName);
+      if (pBName && stByName[pBName]) {
+        pairedPlayers.add(pBName);
+      }
+      const stA = stByName[pAName] || st;
+      const stB = stByName[pBName] || {
+        name: pBName || 'TBD',
+        rank: 'R',
+        primary_faction: prA.is_ringer ? 'Official Ringer' : 'Unassigned',
+        displayElo: Number(prA.opponent_elo || 1500),
+        isExternalOrRinger: true
+      };
+      const pScoreVal = prA.player_score !== undefined && prA.player_score !== null
+        ? Number(prA.player_score)
+        : (typeof prA.score === 'string' && prA.score.includes('-') ? parseInt(prA.score.split('-')[0], 10) || 0 : 85);
+      const oScoreVal = prA.opponent_score !== undefined && prA.opponent_score !== null
+        ? Number(prA.opponent_score)
+        : (typeof prA.score === 'string' && prA.score.includes('-') ? parseInt(prA.score.split('-')[1], 10) || 0 : 70);
+      roundTables.push({
+        tableNum: roundTables.length + 1,
+        playerA: stA,
+        playerB: stB,
+        pairing: prA,
+        isCompleted: Boolean(prA.is_completed),
+        isRinger: Boolean(prA.is_ringer),
+        pScore: pScoreVal,
+        oScore: oScoreVal
+      });
+    });
+
+    const swapSrc = _studioOrganizerUiState.swapSourcePlayer;
 
     stepPanelHtml = `
       <div style="background:rgba(2,6,23,0.72);border:1px solid rgba(16,185,129,0.35);border-radius:10px;padding:1rem;">
@@ -5480,11 +5869,116 @@ function renderManagedStudioLeagues(leagues) {
           </div>
         </div>
 
+        <!-- NEW: Interactive Drag-and-Drop Visual Matchup Board -->
+        <div id="to-dnd-pairings-board" style="background:rgba(15,23,42,0.92);border:1px solid rgba(56,189,248,0.4);border-radius:10px;padding:0.9rem;margin-bottom:0.9rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.6rem;margin-bottom:0.75rem;padding-bottom:0.6rem;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+              <span style="font-size:0.84rem;font-weight:800;color:#fff;">🧲 Drag &amp; Drop Round Matchups:</span>
+              ${[1,2,3,4,5].map(r => `
+                <button type="button" id="to-dnd-round-tab-${r}" onclick="selectStudioPairingsBoardRound(${r})" style="padding:0.3rem 0.7rem;border-radius:6px;font-size:0.75rem;font-weight:800;cursor:pointer;border:1px solid ${r === boardRound ? '#38bdf8' : 'rgba(255,255,255,0.14)'};background:${r === boardRound ? 'rgba(56,189,248,0.22)' : '#020617'};color:${r === boardRound ? '#fff' : '#94a3b8'};">
+                  Round ${r}
+                </button>
+              `).join('')}
+              <span style="font-size:0.72rem;background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.3);color:#7dd3fc;padding:2px 8px;border-radius:999px;font-weight:700;">
+                🗺️ ${escapeHtml(activeBoardLayout)}
+              </span>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+              <div draggable="true" ondragstart="onStudioPairingDragStart(event, '${lid}', ${activePod.pod_number}, ${boardRound}, '__RINGER__')" onclick="onStudioPairingSeatClick('${lid}', ${activePod.pod_number}, ${boardRound}, '__RINGER__')" style="padding:0.3rem 0.7rem;border-radius:6px;font-size:0.74rem;font-weight:800;cursor:grab;border:1px dashed #fbbf24;background:${swapSrc === '__RINGER__' ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.14)'};color:#fbbf24;display:inline-flex;align-items:center;gap:0.35rem;" title="Drag this Ringer chip onto any player seat (or click here then click a player) to assign an Official Ringer">
+                🃏 ${swapSrc === '__RINGER__' ? 'Click Target Player for Ringer…' : 'Drag / Click Ringer Chip'}
+              </div>
+              <span style="font-size:0.71rem;color:#94a3b8;">
+                ${swapSrc && swapSrc !== '__RINGER__' ? `<strong style="color:#38bdf8;">🔄 Swapping ${escapeHtml(swapSrc)} — click any other player to swap seats!</strong>` : '💡 Drag any player card onto another seat (or click two players) to swap opponents'}
+              </span>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:0.75rem;">
+            ${roundTables.map((tb, tIdx) => {
+              const pA = tb.playerA;
+              const pB = tb.playerB;
+              const safeA = escapeHtml(pA.name || '').replace(/'/g, "\\'");
+              const safeB = escapeHtml(pB.name || '').replace(/'/g, "\\'");
+              const isASelected = (swapSrc === pA.name);
+              const isBSelected = (swapSrc === pB.name);
+              return `
+                <div class="to-dnd-table-card" data-table-num="${tb.tableNum}" style="background:rgba(2,6,23,0.85);border:1px solid ${tb.isCompleted ? 'rgba(16,185,129,0.4)' : 'rgba(148,163,184,0.22)'};border-radius:9px;padding:0.7rem;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;font-size:0.72rem;">
+                    <span style="font-weight:800;color:#cbd5e1;">⚔️ Table ${tb.tableNum} • R${boardRound}</span>
+                    <span style="padding:1px 7px;border-radius:999px;font-weight:800;font-size:0.67rem;background:${tb.isCompleted ? 'rgba(16,185,129,0.18)' : 'rgba(56,189,248,0.14)'};color:${tb.isCompleted ? '#34d399' : '#38bdf8'};">
+                      ${tb.isCompleted ? `✅ ${tb.pScore} – ${tb.oScore} VP` : (tb.isRinger ? '🃏 Ringer Match' : '⏳ Scheduled')}
+                    </span>
+                  </div>
+
+                  <!-- Seat A -->
+                  <div class="to-dnd-player-seat" data-seat-player="${escapeHtml(pA.name)}" draggable="true"
+                    ondragstart="onStudioPairingDragStart(event, '${lid}', ${activePod.pod_number}, ${boardRound}, '${safeA}')"
+                    ondragover="onStudioPairingDragOver(event)"
+                    ondragleave="onStudioPairingDragLeave(event)"
+                    ondrop="onStudioPairingDrop(event, '${lid}', ${activePod.pod_number}, ${boardRound}, '${safeA}')"
+                    onclick="onStudioPairingSeatClick('${lid}', ${activePod.pod_number}, ${boardRound}, '${safeA}')"
+                    style="display:flex;justify-content:space-between;align-items:center;gap:0.4rem;padding:0.45rem 0.55rem;background:${isASelected ? 'rgba(56,189,248,0.24)' : 'rgba(15,23,42,0.95)'};border:1px solid ${isASelected ? '#38bdf8' : 'rgba(255,255,255,0.12)'};border-radius:7px;cursor:grab;transition:all 0.15s;">
+                    <div style="min-width:0;">
+                      <div style="font-weight:800;color:#fff;font-size:0.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        <span style="color:#64748b;margin-right:3px;">⠿</span> #${pA.rank || 1} ${escapeHtml(pA.name)}
+                      </div>
+                      <div style="font-size:0.68rem;color:#38bdf8;">${escapeHtml(pA.primary_faction || 'Warhammer 40K')}</div>
+                    </div>
+                    <span style="background:rgba(245,158,11,0.16);border:1px solid rgba(245,158,11,0.4);color:#fbbf24;padding:1px 6px;border-radius:999px;font-size:0.67rem;font-weight:800;flex-shrink:0;">
+                      ⚡ ${pA.displayElo || 1600}
+                    </span>
+                  </div>
+
+                  <div style="text-align:center;font-size:0.66rem;font-weight:800;color:#64748b;margin:0.25rem 0;">— VS —</div>
+
+                  <!-- Seat B -->
+                  <div class="to-dnd-player-seat" data-seat-player="${escapeHtml(pB.name)}" draggable="${!pB.isExternalOrRinger}"
+                    ondragstart="onStudioPairingDragStart(event, '${lid}', ${activePod.pod_number}, ${boardRound}, '${safeB}')"
+                    ondragover="onStudioPairingDragOver(event)"
+                    ondragleave="onStudioPairingDragLeave(event)"
+                    ondrop="onStudioPairingDrop(event, '${lid}', ${activePod.pod_number}, ${boardRound}, '${safeB}')"
+                    onclick="onStudioPairingSeatClick('${lid}', ${activePod.pod_number}, ${boardRound}, '${safeB}')"
+                    style="display:flex;justify-content:space-between;align-items:center;gap:0.4rem;padding:0.45rem 0.55rem;background:${isBSelected ? 'rgba(56,189,248,0.24)' : 'rgba(15,23,42,0.95)'};border:1px solid ${isBSelected ? '#38bdf8' : (tb.isRinger ? 'rgba(245,158,11,0.45)' : 'rgba(255,255,255,0.12)')};border-radius:7px;cursor:grab;transition:all 0.15s;">
+                    <div style="min-width:0;">
+                      <div style="font-weight:800;color:#fff;font-size:0.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        <span style="color:#64748b;margin-right:3px;">⠿</span> ${pB.rank && pB.rank !== 'R' ? `#${pB.rank}` : '🃏'} ${escapeHtml(pB.name)}
+                      </div>
+                      <div style="font-size:0.68rem;color:${tb.isRinger ? '#fbbf24' : '#38bdf8'};">${escapeHtml(pB.primary_faction || 'Warhammer 40K')}</div>
+                    </div>
+                    <span style="background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.35);color:#7dd3fc;padding:1px 6px;border-radius:999px;font-size:0.67rem;font-weight:800;flex-shrink:0;">
+                      ⚡ ${pB.displayElo || 1500}
+                    </span>
+                  </div>
+
+                  <!-- Quick Inline Score Bar on Card -->
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:0.35rem;margin-top:0.5rem;padding-top:0.45rem;border-top:1px solid rgba(255,255,255,0.06);">
+                    <div style="display:flex;align-items:center;gap:0.25rem;font-size:0.7rem;color:#94a3b8;">
+                      <span>VP:</span>
+                      <input id="to-card-pscore-${tIdx}" type="number" min="0" max="100" value="${tb.pScore}" style="width:48px;padding:0.22rem 0.35rem;background:#0f172a;border:1px solid rgba(16,185,129,0.4);border-radius:4px;color:#34d399;font-weight:800;font-size:0.72rem;text-align:center;">
+                      <span>–</span>
+                      <input id="to-card-oscore-${tIdx}" type="number" min="0" max="100" value="${tb.oScore}" style="width:48px;padding:0.22rem 0.35rem;background:#0f172a;border:1px solid rgba(239,68,68,0.4);border-radius:4px;color:#f87171;font-weight:800;font-size:0.72rem;text-align:center;">
+                    </div>
+                    <div style="display:flex;gap:0.3rem;">
+                      <button type="button" onclick="saveStudioTableCardScore('${lid}', ${activePod.pod_number}, ${boardRound}, '${safeA}', '${safeB}', ${tIdx}, ${tb.isRinger ? 'true' : 'false'})" style="background:rgba(16,185,129,0.2);border:1px solid rgba(16,185,129,0.45);color:#34d399;border-radius:5px;padding:0.22rem 0.55rem;font-size:0.7rem;font-weight:800;cursor:pointer;">
+                        💾 Save Score
+                      </button>
+                      <button type="button" onclick="selectStudioMatchCellForEdit('${safeA}', ${boardRound})" style="background:rgba(56,189,248,0.14);border:1px solid rgba(56,189,248,0.35);color:#38bdf8;border-radius:5px;padding:0.22rem 0.45rem;font-size:0.7rem;font-weight:700;cursor:pointer;" title="Load into manual editor below">
+                        ✏️
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
         <!-- Inline Pairing Swap / Ringer / Match Score Bar -->
         <div id="to-pairings-editor-box" style="background:rgba(15,23,42,0.9);border:1px solid rgba(56,189,248,0.35);border-radius:8px;padding:0.85rem;margin-bottom:0.85rem;">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.5rem;">
             <div style="font-size:0.8rem;font-weight:800;color:#38bdf8;">
-              🛠️ Pre-Season Pairing Swap, Ringer Assignment &amp; Score Entry
+              🛠️ Direct Pairing Override, Ringer Assignment &amp; Score Entry
             </div>
             <span style="font-size:0.72rem;color:#94a3b8;">💡 Click any <strong style="color:#fff;">R1–R5 cell</strong> below to load that matchup into the editor</span>
           </div>
@@ -5543,7 +6037,7 @@ function renderManagedStudioLeagues(leagues) {
           <table style="width:100%;border-collapse:collapse;font-size:0.76rem;">
             <thead>
               <tr style="background:rgba(15,23,42,0.95);color:#94a3b8;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);">
-                <th style="padding:0.45rem;">Player</th>
+                <th style="padding:0.45rem;">Player &amp; Elo</th>
                 <th style="padding:0.45rem;">Record (BP)</th>
                 <th style="padding:0.45rem;">Round 1</th>
                 <th style="padding:0.45rem;">Round 2</th>
@@ -5553,21 +6047,28 @@ function renderManagedStudioLeagues(leagues) {
               </tr>
             </thead>
             <tbody>
-              ${podStandings.map(st => {
+              ${podStandings.map((st, idx) => {
                 const pMap = {};
                 (st.pairings || []).forEach(pr => { pMap[Number(pr.round)] = pr; });
                 const safeStName = escapeHtml(st.name || '').replace(/'/g, "\\'");
+                const pElo = Number(st.seed_elo || st.current_elo || Math.max(1150, 1740 - (Number(activePod.pod_number || 1) - 1) * 110 - idx * 22));
                 return `
                   <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
-                    <td style="padding:0.45rem;font-weight:800;color:#fff;">#${st.rank} ${escapeHtml(st.name)}</td>
+                    <td style="padding:0.45rem;font-weight:800;color:#fff;">
+                      #${st.rank || (idx + 1)} ${escapeHtml(st.name)}
+                      <span style="color:#38bdf8;font-size:0.68rem;margin-left:4px;">⚡${pElo}</span>
+                    </td>
                     <td style="padding:0.45rem;color:#fbbf24;font-weight:700;">${st.wins}-${st.losses}-${st.draws} (${st.battle_points} BP)</td>
                     ${[1,2,3,4,5].map(r => {
                       const pr = pMap[r] || {};
                       const done = Boolean(pr.is_completed);
                       const isSel = (st.name === selectedPlayer && r === selectedRound);
+                      const pSc = pr.player_score !== undefined && pr.player_score !== null ? pr.player_score : 0;
+                      const oSc = pr.opponent_score !== undefined && pr.opponent_score !== null ? pr.opponent_score : 0;
+                      const scoreText = (pr.score && !String(pr.score).includes('undefined')) ? pr.score : `${pSc}-${oSc}`;
                       return `<td onclick="selectStudioMatchCellForEdit('${safeStName}', ${r})" style="padding:0.4rem;cursor:pointer;border-radius:6px;background:${isSel ? 'rgba(56,189,248,0.18)' : 'transparent'};border:${isSel ? '1px solid rgba(56,189,248,0.5)' : '1px solid transparent'};color:${done ? '#34d399' : '#cbd5e1'};">
                         <div style="font-weight:700;">vs ${escapeHtml(pr.opponent_name || 'TBD')} ✏️</div>
-                        <div style="font-size:0.68rem;color:${done ? '#fde68a' : '#64748b'};">${done ? escapeHtml(pr.score || `${pr.player_score}-${pr.opponent_score}`) : 'Scheduled'}</div>
+                        <div style="font-size:0.68rem;color:${done ? '#fde68a' : '#64748b'};">${done ? escapeHtml(scoreText) : 'Scheduled'}</div>
                       </td>`;
                     }).join('')}
                   </tr>
@@ -5587,7 +6088,7 @@ function renderManagedStudioLeagues(leagues) {
               ▲▼ Automated Promotion &amp; Relegation Live Preview + Season ${activeSeason} Championship Cut
             </div>
             <div style="font-size:0.76rem;color:#94a3b8;">
-              Top <strong style="color:#34d399;">${promoCnt} Players ▲</strong> promote up 1 division • Bottom <strong style="color:#f87171;">${relCnt} Players ▼</strong> relegate down 1 division • Championship Format: <strong style="color:#fbbf24;">${finalsSize > 0 ? `Top ${finalsSize} Playoff Bracket` : 'Pod #1 Champion'}</strong>
+              Top <strong style="color:#34d399;">${promoCnt} Players ▲</strong> promote up 1 division • Bottom <strong style="color:#f87171;">${relCnt} Players ▼</strong> relegate down 1 division • Championship Format: <strong style="color:#fbbf24;">${finalsSize > 0 ? `Top ${finalsSize} Playoff Bracket` : 'No Playoff Bracket — Pod #1 Champion'}</strong>
             </div>
           </div>
           <button type="button" onclick="executeStudioSeasonRolloverPreview('${lid}', ${activeSeason})" class="btn btn-primary" style="font-size:0.78rem;padding:0.48rem 0.95rem;background:linear-gradient(135deg,#7c3aed,#2563eb);border:1px solid #c084fc;font-weight:800;">
@@ -5609,12 +6110,13 @@ function renderManagedStudioLeagues(leagues) {
                 ${stList.map((pl, idx) => {
                   const rank = idx + 1;
                   const isPromo = (pNum > 1 && rank <= promoCnt);
-                  const isChampSeed = (pNum === 1 && rank <= promoCnt);
+                  const isChampSeed = (pNum === 1 && rank <= (finalsSize > 0 ? promoCnt : 1));
                   const isRel = (rank > Math.max(promoCnt, totalInPod - relCnt));
+                  const pElo = Number(pl.seed_elo || pl.current_elo || Math.max(1150, 1740 - (pNum - 1) * 110 - idx * 22));
                   let badgeHtml = `<span style="color:#64748b;font-size:0.68rem;font-weight:700;">● Stay Pod #${pNum}</span>`;
                   let rowBg = 'rgba(255,255,255,0.02)';
                   if (isChampSeed) {
-                    badgeHtml = `<span style="color:#fbbf24;font-size:0.68rem;font-weight:800;">👑 Title Contender</span>`;
+                    badgeHtml = `<span style="color:#fbbf24;font-size:0.68rem;font-weight:800;">👑 ${finalsSize > 0 ? 'Title Playoff Seed' : 'Season Champion'}</span>`;
                     rowBg = 'rgba(245,158,11,0.1)';
                   } else if (isPromo) {
                     badgeHtml = `<span style="color:#34d399;font-size:0.68rem;font-weight:800;">▲ Up to Pod #${pNum - 1}</span>`;
@@ -5625,8 +6127,8 @@ function renderManagedStudioLeagues(leagues) {
                   }
                   return `
                     <div style="display:flex;justify-content:space-between;align-items:center;padding:0.3rem 0.45rem;border-radius:5px;background:${rowBg};margin-bottom:0.22rem;font-size:0.75rem;">
-                      <div style="color:#f8fafc;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:58%;">
-                        #${rank} ${escapeHtml(pl.name)} <span style="color:#64748b;font-weight:500;">(${pl.wins}-${pl.losses})</span>
+                      <div style="color:#f8fafc;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62%;">
+                        #${rank} ${escapeHtml(pl.name)} <span style="color:#38bdf8;font-size:0.67rem;">⚡${pElo}</span> <span style="color:#64748b;font-weight:500;">(${pl.wins}-${pl.losses})</span>
                       </div>
                       ${badgeHtml}
                     </div>
@@ -5657,6 +6159,7 @@ function renderManagedStudioLeagues(leagues) {
                 <option value="rules">⚖️ Rules</option>
                 <option value="pairings">⚔️ Pairings</option>
                 <option value="finals">🏆 Playoffs</option>
+                <option value="general">📣 General</option>
               </select>
             </div>
             <div>
@@ -5681,19 +6184,25 @@ function renderManagedStudioLeagues(leagues) {
               <input id="to-ann-pinned" type="checkbox" checked>
               <span>📌 Pin to Player Hub &amp; League Quick-View</span>
             </label>
-            <button type="button" onclick="submitStudioLeagueAnnouncement('${lid}')" class="btn btn-primary" style="background:linear-gradient(135deg,#f59e0b,#d97706);border:1px solid #fbbf24;color:#0f172a;font-weight:800;font-size:0.78rem;padding:0.42rem 0.9rem;">
+            <button type="button" id="to-ann-submit-btn" onclick="submitStudioLeagueAnnouncement('${lid}')" class="btn btn-primary" style="background:linear-gradient(135deg,#f59e0b,#d97706);border:1px solid #fbbf24;color:#0f172a;font-weight:800;font-size:0.78rem;padding:0.42rem 0.9rem;">
               📢 Publish Alert
             </button>
           </div>
         </div>
 
-        <div style="background:rgba(2,6,23,0.8);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:0.95rem;max-height:290px;overflow-y:auto;">
+        <div style="background:rgba(2,6,23,0.8);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:0.95rem;max-height:320px;overflow-y:auto;">
           <div style="font-size:0.84rem;font-weight:800;color:#e2e8f0;margin-bottom:0.55rem;">📋 Published Notices (${annList.length})</div>
-          ${annList.map(a => `
-            <div style="background:rgba(15,23,42,0.85);border-left:3px solid #f59e0b;border-radius:6px;padding:0.6rem;margin-bottom:0.5rem;">
+          ${annList.length === 0 ? `<div style="color:#94a3b8;font-size:0.78rem;padding:0.75rem 0;">No announcements published for this league. Use the form on the left to broadcast a notice.</div>` : annList.map(a => `
+            <div class="to-published-ann-item" data-ann-id="${escapeHtml(a.id)}" style="background:rgba(15,23,42,0.85);border-left:3px solid #f59e0b;border-radius:6px;padding:0.6rem;margin-bottom:0.5rem;">
               <div style="display:flex;justify-content:space-between;align-items:center;gap:0.4rem;">
-                <strong style="color:#fff;font-size:0.8rem;">${escapeHtml(a.title)}</strong>
-                <button type="button" onclick="deleteStudioLeagueAnnouncement('${lid}', '${escapeHtml(a.id)}')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#f87171;border-radius:4px;padding:1px 6px;font-size:0.68rem;cursor:pointer;">Delete</button>
+                <div>
+                  <strong style="color:#fff;font-size:0.8rem;">${escapeHtml(a.title)}</strong>
+                  <span style="margin-left:6px;font-size:0.66rem;color:#34d399;background:rgba(16,185,129,0.14);padding:1px 6px;border-radius:4px;font-weight:700;">🎯 ${escapeHtml(a.target_pod || 'All Pods')}</span>
+                </div>
+                <div style="display:flex;gap:0.35rem;">
+                  <button type="button" onclick="populateStudioAnnouncementForEdit('${escapeHtml(a.id)}')" style="background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.35);color:#38bdf8;border-radius:4px;padding:1px 6px;font-size:0.68rem;cursor:pointer;">Edit</button>
+                  <button type="button" onclick="deleteStudioLeagueAnnouncement('${lid}', '${escapeHtml(a.id)}')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#f87171;border-radius:4px;padding:1px 6px;font-size:0.68rem;cursor:pointer;">Delete</button>
+                </div>
               </div>
               <div style="font-size:0.74rem;color:#cbd5e1;margin-top:0.2rem;">${escapeHtml(a.body)}</div>
             </div>
@@ -5758,6 +6267,7 @@ function renderManagedStudioLeagues(leagues) {
           const tPlayers = Number(tabLg.active_players || 0);
           const tStart = String(tabLg.start_date || (tIsGauntlet ? '2026-09-01' : '2026-09-15')).slice(0, 10);
           const tEnd = String(tabLg.end_date || (tIsGauntlet ? '2026-10-26' : '2026-11-10')).slice(0, 10);
+          const tWk = tabLg.active_week_info || computeLeagueActiveWeekClient(tStart, tEnd, 8);
           return `
             <button type="button" class="to-league-switcher-tab ${isSelected ? 'active' : ''}" onclick="selectStudioOrganizerLeague('${escapeHtml(tCid)}')">
               <div style="min-width:0;">
@@ -5765,7 +6275,7 @@ function renderManagedStudioLeagues(leagues) {
                   ${tIsGauntlet ? '⚔️' : '🛡️'} ${escapeHtml(tabLg.name)} — Season ${tSeason}
                 </div>
                 <div style="font-size:0.73rem;color:${isSelected ? '#7dd3fc' : '#94a3b8'};margin-top:0.18rem;">
-                  ${tPods} Pods (${tPlayers} Players) • 📅 ${escapeHtml(fmtDate(tStart))} – ${escapeHtml(fmtDate(tEnd))}
+                  ${tPods} Pods (${tPlayers} Players) • 🗓️ ${escapeHtml(tWk.short_label)} (${escapeHtml(fmtDate(tStart))} – ${escapeHtml(fmtDate(tEnd))})
                 </div>
               </div>
               <span style="padding:3px 8px;border-radius:999px;font-size:0.68rem;font-weight:800;background:${isSelected ? 'rgba(56,189,248,0.22)' : 'rgba(255,255,255,0.06)'};color:${isSelected ? '#38bdf8' : '#94a3b8'};flex-shrink:0;">
@@ -5785,16 +6295,19 @@ function renderManagedStudioLeagues(leagues) {
               <span id="es-comm-reg-badge-${lid}" style="background:${regOpen ? 'rgba(16,185,129,0.2)' : 'rgba(148,163,184,0.18)'};color:${regOpen ? '#34d399' : '#cbd5e1'};border:1px solid ${regOpen ? 'rgba(16,185,129,0.45)' : 'rgba(148,163,184,0.35)'};padding:2px 9px;border-radius:999px;font-size:0.71rem;font-weight:800;">
                 ${regOpen ? '🟢 REGISTRATION OPEN' : '🔒 REGISTRATION CLOSED'}
               </span>
+              <span id="es-comm-week-badge-${lid}" style="background:rgba(16,185,129,0.18);color:#34d399;border:1px solid rgba(16,185,129,0.45);padding:2px 9px;border-radius:999px;font-size:0.71rem;font-weight:800;">
+                🗓️ ${escapeHtml(wkInfo.label)}
+              </span>
               <span id="es-comm-dates-badge-${lid}" style="background:rgba(56,189,248,0.16);color:#38bdf8;border:1px solid rgba(56,189,248,0.42);padding:2px 9px;border-radius:999px;font-size:0.71rem;font-weight:800;">
                 📅 Started: ${escapeHtml(prettyStart)} • Ends: ${escapeHtml(prettyEnd)}
               </span>
               <span style="background:rgba(168,85,247,0.16);color:#c084fc;border:1px solid rgba(168,85,247,0.38);padding:2px 9px;border-radius:999px;font-size:0.71rem;font-weight:800;">
-                🔁 Auto-Repeat: ${seasonWks} Weeks
+                🔁 ${repeatingMode === 'single' ? 'Single Season' : `Auto-Repeat: ${seasonWks} Weeks`}
               </span>
             </div>
             <h3 style="margin:0;color:#fff;font-size:1.2rem;">🛡️ ${escapeHtml(lg.name)} — Season ${activeSeason}</h3>
             <div style="font-size:0.79rem;color:#94a3b8;margin-top:0.2rem;">
-              📍 <strong>${escapeHtml(lg.venue_name || (isGauntlet ? 'Brute Force Games' : 'At Ease Games'))}</strong> (${escapeHtml(lg.region || 'San Diego, CA')}) • ⚔️ <strong>${podsCount} Tiered Pods</strong> (${totalCnt} Players)
+              📍 <strong>${escapeHtml(lg.venue_name || (isGauntlet ? 'Brute Force Games' : 'At Ease Games'))}</strong> (${escapeHtml(lg.region || 'San Diego, CA')}) • ⚔️ <strong>${podsCount} Tiered Pods</strong> (${totalCnt} Players) • 📡 Reg Window: <strong>${escapeHtml(prettyRegStart)} – ${escapeHtml(prettyRegEnd)}</strong>
             </div>
           </div>
 
@@ -5819,19 +6332,19 @@ function renderManagedStudioLeagues(leagues) {
             <div class="to-league-pillar-sub">${podsCount} Pods • ${ptsLimit} pts</div>
           </div>
           <div class="to-league-pillar-card" onclick="switchStudioOrganizerStep('format', '${lid}')" title="Configure League Start/End Dates &amp; Duration">
-            <div class="to-league-pillar-kicker"><span>🗓️</span> Duration</div>
-            <div class="to-league-pillar-val" style="color:#34d399;">${seasonWks} Weeks (${gamesCnt}G)</div>
-            <div class="to-league-pillar-sub">${escapeHtml(prettyStart)} – ${escapeHtml(prettyEnd)}</div>
+            <div class="to-league-pillar-kicker"><span>🗓️</span> Active Week &amp; Dates</div>
+            <div id="es-pillar-duration-val-${lid}" class="to-league-pillar-val" style="color:#34d399;">${escapeHtml(wkInfo.short_label)} (${gamesCnt}G)</div>
+            <div id="es-pillar-duration-sub-${lid}" class="to-league-pillar-sub">${escapeHtml(prettyStart)} – ${escapeHtml(prettyEnd)} (${seasonWks} Wks)</div>
           </div>
-          <div class="to-league-pillar-card" onclick="switchStudioOrganizerStep('format', '${lid}')" title="Configure Repeating Season Automation">
-            <div class="to-league-pillar-kicker"><span>🔁</span> Repeating</div>
-            <div class="to-league-pillar-val" style="color:#a78bfa;">${repeatingMode === 'single' ? 'Single Season' : 'Auto-Seasonal'}</div>
-            <div class="to-league-pillar-sub">Auto Rollover &amp; Reseed</div>
+          <div class="to-league-pillar-card" onclick="switchStudioOrganizerStep('format', '${lid}')" title="Configure Repeating Season Automation &amp; Registration Window">
+            <div class="to-league-pillar-kicker"><span>📡</span> Reg Window</div>
+            <div class="to-league-pillar-val" style="color:${regOpen ? '#34d399' : '#94a3b8'};">${regOpen ? 'Open in Radar' : 'Closed'}</div>
+            <div class="to-league-pillar-sub">${escapeHtml(prettyRegStart)} – ${escapeHtml(prettyRegEnd)}</div>
           </div>
-          <div class="to-league-pillar-card" onclick="switchStudioOrganizerStep('pairings', '${lid}')" title="Generate or Swap Pre-Season Pairings">
+          <div class="to-league-pillar-card" onclick="switchStudioOrganizerStep('pairings', '${lid}')" title="Drag &amp; Drop Pre-Season Pairings">
             <div class="to-league-pillar-kicker"><span>⚔️</span> Pairings</div>
-            <div class="to-league-pillar-val" style="color:#34d399;">R1–R${gamesCnt} Ready</div>
-            <div class="to-league-pillar-sub">Pre-Season Auto-Pair</div>
+            <div class="to-league-pillar-val" style="color:#34d399;">R1–R${gamesCnt} Drag &amp; Drop</div>
+            <div class="to-league-pillar-sub">Swap Seats &amp; Ringers</div>
           </div>
           <div class="to-league-pillar-card" onclick="switchStudioOrganizerStep('updown', '${lid}')" title="Configure Automated Promotion &amp; Relegation">
             <div class="to-league-pillar-kicker"><span>▲▼</span> Auto Up/Down</div>
@@ -5841,7 +6354,7 @@ function renderManagedStudioLeagues(leagues) {
           <div class="to-league-pillar-card" onclick="switchStudioOrganizerStep('updown', '${lid}')" title="Configure Season Championship Bracket">
             <div class="to-league-pillar-kicker"><span>🏆</span> Championship</div>
             <div class="to-league-pillar-val" style="color:#fbbf24;">${finalsSize > 0 ? `Top ${finalsSize} Playoffs` : 'Pod Champions'}</div>
-            <div class="to-league-pillar-sub">${finalsSize > 0 ? 'End-of-Season Bracket' : 'Direct Division Title'}</div>
+            <div class="to-league-pillar-sub">${finalsSize > 0 ? 'End-of-Season Bracket' : 'No Playoff Bracket'}</div>
           </div>
         </div>
 
@@ -5862,17 +6375,17 @@ function renderManagedStudioLeagues(leagues) {
           <button type="button" class="to-workflow-step-btn ${step === 'format' ? 'active' : ''}" onclick="switchStudioOrganizerStep('format', '${lid}')">
             <span class="to-workflow-step-num">Step 1 • Setup</span>
             <span class="to-workflow-step-title">📐 Format &amp; Cadence</span>
-            <span class="to-workflow-step-desc">Pod Size, Dates &amp; Repeat</span>
+            <span class="to-workflow-step-desc">Dates, Reg Window &amp; Rules</span>
           </button>
           <button type="button" class="to-workflow-step-btn ${step === 'roster' ? 'active' : ''}" onclick="switchStudioOrganizerStep('roster', '${lid}')">
             <span class="to-workflow-step-num">Step 2 • Players</span>
             <span class="to-workflow-step-title">👥 Roster &amp; Seeding</span>
-            <span class="to-workflow-step-desc">${totalCnt} Players across ${podsCount} Pods</span>
+            <span class="to-workflow-step-desc">${totalCnt} Players • ⚡ Elo Seeds</span>
           </button>
           <button type="button" class="to-workflow-step-btn ${step === 'pairings' ? 'active' : ''}" onclick="switchStudioOrganizerStep('pairings', '${lid}')">
             <span class="to-workflow-step-num">Step 3 • Matchups</span>
             <span class="to-workflow-step-title">⚔️ Pairings &amp; Layouts</span>
-            <span class="to-workflow-step-desc">Pre-Season R1–R${gamesCnt} &amp; Ringers</span>
+            <span class="to-workflow-step-desc">Drag &amp; Drop R1–R${gamesCnt}</span>
           </button>
           <button type="button" class="to-workflow-step-btn ${step === 'updown' ? 'active' : ''}" onclick="switchStudioOrganizerStep('updown', '${lid}')">
             <span class="to-workflow-step-num">Step 4 • Progression</span>
@@ -5920,6 +6433,8 @@ async function syncStudioLeagueParticipants(leagueId = '8f5e3b2c-9a14-5d7e-8b3a-
     const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/sync-participants`, { method: 'POST' });
     if (res.ok) {
       const json = await res.json();
+      delete _studioOrganizerUiState.detailedCache[leagueId];
+      await selectStudioOrganizerLeague(leagueId, _studioOrganizerUiState.activeStep);
       await loadManagedStudioLeagues();
       if (typeof showToast === 'function') {
         showToast(`✅ Synced ${json.season_matched_count || 0} / ${json.season_participants_count || 0} participant identities in PostgreSQL`);
@@ -5936,16 +6451,29 @@ async function toggleStudioLeagueRegistration(leagueId = '8f5e3b2c-9a14-5d7e-8b3
     const badge = document.getElementById(`es-comm-reg-badge-${leagueId}`) || document.getElementById('es-comm-reg-badge');
     const currentlyOpen = (typeof currentOpenState === 'boolean') ? currentOpenState : (badge ? badge.textContent.includes('OPEN') : true);
     const targetOpen = !currentlyOpen;
+    const regStartEl = document.getElementById(`es-inline-reg-start-${leagueId}`);
+    const regEndEl = document.getElementById(`es-inline-reg-end-${leagueId}`);
+    const pubHubEl = document.getElementById(`es-inline-pub-hub-${leagueId}`);
     const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/registration-window`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ registration_open: targetOpen })
+      body: JSON.stringify({
+        registration_open: targetOpen,
+        registration_start: regStartEl?.value || undefined,
+        registration_end: regEndEl?.value || undefined,
+        publish_to_community_hub: pubHubEl ? Boolean(pubHubEl.checked) : true
+      })
     });
     if (res.ok) {
       const json = await res.json();
+      if (json.league) {
+        syncStudioLeagueCacheAfterMutation(leagueId, json.league);
+      } else {
+        delete _studioOrganizerUiState.detailedCache[leagueId];
+      }
       await loadManagedStudioLeagues();
       if (typeof showToast === 'function') {
-        showToast(json.registration_open ? '🟢 Registration Window OPENED in Sparring Radar' : '🔒 Registration Window CLOSED');
+        showToast(json.registration_open ? '🟢 Registration Window OPENED in Sparring Radar & Community Hub' : '🔒 Registration Window CLOSED');
       }
     }
   } catch (e) {
@@ -6329,21 +6857,25 @@ function renderStudioLeagueCommandCenterModal() {
               </tr>
             </thead>
             <tbody>
-              ${standings.map(st => {
+              ${standings.map((st, idx) => {
                 const pMap = {};
                 (st.pairings || []).forEach(pr => { pMap[Number(pr.round)] = pr; });
                 const safeStName = escapeHtml(st.name || '').replace(/'/g, "\\'");
+                const pElo = Number(st.seed_elo || st.current_elo || Math.max(1150, 1740 - (Number(activePod.pod_number || 1) - 1) * 110 - idx * 22));
                 return `
                   <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
-                    <td style="padding:0.45rem;font-weight:700;color:#fff;">#${st.rank} ${escapeHtml(st.name)} <span style="color:#38bdf8;font-size:0.68rem;">(${escapeHtml(st.primary_faction || '')})</span></td>
+                    <td style="padding:0.45rem;font-weight:700;color:#fff;">#${st.rank || (idx + 1)} ${escapeHtml(st.name)} <span style="color:#fbbf24;font-size:0.68rem;">⚡${pElo}</span> <span style="color:#38bdf8;font-size:0.68rem;">(${escapeHtml(st.primary_faction || '')})</span></td>
                     <td style="padding:0.45rem;color:#fbbf24;font-weight:700;">${st.wins}-${st.losses}-${st.draws} (${st.battle_points} BP)</td>
                     ${[1,2,3,4,5].map(r => {
                       const pr = pMap[r] || {};
                       const done = Boolean(pr.is_completed);
                       const isSel = (st.name === selectedPlayer && r === selectedRound);
+                      const pSc = pr.player_score !== undefined && pr.player_score !== null ? pr.player_score : 0;
+                      const oSc = pr.opponent_score !== undefined && pr.opponent_score !== null ? pr.opponent_score : 0;
+                      const scoreText = (pr.score && !String(pr.score).includes('undefined')) ? pr.score : `${pSc}-${oSc}`;
                       return `<td onclick="selectStudioMatchCellForEdit('${safeStName}', ${r})" title="Click to load ${escapeHtml(st.name)} Round ${r} into the pairing editor" style="padding:0.4rem;cursor:pointer;border-radius:6px;transition:background 0.15s;background:${isSel ? 'rgba(56,189,248,0.18)' : 'transparent'};border:${isSel ? '1px solid rgba(56,189,248,0.5)' : '1px solid transparent'};color:${done ? '#34d399' : '#cbd5e1'};" onmouseover="if(!${isSel})this.style.background='rgba(255,255,255,0.05)'" onmouseout="if(!${isSel})this.style.background='transparent'">
                         <div style="font-weight:700;">vs ${escapeHtml(pr.opponent_name || 'TBD')} ✏️</div>
-                        <div style="font-size:0.68rem;color:${done ? '#fde68a' : '#64748b'};">${done ? escapeHtml(pr.score || `${pr.player_score}-${pr.opponent_score}`) : escapeHtml(pr.layout || 'Scheduled')}</div>
+                        <div style="font-size:0.68rem;color:${done ? '#fde68a' : '#64748b'};">${done ? escapeHtml(scoreText) : escapeHtml(pr.layout || 'Scheduled')}</div>
                       </td>`;
                     }).join('')}
                   </tr>
@@ -6362,16 +6894,20 @@ function renderStudioLeagueCommandCenterModal() {
       <div style="background:rgba(15,23,42,0.85);border:1px solid rgba(168,85,247,0.35);border-radius:10px;padding:1.1rem;">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.8rem;">
           <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;">
-            <span style="font-size:0.85rem;font-weight:800;color:#c084fc;">👥 Manage Pod Roster &amp; Disciplinary Cards:</span>
+            <span style="font-size:0.85rem;font-weight:800;color:#c084fc;">👥 Manage Pod Roster, Elo Seeds &amp; Cards:</span>
             ${pods.map(p => `
               <button type="button" onclick="selectStudioLeagueCmdPod(${p.pod_number})" style="padding:0.32rem 0.7rem;border-radius:6px;font-size:0.76rem;font-weight:800;cursor:pointer;border:1px solid ${Number(p.pod_number) === Number(activePod.pod_number) ? '#c084fc' : 'rgba(255,255,255,0.12)'};background:${Number(p.pod_number) === Number(activePod.pod_number) ? 'rgba(168,85,247,0.25)' : '#020617'};color:${Number(p.pod_number) === Number(activePod.pod_number) ? '#e9d5ff' : '#94a3b8'};">
                 Pod #${p.pod_number} (${escapeHtml(p.name || '')})
               </button>
             `).join('')}
+            <button type="button" onclick="reseedStudioPodByElo('${lid}', ${activePod.pod_number})" class="btn btn-outline" style="font-size:0.74rem;padding:0.34rem 0.75rem;border-color:rgba(56,189,248,0.5);color:#38bdf8;font-weight:800;">
+              ⚡ Auto-Seed Pod #${activePod.pod_number} by Elo
+            </button>
           </div>
-          <div style="display:flex;gap:0.4rem;align-items:center;">
+          <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
             <input id="to-add-player-name" type="text" placeholder="New Player Name..." style="padding:0.36rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.76rem;">
-            <input id="to-add-player-faction" type="text" placeholder="Faction (e.g. Necrons)" style="padding:0.36rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.76rem;width:140px;">
+            <input id="to-add-player-faction" type="text" placeholder="Faction (e.g. Necrons)" style="padding:0.36rem 0.6rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;font-size:0.76rem;width:130px;">
+            <input id="to-add-player-elo" type="number" min="800" max="3000" placeholder="Seed Elo (1600)" style="padding:0.36rem 0.5rem;background:#020617;border:1px solid rgba(56,189,248,0.4);border-radius:6px;color:#38bdf8;font-weight:800;font-size:0.76rem;width:110px;">
             <button type="button" onclick="addPlayerToStudioPod('${lid}', ${activePod.pod_number})" class="btn btn-primary" style="font-size:0.74rem;padding:0.38rem 0.75rem;background:linear-gradient(135deg,#9333ea,#7e22ce);border:1px solid #c084fc;font-weight:800;">
               + Add to Pod #${activePod.pod_number}
             </button>
@@ -6383,6 +6919,7 @@ function renderStudioLeagueCommandCenterModal() {
             <thead>
               <tr style="background:rgba(2,6,23,0.9);color:#94a3b8;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);">
                 <th style="padding:0.5rem;">Player</th>
+                <th style="padding:0.5rem;">⚡ Player Elo</th>
                 <th style="padding:0.5rem;">Primary Faction</th>
                 <th style="padding:0.5rem;">Pod Assignment</th>
                 <th style="padding:0.5rem;">Disciplinary Card</th>
@@ -6393,11 +6930,17 @@ function renderStudioLeagueCommandCenterModal() {
             <tbody>
               ${standings.map((st, idx) => {
                 const cardVal = String(st.disciplinary_card || 'none').toLowerCase();
+                const fallbackElo = Math.max(1150, 1740 - (Number(activePod.pod_number || 1) - 1) * 110 - idx * 22);
+                const playerElo = Number(st.seed_elo || st.current_elo || fallbackElo);
+                const safePlayerName = escapeHtml(st.name || '').replace(/'/g, "\\'");
                 return `
                   <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
-                    <td style="padding:0.45rem;font-weight:800;color:#fff;">#${st.rank} ${escapeHtml(st.name)}</td>
+                    <td style="padding:0.45rem;font-weight:800;color:#fff;">#${st.rank || (idx + 1)} ${escapeHtml(st.name)}</td>
                     <td style="padding:0.45rem;">
-                      <input id="to-rost-fac-${idx}" type="text" value="${escapeHtml(st.primary_faction || '')}" style="padding:0.32rem 0.5rem;background:#020617;border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:#38bdf8;font-size:0.76rem;width:150px;">
+                      <input id="to-rost-elo-${idx}" type="number" min="800" max="3000" value="${playerElo}" style="padding:0.3rem 0.45rem;background:#020617;border:1px solid rgba(56,189,248,0.4);border-radius:5px;color:#fbbf24;font-weight:800;font-size:0.76rem;width:82px;">
+                    </td>
+                    <td style="padding:0.45rem;">
+                      <input id="to-rost-fac-${idx}" type="text" value="${escapeHtml(st.primary_faction || '')}" style="padding:0.32rem 0.5rem;background:#020617;border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:#38bdf8;font-size:0.76rem;width:140px;">
                     </td>
                     <td style="padding:0.45rem;">
                       <select id="to-rost-pod-${idx}" style="padding:0.32rem 0.5rem;background:#020617;border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:#fff;font-size:0.76rem;">
@@ -6416,7 +6959,7 @@ function renderStudioLeagueCommandCenterModal() {
                       <input id="to-rost-drop-${idx}" type="checkbox" ${st.dropped ? 'checked' : ''}>
                     </td>
                     <td style="padding:0.45rem;">
-                      <button type="button" onclick="saveStudioRosterPlayerRow('${lid}', ${activePod.pod_number}, '${escapeHtml(st.name)}', ${idx})" style="background:rgba(16,185,129,0.2);border:1px solid rgba(16,185,129,0.45);color:#34d399;border-radius:5px;padding:0.28rem 0.65rem;font-size:0.73rem;font-weight:800;cursor:pointer;">
+                      <button type="button" onclick="saveStudioRosterPlayerRow('${lid}', ${activePod.pod_number}, '${safePlayerName}', ${idx})" style="background:rgba(16,185,129,0.2);border:1px solid rgba(16,185,129,0.45);color:#34d399;border-radius:5px;padding:0.28rem 0.65rem;font-size:0.73rem;font-weight:800;cursor:pointer;">
                         💾 Save
                       </button>
                     </td>
@@ -6430,6 +6973,7 @@ function renderStudioLeagueCommandCenterModal() {
     `;
   } else if (tab === 'rules') {
     const meth = lg.methodology || {};
+    const finalsVal = meth.finals_bracket_size !== undefined && meth.finals_bracket_size !== null ? Number(meth.finals_bracket_size) : 16;
     const customNamesStr = Array.isArray(meth.custom_pod_names) && meth.custom_pod_names.length > 0
       ? meth.custom_pod_names.join(', ')
       : (Array.isArray(pods) && pods.length > 0 ? pods.map(p => p.pod_name || `Pod #${p.pod_number}`).join(', ') : 'Pod #1 (Premier Division), Pod #2 (Challenger Division), Pod #3 (Vanguard Division)');
@@ -6484,7 +7028,7 @@ function renderStudioLeagueCommandCenterModal() {
           </div>
           <div>
             <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">Playoff Finals Size (0=None)</label>
-            <input id="to-rule-finals" type="number" value="${Number(meth.finals_bracket_size ?? 16)}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;">
+            <input id="to-rule-finals" type="number" value="${finalsVal}" style="width:100%;padding:0.48rem;background:#020617;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:#fff;">
           </div>
           <div>
             <label style="display:block;font-size:0.73rem;color:#94a3b8;font-weight:700;margin-bottom:0.25rem;">In-Pod Ringer Bonus BP</label>
@@ -6607,10 +7151,7 @@ async function submitStudioLeagueAnnouncement(leagueId) {
     });
     const data = await res.json();
     if (data.league) {
-      _studioLeagueCmdState.leagueData = data.league;
-      if (typeof leagueState !== 'undefined' && leagueState._cache) {
-        delete leagueState._cache[leagueId];
-      }
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
       renderStudioLeagueCommandCenterModal();
       await loadManagedStudioLeagues();
       if (typeof showToast === 'function') showToast('📢 League announcement published & player alerts updated!');
@@ -6628,10 +7169,7 @@ async function deleteStudioLeagueAnnouncement(leagueId, annId) {
     });
     const data = await res.json();
     if (data.league) {
-      _studioLeagueCmdState.leagueData = data.league;
-      if (typeof leagueState !== 'undefined' && leagueState._cache) {
-        delete leagueState._cache[leagueId];
-      }
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
       renderStudioLeagueCommandCenterModal();
       await loadManagedStudioLeagues();
       if (typeof showToast === 'function') showToast('🗑️ Announcement removed.');
@@ -6645,6 +7183,10 @@ window.deleteStudioLeagueAnnouncement = deleteStudioLeagueAnnouncement;
 async function saveStudioInlineLeagueDates(leagueId, seasonNum) {
   const start_date = document.getElementById(`es-inline-start-${leagueId}`)?.value || '';
   const end_date = document.getElementById(`es-inline-end-${leagueId}`)?.value || '';
+  const registration_start = document.getElementById(`es-inline-reg-start-${leagueId}`)?.value || undefined;
+  const registration_end = document.getElementById(`es-inline-reg-end-${leagueId}`)?.value || undefined;
+  const regOpenEl = document.getElementById(`es-inline-reg-open-${leagueId}`);
+  const pubHubEl = document.getElementById(`es-inline-pub-hub-${leagueId}`);
   if (!start_date || !end_date) {
     alert('Please specify both a League Start Date and End Date.');
     return;
@@ -6656,21 +7198,16 @@ async function saveStudioInlineLeagueDates(leagueId, seasonNum) {
       body: JSON.stringify({
         season_number: seasonNum || 1,
         start_date,
-        end_date
+        end_date,
+        registration_start,
+        registration_end,
+        registration_open: regOpenEl ? Boolean(regOpenEl.checked) : undefined,
+        publish_to_community_hub: pubHubEl ? Boolean(pubHubEl.checked) : undefined
       })
     });
     const data = await res.json();
     if (data.league) {
-      if (_studioLeagueCmdState && _studioLeagueCmdState.leagueId === leagueId) {
-        _studioLeagueCmdState.leagueData = data.league;
-      }
-      if (typeof leagueState !== 'undefined') {
-        if (leagueState._cache) delete leagueState._cache[leagueId];
-        if (leagueState.activeLeagueId === leagueId) {
-          leagueState.currentLeagueData = data.league;
-          if (typeof renderLeagueHub === 'function') renderLeagueHub(data.league);
-        }
-      }
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
       await loadManagedStudioLeagues();
       if (typeof showToast === 'function') showToast(`✅ League Start (${start_date}) & End (${end_date}) Dates saved!`);
     }
@@ -6712,14 +7249,7 @@ async function saveStudioSeasonSchedule(leagueId, seasonNum) {
     });
     const data = await res.json();
     if (data.league) {
-      _studioLeagueCmdState.leagueData = data.league;
-      if (typeof leagueState !== 'undefined') {
-        if (leagueState._cache) delete leagueState._cache[leagueId];
-        if (leagueState.activeLeagueId === leagueId) {
-          leagueState.currentLeagueData = data.league;
-          if (typeof renderLeagueHub === 'function') renderLeagueHub(data.league);
-        }
-      }
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
       renderStudioLeagueCommandCenterModal();
       await loadManagedStudioLeagues();
       if (typeof showToast === 'function') showToast('✅ Season schedule, dates & terrain layouts saved to PostgreSQL!');
@@ -6752,8 +7282,8 @@ function syncStudioPairingsFormFromSelection() {
 
   if (oppEl) oppEl.value = pr.opponent_name || '';
   if (statusEl) statusEl.value = pr.is_completed ? 'completed' : 'scheduled';
-  if (pScoreEl) pScoreEl.value = pr.player_score != null ? Number(pr.player_score) : 85;
-  if (oScoreEl) oScoreEl.value = pr.opponent_score != null ? Number(pr.opponent_score) : 70;
+  if (pScoreEl) pScoreEl.value = pr.player_score !== undefined && pr.player_score !== null ? Number(pr.player_score) : 85;
+  if (oScoreEl) oScoreEl.value = pr.opponent_score !== undefined && pr.opponent_score !== null ? Number(pr.opponent_score) : 70;
   if (ringerEl) ringerEl.checked = Boolean(pr.is_ringer);
 }
 window.syncStudioPairingsFormFromSelection = syncStudioPairingsFormFromSelection;
@@ -6761,7 +7291,9 @@ window.syncStudioPairingsFormFromSelection = syncStudioPairingsFormFromSelection
 function selectStudioMatchCellForEdit(playerName, roundNum) {
   _studioLeagueCmdState.selectedPairPlayer = String(playerName || '');
   _studioLeagueCmdState.selectedPairRound = Number(roundNum || 1);
+  _studioOrganizerUiState.selectedPairingsBoardRound = Number(roundNum || 1);
   renderStudioLeagueCommandCenterModal();
+  renderManagedStudioLeagues(studioState.managedLeagues || []);
   const box = document.getElementById('to-pairings-editor-box');
   if (box) {
     box.style.boxShadow = '0 0 0 2px #38bdf8';
@@ -6769,6 +7301,175 @@ function selectStudioMatchCellForEdit(playerName, roundNum) {
   }
 }
 window.selectStudioMatchCellForEdit = selectStudioMatchCellForEdit;
+
+function onStudioPairingDragStart(event, leagueId, podNum, roundNum, playerName) {
+  _studioOrganizerUiState.swapSourcePlayer = String(playerName || '');
+  _studioOrganizerUiState.swapSourceRound = Number(roundNum || 1);
+  if (event && event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', JSON.stringify({
+      leagueId,
+      podNum: Number(podNum || 1),
+      roundNum: Number(roundNum || 1),
+      sourcePlayer: String(playerName || '')
+    }));
+  }
+}
+window.onStudioPairingDragStart = onStudioPairingDragStart;
+
+function onStudioPairingDragOver(event) {
+  if (event) {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    if (event.currentTarget) {
+      event.currentTarget.style.borderColor = '#38bdf8';
+      event.currentTarget.style.boxShadow = '0 0 0 2px rgba(56,189,248,0.45)';
+    }
+  }
+}
+window.onStudioPairingDragOver = onStudioPairingDragOver;
+
+function onStudioPairingDragLeave(event) {
+  if (event && event.currentTarget) {
+    event.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+    event.currentTarget.style.boxShadow = 'none';
+  }
+}
+window.onStudioPairingDragLeave = onStudioPairingDragLeave;
+
+async function onStudioPairingDrop(event, leagueId, podNum, roundNum, targetPlayerName) {
+  if (event) {
+    event.preventDefault();
+    if (event.currentTarget) {
+      event.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+      event.currentTarget.style.boxShadow = 'none';
+    }
+  }
+  let sourcePlayer = _studioOrganizerUiState.swapSourcePlayer;
+  if (event && event.dataTransfer) {
+    try {
+      const parsed = JSON.parse(event.dataTransfer.getData('text/plain') || '{}');
+      if (parsed && parsed.sourcePlayer) sourcePlayer = parsed.sourcePlayer;
+    } catch (_) {}
+  }
+  _studioOrganizerUiState.swapSourcePlayer = null;
+  if (!sourcePlayer || sourcePlayer === targetPlayerName) return;
+  await executeStudioSeatSwapOrRinger(leagueId, podNum, roundNum, sourcePlayer, targetPlayerName);
+}
+window.onStudioPairingDrop = onStudioPairingDrop;
+
+async function onStudioPairingSeatClick(leagueId, podNum, roundNum, playerName) {
+  const prev = _studioOrganizerUiState.swapSourcePlayer;
+  if (!prev) {
+    _studioOrganizerUiState.swapSourcePlayer = String(playerName || '');
+    _studioOrganizerUiState.swapSourceRound = Number(roundNum || 1);
+    renderManagedStudioLeagues(studioState.managedLeagues || []);
+    return;
+  }
+  if (prev === playerName) {
+    _studioOrganizerUiState.swapSourcePlayer = null;
+    renderManagedStudioLeagues(studioState.managedLeagues || []);
+    return;
+  }
+  _studioOrganizerUiState.swapSourcePlayer = null;
+  await executeStudioSeatSwapOrRinger(leagueId, podNum, roundNum, prev, playerName);
+}
+window.onStudioPairingSeatClick = onStudioPairingSeatClick;
+
+async function executeStudioSeatSwapOrRinger(leagueId, podNum, roundNum, sourcePlayer, targetPlayer) {
+  if (!sourcePlayer || !targetPlayer || sourcePlayer === targetPlayer) return;
+  try {
+    let payload;
+    if (sourcePlayer === '__RINGER__') {
+      payload = {
+        action: 'update_match',
+        pod_number: Number(podNum || 1),
+        round: Number(roundNum || 1),
+        player_name: targetPlayer,
+        opponent_name: 'Out-of-Pod Ringer (Ringer)',
+        is_ringer: true,
+        is_completed: false,
+        player_score: 0,
+        opponent_score: 0
+      };
+    } else if (targetPlayer === '__RINGER__') {
+      payload = {
+        action: 'update_match',
+        pod_number: Number(podNum || 1),
+        round: Number(roundNum || 1),
+        player_name: sourcePlayer,
+        opponent_name: 'Out-of-Pod Ringer (Ringer)',
+        is_ringer: true,
+        is_completed: false,
+        player_score: 0,
+        opponent_score: 0
+      };
+    } else {
+      payload = {
+        action: 'swap_seats_in_round',
+        pod_number: Number(podNum || 1),
+        round: Number(roundNum || 1),
+        player_a: sourcePlayer,
+        player_b: targetPlayer
+      };
+    }
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/pairings/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data && data.league) {
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
+      renderStudioLeagueCommandCenterModal();
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') {
+        if (sourcePlayer === '__RINGER__' || targetPlayer === '__RINGER__') {
+          showToast(`🃏 Assigned Official Ringer in Round ${roundNum}!`);
+        } else {
+          showToast(`🔄 Swapped Round ${roundNum} seats: ${sourcePlayer} ⇄ ${targetPlayer}!`);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed executing seat swap or ringer assignment:', e);
+  }
+}
+window.executeStudioSeatSwapOrRinger = executeStudioSeatSwapOrRinger;
+
+async function saveStudioTableCardScore(leagueId, podNum, roundNum, playerA, playerB, tableIdx, isRinger = false) {
+  const pScore = Number(document.getElementById(`to-card-pscore-${tableIdx}`)?.value ?? 85);
+  const oScore = Number(document.getElementById(`to-card-oscore-${tableIdx}`)?.value ?? 70);
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/pairings/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'update_match',
+        pod_number: Number(podNum || 1),
+        round: Number(roundNum || 1),
+        player_name: playerA,
+        opponent_name: playerB,
+        is_ringer: Boolean(isRinger),
+        is_completed: true,
+        player_score: pScore,
+        opponent_score: oScore
+      })
+    });
+    const data = await res.json();
+    if (data && data.league) {
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
+      renderStudioLeagueCommandCenterModal();
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') {
+        showToast(`✅ Saved Round ${roundNum} Score: ${playerA} (${pScore} VP) vs ${playerB} (${oScore} VP)!`);
+      }
+    }
+  } catch (e) {
+    console.error('Failed saving table card score:', e);
+  }
+}
+window.saveStudioTableCardScore = saveStudioTableCardScore;
 
 async function submitStudioPodPairingOverride(leagueId, podNum) {
   const player_name = document.getElementById('to-pair-player')?.value || '';
@@ -6781,6 +7482,7 @@ async function submitStudioPodPairingOverride(leagueId, podNum) {
 
   _studioLeagueCmdState.selectedPairPlayer = player_name;
   _studioLeagueCmdState.selectedPairRound = round;
+  _studioOrganizerUiState.selectedPairingsBoardRound = round;
 
   try {
     const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/pairings/update`, {
@@ -6800,18 +7502,9 @@ async function submitStudioPodPairingOverride(leagueId, podNum) {
     });
     const data = await res.json();
     if (data.league) {
-      _studioLeagueCmdState.leagueData = data.league;
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
       renderStudioLeagueCommandCenterModal();
       await loadManagedStudioLeagues();
-      if (typeof window.leagueState !== 'undefined' && window.leagueState) {
-        if (String(window.leagueState.activeLeagueId || '') === String(data.league.league_id || leagueId)) {
-          window.leagueState.currentLeagueData = data.league;
-          window.leagueState.leagueData = data.league;
-          if (typeof renderLeagueDetailView === 'function') {
-            renderLeagueDetailView(data.league.league_id || leagueId);
-          }
-        }
-      }
       if (typeof showToast === 'function') showToast(`⚔️ Updated Pod #${podNum} Round ${round} (${player_name} vs ${opponent_name}) & recalculated standings!`);
     } else if (data.error) {
       alert(`Failed to update pairing: ${data.error}`);
@@ -6832,8 +7525,9 @@ async function regenerateStudioPodPairings(leagueId, podNum) {
     });
     const data = await res.json();
     if (data.league) {
-      _studioLeagueCmdState.leagueData = data.league;
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
       renderStudioLeagueCommandCenterModal();
+      await loadManagedStudioLeagues();
       if (typeof showToast === 'function') showToast(`🔄 Regenerated 5-round schedule for Pod #${podNum}!`);
     }
   } catch (e) {
@@ -6845,6 +7539,8 @@ window.regenerateStudioPodPairings = regenerateStudioPodPairings;
 async function addPlayerToStudioPod(leagueId, podNum) {
   const player_name = (document.getElementById('to-add-player-name')?.value || '').trim();
   const primary_faction = (document.getElementById('to-add-player-faction')?.value || 'Space Marines').trim();
+  const eloRaw = (document.getElementById('to-add-player-elo')?.value || '').trim();
+  const seed_elo = eloRaw ? Number(eloRaw) : undefined;
   if (!player_name) {
     alert('Enter a player name to add to the pod.');
     return;
@@ -6853,14 +7549,14 @@ async function addPlayerToStudioPod(leagueId, podNum) {
     const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/roster/update`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'add_player', pod_number: podNum, player_name, primary_faction })
+      body: JSON.stringify({ action: 'add_player', pod_number: podNum, player_name, primary_faction, seed_elo })
     });
     const data = await res.json();
     if (data.league) {
-      _studioLeagueCmdState.leagueData = data.league;
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
       renderStudioLeagueCommandCenterModal();
       await loadManagedStudioLeagues();
-      if (typeof showToast === 'function') showToast(`👤 Added ${player_name} to Pod #${podNum}!`);
+      if (typeof showToast === 'function') showToast(`👤 Added ${player_name}${seed_elo ? ` (⚡${seed_elo} Elo)` : ''} to Pod #${podNum}!`);
     }
   } catch (e) {
     console.error('Failed adding player to pod:', e);
@@ -6873,6 +7569,8 @@ async function saveStudioRosterPlayerRow(leagueId, podNum, playerName, idx) {
   const target_pod_number = Number(document.getElementById(`to-rost-pod-${idx}`)?.value || podNum);
   const disciplinary_card = document.getElementById(`to-rost-card-${idx}`)?.value || 'none';
   const dropped = Boolean(document.getElementById(`to-rost-drop-${idx}`)?.checked);
+  const eloVal = document.getElementById(`to-rost-elo-${idx}`)?.value;
+  const seed_elo = (eloVal !== undefined && eloVal !== '') ? Number(eloVal) : undefined;
 
   try {
     const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/roster/update`, {
@@ -6885,15 +7583,16 @@ async function saveStudioRosterPlayerRow(leagueId, podNum, playerName, idx) {
         primary_faction,
         target_pod_number,
         disciplinary_card,
-        dropped
+        dropped,
+        seed_elo
       })
     });
     const data = await res.json();
     if (data.league) {
-      _studioLeagueCmdState.leagueData = data.league;
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
       renderStudioLeagueCommandCenterModal();
       await loadManagedStudioLeagues();
-      if (typeof showToast === 'function') showToast(`✅ Updated ${playerName} (${disciplinary_card.toUpperCase()} card / Pod #${target_pod_number})`);
+      if (typeof showToast === 'function') showToast(`✅ Updated ${playerName} (${seed_elo ? `⚡${seed_elo} Elo • ` : ''}${disciplinary_card.toUpperCase()} card / Pod #${target_pod_number})`);
     }
   } catch (e) {
     console.error('Failed saving player roster update:', e);
@@ -6901,18 +7600,45 @@ async function saveStudioRosterPlayerRow(leagueId, podNum, playerName, idx) {
 }
 window.saveStudioRosterPlayerRow = saveStudioRosterPlayerRow;
 
+async function reseedStudioPodByElo(leagueId, podNum) {
+  try {
+    const res = await fetch(`/api/league/${encodeURIComponent(leagueId)}/roster/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'reseed_pod_by_elo',
+        pod_number: Number(podNum || 1)
+      })
+    });
+    const data = await res.json();
+    if (data && data.league) {
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
+      renderStudioLeagueCommandCenterModal();
+      await loadManagedStudioLeagues();
+      if (typeof showToast === 'function') {
+        showToast(`⚡ Auto-seeded Pod #${podNum} from highest Elo (#1 seed) to lowest Elo!`);
+      }
+    }
+  } catch (e) {
+    console.error('Failed reseeding pod by Elo:', e);
+  }
+}
+window.reseedStudioPodByElo = reseedStudioPodByElo;
+
 async function saveStudioLeagueRulesConfig(leagueId) {
   const pod_size_min = Number(document.getElementById('to-rule-pod-min')?.value || 6);
   const pod_size_max = Number(document.getElementById('to-rule-pod-max')?.value || 8);
   const points_limit = Number(document.getElementById('to-rule-pts')?.value || 2000);
   const season_duration_weeks = Number(document.getElementById('to-rule-weeks')?.value || 8);
   const games_per_season = Number(document.getElementById('to-rule-games')?.value || 5);
+  const repeating_mode = document.getElementById('to-rule-repeating-mode')?.value || undefined;
   const win_bp_bonus = Number(document.getElementById('to-rule-win-bp')?.value ?? 1000);
   const draw_bp_bonus = Number(document.getElementById('to-rule-draw-bp')?.value ?? 500);
   const paint_bonus_bp = Number(document.getElementById('to-rule-paint-bp')?.value ?? 0);
   const promotion_count = Number(document.getElementById('to-rule-promo')?.value ?? 2);
   const relegation_count = Number(document.getElementById('to-rule-rel')?.value ?? 2);
-  const finals_bracket_size = Number(document.getElementById('to-rule-finals')?.value ?? 16);
+  const finalsEl = document.getElementById('to-rule-finals');
+  const finals_bracket_size = (finalsEl && finalsEl.value !== '') ? Number(finalsEl.value) : 16;
   const in_pod_ringer_bonus_bp = Number(document.getElementById('to-rule-inpod-ringer')?.value ?? 750);
   const out_of_pod_ringer_bonus_bp = Number(document.getElementById('to-rule-outpod-ringer')?.value ?? 500);
   const min_games_required = Number(document.getElementById('to-rule-min-games')?.value ?? 4);
@@ -6933,6 +7659,7 @@ async function saveStudioLeagueRulesConfig(leagueId) {
         points_limit,
         season_duration_weeks,
         games_per_season,
+        repeating_mode,
         win_bp_bonus,
         draw_bp_bonus,
         paint_bonus_bp,
@@ -6950,7 +7677,7 @@ async function saveStudioLeagueRulesConfig(leagueId) {
     });
     const data = await res.json();
     if (data.league) {
-      _studioLeagueCmdState.leagueData = data.league;
+      syncStudioLeagueCacheAfterMutation(leagueId, data.league);
       renderStudioLeagueCommandCenterModal();
       await loadManagedStudioLeagues();
       if (typeof showToast === 'function') showToast('⚙️ Unified Community League format & scoring rules updated!');

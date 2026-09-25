@@ -2757,6 +2757,7 @@ window.toggleLeagueRegistrationWindow = toggleLeagueRegistrationWindow;
  */
 function viewLeagueInSparringRadar() {
   if (typeof switchTab === 'function') switchTab('community');
+  else if (typeof switchView === 'function') switchView('community');
   if (typeof switchCommunitySubtab === 'function') {
     setTimeout(() => {
       switchCommunitySubtab('radar');
@@ -2767,47 +2768,76 @@ function viewLeagueInSparringRadar() {
 window.viewLeagueInSparringRadar = viewLeagueInSparringRadar;
 
 /**
- * Renders active League Registration banners inside Sparring Radar ONLY when registration is open
+ * Renders active League Registration banners inside Sparring Radar & Community Events ONLY when registration is open
  */
 async function renderSparringRadarLeagueRegistrations() {
-  const container = document.getElementById('radar-active-league-registrations');
-  if (!container) return;
+  const radarContainer = document.getElementById('radar-active-league-registrations');
+  const tourneySubview = document.getElementById('comm-subview-tournaments');
+  let tourneyContainer = document.getElementById('tournaments-active-league-registrations');
+  if (!tourneyContainer && tourneySubview) {
+    tourneyContainer = document.createElement('div');
+    tourneyContainer.id = 'tournaments-active-league-registrations';
+    tourneyContainer.style.marginBottom = '1rem';
+    const toolbar = tourneySubview.querySelector('.comm-tournaments-toolbar');
+    if (toolbar && toolbar.nextSibling) {
+      tourneySubview.insertBefore(tourneyContainer, toolbar.nextSibling);
+    } else {
+      tourneySubview.prepend(tourneyContainer);
+    }
+  }
+  if (!radarContainer && !tourneyContainer) return;
 
   try {
     const res = await fetch('/api/leagues');
     if (!res.ok) return;
     const json = await res.json();
-    const openLeagues = (json.leagues || []).filter(l => l.registration_open !== false);
+    const openLeagues = (json.leagues || []).filter(l => l.registration_open !== false && l.publish_to_community_hub !== false);
     if (!openLeagues.length) {
-      container.innerHTML = '';
+      if (radarContainer) radarContainer.innerHTML = '';
+      if (tourneyContainer) tourneyContainer.innerHTML = '';
       return;
     }
 
-    container.innerHTML = openLeagues.map(l => {
+    const cardsHtml = openLeagues.map(l => {
       const lid = l.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90';
       const isG = String(l.slug || l.name || '').toLowerCase().includes('gauntlet');
       const sDate = formatLeagueDateShort(l.start_date || (isG ? '2026-09-01' : '2026-09-15'));
       const eDate = formatLeagueDateShort(l.end_date || (isG ? '2026-10-26' : '2026-11-10'));
+      const regS = formatLeagueDateShort(l.registration_start || (isG ? '2026-08-15' : '2026-09-01'));
+      const regE = formatLeagueDateShort(l.registration_end || l.start_date || (isG ? '2026-09-01' : '2026-09-15'));
+      const meth = l.methodology || {};
+      const wkInfo = l.active_week_info || (typeof computeLeagueActiveWeekClient === 'function' ? computeLeagueActiveWeekClient(l.start_date, l.end_date, meth.season_duration_weeks || 8) : { short_label: 'Week 2 of 8' });
+      const podMin = Number(meth.pod_size_min ?? 6);
+      const podMax = Number(meth.pod_size_max ?? 8);
+      const promoCnt = Number(meth.promotion_count ?? 2);
+      const relCnt = Number(meth.relegation_count ?? 2);
+      const wksCnt = Number(wkInfo.total_weeks || meth.season_duration_weeks || 8);
+      const gamesCnt = Number(meth.games_per_season ?? 5);
+      const finalsSize = meth.finals_bracket_size !== undefined && meth.finals_bracket_size !== null ? Number(meth.finals_bracket_size) : 16;
+
       return `
-        <div class="card" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(15, 23, 42, 0.92) 100%); border: 1px solid rgba(16, 185, 129, 0.45); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 0.85rem; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);">
+        <div class="card" data-radar-league-id="${escapeHtml(lid)}" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(15, 23, 42, 0.92) 100%); border: 1px solid rgba(16, 185, 129, 0.45); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 0.85rem; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);">
           <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.85rem;">
             <div style="flex: 1; min-width: 260px;">
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.3rem;">
                 <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.45); font-size: 0.68rem; font-weight: 800; padding: 2px 8px; border-radius: 999px; text-transform: uppercase;">
-                  📡 LIVE REGISTRATION OPEN • SPARRING RADAR
+                  📡 REGISTRATION OPEN (${escapeHtml(regS)} – ${escapeHtml(regE)})
+                </span>
+                <span style="background: rgba(56, 189, 248, 0.16); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 0.68rem; font-weight: 800; padding: 2px 8px; border-radius: 999px;">
+                  🗓️ ${escapeHtml(wkInfo.short_label || `${wksCnt} Weeks`)}
                 </span>
                 <span style="font-size: 0.74rem; color: #38bdf8; font-weight: 700;">
-                  📅 Started: ${escapeHtml(sDate)} • Ends: ${escapeHtml(eDate)}
+                  📅 Season: ${escapeHtml(sDate)} – ${escapeHtml(eDate)}
                 </span>
                 <span style="font-size: 0.74rem; color: #fbbf24; font-weight: 700;">
-                  🔁 Auto-Recurring 8-Week Seasons • 5 Games / Season
+                  🔁 ${wksCnt}-Week Season • ${gamesCnt} Games
                 </span>
               </div>
               <h3 style="margin: 0 0 0.25rem 0; font-size: 1.15rem; font-weight: 800; color: #fff;">
                 🛡️ ${escapeHtml(l.name || 'San Diego 40k BIG League @ At Ease Games')}
               </h3>
               <div style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.45;">
-                📍 <strong>${escapeHtml(l.region || 'San Diego, CA')}</strong> • <strong>6–8 Players / Pod</strong> (Evenly Distributed) • <strong>Top 2 ▲ Up 1 Pod</strong> • <strong>Bottom 2 ▼ Down 1 Pod</strong> • <strong>New Entrants Start in Bottom Pod</strong>
+                📍 <strong>${escapeHtml(l.region || 'San Diego, CA')}</strong> • <strong>${podMin}–${podMax} Players / Pod</strong> • <strong>Top ${promoCnt} ▲ Up 1 Pod</strong> • <strong>Bottom ${relCnt} ▼ Down 1 Pod</strong> • <strong>${finalsSize > 0 ? `Top ${finalsSize} Playoffs` : 'No Playoff Bracket (Pod #1 Title)'}</strong>
               </div>
             </div>
             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
@@ -2822,6 +2852,9 @@ async function renderSparringRadarLeagueRegistrations() {
         </div>
       `;
     }).join('');
+
+    if (radarContainer) radarContainer.innerHTML = cardsHtml;
+    if (tourneyContainer) tourneyContainer.innerHTML = cardsHtml;
   } catch (e) {}
 }
 window.renderSparringRadarLeagueRegistrations = renderSparringRadarLeagueRegistrations;
