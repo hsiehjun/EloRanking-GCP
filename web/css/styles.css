@@ -12406,6 +12406,9 @@ table.desktop-only,
 .armory-modal-card {
   max-width: 960px !important;
   max-height: 90vh !important;
+  padding: 0 !important;
+  margin: auto !important;
+  box-sizing: border-box !important;
   background: #090d16 !important;
   border: 1.5px solid rgba(245, 158, 11, 0.3) !important;
   border-radius: var(--radius-lg, 16px) !important;
@@ -15512,18 +15515,31 @@ table.desktop-only,
    RETRIBUTION ARMORY QUARTERMASTER LOADING SCREEN
    ========================================================================= */
 .armory-loading-screen {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 auto !important;
+  padding: 2.5rem 1.5rem;
   min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   background: radial-gradient(circle at center, rgba(245, 158, 11, 0.08) 0%, rgba(15, 23, 42, 0) 70%);
   border-radius: 14px;
+  overflow: hidden;
 }
 
 .armory-loading-emblem-wrap {
   position: relative;
   width: 86px;
   height: 86px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .armory-loading-orbital-ring {
@@ -15535,6 +15551,7 @@ table.desktop-only,
   border-right-color: #38bdf8;
   animation: armoryOrbitalSpin 1.25s cubic-bezier(0.5, 0.15, 0.5, 0.85) infinite;
   box-shadow: 0 0 24px rgba(245, 158, 11, 0.25);
+  box-sizing: border-box;
 }
 
 .armory-loading-orbital-ring.armory-loading-orbital-inner {
@@ -15547,11 +15564,16 @@ table.desktop-only,
 
 .armory-loading-crest-icon {
   font-size: 2.1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.55));
   animation: armoryCrestPulse 1.8s ease-in-out infinite;
 }
 
 .armory-loading-progress-track {
+  box-sizing: border-box;
   width: 100%;
   max-width: 320px;
   height: 6px;
@@ -15559,7 +15581,7 @@ table.desktop-only,
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
   overflow: hidden;
-  margin-bottom: 1.75rem;
+  margin: 0 auto 1.75rem;
 }
 
 .armory-loading-progress-bar {
@@ -15572,14 +15594,17 @@ table.desktop-only,
 }
 
 .armory-loading-skeleton-grid {
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.85rem;
   width: 100%;
   max-width: 780px;
+  margin: 0 auto;
 }
 
 .armory-loading-skeleton-card {
+  box-sizing: border-box;
   background: rgba(15, 23, 42, 0.65);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
@@ -15587,6 +15612,7 @@ table.desktop-only,
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 0.55rem;
 }
 
@@ -15615,9 +15641,49 @@ table.desktop-only,
   width: 46%;
 }
 
+@media (max-width: 768px) {
+  #retribution-armory-modal.modal-backdrop {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    justify-content: center !important;
+  }
+  .armory-modal-card {
+    padding: 0 !important;
+    margin: 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
 @media (max-width: 640px) {
+  .armory-loading-screen {
+    padding: 1.75rem 0.85rem !important;
+    min-height: 300px !important;
+  }
+  .armory-loading-emblem-wrap {
+    width: 72px;
+    height: 72px;
+  }
+  .armory-loading-crest-icon {
+    font-size: 1.8rem;
+  }
+  .armory-loading-title {
+    font-size: 1.12rem !important;
+  }
+  .armory-loading-subtitle {
+    font-size: 0.78rem !important;
+    max-width: 310px !important;
+  }
+  .armory-loading-progress-track {
+    max-width: 240px;
+    margin-bottom: 1.25rem;
+  }
   .armory-loading-skeleton-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+  .armory-loading-skeleton-card {
+    padding: 0.75rem 0.5rem;
   }
 }
 

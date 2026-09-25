@@ -1332,15 +1332,15 @@
   function buildArmoryLoadingHtml(statusText) {
     var msg = statusText || 'Synchronizing Command Vault, Equipped Relics & Glory Balance...';
     return [
-      '<div class="armory-loading-screen" style="grid-column: 1 / -1; width: 100%; padding: 2.5rem 1.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">',
+      '<div class="armory-loading-screen" style="grid-column: 1 / -1; width: 100%; max-width: 100%; box-sizing: border-box; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">',
       '  <div class="armory-loading-emblem-wrap">',
       '    <div class="armory-loading-orbital-ring"></div>',
       '    <div class="armory-loading-orbital-ring armory-loading-orbital-inner"></div>',
       '    <div class="armory-loading-crest-icon">🏛️</div>',
       '  </div>',
-      '  <div style="font-size: 0.72rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #fbbf24; margin-top: 1.15rem;">QUARTERMASTER VAULT DISPATCH</div>',
-      '  <h3 style="margin: 0.3rem 0 0.35rem; font-size: 1.28rem; font-weight: 800; color: #ffffff;">Opening Retribution Armory...</h3>',
-      '  <div style="font-size: 0.84rem; color: #94a3b8; max-width: 440px; margin-bottom: 1.1rem;">' + escapeHtml(msg) + '</div>',
+      '  <div class="armory-loading-kicker" style="font-size: 0.72rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #fbbf24; margin-top: 1.15rem; width: 100%; text-align: center;">QUARTERMASTER VAULT DISPATCH</div>',
+      '  <h3 class="armory-loading-title" style="margin: 0.3rem auto 0.35rem; font-size: 1.28rem; font-weight: 800; color: #ffffff; width: 100%; text-align: center;">Opening Retribution Armory...</h3>',
+      '  <div class="armory-loading-subtitle" style="font-size: 0.84rem; color: #94a3b8; max-width: 440px; width: 100%; margin: 0 auto 1.1rem; text-align: center; box-sizing: border-box; padding: 0 0.25rem;">' + escapeHtml(msg) + '</div>',
       '  <div class="armory-loading-progress-track">',
       '    <div class="armory-loading-progress-bar"></div>',
       '  </div>',
