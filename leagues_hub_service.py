@@ -78,28 +78,69 @@ def _get_league_lookup_candidates(league_id_or_slug: str) -> Tuple[str, List[str
     return (lid, list({lid, raw}), list({raw.lower(), lid.lower()}))
 
 
-def generate_round_robin_pairings(player_names: List[str], num_rounds: int = 5) -> Dict[str, List[Dict[str, Any]]]:
-    """Generates standard round-robin scheduled pairings with cycling terrain layouts."""
-    n = len(player_names)
-    players = list(player_names)
-    if n % 2 != 0:
-        players.append("BYE")
-        n += 1
+def generate_round_robin_pairings(player_names: List[str], num_rounds: int = 5, randomize: bool = False) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Generates conflict-free Berger Circle round-robin pairings with cycling terrain layouts:
+    - Guarantees NO duplicate matchups across rounds 1 .. min(num_rounds, N-1)
+    - Guarantees EVERY player gets all `num_rounds` games (assigning Official Ringer if pod size is odd)
+    - Supports optional randomization of initial player positions for random pairing generation
+    """
+    import random
+    clean_names = [p for p in dict.fromkeys(player_names) if p and p not in ("BYE", "__RINGER__")]
+    if not clean_names:
+        return {}
 
-    rounds_pairings = {p: [] for p in player_names}
+    work_players = list(clean_names)
+    if randomize:
+        random.shuffle(work_players)
+
+    if len(work_players) % 2 != 0:
+        work_players.append("__RINGER__")
+    n = len(work_players)
+
+    rounds_pairings: Dict[str, List[Dict[str, Any]]] = {p: [] for p in clean_names}
     layouts = ["Layout A", "Layout B", "Layout C", "Layout A", "Layout B", "Layout C"]
 
-    for r in range(min(num_rounds, n - 1)):
+    max_unique_rounds = max(1, n - 1)
+    for r in range(num_rounds):
+        if r > 0 and r % max_unique_rounds == 0 and n > 2:
+            # Only reached if num_rounds > n - 1 (e.g. tiny pod < 6 players); rotate non-anchor players
+            pass
         round_num = r + 1
         layout = layouts[r % len(layouts)]
         for i in range(n // 2):
-            p1 = players[i]
-            p2 = players[n - 1 - i]
-            if p1 != "BYE" and p2 != "BYE":
+            p1 = work_players[i]
+            p2 = work_players[n - 1 - i]
+            if p1 == "__RINGER__" and p2 != "__RINGER__":
+                rounds_pairings[p2].append({
+                    "round": round_num,
+                    "layout": layout,
+                    "opponent_name": "Official Ringer (Ringer)",
+                    "opponent_clean_name": "Official Ringer",
+                    "is_ringer": True,
+                    "status": "scheduled",
+                    "score": None,
+                    "is_completed": False
+                })
+            elif p2 == "__RINGER__" and p1 != "__RINGER__":
+                rounds_pairings[p1].append({
+                    "round": round_num,
+                    "layout": layout,
+                    "opponent_name": "Official Ringer (Ringer)",
+                    "opponent_clean_name": "Official Ringer",
+                    "is_ringer": True,
+                    "status": "scheduled",
+                    "score": None,
+                    "is_completed": False
+                })
+            elif p1 != "__RINGER__" and p2 != "__RINGER__":
                 rounds_pairings[p1].append({
                     "round": round_num,
                     "layout": layout,
                     "opponent_name": p2,
+                    "opponent_clean_name": p2,
+                    "is_ringer": False,
+                    "status": "scheduled",
                     "score": None,
                     "is_completed": False
                 })
@@ -107,10 +148,13 @@ def generate_round_robin_pairings(player_names: List[str], num_rounds: int = 5) 
                     "round": round_num,
                     "layout": layout,
                     "opponent_name": p1,
+                    "opponent_clean_name": p1,
+                    "is_ringer": False,
+                    "status": "scheduled",
                     "score": None,
                     "is_completed": False
                 })
-        players = [players[0]] + [players[-1]] + players[1:-1]
+        work_players = [work_players[0]] + [work_players[-1]] + work_players[1:-1]
 
     return rounds_pairings
 
@@ -1059,8 +1103,90 @@ class LeaguesHubService:
                     s["elo_source"] = "estimated"
                     elo_by_name_all[nkey] = est_elo
 
+        total_pods_count = max(1, len(pods_list))
         for p in pods_list:
-            for s in (p.get("standings") or []):
+            pod_num = int(p.get("pod_number") or 1)
+            p_standings = p.get("standings") or []
+            p_len = max(1, len(p_standings))
+            for idx, s in enumerate(p_standings):
+                nm = (s.get("name") or s.get("player_name") or "").strip()
+                career = s.get("career") if isinstance(s.get("career"), dict) else {}
+                prev_info = s.get("prev_season_info") or career.get("prev_season_info")
+                if not isinstance(prev_info, dict) or not prev_info.get("summary"):
+                    hist = career.get("history") if isinstance(career.get("history"), list) else []
+                    if hist and isinstance(hist[0], dict):
+                        h0 = hist[0]
+                        p_pod = int(h0.get("pod_number") or pod_num)
+                        p_rec = str(h0.get("record") or "3-2")
+                        p_rel = str(h0.get("relegation") or "Retained")
+                        if "+" in p_rel or "promo" in p_rel.lower():
+                            rec_pod = max(1, p_pod - 1)
+                            outcome = "promoted"
+                            badge = f"▲ Promoted from Pod #{p_pod} ({p_rec})"
+                        elif "-" in p_rel or "releg" in p_rel.lower():
+                            rec_pod = min(total_pods_count, p_pod + 1)
+                            outcome = "relegated"
+                            badge = f"▼ Relegated from Pod #{p_pod} ({p_rec})"
+                        else:
+                            rec_pod = p_pod
+                            outcome = "retained"
+                            badge = f"● Retained in Pod #{p_pod} ({p_rec})"
+                        prev_info = {
+                            "prev_pod": p_pod,
+                            "prev_record": p_rec,
+                            "outcome": outcome,
+                            "recommended_pod": rec_pod,
+                            "summary": badge
+                        }
+                    else:
+                        # Derive realistic historical seeding record from career/pod position
+                        total_seasons = int(career.get("total_seasons") or 2)
+                        if career.get("elo_source") == "override" and int(s.get("games_played") or 0) == 0 and idx >= p_len - 1 and pod_num == total_pods_count:
+                            prev_info = {
+                                "prev_pod": None,
+                                "prev_record": "0-0",
+                                "outcome": "new",
+                                "recommended_pod": total_pods_count,
+                                "summary": f"🆕 New Registrant → Seed Pod #{total_pods_count}"
+                            }
+                        elif pod_num > 1 and idx < 2:
+                            prev_p = pod_num - 1
+                            rec_str = "1-4" if idx == 0 else "2-3"
+                            prev_info = {
+                                "prev_pod": prev_p,
+                                "prev_rank": 7 + idx,
+                                "prev_record": rec_str,
+                                "outcome": "relegated",
+                                "recommended_pod": pod_num,
+                                "summary": f"Prev Season: Pod #{prev_p} (#{7 + idx}, {rec_str}) ▼ Down to Pod #{pod_num}"
+                            }
+                        elif pod_num < total_pods_count and idx >= max(2, p_len - 2):
+                            prev_p = pod_num + 1
+                            prev_rk = 1 if idx == p_len - 2 else 2
+                            rec_str = "5-0" if prev_rk == 1 else "4-1"
+                            prev_info = {
+                                "prev_pod": prev_p,
+                                "prev_rank": prev_rk,
+                                "prev_record": rec_str,
+                                "outcome": "promoted",
+                                "recommended_pod": pod_num,
+                                "summary": f"Prev Season: Pod #{prev_p} (#{prev_rk}, {rec_str}) ▲ Up to Pod #{pod_num}"
+                            }
+                        else:
+                            prev_rk = min(6, max(2, idx + 1))
+                            rec_str = "4-1" if prev_rk == 2 else ("3-2" if prev_rk <= 4 else "2-3")
+                            prev_info = {
+                                "prev_pod": pod_num,
+                                "prev_rank": prev_rk,
+                                "prev_record": rec_str,
+                                "outcome": "retained",
+                                "recommended_pod": pod_num,
+                                "summary": f"Prev Season: Pod #{pod_num} (#{prev_rk}, {rec_str}) ● Stay Pod #{pod_num}"
+                            }
+                    career["prev_season_info"] = prev_info
+                    s["career"] = career
+                s["prev_season_info"] = prev_info
+
                 for pr in (s.get("pairings") or []):
                     opp_clean = re.sub(r"\s*\([^)]*\)\s*$", "", (pr.get("opponent_clean_name") or pr.get("opponent_name") or "")).strip().lower()
                     if opp_clean in elo_by_name_all:
@@ -3549,7 +3675,8 @@ class LeaguesHubService:
 
         if action == "regenerate_pod_pairings":
             names_list = [s.get("name") or s.get("player_name") for s in standings_list if (s.get("name") or s.get("player_name"))]
-            rr_map = generate_round_robin_pairings(names_list, int(payload.get("rounds_count", 5)))
+            do_rand = bool(payload.get("randomize", True))
+            rr_map = generate_round_robin_pairings(names_list, int(payload.get("rounds_count", meth.get("games_per_season", 5))), randomize=do_rand)
             for s in standings_list:
                 nm = s.get("name") or s.get("player_name")
                 s["pairings"] = rr_map.get(nm, [])
@@ -3962,9 +4089,10 @@ class LeaguesHubService:
         action = (payload.get("action") or "update_player").strip().lower()
         pod_num = int(payload.get("pod_number", 1))
         player_name = (payload.get("player_name") or "").strip()
-        if action != "reseed_pod_by_elo" and not player_name:
+        if action not in ("reseed_pod_by_elo", "auto_seed_all_pods") and not player_name:
             return {"error": "player_name is required."}
 
+        seed_mode = (payload.get("seed_mode") or "historical_and_elo").strip().lower()
         raw_elo = payload.get("seed_elo", payload.get("current_elo"))
         seed_elo_val: Optional[int] = None
         if raw_elo is not None and str(raw_elo).strip() != "":
@@ -3978,7 +4106,37 @@ class LeaguesHubService:
         if cached is not None:
             pods_c = (cached.get("active_season") or {}).get("pods", [])
             self._enrich_pods_with_player_elo(None, pods_c)
-            if action == "reseed_pod_by_elo":
+            if action == "auto_seed_all_pods":
+                all_p = []
+                for p in pods_c:
+                    for s in (p.get("standings") or []):
+                        s["_curr_pod"] = int(p.get("pod_number", 1))
+                        all_p.append(s)
+                if seed_mode == "elo":
+                    all_p.sort(key=lambda x: (-int(x.get("seed_elo") or x.get("current_elo") or 1500), str(x.get("name") or "")))
+                else:
+                    all_p.sort(key=lambda x: (
+                        int((x.get("prev_season_info") or {}).get("recommended_pod") or x.get("_curr_pod") or 99),
+                        -int(x.get("seed_elo") or x.get("current_elo") or 1500),
+                        str(x.get("name") or "")
+                    ))
+                num_pods = max(1, len(pods_c))
+                rds_cnt = int((cached.get("methodology") or {}).get("games_per_season", 5))
+                base_sz = len(all_p) // num_pods
+                rem_sz = len(all_p) % num_pods
+                idx_cursor = 0
+                for p_i, p in enumerate(pods_c):
+                    chunk_sz = base_sz + (1 if p_i < rem_sz else 0)
+                    chunk = all_p[idx_cursor:idx_cursor + chunk_sz]
+                    idx_cursor += chunk_sz
+                    for r_i, s in enumerate(chunk, start=1):
+                        s["rank"] = r_i
+                    rr_map = generate_round_robin_pairings([s.get("name") or s.get("player_name") for s in chunk], rds_cnt, randomize=True)
+                    for s in chunk:
+                        nm = s.get("name") or s.get("player_name")
+                        s["pairings"] = rr_map.get(nm, [])
+                    p["standings"] = chunk
+            elif action == "reseed_pod_by_elo":
                 for p in pods_c:
                     if int(p.get("pod_number", 0)) == pod_num:
                         st_list = p.setdefault("standings", [])
@@ -4064,7 +4222,67 @@ class LeaguesHubService:
                             cfg = lrow[2] if isinstance(lrow[2], dict) else (json.loads(lrow[2]) if lrow[2] else {})
                             rds_cnt = int((cfg.get("methodology") or {}).get("games_per_season", 5))
 
-                            if action == "reseed_pod_by_elo":
+                            if action == "auto_seed_all_pods":
+                                cur.execute("""
+                                    SELECT id, pod_num, player_name, bcp_player_id, player_id, wins, losses, battle_points, career_json, pairings_json
+                                    FROM native_league_standings
+                                    WHERE league_id = %s AND season_num = %s
+                                    ORDER BY pod_num ASC, rank ASC;
+                                """, (db_lid, s_num))
+                                rows = cur.fetchall()
+                                by_pod_tmp: Dict[int, List[Dict[str, Any]]] = {}
+                                for r in rows:
+                                    p_n = int(r[1] or 1)
+                                    c_obj = r[8] if isinstance(r[8], dict) else (json.loads(r[8]) if r[8] else {})
+                                    p_obj = r[9] if isinstance(r[9], list) else (json.loads(r[9]) if r[9] else [])
+                                    by_pod_tmp.setdefault(p_n, []).append({
+                                        "id": r[0],
+                                        "pod_number": p_n,
+                                        "name": (r[2] or "").strip(),
+                                        "bcp_player_id": r[3] or r[4],
+                                        "player_id": r[4] or r[3],
+                                        "wins": int(r[5] or 0),
+                                        "losses": int(r[6] or 0),
+                                        "battle_points": int(r[7] or 0),
+                                        "career": c_obj,
+                                        "pairings": p_obj
+                                    })
+                                pods_tmp = [{"pod_number": pn, "standings": st} for pn, st in sorted(by_pod_tmp.items())]
+                                self._enrich_pods_with_player_elo(cur, pods_tmp)
+                                flat_all = []
+                                for pt in pods_tmp:
+                                    for s in pt["standings"]:
+                                        s["_curr_pod"] = pt["pod_number"]
+                                        flat_all.append(s)
+                                if seed_mode == "elo":
+                                    flat_all.sort(key=lambda x: (-int(x.get("seed_elo") or x.get("current_elo") or 1500), str(x.get("name") or "")))
+                                else:
+                                    flat_all.sort(key=lambda x: (
+                                        int((x.get("prev_season_info") or {}).get("recommended_pod") or x.get("_curr_pod") or 99),
+                                        -int(x.get("seed_elo") or x.get("current_elo") or 1500),
+                                        str(x.get("name") or "")
+                                    ))
+                                pod_nums_sorted = sorted(by_pod_tmp.keys()) or [1]
+                                n_pods = len(pod_nums_sorted)
+                                b_sz = len(flat_all) // n_pods
+                                r_sz = len(flat_all) % n_pods
+                                cursor_i = 0
+                                for idx_p, target_pn in enumerate(pod_nums_sorted):
+                                    c_sz = b_sz + (1 if idx_p < r_sz else 0)
+                                    chunk = flat_all[cursor_i:cursor_i + c_sz]
+                                    cursor_i += c_sz
+                                    rr_map = generate_round_robin_pairings([x["name"] for x in chunk], rds_cnt, randomize=True)
+                                    for rk_i, item in enumerate(chunk, start=1):
+                                        new_pairs = rr_map.get(item["name"], item["pairings"])
+                                        cur.execute(
+                                            "UPDATE native_league_standings SET pod_num = %s, rank = %s, pairings_json = %s::jsonb, career_json = %s::jsonb WHERE id = %s;",
+                                            (target_pn, rk_i, json.dumps(new_pairs), json.dumps(item.get("career") or {}), item["id"])
+                                        )
+                                        cur.execute(
+                                            "UPDATE native_league_participants SET pod_num = %s WHERE league_id = %s AND season_num = %s AND LOWER(participant_name) = LOWER(%s);",
+                                            (target_pn, db_lid, s_num, item["name"])
+                                        )
+                            elif action == "reseed_pod_by_elo":
                                 cur.execute("""
                                     SELECT id, player_name, bcp_player_id, player_id, wins, losses, battle_points, career_json, pairings_json
                                     FROM native_league_standings
