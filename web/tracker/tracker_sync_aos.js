@@ -151,18 +151,18 @@
       const ver = Date.now();
       lastBroadcastVersion = ver;
 
-      // 1. Direct Cloud Firestore broadcast if client SDK is active
+      // 1. Direct Cloud Firestore broadcast if client SDK is active (use .update so deleted rooms are never resurrected)
       try {
         const db = getTrackerFirestoreDb();
         if (db && matchId) {
-          db.collection('rooms').doc(matchId).set({
+          db.collection('rooms').doc(matchId).update({
             match_id: matchId,
             game_system: 'aos',
             version: ver,
             state: state,
             is_finished: !!state.is_finished,
             updated_at: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge: true }).catch(() => {});
+          }).catch(() => {});
         }
       } catch (e) {}
 

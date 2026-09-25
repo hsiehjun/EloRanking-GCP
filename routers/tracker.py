@@ -687,11 +687,12 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
 @router.post("/api/tracker/room/create", summary="Create or connect to a multiplayer match room with host player")
 async def api_tracker_create_room(request: Request, payload: Optional[TrackerCreatePayload] = None):
     db = get_database()
-    auth_mgr = get_auth_manager()
-    
-    auth_header = request.headers.get("Authorization", "")
-    session_token = (payload.token if payload and payload.token else None) or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    user = auth_mgr.get_session(session_token) if session_token else None
+    user = getattr(request, "_mock_user", None) if request else None
+    if user is None:
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "") if request and hasattr(request, "headers") else ""
+        session_token = (payload.token if payload and payload.token else None) or (request.cookies.get("session_token") if request and hasattr(request, "cookies") else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
     
     req_sys = (payload.game_system if payload and payload.game_system else None) or request.headers.get("X-Game-System") or ("aos" if payload and payload.match_id and payload.match_id.startswith("AOS-") else "40k")
     sys_id = "aos" if "aos" in str(req_sys).lower() else "40k"
@@ -1083,25 +1084,36 @@ async def api_tracker_check_room(match_id: str, request: Request):
             pass
     user_id = user["id"] if user else None
     
-    if match_id in TRACKER_ROOMS:
+    if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(match_id):
+        TRACKER_ROOMS.pop(match_id, None)
+        return {"exists": False, "is_abandoned": True, "match_id": match_id, "error": f"Room key '{match_id}' was discarded."}
+
+    if match_id in TRACKER_ROOMS and not fs_engine.is_connected:
         room = TRACKER_ROOMS[match_id]
     else:
         fs_doc = fs_engine.get_room(match_id)
         if fs_doc and fs_doc.get("state"):
             room = {
                 "match_id": match_id,
-                "user_id_p1": fs_doc.get("user_id_p1"),
-                "user_id_p2": fs_doc.get("user_id_p2"),
+                "user_id_p1": fs_doc.get("user_id_p1") or (fs_doc["state"].get("user_id_p1") if isinstance(fs_doc.get("state"), dict) else None),
+                "user_id_p2": fs_doc.get("user_id_p2") or (fs_doc["state"].get("user_id_p2") if isinstance(fs_doc.get("state"), dict) else None),
                 "p1_name": fs_doc.get("p1_name"),
                 "p2_name": fs_doc.get("p2_name"),
                 "version": fs_doc.get("version", 1),
-                "state": fs_doc["state"]
+                "state": fs_doc["state"],
+                "participants": fs_doc.get("participants", {})
             }
             TRACKER_ROOMS[match_id] = room
+        elif match_id in TRACKER_ROOMS and not fs_engine.is_connected:
+            room = TRACKER_ROOMS[match_id]
         else:
+            if fs_engine.is_connected:
+                TRACKER_ROOMS.pop(match_id, None)
             saved = db.get_tracker_game(match_id) if (db and hasattr(db, "get_tracker_game")) else None
             if saved and saved.get("state"):
                 is_fin = bool(saved.get("is_finished") or (isinstance(saved.get("state"), dict) and saved["state"].get("is_finished")))
+                if fs_engine.is_connected and not is_fin:
+                    return {"exists": False, "is_abandoned": True, "match_id": match_id, "error": f"Room key '{match_id}' does not exist."}
                 room = {
                     "match_id": match_id,
                     "user_id_p1": saved.get("user_id_p1"),
@@ -1211,6 +1223,9 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
     except Exception:
         pass
     fs_engine = get_firestore_engine()
+    if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(match_id):
+        TRACKER_ROOMS.pop(match_id, None)
+        raise HTTPException(status_code=404, detail="Match room was discarded or not found")
     
     user = getattr(request, "_mock_user", None) if request else None
     if user is None and request:
@@ -1224,7 +1239,7 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
     user_id = user["id"] if user else None
     user_name = (user.get("display_name") or user.get("name")) if user else None
     
-    if match_id not in TRACKER_ROOMS:
+    if match_id not in TRACKER_ROOMS or fs_engine.is_connected:
         fs_doc = fs_engine.get_room(match_id)
         if fs_doc and fs_doc.get("state"):
             TRACKER_ROOMS[match_id] = {
@@ -1234,9 +1249,14 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
                 "referee_ids": fs_doc.get("referee_ids", []),
                 "version": fs_doc.get("version", 1),
                 "state": fs_doc["state"],
+                "participants": fs_doc.get("participants", {}),
                 "updated_at": fs_doc.get("updated_at")
             }
+        elif match_id in TRACKER_ROOMS and not fs_engine.is_connected:
+            pass
         else:
+            if fs_engine.is_connected:
+                TRACKER_ROOMS.pop(match_id, None)
             saved = db.get_tracker_game(match_id) if (db and hasattr(db, "get_tracker_game")) else None
             if saved and saved.get("state"):
                 is_fin = bool(saved.get("is_finished") or (isinstance(saved.get("state"), dict) and saved["state"].get("is_finished")))
@@ -1249,6 +1269,8 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
                         "scorecard_url": f"/scorecard/{match_id}",
                         "state": saved["state"]
                     }
+                if fs_engine.is_connected:
+                    raise HTTPException(status_code=404, detail="Match room was discarded or not found")
                 TRACKER_ROOMS[match_id] = {
                     "match_id": match_id,
                     "user_id_p1": saved.get("user_id_p1") or (saved["state"].get("user_id_p1") if isinstance(saved.get("state"), dict) else None),
@@ -1371,6 +1393,15 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
 async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, request: Request):
     match_id = normalize_tracker_match_id(match_id)
     fs_engine = get_firestore_engine()
+    if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(match_id):
+        TRACKER_ROOMS.pop(match_id, None)
+        return {
+            "success": False,
+            "is_abandoned": True,
+            "status": "abandoned",
+            "message": "Match room has been discarded."
+        }
+
     db = None
     try:
         db = get_database()
@@ -1399,7 +1430,7 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
             pass
     user_id = user["id"] if user else None
     
-    if match_id not in TRACKER_ROOMS:
+    if match_id not in TRACKER_ROOMS or fs_engine.is_connected:
         fs_doc = fs_engine.get_room(match_id)
         if fs_doc and fs_doc.get("state"):
             if fs_doc.get("status") == "completed" or fs_doc.get("is_finished"):
@@ -1410,26 +1441,35 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
                     "scorecard_url": f"/scorecard/{match_id}",
                     "message": "Match has concluded."
                 }
-            TRACKER_ROOMS[match_id] = {
-                "match_id": match_id,
-                "user_id_p1": fs_doc.get("user_id_p1"),
-                "user_id_p2": fs_doc.get("user_id_p2"),
-                "referee_ids": fs_doc.get("referee_ids", []),
-                "version": fs_doc.get("version", 1),
-                "state": fs_doc["state"],
-                "chess_clock": fs_doc.get("chess_clock"),
-                "updated_at": fs_doc.get("updated_at")
-            }
+            if fs_doc.get("status") == "abandoned" or fs_doc.get("is_abandoned"):
+                TRACKER_ROOMS.pop(match_id, None)
+                return {
+                    "success": False,
+                    "is_abandoned": True,
+                    "status": "abandoned",
+                    "message": "Match room has been discarded."
+                }
+            if match_id not in TRACKER_ROOMS:
+                TRACKER_ROOMS[match_id] = {
+                    "match_id": match_id,
+                    "user_id_p1": fs_doc.get("user_id_p1"),
+                    "user_id_p2": fs_doc.get("user_id_p2"),
+                    "referee_ids": fs_doc.get("referee_ids", []),
+                    "version": fs_doc.get("version", 1),
+                    "state": fs_doc["state"],
+                    "chess_clock": fs_doc.get("chess_clock"),
+                    "updated_at": fs_doc.get("updated_at")
+                }
+        elif match_id in TRACKER_ROOMS and not fs_engine.is_connected:
+            pass
         else:
-            TRACKER_ROOMS[match_id] = {
-                "match_id": match_id,
-                "user_id_p1": user_id,
-                "user_id_p2": None,
-                "referee_ids": [],
-                "version": 0,
-                "state": {},
-                "chess_clock": None,
-                "created_at": datetime.now(timezone.utc).isoformat()
+            # Room does not exist in Firestore -> do NOT resurrect a deleted room!
+            TRACKER_ROOMS.pop(match_id, None)
+            return {
+                "success": False,
+                "is_abandoned": True,
+                "status": "abandoned",
+                "message": "Match room no longer exists."
             }
     
     room = TRACKER_ROOMS[match_id]
@@ -1597,10 +1637,13 @@ def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
     game = st.get("game", {}) if isinstance(st.get("game"), dict) else {}
     p1 = st.get("p1", {}) if isinstance(st.get("p1"), dict) else {}
     p2 = st.get("p2", {}) if isinstance(st.get("p2"), dict) else {}
+    participants = doc.get("participants", {}) if isinstance(doc.get("participants"), dict) else {}
     
     match_id = doc.get("roomKey") or doc.get("matchId") or st.get("match_id") or ""
     p1_name = doc.get("p1_name") or game.get("p1Name") or "Player 1"
     p2_name = doc.get("p2_name") or game.get("p2Name") or "Player 2"
+    p1_id = doc.get("user_id_p1") or st.get("user_id_p1") or (participants.get("player1", {}).get("uid") if isinstance(participants.get("player1"), dict) else None)
+    p2_id = doc.get("user_id_p2") or st.get("user_id_p2") or (participants.get("player2", {}).get("uid") if isinstance(participants.get("player2"), dict) else None)
     p1_score = p1.get("score", 0) if isinstance(p1, dict) else 0
     p2_score = p2.get("score", 0) if isinstance(p2, dict) else 0
     p1_faction = game.get("p1Faction")
@@ -1619,6 +1662,9 @@ def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
         "id": match_id,
         "match_id": match_id,
         "game_system": game_system,
+        "user_id_p1": p1_id,
+        "user_id_p2": p2_id,
+        "participants": participants,
         "p1_name": p1_name,
         "p2_name": p2_name,
         "p1_score": p1_score,
@@ -1679,17 +1725,42 @@ async def api_tracker_user_sessions(
     token: Optional[str] = Query(None),
     game_system: Optional[str] = Query(None)
 ):
-    auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
-    user = auth_mgr.get_session(session_token) if session_token else None
+    user = getattr(request, "_mock_user", None) if request else None
+    if user is None and request:
+        try:
+            auth_mgr = get_auth_manager()
+            auth_header = request.headers.get("Authorization", "") if hasattr(request, "headers") else ""
+            session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or (request.cookies.get("session_token") if hasattr(request, "cookies") else None)
+            user = auth_mgr.get_session(session_token) if session_token else None
+        except Exception:
+            pass
     
     user_id = user["id"] if user else None
-    user_name = (user.get("display_name") or user.get("competitor_name") or user.get("player_name")) if user else None
+    user_name = (user.get("display_name") or user.get("name") or user.get("competitor_name") or user.get("player_name")) if user else None
     player_id = user.get("player_id") if user else None
     
     fs_engine = get_firestore_engine()
-    db = get_database()
+    db = None
+    try:
+        db = get_database()
+    except Exception:
+        pass
+
+    # 1. Fetch completed history in a SINGLE query (eliminates N*5 per-room SQL queries!)
+    raw_completed_history = []
+    completed_mids = set()
+    if db and hasattr(db, "get_tracker_history"):
+        try:
+            raw_completed_history = db.get_tracker_history(limit=50, user_id=user_id, user_name=user_name) or []
+            completed_mids = {
+                (g.get("match_id") or "").strip().upper()
+                for g in raw_completed_history
+                if g.get("is_finished", True) and g.get("match_id")
+            }
+        except Exception as err:
+            logger.debug(f"History fetch notice: {err}")
+
+    # 2. Fetch active rooms from Firestore
     active_docs = fs_engine.list_active_rooms_for_user(user_id=user_id, user_name=user_name, player_id=player_id)
     
     seen_matches = set()
@@ -1697,24 +1768,37 @@ async def api_tracker_user_sessions(
     for doc in active_docs:
         mid = (doc.get("roomKey") or doc.get("matchId") or (doc.get("state", {}).get("match_id") if isinstance(doc.get("state"), dict) else "") or "").strip().upper()
         if mid and mid not in seen_matches:
-            # Cross-check with PostgreSQL: If already concluded/finished, purge ghost room and NEVER list as active!
-            saved = db.get_tracker_game(mid)
-            if saved and (saved.get("is_finished") or (isinstance(saved.get("state_json"), dict) and saved["state_json"].get("is_finished"))):
+            if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(mid):
+                TRACKER_ROOMS.pop(mid, None)
+                continue
+
+            # O(1) check against completed_mids; only query DB directly if not in user's top 50 and state claims finished
+            is_already_concluded = mid in completed_mids
+            if not is_already_concluded and db and hasattr(db, "get_tracker_game"):
+                st_obj = doc.get("state") if isinstance(doc.get("state"), dict) else {}
+                if doc.get("is_finished") or st_obj.get("is_finished") or doc.get("status") == "completed":
+                    saved = db.get_tracker_game(mid)
+                    if saved and (saved.get("is_finished") or (isinstance(saved.get("state_json"), dict) and saved["state_json"].get("is_finished"))):
+                        is_already_concluded = True
+
+            if is_already_concluded:
                 try:
                     fs_engine.discard_room(mid)
                 except Exception:
                     pass
-                if mid in TRACKER_ROOMS:
-                    try:
-                        del TRACKER_ROOMS[mid]
-                    except KeyError:
-                        pass
+                TRACKER_ROOMS.pop(mid, None)
                 continue
 
             seen_matches.add(mid)
             formatted = _format_firestore_session_item(doc)
             if not formatted["is_abandoned"]:
                 active_sessions.append(formatted)
+
+    # Evict any stale casual rooms in TRACKER_ROOMS that are no longer in Firestore when connected
+    if fs_engine.is_connected:
+        for cached_mid in list(TRACKER_ROOMS.keys()):
+            if cached_mid not in fs_engine._fallback_rooms:
+                TRACKER_ROOMS.pop(cached_mid, None)
 
     if game_system:
         sys_filter = "aos" if "aos" in game_system.lower() else "40k"
@@ -1727,19 +1811,13 @@ async def api_tracker_user_sessions(
     primary_mid = (primary_active.get("match_id") or primary_active.get("id") or "").strip().upper() if primary_active else ""
     unfinished_sessions = [s for s in active_sessions[1:] if (s.get("match_id") or s.get("id") or "").strip().upper() != primary_mid]
     
-    db = get_database()
-    completed_history = []
-    try:
-        completed_history = db.get_tracker_history(limit=50, user_id=user_id, user_name=user_name)
-        completed_history = [g for g in completed_history if g.get("is_finished", True) and (g.get("match_id") or "").strip().upper() not in seen_matches]
-        if game_system:
-            sys_filter = "aos" if "aos" in game_system.lower() else "40k"
-            if sys_filter == "aos":
-                completed_history = [c for c in completed_history if c.get("game_system") == "aos" or str(c.get("match_id", "")).upper().startswith("AOS-")]
-            else:
-                completed_history = [c for c in completed_history if c.get("game_system") != "aos" and not str(c.get("match_id", "")).upper().startswith("AOS-")]
-    except Exception as err:
-        logger.debug(f"History fetch notice: {err}")
+    completed_history = [g for g in raw_completed_history if g.get("is_finished", True) and (g.get("match_id") or "").strip().upper() not in seen_matches]
+    if game_system:
+        sys_filter = "aos" if "aos" in game_system.lower() else "40k"
+        if sys_filter == "aos":
+            completed_history = [c for c in completed_history if c.get("game_system") == "aos" or str(c.get("match_id", "")).upper().startswith("AOS-")]
+        else:
+            completed_history = [c for c in completed_history if c.get("game_system") != "aos" and not str(c.get("match_id", "")).upper().startswith("AOS-")]
         
     return {
         "success": True,
@@ -1753,20 +1831,27 @@ async def api_tracker_user_sessions(
 @router.post("/api/tracker/room/{match_id}/discard", summary="Discard / abandon a casual test session with zero Elo penalty")
 async def api_tracker_discard_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
     match_id = normalize_tracker_match_id(match_id)
-    auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
-    user = auth_mgr.get_session(session_token) if session_token else None
+    user = getattr(request, "_mock_user", None) if request else None
+    if user is None and request:
+        try:
+            auth_mgr = get_auth_manager()
+            auth_header = request.headers.get("Authorization", "") if hasattr(request, "headers") else ""
+            session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or (request.cookies.get("session_token") if hasattr(request, "cookies") else None)
+            user = auth_mgr.get_session(session_token) if session_token else None
+        except Exception:
+            pass
     
     # 1. Verify this is NOT a completed / permanent match record
-    db = get_database()
+    db = None
     try:
-        existing_game = db.get_tracker_game(match_id)
-        if existing_game and existing_game.get("is_finished"):
-            raise HTTPException(
-                status_code=400,
-                detail="Permanent record: Completed games cannot be discarded or deleted."
-            )
+        db = get_database()
+        if db and hasattr(db, "get_tracker_game"):
+            existing_game = db.get_tracker_game(match_id)
+            if existing_game and existing_game.get("is_finished"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Permanent record: Completed games cannot be discarded or deleted."
+                )
     except HTTPException:
         raise
     except Exception:
@@ -1774,6 +1859,7 @@ async def api_tracker_discard_game(match_id: str, request: Request, payload: Opt
 
     fs_engine = get_firestore_engine()
     room_doc = fs_engine.get_room(match_id) or TRACKER_ROOMS.get(match_id) or {}
+    st_doc = room_doc.get("state", {}) if isinstance(room_doc.get("state"), dict) else {}
 
     # Verify: If this room belongs to an event/tournament, players CANNOT delete it.
     # Room creation and deletion must be managed strictly by the event (TO).
@@ -1785,9 +1871,9 @@ async def api_tracker_discard_game(match_id: str, request: Request, payload: Opt
         bool(room_doc.get("eventId")) or
         bool(room_doc.get("event_id")) or
         bool(room_doc.get("tournament_id")) or
-        bool(room_doc.get("state", {}).get("event_id")) or
-        bool(room_doc.get("state", {}).get("tournament_id")) or
-        bool(room_doc.get("state", {}).get("game", {}).get("eventId"))
+        bool(st_doc.get("event_id")) or
+        bool(st_doc.get("tournament_id")) or
+        bool(st_doc.get("game", {}).get("eventId") if isinstance(st_doc.get("game"), dict) else False)
     )
 
     if is_event_room:
@@ -1798,12 +1884,13 @@ async def api_tracker_discard_game(match_id: str, request: Request, payload: Opt
                 detail="Tournament match rooms are managed by the event organizer (TO) and cannot be deleted by players."
             )
     
+    p1_id = room_doc.get("user_id_p1") or st_doc.get("user_id_p1") or (room_doc.get("participants", {}).get("player1", {}).get("uid") if isinstance(room_doc.get("participants"), dict) else None)
+    p2_id = room_doc.get("user_id_p2") or st_doc.get("user_id_p2") or (room_doc.get("participants", {}).get("player2", {}).get("uid") if isinstance(room_doc.get("participants"), dict) else None)
+
     # Verify authorization: ONLY the 2 registered players (Player 1 or Player 2) or admin can delete
     if room_doc:
-        p1_id = room_doc.get("user_id_p1") or (room_doc.get("participants", {}).get("player1", {}).get("uid") if isinstance(room_doc.get("participants"), dict) else None)
-        p2_id = room_doc.get("user_id_p2") or (room_doc.get("participants", {}).get("player2", {}).get("uid") if isinstance(room_doc.get("participants"), dict) else None)
-        p1_name = (room_doc.get("p1_name") or (room_doc.get("state", {}).get("game", {}).get("p1Name") if isinstance(room_doc.get("state"), dict) else "") or "").strip().lower()
-        p2_name = (room_doc.get("p2_name") or (room_doc.get("state", {}).get("game", {}).get("p2Name") if isinstance(room_doc.get("state"), dict) else "") or "").strip().lower()
+        p1_name = (room_doc.get("p1_name") or (st_doc.get("game", {}).get("p1Name") if isinstance(st_doc.get("game"), dict) else "") or "").strip().lower()
+        p2_name = (room_doc.get("p2_name") or (st_doc.get("game", {}).get("p2Name") if isinstance(st_doc.get("game"), dict) else "") or "").strip().lower()
         
         is_authorized = False
         if user:
@@ -1826,24 +1913,36 @@ async def api_tracker_discard_game(match_id: str, request: Request, payload: Opt
                 detail="Forbidden: Only registered players in this match can delete or discard this game."
             )
     
-    # 2. Update Firestore Native (Delete room from active collection)
+    # 2. Update Firestore Native (Delete room from active collection & record tombstone)
     fs_engine.discard_room(match_id)
     
     # 3. Update memory cache
-    if match_id in TRACKER_ROOMS:
+    TRACKER_ROOMS.pop(match_id, None)
+
+    # 4. Broadcast room_discarded to all connected SSE listeners so opponent knows immediately
+    listeners = TRACKER_LISTENERS.get(match_id, [])
+    discard_msg = {
+        "type": "room_discarded",
+        "match_id": match_id,
+        "status": "abandoned",
+        "is_abandoned": True
+    }
+    for q in list(listeners):
         try:
-            del TRACKER_ROOMS[match_id]
-        except KeyError:
-            pass
-        
-    # 4. If in PostgreSQL, hide uncompleted draft
-    if user:
-        try:
-            db.hide_tracker_game_for_user(match_id, user["id"])
+            await q.put(discard_msg)
         except Exception:
             pass
+        
+    # 5. If in PostgreSQL, hide uncompleted draft for BOTH players
+    if db and hasattr(db, "hide_tracker_game_for_user"):
+        for target_uid in {user.get("id") if user else None, p1_id, p2_id}:
+            if target_uid:
+                try:
+                    db.hide_tracker_game_for_user(match_id, str(target_uid))
+                except Exception:
+                    pass
             
-    return {"success": True, "match_id": match_id, "status": "abandoned"}
+    return {"success": True, "match_id": match_id, "status": "abandoned", "is_abandoned": True}
 
 @router.post("/api/tracker/room/{match_id}/finalize", summary="Finalize and lock match scorecard and compute Elo")
 async def api_tracker_finalize_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
@@ -2338,6 +2437,10 @@ async def api_tracker_update_clock(match_id: str, request: Request):
     user = auth_mgr.get_session(session_token) if session_token else None
     user_id = user["id"] if user else None
 
+    fs_engine = get_firestore_engine()
+    if fs_engine.is_room_discarded(match_id):
+        return {"success": False, "status": "abandoned", "is_abandoned": True}
+
     if match_id not in TRACKER_ROOMS:
         TRACKER_ROOMS[match_id] = {
             "match_id": match_id,
@@ -2380,7 +2483,6 @@ async def api_tracker_update_clock(match_id: str, request: Request):
 
     # Persist in Cloud Firestore Native
     try:
-        fs_engine = get_firestore_engine()
         fs_engine.update_room(match_id, {"chess_clock": clock_data})
     except Exception:
         pass
@@ -2408,6 +2510,10 @@ async def api_tracker_sync_dice_tray(match_id: str, request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    fs_engine = get_firestore_engine()
+    if fs_engine.is_room_discarded(match_id):
+        return {"success": False, "status": "abandoned", "is_abandoned": True}
+
     if match_id not in TRACKER_ROOMS:
         TRACKER_ROOMS[match_id] = {
             "match_id": match_id,
@@ -2432,7 +2538,6 @@ async def api_tracker_sync_dice_tray(match_id: str, request: Request):
 
     # Sync to Firestore Native
     try:
-        fs_engine = get_firestore_engine()
         update_fields = {
             "dice_tray": tray,
             "dice_target": target
@@ -2468,6 +2573,10 @@ async def api_tracker_roll_dice(match_id: str, request: Request):
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    fs_engine = get_firestore_engine()
+    if fs_engine.is_room_discarded(match_id):
+        return {"success": False, "status": "abandoned", "is_abandoned": True}
 
     if match_id not in TRACKER_ROOMS:
         TRACKER_ROOMS[match_id] = {

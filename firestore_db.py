@@ -65,6 +65,7 @@ class FirestoreRoomEngine:
         self.project_id = project_id
         self._client = None
         self._fallback_rooms: Dict[str, Any] = {}
+        self._discarded_rooms: Dict[str, float] = {}
         self._fallback_tournaments: Dict[str, Any] = {}
         self._fallback_judge_calls: Dict[str, Dict[str, Any]] = {}
         self._init_client()
@@ -84,6 +85,18 @@ class FirestoreRoomEngine:
     def is_connected(self) -> bool:
         return self._client is not None
 
+    def is_room_discarded(self, match_id: str) -> bool:
+        if not match_id:
+            return False
+        norm_mid = normalize_tracker_match_id(match_id)
+        clean_id = match_id.strip().upper()
+        short_id = clean_id.replace("WH40K-", "").replace("AOS-", "")
+        return bool(
+            norm_mid in self._discarded_rooms
+            or clean_id in self._discarded_rooms
+            or short_id in self._discarded_rooms
+        )
+
     def get_room_doc_ref(self, match_id: str):
         if not match_id or not self._client:
             return None
@@ -93,6 +106,11 @@ class FirestoreRoomEngine:
     def create_room(self, match_id: str, room_payload: Dict[str, Any]) -> Dict[str, Any]:
         """Creates or initializes a live match room document in Firestore."""
         norm_mid = normalize_tracker_match_id(match_id)
+        clean_id = match_id.strip().upper()
+        short_id = clean_id.replace("WH40K-", "").replace("AOS-", "")
+        for k in (norm_mid, clean_id, short_id):
+            self._discarded_rooms.pop(k, None)
+
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
         expires_ts = now_ts + (14 * 24 * 60 * 60 * 1000) # 14 days TTL
 
@@ -119,30 +137,61 @@ class FirestoreRoomEngine:
 
     def get_room(self, match_id: str) -> Optional[Dict[str, Any]]:
         """Fetches live match room state from Firestore."""
+        if not match_id:
+            return None
         norm_mid = normalize_tracker_match_id(match_id)
+        clean_id = match_id.strip().upper()
+        if self.is_room_discarded(match_id):
+            self._fallback_rooms.pop(norm_mid, None)
+            self._fallback_rooms.pop(clean_id, None)
+            return None
+
         if self._client:
             try:
                 ref = self.get_room_doc_ref(norm_mid)
                 snap = ref.get()
                 if snap.exists:
-                    d = snap.to_dict()
+                    d = snap.to_dict() or {}
+                    if d.get("status") == "abandoned" or d.get("is_abandoned"):
+                        self.discard_room(norm_mid)
+                        return None
+                    # Detect zombie partial doc recreated after deletion (missing status, roomKey, and createdAt)
+                    if not d.get("status") and not d.get("roomKey") and not d.get("createdAt") and not d.get("event_id") and not d.get("eventId"):
+                        self.discard_room(norm_mid)
+                        return None
                     self._fallback_rooms[norm_mid] = d
                     return d
-                if norm_mid != match_id.strip().upper():
-                    ref_u = self._client.collection("rooms").document(match_id.strip().upper())
+                if norm_mid != clean_id:
+                    ref_u = self._client.collection("rooms").document(clean_id)
                     snap_u = ref_u.get()
                     if snap_u.exists:
-                        d = snap_u.to_dict()
+                        d = snap_u.to_dict() or {}
+                        if d.get("status") == "abandoned" or d.get("is_abandoned"):
+                            self.discard_room(clean_id)
+                            return None
+                        if not d.get("status") and not d.get("roomKey") and not d.get("createdAt") and not d.get("event_id") and not d.get("eventId"):
+                            self.discard_room(clean_id)
+                            return None
                         self._fallback_rooms[norm_mid] = d
                         return d
+                # Authoritatively missing in Cloud Firestore -> evict any stale in-memory copy!
+                self._fallback_rooms.pop(norm_mid, None)
+                self._fallback_rooms.pop(clean_id, None)
+                return None
             except Exception as e:
                 logger.error(f"❌ [FIRESTORE] Error getting room {norm_mid}: {e}")
 
-        return self._fallback_rooms.get(norm_mid) or self._fallback_rooms.get(match_id.strip().upper())
+        return self._fallback_rooms.get(norm_mid) or self._fallback_rooms.get(clean_id)
 
     def update_room(self, match_id: str, updates: Dict[str, Any]) -> bool:
-        """Applies field updates to live room in Firestore."""
+        """Applies field updates to live room in Firestore without resurrecting deleted rooms."""
+        if not match_id:
+            return False
         norm_mid = normalize_tracker_match_id(match_id)
+        clean_id = match_id.strip().upper()
+        if self.is_room_discarded(match_id):
+            return False
+
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
         updates["updatedAt"] = now_ts
 
@@ -155,6 +204,12 @@ class FirestoreRoomEngine:
                 if "active_judge_call" in updates and updates["active_judge_call"] is None and hasattr(firestore, "DELETE_FIELD"):
                     updates["active_judge_call"] = firestore.DELETE_FIELD
                 ref = self.get_room_doc_ref(norm_mid)
+                snap = ref.get()
+                if not snap.exists:
+                    # Room was deleted from Firestore! Evict from memory and do NOT resurrect it.
+                    self._fallback_rooms.pop(norm_mid, None)
+                    self._fallback_rooms.pop(clean_id, None)
+                    return False
                 ref.set(updates, merge=True)
                 return True
             except Exception as e:
@@ -166,24 +221,34 @@ class FirestoreRoomEngine:
             self._fallback_rooms[norm_mid].pop("game", None)
             if "active_judge_call" in updates and updates["active_judge_call"] is None:
                 self._fallback_rooms[norm_mid].pop("active_judge_call", None)
-        elif match_id.strip().upper() in self._fallback_rooms:
-            self._fallback_rooms[match_id.strip().upper()].update(updates)
-            self._fallback_rooms[match_id.strip().upper()].pop("clock", None)
-            self._fallback_rooms[match_id.strip().upper()].pop("game", None)
+        elif clean_id in self._fallback_rooms:
+            self._fallback_rooms[clean_id].update(updates)
+            self._fallback_rooms[clean_id].pop("clock", None)
+            self._fallback_rooms[clean_id].pop("game", None)
             if "active_judge_call" in updates and updates["active_judge_call"] is None:
-                self._fallback_rooms[match_id.strip().upper()].pop("active_judge_call", None)
+                self._fallback_rooms[clean_id].pop("active_judge_call", None)
         else:
             self._fallback_rooms[norm_mid] = updates
         return True
 
     def discard_room(self, match_id: str) -> bool:
-        """Deletes / discards a match room from Firestore."""
+        """Deletes / discards a match room from Firestore and records tombstone so it cannot be resurrected."""
+        if not match_id:
+            return False
         norm_mid = normalize_tracker_match_id(match_id)
         clean_id = match_id.strip().upper()
-        short_id = clean_id.replace("WH40K-", "")
+        short_id = clean_id.replace("WH40K-", "").replace("AOS-", "")
         keys_to_clear = {norm_mid, clean_id, short_id}
+        now_ts = datetime.now(timezone.utc).timestamp()
+        for k in keys_to_clear:
+            if k:
+                self._discarded_rooms[k] = now_ts
+                self._fallback_rooms.pop(k, None)
+
         if self._client:
             for k in keys_to_clear:
+                if not k:
+                    continue
                 try:
                     ref = self._client.collection("rooms").document(k)
                     ref.delete()
@@ -191,8 +256,6 @@ class FirestoreRoomEngine:
                     pass
             logger.info(f"🗑️ [FIRESTORE] Deleted discarded room rooms/{norm_mid}")
 
-        for key in keys_to_clear:
-            self._fallback_rooms.pop(key, None)
         return True
 
     def finalize_room(self, match_id: str) -> bool:
@@ -207,70 +270,76 @@ class FirestoreRoomEngine:
         valid_ids = {str(x).strip().lower() for x in (user_id, player_id) if x and str(x).strip()}
         target_name = user_name.strip().lower() if user_name and user_name.strip() else None
 
+        def _matches_user(d: Dict[str, Any]) -> bool:
+            p1_id = d.get("user_id_p1") or (d.get("state", {}).get("user_id_p1") if isinstance(d.get("state"), dict) else None) or (d.get("participants", {}).get("player1", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
+            p2_id = d.get("user_id_p2") or (d.get("state", {}).get("user_id_p2") if isinstance(d.get("state"), dict) else None) or (d.get("participants", {}).get("player2", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
+            p1_pid = d.get("p1_id") or (d.get("state", {}).get("game", {}).get("p1Id") if isinstance(d.get("state"), dict) else None)
+            p2_pid = d.get("p2_id") or (d.get("state", {}).get("game", {}).get("p2Id") if isinstance(d.get("state"), dict) else None)
+            p1_name = (d.get("p1_name") or (d.get("state", {}).get("game", {}).get("p1Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
+            p2_name = (d.get("p2_name") or (d.get("state", {}).get("game", {}).get("p2Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
+            if not valid_ids and not target_name:
+                return True
+            if valid_ids:
+                for candidate in (p1_id, p2_id, p1_pid, p2_pid):
+                    if candidate and str(candidate).strip().lower() in valid_ids:
+                        return True
+            if target_name:
+                if (p1_name and target_name == p1_name) or (p2_name and target_name == p2_name):
+                    return True
+            return False
+
+        firestore_query_ok = False
+        all_firestore_active_keys = set()
         if self._client:
             try:
                 col = self._client.collection("rooms")
                 query = _apply_where(col, "status", "==", "in_progress").limit(limit)
                 for doc in query.stream():
-                    d = doc.to_dict()
-                    rkey = d.get("roomKey") or d.get("matchId") or doc.id
-                    if not rkey or rkey in seen_keys:
+                    d = doc.to_dict() or {}
+                    rkey = (d.get("roomKey") or d.get("matchId") or doc.id or "").strip().upper()
+                    if not rkey or rkey in seen_keys or self.is_room_discarded(rkey):
                         continue
                     
                     if d.get("status") in ("abandoned", "completed") or d.get("is_abandoned") or d.get("is_finished"):
                         continue
 
-                    p1_id = d.get("user_id_p1") or (d.get("participants", {}).get("player1", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
-                    p2_id = d.get("user_id_p2") or (d.get("participants", {}).get("player2", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
-                    p1_pid = d.get("p1_id") or (d.get("state", {}).get("game", {}).get("p1Id") if isinstance(d.get("state"), dict) else None)
-                    p2_pid = d.get("p2_id") or (d.get("state", {}).get("game", {}).get("p2Id") if isinstance(d.get("state"), dict) else None)
-                    p1_name = (d.get("p1_name") or (d.get("state", {}).get("game", {}).get("p1Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
-                    p2_name = (d.get("p2_name") or (d.get("state", {}).get("game", {}).get("p2Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
-                    
-                    match = False
-                    if not valid_ids and not target_name:
-                        match = True
-                    else:
-                        if valid_ids:
-                            for candidate in (p1_id, p2_id, p1_pid, p2_pid):
-                                if candidate and str(candidate).strip().lower() in valid_ids:
-                                    match = True
-                                    break
-                        if not match and target_name:
-                            if (p1_name and target_name == p1_name) or (p2_name and target_name == p2_name):
-                                match = True
-                            
-                    if match:
+                    all_firestore_active_keys.add(rkey)
+                    self._fallback_rooms[rkey] = d
+
+                    if _matches_user(d):
                         seen_keys.add(rkey)
                         rooms.append(d)
+                firestore_query_ok = True
             except Exception as e:
                 logger.warning(f"Notice listing Firestore user rooms: {e}")
 
-        for mid, d in self._fallback_rooms.items():
-            rkey = d.get("roomKey") or d.get("matchId") or mid
-            if rkey not in seen_keys and d.get("status") == "in_progress" and not d.get("is_abandoned") and not d.get("is_finished"):
-                p1_id = d.get("user_id_p1") or (d.get("participants", {}).get("player1", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
-                p2_id = d.get("user_id_p2") or (d.get("participants", {}).get("player2", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
-                p1_pid = d.get("p1_id") or (d.get("state", {}).get("game", {}).get("p1Id") if isinstance(d.get("state"), dict) else None)
-                p2_pid = d.get("p2_id") or (d.get("state", {}).get("game", {}).get("p2Id") if isinstance(d.get("state"), dict) else None)
-                p1_name = (d.get("p1_name") or (d.get("state", {}).get("game", {}).get("p1Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
-                p2_name = (d.get("p2_name") or (d.get("state", {}).get("game", {}).get("p2Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
-                
-                match = False
-                if not valid_ids and not target_name:
-                    match = True
-                else:
-                    if valid_ids:
-                        for candidate in (p1_id, p2_id, p1_pid, p2_pid):
-                            if candidate and str(candidate).strip().lower() in valid_ids:
-                                match = True
-                                break
-                    if not match and target_name:
-                        if (p1_name and target_name == p1_name) or (p2_name and target_name == p2_name):
-                            match = True
-                if match:
-                    seen_keys.add(rkey)
-                    rooms.append(d)
+        if firestore_query_ok:
+            # Prune any stale rooms from _fallback_rooms that were deleted in Cloud Firestore
+            stale_keys = [
+                mid for mid, d in list(self._fallback_rooms.items())
+                if isinstance(d, dict)
+                and (d.get("status") == "in_progress" or "roomKey" in d or "matchId" in d)
+                and (d.get("roomKey") or d.get("matchId") or mid).strip().upper() not in all_firestore_active_keys
+            ]
+            for k in stale_keys:
+                self._fallback_rooms.pop(k, None)
+        else:
+            # Offline / in-memory fallback mode ONLY when Firestore client is unavailable
+            for mid, d in list(self._fallback_rooms.items()):
+                if not isinstance(d, dict):
+                    continue
+                rkey = (d.get("roomKey") or d.get("matchId") or mid or "").strip().upper()
+                if (
+                    rkey
+                    and rkey not in seen_keys
+                    and not self.is_room_discarded(rkey)
+                    and d.get("status") == "in_progress"
+                    and not d.get("is_abandoned")
+                    and not d.get("is_finished")
+                ):
+                    if _matches_user(d):
+                        seen_keys.add(rkey)
+                        rooms.append(d)
 
         # Sort rooms by updatedAt descending
         rooms.sort(key=lambda r: r.get("updatedAt") or r.get("updated_at") or 0, reverse=True)

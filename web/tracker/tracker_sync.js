@@ -123,11 +123,31 @@
   }
 
   let dbHistoryCache = [];
+  let isHistoryLoading = true;
 
   // 1. Storage interceptors - immediate execution in HEAD
   const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
   const originalRemoveItem = window.localStorage.removeItem.bind(window.localStorage);
   const originalGetItem = window.localStorage.getItem.bind(window.localStorage);
+
+  // Hydrate cached history immediately so Lobby renders in 0ms without flashing empty state
+  try {
+    const rawCachedHistory = originalGetItem('gdm-11e-tracker-history');
+    if (rawCachedHistory) {
+      const parsedHist = JSON.parse(rawCachedHistory);
+      if (Array.isArray(parsedHist) && parsedHist.length > 0) {
+        let locallyHidden = [];
+        try { locallyHidden = JSON.parse(originalGetItem('gt-hidden-matches') || '[]'); } catch (e) {}
+        const hiddenSet = new Set(locallyHidden);
+        dbHistoryCache = parsedHist.filter(it => !hiddenSet.has(it.match_id || it.id));
+        window.gtCompletedHistory = dbHistoryCache.filter(it => it.isFinished || it.is_finished);
+        window.gtActiveMatches = dbHistoryCache.filter(it => !(it.isFinished || it.is_finished) && it.status !== 'completed');
+        if (dbHistoryCache.length > 0) {
+          isHistoryLoading = false;
+        }
+      }
+    }
+  } catch (e) {}
 
   function getAuthToken() {
     return originalGetItem('elo_auth_token') || originalGetItem('native_session_token') || sessionStorage.getItem('elo_auth_token') || '';
@@ -636,14 +656,15 @@
 
     saveLocalState(st);
 
-    // 1. Direct Firestore SDK delete if loaded
+    // 1. Mark room completed in Firestore first so connected opponent tabs see status='completed' before deletion
     if (typeof firebase !== 'undefined' && firebase.firestore) {
       try {
         const db = firebase.firestore();
-        db.collection('rooms').doc(matchId).delete();
-        if (matchId.includes('WH40K-')) {
-          db.collection('rooms').doc(matchId.replace('WH40K-', '')).delete();
-        }
+        db.collection('rooms').doc(matchId).update({
+          status: 'completed',
+          is_finished: true,
+          updatedAt: Date.now()
+        }).catch(() => {});
       } catch(e) {}
     }
 
@@ -699,6 +720,12 @@
         body: JSON.stringify({ token: token, match_id: matchId, state: st })
       });
       if (resp.ok) {
+        if (typeof firebase !== 'undefined' && firebase.firestore) {
+          try {
+            const db = firebase.firestore();
+            db.collection('rooms').doc(matchId).delete().catch(() => {});
+          } catch(e) {}
+        }
         if (statusEl) {
           statusEl.style.display = 'block';
           statusEl.style.color = '#10b981';
@@ -836,7 +863,7 @@
       if (!resData.bcp_synced && cleanTok && targetPid && !String(targetPid).startsWith('bcp-pairing-')) {
         try {
           const p1Res = p1Score > p2Score ? 2 : (p1Score === p2Score ? 1 : 0);
-          const p2Res = p2Score > p1Score ? 2 : (p1Score === p2Score ? 1 : 0);
+          const p2Res = p2Score > p1Score ? 2 : (p2Score === p1Score ? 1 : 0);
           const resolvedP1Gid = (resData && resData.p1_game_id) || p1GameId;
           const resolvedP2Gid = (resData && resData.p2_game_id) || p2GameId;
           const resolvedP1Id = (resData && resData.p1_id) || p1Id;
@@ -1060,6 +1087,7 @@
 
   // 3. Initialize Match Room / Play / Setup / Landing
   async function init() {
+    let initialHistoryPromise = null;
     if (!isPlay) {
       setTimeout(() => {
         if (typeof window.__hideGtLoadingOverlay === 'function') {
@@ -1067,6 +1095,7 @@
         }
       }, 2200);
       injectLobbyHub();
+      initialHistoryPromise = syncHistoryFromDatabase();
     }
 
     const isAuthed = await verifySession();
@@ -1232,9 +1261,13 @@
       window.__hideGtLoadingOverlay();
     } else {
       // Landing page (/11th/tracker or /tracker)
-      injectLobbyHub();
       renderUserBar();
-      syncHistoryFromDatabase();
+      if (!initialHistoryPromise) {
+        await syncHistoryFromDatabase();
+      } else {
+        await initialHistoryPromise;
+        renderHistoryList(dbHistoryCache);
+      }
       startHistoryPolling();
       window.__hideGtLoadingOverlay();
     }
@@ -1459,7 +1492,6 @@
 
       hideNativeGdmEmptyState();
       renderHistoryList(dbHistoryCache);
-      syncHistoryFromDatabase();
       if (typeof window.__hideGtLoadingOverlay === 'function') {
         window.__hideGtLoadingOverlay();
       }
@@ -1677,7 +1709,7 @@
 
     const activeList = rawActive.filter(a => {
       const mid = (a.match_id || a.id || '').trim().toUpperCase();
-      return mid && !completedIds.has(mid) && !a.is_finished && a.status !== 'completed';
+      return mid && !completedIds.has(mid) && !a.is_finished && a.status !== 'completed' && a.status !== 'abandoned' && !a.is_abandoned;
     });
 
     const activeIds = new Set(activeList.map(a => (a.match_id || a.id || '').trim().toUpperCase()));
@@ -1704,6 +1736,14 @@
     }
 
     if (scopedActiveList.length === 0 && scopedCompleted.length === 0) {
+      if (isHistoryLoading) {
+        container.innerHTML = `
+          <div style="color:var(--text-muted, #64748b); font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:var(--bg-secondary, #12161f); border-radius:14px; border:1px solid var(--border, #273042);">
+            Loading match history...
+          </div>
+        `;
+        return;
+      }
       const emptyMsg = isAosMode
         ? 'No Age of Sigmar matches logged yet. Click <b>CREATE & ENTER AOS MATCH</b> above to start your first game!'
         : 'No matches logged yet. Click <b>CREATE & ENTER MATCH</b> above to start your first game!';
@@ -1753,7 +1793,7 @@
                 : `/11th/tracker/play?match_id=${encodeURIComponent(mid)}`;
 
               return `
-                <div style="background:var(--win-bg, rgba(34,197,94,0.08)); border:1px solid rgba(34,197,94,0.3); border-radius:14px; padding:14px 18px; box-sizing:border-box;">
+                <div data-active-match-id="${escapeHtml(mid)}" style="background:var(--win-bg, rgba(34,197,94,0.08)); border:1px solid rgba(34,197,94,0.3); border-radius:14px; padding:14px 18px; box-sizing:border-box;">
                   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
                     <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:var(--win, #22c55e); text-transform:uppercase; font-family:'JetBrains Mono',monospace;">
                       <span style="width:7px; height:7px; border-radius:50%; background:var(--win, #22c55e); display:inline-block;"></span>
@@ -1842,102 +1882,241 @@
     container.innerHTML = outHtml;
   }
 
-  // 6. PostgreSQL Database as Sole Source of Truth for History
-  async function syncHistoryFromDatabase() {
-    try {
-      const isAosMode = window.location.pathname.includes('/aos') ||
-        window.location.search.includes('game_system=aos') ||
-        window.location.search.includes('system=aos');
-      const token = getAuthToken();
-      const params = new URLSearchParams();
-      if (token) params.set('token', token);
-      params.set('game_system', isAosMode ? 'aos' : '40k');
-      const resp = await fetch(`/api/tracker/sessions?${params.toString()}`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data && data.success) {
-          window.gtActiveMatches = data.active_sessions || (data.primary_active ? [data.primary_active, ...(data.unfinished_sessions || [])] : []);
-          window.gtPrimaryActive = window.gtActiveMatches[0] || null;
-          window.gtUnfinishedSessions = window.gtActiveMatches.slice(1);
-          window.gtCompletedHistory = data.completed_history || [];
+  // Real-time Firestore listener for Active Matches on the Lobby page
+  const lobbyRoomUnsubs = {};
+  function watchLobbyActiveMatches() {
+    if (isPlay) return;
+    const db = getTrackerFirestoreDb();
+    if (!db) return;
 
-          const rawList = [
-            ...(window.gtActiveMatches || []),
-            ...(data.completed_history || [])
-          ];
+    const activeMatches = Array.isArray(window.gtActiveMatches) ? window.gtActiveMatches : [];
+    const activeIds = new Set(
+      activeMatches
+        .map(m => (m.match_id || m.id || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
 
-          dbHistoryCache = rawList.map(item => {
-            let s = {};
-            if (typeof item.state_json === 'string') {
-              try { s = JSON.parse(item.state_json); } catch (e) {}
-            } else if (typeof item.state_json === 'object') {
-              s = item.state_json || {};
+    // Unsubscribe rooms no longer in activeIds
+    Object.keys(lobbyRoomUnsubs).forEach(mid => {
+      if (!activeIds.has(mid)) {
+        try { lobbyRoomUnsubs[mid](); } catch (e) {}
+        delete lobbyRoomUnsubs[mid];
+      }
+    });
+
+    activeIds.forEach(mid => {
+      if (lobbyRoomUnsubs[mid]) return;
+      try {
+        lobbyRoomUnsubs[mid] = db.collection('rooms').doc(mid).onSnapshot((snap) => {
+          if (!snap || !snap.exists) {
+            // Room was deleted/discarded or finalized in Firestore!
+            if (lobbyRoomUnsubs[mid]) {
+              try { lobbyRoomUnsubs[mid](); } catch (e) {}
+              delete lobbyRoomUnsubs[mid];
             }
-            return {
-              id: item.match_id,
-              match_id: item.match_id,
-              date: new Date(item.updated_at || item.created_at || Date.now()).getTime(),
-              game: s.game || {
-                p1Name: item.p1_name || 'Player 1',
-                p2Name: item.p2_name || 'Player 2',
-                p1Faction: item.p1_faction,
-                p2Faction: item.p2_faction,
-                p1Detachments: item.p1_detachment ? [item.p1_detachment] : [],
-                p2Detachments: item.p2_detachment ? [item.p2_detachment] : [],
-                primary: item.primary_mission || 'Take & Hold',
-                deployment: item.deployment || 'Search & Destroy'
-              },
-              p1: s.p1 || { score: item.p1_score || 0 },
-              p2: s.p2 || { score: item.p2_score || 0 },
-              round: item.current_round || s.round || 1,
-              p1Score: item.p1_score || 0,
-              p2Score: item.p2_score || 0,
-              started: item.started,
-              isFinished: item.is_finished,
-              winner: item.winner_name,
-              ...s
-            };
-          });
-
-          // Filter out locally hidden match IDs to prevent any race condition
-          let locallyHidden = [];
-          try { locallyHidden = JSON.parse(originalGetItem('gt-hidden-matches') || '[]'); } catch(e) {}
-          if (locallyHidden.length > 0) {
-            const hiddenSet = new Set(locallyHidden);
-            window.gtActiveMatches = (window.gtActiveMatches || []).filter(item => !hiddenSet.has(item.match_id || item.id));
+            window.gtActiveMatches = (window.gtActiveMatches || []).filter(item => (item.match_id || item.id || '').trim().toUpperCase() !== mid);
             window.gtPrimaryActive = window.gtActiveMatches[0] || null;
             window.gtUnfinishedSessions = window.gtActiveMatches.slice(1);
-            window.gtCompletedHistory = (window.gtCompletedHistory || []).filter(item => !hiddenSet.has(item.match_id || item.id));
-            dbHistoryCache = dbHistoryCache.filter(item => !hiddenSet.has(item.match_id || item.id));
+            dbHistoryCache = (dbHistoryCache || []).filter(item => {
+              const itemMid = (item.match_id || item.id || '').trim().toUpperCase();
+              if (itemMid !== mid) return true;
+              return Boolean(item.isFinished || item.is_finished);
+            });
+            try { originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache)); } catch (e) {}
+            renderHistoryList(dbHistoryCache);
+            syncHistoryFromDatabase();
+            return;
           }
 
-          originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
+          const data = snap.data() || {};
+          const isZombiePartial = !data.status && !data.roomKey && !data.createdAt && !data.created_at;
+          if (data.status === 'abandoned' || data.is_abandoned || isZombiePartial) {
+            if (lobbyRoomUnsubs[mid]) {
+              try { lobbyRoomUnsubs[mid](); } catch (e) {}
+              delete lobbyRoomUnsubs[mid];
+            }
+            window.gtActiveMatches = (window.gtActiveMatches || []).filter(item => (item.match_id || item.id || '').trim().toUpperCase() !== mid);
+            window.gtPrimaryActive = window.gtActiveMatches[0] || null;
+            window.gtUnfinishedSessions = window.gtActiveMatches.slice(1);
+            dbHistoryCache = (dbHistoryCache || []).filter(item => (item.match_id || item.id || '').trim().toUpperCase() !== mid);
+            try { originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache)); } catch (e) {}
+            renderHistoryList(dbHistoryCache);
+            return;
+          }
 
-          window.dispatchEvent(new StorageEvent('storage', {
-            key: 'gdm-11e-tracker-history',
-            newValue: JSON.stringify(dbHistoryCache),
-            storageArea: localStorage
-          }));
+          if (data.status === 'completed' || data.is_finished || (data.state && data.state.is_finished)) {
+            syncHistoryFromDatabase();
+            return;
+          }
 
+          // Live update of active match scores/round/player names on the Lobby card
+          const st = data.state || {};
+          const game = st.game || {};
+          let changed = false;
+          const updateMatchItem = (item) => {
+            const itemMid = (item.match_id || item.id || '').trim().toUpperCase();
+            if (itemMid !== mid) return item;
+            const newRound = st.round || item.round || item.current_round || 1;
+            const newP1S = (st.p1 && typeof st.p1.score === 'number') ? st.p1.score : (item.p1Score ?? item.p1_score ?? 0);
+            const newP2S = (st.p2 && typeof st.p2.score === 'number') ? st.p2.score : (item.p2Score ?? item.p2_score ?? 0);
+            const newP1Name = data.p1_name || game.p1Name || item.p1_name || 'Player 1';
+            const newP2Name = data.p2_name || game.p2Name || item.p2_name || 'Player 2';
+            const newP1Fac = game.p1Faction || item.p1_faction || '';
+            const newP2Fac = game.p2Faction || item.p2_faction || '';
+            if (
+              item.round !== newRound ||
+              item.p1Score !== newP1S ||
+              item.p2Score !== newP2S ||
+              item.p1_name !== newP1Name ||
+              item.p2_name !== newP2Name ||
+              item.p1_faction !== newP1Fac ||
+              item.p2_faction !== newP2Fac
+            ) {
+              changed = true;
+              return Object.assign({}, item, {
+                round: newRound,
+                current_round: newRound,
+                p1Score: newP1S,
+                p1_score: newP1S,
+                p2Score: newP2S,
+                p2_score: newP2S,
+                p1_name: newP1Name,
+                p2_name: newP2Name,
+                p1_faction: newP1Fac,
+                p2_faction: newP2Fac,
+                game: Object.assign({}, item.game || {}, game, {
+                  p1Name: newP1Name,
+                  p2Name: newP2Name,
+                  p1Faction: newP1Fac,
+                  p2Faction: newP2Fac
+                })
+              });
+            }
+            return item;
+          };
+
+          window.gtActiveMatches = (window.gtActiveMatches || []).map(updateMatchItem);
+          dbHistoryCache = (dbHistoryCache || []).map(updateMatchItem);
+          if (changed) {
+            try { originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache)); } catch (e) {}
+            renderHistoryList(dbHistoryCache);
+          }
+        }, () => {});
+      } catch (e) {}
+    });
+  }
+
+  // 6. PostgreSQL Database as Sole Source of Truth for History
+  let syncHistoryInFlight = null;
+  async function syncHistoryFromDatabase() {
+    if (syncHistoryInFlight) return syncHistoryInFlight;
+    syncHistoryInFlight = (async () => {
+      try {
+        const isAosMode = window.location.pathname.includes('/aos') ||
+          window.location.search.includes('game_system=aos') ||
+          window.location.search.includes('system=aos');
+        const token = getAuthToken();
+        const params = new URLSearchParams();
+        if (token) params.set('token', token);
+        params.set('game_system', isAosMode ? 'aos' : '40k');
+        const resp = await fetch(`/api/tracker/sessions?${params.toString()}`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && data.success) {
+            window.gtActiveMatches = data.active_sessions || (data.primary_active ? [data.primary_active, ...(data.unfinished_sessions || [])] : []);
+            window.gtPrimaryActive = window.gtActiveMatches[0] || null;
+            window.gtUnfinishedSessions = window.gtActiveMatches.slice(1);
+            window.gtCompletedHistory = data.completed_history || [];
+
+            const rawList = [
+              ...(window.gtActiveMatches || []),
+              ...(data.completed_history || [])
+            ];
+
+            dbHistoryCache = rawList.map(item => {
+              let s = {};
+              if (typeof item.state_json === 'string') {
+                try { s = JSON.parse(item.state_json); } catch (e) {}
+              } else if (typeof item.state_json === 'object') {
+                s = item.state_json || {};
+              }
+              return {
+                id: item.match_id,
+                match_id: item.match_id,
+                date: new Date(item.updated_at || item.created_at || Date.now()).getTime(),
+                game: s.game || {
+                  p1Name: item.p1_name || 'Player 1',
+                  p2Name: item.p2_name || 'Player 2',
+                  p1Faction: item.p1_faction,
+                  p2Faction: item.p2_faction,
+                  p1Detachments: item.p1_detachment ? [item.p1_detachment] : [],
+                  p2Detachments: item.p2_detachment ? [item.p2_detachment] : [],
+                  primary: item.primary_mission || 'Take & Hold',
+                  deployment: item.deployment || 'Search & Destroy'
+                },
+                p1: s.p1 || { score: item.p1_score || 0 },
+                p2: s.p2 || { score: item.p2_score || 0 },
+                round: item.current_round || s.round || 1,
+                p1Score: item.p1_score || 0,
+                p2Score: item.p2_score || 0,
+                started: item.started,
+                isFinished: item.is_finished,
+                winner: item.winner_name,
+                ...s
+              };
+            });
+
+            // Filter out locally hidden match IDs to prevent any race condition
+            let locallyHidden = [];
+            try { locallyHidden = JSON.parse(originalGetItem('gt-hidden-matches') || '[]'); } catch(e) {}
+            if (locallyHidden.length > 0) {
+              const hiddenSet = new Set(locallyHidden);
+              window.gtActiveMatches = (window.gtActiveMatches || []).filter(item => !hiddenSet.has(item.match_id || item.id));
+              window.gtPrimaryActive = window.gtActiveMatches[0] || null;
+              window.gtUnfinishedSessions = window.gtActiveMatches.slice(1);
+              window.gtCompletedHistory = (window.gtCompletedHistory || []).filter(item => !hiddenSet.has(item.match_id || item.id));
+              dbHistoryCache = dbHistoryCache.filter(item => !hiddenSet.has(item.match_id || item.id));
+            }
+
+            isHistoryLoading = false;
+            originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
+
+            window.dispatchEvent(new StorageEvent('storage', {
+              key: 'gdm-11e-tracker-history',
+              newValue: JSON.stringify(dbHistoryCache),
+              storageArea: localStorage
+            }));
+
+            renderHistoryList(dbHistoryCache);
+            watchLobbyActiveMatches();
+          }
+        }
+      } catch (e) {
+      } finally {
+        if (isHistoryLoading) {
+          isHistoryLoading = false;
           renderHistoryList(dbHistoryCache);
         }
+        syncHistoryInFlight = null;
       }
-    } catch (e) {}
+    })();
+    return syncHistoryInFlight;
   }
 
   window.__syncTrackerHistory = syncHistoryFromDatabase;
 
-  // Background Auto-Refresh Timer for Match History (Relaxed 60s fallback; instant sync handled via focus & events)
+  // Background Auto-Refresh Timer for Match History (10s fallback + real-time Firestore listeners on active matches)
   let historyPollTimer = null;
   function startHistoryPolling() {
     if (historyPollTimer) clearInterval(historyPollTimer);
+    watchLobbyActiveMatches();
     historyPollTimer = setInterval(() => {
       if (!isPlay && document.visibilityState !== 'hidden') {
         syncHistoryFromDatabase();
       }
-    }, 60000);
+    }, 10000);
   }
 
   // Auto-refresh history immediately on tab focus or visibility return
@@ -2230,6 +2409,64 @@
     }, 1000);
   }
 
+  function handleRemoteMatchDiscarded() {
+    if (clientState.isFinalizing || clientState.isDiscarded) return;
+    clientState.isDiscarded = true;
+    clientState.isFinalizing = true;
+    const discardedMatchId = clientState.matchId;
+    clearTimeout(clientState.debounceTimer);
+    if (fastPollTimer) { clearInterval(fastPollTimer); fastPollTimer = null; }
+    if (wizardScrapeTimer) { clearInterval(wizardScrapeTimer); wizardScrapeTimer = null; }
+    if (fsDocUnsub) {
+      try { fsDocUnsub(); fsDocUnsub = null; } catch(e) {}
+    }
+    clientState.firestoreConnected = false;
+    clientState.hasRealtimeStream = false;
+    if (clientState.eventSource) {
+      try { clientState.eventSource.close(); clientState.eventSource = null; } catch(e) {}
+    }
+    try { originalRemoveItem('gdm-11e-tracker-state'); } catch(e) {}
+    try {
+      const localRaw = originalGetItem('gdm-11e-tracker-history');
+      if (localRaw && discardedMatchId) {
+        let localArr = JSON.parse(localRaw);
+        if (Array.isArray(localArr)) {
+          localArr = localArr.filter(g => String(g.id || g.match_id) !== String(discardedMatchId));
+          originalSetItem('gdm-11e-tracker-history', JSON.stringify(localArr));
+        }
+      }
+    } catch(e) {}
+
+    let overlay = document.getElementById('gt-discarded-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'gt-discarded-overlay';
+      overlay.style.cssText = `
+        position: fixed; inset: 0; background: rgba(7,11,20,0.92);
+        z-index: 999999; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; text-align: center;
+        padding: 20px; color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      `;
+      overlay.innerHTML = `
+        <div style="background:#0f172a; border:1px solid #ef4444; border-radius:16px; padding:2rem; max-width:440px; box-shadow:0 20px 50px rgba(0,0,0,0.8);">
+          <div style="font-size:3rem; margin-bottom:1rem;">🗑️</div>
+          <h2 style="font-size:1.4rem; font-weight:800; color:#ef4444; margin:0 0 0.5rem 0;">Match Discarded</h2>
+          <p style="font-size:0.9rem; color:#94a3b8; line-height:1.5; margin:0 0 1.5rem 0;">
+            This match room was deleted by the other player and is no longer active. Returning to the Game Tracker lobby...
+          </p>
+          <a href="/11th/tracker" style="background:#334155; color:#fff; padding:10px 20px; border-radius:8px; text-decoration:none; font-weight:700; font-size:0.9rem; display:inline-block;">
+            🏠 Return to Lobby
+          </a>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+    }
+
+    setTimeout(() => {
+      window.location.href = '/11th/tracker';
+    }, 1200);
+  }
+
   let trackerFirestoreDb = null;
   function getTrackerFirestoreDb() {
     if (trackerFirestoreDb) return trackerFirestoreDb;
@@ -2259,15 +2496,31 @@
         fsDocUnsub = docRef.onSnapshot((snap) => {
           clientState.firestoreConnected = true;
           if (!snap || !snap.exists) {
-            // Room was concluded and deleted by opponent!
-            if (clientState.hasJoinedRoom && !clientState.isFinalizing) {
-              handleRemoteMatchFinalized();
+            // Room was either finalized or discarded by opponent!
+            if (clientState.hasJoinedRoom && !clientState.isFinalizing && !clientState.isDiscarded) {
+              const mid = clientState.matchId;
+              fetch(`/api/tracker/room/${encodeURIComponent(mid)}/check`)
+                .then(r => r.ok ? r.json() : null)
+                .then(chk => {
+                  if (chk && (chk.is_finished || chk.status === 'completed')) {
+                    handleRemoteMatchFinalized();
+                  } else {
+                    handleRemoteMatchDiscarded();
+                  }
+                })
+                .catch(() => {
+                  handleRemoteMatchDiscarded();
+                });
             }
             return;
           }
           clientState.hasJoinedRoom = true;
           const data = snap.data();
           if (data) {
+            if (data.status === 'abandoned' || data.is_abandoned) {
+              handleRemoteMatchDiscarded();
+              return;
+            }
             if (data.status === 'completed' || data.is_finished || (data.state && data.state.is_finished)) {
               handleRemoteMatchFinalized();
               return;
@@ -2635,7 +2888,7 @@
   }
 
   async function broadcastState() {
-    if (!clientState.matchId || clientState.isFinalizing) return;
+    if (!clientState.matchId || clientState.isFinalizing || clientState.isDiscarded) return;
     if (clientState.role === 'spectator') return;
     const raw = originalGetItem('gdm-11e-tracker-state');
     if (!raw) return;
@@ -2646,15 +2899,15 @@
 
     clientState.version++;
 
-    // 1. Direct write to Cloud Firestore if client SDK is loaded
+    // 1. Direct write to Cloud Firestore if client SDK is loaded (use .update so deleted rooms are never resurrected)
     if (typeof firebase !== 'undefined' && firebase.firestore) {
       try {
         const db = firebase.firestore();
-        db.collection('rooms').doc(clientState.matchId).set({
+        db.collection('rooms').doc(clientState.matchId).update({
           state: parsedState,
           version: clientState.version,
           updatedAt: Date.now()
-        }, { merge: true });
+        }).catch(() => {});
       } catch(e) {}
     }
 
@@ -2677,6 +2930,10 @@
       });
       if (resp.ok) {
         const resData = await resp.json();
+        if (resData.is_abandoned || resData.status === 'abandoned') {
+          handleRemoteMatchDiscarded();
+          return;
+        }
         if (resData.is_finished || resData.status === 'finalized') {
           handleRemoteMatchFinalized();
           return;
@@ -2802,7 +3059,7 @@
     // 1. Local DOM wizard state scraper (0 network overhead)
     if (wizardScrapeTimer) clearInterval(wizardScrapeTimer);
     wizardScrapeTimer = setInterval(() => {
-      if (!clientState.matchId || clientState.isApplyingRemote) return;
+      if (!clientState.matchId || clientState.isApplyingRemote || clientState.isFinalizing || clientState.isDiscarded) return;
       const wizard = scrapeSetupWizardState();
       if (wizard) {
         const wizardJson = JSON.stringify(wizard);
@@ -2816,7 +3073,7 @@
     // 2. Network Fallback Poller: ONLY executes if BOTH Firestore and SSE are unavailable
     if (fastPollTimer) clearInterval(fastPollTimer);
     fastPollTimer = setInterval(async () => {
-      if (!clientState.matchId || clientState.isApplyingRemote) return;
+      if (!clientState.matchId || clientState.isApplyingRemote || clientState.isFinalizing || clientState.isDiscarded) return;
       if (document.hidden) return;
 
       // When Firestore direct sync or SSE stream is active, ZERO HTTP polling needed!
@@ -2883,6 +3140,10 @@
       es.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
+          if (msg.type === 'room_discarded' || msg.status === 'abandoned' || msg.is_abandoned) {
+            handleRemoteMatchDiscarded();
+            return;
+          }
           if (msg.type === 'match_finalized' || msg.status === 'completed' || msg.is_finished) {
             handleRemoteMatchFinalized();
             return;
@@ -4273,7 +4534,7 @@ Space Marines - Gladius Task Force (2000 pts)
   }
 
   function broadcastChessClockFast() {
-    if (!clientState.matchId || clientState.role === 'spectator') return;
+    if (!clientState.matchId || clientState.role === 'spectator' || clientState.isFinalizing || clientState.isDiscarded) return;
     const times = getEffectiveClockTimes();
     const payload = {
       visible: chessClock.visible,
@@ -4289,10 +4550,10 @@ Space Marines - Gladius Task Force (2000 pts)
     if (typeof firebase !== 'undefined' && firebase.firestore) {
       try {
         const db = firebase.firestore();
-        db.collection('rooms').doc(clientState.matchId).set({
+        db.collection('rooms').doc(clientState.matchId).update({
           chess_clock: payload,
           updatedAt: Date.now()
-        }, { merge: true });
+        }).catch(() => {});
       } catch(e) {}
     }
     fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/clock`, {
@@ -4346,19 +4607,20 @@ Space Marines - Gladius Task Force (2000 pts)
   }
 
   function broadcastDiceTray() {
-    if (!clientState.matchId) return;
+    if (!clientState.matchId || clientState.isFinalizing || clientState.isDiscarded) return;
     clearTimeout(diceRollerState.syncTimer);
     diceRollerState.syncTimer = setTimeout(() => {
-      // 1. Direct write to Cloud Firestore if client SDK is loaded
+      if (clientState.isFinalizing || clientState.isDiscarded) return;
+      // 1. Direct write to Cloud Firestore if client SDK is loaded (use .update so deleted rooms are never resurrected)
       if (typeof firebase !== 'undefined' && firebase.firestore) {
         try {
           const db = firebase.firestore();
-          db.collection('rooms').doc(clientState.matchId).set({
+          db.collection('rooms').doc(clientState.matchId).update({
             dice_tray: diceRollerState.tray,
             dice_target: diceRollerState.target,
             dice_history: diceRollerState.history,
             updatedAt: Date.now()
-          }, { merge: true });
+          }).catch(() => {});
         } catch(e) {}
       }
 
@@ -4918,31 +5180,31 @@ Space Marines - Gladius Task Force (2000 pts)
     try { localStorage.removeItem('gt-dice-history'); } catch(e) {}
     renderDiceRollerContent();
 
-    if (!clientState.matchId) return;
+    if (!clientState.matchId || clientState.isFinalizing || clientState.isDiscarded) return;
     if (typeof firebase !== 'undefined' && firebase.firestore) {
       try {
         const db = firebase.firestore();
-        db.collection('rooms').doc(clientState.matchId).set({
+        db.collection('rooms').doc(clientState.matchId).update({
           dice_history: [],
           updatedAt: Date.now()
-        }, { merge: true });
+        }).catch(() => {});
       } catch(e) {}
     }
   };
 
   function broadcastDiceRoll(rollData) {
-    if (!clientState.matchId) return;
+    if (!clientState.matchId || clientState.isFinalizing || clientState.isDiscarded) return;
 
-    // Direct write to Cloud Firestore
+    // Direct write to Cloud Firestore (use .update so deleted rooms are never resurrected)
     if (typeof firebase !== 'undefined' && firebase.firestore) {
       try {
         const db = firebase.firestore();
-        db.collection('rooms').doc(clientState.matchId).set({
+        db.collection('rooms').doc(clientState.matchId).update({
           dice_tray: diceRollerState.tray,
           dice_target: diceRollerState.target,
           dice_history: diceRollerState.history,
           updatedAt: Date.now()
-        }, { merge: true });
+        }).catch(() => {});
       } catch(e) {}
     }
 
@@ -5247,7 +5509,7 @@ Space Marines - Gladius Task Force (2000 pts)
         updateMainEventDoc(db.collection('tournaments').doc(tournamentId));
         db.collection('tournaments').doc(tournamentId).collection('judge_calls').doc(callId).set(callData, { merge: true }).catch(() => {});
         if (clientState.matchId) {
-          db.collection('rooms').doc(clientState.matchId).set({ active_judge_call: callData }, { merge: true }).catch(() => {});
+          db.collection('rooms').doc(clientState.matchId).update({ active_judge_call: callData }).catch(() => {});
         }
       } catch (err) {
         console.debug('[Firestore Judge Dispatch] Native write exception:', err);

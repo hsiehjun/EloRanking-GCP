@@ -585,8 +585,128 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn("document.body.classList.add('gt-role-verified')", ts_aos_js)
         print("✓ test_casual_room_third_user_spectator_loading_screen_and_clean_share_links passed")
 
+    def test_discarded_room_removed_for_player2_and_never_resurrected(self):
+        """Verify when Player 1 discards a game (or deletes it from Firestore), Player 2 no longer sees it in active_sessions and delayed state saves do not resurrect it."""
+        import asyncio
+        from unittest.mock import patch
+        import routers.tracker as tracker_mod
+        from routers.tracker import (
+            api_tracker_create_room,
+            api_tracker_join_room,
+            api_tracker_discard_game,
+            api_tracker_save_state,
+            api_tracker_check_room,
+            api_tracker_user_sessions,
+            TrackerCreatePayload,
+            TrackerJoinPayload,
+            TrackerStatePayload,
+            TRACKER_ROOMS,
+        )
+        from core import get_firestore_engine
+        fs_engine = get_firestore_engine()
+
+        match_id = "WH40K-56D5-6F47"
+        p1_user = {"id": "p1_john_id", "name": "John Hsieh", "display_name": "John Hsieh", "role": "user"}
+        p2_user = {"id": "p2_john4_id", "name": "John4 Hsieh4", "display_name": "John4 Hsieh4", "role": "user"}
+
+        mock_db = MagicMock()
+        mock_db.get_tracker_game.return_value = None
+        mock_db.get_tracker_history.return_value = []
+        mock_db.delete_tracker_game.return_value = True
+
+        def _mock_req(u):
+            req = MagicMock()
+            req._mock_user = u
+            req.headers = {}
+            req.cookies = {}
+            return req
+
+        try:
+            mock_auth = MagicMock()
+            mock_auth.verify_token.side_effect = lambda tok: p1_user if tok == "p1_token" else (p2_user if tok == "p2_token" else None)
+            with patch.object(tracker_mod, "get_database", return_value=mock_db), \
+                 patch.object(tracker_mod, "get_auth_manager", return_value=mock_auth), \
+                 patch.object(tracker_mod, "_get_user_session_or_401", side_effect=lambda req: getattr(req, "_mock_user", None)):
+                # 1. Create room as Player 1 and join as Player 2
+                TRACKER_ROOMS.pop(match_id, None)
+                fs_engine._fallback_rooms.pop(match_id, None)
+                fs_engine._discarded_rooms.pop(match_id, None)
+                asyncio.run(
+                    api_tracker_create_room(
+                        payload=TrackerCreatePayload(
+                            match_id=match_id,
+                            p1_name="John Hsieh",
+                            p2_name="John4 Hsieh4",
+                            user_id_p1="p1_john_id",
+                            user_id_p2="p2_john4_id",
+                            state={
+                                "id": match_id,
+                                "user_id_p1": "p1_john_id",
+                                "user_id_p2": "p2_john4_id",
+                                "game": {"p1Name": "John Hsieh", "p2Name": "John4 Hsieh4", "round": 1},
+                            },
+                        ),
+                        request=_mock_req(p1_user),
+                    )
+                )
+                asyncio.run(
+                    api_tracker_join_room(
+                        match_id,
+                        request=_mock_req(p2_user),
+                        payload=TrackerJoinPayload(player_name="John4 Hsieh4", player_id="p2_john4_id"),
+                    )
+                )
+
+                # Verify Player 2 sees the active match before discard
+                p2_sessions_before = asyncio.run(api_tracker_user_sessions(request=_mock_req(p2_user), token=None, game_system=None))
+                active_ids_before = [s["id"] for s in p2_sessions_before.get("active_sessions", [])]
+                self.assertIn(match_id, active_ids_before)
+
+                # 2. Player 1 discards the match
+                discard_res = asyncio.run(api_tracker_discard_game(match_id, request=_mock_req(p1_user)))
+                self.assertEqual(discard_res.get("status"), "abandoned")
+                self.assertTrue(fs_engine.is_room_discarded(match_id))
+                self.assertNotIn(match_id, TRACKER_ROOMS)
+                self.assertIsNone(fs_engine.get_room(match_id))
+
+                # 3. Verify Player 2 immediately sees 0 active matches for this room
+                p2_sessions_after = asyncio.run(api_tracker_user_sessions(request=_mock_req(p2_user), token=None, game_system=None))
+                active_ids_after = [s["id"] for s in p2_sessions_after.get("active_sessions", [])]
+                self.assertNotIn(match_id, active_ids_after)
+
+                # 4. Simulate a delayed state save from Player 2's open tab -> must return abandoned and NOT recreate room
+                delayed_save = asyncio.run(
+                    api_tracker_save_state(
+                        match_id,
+                        payload=TrackerStatePayload(
+                            match_id=match_id,
+                            version=5,
+                            state={"game": {"p1Name": "John Hsieh", "p2Name": "John4 Hsieh4", "round": 1}},
+                        ),
+                        request=_mock_req(p2_user),
+                    )
+                )
+                self.assertTrue(delayed_save.get("is_abandoned"))
+                self.assertEqual(delayed_save.get("status"), "abandoned")
+                self.assertNotIn(match_id, TRACKER_ROOMS)
+                self.assertIsNone(fs_engine.get_room(match_id))
+
+                # 5. Verify /check also reports abandoned and does not resurrect room
+                chk_after = asyncio.run(api_tracker_check_room(match_id, _mock_req(p2_user)))
+                self.assertTrue(chk_after.get("is_abandoned"))
+                self.assertFalse(chk_after.get("exists"))
+                self.assertNotIn(match_id, TRACKER_ROOMS)
+
+        finally:
+            TRACKER_ROOMS.pop(match_id, None)
+            fs_engine._fallback_rooms.pop(match_id, None)
+            fs_engine._discarded_rooms.pop(match_id, None)
+
+        print("✓ test_discarded_room_removed_for_player2_and_never_resurrected passed")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
