@@ -23,10 +23,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=18202ff789">
-  <link rel="stylesheet" href="/css/styles.min.css?v=18202ff789">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=18202ff789">
-  <link rel="preload" href="/js/app.bundle.min.js?v=18202ff789" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=69eed2f1de">
+  <link rel="stylesheet" href="/css/styles.min.css?v=69eed2f1de">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=69eed2f1de">
+  <link rel="preload" href="/js/app.bundle.min.js?v=69eed2f1de" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 
   <style>
@@ -233,29 +233,38 @@
       window.addEventListener('error', forceDismissSplash);
 
       // Automatically detect new server deployment and purge stale mobile/PWA cache
-      fetch('/api/version?_t=' + Date.now(), { cache: 'no-store' })
-        .then(function(r) { return r.ok ? r.json() : null; })
-        .then(function(data) {
-          if (!data || !data.version) return;
-          var prev = localStorage.getItem('omnitactica_live_version');
-          localStorage.setItem('omnitactica_live_version', String(data.version));
-          if (prev && prev !== String(data.version)) {
-            if ('caches' in window) {
-              caches.keys().then(function(keys) {
-                return Promise.all(keys.map(function(k) { return caches.delete(k); }));
-              }).finally(function() {
+      function verifyLiveServerVersion() {
+        fetch('/api/version?_t=' + Date.now(), { cache: 'no-store' })
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(data) {
+            if (!data || !data.version) return;
+            var serverVer = String(data.version).trim();
+            var prev = localStorage.getItem('omnitactica_live_version');
+            var inlineVer = (typeof window.APP_VERSION === 'string' && window.APP_VERSION !== 'dev') ? window.APP_VERSION.trim() : null;
+            localStorage.setItem('omnitactica_live_version', serverVer);
+            var isStale = (prev && prev !== serverVer) || (inlineVer && inlineVer !== serverVer);
+            if (isStale && sessionStorage.getItem('omnitactica_reloaded_ver') !== serverVer) {
+              sessionStorage.setItem('omnitactica_reloaded_ver', serverVer);
+              var bustAndReload = function() {
                 var u = new URL(window.location.href);
-                u.searchParams.set('_v', String(data.version));
+                u.searchParams.set('_v', serverVer);
                 window.location.replace(u.toString());
-              });
-            } else {
-              var u = new URL(window.location.href);
-              u.searchParams.set('_v', String(data.version));
-              window.location.replace(u.toString());
+              };
+              if ('caches' in window) {
+                caches.keys().then(function(keys) {
+                  return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+                }).finally(bustAndReload);
+              } else {
+                bustAndReload();
+              }
             }
-          }
-        })
-        .catch(function() {});
+          })
+          .catch(function() {});
+      }
+      verifyLiveServerVersion();
+      window.addEventListener('pageshow', function(e) {
+        if (e && e.persisted) verifyLiveServerVersion();
+      });
     })();
   </script>
 
@@ -3385,8 +3394,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "18202ff789";</script>
-  <script src="/js/app.bundle.min.js?v=18202ff789"></script>
+  <script>window.APP_VERSION = "69eed2f1de";</script>
+  <script src="/js/app.bundle.min.js?v=69eed2f1de"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

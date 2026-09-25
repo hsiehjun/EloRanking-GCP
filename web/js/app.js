@@ -993,6 +993,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       checkAppVersionForUpdates();
     }
   });
+  window.addEventListener('pageshow', () => {
+    checkAppVersionForUpdates();
+  });
   window.addEventListener('focus', () => {
     checkAppVersionForUpdates();
   });
