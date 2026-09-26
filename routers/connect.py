@@ -129,7 +129,7 @@ async def api_search_connect_players(
     )
     return {"success": True, "players": players}
 
-@router.get("/api/connect/requests", summary="Get user match requests and chats")
+@router.get("/api/connect/requests", summary="Get user match requests and chats (including League & Pod seasonal group chats)")
 async def api_get_connect_requests(request: Request):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
@@ -139,8 +139,38 @@ async def api_get_connect_requests(request: Request):
         raise HTTPException(status_code=401, detail="Authentication required")
 
     db = get_database()
-    requests = db.get_user_match_requests(user["id"])
-    return {"success": True, "requests": requests, "current_user_id": user["id"]}
+    try:
+        direct_requests = db.get_user_match_requests(user["id"]) if db else []
+    except Exception as e:
+        logger.warning(f"Notice fetching direct match requests: {e}")
+        direct_requests = []
+
+    group_chats = []
+    try:
+        import leagues_hub_service
+        svc = leagues_hub_service.get_leagues_hub_service()
+        is_admin_or_to = bool(
+            user.get("is_admin")
+            or user.get("can_access_to")
+            or str(user.get("role") or "").lower() in ("admin", "superuser", "developer", "owner", "to", "organizer")
+        )
+        group_chats = svc.get_user_group_chats(
+            user_id=user.get("id"),
+            player_id=user.get("player_id"),
+            user_name=user.get("display_name"),
+            user_email=user.get("email"),
+            is_admin=is_admin_or_to
+        )
+    except Exception as ge:
+        logger.warning(f"Notice loading user seasonal group chats: {ge}")
+
+    combined = list(group_chats) + list(direct_requests)
+    return {
+        "success": True,
+        "requests": combined,
+        "group_chats": group_chats,
+        "current_user_id": user["id"]
+    }
 
 @router.post("/api/connect/request", summary="Create sparring match request")
 async def api_create_connect_request(request: Request, payload: MatchRequestPayload):
@@ -207,12 +237,22 @@ async def api_respond_connect_request(request_id: str, payload: MatchRespondPayl
 
     return res
 
-@router.get("/api/connect/request/{request_id}/messages", summary="Get messages in request thread")
+@router.get("/api/connect/request/{request_id}/messages", summary="Get messages in request thread or seasonal group chat")
 async def api_get_connect_messages(request_id: str, request: Request):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
+
+    clean_rid = str(request_id or "").strip()
+    if clean_rid.lower().startswith("grp_league_") or clean_rid.lower().startswith("grp_pod_"):
+        import leagues_hub_service
+        svc = leagues_hub_service.get_leagues_hub_service()
+        res = svc.get_group_chat_messages(clean_rid, user_id=user["id"] if user else "")
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to load group chat messages"))
+        return res
+
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
@@ -231,12 +271,31 @@ async def api_get_connect_messages(request_id: str, request: Request):
 
     return res
 
-@router.post("/api/connect/request/{request_id}/message", summary="Send message in request thread")
+@router.post("/api/connect/request/{request_id}/message", summary="Send message in request thread or seasonal group chat")
 async def api_send_connect_message(request_id: str, payload: ChatMessagePayload, request: Request):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
+
+    clean_rid = str(request_id or "").strip()
+    if clean_rid.lower().startswith("grp_league_") or clean_rid.lower().startswith("grp_pod_"):
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        import leagues_hub_service
+        svc = leagues_hub_service.get_leagues_hub_service()
+        res = svc.send_group_chat_message(
+            channel_id=clean_rid,
+            sender_id=user["id"],
+            sender_name=user.get("display_name") or user.get("email") or "Player",
+            message_text=payload.message,
+            room_key=payload.room_key,
+            message_id=payload.message_id
+        )
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to send group message"))
+        return res
+
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
 

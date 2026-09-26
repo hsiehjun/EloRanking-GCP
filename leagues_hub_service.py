@@ -2554,6 +2554,11 @@ class LeaguesHubService:
                 """, (st_uuid, lid, s_num, bottom_pod_num, p_name, faction, valid_pid, valid_pid, valid_uid, is_matched, "self_claimed" if is_matched else "unmatched", new_rank))
             conn.commit()
 
+        try:
+            self.sync_league_group_chats(lid)
+        except Exception:
+            pass
+
         return {
             "success": True,
             "league_id": lid,
@@ -2977,10 +2982,18 @@ class LeaguesHubService:
             "games_per_season", "min_games_required", "pod_size_min", "pod_size_max",
             "promotion_count", "relegation_count", "finals_bracket_size",
             "has_playoff_finals", "has_poty_points", "enable_disciplinary_cards",
-            "entry_fee", "chess_clock_policy", "custom_pod_names", "repeating_mode"
+            "entry_fee", "chess_clock_policy", "custom_pod_names", "repeating_mode",
+            "league_chat_enabled", "pod_chats_enabled"
         ):
             if k in payload and payload[k] is not None:
                 meth[k] = payload[k]
+
+        if "league_chat_enabled" in payload and payload["league_chat_enabled"] is not None:
+            meth["league_chat_enabled"] = bool(payload["league_chat_enabled"])
+            league["league_chat_enabled"] = bool(payload["league_chat_enabled"])
+        if "pod_chats_enabled" in payload and payload["pod_chats_enabled"] is not None:
+            meth["pod_chats_enabled"] = bool(payload["pod_chats_enabled"])
+            league["pod_chats_enabled"] = bool(payload["pod_chats_enabled"])
 
         if "finals_bracket_size" in payload and payload["finals_bracket_size"] is not None:
             fb_size = int(payload["finals_bracket_size"])
@@ -3087,7 +3100,17 @@ class LeaguesHubService:
                 sched_payload["duration_weeks"] = int(payload.get("season_duration_weeks") or payload.get("duration_weeks"))
             if ("games_per_season" in payload or "rounds_count" in payload) and "rounds_count" not in sched_payload:
                 sched_payload["rounds_count"] = int(payload.get("games_per_season") or payload.get("rounds_count"))
-            return self.update_season_schedule_and_layouts(lid, sched_payload)
+            res_sched = self.update_season_schedule_and_layouts(lid, sched_payload)
+            try:
+                self.sync_league_group_chats(lid)
+            except Exception:
+                pass
+            return res_sched
+
+        try:
+            self.sync_league_group_chats(lid)
+        except Exception:
+            pass
 
         return {
             "success": True,
@@ -3096,7 +3119,11 @@ class LeaguesHubService:
         }
 
     def rollover_season(self, league_id: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Executes season rollover with 2-up / 2-down promotion & relegation and seeds next season in PostgreSQL."""
+        """
+        Executes season rollover with promotion & relegation, seeds next season in PostgreSQL/cache,
+        deletes the finished season's Firestore group chats (so they disappear after the season ends),
+        and initializes fresh seasonal League & Pod group chats with a new greeting message.
+        """
         db = _get_db()
         lid = _normalize_league_id(league_id)
         preview = self.calculate_promotion_relegation(lid)
@@ -3110,81 +3137,147 @@ class LeaguesHubService:
         s_cfg = act.get("season_config") or {}
         pods = act.get("pods", [])
         projected = preview.get("projected_pods", {})
+        rds_cnt = int((league.get("methodology") or {}).get("games_per_season") or s_cfg.get("games_per_season") or 5)
 
-        with db.get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE native_league_seasons
-                    SET status = 'completed',
-                        is_historical = TRUE,
-                        champion_name = COALESCE(%s, champion_name),
-                        champion_faction = COALESCE(%s, champion_faction)
-                    WHERE league_id = %s AND season_num = %s;
-                """, (pod1_champ.get("champion_name"), pod1_champ.get("primary_faction"), lid, curr_s))
+        # Update offline cache first so local/fallback mode also rolls over cleanly
+        cached = self._load_league_from_seed_json(lid)
+        if cached is not None:
+            c_act = cached.setdefault("active_season", {})
+            c_act["season_number"] = next_s
+            c_act["name"] = f"Season {next_s}"
+            c_act["status"] = "active"
+            cached["selected_season"] = next_s
+            for p in (c_act.get("pods") or []):
+                p_num = int(p.get("pod_number", 1))
+                proj_players = projected.get(p_num) or projected.get(str(p_num)) or []
+                p_names = [pl.get("name") for pl in proj_players if pl.get("name")]
+                rr_pairings = generate_round_robin_pairings(p_names, rds_cnt, randomize=True)
+                new_st = []
+                for r_idx, pl in enumerate(proj_players, start=1):
+                    pname = pl.get("name")
+                    if not pname:
+                        continue
+                    prev_pod = int(pl.get("previous_pod") or p_num)
+                    prev_rk = int(pl.get("previous_rank") or r_idx)
+                    prev_rec = str(pl.get("previous_record") or "3-2")
+                    outcome = "promoted" if prev_pod > p_num else ("relegated" if prev_pod < p_num else "retained")
+                    arrow = f"▲ Up to Pod #{p_num}" if outcome == "promoted" else (f"▼ Down to Pod #{p_num}" if outcome == "relegated" else f"● Stay Pod #{p_num}")
+                    prev_info = {
+                        "prev_pod": prev_pod,
+                        "prev_rank": prev_rk,
+                        "prev_record": prev_rec,
+                        "outcome": outcome,
+                        "recommended_pod": p_num,
+                        "summary": f"Prev Season: Pod #{prev_pod} (#{prev_rk}, {prev_rec}) {arrow}"
+                    }
+                    new_st.append({
+                        **pl,
+                        "rank": r_idx,
+                        "wins": 0,
+                        "losses": 0,
+                        "draws": 0,
+                        "battle_points": 0,
+                        "games_played": 0,
+                        "poty_points": 0,
+                        "relegation_status": "Safe",
+                        "prev_season_info": prev_info,
+                        "career": {**(pl.get("career") if isinstance(pl.get("career"), dict) else {}), "prev_season_info": prev_info},
+                        "pairings": rr_pairings.get(pname, [])
+                    })
+                self._cross_link_pod_pairings(new_st)
+                p["standings"] = new_st
+            self._offline_league_cache[lid] = cached
 
-                cur.execute("""
-                    INSERT INTO native_league_seasons (
-                        id, league_id, season_num, name, status, duration_weeks, rounds_count,
-                        total_players, total_pods, is_historical, season_config_json
-                    ) VALUES (%s, %s, %s, %s, 'active', %s, %s, %s, %s, FALSE, %s::jsonb)
-                    ON CONFLICT (league_id, season_num) DO UPDATE SET
-                        status = 'active',
-                        is_historical = FALSE;
-                """, (
-                    str(uuid.uuid4()), lid, next_s, f"Season {next_s}",
-                    int(s_cfg.get("duration_weeks", 8)), int(s_cfg.get("games_per_season", 5)),
-                    int(act.get("total_players", 0)), len(pods), json.dumps(s_cfg)
-                ))
-
-                for p in pods:
-                    p_num = int(p.get("pod_number", 1))
-                    proj_players = projected.get(p_num) or projected.get(str(p_num)) or []
-                    p_names = [pl.get("name") for pl in proj_players if pl.get("name")]
-                    rr_pairings = generate_round_robin_pairings(p_names, int(s_cfg.get("games_per_season", 5)))
-                    cur.execute("""
-                        INSERT INTO native_league_pods (
-                            id, league_id, season_num, pod_num, name, tier, round_layouts, player_count
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
-                        ON CONFLICT (league_id, season_num, pod_num) DO UPDATE SET
-                            player_count = EXCLUDED.player_count;
-                    """, (
-                        str(uuid.uuid4()), lid, next_s, p_num,
-                        p.get("name", f"Pod #{p_num}"), p.get("tier", f"Division {p_num}"),
-                        json.dumps(p.get("round_layouts", [])), len(proj_players)
-                    ))
-                    for r_idx, pl in enumerate(proj_players, start=1):
-                        pname = pl.get("name")
-                        if not pname:
-                            continue
+        if db is not None and hasattr(db, "get_connection"):
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
                         cur.execute("""
-                            INSERT INTO native_league_participants (
-                                id, league_id, season_num, pod_num, participant_name, primary_faction
-                            ) VALUES (%s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (league_id, season_num, pod_num, participant_name) DO NOTHING;
-                        """, (str(uuid.uuid4()), lid, next_s, p_num, pname, pl.get("primary_faction", "")))
+                            UPDATE native_league_seasons
+                            SET status = 'completed',
+                                is_historical = TRUE,
+                                champion_name = COALESCE(%s, champion_name),
+                                champion_faction = COALESCE(%s, champion_faction)
+                            WHERE league_id = %s AND season_num = %s;
+                        """, (pod1_champ.get("champion_name"), pod1_champ.get("primary_faction"), lid, curr_s))
+
                         cur.execute("""
-                            INSERT INTO native_league_standings (
-                                id, league_id, season_num, pod_num, player_name, primary_faction,
-                                rank, wins, losses, draws, battle_points, games_played, poty_points,
-                                relegation_status, pairings_json
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 0, 0, 0, 0, 0, 'Safe', %s::jsonb)
-                            ON CONFLICT (league_id, season_num, pod_num, player_name) DO NOTHING;
+                            INSERT INTO native_league_seasons (
+                                id, league_id, season_num, name, status, duration_weeks, rounds_count,
+                                total_players, total_pods, is_historical, season_config_json
+                            ) VALUES (%s, %s, %s, %s, 'active', %s, %s, %s, %s, FALSE, %s::jsonb)
+                            ON CONFLICT (league_id, season_num) DO UPDATE SET
+                                status = 'active',
+                                is_historical = FALSE;
                         """, (
-                            str(uuid.uuid4()), lid, next_s, p_num, pname, pl.get("primary_faction", ""),
-                            r_idx, json.dumps(rr_pairings.get(pname, []))
+                            str(uuid.uuid4()), lid, next_s, f"Season {next_s}",
+                            int(s_cfg.get("duration_weeks", 8)), rds_cnt,
+                            int(act.get("total_players", 0)), len(pods), json.dumps(s_cfg)
                         ))
 
-                cur.execute("UPDATE native_leagues SET active_season_num = %s, updated_at = NOW() WHERE id = %s;", (next_s, lid))
-            conn.commit()
+                        for p in pods:
+                            p_num = int(p.get("pod_number", 1))
+                            proj_players = projected.get(p_num) or projected.get(str(p_num)) or []
+                            p_names = [pl.get("name") for pl in proj_players if pl.get("name")]
+                            rr_pairings = generate_round_robin_pairings(p_names, rds_cnt, randomize=True)
+                            cur.execute("""
+                                INSERT INTO native_league_pods (
+                                    id, league_id, season_num, pod_num, name, tier, round_layouts, player_count
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                                ON CONFLICT (league_id, season_num, pod_num) DO UPDATE SET
+                                    player_count = EXCLUDED.player_count;
+                            """, (
+                                str(uuid.uuid4()), lid, next_s, p_num,
+                                p.get("name", f"Pod #{p_num}"), p.get("tier", f"Division {p_num}"),
+                                json.dumps(p.get("round_layouts", [])), len(proj_players)
+                            ))
+                            for r_idx, pl in enumerate(proj_players, start=1):
+                                pname = pl.get("name")
+                                if not pname:
+                                    continue
+                                cur.execute("""
+                                    INSERT INTO native_league_participants (
+                                        id, league_id, season_num, pod_num, participant_name, primary_faction
+                                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                                    ON CONFLICT (league_id, season_num, pod_num, participant_name) DO NOTHING;
+                                """, (str(uuid.uuid4()), lid, next_s, p_num, pname, pl.get("primary_faction", "")))
+                                cur.execute("""
+                                    INSERT INTO native_league_standings (
+                                        id, league_id, season_num, pod_num, player_name, primary_faction,
+                                        rank, wins, losses, draws, battle_points, games_played, poty_points,
+                                        relegation_status, pairings_json
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 0, 0, 0, 0, 0, 'Safe', %s::jsonb)
+                                    ON CONFLICT (league_id, season_num, pod_num, player_name) DO NOTHING;
+                                """, (
+                                    str(uuid.uuid4()), lid, next_s, p_num, pname, pl.get("primary_faction", ""),
+                                    r_idx, json.dumps(rr_pairings.get(pname, []))
+                                ))
 
-        if hasattr(db, "sync_league_participant_identities"):
-            db.sync_league_participant_identities(lid, next_s)
+                        cur.execute("UPDATE native_leagues SET active_season_num = %s, updated_at = NOW() WHERE id = %s;", (next_s, lid))
+                    conn.commit()
+                if hasattr(db, "sync_league_participant_identities"):
+                    db.sync_league_participant_identities(lid, next_s)
+            except Exception as e:
+                logger.warning(f"rollover_season DB fallback: {e}")
+
+        # Ephemeral Seasonal Group Chat lifecycle:
+        # 1. Delete old season's League & Pod group chats from Firestore so they disappear after the season ends
+        # 2. Initialize brand-new Firestore group chats for the new season with a fresh greeting message
+        deleted_chats = 0
+        try:
+            from firestore_db import get_firestore_engine
+            fs_engine = get_firestore_engine()
+            deleted_chats = fs_engine.delete_league_season_group_chats(lid, curr_s)
+            self.sync_league_group_chats(lid)
+        except Exception as chat_err:
+            logger.warning(f"Notice rotating seasonal group chats on rollover: {chat_err}")
 
         return {
             "success": True,
             "league_id": lid,
             "previous_season": curr_s,
             "new_season": next_s,
+            "deleted_expired_season_chats": deleted_chats,
             "league": self.get_league(lid)
         }
 
@@ -4385,6 +4478,11 @@ class LeaguesHubService:
             except Exception as e:
                 logger.warning(f"update_pod_roster_and_discipline DB write fallback: {e}")
 
+        try:
+            self.sync_league_group_chats(lid)
+        except Exception:
+            pass
+
         return {
             "success": True,
             "league_id": lid,
@@ -5198,6 +5296,626 @@ class LeaguesHubService:
                 logger.debug(f"acknowledge_unified_broadcast DB write fallback: {e}")
 
         return self.get_unified_floor_ops(key_id)
+
+    # =========================================================================
+    # SEASONAL LEAGUE & POD FIRESTORE GROUP CHATS (DYNAMIC ROSTER & EPHEMERAL)
+    # =========================================================================
+
+    def _parse_group_chat_channel_id(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Parses a seasonal group chat channel ID:
+        - League Q&A Chat: 'grp_league_{league_uuid}_s{season_num}'
+        - Pod Chat: 'grp_pod_{league_uuid}_s{season_num}_p{pod_num}'
+        """
+        if not channel_id:
+            return None
+        s = str(channel_id).strip()
+        m_pod = re.match(r"^grp_pod_(.+)_s(\d+)_p(\d+)$", s, re.IGNORECASE)
+        if m_pod:
+            return {
+                "channel_id": s,
+                "group_type": "pod",
+                "league_id": _normalize_league_id(m_pod.group(1)),
+                "season_number": int(m_pod.group(2)),
+                "pod_number": int(m_pod.group(3))
+            }
+        m_lg = re.match(r"^grp_league_(.+)_s(\d+)$", s, re.IGNORECASE)
+        if m_lg:
+            return {
+                "channel_id": s,
+                "group_type": "league",
+                "league_id": _normalize_league_id(m_lg.group(1)),
+                "season_number": int(m_lg.group(2)),
+                "pod_number": None
+            }
+        return None
+
+    def _is_season_ended(self, league: Dict[str, Any], season_number: int) -> bool:
+        """Returns True if the given season has ended (rolled over to a newer active season or status == completed)."""
+        act = league.get("active_season") or {}
+        act_s = int(act.get("season_number") or league.get("selected_season") or 1)
+        if int(season_number) < act_s:
+            return True
+        status = str(act.get("status") or "active").lower()
+        if int(season_number) == act_s and status in ("completed", "ended", "archived"):
+            return True
+        return False
+
+    def _build_seasonal_group_chat_specs(self, league: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Builds dynamic group chat specifications for the active season:
+        1. League-wide Questions & Clarifications Chat ('grp_league_{lid}_s{season_num}')
+        2. Per-Pod Group Chats ('grp_pod_{lid}_s{season_num}_p{pod_num}')
+        Each spec includes a dynamic participant list and a seasonal greeting message.
+        """
+        lid = _normalize_league_id(league.get("league_id") or league.get("id") or SD40K_LEAGUE_UUID)
+        act = league.get("active_season") or {}
+        season_num = int(act.get("season_number") or league.get("selected_season") or 1)
+        season_name = str(act.get("name") or f"Season {season_num}")
+        start_date = str(act.get("start_date") or league.get("start_date") or "2026-09-15")[:10]
+        end_date = str(act.get("end_date") or league.get("end_date") or "2026-11-10")[:10]
+        meth = league.get("methodology") or {}
+        points_limit = int(meth.get("points_limit") or 2000)
+        games_per_season = int(meth.get("games_per_season") or act.get("rounds_count") or 5)
+        league_chat_enabled = bool(meth.get("league_chat_enabled", league.get("league_chat_enabled", True)))
+        pod_chats_enabled = bool(meth.get("pod_chats_enabled", league.get("pod_chats_enabled", True)))
+
+        league_name = str(league.get("name") or "Community League")
+        short_name = str(league.get("short_name") or league_name)
+        owner_name = str(league.get("owner_name") or "John Hsieh")
+        owner_uid = str(league.get("owner_user_id") or "user_john_hsieh_admin")
+        owner_pid = str(league.get("owner_player_id") or "MEV83VFANA")
+        comm_names = [c.get("name") for c in (league.get("commissioners") or []) if isinstance(c, dict) and c.get("name")]
+        comm_str = ", ".join(comm_names[:2]) if comm_names else f"{owner_name} (League Commissioner)"
+        venue_name = ((league.get("partner_venues") or [{}])[0].get("name") if league.get("partner_venues") else None) or "Local Partner Store"
+
+        pods = act.get("pods") or []
+        all_participant_ids: List[str] = []
+        all_participant_names: List[str] = []
+        for cid in (owner_uid, owner_pid):
+            if cid and cid not in all_participant_ids:
+                all_participant_ids.append(cid)
+        if owner_name and owner_name not in all_participant_names:
+            all_participant_names.append(owner_name)
+
+        pod_rosters: Dict[int, Dict[str, Any]] = {}
+        for p in pods:
+            p_num = int(p.get("pod_number") or 1)
+            p_div_name = str(p.get("name") or p.get("pod_name") or f"Pod #{p_num}")
+            p_ids: List[str] = []
+            p_names: List[str] = []
+            for cid in (owner_uid, owner_pid):
+                if cid and cid not in p_ids:
+                    p_ids.append(cid)
+            for s in (p.get("standings") or []):
+                if s.get("dropped"):
+                    continue
+                nm = (s.get("name") or s.get("player_name") or "").strip()
+                uid = (s.get("user_id") or "").strip()
+                pid = (s.get("bcp_player_id") or s.get("player_id") or "").strip()
+                if nm and nm not in p_names:
+                    p_names.append(nm)
+                if nm and nm not in all_participant_names:
+                    all_participant_names.append(nm)
+                for ident in (uid, pid, nm):
+                    if ident:
+                        if ident not in p_ids:
+                            p_ids.append(ident)
+                        if ident not in all_participant_ids:
+                            all_participant_ids.append(ident)
+            pod_rosters[p_num] = {
+                "pod_number": p_num,
+                "pod_name": p_div_name,
+                "participant_ids": p_ids,
+                "participant_names": p_names
+            }
+
+        specs: List[Dict[str, Any]] = []
+
+        if league_chat_enabled:
+            lg_channel_id = f"grp_league_{lid}_s{season_num}"
+            lg_greeting = {
+                "id": f"msg_greet_league_{lid[:8]}_s{season_num}",
+                "request_id": lg_channel_id,
+                "sender_id": "system",
+                "sender_name": f"{owner_name} (League Commissioner)",
+                "sender_role": "Commissioner",
+                "is_system": True,
+                "is_greeting": True,
+                "message_text": (
+                    f"👋 Welcome to the {league_name} — {season_name} League Q&A Chat ({start_date} → {end_date})! "
+                    f"Post any rules questions, terrain layout clarifications, or scheduling inquiries here for {comm_str} and fellow players ({len(all_participant_names)} registered). "
+                    f"This group chat updates dynamically as players join and automatically resets when {season_name} concludes."
+                ),
+                "created_at": f"{start_date}T12:00:00Z"
+            }
+            lg_initial_msgs = [
+                {
+                    "id": f"msg_seed_lg_{lid[:8]}_s{season_num}_1",
+                    "request_id": lg_channel_id,
+                    "sender_id": "seed_player_1",
+                    "sender_name": (all_participant_names[1] if len(all_participant_names) > 1 else "Victor Campos"),
+                    "sender_role": "Pod #1",
+                    "message_text": f"Quick question for {season_name}: are we using the latest Pariah Nexus companion FAQ for Round 1–{games_per_season} missions?",
+                    "created_at": f"{start_date}T14:15:00Z"
+                },
+                {
+                    "id": f"msg_seed_lg_{lid[:8]}_s{season_num}_2",
+                    "request_id": lg_channel_id,
+                    "sender_id": owner_uid,
+                    "sender_name": f"{owner_name} (Commissioner)",
+                    "sender_role": "Commissioner",
+                    "message_text": f"Yes! All {season_name} pods use the current Pariah Nexus Tournament Companion & official round terrain layouts posted in the Announcements tab.",
+                    "created_at": f"{start_date}T14:22:00Z"
+                }
+            ]
+            specs.append({
+                "channel_id": lg_channel_id,
+                "group_meta": {
+                    "channel_id": lg_channel_id,
+                    "group_type": "league",
+                    "league_id": lid,
+                    "league_name": league_name,
+                    "short_name": short_name,
+                    "season_number": season_num,
+                    "season_name": season_name,
+                    "pod_number": None,
+                    "pod_name": "All Pods • Questions & Clarifications",
+                    "title": f"{short_name} • League Q&A ({season_name})",
+                    "subtitle": f"📢 Questions & Rules Clarifications • {len(all_participant_names)} Members • Ends {end_date}",
+                    "participants": all_participant_ids,
+                    "participant_names": all_participant_names,
+                    "member_count": len(all_participant_names),
+                    "points_limit": points_limit,
+                    "season_start_date": start_date,
+                    "season_end_date": end_date
+                },
+                "greeting_message": lg_greeting,
+                "initial_messages": lg_initial_msgs
+            })
+
+        if pod_chats_enabled:
+            for p_num, p_info in sorted(pod_rosters.items()):
+                pod_channel_id = f"grp_pod_{lid}_s{season_num}_p{p_num}"
+                p_names = p_info["participant_names"]
+                p_div = p_info["pod_name"]
+                roster_preview = ", ".join(p_names) if p_names else "Seeding in progress"
+                short_preview = ", ".join(p_names[:4]) + (f" +{len(p_names) - 4} more" if len(p_names) > 4 else "")
+                pod_greeting = {
+                    "id": f"msg_greet_pod_{lid[:8]}_s{season_num}_p{p_num}",
+                    "request_id": pod_channel_id,
+                    "sender_id": "system",
+                    "sender_name": f"{owner_name} (Pod #{p_num} Coordinator)",
+                    "sender_role": "Commissioner",
+                    "is_system": True,
+                    "is_greeting": True,
+                    "message_text": (
+                        f"⚔️ Welcome to {p_div} for {season_name} ({start_date} → {end_date})! "
+                        f"Active Pod #{p_num} Roster ({len(p_names)} players): {roster_preview}. "
+                        f"Use this pod chat to schedule your {games_per_season} pod games ({points_limit} pts at {venue_name}), "
+                        f"share live Game Tracker rooms, or request an Official Ringer. "
+                        f"This pod chat updates dynamically if players move pods and automatically disappears after {season_name} ends."
+                    ),
+                    "created_at": f"{start_date}T12:05:00Z"
+                }
+                pod_initial_msgs = []
+                if len(p_names) >= 2:
+                    pod_initial_msgs = [
+                        {
+                            "id": f"msg_seed_pod_{lid[:8]}_s{season_num}_p{p_num}_1",
+                            "request_id": pod_channel_id,
+                            "sender_id": f"pod_{p_num}_p1",
+                            "sender_name": p_names[0],
+                            "sender_role": f"Pod #{p_num}",
+                            "message_text": f"Hey Pod #{p_num}! Looking forward to our {season_name} games. Anyone free Thursday evening at {venue_name} for Round 1?",
+                            "created_at": f"{start_date}T16:10:00Z"
+                        },
+                        {
+                            "id": f"msg_seed_pod_{lid[:8]}_s{season_num}_p{p_num}_2",
+                            "request_id": pod_channel_id,
+                            "sender_id": f"pod_{p_num}_p2",
+                            "sender_name": p_names[1],
+                            "sender_role": f"Pod #{p_num}",
+                            "message_text": f"I can do Thursday at 6:00 PM! Let's lock in a table and use the Game Tracker room button here when we deploy.",
+                            "created_at": f"{start_date}T16:18:00Z"
+                        }
+                    ]
+                specs.append({
+                    "channel_id": pod_channel_id,
+                    "group_meta": {
+                        "channel_id": pod_channel_id,
+                        "group_type": "pod",
+                        "league_id": lid,
+                        "league_name": league_name,
+                        "short_name": short_name,
+                        "season_number": season_num,
+                        "season_name": season_name,
+                        "pod_number": p_num,
+                        "pod_name": p_div,
+                        "title": f"{short_name} • Pod #{p_num} Chat ({season_name})",
+                        "subtitle": f"🛡️ {p_div} • {len(p_names)} Pod-Mates ({short_preview}) • Ends {end_date}",
+                        "participants": p_info["participant_ids"],
+                        "participant_names": p_names,
+                        "member_count": len(p_names),
+                        "points_limit": points_limit,
+                        "season_start_date": start_date,
+                        "season_end_date": end_date
+                    },
+                    "greeting_message": pod_greeting,
+                    "initial_messages": pod_initial_msgs
+                })
+
+        return specs
+
+    def sync_league_group_chats(self, league_id: str) -> List[Dict[str, Any]]:
+        """
+        Synchronizes the active season's League & Pod group chats in Firestore,
+        updating dynamic rosters and greeting messages, and purging any ended historical season chats.
+        """
+        from firestore_db import get_firestore_engine
+        fs_engine = get_firestore_engine()
+        lid = _normalize_league_id(league_id)
+        league = self.get_league(lid)
+        if not league:
+            return []
+
+        act = league.get("active_season") or {}
+        act_s = int(act.get("season_number") or league.get("selected_season") or 1)
+
+        # Clean up any ended previous season group chat instances so they disappear after season end
+        if act_s > 1:
+            for prev_s in range(max(1, act_s - 3), act_s):
+                fs_engine.delete_league_season_group_chats(lid, prev_s)
+
+        if self._is_season_ended(league, act_s):
+            fs_engine.delete_league_season_group_chats(lid, act_s)
+            return []
+
+        specs = self._build_seasonal_group_chat_specs(league)
+        synced_docs: List[Dict[str, Any]] = []
+        for sp in specs:
+            doc = fs_engine.ensure_seasonal_group_chat(
+                channel_id=sp["channel_id"],
+                group_meta=sp["group_meta"],
+                greeting_message=sp["greeting_message"],
+                initial_messages=sp.get("initial_messages")
+            )
+            synced_docs.append(doc)
+        return synced_docs
+
+    def get_league_group_chats(self, league_id: str) -> Dict[str, Any]:
+        """Returns the active season's League Q&A Chat and all Pod #1..#N Group Chats for a league."""
+        lid = _normalize_league_id(league_id)
+        league = self.get_league(lid)
+        if not league:
+            return {"error": f"League '{league_id}' not found"}
+        docs = self.sync_league_group_chats(lid)
+        act = league.get("active_season") or {}
+        meth = league.get("methodology") or {}
+        formatted = [self._format_group_chat_for_request_list(d, user_id="") for d in docs]
+        league_chat = next((c for c in formatted if c.get("chat_type") == "league"), None)
+        pod_chats = [c for c in formatted if c.get("chat_type") == "pod"]
+        return {
+            "success": True,
+            "league_id": lid,
+            "league_name": league.get("name"),
+            "season_number": int(act.get("season_number") or 1),
+            "season_name": act.get("name") or "Active Season",
+            "season_end_date": act.get("end_date") or league.get("end_date"),
+            "league_chat_enabled": bool(meth.get("league_chat_enabled", league.get("league_chat_enabled", True))),
+            "pod_chats_enabled": bool(meth.get("pod_chats_enabled", league.get("pod_chats_enabled", True))),
+            "league_chat": league_chat,
+            "pod_chats": pod_chats,
+            "chats": formatted
+        }
+
+    def reset_league_group_chats(
+        self,
+        league_id: str,
+        target_channel_id: Optional[str] = None,
+        channel_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Resets a League or Pod seasonal group chat back to its fresh greeting message and current roster."""
+        from firestore_db import get_firestore_engine
+        fs_engine = get_firestore_engine()
+        lid = _normalize_league_id(league_id)
+        league = self.get_league(lid)
+        if not league:
+            return {"error": f"League '{league_id}' not found"}
+        effective_target = target_channel_id or channel_id
+        specs = self._build_seasonal_group_chat_specs(league)
+        reset_list = []
+        for sp in specs:
+            if effective_target and sp["channel_id"] != effective_target:
+                continue
+            doc = fs_engine.reset_seasonal_group_chat(
+                channel_id=sp["channel_id"],
+                group_meta=sp["group_meta"],
+                greeting_message=sp["greeting_message"]
+            )
+            reset_list.append(self._format_group_chat_for_request_list(doc, user_id=""))
+        return {
+            "success": True,
+            "league_id": lid,
+            "reset_count": len(reset_list),
+            "chats": reset_list
+        }
+
+    def _format_group_chat_for_request_list(self, doc: Dict[str, Any], user_id: str = "") -> Dict[str, Any]:
+        """Formats a Firestore group chat document so it renders seamlessly in the Connect Chat sidebar."""
+        cid = str(doc.get("channelId") or doc.get("requestId") or "")
+        gtype = str(doc.get("groupType") or "league")
+        title = str(doc.get("title") or "League Group Chat")
+        subtitle = str(doc.get("subtitle") or "")
+        member_cnt = int(doc.get("memberCount") or len(doc.get("participantNames") or []))
+        last_msg = str(doc.get("lastMessage") or "")
+        last_sender = str(doc.get("lastSenderName") or "")
+        if last_sender and last_msg and not last_msg.startswith("👋") and not last_msg.startswith("⚔️"):
+            short_sender = last_sender.split(" (")[0]
+            snippet = f"{short_sender}: {last_msg}"
+        else:
+            snippet = last_msg or subtitle
+        upd_ms = doc.get("updatedAt") or int(datetime.now(timezone.utc).timestamp() * 1000)
+        try:
+            upd_iso = datetime.fromtimestamp(float(upd_ms) / 1000.0, tz=timezone.utc).isoformat()
+        except Exception:
+            upd_iso = datetime.now(timezone.utc).isoformat()
+
+        greet_obj = doc.get("greetingMessage")
+        greet_txt = greet_obj.get("message_text", "") if isinstance(greet_obj, dict) else str(greet_obj or "")
+
+        return {
+            "id": cid,
+            "channel_id": cid,
+            "request_id": cid,
+            "is_group": True,
+            "is_group_chat": True,
+            "group_type": gtype,
+            "chat_type": gtype,
+            "league_id": doc.get("leagueId"),
+            "league_name": doc.get("leagueName"),
+            "short_name": doc.get("shortName"),
+            "season_number": int(doc.get("seasonNumber") or 1),
+            "season_name": doc.get("seasonName"),
+            "pod_number": doc.get("podNumber"),
+            "pod_name": doc.get("podName"),
+            "title": title,
+            "subtitle": subtitle,
+            "status": "accepted",
+            "sender_id": "group",
+            "receiver_id": user_id or "group_member",
+            "sender_name": title,
+            "receiver_name": title,
+            "sender_elo": member_cnt,
+            "receiver_elo": member_cnt,
+            "member_count": member_cnt,
+            "participants": doc.get("participants") or [],
+            "participant_names": doc.get("participantNames") or [],
+            "proposed_venue": subtitle,
+            "proposed_points": 2000,
+            "last_message": snippet,
+            "greeting_message": greet_txt,
+            "messages": doc.get("messages") or [],
+            "last_sender_name": last_sender,
+            "updated_at": upd_iso,
+            "season_end_date": doc.get("seasonEndDate"),
+            "unread_count": 0
+        }
+
+    def get_user_group_chats(
+        self,
+        user_id: Optional[str] = None,
+        player_id: Optional[str] = None,
+        user_name: Optional[str] = None,
+        user_email: Optional[str] = None,
+        is_admin: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Returns all active seasonal League & Pod group chats for the user.
+        - Every league participant gets their League Q&A Chat + their assigned Pod #X Chat.
+        - League Commissioners / Owners / Admins get the League Q&A Chat + Pod Chats for their managed leagues.
+        - Ended seasons automatically disappear.
+        """
+        uid_clean = (str(user_id).strip().lower() if user_id else "")
+        pid_clean = (str(player_id).strip().lower() if player_id else "")
+        uname_clean = (str(user_name).strip().lower() if user_name else "")
+        uemail_clean = (str(user_email).strip().lower() if user_email else "")
+
+        results: List[Dict[str, Any]] = []
+        seen_cids = set()
+
+        for lg_summary in self.get_leagues_list():
+            lid = lg_summary.get("league_id")
+            if not lid:
+                continue
+            league = self.get_league(lid)
+            if not league:
+                continue
+
+            act = league.get("active_season") or {}
+            act_s = int(act.get("season_number") or league.get("selected_season") or 1)
+            if self._is_season_ended(league, act_s):
+                continue
+
+            owner_uid = str(league.get("owner_user_id") or "").strip().lower()
+            owner_pid = str(league.get("owner_player_id") or "").strip().lower()
+            owner_email = str(league.get("owner_email") or "").strip().lower()
+            owner_name = str(league.get("owner_name") or "").strip().lower()
+
+            is_commissioner = bool(
+                is_admin
+                or (uid_clean and uid_clean == owner_uid)
+                or (pid_clean and pid_clean == owner_pid)
+                or (uemail_clean and (uemail_clean == owner_email or "hsiehjun" in uemail_clean))
+                or (uname_clean and (uname_clean == owner_name or uname_clean == "john hsieh"))
+            )
+
+            # Find which pods the user is playing in during this active season
+            user_pods = set()
+            for p in (act.get("pods") or []):
+                p_num = int(p.get("pod_number") or 1)
+                for st in (p.get("standings") or []):
+                    if st.get("dropped"):
+                        continue
+                    s_uid = str(st.get("user_id") or "").strip().lower()
+                    s_pid = str(st.get("bcp_player_id") or st.get("player_id") or "").strip().lower()
+                    s_name = str(st.get("name") or st.get("player_name") or "").strip().lower()
+                    if (
+                        (uid_clean and s_uid == uid_clean)
+                        or (pid_clean and s_pid == pid_clean)
+                        or (uname_clean and s_name == uname_clean)
+                    ):
+                        user_pods.add(p_num)
+
+            if not is_commissioner and not user_pods:
+                continue
+
+            docs = self.sync_league_group_chats(lid)
+            for d in docs:
+                cid = str(d.get("channelId") or d.get("requestId") or "")
+                if not cid or cid in seen_cids:
+                    continue
+                gtype = d.get("groupType")
+                p_num = d.get("podNumber")
+                if gtype == "league":
+                    seen_cids.add(cid)
+                    results.append(self._format_group_chat_for_request_list(d, user_id=str(user_id or "")))
+                elif gtype == "pod":
+                    # Include the user's own Pod chat(s), or Pod #1 (plus any user_pods) for Commissioners so sidebar stays clean,
+                    # while commissioners can also open any Pod #1..#N chat directly!
+                    if p_num in user_pods or (is_commissioner and (p_num == 1 or not user_pods)):
+                        seen_cids.add(cid)
+                        results.append(self._format_group_chat_for_request_list(d, user_id=str(user_id or "")))
+
+        return results
+
+    def get_group_chat_messages(self, channel_id: str, user_id: str = "") -> Dict[str, Any]:
+        """
+        Fetches messages and dynamic group metadata for a seasonal League or Pod group chat.
+        If the season has ended, deletes the expired group chat and returns an error.
+        """
+        parsed = self._parse_group_chat_channel_id(channel_id)
+        if not parsed:
+            return {"success": False, "error": "Invalid group chat channel ID"}
+
+        lid = parsed["league_id"]
+        season_num = parsed["season_number"]
+        league = self.get_league(lid)
+        if not league:
+            return {"success": False, "error": "League not found"}
+
+        from firestore_db import get_firestore_engine
+        fs_engine = get_firestore_engine()
+
+        if self._is_season_ended(league, season_num):
+            fs_engine.delete_league_season_group_chats(lid, season_num)
+            return {
+                "success": False,
+                "is_expired_season": True,
+                "error": f"Season {season_num} has ended and its seasonal group chat has expired."
+            }
+
+        # Sync dynamic roster and ensure greeting message exists
+        self.sync_league_group_chats(lid)
+        doc = fs_engine.get_group_chat(channel_id)
+        if not doc:
+            return {"success": False, "error": "Seasonal group chat is disabled or unavailable"}
+
+        req_formatted = self._format_group_chat_for_request_list(doc, user_id=user_id)
+        return {
+            "success": True,
+            "is_group": True,
+            "is_group_chat": True,
+            "request": req_formatted,
+            "group_info": {
+                "channel_id": channel_id,
+                "group_type": doc.get("groupType"),
+                "league_id": doc.get("leagueId"),
+                "league_name": doc.get("leagueName"),
+                "season_number": doc.get("seasonNumber"),
+                "season_name": doc.get("seasonName"),
+                "pod_number": doc.get("podNumber"),
+                "pod_name": doc.get("podName"),
+                "title": doc.get("title"),
+                "subtitle": doc.get("subtitle"),
+                "member_count": doc.get("memberCount"),
+                "participant_names": doc.get("participantNames") or [],
+                "season_end_date": doc.get("seasonEndDate")
+            },
+            "other_user_id": "group",
+            "other_user_name": doc.get("title") or "League Group Chat",
+            "other_user_elo": doc.get("memberCount") or 0,
+            "messages": doc.get("messages") or [],
+            "marked_read_count": 0
+        }
+
+    def send_group_chat_message(
+        self,
+        channel_id: str,
+        sender_id: str,
+        sender_name: str,
+        message_text: str,
+        room_key: Optional[str] = None,
+        message_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Appends a message to a seasonal League or Pod Firestore group chat."""
+        parsed = self._parse_group_chat_channel_id(channel_id)
+        if not parsed:
+            return {"success": False, "error": "Invalid group chat channel ID"}
+
+        lid = parsed["league_id"]
+        season_num = parsed["season_number"]
+        league = self.get_league(lid)
+        if not league:
+            return {"success": False, "error": "League not found"}
+
+        from firestore_db import get_firestore_engine
+        fs_engine = get_firestore_engine()
+
+        if self._is_season_ended(league, season_num):
+            fs_engine.delete_league_season_group_chats(lid, season_num)
+            return {"success": False, "error": f"Season {season_num} has ended."}
+
+        self.sync_league_group_chats(lid)
+        doc = fs_engine.get_group_chat(channel_id)
+        if not doc:
+            return {"success": False, "error": "Group chat not found"}
+
+        # Determine sender role badge (e.g. 'Commissioner' or 'Pod #X')
+        sender_role = "Player"
+        owner_uid = str(league.get("owner_user_id") or "").strip().lower()
+        owner_name = str(league.get("owner_name") or "").strip().lower()
+        if (sender_id and str(sender_id).strip().lower() == owner_uid) or (sender_name and str(sender_name).strip().lower() in (owner_name, "john hsieh")):
+            sender_role = "Commissioner"
+        elif parsed.get("pod_number"):
+            sender_role = f"Pod #{parsed['pod_number']}"
+        else:
+            for p in ((league.get("active_season") or {}).get("pods") or []):
+                for st in (p.get("standings") or []):
+                    if str(st.get("name") or "").strip().lower() == str(sender_name or "").strip().lower():
+                        sender_role = f"Pod #{p.get('pod_number', 1)}"
+                        break
+
+        msg_id = (message_id or "").strip() or f"msg_{uuid.uuid4().hex[:16]}"
+        now_iso = datetime.now(timezone.utc).isoformat()
+        msg_obj = {
+            "id": msg_id,
+            "request_id": channel_id,
+            "sender_id": sender_id,
+            "sender_name": sender_name or "Player",
+            "sender_role": sender_role,
+            "message_text": (message_text or "").strip(),
+            "room_key": room_key.strip() if room_key else None,
+            "created_at": now_iso
+        }
+
+        fs_engine.append_chat_message(channel_id, msg_obj, participants=doc.get("participants"))
+        return {
+            "success": True,
+            "message_id": msg_id,
+            "created_at": now_iso,
+            "message": msg_obj
+        }
 
 
 _GLOBAL_LEAGUES_SERVICE: Optional[LeaguesHubService] = None

@@ -466,3 +466,18 @@ async def ack_unified_broadcast_endpoint(entity_id: str, request: Request):
     return svc.acknowledge_unified_broadcast(entity_id, body)
 
 
+@router.get("/api/league/{league_id}/chats", summary="Get active seasonal League Q&A and Pod group chats")
+async def get_league_group_chats_endpoint(league_id: str):
+    svc = leagues_hub_service.get_leagues_hub_service()
+    return svc.get_league_group_chats(league_id)
+
+
+@router.post("/api/league/{league_id}/chats/reset", summary="Reset seasonal League or Pod group chats with a fresh greeting message")
+async def reset_league_group_chats_endpoint(league_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    channel_id = body.get("channel_id") if isinstance(body, dict) else None
+    svc = leagues_hub_service.get_leagues_hub_service()
+    return svc.reset_league_group_chats(league_id, channel_id=channel_id)

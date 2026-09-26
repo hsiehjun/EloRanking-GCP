@@ -5506,6 +5506,8 @@ async function saveStudioUnifiedFormatAndDates(leagueId, seasonNum) {
   const outpodAllowedEl = document.getElementById('to-rule-outpod-allowed');
   const cardsEnabledEl = document.getElementById('to-rule-cards-enabled');
   const podNamesEl = document.getElementById('to-rule-pod-names');
+  const leagueChatEnabledEl = document.getElementById('to-rule-league-chat-enabled');
+  const podChatsEnabledEl = document.getElementById('to-rule-pod-chats-enabled');
 
   const start_date = startEl ? (startEl.value || '').trim() : undefined;
   const end_date = endEl ? (endEl.value || '').trim() : undefined;
@@ -5556,6 +5558,8 @@ async function saveStudioUnifiedFormatAndDates(leagueId, seasonNum) {
   if (outpodRingerEl && outpodRingerEl.value !== '') payload.out_of_pod_ringer_bonus_bp = Number(outpodRingerEl.value);
   if (outpodAllowedEl) payload.out_of_pod_ringer_allowed = Boolean(outpodAllowedEl.checked);
   if (cardsEnabledEl) payload.enable_disciplinary_cards = Boolean(cardsEnabledEl.checked);
+  if (leagueChatEnabledEl) payload.league_chat_enabled = Boolean(leagueChatEnabledEl.checked);
+  if (podChatsEnabledEl) payload.pod_chats_enabled = Boolean(podChatsEnabledEl.checked);
   if (custom_pod_names) payload.custom_pod_names = custom_pod_names;
 
   try {
@@ -5904,6 +5908,14 @@ function renderManagedStudioLeagues(leagues) {
               <input id="es-inline-pub-hub-${lid}" type="checkbox" ${pubToCommunityHub ? 'checked' : ''} style="accent-color:#38bdf8;width:16px;height:16px;">
               <span>📡 Show League in Public Community Hub</span>
             </label>
+            <label style="display:inline-flex;align-items:center;gap:0.45rem;font-size:0.76rem;color:#a5b4fc;font-weight:700;cursor:pointer;">
+              <input id="to-rule-league-chat-enabled" type="checkbox" ${meth.league_chat_enabled !== false ? 'checked' : ''} style="accent-color:#6366f1;width:16px;height:16px;">
+              <span>💬 Enable League Q&amp;A Group Chat (Resets per Season)</span>
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:0.45rem;font-size:0.76rem;color:#fcd34d;font-weight:700;cursor:pointer;">
+              <input id="to-rule-pod-chats-enabled" type="checkbox" ${meth.pod_chats_enabled !== false ? 'checked' : ''} style="accent-color:#f59e0b;width:16px;height:16px;">
+              <span>🛡️ Enable Per-Pod Group Chats (Dynamic Roster &amp; Season Reset)</span>
+            </label>
           </div>
         </div>
       </div>
@@ -6102,6 +6114,9 @@ function renderManagedStudioLeagues(leagues) {
                     <span style="font-size:0.68rem;padding:2px 7px;border-radius:999px;font-weight:800;background:${sizeOk ? 'rgba(16,185,129,0.16)' : 'rgba(245,158,11,0.18)'};color:${sizeOk ? '#34d399' : '#fbbf24'};border:1px solid ${sizeOk ? 'rgba(16,185,129,0.35)' : 'rgba(245,158,11,0.35)'};">
                       ${pStandings.length} / ${podMin}–${podMax}p
                     </span>
+                    <button type="button" onclick="if(typeof openLeagueGroupChat==='function') openLeagueGroupChat('${lid}', ${pNum}, ${activeSeason})" title="Open Pod #${pNum} Group Chat" style="background:rgba(245,158,11,0.16);border:1px solid rgba(245,158,11,0.45);color:#fbbf24;border-radius:5px;padding:2px 7px;font-size:0.68rem;font-weight:800;cursor:pointer;">
+                      💬 Pod Chat
+                    </button>
                     <button type="button" onclick="reseedStudioPodByElo('${lid}', ${pNum})" title="Sort this pod by Elo" style="background:rgba(56,189,248,0.14);border:1px solid rgba(56,189,248,0.35);color:#38bdf8;border-radius:5px;padding:2px 6px;font-size:0.68rem;font-weight:800;cursor:pointer;">
                       ⚡ Sort
                     </button>
@@ -6382,11 +6397,39 @@ function renderManagedStudioLeagues(leagues) {
     `;
 
   // ==========================================================================
-  // TAB 5: ANNOUNCEMENTS (Broadcast Notices to All Pods or a Specific Pod)
+  // TAB 5: ANNOUNCEMENTS & SEASONAL GROUP CHATS (League Q&A + Per-Pod Channels)
   // ==========================================================================
   } else if (step === 'announcements') {
     const podOpts = ['All Pods', ...pods.map(p => `Pod #${p.pod_number}`)];
     stepPanelHtml = `
+      <!-- Seasonal League & Pod Group Chats Console -->
+      <div style="background:linear-gradient(135deg,rgba(99,102,241,0.14),rgba(15,23,42,0.92));border:1px solid rgba(99,102,241,0.45);border-radius:10px;padding:0.95rem 1.05rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
+        <div>
+          <div style="font-size:0.9rem;font-weight:800;color:#fff;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+            <span>💬 Seasonal League Q&amp;A &amp; Pod Group Chats (Season ${activeSeason})</span>
+            <span style="font-size:0.68rem;background:rgba(99,102,241,0.25);color:#a5b4fc;border:1px solid rgba(99,102,241,0.5);padding:2px 8px;border-radius:999px;font-weight:800;">
+              ⏳ Dynamic Roster • Resets &amp; Disappears After Season ${activeSeason} Ends
+            </span>
+          </div>
+          <div style="font-size:0.76rem;color:#cbd5e1;margin-top:0.2rem;">
+            Each season creates a fresh Firestore group chat instance with an automatic Season Greeting for the League and every Pod. Membership updates dynamically as players join or change pods.
+          </div>
+        </div>
+        <div style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:center;">
+          <button type="button" onclick="if(typeof openLeagueGroupChat==='function') openLeagueGroupChat('${lid}', null, ${activeSeason})" class="btn btn-primary" style="font-size:0.76rem;padding:0.42rem 0.85rem;background:linear-gradient(135deg,#6366f1,#3b82f6);border:1px solid #818cf8;font-weight:800;">
+            🛡️ Open League Q&amp;A Chat
+          </button>
+          ${pods.map(po => `
+            <button type="button" onclick="if(typeof openLeagueGroupChat==='function') openLeagueGroupChat('${lid}', ${po.pod_number}, ${activeSeason})" class="btn btn-outline" style="font-size:0.74rem;padding:0.4rem 0.75rem;border-color:rgba(245,158,11,0.5);background:rgba(245,158,11,0.12);color:#fbbf24;font-weight:800;">
+              💬 Pod #${po.pod_number} Chat (${(po.standings || []).length}p)
+            </button>
+          `).join('')}
+          <button type="button" onclick="if(typeof resetLeagueGroupChat==='function') resetLeagueGroupChat('${lid}')" class="btn btn-outline" style="font-size:0.73rem;padding:0.38rem 0.7rem;border-color:rgba(148,163,184,0.38);color:#cbd5e1;font-weight:700;" title="Reset Season ${activeSeason} group chats with a fresh greeting message">
+            🔄 Reset Season Greeting
+          </button>
+        </div>
+      </div>
+
       <div class="to-ann-split-grid">
         <div style="background:rgba(2,6,23,0.82);border:1px solid rgba(245,158,11,0.38);border-radius:10px;padding:1rem;">
           <div style="font-size:0.9rem;font-weight:800;color:#fbbf24;margin-bottom:0.6rem;">📢 Broadcast Pod or League Announcement</div>
@@ -6638,6 +6681,9 @@ function renderManagedStudioLeagues(leagues) {
               }).join('')}
             </select>
           ` : ''}
+          <button type="button" onclick="if(typeof openLeagueGroupChat==='function') openLeagueGroupChat('${lid}', null, ${activeSeason})" class="btn btn-primary" style="font-size:0.75rem;padding:0.4rem 0.85rem;background:linear-gradient(135deg,#6366f1,#3b82f6);border:1px solid #818cf8;font-weight:800;">
+            💬 League Q&amp;A Chat (S${activeSeason})
+          </button>
           <button type="button" id="es-comm-toggle-reg-btn-${lid}" onclick="toggleStudioLeagueRegistration('${lid}', ${regOpen ? 'true' : 'false'})" class="btn btn-outline" style="font-size:0.75rem;padding:0.4rem 0.8rem;border-color:rgba(16,185,129,0.45);color:#34d399;font-weight:800;">
             ${regOpen ? '🔒 Close Registration' : '🟢 Open Registration'}
           </button>

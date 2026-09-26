@@ -518,6 +518,192 @@ class FirestoreRoomEngine:
             self._fallback_rooms[request_id] = doc_data
         return True
 
+    def _compute_season_expires_dt(self, season_end_date: Optional[str] = None) -> datetime:
+        """Computes Firestore TTL expiration datetime based on season_end_date (disappears after season ends)."""
+        now_dt = datetime.now(timezone.utc)
+        if season_end_date:
+            try:
+                clean = str(season_end_date).strip()[:10]
+                dt = datetime.strptime(clean, "%Y-%m-%d").replace(tzinfo=timezone.utc, hour=23, minute=59, second=59)
+                if dt > now_dt:
+                    return dt + timedelta(days=1)
+            except Exception:
+                pass
+        return now_dt + timedelta(days=60)
+
+    def ensure_seasonal_group_chat(
+        self,
+        channel_id: str,
+        group_meta: Dict[str, Any],
+        greeting_message: Dict[str, Any],
+        initial_messages: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """
+        Ensures a seasonal Firestore group chat instance ('connect_chats/{channel_id}') exists for a League or Pod,
+        dynamically updates its participant roster as people join/move pods, and seeds the seasonal greeting message.
+        """
+        channel_id = str(channel_id).strip()
+        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        season_end = group_meta.get("season_end_date")
+        expires_dt = self._compute_season_expires_dt(season_end)
+
+        existing_doc: Optional[Dict[str, Any]] = None
+        if self._client:
+            try:
+                ref = self.get_chat_doc_ref(channel_id)
+                if ref:
+                    snap = ref.get()
+                    if snap.exists:
+                        existing_doc = snap.to_dict() or {}
+            except Exception as e:
+                logger.warning(f"Notice reading group chat {channel_id} from Firestore: {e}")
+
+        if existing_doc is None and channel_id in self._fallback_rooms:
+            existing_doc = self._fallback_rooms.get(channel_id)
+
+        existing_msgs = list((existing_doc or {}).get("messages") or [])
+        greet_id = greeting_message.get("id") or f"msg_greet_{channel_id}"
+        greeting_message["id"] = greet_id
+
+        # Ensure greeting message is always first and up-to-date with dynamic roster
+        found_greet = False
+        updated_msgs: List[Dict[str, Any]] = []
+        for m in existing_msgs:
+            if isinstance(m, dict) and (m.get("id") == greet_id or m.get("is_greeting")):
+                updated_msgs.append(greeting_message)
+                found_greet = True
+            elif isinstance(m, dict):
+                updated_msgs.append(m)
+
+        if not found_greet:
+            seed_list = [greeting_message]
+            if not updated_msgs and initial_messages:
+                for im in initial_messages:
+                    if isinstance(im, dict) and im.get("id") != greet_id:
+                        seed_list.append(im)
+            updated_msgs = seed_list + updated_msgs
+
+        last_msg_obj = updated_msgs[-1] if updated_msgs else greeting_message
+        doc_data: Dict[str, Any] = {
+            "requestId": channel_id,
+            "channelId": channel_id,
+            "isGroup": True,
+            "groupType": group_meta.get("group_type", "league"),
+            "leagueId": group_meta.get("league_id"),
+            "leagueName": group_meta.get("league_name"),
+            "shortName": group_meta.get("short_name"),
+            "seasonNumber": int(group_meta.get("season_number") or 1),
+            "seasonName": group_meta.get("season_name") or f"Season {group_meta.get('season_number', 1)}",
+            "podNumber": group_meta.get("pod_number"),
+            "podName": group_meta.get("pod_name"),
+            "title": group_meta.get("title") or "League Group Chat",
+            "subtitle": group_meta.get("subtitle") or "",
+            "status": "accepted",
+            "participants": list(group_meta.get("participants") or []),
+            "participantNames": list(group_meta.get("participant_names") or []),
+            "memberCount": int(group_meta.get("member_count") or len(group_meta.get("participant_names") or [])),
+            "greetingMessage": greeting_message,
+            "messages": updated_msgs,
+            "lastMessage": last_msg_obj.get("message_text") or "",
+            "lastSenderId": last_msg_obj.get("sender_id") or "system",
+            "lastSenderName": last_msg_obj.get("sender_name") or "Commissioner",
+            "seasonStartDate": group_meta.get("season_start_date"),
+            "seasonEndDate": season_end,
+            "createdAt": (existing_doc or {}).get("createdAt") or now_ts,
+            "updatedAt": (existing_doc or {}).get("updatedAt") or now_ts,
+            "expiresAt": expires_dt
+        }
+
+        if self._client:
+            try:
+                ref = self.get_chat_doc_ref(channel_id)
+                if ref:
+                    ref.set(doc_data, merge=True)
+            except Exception as e:
+                logger.warning(f"Notice saving seasonal group chat {channel_id} to Firestore: {e}")
+
+        self._fallback_rooms[channel_id] = doc_data
+        return doc_data
+
+    def get_group_chat(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """Fetches a seasonal group chat document from Firestore or memory fallback."""
+        if not channel_id:
+            return None
+        channel_id = str(channel_id).strip()
+        if self._client:
+            try:
+                ref = self.get_chat_doc_ref(channel_id)
+                if ref:
+                    snap = ref.get()
+                    if snap.exists:
+                        d = snap.to_dict() or {}
+                        self._fallback_rooms[channel_id] = d
+                        return d
+            except Exception as e:
+                logger.warning(f"Notice reading group chat {channel_id}: {e}")
+        return self._fallback_rooms.get(channel_id)
+
+    def reset_seasonal_group_chat(
+        self,
+        channel_id: str,
+        group_meta: Dict[str, Any],
+        greeting_message: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Resets a seasonal group chat to a fresh state with only the greeting message and current roster."""
+        channel_id = str(channel_id).strip()
+        self._fallback_rooms.pop(channel_id, None)
+        if self._client:
+            try:
+                ref = self.get_chat_doc_ref(channel_id)
+                if ref:
+                    ref.delete()
+            except Exception:
+                pass
+        return self.ensure_seasonal_group_chat(channel_id, group_meta, greeting_message, initial_messages=[])
+
+    def delete_league_season_group_chats(self, league_id: str, season_number: Optional[int] = None) -> int:
+        """
+        Deletes League and Pod Firestore group chat instances for an ended season so they disappear
+        once the season concludes or rolls over.
+        """
+        if not league_id:
+            return 0
+        lid = str(league_id).strip().lower()
+        deleted = 0
+        prefixes = (
+            [f"grp_league_{lid}_s{int(season_number)}", f"grp_pod_{lid}_s{int(season_number)}_"]
+            if season_number is not None
+            else [f"grp_league_{lid}_", f"grp_pod_{lid}_"]
+        )
+
+        # 1. Remove from in-memory fallback
+        for k in list(self._fallback_rooms.keys()):
+            kl = str(k).lower()
+            if any(kl == p or kl.startswith(p) for p in prefixes):
+                self._fallback_rooms.pop(k, None)
+                deleted += 1
+
+        # 2. Remove from Cloud Firestore connect_chats
+        if self._client:
+            try:
+                col = self._client.collection("connect_chats")
+                query = _apply_where(col, "leagueId", "==", lid)
+                for doc in query.stream():
+                    d = doc.to_dict() or {}
+                    if season_number is not None and int(d.get("seasonNumber") or 0) != int(season_number):
+                        continue
+                    doc.reference.delete()
+                    deleted += 1
+            except Exception as e:
+                logger.warning(f"Notice deleting seasonal group chats for league {lid} season {season_number}: {e}")
+                if season_number is not None:
+                    for cid in [f"grp_league_{lid}_s{int(season_number)}"] + [f"grp_pod_{lid}_s{int(season_number)}_p{p}" for p in range(1, 25)]:
+                        try:
+                            self._client.collection("connect_chats").document(cid).delete()
+                        except Exception:
+                            pass
+        return deleted
+
     def get_tournament_doc_ref(self, event_id: str):
         if not event_id or not self._client:
             return None
