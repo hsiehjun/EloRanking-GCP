@@ -6942,6 +6942,17 @@ body.is-authenticated #floating-chat-widget {
 .oc-invite-desktop {
   display: inline;
 }
+#floating-chat-window:not(.is-wide) .oc-invite-desktop {
+  display: none !important;
+}
+#floating-chat-window:not(.is-wide) .oc-invite-mobile {
+  display: inline !important;
+}
+.oc-chat-header > div:first-child {
+  flex: 1 1 0%;
+  min-width: 0;
+  overflow: hidden;
+}
 
 /* Conversation list items */
 .oc-convo-item {

@@ -23,10 +23,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=068b7f1bd1">
-  <link rel="stylesheet" href="/css/styles.min.css?v=068b7f1bd1">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=068b7f1bd1">
-  <link rel="preload" href="/js/app.bundle.min.js?v=068b7f1bd1" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=5521254c20">
+  <link rel="stylesheet" href="/css/styles.min.css?v=5521254c20">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=5521254c20">
+  <link rel="preload" href="/js/app.bundle.min.js?v=5521254c20" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 
   <style>
@@ -3394,8 +3394,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "068b7f1bd1";</script>
-  <script src="/js/app.bundle.min.js?v=068b7f1bd1"></script>
+  <script>window.APP_VERSION = "5521254c20";</script>
+  <script src="/js/app.bundle.min.js?v=5521254c20"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
@@ -3988,22 +3988,22 @@
 
             <div class="oc-chat-main">
               <div class="oc-chat-header" id="chat-active-header" style="display: none;">
-                <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0;">
+                <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0; flex: 1; overflow: hidden;">
                   <button type="button" id="chat-back-btn" class="oc-chat-back-btn" onclick="backToChatList(); return false;" aria-label="Back to conversations">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
                     <span>Chats</span>
                   </button>
                   <div class="oc-player-avatar" id="chat-active-avatar" style="width: 36px; height: 36px; font-size: 0.9rem; flex-shrink: 0;">-</div>
-                  <div style="min-width: 0;">
+                  <div style="min-width: 0; flex: 1; overflow: hidden;">
                     <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
-                      <span id="chat-active-name" style="font-weight: 800; color: #fff; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Select a Chat</span>
-                      <span id="chat-active-elo" class="oc-badge" style="flex-shrink: 0;">1500 Elo</span>
+                      <span id="chat-active-name" style="font-weight: 800; color: #fff; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;">Select a Chat</span>
+                      <span id="chat-active-elo" class="oc-badge" style="flex-shrink: 0; white-space: nowrap;">1500 Elo</span>
                     </div>
                     <div id="chat-active-sub" style="font-size: 0.74rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Home Store: -</div>
                   </div>
                 </div>
 
-                <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; margin-left: 8px;">
                   <button type="button" id="chat-invite-room-btn" onclick="createGameTrackerRoomForChat()" class="btn" style="background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); font-size: 0.76rem; font-weight: 700; padding: 0.38rem 0.65rem; white-space: nowrap;">
                     <span class="oc-invite-desktop">🎲 Invite to Match Room</span>
                     <span class="oc-invite-mobile">🎲 Room</span>

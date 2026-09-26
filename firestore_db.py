@@ -565,23 +565,35 @@ class FirestoreRoomEngine:
         greet_id = greeting_message.get("id") or f"msg_greet_{channel_id}"
         greeting_message["id"] = greet_id
 
-        # Ensure greeting message is always first and up-to-date with dynamic roster
+        # Ensure greeting message is always first and up-to-date with dynamic roster,
+        # and strip any legacy mock/seed messages (msg_seed_*) if present.
         found_greet = False
+        had_seed_msgs = False
         updated_msgs: List[Dict[str, Any]] = []
         for m in existing_msgs:
-            if isinstance(m, dict) and (m.get("id") == greet_id or m.get("is_greeting")):
+            if not isinstance(m, dict):
+                continue
+            mid = str(m.get("id") or "")
+            msender = str(m.get("sender_id") or "")
+            msender_name = str(m.get("sender_name") or "").strip().lower()
+            mtxt = str(m.get("message_text") or "").strip().lower()
+            if (
+                mid.startswith("msg_seed_")
+                or msender.startswith("seed_player_")
+                or (msender.startswith("pod_") and ("_p1" in msender or "_p2" in msender))
+                or msender_name in ("john2 hsieh2", "john4 hsieh4")
+                or mtxt in ("huh", "uh", "hello", "hell", "but", "lskjdf")
+            ):
+                had_seed_msgs = True
+                continue
+            if mid == greet_id or m.get("is_greeting"):
                 updated_msgs.append(greeting_message)
                 found_greet = True
-            elif isinstance(m, dict):
+            else:
                 updated_msgs.append(m)
 
         if not found_greet:
-            seed_list = [greeting_message]
-            if not updated_msgs and initial_messages:
-                for im in initial_messages:
-                    if isinstance(im, dict) and im.get("id") != greet_id:
-                        seed_list.append(im)
-            updated_msgs = seed_list + updated_msgs
+            updated_msgs = [greeting_message] + updated_msgs
 
         last_msg_obj = updated_msgs[-1] if updated_msgs else greeting_message
         doc_data: Dict[str, Any] = {

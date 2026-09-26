@@ -5384,9 +5384,6 @@ class LeaguesHubService:
             p_div_name = str(p.get("name") or p.get("pod_name") or f"Pod #{p_num}")
             p_ids: List[str] = []
             p_names: List[str] = []
-            for cid in (owner_uid, owner_pid):
-                if cid and cid not in p_ids:
-                    p_ids.append(cid)
             for s in (p.get("standings") or []):
                 if s.get("dropped"):
                     continue
@@ -5429,26 +5426,6 @@ class LeaguesHubService:
                 ),
                 "created_at": f"{start_date}T12:00:00Z"
             }
-            lg_initial_msgs = [
-                {
-                    "id": f"msg_seed_lg_{lid[:8]}_s{season_num}_1",
-                    "request_id": lg_channel_id,
-                    "sender_id": "seed_player_1",
-                    "sender_name": (all_participant_names[1] if len(all_participant_names) > 1 else "Victor Campos"),
-                    "sender_role": "Pod #1",
-                    "message_text": f"Quick question for {season_name}: are we using the latest Pariah Nexus companion FAQ for Round 1–{games_per_season} missions?",
-                    "created_at": f"{start_date}T14:15:00Z"
-                },
-                {
-                    "id": f"msg_seed_lg_{lid[:8]}_s{season_num}_2",
-                    "request_id": lg_channel_id,
-                    "sender_id": owner_uid,
-                    "sender_name": f"{owner_name} (Commissioner)",
-                    "sender_role": "Commissioner",
-                    "message_text": f"Yes! All {season_name} pods use the current Pariah Nexus Tournament Companion & official round terrain layouts posted in the Announcements tab.",
-                    "created_at": f"{start_date}T14:22:00Z"
-                }
-            ]
             specs.append({
                 "channel_id": lg_channel_id,
                 "group_meta": {
@@ -5471,7 +5448,7 @@ class LeaguesHubService:
                     "season_end_date": end_date
                 },
                 "greeting_message": lg_greeting,
-                "initial_messages": lg_initial_msgs
+                "initial_messages": []
             })
 
         if pod_chats_enabled:
@@ -5498,28 +5475,6 @@ class LeaguesHubService:
                     ),
                     "created_at": f"{start_date}T12:05:00Z"
                 }
-                pod_initial_msgs = []
-                if len(p_names) >= 2:
-                    pod_initial_msgs = [
-                        {
-                            "id": f"msg_seed_pod_{lid[:8]}_s{season_num}_p{p_num}_1",
-                            "request_id": pod_channel_id,
-                            "sender_id": f"pod_{p_num}_p1",
-                            "sender_name": p_names[0],
-                            "sender_role": f"Pod #{p_num}",
-                            "message_text": f"Hey Pod #{p_num}! Looking forward to our {season_name} games. Anyone free Thursday evening at {venue_name} for Round 1?",
-                            "created_at": f"{start_date}T16:10:00Z"
-                        },
-                        {
-                            "id": f"msg_seed_pod_{lid[:8]}_s{season_num}_p{p_num}_2",
-                            "request_id": pod_channel_id,
-                            "sender_id": f"pod_{p_num}_p2",
-                            "sender_name": p_names[1],
-                            "sender_role": f"Pod #{p_num}",
-                            "message_text": f"I can do Thursday at 6:00 PM! Let's lock in a table and use the Game Tracker room button here when we deploy.",
-                            "created_at": f"{start_date}T16:18:00Z"
-                        }
-                    ]
                 specs.append({
                     "channel_id": pod_channel_id,
                     "group_meta": {
@@ -5542,7 +5497,7 @@ class LeaguesHubService:
                         "season_end_date": end_date
                     },
                     "greeting_message": pod_greeting,
-                    "initial_messages": pod_initial_msgs
+                    "initial_messages": []
                 })
 
         return specs
@@ -5648,13 +5603,28 @@ class LeaguesHubService:
         title = str(doc.get("title") or "League Group Chat")
         subtitle = str(doc.get("subtitle") or "")
         member_cnt = int(doc.get("memberCount") or len(doc.get("participantNames") or []))
-        last_msg = str(doc.get("lastMessage") or "")
-        last_sender = str(doc.get("lastSenderName") or "")
-        if last_sender and last_msg and not last_msg.startswith("👋") and not last_msg.startswith("⚔️"):
+
+        raw_msgs = list(doc.get("messages") or [])
+        cleaned_msgs = [
+            m for m in raw_msgs
+            if isinstance(m, dict)
+            and not str(m.get("id") or "").startswith("msg_seed_")
+            and not str(m.get("sender_id") or "").startswith("seed_player_")
+            and not (str(m.get("sender_id") or "").startswith("pod_") and ("_p1" in str(m.get("sender_id") or "") or "_p2" in str(m.get("sender_id") or "")))
+            and str(m.get("sender_name") or "").strip().lower() not in ("john2 hsieh2", "john4 hsieh4")
+        ]
+
+        user_msgs = [m for m in cleaned_msgs if not m.get("is_greeting") and not m.get("is_system") and m.get("sender_id") != "system"]
+        if user_msgs:
+            last_m = user_msgs[-1]
+            last_msg = str(last_m.get("message_text") or "")
+            last_sender = str(last_m.get("sender_name") or "")
             short_sender = last_sender.split(" (")[0]
-            snippet = f"{short_sender}: {last_msg}"
+            snippet = f"{short_sender}: {last_msg}" if short_sender else last_msg
         else:
-            snippet = last_msg or subtitle
+            last_sender = "Commissioner"
+            snippet = subtitle
+
         upd_ms = doc.get("updatedAt") or int(datetime.now(timezone.utc).timestamp() * 1000)
         try:
             upd_iso = datetime.fromtimestamp(float(upd_ms) / 1000.0, tz=timezone.utc).isoformat()
@@ -5695,7 +5665,7 @@ class LeaguesHubService:
             "proposed_points": 2000,
             "last_message": snippet,
             "greeting_message": greet_txt,
-            "messages": doc.get("messages") or [],
+            "messages": cleaned_msgs,
             "last_sender_name": last_sender,
             "updated_at": upd_iso,
             "season_end_date": doc.get("seasonEndDate"),
@@ -5711,15 +5681,14 @@ class LeaguesHubService:
         is_admin: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        Returns all active seasonal League & Pod group chats for the user.
-        - Every league participant gets their League Q&A Chat + their assigned Pod #X Chat.
-        - League Commissioners / Owners / Admins get the League Q&A Chat + Pod Chats for their managed leagues.
-        - Ended seasons automatically disappear.
+        Returns active seasonal League & Pod group chats strictly for leagues the user is in.
+        At most 2 chats per league are returned:
+        1) The general League Q&A Chat
+        2) The single Pod-specific chat that the player is actually assigned to
         """
         uid_clean = (str(user_id).strip().lower() if user_id else "")
         pid_clean = (str(player_id).strip().lower() if player_id else "")
         uname_clean = (str(user_name).strip().lower() if user_name else "")
-        uemail_clean = (str(user_email).strip().lower() if user_email else "")
 
         results: List[Dict[str, Any]] = []
         seen_cids = set()
@@ -5738,19 +5707,9 @@ class LeaguesHubService:
                 continue
 
             owner_uid = str(league.get("owner_user_id") or "").strip().lower()
-            owner_pid = str(league.get("owner_player_id") or "").strip().lower()
-            owner_email = str(league.get("owner_email") or "").strip().lower()
             owner_name = str(league.get("owner_name") or "").strip().lower()
 
-            is_commissioner = bool(
-                is_admin
-                or (uid_clean and uid_clean == owner_uid)
-                or (pid_clean and pid_clean == owner_pid)
-                or (uemail_clean and (uemail_clean == owner_email or "hsiehjun" in uemail_clean))
-                or (uname_clean and (uname_clean == owner_name or uname_clean == "john hsieh"))
-            )
-
-            # Find which pods the user is playing in during this active season
+            # Find which pod the user is playing in during this active season
             user_pods = set()
             for p in (act.get("pods") or []):
                 p_num = int(p.get("pod_number") or 1)
@@ -5760,16 +5719,37 @@ class LeaguesHubService:
                     s_uid = str(st.get("user_id") or "").strip().lower()
                     s_pid = str(st.get("bcp_player_id") or st.get("player_id") or "").strip().lower()
                     s_name = str(st.get("name") or st.get("player_name") or "").strip().lower()
-                    if (
-                        (uid_clean and s_uid == uid_clean)
-                        or (pid_clean and s_pid == pid_clean)
-                        or (uname_clean and s_name == uname_clean)
-                    ):
+                    uid_match = bool(uid_clean and s_uid and uid_clean == s_uid)
+                    name_match = bool(uname_clean and s_name and uname_clean == s_name)
+                    pid_match = bool(
+                        pid_clean and s_pid and pid_clean == s_pid
+                        and (not uname_clean or not s_name or uname_clean == s_name)
+                    )
+                    if uid_match or name_match or pid_match:
                         user_pods.add(p_num)
 
-            if not is_commissioner and not user_pods:
+            # Check active registrations for this league
+            is_registered_in_league = bool(user_pods)
+            if not is_registered_in_league:
+                for reg in (league.get("registrations") or []):
+                    if str(reg.get("status") or "active").lower() in ("dropped", "cancelled", "removed"):
+                        continue
+                    r_uid = str(reg.get("user_id") or "").strip().lower()
+                    r_name = str(reg.get("player_name") or reg.get("name") or "").strip().lower()
+                    if (uid_clean and r_uid and uid_clean == r_uid) or (uname_clean and r_name and uname_clean == r_name):
+                        is_registered_in_league = True
+                        if reg.get("pod_number"):
+                            user_pods.add(int(reg.get("pod_number")))
+
+            is_commissioner = bool(
+                (uid_clean and owner_uid and uid_clean == owner_uid and (not uname_clean or not owner_name or uname_clean == owner_name))
+                or (uname_clean and owner_name and uname_clean == owner_name)
+            )
+
+            if not is_registered_in_league and not is_commissioner:
                 continue
 
+            primary_pod = min(user_pods) if user_pods else None
             docs = self.sync_league_group_chats(lid)
             for d in docs:
                 cid = str(d.get("channelId") or d.get("requestId") or "")
@@ -5781,9 +5761,8 @@ class LeaguesHubService:
                     seen_cids.add(cid)
                     results.append(self._format_group_chat_for_request_list(d, user_id=str(user_id or "")))
                 elif gtype == "pod":
-                    # Include the user's own Pod chat(s), or Pod #1 (plus any user_pods) for Commissioners so sidebar stays clean,
-                    # while commissioners can also open any Pod #1..#N chat directly!
-                    if p_num in user_pods or (is_commissioner and (p_num == 1 or not user_pods)):
+                    # Strictly include ONLY the single pod-specific chat that the player is in!
+                    if primary_pod is not None and int(p_num or 0) == int(primary_pod):
                         seen_cids.add(cid)
                         results.append(self._format_group_chat_for_request_list(d, user_id=str(user_id or "")))
 
@@ -5845,7 +5824,7 @@ class LeaguesHubService:
             "other_user_id": "group",
             "other_user_name": doc.get("title") or "League Group Chat",
             "other_user_elo": doc.get("memberCount") or 0,
-            "messages": doc.get("messages") or [],
+            "messages": req_formatted.get("messages") or [],
             "marked_read_count": 0
         }
 

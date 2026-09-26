@@ -1761,16 +1761,18 @@ async function selectConversation(requestId) {
     const eloEl = document.getElementById('chat-active-elo');
     const subEl = document.getElementById('chat-active-sub');
     const avatarEl = document.getElementById('chat-active-avatar');
+    const inviteBtn = document.getElementById('chat-invite-room-btn');
 
     if (isGroup) {
-      const isPod = (localReq.chat_type === 'pod' || localReq.pod_number);
+      const isPod = Boolean(localReq.chat_type === 'pod' || localReq.pod_number);
       const title = localReq.title || localReq.receiver_name || 'League Group Chat';
       const seasonNum = localReq.season_number || 1;
       const memberCount = localReq.member_count || (Array.isArray(localReq.participants) ? localReq.participants.length : 1);
       if (nameEl) nameEl.textContent = title;
-      if (eloEl) eloEl.textContent = `S${seasonNum} • ${memberCount} Members`;
+      if (eloEl) eloEl.textContent = `S${seasonNum} • ${memberCount}👥`;
       if (avatarEl) avatarEl.textContent = isPod ? `P${localReq.pod_number}` : '🛡️';
       if (subEl) subEl.textContent = localReq.subtitle || 'Dynamic Season Channel • Resets at Season End';
+      if (inviteBtn) inviteBtn.style.display = isPod ? 'inline-flex' : 'none';
     } else {
       const isMeSender = (localReq.sender_id === myId);
       const otherName = isMeSender ? localReq.receiver_name : localReq.sender_name;
@@ -1779,6 +1781,7 @@ async function selectConversation(requestId) {
       if (eloEl && !isNaN(otherElo)) eloEl.textContent = `${otherElo} Elo`;
       if (avatarEl && otherName) avatarEl.textContent = otherName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
       if (subEl) subEl.textContent = `Proposed: ${localReq.proposed_points || 2000} pts at ${localReq.proposed_venue || 'Local Store'}`;
+      if (inviteBtn) inviteBtn.style.display = 'inline-flex';
     }
   }
 
@@ -1829,10 +1832,25 @@ function renderChatMessages(messages, scrollOnlyIfNearBottom = true) {
     return;
   }
 
-  // Deduplicate messages by id or composite key
+  // Deduplicate messages by id or composite key, and strip any legacy mock/seed messages
   const seen = new Set();
   const deduped = [];
   for (const m of messages) {
+    if (!m || typeof m !== 'object') continue;
+    const mid = String(m.id || '');
+    const msender = String(m.sender_id || '');
+    const msenderName = String(m.sender_name || '').trim().toLowerCase();
+    const mtxt = String(m.message_text || '').trim().toLowerCase();
+    if (
+      mid.startsWith('msg_seed_') ||
+      msender.startsWith('seed_player_') ||
+      (msender.startsWith('pod_') && (msender.includes('_p1') || msender.includes('_p2'))) ||
+      msenderName === 'john2 hsieh2' ||
+      msenderName === 'john4 hsieh4' ||
+      ['huh', 'uh', 'hello', 'hell', 'but', 'lskjdf'].includes(mtxt)
+    ) {
+      continue;
+    }
     const key = m.id || `${m.sender_id}_${m.created_at}_${m.message_text}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -1935,16 +1953,18 @@ async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
     const eloEl = document.getElementById('chat-active-elo');
     const subEl = document.getElementById('chat-active-sub');
     const avatarEl = document.getElementById('chat-active-avatar');
+    const inviteBtn = document.getElementById('chat-invite-room-btn');
 
     if (isGroup) {
-      const isPod = (req.chat_type === 'pod' || req.pod_number);
+      const isPod = Boolean(req.chat_type === 'pod' || req.pod_number);
       const title = req.title || res.other_user_name || 'League Group Chat';
       const seasonNum = req.season_number || 1;
       const memberCount = req.member_count || (Array.isArray(req.participants) ? req.participants.length : 1);
       if (nameEl) nameEl.textContent = title;
-      if (eloEl) eloEl.textContent = `S${seasonNum} • ${memberCount} Members`;
+      if (eloEl) eloEl.textContent = `S${seasonNum} • ${memberCount}👥`;
       if (avatarEl) avatarEl.textContent = isPod ? `P${req.pod_number}` : '🛡️';
       if (subEl) subEl.textContent = req.subtitle || 'Dynamic Season Channel • Resets at Season End';
+      if (inviteBtn) inviteBtn.style.display = isPod ? 'inline-flex' : 'none';
     } else {
       const otherName = res.other_user_name || 'Opponent';
       const otherElo = res.other_user_elo ? Math.round(res.other_user_elo) : null;
@@ -1952,11 +1972,12 @@ async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
       if (eloEl && otherElo) eloEl.textContent = `${otherElo} Elo`;
       if (avatarEl && otherName) avatarEl.textContent = otherName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
       if (subEl) subEl.textContent = `Proposed: ${req.proposed_points || 2000} pts at ${req.proposed_venue || 'Local Store'}`;
+      if (inviteBtn) inviteBtn.style.display = 'inline-flex';
     }
 
     const messages = res.messages || [];
-    // If snapshot has already populated newer messages, don't clobber unless messages count is >=
-    if (!connectState.chatSnapshotUnsub || !connectState.activeMessages || connectState.activeMessages.length <= messages.length) {
+    // Always render cleaned messages from backend if group chat, or if snapshot hasn't populated newer messages
+    if (isGroup || !connectState.chatSnapshotUnsub || !connectState.activeMessages || connectState.activeMessages.length <= messages.length) {
       connectState.activeMessages = messages;
       renderChatMessages(messages, scrollOnlyIfNearBottom);
     }
@@ -2855,21 +2876,21 @@ function ensureFloatingChatWidgetDom() {
               </div>
               <div class="oc-chat-main">
                 <div class="oc-chat-header" id="chat-active-header" style="display: none;">
-                  <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0;">
+                  <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0; flex: 1; overflow: hidden;">
                     <button type="button" id="chat-back-btn" class="oc-chat-back-btn" onclick="backToChatList(); return false;" aria-label="Back to conversations">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
                       <span>Chats</span>
                     </button>
                     <div class="oc-player-avatar" id="chat-active-avatar" style="width: 36px; height: 36px; font-size: 0.9rem; flex-shrink: 0;">🛡️</div>
-                    <div style="min-width: 0;">
+                    <div style="min-width: 0; flex: 1; overflow: hidden;">
                       <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
-                        <span id="chat-active-name" style="font-weight: 800; color: #fff; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Select a Chat</span>
-                        <span id="chat-active-elo" class="oc-badge" style="flex-shrink: 0;">S1</span>
+                        <span id="chat-active-name" style="font-weight: 800; color: #fff; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;">Select a Chat</span>
+                        <span id="chat-active-elo" class="oc-badge" style="flex-shrink: 0; white-space: nowrap;">S1</span>
                       </div>
                       <div id="chat-active-sub" style="font-size: 0.74rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Dynamic Season Channel</div>
                     </div>
                   </div>
-                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; margin-left: 8px;">
                     <button type="button" id="chat-invite-room-btn" onclick="createGameTrackerRoomForChat()" class="btn" style="background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); font-size: 0.76rem; font-weight: 700; padding: 0.38rem 0.65rem; white-space: nowrap;">
                       <span class="oc-invite-desktop">🎲 Invite to Match Room</span>
                       <span class="oc-invite-mobile">🎲 Room</span>
@@ -2900,63 +2921,39 @@ function ensureFloatingChatWidgetDom() {
 }
 window.ensureFloatingChatWidgetDom = ensureFloatingChatWidgetDom;
 
-function buildFallbackGroupChatItem(leagueId, podNumber = null, seasonNumber = 1, leagueMeta = null) {
-  const sNum = Number(seasonNumber || leagueMeta?.current_season || 1);
-  const pNum = podNumber ? Number(podNumber) : null;
-  const leagueName = leagueMeta?.name || (window._currentLeagueHubData?.league?.name) || (window._currentStudioLeague?.name) || 'League';
-  const venueName = leagueMeta?.venue_name || (window._currentLeagueHubData?.league?.venue_name) || (window._currentStudioLeague?.venue_name) || 'Local Venue';
-  const pts = leagueMeta?.points_limit || (window._currentLeagueHubData?.league?.points_limit) || (window._currentStudioLeague?.points_limit) || 2000;
-  const channelId = pNum
-    ? `grp_pod_${leagueId}_s${sNum}_p${pNum}`
-    : `grp_league_${leagueId}_s${sNum}`;
-  const title = pNum
-    ? `Pod #${pNum} • ${leagueName} (S${sNum})`
-    : `🛡️ ${leagueName} • Season ${sNum} Q&A Chat`;
-  const subtitle = pNum
-    ? `Season ${sNum} Pod #${pNum} • Coordinate games & share room codes`
-    : `Season ${sNum} League Q&A & Rules Clarifications • ${venueName}`;
-  const greetingText = pNum
-    ? `⚔️ **Welcome to ${leagueName} — Season ${sNum}, Pod #${pNum} Chat!**\n• **Venue**: ${venueName} (${pts} pts)\n• Use this Pod channel to schedule your Pod matches, share live Game Tracker room codes, or request a ringer.\n• *Note: Pod membership updates dynamically when players join or move pods, and this channel automatically resets & disappears when Season ${sNum} ends.*`
-    : `🛡️ **Welcome to ${leagueName} — Season ${sNum} League Chat!**\n• **Venue**: ${venueName} (${pts} pts)\n• Post rules clarifications, mission pack questions, and general league coordination here.\n• *Note: Membership updates dynamically as players join or drop, and this channel automatically resets & disappears when Season ${sNum} ends.*`;
-
-  return {
-    id: channelId,
-    channel_id: channelId,
-    is_group_chat: true,
-    chat_type: pNum ? 'pod' : 'league',
-    league_id: leagueId,
-    league_name: leagueName,
-    season_number: sNum,
-    pod_number: pNum,
-    title: title,
-    subtitle: subtitle,
-    status: 'accepted',
-    sender_id: 'system',
-    receiver_id: 'group',
-    sender_name: title,
-    receiver_name: title,
-    proposed_venue: venueName,
-    proposed_points: pts,
-    member_count: pNum ? 4 : 8,
-    last_message: greetingText,
-    greeting_message: greetingText,
-    unread_count: 0,
-    messages: [{
-      id: `msg_greeting_${channelId}`,
-      request_id: channelId,
-      sender_id: 'system',
-      sender_name: '🛡️ League Bot',
-      message_text: greetingText,
-      is_system: true,
-      is_greeting: true,
-      created_at: new Date().toISOString()
-    }]
-  };
-}
-
-async function openLeagueGroupChat(leagueId, podNumber = null, seasonNumber = null, leagueMeta = null) {
+async function openLeagueGroupChat(leagueId, podNumber = null, seasonNumber = null) {
   if (!leagueId) return;
+  if (typeof currentUser === 'undefined' || !currentUser) {
+    window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.hash);
+    return;
+  }
   ensureFloatingChatWidgetDom();
+
+  // Refresh the user's authorized chats from backend (strictly at most 2 per league: general league chat + player's own pod chat)
+  await loadUserRequests();
+
+  const list = Array.isArray(connectState.requestsList) ? connectState.requestsList : [];
+  let targetChatObj = null;
+  if (podNumber) {
+    targetChatObj = list.find(r =>
+      (r.is_group_chat || String(r.id || '').startsWith('grp_pod_')) &&
+      Number(r.pod_number) === Number(podNumber) &&
+      (!r.league_id || r.league_id === leagueId || String(r.id || '').includes(leagueId))
+    );
+  } else {
+    targetChatObj = list.find(r =>
+      (r.is_group_chat || String(r.id || '').startsWith('grp_league_')) &&
+      (r.chat_type === 'league' || !r.pod_number) &&
+      (!r.league_id || r.league_id === leagueId || String(r.id || '').includes(leagueId))
+    );
+  }
+
+  if (!targetChatObj) {
+    alert(podNumber
+      ? `🔒 Pod #${podNumber} Group Chat is only available to players assigned to Pod #${podNumber}.`
+      : '🔒 League Group Chat is only available to registered players in this league.');
+    return;
+  }
 
   const win = document.getElementById('floating-chat-window');
   const bubble = document.getElementById('floating-chat-bubble');
@@ -2965,90 +2962,8 @@ async function openLeagueGroupChat(leagueId, podNumber = null, seasonNumber = nu
   if (bubble) bubble.classList.add('active');
   if (widget) widget.classList.add('is-open');
 
-  let targetChannelId = null;
-  let targetChatObj = null;
-
-  try {
-    const token = (window.api && typeof window.api.getAuthToken === 'function') ? window.api.getAuthToken() : '';
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-    const resp = await fetch(`/api/league/${encodeURIComponent(leagueId)}/chats`, { headers });
-    const data = await resp.json();
-
-    if (data && data.success) {
-      const sNum = Number(data.season_number || seasonNumber || 1);
-      const allGroupChats = [];
-      if (data.league_chat) allGroupChats.push(data.league_chat);
-      if (Array.isArray(data.pod_chats)) allGroupChats.push(...data.pod_chats);
-
-      if (!Array.isArray(connectState.requestsList)) connectState.requestsList = [];
-      for (const gc of allGroupChats) {
-        const cid = gc.channel_id || gc.id;
-        if (!cid) continue;
-        const formatted = {
-          id: cid,
-          channel_id: cid,
-          is_group_chat: true,
-          chat_type: gc.chat_type || (gc.pod_number ? 'pod' : 'league'),
-          league_id: leagueId,
-          league_name: gc.league_name || data.league_name || 'League',
-          season_number: gc.season_number || sNum,
-          pod_number: gc.pod_number || null,
-          title: gc.title || 'League Group Chat',
-          subtitle: gc.subtitle || '',
-          status: 'accepted',
-          sender_id: 'system',
-          receiver_id: 'group',
-          sender_name: gc.title || 'League Group Chat',
-          receiver_name: gc.title || 'League Group Chat',
-          proposed_venue: gc.subtitle || 'Active Season Channel',
-          proposed_points: 2000,
-          participants: gc.participants || [],
-          participant_names: gc.participant_names || {},
-          member_count: gc.member_count || (Array.isArray(gc.participants) ? gc.participants.length : 1),
-          last_message: gc.last_message || gc.greeting_message || 'Season channel active',
-          greeting_message: gc.greeting_message || '',
-          messages: Array.isArray(gc.messages) ? gc.messages : [],
-          unread_count: 0
-        };
-        const existingIdx = connectState.requestsList.findIndex(r => r.id === cid);
-        if (existingIdx >= 0) {
-          connectState.requestsList[existingIdx] = formatted;
-        } else {
-          connectState.requestsList.unshift(formatted);
-        }
-        if (podNumber && Number(formatted.pod_number) === Number(podNumber)) {
-          targetChannelId = cid;
-          targetChatObj = formatted;
-        } else if (!podNumber && formatted.chat_type === 'league') {
-          targetChannelId = cid;
-          targetChatObj = formatted;
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('Notice fetching league group chats, using deterministic season channel fallback:', err);
-  }
-
-  if (!targetChannelId) {
-    const fb = buildFallbackGroupChatItem(leagueId, podNumber, seasonNumber || 1, leagueMeta);
-    targetChannelId = fb.id;
-    targetChatObj = fb;
-    if (!Array.isArray(connectState.requestsList)) connectState.requestsList = [];
-    const existingIdx = connectState.requestsList.findIndex(r => r.id === targetChannelId);
-    if (existingIdx >= 0) {
-      connectState.requestsList[existingIdx] = fb;
-    } else {
-      connectState.requestsList.unshift(fb);
-    }
-  }
-
   renderRequestsList(connectState.requestsList);
-  await selectConversation(targetChannelId);
-
-  if (targetChatObj && Array.isArray(targetChatObj.messages) && targetChatObj.messages.length > 0 && (!connectState.activeMessages || connectState.activeMessages.length === 0)) {
-    connectState.activeMessages = targetChatObj.messages;
-    renderChatMessages(targetChatObj.messages, false);
-  }
+  await selectConversation(targetChatObj.id);
 }
 window.openLeagueGroupChat = openLeagueGroupChat;
 
@@ -3074,18 +2989,9 @@ async function resetLeagueGroupChat(leagueId, channelId = null) {
       } else {
         alert(`✅ Reset ${res.reset_count || 1} seasonal group chat channel(s) with a fresh Season Greeting!`);
       }
+      await loadUserRequests();
       if (connectState.activeRequestId && String(connectState.activeRequestId).startsWith('grp_')) {
         await refreshActiveMessages(false);
-      }
-    } else {
-      // Offline fallback reset
-      if (connectState.activeRequestId && String(connectState.activeRequestId).startsWith('grp_')) {
-        const fb = buildFallbackGroupChatItem(leagueId, null, 1);
-        connectState.activeMessages = fb.messages;
-        renderChatMessages(connectState.activeMessages, false);
-      }
-      if (typeof showStudioToast === 'function') {
-        showStudioToast('Seasonal group chat greeting reset!', 'success');
       }
     }
   } catch (err) {

@@ -324,6 +324,37 @@ function renderLeagueHub(league) {
       currentUser.can_access_to
     ))
   );
+  const userLeagueInfo = (() => {
+    if (typeof currentUser === 'undefined' || !currentUser) return { isMember: false, myPodNumber: null };
+    const uidClean = String(currentUser.id || '').trim().toLowerCase();
+    const unameClean = String(currentUser.display_name || '').trim().toLowerCase();
+    const pidClean = String(currentUser.player_id || '').trim().toLowerCase();
+    const ownerName = String(league.owner_name || '').trim().toLowerCase();
+    const ownerUid = String(league.owner_user_id || '').trim().toLowerCase();
+    let myPodNumber = null;
+    for (const p of pods) {
+      const pNum = Number(p.pod_number || 1);
+      for (const st of (p.standings || [])) {
+        if (st.dropped) continue;
+        const sUid = String(st.user_id || '').trim().toLowerCase();
+        const sPid = String(st.bcp_player_id || st.player_id || '').trim().toLowerCase();
+        const sName = String(st.name || st.player_name || '').trim().toLowerCase();
+        const uidMatch = Boolean(uidClean && sUid && uidClean === sUid);
+        const nameMatch = Boolean(unameClean && sName && unameClean === sName);
+        const pidMatch = Boolean(pidClean && sPid && pidClean === sPid && (!unameClean || !sName || unameClean === sName));
+        if (uidMatch || nameMatch || pidMatch) {
+          myPodNumber = pNum;
+          break;
+        }
+      }
+      if (myPodNumber) break;
+    }
+    const isOwner = Boolean(
+      (uidClean && ownerUid && uidClean === ownerUid && (!unameClean || !ownerName || unameClean === ownerName)) ||
+      (unameClean && ownerName && unameClean === ownerName)
+    );
+    return { isMember: Boolean(myPodNumber || isOwner), myPodNumber };
+  })();
 
   container.innerHTML = `
     <!-- League Hero Banner -->
@@ -360,9 +391,11 @@ function renderLeagueHub(league) {
 
         <!-- Back & External Links -->
         <div style="display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; gap: 0.5rem; flex-wrap: wrap;">
-          <button type="button" onclick="if (typeof openLeagueGroupChat === 'function') openLeagueGroupChat('${escapeHtml(league.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90')}', null, ${currentSeasonNum});" class="btn btn-primary" style="font-size: 0.8rem; padding: 0.45rem 0.9rem; font-weight: 800; background: linear-gradient(135deg, #6366f1, #3b82f6); border: 1px solid rgba(99,102,241,0.55); box-shadow: 0 4px 12px rgba(99,102,241,0.35);">
-            💬 League Q&amp;A Chat (S${currentSeasonNum})
-          </button>
+          ${userLeagueInfo.isMember ? `
+            <button type="button" onclick="if (typeof openLeagueGroupChat === 'function') openLeagueGroupChat('${escapeHtml(league.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90')}', null, ${currentSeasonNum});" class="btn btn-primary" style="font-size: 0.8rem; padding: 0.45rem 0.9rem; font-weight: 800; background: linear-gradient(135deg, #6366f1, #3b82f6); border: 1px solid rgba(99,102,241,0.55); box-shadow: 0 4px 12px rgba(99,102,241,0.35);">
+              💬 League Q&amp;A Chat (S${currentSeasonNum})
+            </button>
+          ` : ''}
           <button type="button" onclick="if (typeof switchTab === 'function') switchTab('tournaments');" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.45rem 0.85rem; font-weight: 700; color: #e2e8f0; border-color: rgba(255,255,255,0.18);">
             ← All Leagues
           </button>
@@ -749,6 +782,24 @@ function renderPodsSubtab(league, currentPod) {
 
   allPodPairings.sort((a, b) => a.round - b.round);
 
+  const isUserInCurrentPod = (() => {
+    if (typeof currentUser === 'undefined' || !currentUser) return false;
+    const uidClean = String(currentUser.id || '').trim().toLowerCase();
+    const unameClean = String(currentUser.display_name || '').trim().toLowerCase();
+    const pidClean = String(currentUser.player_id || '').trim().toLowerCase();
+    for (const st of standings) {
+      if (st.dropped) continue;
+      const sUid = String(st.user_id || '').trim().toLowerCase();
+      const sPid = String(st.bcp_player_id || st.player_id || '').trim().toLowerCase();
+      const sName = String(st.name || st.player_name || '').trim().toLowerCase();
+      const uidMatch = Boolean(uidClean && sUid && uidClean === sUid);
+      const nameMatch = Boolean(unameClean && sName && unameClean === sName);
+      const pidMatch = Boolean(pidClean && sPid && pidClean === sPid && (!unameClean || !sName || unameClean === sName));
+      if (uidMatch || nameMatch || pidMatch) return true;
+    }
+    return false;
+  })();
+
   return `
     <!-- Pod Switcher Pills -->
     <div style="display: flex; gap: 0.45rem; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 0.5rem; margin-bottom: 1.15rem;">
@@ -780,9 +831,11 @@ function renderPodsSubtab(league, currentPod) {
       <div style="padding: 0.85rem 1.15rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.65rem;">
         <div style="font-weight: 700; font-size: 0.98rem; color: #fff;">🏆 Pod #${currentPod.pod_number} Standings</div>
         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <button type="button" onclick="if (typeof openLeagueGroupChat === 'function') openLeagueGroupChat('${escapeHtml(league.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90')}', ${currentPod.pod_number}, ${Number(actSeason.season_number || 1)});" class="btn btn-outline" style="font-size: 0.74rem; padding: 0.3rem 0.75rem; border-color: rgba(245, 158, 11, 0.55); background: rgba(245, 158, 11, 0.12); color: #fbbf24; font-weight: 800;">
-            💬 Pod #${currentPod.pod_number} Group Chat
-          </button>
+          ${isUserInCurrentPod ? `
+            <button type="button" onclick="if (typeof openLeagueGroupChat === 'function') openLeagueGroupChat('${escapeHtml(league.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90')}', ${currentPod.pod_number}, ${Number(actSeason.season_number || 1)});" class="btn btn-outline" style="font-size: 0.74rem; padding: 0.3rem 0.75rem; border-color: rgba(245, 158, 11, 0.55); background: rgba(245, 158, 11, 0.12); color: #fbbf24; font-weight: 800;">
+              💬 Pod #${currentPod.pod_number} Group Chat
+            </button>
+          ` : ''}
           <button onclick="openLeaguePlayerClaimModal('${escapeHtml(league.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90')}')" class="btn btn-outline" style="font-size: 0.74rem; padding: 0.3rem 0.7rem; border-color: rgba(59, 130, 246, 0.45); color: #60a5fa; font-weight: 700;">
             🙋‍♂️ I'm in this League
           </button>
