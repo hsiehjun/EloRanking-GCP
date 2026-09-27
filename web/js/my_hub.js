@@ -1865,7 +1865,7 @@ function renderMyHub(data) {
       <div class="hub-grid-2col hub-row-prep">
         <!-- Card: Army Lists & Rosters -->
         <div class="hub-card" id="hub-armylists-card" style="display:flex; flex-direction:column; justify-content:space-between;">
-          <div>
+          <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                 <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📋 Army Lists & Rosters</h3>
@@ -3330,9 +3330,16 @@ async function loadHubArmyLists() {
       updateHubNrSyncPill();
     }
     renderHubArmyLists(lists);
+    setTimeout(ensureBackgroundNrStudioWarmup, 250);
   } catch(e) {
     container.innerHTML = `<div style="color:var(--loss); font-size:0.85rem; padding:1.5rem; text-align:center;">Error loading army lists: ${e.message}</div>`;
   }
+}
+
+function ensureBackgroundNrStudioWarmup() {
+  if (document.getElementById('hub-nr-studio-iframe')) return;
+  if (!document.getElementById('hub-armylists-list-container')) return;
+  openNewRecruitStudioDrawer('/nr/app/Lists', '', true);
 }
 
 function updateHubNrSyncPill() {
@@ -3439,6 +3446,19 @@ function renderHubArmyLists(lists) {
 
 let _nrStudioLoadTimer = null;
 
+function showNewRecruitStudioLoading(labelText = '') {
+  const overlay = document.getElementById('hub-nr-studio-loading-overlay');
+  if (overlay) {
+    overlay.style.display = 'flex';
+    overlay.style.opacity = '1';
+    overlay.style.pointerEvents = 'auto';
+    if (labelText) {
+      const titleEl = document.getElementById('hub-nr-studio-loading-title');
+      if (titleEl) titleEl.textContent = labelText;
+    }
+  }
+}
+
 function hideNewRecruitStudioLoading() {
   if (_nrStudioLoadTimer) {
     clearInterval(_nrStudioLoadTimer);
@@ -3450,7 +3470,7 @@ function hideNewRecruitStudioLoading() {
     overlay.style.pointerEvents = 'none';
     setTimeout(() => {
       if (overlay) overlay.style.display = 'none';
-    }, 220);
+    }, 200);
   }
 }
 
@@ -3463,10 +3483,43 @@ function openNewRecruitStudioForList(listId) {
     listKey = String(listId).slice(3);
   }
   const targetPath = listKey ? `/nr/app/Lists/${encodeURIComponent(listKey)}` : '/nr/app/Lists';
-  openNewRecruitStudioDrawer(targetPath, list ? list.name : '');
+  openNewRecruitStudioDrawer(targetPath, list ? list.name : '', false);
 }
 
-function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '') {
+function startNrStudioLoadWatcher(iframe, isDirectListTarget) {
+  if (_nrStudioLoadTimer) clearInterval(_nrStudioLoadTimer);
+  const startedAt = Date.now();
+  _nrStudioLoadTimer = setInterval(() => {
+    if (Date.now() - startedAt > 6500) {
+      hideNewRecruitStudioLoading();
+      return;
+    }
+    try {
+      const doc = iframe && iframe.contentDocument;
+      const win = iframe && iframe.contentWindow;
+      if (isDirectListTarget) {
+        if (win && win.location && /\/Lists\/[^\/\?\#]+/i.test(win.location.pathname || '')) {
+          if (!doc || !doc.documentElement.classList.contains('omnitactica-nr-direct-list-loading')) {
+            hideNewRecruitStudioLoading();
+          }
+        }
+        return;
+      }
+      if (win && win.__nr_stores && win.__nr_stores.list && win.__nr_stores.list.listsInitiated) {
+        hideNewRecruitStudioLoading();
+        return;
+      }
+      if (doc && doc.body) {
+        const hasRenderedUi = doc.querySelector('.bar, .folder, .listLine, table, button.btn, .system, #__nuxt > div');
+        if (hasRenderedUi && (doc.body.innerText || '').trim().length > 20) {
+          hideNewRecruitStudioLoading();
+        }
+      }
+    } catch (e) {}
+  }, 120);
+}
+
+function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '', silentWarmup = false) {
   let modal = document.getElementById('hub-newrecruit-studio-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -3475,7 +3528,12 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
     document.body.appendChild(modal);
   }
 
-  const safePath = initialPath || '/nr/app/Lists';
+  let safePath = initialPath || '/nr/app/Lists';
+  if (safePath && !safePath.startsWith('/') && !safePath.startsWith('http')) {
+    const cleanKey = safePath.startsWith('nr_') ? safePath.slice(3) : safePath;
+    safePath = `/nr/app/Lists/${encodeURIComponent(cleanKey)}`;
+  }
+  const isDirectListTarget = /\/Lists\/[^\/\?\#]+/i.test(safePath);
   const subtitle = listTitle
     ? `Editing "${listTitle}" • All changes & deletions sync to My Hub automatically`
     : 'Build, view, or sign in inside NewRecruit • Changes persist on this device & sync to My Hub automatically';
@@ -3483,17 +3541,25 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
   // If the Studio iframe is already mounted & warm, reuse it without reloading from scratch!
   const existingIframe = document.getElementById('hub-nr-studio-iframe');
   if (existingIframe && existingIframe.contentWindow) {
+    if (silentWarmup) return;
     const subEl = document.getElementById('hub-nr-studio-subtitle');
     if (subEl) subEl.textContent = subtitle;
     const closeBtn = document.getElementById('hub-btn-close-nr-studio');
     if (closeBtn) {
       closeBtn.disabled = false;
-      closeBtn.innerHTML = '✅ Done & Sync to Hub';
+      closeBtn.innerHTML = '✕';
     }
+    modal.style.visibility = 'visible';
+    modal.style.opacity = '1';
+    modal.style.pointerEvents = 'auto';
     modal.style.display = 'flex';
-    hideNewRecruitStudioLoading();
     if (safePath && safePath !== '/nr/app/Lists') {
+      showNewRecruitStudioLoading(listTitle ? `Opening "${listTitle}"...` : 'Opening Army Roster...');
       navigateNewRecruitStudio(safePath);
+      startNrStudioLoadWatcher(existingIframe, isDirectListTarget);
+    } else {
+      navigateNewRecruitStudio('/nr/app/Lists');
+      hideNewRecruitStudioLoading();
     }
     return;
   }
@@ -3501,7 +3567,7 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
   modal.innerHTML = `
     <div class="hub-nr-studio-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:min(1460px, 100%); height:min(92vh, 960px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 30px 90px rgba(0,0,0,0.92); font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
       <!-- Studio Top Toolbar -->
-      <div style="padding:10px 16px; background:linear-gradient(90deg, #0f172a 0%, #172554 100%); border-bottom:1px solid rgba(56,189,248,0.25); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <div style="padding:10px 16px; background:linear-gradient(90deg, #0f172a 0%, #172554 100%); border-bottom:1px solid rgba(56,189,248,0.25); display:flex; justify-content:space-between; align-items:center; flex-wrap:nowrap; gap:10px;">
         <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
           <span style="font-size:20px; flex-shrink:0;">⚔️</span>
           <div style="min-width:0;">
@@ -3517,20 +3583,18 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
           </div>
         </div>
 
-        <!-- Done & Sync Control -->
-        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          <button id="hub-btn-close-nr-studio" onclick="closeNewRecruitStudioDrawer()" style="background:#10b981; color:#0f172a; border:none; font-weight:900; font-size:12px; padding:6px 14px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
-            ✅ Done & Sync to Hub
-          </button>
-        </div>
+        <!-- Single Close ('✕') Control -->
+        <button id="hub-btn-close-nr-studio" onclick="closeNewRecruitStudioDrawer()" title="Close NewRecruit Studio" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:#cbd5e1; font-size:18px; font-weight:800; width:34px; height:34px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all 0.15s ease;">
+          ✕
+        </button>
       </div>
 
       <!-- Embedded Same-Origin NewRecruit App Iframe + Loading Screen Overlay -->
       <div style="flex:1; position:relative; background:#090d16; overflow:hidden;">
-        <div id="hub-nr-studio-loading-overlay" style="position:absolute; inset:0; z-index:20; background:radial-gradient(circle at center, #0f172a 0%, #070b14 100%); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px; text-align:center; transition:opacity 0.22s ease;">
+        <div id="hub-nr-studio-loading-overlay" style="position:absolute; inset:0; z-index:20; background:radial-gradient(circle at center, #0f172a 0%, #070b14 100%); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px; text-align:center; transition:opacity 0.2s ease;">
           <div class="spinner" style="width:42px; height:42px; border-width:3.5px; border-top-color:#38bdf8;"></div>
-          <div style="font-size:16px; font-weight:900; color:#f8fafc; letter-spacing:0.01em;">
-            Loading NewRecruit Army Studio...
+          <div id="hub-nr-studio-loading-title" style="font-size:16px; font-weight:900; color:#f8fafc; letter-spacing:0.01em;">
+            ${escapeHtml(isDirectListTarget ? (listTitle ? `Opening "${listTitle}"...` : 'Opening Army Roster...') : 'Loading NewRecruit Army Studio...')}
           </div>
           <div style="font-size:12.5px; color:#94a3b8; max-width:420px; line-height:1.5;">
             Initializing faction books, detachment rules &amp; live Hub synchronization...
@@ -3546,31 +3610,21 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
       </div>
     </div>
   `;
-  modal.style.display = 'flex';
+
+  if (silentWarmup) {
+    modal.style.display = 'flex';
+    modal.style.visibility = 'hidden';
+    modal.style.opacity = '0';
+    modal.style.pointerEvents = 'none';
+  } else {
+    modal.style.visibility = 'visible';
+    modal.style.opacity = '1';
+    modal.style.pointerEvents = 'auto';
+    modal.style.display = 'flex';
+  }
 
   const iframe = document.getElementById('hub-nr-studio-iframe');
-  if (_nrStudioLoadTimer) clearInterval(_nrStudioLoadTimer);
-  const startedAt = Date.now();
-  _nrStudioLoadTimer = setInterval(() => {
-    if (Date.now() - startedAt > 7500) {
-      hideNewRecruitStudioLoading();
-      return;
-    }
-    try {
-      const doc = iframe && iframe.contentDocument;
-      const win = iframe && iframe.contentWindow;
-      if (win && win.__nr_stores && win.__nr_stores.list && win.__nr_stores.list.listsInitiated) {
-        hideNewRecruitStudioLoading();
-        return;
-      }
-      if (doc && doc.body) {
-        const hasRenderedUi = doc.querySelector('.bar, .folder, .listLine, table, button.btn, .system, #__nuxt > div');
-        if (hasRenderedUi && (doc.body.innerText || '').trim().length > 20) {
-          hideNewRecruitStudioLoading();
-        }
-      }
-    } catch (e) {}
-  }, 150);
+  startNrStudioLoadWatcher(iframe, isDirectListTarget);
 }
 
 function navigateNewRecruitStudio(targetPath) {
@@ -3593,7 +3647,12 @@ async function closeNewRecruitStudioDrawer() {
   const closeBtn = document.getElementById('hub-btn-close-nr-studio');
   if (closeBtn) {
     closeBtn.disabled = true;
-    closeBtn.innerHTML = '⏳ Syncing to Hub...';
+  }
+  if (modal) {
+    modal.style.visibility = 'hidden';
+    modal.style.opacity = '0';
+    modal.style.pointerEvents = 'none';
+    modal.style.display = 'none';
   }
   try {
     if (iframe && iframe.contentWindow && iframe.contentWindow.__omnitacticaNrBridge) {
@@ -3609,10 +3668,7 @@ async function closeNewRecruitStudioDrawer() {
   } catch (e) {}
   if (closeBtn) {
     closeBtn.disabled = false;
-    closeBtn.innerHTML = '✅ Done & Sync to Hub';
-  }
-  if (modal) {
-    modal.style.display = 'none';
+    closeBtn.innerHTML = '✕';
   }
   await loadHubArmyLists();
 }

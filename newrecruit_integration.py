@@ -180,18 +180,145 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     pointer-events: none !important;
   }
 
-  /* 2. Top Navigation Bar: Keep ONLY Game System selector, Lists, New, Build, and Login/Account */
+  /* 2. Keep Navigation Bar at Top on BOTH Desktop & Mobile; Hide Bottom Bar & Non-List Icons */
+  .menu.mainMenu {
+    position: fixed !important;
+    top: 0 !important;
+    bottom: auto !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 50px !important;
+    background: #161b26 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 0 10px !important;
+    z-index: 999 !important;
+    box-sizing: border-box !important;
+  }
+  .menu.mainMenu .left {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+    overflow: hidden !important;
+  }
+  .menu.mainMenu .left a[href="/app/MyLists"],
+  .menu.mainMenu .left button.navBarItem {
+    display: inline-flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+  }
+  .menu.mainMenu .left select {
+    max-width: min(230px, 52vw) !important;
+    text-overflow: ellipsis !important;
+  }
+  .menu.mainMenu .right.menuIcons {
+    position: static !important;
+    bottom: auto !important;
+    left: auto !important;
+    right: auto !important;
+    width: auto !important;
+    height: auto !important;
+    border-top: none !important;
+    background: transparent !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    flex-shrink: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  html body {
+    padding-top: 52px !important;
+    padding-bottom: 0 !important;
+  }
+  .main-view {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-top: 0 !important;
+  }
+
+  /* Hide Games, Lists (duplicate icon), Models, Tourny, Profile, Play, Support, Build from right/bottom menu — keep ONLY Login/User */
+  .menu.mainMenu .right.menuIcons a.priority-3,
+  .menu.mainMenu .right.menuIcons a.priority-4,
+  .menu.mainMenu .right.menuIcons a.priority-5,
+  .menu.mainMenu .right.menuIcons a.priority-6,
+  .menu.mainMenu .right.menuIcons a.priority-7,
+  .menu.mainMenu .right.menuIcons a.priority-8,
+  .menu.mainMenu .right.menuIcons a.priority-9,
+  .menu.mainMenu .right.menuIcons a.hideOnBigScreen,
   .menu.mainMenu .right.menuIcons a[href="/app/MySystems"],
   .menu.mainMenu .right.menuIcons a[href="/app/tourny"],
   .menu.mainMenu .right.menuIcons a[href="/app/MyModels"],
-  .menu.mainMenu .right.menuIcons a.priority-6,
+  .menu.mainMenu .right.menuIcons a[href="/app/Profile"],
+  .menu.mainMenu .right.menuIcons a[href="/app/game"],
+  .menu.mainMenu .right.menuIcons a[href="/app/supporters"],
+  .menu.mainMenu .right.menuIcons a[href="/app/Lists"],
   .menu.mainMenu .right.menuIcons a:has(.nr-miniature),
   .menu.mainMenu .right.menuIcons a:has(.tourny),
   .menu.mainMenu .right.menuIcons a:has(.nr-games) {
     display: none !important;
   }
 
-  /* 3. Login / Account Page (/app/Login): Keep ONLY the Login Form / Welcome + Logout button */
+  /* 3. Hide "Import file", "Text Import", "Sync Lists", and "Delete X Lists" buttons in MyLists */
+  [data-v-2b034e2c],
+  .importButtons,
+  .importRow,
+  .boutons.mobilePadding > [data-v-2b034e2c],
+  [data-v-b9210782] .boutons.mobilePadding > button.bouton:not(.createToolbarBtn),
+  .folder[data-v-7711fa10] > .boutons,
+  [data-v-7711fa10] > .boutons > button.bouton,
+  .omnitactica-hidden-nr-btn {
+    display: none !important;
+  }
+
+  /* 4. Direct-List Loading Screen (prevents flashing /app/MyLists when opening a specific list) */
+  html.omnitactica-nr-direct-list-loading,
+  html.omnitactica-nr-direct-list-loading body {
+    background: #090d16 !important;
+    overflow: hidden !important;
+  }
+  html.omnitactica-nr-direct-list-loading #__nuxt {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  #omnitactica-nr-direct-loader {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    background: radial-gradient(circle at center, #0f172a 0%, #070b14 100%);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    color: #f8fafc;
+    text-align: center;
+    padding: 24px;
+  }
+  html.omnitactica-nr-direct-list-loading #omnitactica-nr-direct-loader {
+    display: flex !important;
+  }
+  @keyframes omniNrSpin {
+    to { transform: rotate(360deg); }
+  }
+  .omnitactica-nr-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3.5px solid rgba(56, 189, 248, 0.2);
+    border-top-color: #38bdf8;
+    border-radius: 50%;
+    animation: omniNrSpin 0.75s linear infinite;
+  }
+
+  /* 5. Login / Account Page (/app/Login): Keep ONLY the Login Form / Welcome + Logout button */
   .connectForm .nrversion,
   .connectForm .section.boutons,
   .connectForm a[href="/app/Options"],
@@ -351,6 +478,47 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     if (mQueryList && mQueryList[1]) {
       requestedListKeyFromUrl = decodeURIComponent(mQueryList[1]);
     }
+  }
+
+  var directListLoaderTimer = null;
+  function showDirectListLoader(label) {
+    try {
+      document.documentElement.classList.add('omnitactica-nr-direct-list-loading');
+      var ensureDom = function() {
+        if (!document.body) return;
+        var el = document.getElementById('omnitactica-nr-direct-loader');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'omnitactica-nr-direct-loader';
+          el.innerHTML = '<div class="omnitactica-nr-spinner"></div>' +
+            '<div id="omnitactica-nr-direct-loader-title" style="font-size:15px;font-weight:800;color:#f8fafc;letter-spacing:0.01em;">Loading Army Roster...</div>' +
+            '<div style="font-size:12px;color:#94a3b8;">Opening datasheet &amp; detachment view...</div>';
+          document.body.appendChild(el);
+        }
+        if (label) {
+          var tEl = document.getElementById('omnitactica-nr-direct-loader-title');
+          if (tEl) tEl.textContent = label;
+        }
+      };
+      if (document.body) ensureDom();
+      else document.addEventListener('DOMContentLoaded', ensureDom, { once: true });
+      if (directListLoaderTimer) clearTimeout(directListLoaderTimer);
+      directListLoaderTimer = setTimeout(hideDirectListLoader, 5500);
+    } catch (e) {}
+  }
+
+  function hideDirectListLoader() {
+    try {
+      if (directListLoaderTimer) {
+        clearTimeout(directListLoaderTimer);
+        directListLoaderTimer = null;
+      }
+      document.documentElement.classList.remove('omnitactica-nr-direct-list-loading');
+    } catch (e) {}
+  }
+
+  if (requestedListKeyFromUrl) {
+    showDirectListLoader(wantPlayModeFromUrl ? 'Loading Play Mode Datasheets...' : 'Opening Army Roster...');
   }
 
   // 1. Rewrite /nr/app/... path to /app/... BEFORE Nuxt vue-router initializes.
@@ -780,11 +948,65 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
 
-  // Read all lists from BOTH Pinia stores.list.listData (authoritative live UI state) AND IndexedDB nr.lists
+  // Check whether a list row is active & visible in NewRecruit's MyLists view (not deleted book, not hidden folder)
+  function isActiveNrListRow(r, stores) {
+    if (!r || !(r.list_key || r._id) || r._ephemeral_view || r.deleted || r.trashed) {
+      return false;
+    }
+    if (!stores) return true;
+    try {
+      // 1. Check hidden folder in optionsStore
+      if (stores.options && typeof stores.options.getSystemOption === 'function' && r.id_system) {
+        var folderName = (r.metadata && r.metadata.folder) ? String(r.metadata.folder) : 'Default';
+        var sysFolders = stores.options.getSystemOption(r.id_system, 'folders', []);
+        if (Array.isArray(sysFolders)) {
+          var isHiddenFolder = sysFolders.some(function(f) {
+            return f && f.name === folderName && Boolean(f.hidden);
+          });
+          if (isHiddenFolder) return false;
+        }
+      }
+      // 2. Check valid system & book in library when books are loaded (exclude "(Deleted book)")
+      if (stores.system && (r.id_system || r.bsid_system)) {
+        var sysObj = null;
+        if (typeof stores.system.findSystem === 'function') {
+          sysObj = stores.system.findSystem({ id: r.id_system, bsid: r.bsid_system });
+        } else if (stores.system.library && Array.isArray(stores.system.library.array)) {
+          sysObj = stores.system.library.array.find(function(s) {
+            return s && (
+              s.id === r.id_system ||
+              (s.bsid != null && (s.id === r.bsid_system || s.bsid === r.id_system || s.bsid === r.bsid_system))
+            );
+          });
+        }
+        if (sysObj) {
+          var booksArr = sysObj.books && Array.isArray(sysObj.books.array) ? sysObj.books.array : null;
+          if (booksArr && booksArr.length > 0 && (r.id_book || r.bsid_book)) {
+            var bkObj = null;
+            if (typeof stores.system.findBook === 'function') {
+              bkObj = stores.system.findBook(sysObj, { id: r.id_book, bsid: r.bsid_book });
+            } else {
+              bkObj = booksArr.find(function(b) {
+                return b && (
+                  b.id === r.id_book ||
+                  (b.bsid != null && (b.id === r.bsid_book || b.bsid === r.id_book || b.bsid === r.bsid_book))
+                );
+              });
+            }
+            if (!bkObj) return false;
+          }
+        }
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  // Read active lists from Pinia stores.list.listData (authoritative live UI state) without resurrecting deleted IndexedDB rows
   async function readAllNrLists() {
     var mergedMap = {};
     var mergedList = [];
     var stores = getNrStores();
+    var piniaInitiated = Boolean(stores && stores.list && stores.list.listsInitiated);
     if (stores && stores.list) {
       if (Array.isArray(stores.list.listData)) {
         for (var i = 0; i < stores.list.listData.length; i++) {
@@ -792,6 +1014,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           if (r && (r.list_key || r._id)) {
             var k = String(r.list_key || r._id);
             r.list_key = k;
+            if (!isActiveNrListRow(r, stores)) continue;
             mergedMap[k] = r;
             mergedList.push(r);
           }
@@ -800,7 +1023,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       if (stores.list.currentList && stores.list.currentList.row) {
         var cr = stores.list.currentList.row;
         var ck = String(cr.list_key || cr._id || '');
-        if (ck) {
+        if (ck && isActiveNrListRow(cr, stores)) {
           cr.list_key = ck;
           if (stores.list.currentList.army && typeof stores.list.currentList.army.toJson === 'function') {
             try {
@@ -836,26 +1059,27 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         if (ir && (ir.list_key || ir._id)) {
           var ik = String(ir.list_key || ir._id);
           ir.list_key = ik;
-          if (!mergedMap[ik]) {
+          if (piniaInitiated) {
+            if (mergedMap[ik] && !mergedMap[ik].army && ir.army) {
+              mergedMap[ik].army = ir.army;
+            }
+          } else if (!mergedMap[ik] && isActiveNrListRow(ir, stores)) {
             mergedMap[ik] = ir;
             mergedList.push(ir);
-          } else if (!mergedMap[ik].army && ir.army) {
-            mergedMap[ik].army = ir.army;
           }
         }
       }
     }
 
-    if (mergedList.length > 0 || (stores && stores.list && stores.list.listsInitiated)) {
+    if (mergedList.length > 0 || piniaInitiated) {
       return mergedList;
     }
     return null;
   }
 
-  // 3. Hydrate NewRecruit from OmniTactica backend on startup AND sync any unsynced local lists UP to OmniTactica
+  // 3. Hydrate NewRecruit from OmniTactica backend on startup AND reconcile active NewRecruit lists back to OmniTactica
   async function hydrateFromOmniTactica() {
     if (initialHydrationDone) return;
-    var unsyncedLocalToUpload = [];
     try {
       var stores = null;
       for (var attempt = 0; attempt < 80; attempt++) {
@@ -867,6 +1091,16 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         initialHydrationDone = true;
         return;
       }
+
+      // If NewRecruit is syncing with its cloud server, wait briefly for whenSynced() so deleted cloud lists are already removed from listData
+      try {
+        if (typeof stores.list.whenSynced === 'function') {
+          await Promise.race([
+            stores.list.whenSynced(),
+            new Promise(function(r) { setTimeout(r, 2200); })
+          ]);
+        }
+      } catch (e) {}
 
       var res = await fetch('/api/armylists/nr_state', {
         headers: getAuthHeaders(),
@@ -886,6 +1120,11 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
       }
 
+      var isNrLoggedIn = Boolean(
+        (stores.user && stores.user.user && stores.user.user.login) ||
+        localStorage.getItem('access')
+      );
+
       var serverRows = (state && Array.isArray(state.nr_rows)) ? state.nr_rows.slice() : [];
       if (pendingNrRowFromParent && pendingNrRowFromParent.list_key) {
         var alreadyInServer = serverRows.some(function(r) { return r && r.list_key === pendingNrRowFromParent.list_key; });
@@ -894,33 +1133,29 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
       }
 
-      var serverKeyMap = {};
-      serverRows.forEach(function(sr) {
-        if (sr && sr.list_key) {
-          serverKeyMap[sr.list_key] = sr;
-        }
-      });
-
-      // Check existing local lists in Pinia listData first — NEVER delete local lists; if not on server, queue them for upload!
       var currentListData = Array.isArray(stores.list.listData) ? stores.list.listData : [];
       var piniaKeyMap = {};
       for (var pIdx = 0; pIdx < currentListData.length; pIdx++) {
         var pRow = currentListData[pIdx];
         if (!pRow || !pRow.list_key) continue;
         piniaKeyMap[pRow.list_key] = pRow;
-        if (!serverKeyMap[pRow.list_key] && !pRow._ephemeral_view) {
-          unsyncedLocalToUpload.push(pRow);
-        }
       }
 
-      // Merge serverRows into Pinia stores.list.listData
+      // Only seed serverRows into Pinia if:
+      // - It is the explicitly requested list key from URL (e.g. viewing an opponent/ephemeral list), OR
+      // - The user is NOT logged into NewRecruit AND Pinia has no lists at all yet (fresh anonymous browser).
+      // Never push old synced lists back into a logged-in NewRecruit session where they were deleted!
+      var allowSeedFromOmniServer = (!isNrLoggedIn && currentListData.length === 0);
       serverRows.forEach(function(sRow) {
         if (!sRow || !sRow.list_key) return;
+        var isTargetUrlRow = Boolean(requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key);
+        if (!isTargetUrlRow && !allowSeedFromOmniServer) return;
+
         sRow.metadata = Object.assign(
           { builder_settings: {}, custom_categories: [], custom_view: false },
           sRow.metadata || {}
         );
-        if (requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key) {
+        if (isTargetUrlRow) {
           sRow.metadata.play_mode = Boolean(wantPlayModeFromUrl);
         }
         var existingPinia = piniaKeyMap[sRow.list_key];
@@ -928,15 +1163,8 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           stores.list.listData.push(sRow);
           piniaKeyMap[sRow.list_key] = sRow;
           knownListsMap[sRow.list_key] = computeSignature(sRow);
-        } else {
-          var itemArmyId = existingPinia.army ? String(existingPinia.army.id || '') : '';
-          var localIsLegacySynthetic = (
-            existingPinia.id_system === 1 ||
-            (!existingPinia._compiled_by_nr && sRow._synthetic_text && (!existingPinia.army || itemArmyId.indexOf('army-') === 0 || itemArmyId.indexOf('root-') === 0))
-          );
-          if (localIsLegacySynthetic || (requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key)) {
-            Object.assign(existingPinia, sRow);
-          }
+        } else if (isTargetUrlRow) {
+          existingPinia.metadata = Object.assign({}, existingPinia.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
           knownListsMap[sRow.list_key] = computeSignature(existingPinia);
         }
       });
@@ -947,7 +1175,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
       } catch (e) {}
 
-      // Also persist serverRows into IndexedDB nr.lists if available
+      // Clean up stale/deleted rows in IndexedDB nr.lists that are no longer in stores.list.listData
       var db = await openExistingNrDb();
       if (db) {
         isHydrating = true;
@@ -955,58 +1183,19 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           try {
             var tx = db.transaction('lists', 'readwrite');
             var store = tx.objectStore('lists');
-            var existingByKey = {};
+            var seenKeys = {};
             var curReq = store.openCursor();
             curReq.onsuccess = function(ev) {
               var cursor = ev.target.result;
               if (cursor) {
                 var item = cursor.value;
-                if (item && item.list_key) {
-                  if (existingByKey[item.list_key]) {
-                    try { cursor.delete(); } catch (e) {}
-                    cursor.continue();
-                    return;
-                  }
-                  existingByKey[item.list_key] = item;
-                  if (!serverKeyMap[item.list_key] && !item._ephemeral_view) {
-                    if (!unsyncedLocalToUpload.some(function(u) { return u.list_key === item.list_key; })) {
-                      unsyncedLocalToUpload.push(item);
-                    }
-                    if (!piniaKeyMap[item.list_key]) {
-                      stores.list.listData.push(item);
-                      piniaKeyMap[item.list_key] = item;
-                    }
-                  } else if (serverKeyMap[item.list_key]) {
-                    var sRow = serverKeyMap[item.list_key];
-                    var itemArmyId = item.army ? String(item.army.id || '') : '';
-                    var localIsLegacySynthetic = (
-                      item.id_system === 1 ||
-                      (!item._compiled_by_nr && sRow._synthetic_text && (!item.army || itemArmyId.indexOf('army-') === 0 || itemArmyId.indexOf('root-') === 0))
-                    );
-                    var isRequestedTarget = (requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key);
-                    if (localIsLegacySynthetic || isRequestedTarget) {
-                      var toUpdate = Object.assign({}, item, sRow);
-                      if (item._compiled_by_nr && item.army && itemArmyId.indexOf('army-') !== 0 && itemArmyId.indexOf('root-') !== 0) {
-                        toUpdate.army = item.army;
-                        toUpdate._compiled_by_nr = true;
-                        delete toUpdate._synthetic_text;
-                      }
-                      if (store.keyPath && item[store.keyPath] !== undefined) {
-                        toUpdate[store.keyPath] = item[store.keyPath];
-                      }
-                      try { cursor.update(toUpdate); } catch (e) {}
-                      existingByKey[item.list_key] = toUpdate;
-                    }
-                  }
+                var ik = item && (item.list_key || item._id) ? String(item.list_key || item._id) : '';
+                if (!ik || seenKeys[ik] || !piniaKeyMap[ik]) {
+                  try { cursor.delete(); } catch (e) {}
+                } else {
+                  seenKeys[ik] = true;
                 }
                 cursor.continue();
-              } else {
-                serverRows.forEach(function(sRow) {
-                  if (!sRow || !sRow.list_key || existingByKey[sRow.list_key]) return;
-                  var toInsert = Object.assign({}, sRow);
-                  delete toInsert._id;
-                  try { store.put(toInsert); } catch (e) {}
-                });
               }
             };
             tx.oncomplete = function() { resolve(); };
@@ -1015,11 +1204,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             resolve();
           }
         });
-        try {
-          if (typeof stores.list.rebuildTreeData === 'function') {
-            stores.list.rebuildTreeData();
-          }
-        } catch (e) {}
       }
     } catch (e) {
       console.warn('[OmniTactica Bridge] Hydration notice:', e);
@@ -1027,13 +1211,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       isHydrating = false;
       initialHydrationDone = true;
       await ensurePlayModeAndStoreHooks();
-      if (!readyNotified) {
+      if (!readyNotified && !requestedListKeyFromUrl) {
         readyNotified = true;
         notifyParent({ action: 'ready' });
       }
-      for (var uIdx = 0; uIdx < unsyncedLocalToUpload.length; uIdx++) {
-        await syncUpsertRow(unsyncedLocalToUpload[uIdx]);
-      }
+      // Immediately reconcile active NewRecruit lists to OmniTactica (purging any old/deleted lists)
+      await forceFullSync();
     }
   }
 
@@ -1140,10 +1323,33 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     return await compilePromise;
   }
 
+  function cleanUpMyListsButtons() {
+    try {
+      var btns = document.querySelectorAll('.main-view button, .main-view .bouton');
+      for (var i = 0; i < btns.length; i++) {
+        var b = btns[i];
+        if (!b || b.classList.contains('createToolbarBtn')) continue;
+        var txt = String(b.textContent || '').trim();
+        if (
+          txt === 'Import file' ||
+          txt === 'Text Import' ||
+          txt === 'Sync Lists' ||
+          /^Delete\s+\d+\s+Lists?$/i.test(txt)
+        ) {
+          b.classList.add('omnitactica-hidden-nr-btn');
+          if (b.parentElement && b.parentElement.classList.contains('importButtons')) {
+            b.parentElement.classList.add('omnitactica-hidden-nr-btn');
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
   var activatingPlayMode = false;
 
   // 4. Hook NewRecruit Pinia stores to unlock Play Mode, hook list mutations, and auto-open requested list
   async function ensurePlayModeAndStoreHooks() {
+    cleanUpMyListsButtons();
     var stores = getNrStores();
     if (!stores || !stores.user || !stores.list || !stores.system) return;
 
@@ -1151,7 +1357,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       stores.user.isSupporter = function() { return true; };
     } catch (e) {}
 
-    // Auto-select Warhammer 40,000 11th Edition on first load if no system was explicitly chosen yet
+    // Auto-select the game system of the user's lists (or Warhammer 40,000) on first load if no system was explicitly chosen yet
     if (!stores.system.__omniDefaultSysChecked && stores.list.listsInitiated) {
       var sysArr = (stores.system.library && Array.isArray(stores.system.library.array) && stores.system.library.array.length)
         ? stores.system.library.array
@@ -1159,17 +1365,18 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       if (sysArr.length > 0) {
         stores.system.__omniDefaultSysChecked = true;
         try {
+          var firstRowSysId = (Array.isArray(stores.list.listData) && stores.list.listData.length > 0 && stores.list.listData[0] && stores.list.listData[0].id_system)
+            ? stores.list.listData[0].id_system
+            : null;
           var alreadyInit = localStorage.getItem('omnitactica_nr_default_sys_init');
-          if (!alreadyInit) {
-            var w40k = sysArr.find(function(s) {
-              return s && (String(s.id).indexOf('827374861') === 0 || String(s.name || '').indexOf('Warhammer 40,000 11th') !== -1);
-            }) || sysArr.find(function(s) {
-              return s && (s.id == 2821148162 || String(s.name || '').indexOf('Warhammer 40,000') !== -1);
-            });
-            if (w40k) {
+          if (!alreadyInit || (firstRowSysId && (!stores.system.selectedSystem || stores.system.selectedSystem.id !== firstRowSysId))) {
+            var targetSys = (firstRowSysId && sysArr.find(function(s) { return s && s.id == firstRowSysId; })) ||
+              sysArr.find(function(s) { return s && s.id == 2821148162; }) ||
+              sysArr.find(function(s) { return s && String(s.name || '').indexOf('Warhammer 40,000') !== -1; });
+            if (targetSys) {
               localStorage.setItem('omnitactica_nr_default_sys_init', '1');
-              if (!stores.system.selectedSystem || stores.system.selectedSystem.id !== w40k.id) {
-                stores.system.selectSystem(w40k.id);
+              if (!stores.system.selectedSystem || stores.system.selectedSystem.id !== targetSys.id) {
+                await stores.system.selectSystem(targetSys.id);
               }
             }
           }
@@ -1197,7 +1404,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       }
     } catch (e) {}
 
-    if (!readyNotified && stores.list.listsInitiated) {
+    if (!readyNotified && stores.list.listsInitiated && !requestedListKeyFromUrl) {
       readyNotified = true;
       notifyParent({ action: 'ready' });
     }
@@ -1302,7 +1509,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     var wantPlay = Boolean(wantPlayModeFromUrl || curSearch.indexOf('view=play') !== -1 || curSearch.indexOf('play=1') !== -1);
     var modeToken = targetKey ? (targetKey + ':' + (wantPlay ? 'play' : 'edit')) : null;
 
-    if (!targetKey) return;
+    if (!targetKey) {
+      hideDirectListLoader();
+      return;
+    }
     var curList = stores.list.currentList;
     var isOnListRoute = curPath.indexOf('/Lists/' + targetKey) !== -1;
     if (playModeActivatedForKey === modeToken && curList && curList.row && curList.row.list_key === targetKey) {
@@ -1320,6 +1530,11 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           } catch (e) {}
         }
       }
+      setTimeout(function() {
+        hideDirectListLoader();
+        readyNotified = true;
+        notifyParent({ action: 'ready' });
+      }, 80);
       return;
     }
 
@@ -1338,7 +1553,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           : null;
       }
 
-      if (!targetRow) return;
+      if (!targetRow) {
+        hideDirectListLoader();
+        readyNotified = true;
+        notifyParent({ action: 'ready' });
+        return;
+      }
 
       if (stores.options && typeof stores.options.addInstalledSystemVue === 'function' && targetRow.id_system) {
         stores.options.addInstalledSystemVue(targetRow.id_system);
@@ -1386,8 +1606,14 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
       }
       playModeActivatedForKey = modeToken;
+      setTimeout(function() {
+        hideDirectListLoader();
+        readyNotified = true;
+        notifyParent({ action: 'ready' });
+      }, 90);
     } catch (err) {
       console.warn('[OmniTactica Bridge] Play Mode activation notice:', err);
+      hideDirectListLoader();
     } finally {
       activatingPlayMode = false;
     }
@@ -1428,10 +1654,19 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     var rows = await readAllNrLists();
     if (!rows) return null;
     var cleaned = rows.filter(function(r) { return r && !r._ephemeral_view; }).map(function(r) { return cloneCleanRow(r); }).filter(Boolean);
+    knownListsMap = {};
     cleaned.forEach(function(r) {
       knownListsMap[r.list_key] = computeSignature(r);
     });
-    return await postSyncAction('bulk_sync', { lists: cleaned });
+    var st = getNrStores();
+    var isLoggedIn = Boolean((st && st.user && st.user.user && st.user.user.login) || localStorage.getItem('access'));
+    if (cleaned.length === 0 && !isLoggedIn) {
+      return null;
+    }
+    return await postSyncAction('bulk_sync', {
+      lists: cleaned,
+      reconcile_deletions: true
+    });
   }
 
   window.__omnitacticaNrBridge = {
@@ -1480,6 +1715,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       requestedListKeyFromUrl = String(msg.list_key);
       wantPlayModeFromUrl = msg.play !== false;
       playModeActivatedForKey = null;
+      showDirectListLoader(wantPlayModeFromUrl ? 'Loading Play Mode Datasheets...' : 'Opening Army Roster...');
       if (msg.nr_row && msg.nr_row.list_key) {
         pendingNrRowFromParent = Object.assign({}, msg.nr_row);
         var existingRows = await readAllNrLists();
@@ -1497,13 +1733,27 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       await ensurePlayModeAndStoreHooks();
     } else if (msg.command === 'navigate' && msg.path) {
       try {
+        var cleanTarget = String(msg.path).replace(/^\/nr\/app/, '/app');
+        var mNavList = cleanTarget.match(/\/Lists\/([^\/\?\#]+)/i);
+        if (mNavList && mNavList[1]) {
+          requestedListKeyFromUrl = decodeURIComponent(mNavList[1]);
+          wantPlayModeFromUrl = cleanTarget.indexOf('view=play') !== -1;
+          playModeActivatedForKey = null;
+          showDirectListLoader(wantPlayModeFromUrl ? 'Loading Play Mode Datasheets...' : 'Opening Army Roster...');
+          await ensurePlayModeAndStoreHooks();
+          return;
+        }
+        if (/^\/app\/Lists\/?$/i.test(cleanTarget)) {
+          cleanTarget = '/app/MyLists';
+        }
+        requestedListKeyFromUrl = null;
+        hideDirectListLoader();
         var storesNav = getNrStores();
         var rtrNav = storesNav && storesNav.list && (storesNav.list.$router || (window.$nuxt && window.$nuxt.$router));
-        var cleanTarget = String(msg.path).replace(/^\/nr\/app/, '/app');
         if (rtrNav) {
           await rtrNav.push(cleanTarget);
         } else {
-          window.location.href = msg.path;
+          window.location.href = '/nr' + cleanTarget;
         }
       } catch (e) {}
     }
@@ -1700,7 +1950,7 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
     elif raw_id.startswith("list_"):
         list_key = raw_id[5:]
     elif raw_id:
-        list_key = re.sub(r"[^a-zA-Z0-9_\-]", "", raw_id)[:12]
+        list_key = re.sub(r"[^a-zA-Z0-9_\-]", "", raw_id)[:64]
     else:
         list_key = uuid.uuid4().hex[:6]
 
@@ -1858,14 +2108,14 @@ def process_nr_sync_payload(
             parsed["source_format"] = "NewRecruit Studio"
             save_fn(parsed)
 
-        if body.get("reconcile_deletions"):
+        if body.get("reconcile_deletions", True):
             existing = list_fn()
             for item in existing:
                 if not isinstance(item, dict):
                     continue
                 item_id = str(item.get("id") or "")
-                item_lkey = str(item.get("list_key") or (item_id[3:] if item_id.startswith("nr_") else ""))
-                if item_lkey and item_lkey not in incoming_keys and item.get("source_format") in ("NewRecruit Studio", "NewRecruit Sync"):
+                item_lkey = str(item.get("list_key") or (item_id[3:] if item_id.startswith("nr_") else item_id))
+                if item_lkey not in incoming_keys and item_id not in incoming_keys:
                     delete_fn(item_id)
 
         return {

@@ -3654,7 +3654,7 @@
         <span class="gt-dock-icon">📄</span>
         <span class="gt-dock-label">Card</span>
       </button>
-      <button type="button" class="gt-dock-btn" style="background:${hasOppList || hasMyList ? 'rgba(16,185,129,0.15)' : 'rgba(30,41,59,0.5)'}; border-color:${hasOppList || hasMyList ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}; color:${hasOppList || hasMyList ? '#34d399' : '#94a3b8'};" onclick="window.gtOpenArmyListModal(hasOppList ? 'opponent' : 'my')" title="View Army Lists">
+      <button type="button" class="gt-dock-btn" style="background:${hasOppList || hasMyList ? 'rgba(16,185,129,0.15)' : 'rgba(30,41,59,0.5)'}; border-color:${hasOppList || hasMyList ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}; color:${hasOppList || hasMyList ? '#34d399' : '#94a3b8'};" onclick="window.gtOpenArmyListModal('${hasMyList ? 'my' : (hasOppList ? 'opponent' : 'attach')}')" title="View Army Lists">
         <span class="gt-dock-icon">📋</span>
         <span class="gt-dock-label">Lists ${hasOppList || hasMyList ? '•' : ''}</span>
       </button>
@@ -3701,7 +3701,13 @@
     } catch(e) {}
   }
 
-  window.gtOpenArmyListModal = function(tab = 'opponent') {
+  window.gtOpenArmyListModal = function(tab) {
+    const isP1 = clientState.role !== 'player2';
+    const hasMyList = isP1 ? !!clientState.p1ArmyList : !!clientState.p2ArmyList;
+    const hasOppList = isP1 ? !!clientState.p2ArmyList : !!clientState.p1ArmyList;
+    if (!tab) {
+      tab = hasMyList ? 'my' : (hasOppList ? 'opponent' : 'attach');
+    }
     clientState.activeListTab = tab;
     let modal = document.getElementById('gt-army-list-modal');
     if (!modal) {
@@ -3709,7 +3715,7 @@
       modal.id = 'gt-army-list-modal';
       document.body.appendChild(modal);
     }
-    modal.style.display = 'flex';
+    modal.style.cssText = 'position:fixed; inset:0; z-index:100005; background:rgba(2,6,23,0.88); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; padding:8px;';
     renderArmyListModal();
   };
 

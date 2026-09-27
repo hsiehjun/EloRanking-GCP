@@ -4175,8 +4175,10 @@ input, select, textarea {
 }
 
 .hub-armylists-list-container {
-  max-height: 380px;
+  flex: 1;
+  max-height: 540px;
   overflow-y: auto;
+  padding-right: 2px;
 }
 
 .hub-armylists-list-container::-webkit-scrollbar {
