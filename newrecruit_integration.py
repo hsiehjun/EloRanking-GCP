@@ -207,6 +207,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     overflow: hidden !important;
   }
   .menu.mainMenu .left a[href="/app/MyLists"],
+  .menu.mainMenu .left a.hideOnSmallScreen,
   .menu.mainMenu .left button.navBarItem {
     display: inline-flex !important;
     flex-direction: column !important;
@@ -215,7 +216,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     flex-shrink: 0 !important;
   }
   .menu.mainMenu .left select {
-    max-width: min(230px, 52vw) !important;
+    max-width: min(230px, 50vw) !important;
     text-overflow: ellipsis !important;
   }
   .menu.mainMenu .right.menuIcons {
@@ -237,6 +238,11 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   html body {
     padding-top: 52px !important;
     padding-bottom: 0 !important;
+  }
+  #mainContent,
+  .mainContent {
+    top: 52px !important;
+    bottom: 0 !important;
   }
   .main-view {
     padding-top: 0 !important;

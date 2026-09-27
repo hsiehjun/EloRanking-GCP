@@ -3398,13 +3398,13 @@ function renderHubArmyLists(lists) {
           <div class="hub-rec-card" data-list-id="${escapeHtml(l.id)}" data-list-key="${escapeHtml(listKey)}" style="flex-direction: column; align-items: stretch; gap: 0.65rem; padding: 0.85rem 1rem; background: rgba(19, 29, 51, 0.75); border: 1px solid rgba(56, 189, 248, 0.16); border-radius: 10px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
               <div style="min-width: 0; flex: 1;">
-                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-                  <div style="font-size: 0.98rem; font-weight: 800; color: #fff; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(l.name || 'NewRecruit Roster')}</div>
-                  <span style="font-size: 0.65rem; font-weight: 800; padding: 0.1rem 0.42rem; border-radius: 999px; background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.28);">
+                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: nowrap; min-width: 0;">
+                  <div style="font-size: 0.98rem; font-weight: 800; color: #fff; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;">${escapeHtml(l.name || 'NewRecruit Roster')}</div>
+                  <span style="font-size: 0.65rem; font-weight: 800; padding: 0.1rem 0.42rem; border-radius: 999px; background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.28); flex-shrink: 0; white-space: nowrap;">
                     ${srcBadge}
                   </span>
                 </div>
-                <div style="font-size: 0.78rem; color: #38bdf8; font-weight: 700; margin-top: 0.18rem;">
+                <div style="font-size: 0.78rem; color: #38bdf8; font-weight: 700; margin-top: 0.18rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                   ${escapeHtml(l.faction || 'Warhammer 40k')} • <span style="color: #c084fc;">${escapeHtml(l.detachment || 'Core Detachment')}</span>
                   ${unitCount > 0 ? ` • <span style="color: #94a3b8; font-weight: 600;">${unitCount} ${unitCount === 1 ? 'Unit' : 'Units'}</span>` : ''}
                 </div>
