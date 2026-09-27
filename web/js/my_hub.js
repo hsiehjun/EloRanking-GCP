@@ -1874,9 +1874,6 @@ function renderMyHub(data) {
                 </span>
               </div>
               <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-                <button id="hub-btn-nr-cloud-sync" class="subtab-btn" onclick="openNewRecruitCloudModal()" style="font-size: 0.74rem; padding: 0.3rem 0.65rem; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.32); font-weight: 800; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-                  🔗 Cloud Sync
-                </button>
                 <button id="hub-btn-launch-nr-studio" class="bcp-login-btn" onclick="openNewRecruitStudioDrawer('/nr/app/Lists')" style="font-size: 0.75rem; padding: 0.32rem 0.8rem; background: var(--accent); color: #0f172a; font-weight: 800; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
                   ⚔️ NewRecruit Studio
                 </button>
@@ -3369,14 +3366,11 @@ function renderHubArmyLists(lists) {
         <div style="font-size: 1.75rem; margin-bottom: 0.35rem;">⚔️</div>
         <div style="font-size: 1rem; font-weight: 800; color: #fff; margin-bottom: 0.3rem;">No Army Lists Created Yet</div>
         <div style="font-size: 0.78rem; max-width: 460px; margin: 0 auto 0.95rem; color: #94a3b8; line-height: 1.5;">
-          Create, modify, and manage your rosters directly inside the embedded <b>NewRecruit Studio</b> or sync your <b>NewRecruit Cloud</b> account — your lists automatically appear here ready for Game Tracker!
+          Create, view, and manage your rosters — or sign in to your NewRecruit account — directly inside <b>NewRecruit Studio</b>. Your lists persist on this device and sync to My Hub automatically!
         </div>
         <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; flex-wrap: wrap;">
           <button id="hub-empty-launch-nr-studio" class="bcp-login-btn" onclick="openNewRecruitStudioDrawer('/nr/app/Lists')" style="font-size: 0.82rem; padding: 0.45rem 1rem; background: var(--accent); color: #0f172a; font-weight: 800; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
             ⚔️ Launch NewRecruit Studio
-          </button>
-          <button id="hub-empty-connect-nr-cloud" class="subtab-btn" onclick="openNewRecruitCloudModal()" style="font-size: 0.8rem; padding: 0.45rem 0.9rem; background: rgba(56, 189, 248, 0.14); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-weight: 800; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
-            🔗 Sync NewRecruit Cloud
           </button>
         </div>
       </div>
@@ -3484,7 +3478,7 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
   const safePath = initialPath || '/nr/app/Lists';
   const subtitle = listTitle
     ? `Editing "${listTitle}" • All changes & deletions sync to My Hub automatically`
-    : 'Create, modify, or delete rosters in NewRecruit • Changes sync to My Hub automatically';
+    : 'Build, view, or sign in inside NewRecruit • Changes persist on this device & sync to My Hub automatically';
 
   // If the Studio iframe is already mounted & warm, reuse it without reloading from scratch!
   const existingIframe = document.getElementById('hub-nr-studio-iframe');
@@ -3523,11 +3517,8 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
           </div>
         </div>
 
-        <!-- Cloud Sync & Done Controls -->
+        <!-- Done & Sync Control -->
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          <button onclick="openNewRecruitCloudModal()" style="background:rgba(245,158,11,0.14); color:#fbbf24; border:1px solid rgba(245,158,11,0.32); font-weight:800; font-size:11.5px; padding:6px 12px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
-            🔗 Cloud Sync
-          </button>
           <button id="hub-btn-close-nr-studio" onclick="closeNewRecruitStudioDrawer()" style="background:#10b981; color:#0f172a; border:none; font-weight:900; font-size:12px; padding:6px 14px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
             ✅ Done & Sync to Hub
           </button>
@@ -3637,6 +3628,15 @@ if (!window.__omnitacticaNrParentListenerBound) {
     if (msg.action === 'ready') {
       return;
     }
+    if (msg.action === 'auth_status') {
+      hubNrCloudAccount = {
+        connected: Boolean(msg.logged_in),
+        login: msg.login || '',
+        last_sync: new Date().toISOString()
+      };
+      updateHubNrSyncPill();
+      return;
+    }
 
     const statusBadge = document.getElementById('hub-nr-studio-live-status');
     if (statusBadge) {
@@ -3659,6 +3659,7 @@ if (!window.__omnitacticaNrParentListenerBound) {
 
     if (Array.isArray(msg.army_lists)) {
       hubSavedLists = msg.army_lists;
+      window.hubSavedLists = hubSavedLists;
       renderHubArmyLists(hubSavedLists);
     } else {
       await loadHubArmyLists();

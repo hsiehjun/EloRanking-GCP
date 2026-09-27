@@ -5218,6 +5218,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             or clean_path.startswith("nr/app/")
             or clean_path == "app/Lists"
             or clean_path.startswith("app/Lists/")
+            or clean_path == "app/MyLists"
+            or clean_path.startswith("app/MyLists/")
+            or clean_path == "app/Login"
             or clean_path == "app/MySystems"
             or clean_path.startswith("app/MySystems/")
             or clean_path == "app/MyBooks"

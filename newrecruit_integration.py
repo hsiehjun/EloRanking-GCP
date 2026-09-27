@@ -158,6 +158,7 @@ def build_roster_text_for_nr_compiler(roster: Dict[str, Any], book_name: str) ->
 
 OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 <style id="omnitactica-nr-clean-ui">
+  /* 1. Hide all ad banners, supporter prompts, and subscription/payment clutter */
   .support-banner,
   .ad-banner,
   .adbanner,
@@ -167,6 +168,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   [id^="div-gpt-ad"],
   [id^="tyche"],
   .pw-tag,
+  [data-v-2c249119],
   iframe[src*="googlesyndication"],
   iframe[src*="doubleclick"],
   iframe[src*="intergient"],
@@ -176,6 +178,60 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     max-height: 0 !important;
     overflow: hidden !important;
     pointer-events: none !important;
+  }
+
+  /* 2. Top Navigation Bar: Keep ONLY Game System selector, Lists, New, Build, and Login/Account */
+  .menu.mainMenu .right.menuIcons a[href="/app/MySystems"],
+  .menu.mainMenu .right.menuIcons a[href="/app/tourny"],
+  .menu.mainMenu .right.menuIcons a[href="/app/MyModels"],
+  .menu.mainMenu .right.menuIcons a.priority-6,
+  .menu.mainMenu .right.menuIcons a:has(.nr-miniature),
+  .menu.mainMenu .right.menuIcons a:has(.tourny),
+  .menu.mainMenu .right.menuIcons a:has(.nr-games) {
+    display: none !important;
+  }
+
+  /* 3. Login / Account Page (/app/Login): Keep ONLY the Login Form / Welcome + Logout button */
+  .connectForm .nrversion,
+  .connectForm .section.boutons,
+  .connectForm a[href="/app/Options"],
+  .connectForm a[href="/app/MySystems"],
+  .connectForm a[href="/app/MyModels"],
+  .connectForm a[href="/app/combat"],
+  .connectForm a[href="/app/wh40kSimulator"],
+  .connectForm a[href="/app/wh40kDeployment"],
+  .connectForm a[href="/app/tourny"],
+  .connectForm a[href="/app/Profile"],
+  .connectForm a[href="/app/changelog"],
+  .connectForm a[href="/app/Contact"],
+  .connectForm a[href="/app/Paths"],
+  .connectForm .modal {
+    display: none !important;
+  }
+
+  .connectForm {
+    max-width: 380px !important;
+    width: 92% !important;
+    height: fit-content !important;
+    min-height: 0 !important;
+    max-height: fit-content !important;
+    margin: 48px auto !important;
+    padding: 28px 32px !important;
+    background: #f8fafc !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 14px !important;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12) !important;
+    overflow: hidden !important;
+  }
+  .connectForm #loginform {
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 auto !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
   }
 </style>
 <script id="omnitactica-nr-bridge">
@@ -1095,6 +1151,52 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       stores.user.isSupporter = function() { return true; };
     } catch (e) {}
 
+    // Auto-select Warhammer 40,000 11th Edition on first load if no system was explicitly chosen yet
+    if (!stores.system.__omniDefaultSysChecked && stores.list.listsInitiated) {
+      var sysArr = (stores.system.library && Array.isArray(stores.system.library.array) && stores.system.library.array.length)
+        ? stores.system.library.array
+        : (Array.isArray(stores.system.installedSystems) ? stores.system.installedSystems : []);
+      if (sysArr.length > 0) {
+        stores.system.__omniDefaultSysChecked = true;
+        try {
+          var alreadyInit = localStorage.getItem('omnitactica_nr_default_sys_init');
+          if (!alreadyInit) {
+            var w40k = sysArr.find(function(s) {
+              return s && (String(s.id).indexOf('827374861') === 0 || String(s.name || '').indexOf('Warhammer 40,000 11th') !== -1);
+            }) || sysArr.find(function(s) {
+              return s && (s.id == 2821148162 || String(s.name || '').indexOf('Warhammer 40,000') !== -1);
+            });
+            if (w40k) {
+              localStorage.setItem('omnitactica_nr_default_sys_init', '1');
+              if (!stores.system.selectedSystem || stores.system.selectedSystem.id !== w40k.id) {
+                stores.system.selectSystem(w40k.id);
+              }
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    // Rename top-right "Menu" button to "Login" (when logged out) or the user's username (when logged in)
+    try {
+      var curLogin = (stores.user && stores.user.user && stores.user.user.login) ? String(stores.user.user.login) : '';
+      var loginBtnSpan = document.querySelector('.menu.mainMenu a[href="/app/Login"] .textBelowImg');
+      if (loginBtnSpan) {
+        var targetLabel = curLogin ? curLogin : 'Login';
+        if (loginBtnSpan.textContent !== targetLabel) {
+          loginBtnSpan.textContent = targetLabel;
+        }
+      }
+      if (stores.user.__omniLastLoginNotified !== curLogin && stores.list.listsInitiated) {
+        stores.user.__omniLastLoginNotified = curLogin;
+        notifyParent({
+          action: 'auth_status',
+          logged_in: Boolean(curLogin),
+          login: curLogin
+        });
+      }
+    } catch (e) {}
+
     if (!readyNotified && stores.list.listsInitiated) {
       readyNotified = true;
       notifyParent({ action: 'ready' });
@@ -1125,7 +1227,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         return await origSelect(rowOrKey, opts);
       };
 
-      // Hook addList, doSaveList, and removeList directly on Pinia listsStore so any list created/edited/deleted syncs immediately!
+      // Hook addList, doSaveList, removeList, and syncAllLists directly on Pinia listsStore so any list created/edited/deleted/synced syncs immediately!
       if (typeof stores.list.doSaveList === 'function') {
         var origDoSaveList = stores.list.doSaveList.bind(stores.list);
         stores.list.doSaveList = async function(listObj, localOnly) {
@@ -1168,6 +1270,24 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               }, 20);
             }
           } catch (e) {}
+          return res;
+        };
+      }
+
+      if (typeof stores.list.syncAllLists === 'function') {
+        var origSyncAll = stores.list.syncAllLists.bind(stores.list);
+        stores.list.syncAllLists = async function() {
+          var res = await origSyncAll.apply(this, arguments);
+          setTimeout(function() {
+            pollListsDiff();
+            forceFullSync();
+            try {
+              if ((window.location.pathname || '').indexOf('/Login') !== -1 && stores.user && stores.user.user) {
+                var rtr = stores.list.$router || (window.$nuxt && window.$nuxt.$router);
+                if (rtr) rtr.push('/app/MyLists');
+              }
+            } catch (e) {}
+          }, 150);
           return res;
         };
       }
@@ -1487,9 +1607,11 @@ def proxy_nr_request(
             or clean_path in ("/assets.json", "/favicon.ico", "/favicon-32x32.png")
         )
     )
+    has_auth = bool(req_headers and (req_headers.get("Authorization") or req_headers.get("authorization")))
     body_str = body.decode("utf-8", errors="ignore") if (body and method_up == "POST" and len(body) < 512) else ""
     is_cacheable_rpc = (
         method_up == "POST"
+        and not has_auth
         and clean_path.startswith("/api/rpc")
         and any(m_name in body_str for m_name in ('"get_library"', '"get_countries"', '"get_timezones"', '"get_games"'))
     )
