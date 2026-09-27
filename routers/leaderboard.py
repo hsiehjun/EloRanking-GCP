@@ -1303,6 +1303,15 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         if bcp_rds > 0:
             event_details["num_rounds"] = bcp_rds
             event_details["numberOfRounds"] = bcp_rds
+        rounds_dict = bcp_ev_data.get("rounds") if isinstance(bcp_ev_data.get("rounds"), dict) else {}
+        max_round_in_dict = max([int(k) for k in rounds_dict.keys() if str(k).isdigit()] or [0])
+        bcp_cur_r = max(
+            int(bcp_ev_data.get("currentRound") or 0),
+            int(bcp_ev_data.get("activeRound") or 0),
+            max_round_in_dict
+        )
+        if bcp_cur_r > 0:
+            event_details["current_round"] = max(int(event_details.get("current_round") or 0), bcp_cur_r)
         if bcp_ev_data.get("name") and bcp_ev_data.get("name") not in ("Tournament", "Unnamed Tournament", "Tournament Details"):
             event_details["name"] = bcp_ev_data["name"]
         if bcp_ev_data.get("totalPlayers"):
@@ -1336,16 +1345,46 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             event_details["numberOfRounds"] = bcp_rounds
         else:
             event_details["numberOfRounds"] = event_details.get("num_rounds") or 0
+        rounds_dict = raw_ev.get("rounds") if isinstance(raw_ev, dict) and isinstance(raw_ev.get("rounds"), dict) else {}
+        max_round_in_dict = max([int(k) for k in rounds_dict.keys() if str(k).isdigit()] or [0])
+        raw_cur_r = max(
+            int(raw_ev.get("currentRound") or 0) if isinstance(raw_ev, dict) else 0,
+            int(raw_ev.get("activeRound") or 0) if isinstance(raw_ev, dict) else 0,
+            max_round_in_dict
+        )
+        if raw_cur_r > 0:
+            event_details["current_round"] = max(int(event_details.get("current_round") or 0), raw_cur_r)
 
-    is_ended = bool(
-        event_details.get("is_ended") or
-        event_details.get("ended") or
-        (isinstance(raw_ev, dict) and (
+    bcp_explicitly_ended = bool(
+        isinstance(raw_ev, dict) and (
             raw_ev.get("ended") is True or
             raw_ev.get("isEnded") is True or
             (isinstance(raw_ev.get("status"), dict) and raw_ev["status"].get("ended") is True)
-        ))
+        )
     )
+    bcp_has_active_round = bool(
+        isinstance(raw_ev, dict) and
+        isinstance(raw_ev.get("rounds"), dict) and
+        any(isinstance(rv, dict) and rv.get("status") == "active" for rv in raw_ev["rounds"].values())
+    )
+    bcp_end_future = False
+    if isinstance(raw_ev, dict):
+        end_iso = str(raw_ev.get("eventEndDate") or raw_ev.get("endDate") or event_details.get("end_date") or "").strip()
+        if "T" in end_iso:
+            try:
+                end_dt_parsed = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+                if end_dt_parsed > (datetime.now(timezone.utc) - timedelta(hours=6)):
+                    bcp_end_future = True
+            except Exception:
+                pass
+
+    if bcp_explicitly_ended:
+        is_ended = True
+    elif isinstance(raw_ev, dict) and raw_ev.get("ended") is False and (bcp_has_active_round or bcp_end_future):
+        is_ended = False
+    else:
+        is_ended = bool(event_details.get("is_ended") or event_details.get("ended"))
+
     event_details["is_ended"] = is_ended
     event_details["ended"] = is_ended
 
@@ -1547,21 +1586,52 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 elif not has_sc and not m.get("winner_id"):
                     m["is_draw"] = False
 
-            cur_r = event_details.get("current_round") or raw_ev.get("currentRound") or raw_ev.get("activeRound") or event_details.get("num_rounds") or raw_ev.get("numberOfRounds") or 1
-            max_r = max(1, int(cur_r))
-
-            # If matches in DB is empty or tournament is active/live or force_sync requested, fetch live round pairings from BCP
-            has_db_matches = bool(event_details.get("matches"))
+            rounds_dict = raw_ev.get("rounds") if isinstance(raw_ev, dict) and isinstance(raw_ev.get("rounds"), dict) else {}
+            max_round_in_dict = max([int(k) for k in rounds_dict.keys() if str(k).isdigit()] or [0])
+            max_player_games = max(
+                [
+                    int(pl.get("event_matches_count") or (int(pl.get("event_wins") or 0) + int(pl.get("event_losses") or 0) + int(pl.get("event_draws") or 0)))
+                    for pl in (event_details.get("players") or [])
+                    if isinstance(pl, dict)
+                ] or [0]
+            )
+            num_rds_total = int(event_details.get("num_rounds") or (raw_ev.get("numberOfRounds") if isinstance(raw_ev, dict) else 0) or (raw_ev.get("numRounds") if isinstance(raw_ev, dict) else 0) or 0)
             is_ended = bool(event_details.get("is_ended"))
-            if not has_db_matches or not is_ended or force_sync:
+
+            max_r = max(
+                1,
+                int(event_details.get("current_round") or 0),
+                int(raw_ev.get("currentRound") or 0) if isinstance(raw_ev, dict) else 0,
+                int(raw_ev.get("activeRound") or 0) if isinstance(raw_ev, dict) else 0,
+                max_round_in_dict,
+                max_player_games,
+                num_rds_total if is_ended else 0
+            )
+            # If players have finished max_r games and tournament has more rounds, probe max_r + 1 as well
+            probe_max_r = min(num_rds_total, max_r + 1) if (not is_ended and num_rds_total > max_r and max_player_games >= max_r) else max_r
+
+            db_matches = [m for m in (event_details.get("matches") or []) if isinstance(m, dict)]
+            has_db_matches = bool(db_matches)
+            db_rounds = {int(m.get("round") or 1) for m in db_matches}
+            db_max_round = max(db_rounds) if db_rounds else 0
+            has_missing_rounds = (db_max_round < max_r) or (len(db_rounds) < max_r)
+            has_unscored_db_matches = any(
+                not m.get("is_bye") and m.get("winner_id") is None and not m.get("is_draw") and (m.get("player1_score") is None or m.get("player2_score") is None)
+                for m in db_matches
+            )
+
+            # If matches in DB is empty, missing rounds, has unscored games, tournament is active/live, or force_sync requested, fetch live round pairings from BCP
+            if not has_db_matches or not is_ended or force_sync or has_missing_rounds or has_unscored_db_matches:
                 live_matches = []
                 existing_matches_map = {}
-                for em in (event_details.get("matches") or []):
-                    if isinstance(em, dict):
-                        r_key = (int(em.get("round") or 1), int(em.get("table_number") or em.get("table") or 1))
-                        existing_matches_map[r_key] = em
-                        if em.get("id"):
-                            existing_matches_map[str(em.get("id"))] = em
+                existing_by_round = {}
+                for em in db_matches:
+                    r_num_em = int(em.get("round") or 1)
+                    r_key = (r_num_em, int(em.get("table_number") or em.get("table") or 1))
+                    existing_matches_map[r_key] = em
+                    existing_by_round.setdefault(r_num_em, []).append(em)
+                    if em.get("id"):
+                        existing_matches_map[str(em.get("id"))] = em
 
                 tracker_games_map = {}
                 try:
@@ -1586,7 +1656,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 except Exception as tge:
                     logger.debug(f"Notice fetching tracker games map for {event_id_str}: {tge}")
 
-                for r in range(1, max_r + 1):
+                for r in range(1, probe_max_r + 1):
                     raw_pairings = scraper.fetch_event_pairings_for_round(event_id_str, r)
                     if raw_pairings:
                         for idx, p in enumerate(raw_pairings):
@@ -1725,10 +1795,14 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                                 "tracker_is_done": tracker_is_done,
                                 "tracker_started": tracker_started
                             })
+                    elif r in existing_by_round:
+                        live_matches.extend(existing_by_round[r])
                 if live_matches:
                     event_details["matches"] = live_matches
-                    if not event_details.get("num_rounds") or int(event_details.get("num_rounds") or 0) < max_r:
-                        event_details["num_rounds"] = raw_ev.get("numberOfRounds") or raw_ev.get("numRounds") or max_r
+                    observed_max_r = max((int(m.get("round") or 1) for m in live_matches), default=max_r)
+                    event_details["current_round"] = max(int(event_details.get("current_round") or 0), observed_max_r)
+                    if not event_details.get("num_rounds") or int(event_details.get("num_rounds") or 0) < observed_max_r:
+                        event_details["num_rounds"] = raw_ev.get("numberOfRounds") or raw_ev.get("numRounds") or observed_max_r
         except Exception as pe:
             logger.warning(f"BCP live pairings fetch notice for {event_id_str}: {pe}")
 
@@ -1750,15 +1824,20 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             event_details["name"] = raw_ev["name"]
 
     # Canonical ended status check
-    is_ended = bool(
-        event_details.get("is_ended") or
-        event_details.get("ended") or
-        (isinstance(raw_ev, dict) and (
-            raw_ev.get("ended") is True or
-            raw_ev.get("isEnded") is True or
-            (isinstance(raw_ev.get("status"), dict) and raw_ev["status"].get("ended") is True)
-        ))
+    has_unscored_final_round = any(
+        isinstance(m, dict) and not m.get("is_done") and int(m.get("round") or 1) == int(event_details.get("current_round") or 1)
+        for m in (event_details.get("matches") or [])
     )
+    if isinstance(raw_ev, dict) and (
+        raw_ev.get("ended") is True or
+        raw_ev.get("isEnded") is True or
+        (isinstance(raw_ev.get("status"), dict) and raw_ev["status"].get("ended") is True)
+    ):
+        is_ended = True
+    elif isinstance(raw_ev, dict) and raw_ev.get("ended") is False and (bcp_has_active_round or bcp_end_future or has_unscored_final_round):
+        is_ended = False
+    else:
+        is_ended = bool(event_details.get("is_ended") or event_details.get("ended"))
     event_details["is_ended"] = is_ended
     event_details["ended"] = is_ended
     event_details["status"] = {

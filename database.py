@@ -2762,14 +2762,42 @@ class PostgresDatabase:
                 status_dict.get("status") in ("ended", "completed", "finished") or
                 event_data.get("isEnded") or event_data.get("is_ended") or event_data.get("ended")
             )
-            now_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            end_val_str = str(event_data.get("endDate") or event_data.get("end_date") or "")[:10]
-            ev_val_str = str(event_data.get("eventDate") or event_data.get("event_date") or "")[:10]
-            num_rds_val = int(event_data.get("numberOfRounds") or event_data.get("numRounds") or event_data.get("num_rounds") or event_data.get("rounds") or 0)
-            if end_val_str and end_val_str < now_utc_str:
-                is_ended_calc = True
-            elif ev_val_str and ev_val_str < now_utc_str and (num_rds_val <= 3 or not end_val_str):
-                is_ended_calc = True
+            now_utc = datetime.now(timezone.utc)
+            now_utc_str = now_utc.strftime("%Y-%m-%d")
+            raw_end_val = event_data.get("endDate") or event_data.get("eventEndDate") or event_data.get("end_date")
+            raw_ev_val = event_data.get("eventDate") or event_data.get("event_date") or event_data.get("startDate")
+            end_val_str = str(raw_end_val or "")[:10]
+            ev_val_str = str(raw_ev_val or "")[:10]
+            raw_rds = event_data.get("numberOfRounds") or event_data.get("numRounds") or event_data.get("num_rounds")
+            if not raw_rds and isinstance(event_data.get("rounds"), (int, float, str)) and str(event_data.get("rounds")).isdigit():
+                raw_rds = int(event_data.get("rounds"))
+            elif not raw_rds and isinstance(event_data.get("rounds"), dict):
+                raw_rds = max([int(k) for k in event_data["rounds"].keys() if str(k).isdigit()] or [0])
+            num_rds_val = int(raw_rds or 0)
+
+            rounds_obj = event_data.get("rounds") if isinstance(event_data.get("rounds"), dict) else {}
+            has_active_round = any(isinstance(rv, dict) and rv.get("status") == "active" for rv in rounds_obj.values())
+
+            if not is_ended_calc and not has_active_round:
+                if raw_end_val:
+                    end_iso = str(raw_end_val).strip()
+                    if "T" in end_iso or ":" in end_iso:
+                        try:
+                            end_dt_parsed = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+                            if end_dt_parsed < (now_utc - timedelta(hours=4)):
+                                is_ended_calc = True
+                        except Exception:
+                            if end_val_str < (now_utc - timedelta(hours=24)).strftime("%Y-%m-%d"):
+                                is_ended_calc = True
+                    elif end_val_str < (now_utc - timedelta(hours=24)).strftime("%Y-%m-%d"):
+                        is_ended_calc = True
+                elif ev_val_str and ev_val_str < (now_utc - timedelta(hours=36)).strftime("%Y-%m-%d") and (num_rds_val <= 3 or not end_val_str):
+                    is_ended_calc = True
+
+            cur_rd_val = int(event_data.get("currentRound") or event_data.get("current_round") or 0)
+            if isinstance(rounds_obj, dict) and rounds_obj:
+                max_dict_rd = max([int(k) for k in rounds_obj.keys() if str(k).isdigit()] or [0])
+                cur_rd_val = max(cur_rd_val, max_dict_rd)
 
             with conn.cursor() as cursor:
                 cursor.execute("""
@@ -2789,7 +2817,7 @@ class PostgresDatabase:
                     country = EXCLUDED.country,
                     total_players = GREATEST(COALESCE(events.total_players, 0), EXCLUDED.total_players),
                     num_rounds = GREATEST(COALESCE(events.num_rounds, 0), EXCLUDED.num_rounds),
-                    current_round = EXCLUDED.current_round,
+                    current_round = GREATEST(COALESCE(events.current_round, 0), EXCLUDED.current_round),
                     is_ended = EXCLUDED.is_ended,
                     game_system_id = EXCLUDED.game_system_id,
                     raw_json = EXCLUDED.raw_json,
@@ -2804,14 +2832,14 @@ class PostgresDatabase:
                 """, (
                     event_id,
                     event_data.get("name") or "Unnamed Tournament",
-                    event_data.get("eventDate") or event_data.get("event_date"),
-                    event_data.get("endDate") or event_data.get("end_date"),
+                    raw_ev_val,
+                    raw_end_val,
                     event_data.get("city") or loc_obj.get("city"),
                     event_data.get("state") or loc_obj.get("state"),
                     event_data.get("country") or loc_obj.get("country"),
                     int(event_data.get("totalPlayers") or event_data.get("total_players") or 0),
                     num_rds_val,
-                    event_data.get("currentRound", event_data.get("current_round", 0)),
+                    cur_rd_val,
                     is_ended_calc,
                     game_sys_id,
                     json.dumps(event_data.get("raw_json", event_data)),
@@ -4491,42 +4519,56 @@ class PostgresDatabase:
 
                 # Dynamically compute whether the event has completed
                 now_utc = datetime.now(timezone.utc)
-                end_dt = res.get("end_date") or (raw_meta.get("endDate") if isinstance(raw_meta, dict) else None) or (raw_meta.get("end_date") if isinstance(raw_meta, dict) else None)
+                end_dt = (
+                    res.get("end_date") or
+                    (raw_meta.get("endDate") if isinstance(raw_meta, dict) else None) or
+                    (raw_meta.get("eventEndDate") if isinstance(raw_meta, dict) else None) or
+                    (raw_meta.get("end_date") if isinstance(raw_meta, dict) else None)
+                )
                 ev_dt = res.get("event_date") or (raw_meta.get("eventDate") if isinstance(raw_meta, dict) else None) or (raw_meta.get("startDate") if isinstance(raw_meta, dict) else None) or (raw_meta.get("event_date") if isinstance(raw_meta, dict) else None)
                 num_rds = int(res.get("num_rounds") or 0)
-                cur_rd = int(res.get("current_round") or (raw_meta.get("currentRound") if isinstance(raw_meta, dict) else 0) or 0)
+                rounds_meta = raw_meta.get("rounds") if isinstance(raw_meta, dict) and isinstance(raw_meta.get("rounds"), dict) else {}
+                max_dict_rd = max([int(k) for k in rounds_meta.keys() if str(k).isdigit()] or [0])
+                cur_rd = max(
+                    int(res.get("current_round") or 0),
+                    int(raw_meta.get("currentRound") if isinstance(raw_meta, dict) and raw_meta.get("currentRound") else 0),
+                    max_dict_rd
+                )
+                if cur_rd > 0:
+                    res["current_round"] = cur_rd
 
                 status_meta = raw_meta.get("status") if isinstance(raw_meta, dict) and isinstance(raw_meta.get("status"), dict) else {}
-                computed_is_ended = bool(
-                    res.get("is_ended") or
+                has_active_round = any(isinstance(rv, dict) and rv.get("status") == "active" for rv in rounds_meta.values())
+                explicit_ended = bool(
                     (raw_meta.get("isEnded") if isinstance(raw_meta, dict) else False) or
                     (raw_meta.get("ended") if isinstance(raw_meta, dict) else False) or
                     status_meta.get("ended") or
                     status_meta.get("isEnded")
                 )
+                computed_is_ended = bool(explicit_ended or (res.get("is_ended") and not has_active_round))
 
-                if not computed_is_ended:
+                if not explicit_ended:
                     if end_dt is not None:
                         if isinstance(end_dt, datetime):
-                            computed_is_ended = end_dt < now_utc
+                            computed_is_ended = end_dt < (now_utc - timedelta(hours=4))
                         else:
                             end_dt_str = str(end_dt).strip()
                             if "T" in end_dt_str or ":" in end_dt_str:
                                 try:
                                     dt_parsed = datetime.fromisoformat(end_dt_str.replace("Z", "+00:00"))
-                                    computed_is_ended = dt_parsed < now_utc
+                                    computed_is_ended = dt_parsed < (now_utc - timedelta(hours=4))
                                 except Exception:
-                                    computed_is_ended = end_dt_str[:10] < now_utc.strftime("%Y-%m-%d")
+                                    computed_is_ended = end_dt_str[:10] < (now_utc - timedelta(hours=24)).strftime("%Y-%m-%d")
                             else:
-                                computed_is_ended = end_dt_str[:10] < now_utc.strftime("%Y-%m-%d")
+                                computed_is_ended = end_dt_str[:10] < (now_utc - timedelta(hours=24)).strftime("%Y-%m-%d")
 
-                    if not computed_is_ended and ev_dt is not None:
+                    if not computed_is_ended and not has_active_round and ev_dt is not None and end_dt is None:
                         ev_dt_str = str(ev_dt).strip()[:10]
-                        today_str = now_utc.strftime("%Y-%m-%d")
-                        if ev_dt_str < today_str and (num_rds <= 3 or cur_rd >= num_rds):
+                        cutoff_str = (now_utc - timedelta(hours=36)).strftime("%Y-%m-%d")
+                        if ev_dt_str < cutoff_str and (num_rds <= 3 or cur_rd >= num_rds):
                             computed_is_ended = True
 
-                    if not computed_is_ended and num_rds > 0 and cur_rd >= num_rds and len(matches) > 0:
+                    if not computed_is_ended and not has_active_round and num_rds > 0 and cur_rd >= num_rds and len(matches) > 0:
                         final_matches = [m for m in matches if int(m.get("round") or 0) == num_rds]
                         if final_matches and all(m.get("is_done") or m.get("winner_id") or m.get("is_bye") or (m.get("player1_score") is not None and m.get("player2_score") is not None) for m in final_matches):
                             computed_is_ended = True

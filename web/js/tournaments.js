@@ -1773,7 +1773,10 @@ function renderEventPairingsRows() {
   }
 
   // 1. Extract and render distinct round buttons (All, R1, R2, R3...)
-  const distinctRounds = [...new Set(eventMatchesCache.map(m => m.round || 1))].sort((a, b) => a - b);
+  const distinctRounds = [...new Set(eventMatchesCache.map(m => Number(m.round || 1)))].sort((a, b) => a - b);
+  if (selectedEventRound !== 'all' && !distinctRounds.includes(Number(selectedEventRound))) {
+    selectedEventRound = 'all';
+  }
   if (roundsContainer) {
     let pillsHtml = `
       <button class="round-filter-btn ${selectedEventRound === 'all' ? 'active' : ''}" onclick="setEventRoundFilter('all')">
@@ -3211,7 +3214,12 @@ function isEventEnded(ev, regData = null) {
   const currentRound = Number(ev?.current_round || ev?.currentRound || ev?.raw_json?.currentRound || 0);
   const hasMatches = matches.length > 0 || players.some(p => (p.event_wins || p.wins || 0) > 0 || (p.event_losses || p.losses || 0) > 0 || (p.placement && p.placement > 0));
 
-  const hasActiveMatches = matches.some(m =>
+  const hasActiveBcpRound = Boolean(
+    ev?.raw_json?.rounds &&
+    typeof ev.raw_json.rounds === 'object' &&
+    Object.values(ev.raw_json.rounds).some(rv => rv && rv.status === 'active')
+  );
+  const hasActiveMatches = hasActiveBcpRound || matches.some(m =>
     m.status === 'in_progress' ||
     m.status === 'active' ||
     (currentRound > 0 && Number(m.round) === currentRound && m.winner_id == null && !m.is_done && (m.player1_score == null || m.player2_score == null))
@@ -3224,7 +3232,7 @@ function isEventEnded(ev, regData = null) {
     ? getLocalIsoDateStr()
     : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-  const rawEnd = ev?.end_date || ev?.endDate || ev?.raw_json?.endDate || ev?.raw_json?.end_date || '';
+  const rawEnd = ev?.end_date || ev?.endDate || ev?.eventEndDate || ev?.raw_json?.endDate || ev?.raw_json?.eventEndDate || ev?.raw_json?.end_date || '';
   const rawStart = ev?.event_date || ev?.eventDate || ev?.start_date || ev?.startDate || ev?.raw_json?.startDate || ev?.raw_json?.eventDate || '';
   const startDateStr = String(rawStart).slice(0, 10);
   const endDateStr = rawEnd ? String(rawEnd).slice(0, 10) : '';
@@ -3269,7 +3277,7 @@ function isEventEnded(ev, regData = null) {
 
   // 3. Round & Match Structural Completion
   // If all rounds are reached and all matches in the final round are scored/finished
-  if (numRounds > 0 && currentRound >= numRounds && matches.length > 0) {
+  if (numRounds > 0 && currentRound >= numRounds && matches.length > 0 && !hasActiveMatches) {
     const finalRoundMatches = matches.filter(m => Number(m.round) === numRounds);
     if (finalRoundMatches.length > 0) {
       const allFinalScored = finalRoundMatches.every(m =>
@@ -3285,7 +3293,7 @@ function isEventEnded(ev, regData = null) {
   }
 
   // 4. Official final standings already determined
-  if (hasMatches && players.some(p => (p.placement === 1 || p.official_placement === 1) && (p.event_wins > 0 || p.wins > 0))) {
+  if (!hasActiveMatches && !isIncompleteRounds && hasMatches && players.some(p => (p.placement === 1 || p.official_placement === 1) && ((p.event_wins || p.wins || 0) + (p.event_losses || p.losses || 0) + (p.event_draws || p.draws || 0)) >= Math.max(1, numRounds))) {
     if (startDateStr && startDateStr <= todayStr) {
       if (numRounds > 0 && currentRound >= numRounds) {
         return true;

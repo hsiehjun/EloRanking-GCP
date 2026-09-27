@@ -781,10 +781,27 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
 
         print("✓ test_share_profile_studio_and_opengraph_routes passed")
 
+    def test_create_room_no_double_loading_or_lobby_flash(self):
+        """Verify Lobby Create/Join Room locks the loading overlay against background dismissal and hands off room state so play.html/aos.html never show a second loading screen."""
+        ts_js = (ROOT_DIR / "web" / "tracker" / "tracker_sync.js").read_text(encoding="utf-8")
+        ts_aos_js = (ROOT_DIR / "web" / "tracker" / "tracker_sync_aos.js").read_text(encoding="utf-8")
+        lobby_html = (ROOT_DIR / "web" / "tracker" / "lobby.html").read_text(encoding="utf-8")
+        play_html = (ROOT_DIR / "web" / "tracker" / "play.html").read_text(encoding="utf-8")
+        aos_html = (ROOT_DIR / "web" / "tracker" / "aos.html").read_text(encoding="utf-8")
+
+        # 1. Lobby overlay starts hidden and is locked once Create/Join is clicked
+        self.assertIn('id="gt-loading-overlay" class="gt-loading-hidden"', lobby_html)
+        self.assertIn("let isNavigatingToRoom = false;", ts_js)
+        self.assertIn("if (isNavigatingToRoom && !force)", ts_js)
+
+        # 2. Room creation/join writes gt_room_handoff to sessionStorage
+        self.assertIn("sessionStorage.setItem('gt_room_handoff'", ts_js)
+        self.assertIn("sessionStorage.getItem('gt_room_handoff')", ts_js)
+        self.assertIn("sessionStorage.getItem('gt_room_handoff')", ts_aos_js)
+        self.assertIn("sessionStorage.getItem('gt_room_handoff')", play_html)
+        self.assertIn("sessionStorage.getItem('gt_room_handoff')", aos_html)
+        print("✓ test_create_room_no_double_loading_or_lobby_flash passed")
+
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-

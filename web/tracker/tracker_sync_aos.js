@@ -249,6 +249,37 @@
         window.history.replaceState({}, '', cleanUrl.toString());
       } catch (e) {}
 
+      // Fast-path handoff when arriving directly from Lobby Create/Join Room:
+      // Avoid showing a redundant second loading screen or blocking on /check + /join.
+      try {
+        const rawHandoff = sessionStorage.getItem('gt_room_handoff');
+        if (rawHandoff) {
+          const handoff = JSON.parse(rawHandoff);
+          if (
+            handoff &&
+            handoff.matchId &&
+            handoff.matchId.toUpperCase() === matchId.toUpperCase() &&
+            Date.now() - (handoff.ts || 0) < 15000
+          ) {
+            sessionStorage.removeItem('gt_room_handoff');
+            role = handoff.role || 'player1';
+            if (handoff.state) {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(handoff.state));
+            }
+            hideAosLoadingOverlay();
+            injectAosSyncHUD();
+            injectMobileBottomDock();
+            initFirestoreDirectSync();
+            setInterval(() => {
+              if (!firestoreConnected) {
+                syncFromRemote();
+              }
+            }, 1000);
+            return;
+          }
+        }
+      } catch (e) {}
+
       const token = getAuthToken();
       try {
         const chk = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/check`, {

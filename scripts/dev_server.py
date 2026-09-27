@@ -3385,8 +3385,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path.startswith("api/event/"):
-            ev_param = clean_path.replace("api/event/", "")
-            if ev_param in DEV_EVENT_CACHE:
+            ev_param = clean_path.replace("api/event/", "").split("/")[0].strip()
+            force_sync_q = ("force_sync=true" in str(self.path).lower())
+            if not force_sync_q and ev_param in DEV_EVENT_CACHE:
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
@@ -3396,98 +3397,155 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
             if len(ev_param) >= 8 and not ev_param.startswith("ev_"):
                 try:
-                    b_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{ev_param}"
-                    b_req = urllib.request.Request(b_url, headers={"client-id": "web-app", "User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(b_req, timeout=4) as b_resp:
-                        if b_resp.status == 200:
-                            b_json = json.loads(b_resp.read().decode("utf-8"))
-                            loc = b_json.get("location") if isinstance(b_json.get("location"), dict) else {}
-                            tot_p = int(b_json.get("totalPlayers") or len(b_json.get("players") or []) or 0)
-                            ev_name = b_json.get("name") or "BCP Tournament"
-                            ev_name_lower = ev_name.lower()
-                            resolved_rds = int(b_json.get("numberOfRounds") or b_json.get("numRounds") or 0)
+                    from scraper import BestCoastPairingsScraper
+                    from routers.leaderboard import format_bcp_roster_to_players
+                    scraper = BestCoastPairingsScraper(request_delay=0.0)
+                    b_json = scraper.fetch_event_details(ev_param)
+                    if b_json and isinstance(b_json, dict):
+                        loc = b_json.get("location") if isinstance(b_json.get("location"), dict) else {}
+                        tot_p = int(b_json.get("totalPlayers") or len(b_json.get("players") or []) or 0)
+                        ev_name = b_json.get("name") or "BCP Tournament"
+                        resolved_rds = int(b_json.get("numberOfRounds") or b_json.get("numRounds") or 0)
+                        rounds_dict = b_json.get("rounds") if isinstance(b_json.get("rounds"), dict) else {}
+                        max_round_in_dict = max([int(k) for k in rounds_dict.keys() if str(k).isdigit()] or [0])
+                        cur_rd = max(int(b_json.get("currentRound") or 0), int(b_json.get("activeRound") or 0), max_round_in_dict)
+                        has_active_round = any(isinstance(rv, dict) and rv.get("status") == "active" for rv in rounds_dict.values())
 
-                            res = {
-                                "id": ev_param,
-                                "name": ev_name,
-                                "event_date": (b_json.get("eventDate") or "")[:10],
-                                "end_date": (b_json.get("endDate") or "")[:10],
-                                "city": b_json.get("city") or loc.get("city") or "",
-                                "state": b_json.get("state") or loc.get("state") or "",
-                                "country": b_json.get("country") or loc.get("country") or "United States",
-                                "venue": b_json.get("venueName") or loc.get("venueName") or loc.get("name") or "",
-                                "total_players": tot_p,
-                                "num_rounds": resolved_rds,
-                                "numberOfRounds": resolved_rds,
-                                "current_round": int(b_json.get("currentRound") or 0),
-                                "raw_json": b_json,
-                            }
-                            raw_end_str = str(b_json.get("endDate") or b_json.get("end_date") or "")
-                            raw_start_str = str(b_json.get("eventDate") or b_json.get("event_date") or b_json.get("startDate") or "")
-                            today_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                            num_rds_val = resolved_rds
-                            computed_ended = bool(b_json.get("ended") or b_json.get("isEnded"))
-                            if not computed_ended:
-                                if raw_end_str and raw_end_str[:10] < today_utc_str:
-                                    computed_ended = True
-                                elif raw_start_str and raw_start_str[:10] < today_utc_str and (num_rds_val <= 3 or not raw_end_str):
-                                    computed_ended = True
-                            res["is_ended"] = computed_ended
-                            res["ended"] = computed_ended
-                            res["started"] = bool(b_json.get("started") or computed_ended)
-                            res["status"] = {"ended": computed_ended, "isEnded": computed_ended, "started": bool(b_json.get("started") or computed_ended)}
-                            
-                            b_players = b_json.get("players") or []
-                            if not b_players:
+                        raw_end_str = str(b_json.get("endDate") or b_json.get("eventEndDate") or b_json.get("end_date") or "")
+                        raw_start_str = str(b_json.get("eventDate") or b_json.get("event_date") or b_json.get("startDate") or "")
+                        now_utc = datetime.now(timezone.utc)
+                        computed_ended = bool(b_json.get("ended") is True or b_json.get("isEnded") is True)
+                        if not computed_ended and not has_active_round:
+                            if raw_end_str and "T" in raw_end_str:
                                 try:
-                                    p_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{ev_param}/players"
-                                    p_req = urllib.request.Request(p_url, headers={"client-id": "web-app", "User-Agent": "Mozilla/5.0"})
-                                    with urllib.request.urlopen(p_req, timeout=4) as p_resp:
-                                        if p_resp.status == 200:
-                                            p_json = json.loads(p_resp.read().decode("utf-8"))
-                                            raw_active = p_json.get("active", []) if isinstance(p_json, dict) else (p_json if isinstance(p_json, list) else [])
-                                            formatted_p = []
-                                            for idx, ap in enumerate(raw_active, 1):
-                                                u = ap.get("user") if isinstance(ap.get("user"), dict) else {}
-                                                fn = f"{u.get('firstName', '')} {u.get('lastName', '')}".strip() or ap.get("name") or f"Competitor #{idx}"
-                                                pid = ap.get("userId") or ap.get("id") or f"p_{idx}"
-                                                matched_user = next((du for du in DEV_USERS_LIST if du.get("id") == pid or (du.get("name") and du.get("name").lower() == fn.lower())), None)
-                                                p_elo = float(matched_user.get("elo") or 1500.0) if matched_user else (2383.9 if "conan" in fn.lower() else (2375.2 if "innes" in fn.lower() else (2190.8 if "junior" in fn.lower() else (2172.1 if "travis" in fn.lower() else 1500.0))))
-                                                formatted_p.append({
-                                                    "player_id": pid,
-                                                    "full_name": fn,
-                                                    "faction": ap.get("armyList") or ap.get("faction") or "-",
-                                                    "detachment": "",
-                                                    "team": ap.get("teamName") or (ap.get("team", {}).get("name") if isinstance(ap.get("team"), dict) else ""),
-                                                    "placement": idx,
-                                                    "event_wins": 0,
-                                                    "event_losses": 0,
-                                                    "event_draws": 0,
-                                                    "event_battle_points": 0,
-                                                    "current_elo": p_elo,
-                                                    "has_list": bool(ap.get("armyListText")),
-                                                    "army_list": ap.get("armyListText") or "",
-                                                    "checked_in": bool(ap.get("checkedIn"))
-                                                })
-                                            formatted_p.sort(key=lambda x: x.get("current_elo") or 1500.0, reverse=True)
-                                            for rk, fp in enumerate(formatted_p, 1):
-                                                fp["placement"] = rk
-                                            b_players = formatted_p
+                                    end_dt_parsed = datetime.fromisoformat(raw_end_str.replace("Z", "+00:00"))
+                                    if end_dt_parsed < (now_utc - timedelta(hours=4)):
+                                        computed_ended = True
                                 except Exception:
                                     pass
+                            elif raw_start_str and raw_start_str[:10] < (now_utc - timedelta(hours=36)).strftime("%Y-%m-%d"):
+                                computed_ended = True
 
-                            res["players"] = b_players
-                            res["matches"] = b_json.get("matches") or []
-                            res["team_standings"] = []
-                            DEV_EVENT_CACHE[ev_param] = res
-                            self.send_response(200)
-                            self.send_header("Content-Type", "application/json; charset=utf-8")
-                            self.end_headers()
-                            if not is_head:
-                                self.wfile.write(json.dumps(res).encode("utf-8"))
-                            return
-                except Exception:
-                    pass
+                        raw_bcp_players = scraper.fetch_event_players(ev_param) or []
+                        formatted_players = format_bcp_roster_to_players(raw_bcp_players, [], db=None, game_system="40k", is_ended=computed_ended) if raw_bcp_players else []
+                        if formatted_players:
+                            tot_p = len(formatted_players)
+
+                        player_by_id = {}
+                        player_by_name = {}
+                        for pl in formatted_players:
+                            for k in ("player_id", "id", "bcp_event_player_id", "user_id"):
+                                if pl.get(k):
+                                    player_by_id[str(pl[k])] = pl
+                            pname = str(pl.get("full_name") or "").strip().lower()
+                            if pname:
+                                player_by_name[pname] = pl
+
+                        max_player_games = max(
+                            [int(pl.get("event_matches_count") or 0) for pl in formatted_players] or [0]
+                        )
+                        max_r = max(1, cur_rd, max_player_games, resolved_rds if computed_ended else 0)
+                        live_matches = []
+                        for r in range(1, max_r + 1):
+                            raw_pairings = scraper.fetch_event_pairings_for_round(ev_param, r)
+                            for idx, p in enumerate(raw_pairings or []):
+                                if not isinstance(p, dict):
+                                    continue
+                                p1 = p.get("player1") or {}
+                                p2 = p.get("player2") or {}
+                                u1 = p1.get("user") if isinstance(p1.get("user"), dict) else {}
+                                u2 = p2.get("user") if isinstance(p2.get("user"), dict) else {}
+                                p1_raw_name = p1.get("name") or f"{u1.get('firstName') or p1.get('firstName') or ''} {u1.get('lastName') or p1.get('lastName') or ''}".strip()
+                                p2_raw_name = p2.get("name") or f"{u2.get('firstName') or p2.get('firstName') or ''} {u2.get('lastName') or p2.get('lastName') or ''}".strip()
+                                p1_reg = next((player_by_id[str(c)] for c in (u1.get("id"), p1.get("userId"), p1.get("id"), p.get("player1Id")) if c and str(c) in player_by_id), None) or player_by_name.get(p1_raw_name.lower(), {})
+                                p2_reg = next((player_by_id[str(c)] for c in (u2.get("id"), p2.get("userId"), p2.get("id"), p.get("player2Id")) if c and str(c) in player_by_id), None) or player_by_name.get(p2_raw_name.lower(), {})
+                                p1_id = str(p1_reg.get("player_id") or u1.get("id") or p1.get("userId") or p1.get("id") or p.get("player1Id") or "")
+                                p2_id = str(p2_reg.get("player_id") or u2.get("id") or p2.get("userId") or p2.get("id") or p.get("player2Id") or "")
+                                p1_name = p1_raw_name or p1_reg.get("full_name") or "Player 1"
+                                p2_name = p2_raw_name or p2_reg.get("full_name") or ("Player 2" if p2_id else "BYE")
+                                p1_fac = p1.get("army") or p1.get("faction") or p1_reg.get("faction") or ""
+                                if isinstance(p1_fac, dict): p1_fac = p1_fac.get("name") or ""
+                                p2_fac = p2.get("army") or p2.get("faction") or p2_reg.get("faction") or ""
+                                if isinstance(p2_fac, dict): p2_fac = p2_fac.get("name") or ""
+                                p1_game = p.get("player1Game") or {}
+                                p2_game = p.get("player2Game") or {}
+                                meta_p = p.get("metaData") or {}
+                                p1_score = p1_game.get("points") if p1_game.get("points") is not None else p.get("player1Score")
+                                if p1_score is None and meta_p.get("p1-gamePoints") is not None:
+                                    try: p1_score = int(meta_p.get("p1-gamePoints"))
+                                    except Exception: pass
+                                p2_score = p2_game.get("points") if p2_game.get("points") is not None else p.get("player2Score")
+                                if p2_score is None and meta_p.get("p2-gamePoints") is not None:
+                                    try: p2_score = int(meta_p.get("p2-gamePoints"))
+                                    except Exception: pass
+                                is_bye = bool(p.get("isBye") or not p2_id or p2_name == "BYE")
+                                winner_id = None
+                                is_real_draw = False
+                                if p1_score is not None and p2_score is not None:
+                                    try:
+                                        s1, s2 = float(p1_score), float(p2_score)
+                                        if s1 > s2: winner_id = p1_id
+                                        elif s2 > s1: winner_id = p2_id
+                                        elif s1 == s2 and (s1 > 0 or s2 > 0): is_real_draw = True
+                                    except Exception:
+                                        pass
+                                elif is_bye:
+                                    winner_id = p1_id
+                                is_done = bool(is_bye or winner_id is not None or is_real_draw)
+                                table_num = int(p.get("table") or idx + 1)
+                                live_matches.append({
+                                    "id": str(p.get("id") or f"pair-{r}-{idx+1}"),
+                                    "event_id": ev_param,
+                                    "round": int(p.get("round") or r),
+                                    "table_number": table_num,
+                                    "table": table_num,
+                                    "player1_id": p1_id,
+                                    "player1_name": p1_name,
+                                    "player1_faction": p1_fac,
+                                    "player1_score": p1_score,
+                                    "player2_id": p2_id,
+                                    "player2_name": p2_name,
+                                    "player2_faction": p2_fac,
+                                    "player2_score": p2_score,
+                                    "winner_id": winner_id,
+                                    "loser_id": p2_id if winner_id == p1_id else (p1_id if winner_id == p2_id else None),
+                                    "is_draw": is_real_draw,
+                                    "is_bye": is_bye,
+                                    "is_done": is_done,
+                                    "published": bool(p.get("published", True)),
+                                })
+
+                        res = {
+                            "id": ev_param,
+                            "name": ev_name,
+                            "event_date": raw_start_str[:10],
+                            "end_date": raw_end_str,
+                            "city": b_json.get("city") or loc.get("city") or "",
+                            "state": b_json.get("state") or loc.get("state") or "",
+                            "country": b_json.get("country") or loc.get("country") or "United States",
+                            "venue": b_json.get("venueName") or loc.get("venueName") or loc.get("name") or "",
+                            "total_players": tot_p,
+                            "num_rounds": resolved_rds or max_r,
+                            "numberOfRounds": resolved_rds or max_r,
+                            "current_round": max(cur_rd, max((m.get("round") or 1 for m in live_matches), default=0)),
+                            "raw_json": b_json,
+                            "is_ended": computed_ended,
+                            "ended": computed_ended,
+                            "started": bool(b_json.get("started") or computed_ended or live_matches),
+                            "status": {"ended": computed_ended, "isEnded": computed_ended, "started": bool(b_json.get("started") or computed_ended or live_matches)},
+                            "players": formatted_players,
+                            "matches": live_matches,
+                            "team_standings": []
+                        }
+                        DEV_EVENT_CACHE[ev_param] = res
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.end_headers()
+                        if not is_head:
+                            self.wfile.write(json.dumps(res).encode("utf-8"))
+                        return
+                except Exception as dev_bcp_err:
+                    print(f"[DEV_SERVER] BCP live fetch error for {ev_param}: {dev_bcp_err}")
 
             if ev_param == "ev_ongoing_gt_live":
                 now_dt = datetime.now(timezone.utc)

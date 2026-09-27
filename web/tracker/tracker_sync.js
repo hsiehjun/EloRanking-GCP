@@ -1030,7 +1030,12 @@
     window.location.replace(isStandalone ? '/login' : '/');
   };
 
-  window.__showGtLoadingOverlay = function (title, subtitle) {
+  let isNavigatingToRoom = false;
+
+  window.__showGtLoadingOverlay = function (title, subtitle, lockNavigation) {
+    if (lockNavigation) {
+      isNavigatingToRoom = true;
+    }
     let overlay = document.getElementById('gt-loading-overlay');
     if (!overlay && document.body) {
       overlay = document.createElement('div');
@@ -1060,7 +1065,13 @@
     }
   };
 
-  window.__hideGtLoadingOverlay = function () {
+  window.__hideGtLoadingOverlay = function (force) {
+    if (isNavigatingToRoom && !force) {
+      return;
+    }
+    if (force) {
+      isNavigatingToRoom = false;
+    }
     const overlay = document.getElementById('gt-loading-overlay');
     if (overlay) {
       overlay.classList.add('gt-loading-hidden');
@@ -1096,6 +1107,61 @@
       }, 2200);
       injectLobbyHub();
       initialHistoryPromise = syncHistoryFromDatabase();
+    } else {
+      // Fast-path handoff when arriving directly from Lobby Create/Join Room:
+      // Avoid showing a redundant second loading screen or re-fetching /check + /join.
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const urlMid = params.get('match_id') || params.get('room') || params.get('match') || '';
+        const isSpec = params.get('role') === 'spectator' || params.get('spectate') === 'true';
+        const rawHandoff = sessionStorage.getItem('gt_room_handoff');
+        if (rawHandoff && urlMid && !isSpec) {
+          const handoff = JSON.parse(rawHandoff);
+          if (
+            handoff &&
+            handoff.matchId &&
+            handoff.matchId.toUpperCase() === urlMid.toUpperCase() &&
+            Date.now() - (handoff.ts || 0) < 15000
+          ) {
+            sessionStorage.removeItem('gt_room_handoff');
+            if (handoff.user) {
+              currentUser = handoff.user;
+            }
+            const isTournMatch = (urlMid.startsWith('BCP-') || urlMid.startsWith('ES-') || /^(?:WH40K-|AOS-)?(?:BCP|ES)-/i.test(urlMid));
+            clientState.matchId = isTournMatch ? urlMid : urlMid.toUpperCase();
+            clientState.role = handoff.role || 'player1';
+            if (typeof diceRollerState !== 'undefined') {
+              diceRollerState.history = [];
+              diceRollerState.tray = [];
+            }
+            const cleanUrl = new URL(window.location.href);
+            cleanUrl.searchParams.set('match_id', clientState.matchId);
+            cleanUrl.searchParams.delete('mode');
+            cleanUrl.searchParams.delete('role');
+            window.history.replaceState({}, '', cleanUrl.toString());
+
+            updateSpectatorModeUI();
+            if (handoff.state) {
+              applyRemoteState(handoff.state);
+            }
+            if (document.body) {
+              document.body.classList.add('gt-role-verified');
+            }
+            window.__hideGtLoadingOverlay(true);
+            injectMultiplayerHUD();
+            injectPlayer2InviteWidget();
+            attachDomActionInterceptors();
+            startHybridSync();
+            // Verify session quietly in background
+            verifySession().then((ok) => {
+              if (ok) {
+                injectMultiplayerHUD();
+              }
+            }).catch(() => {});
+            return;
+          }
+        }
+      } catch (e) {}
     }
 
     const isAuthed = await verifySession();
@@ -1119,11 +1185,12 @@
       }
 
       const explicitRole = params.get('role');
-      const isSpectatorExplicit = explicitRole === 'spectator' || params.get('spectate') === 'true';
+      const isSpectatorExplicit = params.get('role') === 'spectator' || params.get('spectate') === 'true';
       if (isSpectatorExplicit && matchId) {
         window.__showGtLoadingOverlay(
           '👀 Spectator Mode Detected',
-          'Opening Live Digital Scorecard...'
+          'Opening Live Digital Scorecard...',
+          true
         );
         window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
         return;
@@ -1148,7 +1215,8 @@
               chkData.is_finished ? '🏁 Match Concluded' : '👀 Spectator Mode Detected',
               chkData.is_finished
                 ? 'Opening Verified Final Digital Scorecard...'
-                : 'Room has 2 active players — redirecting to Live Digital Scorecard...'
+                : 'Room has 2 active players — redirecting to Live Digital Scorecard...',
+              true
             );
             window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
             return;
@@ -1229,7 +1297,8 @@
               joinData.is_finished ? '🏁 Match Concluded' : '👀 Spectator Mode Detected',
               joinData.is_finished
                 ? 'Opening Verified Final Digital Scorecard...'
-                : 'Room has 2 active players — redirecting to Live Digital Scorecard...'
+                : 'Room has 2 active players — redirecting to Live Digital Scorecard...',
+              true
             );
             window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
             return;
@@ -1245,7 +1314,8 @@
       if (clientState.role === 'spectator') {
         window.__showGtLoadingOverlay(
           '👀 Spectator Mode Detected',
-          'Room has 2 active players — redirecting to Live Digital Scorecard...'
+          'Room has 2 active players — redirecting to Live Digital Scorecard...',
+          true
         );
         window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
         return;
@@ -1259,7 +1329,7 @@
       injectPlayer2InviteWidget();
       attachDomActionInterceptors();
       startHybridSync();
-      window.__hideGtLoadingOverlay();
+      window.__hideGtLoadingOverlay(true);
     } else {
       // Landing page (/11th/tracker or /tracker)
       renderUserBar();
@@ -1281,10 +1351,10 @@
       window.location.search.includes('game_system=aos') ||
       window.location.search.includes('system=aos');
     const sysId = isAosMode ? 'aos' : '40k';
-    window.__showGtLoadingOverlay(
-      isAosMode ? '⚡ Creating Age of Sigmar Room' : '🎲 Creating Match Room',
-      'Allocating tabletop room key & initializing mission setup...'
-    );
+    const loadingTitle = isAosMode ? '⚡ Creating Age of Sigmar Room' : '🎲 Creating Match Room';
+    const loadingSubtitle = 'Allocating tabletop room key & initializing mission setup...';
+    isNavigatingToRoom = true;
+    window.__showGtLoadingOverlay(loadingTitle, loadingSubtitle, true);
     try {
       const resp = await fetch('/api/tracker/room/create', {
         method: 'POST',
@@ -1303,17 +1373,29 @@
         const data = await resp.json();
         const mid = data.match_id || '';
         const isAosMatch = isAosMode || mid.startsWith('AOS-') || data.game_system === 'aos';
+        if (data.state && mid) {
+          data.state.id = mid;
+          data.state.match_id = mid;
+        }
+        try {
+          sessionStorage.setItem('gt_room_handoff', JSON.stringify({
+            matchId: mid,
+            role: data.role || 'player1',
+            gameSystem: isAosMatch ? 'aos' : '40k',
+            state: data.state || null,
+            user: currentUser || null,
+            loadingTitle: loadingTitle,
+            loadingSubtitle: loadingSubtitle,
+            ts: Date.now()
+          }));
+        } catch (e) {}
         if (isAosMatch) {
           if (data.state) {
-            data.state.id = mid;
-            data.state.match_id = mid;
             originalSetItem('omni-aos-tracker-state', JSON.stringify(data.state));
           }
           window.location.href = `/11th/tracker/aos?match_id=${encodeURIComponent(mid)}`;
         } else {
           if (data.state) {
-            data.state.id = mid;
-            data.state.match_id = mid;
             originalSetItem('gdm-11e-tracker-state', JSON.stringify(data.state));
           }
           window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(mid)}`;
@@ -1351,7 +1433,10 @@
 
     if (errDiv) errDiv.style.display = 'none';
     if (btn) { btn.disabled = true; btn.textContent = '...'; }
-    window.__showGtLoadingOverlay('🔗 Joining Tabletop Room', `Connecting to Room #${code}...`);
+    const loadingTitle = '🔗 Joining Tabletop Room';
+    const loadingSubtitle = `Connecting to Room #${code}...`;
+    isNavigatingToRoom = true;
+    window.__showGtLoadingOverlay(loadingTitle, loadingSubtitle, true);
 
     // Verify if room exists on the server!
     try {
@@ -1363,7 +1448,7 @@
       });
       const data = await resp.json();
       if (!resp.ok || !data.exists) {
-        window.__hideGtLoadingOverlay();
+        window.__hideGtLoadingOverlay(true);
         if (errDiv) {
           errDiv.textContent = `❌ Room "${code}" does not exist. Please check with your opponent.`;
           errDiv.style.display = 'block';
@@ -1374,9 +1459,10 @@
 
       const isAosMatch = isAosMode || code.startsWith('AOS-') || data.game_system === 'aos';
       const playBaseUrl = isAosMatch ? '/11th/tracker/aos' : '/11th/tracker/play';
+      const targetMid = data.match_id || code;
 
-      if (data.is_full) {
-        window.__hideGtLoadingOverlay();
+      if (data.is_full && !data.is_open_for_p2 && !data.is_referee && data.role !== 'player1' && data.role !== 'player2') {
+        window.__hideGtLoadingOverlay(true);
         const proceed = confirm(`⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). View Scorecard as Spectator?`);
         if (!proceed) {
           if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
@@ -1386,9 +1472,47 @@
         return;
       }
 
+      // Pre-join room during Lobby overlay so play.html/aos.html opens with zero second loading screen
+      try {
+        const myName = currentUser ? (currentUser.display_name || (currentUser.email ? currentUser.email.split('@')[0] : '')) : '';
+        const joinResp = await fetch(`/api/tracker/room/${encodeURIComponent(targetMid)}/join`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${getAuthToken()}`
+          },
+          body: JSON.stringify({
+            token: getAuthToken(),
+            player_name: myName || undefined
+          })
+        });
+        if (joinResp.ok) {
+          const joinData = await joinResp.json();
+          if (joinData.is_finished || joinData.role === 'spectator') {
+            window.location.href = `/scorecard/${encodeURIComponent(targetMid)}`;
+            return;
+          }
+          if (joinData.state) {
+            joinData.state.id = targetMid;
+            joinData.state.match_id = targetMid;
+            originalSetItem(isAosMatch ? 'omni-aos-tracker-state' : 'gdm-11e-tracker-state', JSON.stringify(joinData.state));
+          }
+          sessionStorage.setItem('gt_room_handoff', JSON.stringify({
+            matchId: targetMid,
+            role: joinData.role || 'player2',
+            gameSystem: isAosMatch ? 'aos' : '40k',
+            state: joinData.state || null,
+            user: currentUser || null,
+            loadingTitle: loadingTitle,
+            loadingSubtitle: loadingSubtitle,
+            ts: Date.now()
+          }));
+        }
+      } catch (e) {}
+
       window.location.href = `${playBaseUrl}?match_id=${encodeURIComponent(data.match_id || code)}`;
     } catch (err) {
-      window.__hideGtLoadingOverlay();
+      window.__hideGtLoadingOverlay(true);
       if (errDiv) {
         errDiv.textContent = 'Connection error checking room status. Please try again.';
         errDiv.style.display = 'block';

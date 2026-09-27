@@ -57,7 +57,7 @@
   <script src="/js/armory_svgs.js"></script>
   <script src="/js/armory.js"></script>
   <link rel="stylesheet" href="/tracker/tracker_sync.css?v=69.0">
-  <script src="/tracker/tracker_sync.js?v=70.0"></script>
+  <script src="/tracker/tracker_sync.js?v=71.0"></script>
 
   <style>
     :root {
@@ -147,6 +147,28 @@
       </div>
     </div>
   </div>
+  <script>
+    (function() {
+      try {
+        var raw = sessionStorage.getItem('gt_room_handoff');
+        if (raw) {
+          var h = JSON.parse(raw);
+          var p = new URLSearchParams(window.location.search);
+          var mid = (p.get('match_id') || p.get('room') || '').toUpperCase();
+          if (h && h.matchId && h.matchId.toUpperCase() === mid && (Date.now() - (h.ts || 0)) < 15000 && p.get('role') !== 'spectator') {
+            document.body.classList.add('gt-role-verified');
+            var ov = document.getElementById('gt-loading-overlay');
+            if (ov) {
+              ov.classList.add('gt-loading-hidden');
+              ov.style.opacity = '0';
+              ov.style.visibility = 'hidden';
+              ov.style.pointerEvents = 'none';
+            }
+          }
+        }
+      } catch (e) {}
+    })();
+  </script>
   <div id="root"></div>
   <script src="/tracker/bundle.js?v=67.0"></script>
 </body>
