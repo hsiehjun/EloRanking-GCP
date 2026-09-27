@@ -7459,6 +7459,7 @@ class PostgresDatabase:
                     %s, %s, %s, %s::jsonb, %s, NOW()
                 )
                 ON CONFLICT (id) DO UPDATE SET
+                    user_id = COALESCE(EXCLUDED.user_id, user_army_lists.user_id),
                     name = EXCLUDED.name,
                     faction = EXCLUDED.faction,
                     detachment = EXCLUDED.detachment,
@@ -7481,6 +7482,12 @@ class PostgresDatabase:
     def get_user_army_lists(self, user_id: Optional[str] = None, game_system: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieves all saved army lists for a given user or global defaults."""
         target_sys = (game_system.strip().lower() if game_system else None)
+        if target_sys in ("", "all", "any"):
+            target_sys = None
+        elif target_sys in ("wh40k_10e", "wh40k", "40k_11e"):
+            target_sys = "40k"
+        elif target_sys in ("aos_4e", "sigmar"):
+            target_sys = "aos"
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 if user_id:

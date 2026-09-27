@@ -77,10 +77,16 @@ NR_40K_FACTION_BOOKS: Dict[str, Tuple[int, str, str]] = {
     "tyranids": (1071245710, "b984-7317-81cc-20f", "Xenos - Tyranids"),
 }
 
-# In-memory cache for static NewRecruit assets (/_nuxt/*, /settings/*, /assets/*, HTML shell)
+# In-memory cache for static NewRecruit assets (/_nuxt/*, /settings/*, /assets/*, /api/book/*, HTML shell)
 _NR_STATIC_CACHE: Dict[str, Tuple[float, bytes, str]] = {}
 _NR_HTML_SHELL_CACHE: Optional[Tuple[float, str]] = None
-_NR_CACHE_TTL_SECONDS = 1800  # 30 minutes
+_NR_CACHE_TTL_SECONDS = 86400  # 24 hours
+
+try:
+    import urllib3
+    _NR_HTTP_POOL: Optional[Any] = urllib3.PoolManager(maxsize=16, retries=urllib3.Retry(total=2, backoff_factor=0.1))
+except Exception:
+    _NR_HTTP_POOL = None
 
 # Per-user NewRecruit Cloud Account session store (keyed by user_id or 'default')
 _NR_CLOUD_ACCOUNTS: Dict[str, Dict[str, Any]] = {}
@@ -151,10 +157,127 @@ def build_roster_text_for_nr_compiler(roster: Dict[str, Any], book_name: str) ->
 
 
 OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
+<style id="omnitactica-nr-clean-ui">
+  .support-banner,
+  .ad-banner,
+  .adbanner,
+  [class*="SupportNewRecruit"],
+  [class*="playwire"],
+  [id^="google_ads"],
+  [id^="div-gpt-ad"],
+  [id^="tyche"],
+  .pw-tag,
+  iframe[src*="googlesyndication"],
+  iframe[src*="doubleclick"],
+  iframe[src*="intergient"],
+  iframe[src*="playwire"] {
+    display: none !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+  }
+</style>
 <script id="omnitactica-nr-bridge">
 (function() {
   if (window.__omnitacticaNrBridgeInstalled) return;
   window.__omnitacticaNrBridgeInstalled = true;
+
+  // 0. Block all 3rd-party Ad/RTB/Telemetry requests (Playwire, Prebid, OpenX, Rubicon, GTag, Sentry)
+  // so 0 red "(blocked:other)" errors occur and page load is never delayed by ad auctions.
+  var AD_BLOCK_RE = /playwire|intergient|prebid|openx|rubiconproject|doubleclick|googlesyndication|googletagmanager|google-analytics|btloader|adnxs|criteo|pubmatic|sonobi|sharethrough|gumgum|3lift|casalemedia|amazon-adsystem|indexexchange|smartadserver|yieldmo|kargo|teads|onetag|medianet|bidswitch|taboola|outbrain|sentry\.io|report_client_error|error_snapshot_save/i;
+
+  try {
+    var origFetch = window.fetch ? window.fetch.bind(window) : null;
+    if (origFetch) {
+      window.fetch = function(input, init) {
+        var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+        if (url && AD_BLOCK_RE.test(url)) {
+          return Promise.resolve(new Response('{}', {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }));
+        }
+        if (typeof input === 'string' && /^https?:\/\/(?:api|www)\.newrecruit\.eu(\/.*)$/i.test(input)) {
+          input = input.replace(/^https?:\/\/(?:api|www)\.newrecruit\.eu/i, '');
+        }
+        return origFetch(input, init);
+      };
+    }
+
+    var origXhrOpen = XMLHttpRequest.prototype.open;
+    var origXhrSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      var urlStr = String(url || '');
+      this.__omniBlockedAd = AD_BLOCK_RE.test(urlStr);
+      if (this.__omniBlockedAd) {
+        return origXhrOpen.call(this, method, 'data:application/json,%7B%7D', true);
+      }
+      if (/^https?:\/\/(?:api|www)\.newrecruit\.eu(\/.*)$/i.test(urlStr)) {
+        arguments[1] = urlStr.replace(/^https?:\/\/(?:api|www)\.newrecruit\.eu/i, '');
+      }
+      return origXhrOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function(body) {
+      if (this.__omniBlockedAd) {
+        var self = this;
+        setTimeout(function() {
+          try {
+            if (typeof self.onload === 'function') self.onload();
+            if (typeof self.onreadystatechange === 'function') self.onreadystatechange();
+          } catch (e) {}
+        }, 0);
+        return;
+      }
+      return origXhrSend.apply(this, arguments);
+    };
+
+    var origCreateElement = document.createElement.bind(document);
+    document.createElement = function(tagName, options) {
+      var el = origCreateElement(tagName, options);
+      if (String(tagName || '').toLowerCase() === 'script') {
+        var origSetAttr = el.setAttribute.bind(el);
+        el.setAttribute = function(name, val) {
+          if (String(name || '').toLowerCase() === 'src' && AD_BLOCK_RE.test(String(val || ''))) {
+            return origSetAttr('src', 'data:text/javascript,//');
+          }
+          return origSetAttr(name, val);
+        };
+        try {
+          var protoDesc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+          if (protoDesc && protoDesc.set) {
+            Object.defineProperty(el, 'src', {
+              configurable: true,
+              enumerable: true,
+              get: function() { return protoDesc.get ? protoDesc.get.call(this) : this.getAttribute('src'); },
+              set: function(v) {
+                if (AD_BLOCK_RE.test(String(v || ''))) {
+                  v = 'data:text/javascript,//';
+                }
+                if (protoDesc.set) protoDesc.set.call(this, v);
+                else origSetAttr('src', v);
+              }
+            });
+          }
+        } catch (e) {}
+      }
+      return el;
+    };
+  } catch (e) {}
+
+  // Heal any corrupt legacy 'nr' IndexedDB (version < 200 created before Dexie) so Dexie never hits VersionError
+  try {
+    if (window.indexedDB && typeof window.indexedDB.databases === 'function') {
+      window.indexedDB.databases().then(function(dbs) {
+        if (!Array.isArray(dbs)) return;
+        dbs.forEach(function(d) {
+          if (d && d.name === 'nr' && d.version && d.version < 200) {
+            try { window.indexedDB.deleteDatabase('nr'); } catch (e) {}
+          }
+        });
+      }).catch(function() {});
+    }
+  } catch (e) {}
 
   var initialSearch = window.location.search || '';
   var initialPath = window.location.pathname || '';
@@ -175,16 +298,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
 
   // 1. Rewrite /nr/app/... path to /app/... BEFORE Nuxt vue-router initializes.
-  // If a specific list key was requested in the URL, boot on /app/Lists first so Nuxt does not
-  // prematurely fail to load the list before IndexedDB hydration and text-to-catalogue compilation complete.
   try {
     var curPath = window.location.pathname || '';
     if (requestedListKeyFromUrl) {
-      window.history.replaceState(
-        null,
-        '',
-        '/app/MyLists'
-      );
+      window.history.replaceState(null, '', '/app/MyLists');
     } else if (curPath.indexOf('/nr/app') === 0) {
       var mappedPath = curPath.replace(/^\/nr\/app/, '/app');
       if (!mappedPath || mappedPath === '/app' || mappedPath === '/app/') {
@@ -208,12 +325,28 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
   var isHydrating = false;
   var initialHydrationDone = false;
-  var storesConfigured = false;
+  var readyNotified = false;
   var playModeActivatedForKey = null;
   var compilingKeys = {};
   var knownListsMap = {}; // list_key -> signature string
   var syncInFlight = {};
   var pendingNrRowFromParent = null;
+  var cachedNrDb = null;
+
+  function getAuthHeaders(extraHeaders) {
+    var hdrs = Object.assign({}, extraHeaders || {});
+    try {
+      var tok = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || '';
+      if (!tok && document.cookie) {
+        var m = document.cookie.match(/(?:^|;\s*)(?:session_token|elo_auth_token|native_session_token)=([^;]+)/);
+        if (m && m[1]) tok = decodeURIComponent(m[1]);
+      }
+      if (tok) {
+        hdrs['Authorization'] = 'Bearer ' + tok;
+      }
+    } catch (e) {}
+    return hdrs;
+  }
 
   function notifyParent(payload) {
     try {
@@ -240,386 +373,20 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       row.list_key,
       row.name || '',
       row.totalCost || 0,
-      row.date_mod || '',
+      row._omnitactica_book_name || '',
+      row._omnitactica_detachment || '',
       row.version || 0,
       armyStr.length,
       enrichedStr
     ].join('|');
   }
 
-  // Extract lightweight unit summary (name, role, points, model_count, is_warlord) from globalThis.$debugOption when open
-  function extractLiveUnitsFromDebugOption(targetListKey) {
-    try {
-      var inst = window.$debugOption;
-      if (!inst || typeof inst.getForces !== 'function') return null;
-      var curUrl = window.location.pathname || '';
-      if (targetListKey && curUrl.indexOf('/Lists/') !== -1 && curUrl.indexOf(targetListKey) === -1) {
-        return null;
-      }
-      var enriched = [];
-      var forces = inst.getForces() || [];
-      for (var fIdx = 0; fIdx < forces.length; fIdx++) {
-        var force = forces[fIdx];
-        if (!force || typeof force.getCategories !== 'function') continue;
-        var cats = force.getCategories() || [];
-        for (var cIdx = 0; cIdx < cats.length; cIdx++) {
-          var cat = cats[cIdx];
-          if (!cat || cat.isConfiguration || typeof cat.getUnits !== 'function') continue;
-          var catName = cat.getName ? cat.getName() : (cat.name || 'Infantry');
-          var units = cat.getUnits() || [];
-          for (var uIdx = 0; uIdx < units.length; uIdx++) {
-            var u = units[uIdx];
-            if (!u) continue;
-            var uName = (typeof u.getCustomName === 'function' && u.getCustomName()) ||
-                        (typeof u.getName === 'function' ? u.getName() : (u.name || 'Unit'));
-            var pts = typeof u.getPointsCost === 'function' ? u.getPointsCost() : 0;
-            var models = typeof u.calcTotalUnitSize === 'function' ? u.calcTotalUnitSize() : 1;
-            var isWarlord = false;
-            try {
-              isWarlord = Boolean(u.isWarlord && (typeof u.isWarlord === 'function' ? u.isWarlord() : u.isWarlord));
-            } catch (e) {}
-            enriched.push({
-              name: uName,
-              role: catName,
-              points: Number(pts) || 0,
-              model_count: Math.max(1, Number(models) || 1),
-              is_warlord: isWarlord
-            });
-          }
-        }
-      }
-      return enriched.length > 0 ? enriched : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function cloneCleanRow(row) {
-    if (!row || typeof row !== 'object') return null;
-    try {
-      var copy = JSON.parse(JSON.stringify(row));
-      var liveUnits = extractLiveUnitsFromDebugOption(copy.list_key);
-      if (liveUnits && liveUnits.length > 0) {
-        copy._omnitactica_enriched_units = liveUnits;
-      }
-      return copy;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  async function postSyncAction(action, payload) {
-    try {
-      var res = await fetch('/api/armylists/nr_sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify(Object.assign({ action: action }, payload))
-      });
-      if (!res.ok) return null;
-      var data = await res.json();
-      notifyParent({
-        action: action,
-        list_key: payload.list_key || (payload.list && payload.list.list_key) || null,
-        army_list: data.army_list || null,
-        army_lists: data.army_lists || null,
-        deleted_id: data.deleted_id || null
-      });
-      return data;
-    } catch (e) {
-      console.warn('[OmniTactica Bridge] Sync error:', e);
-      return null;
-    }
-  }
-
-  async function syncUpsertRow(row) {
-    if (isHydrating || !row || !row.list_key || row._ephemeral_view) return;
-    var clean = cloneCleanRow(row);
-    if (!clean) return;
-    var sig = computeSignature(clean);
-    if (knownListsMap[clean.list_key] === sig) {
-      return;
-    }
-    if (syncInFlight[clean.list_key]) return;
-    knownListsMap[clean.list_key] = sig;
-    syncInFlight[clean.list_key] = true;
-    try {
-      await postSyncAction('upsert', { list: clean });
-    } finally {
-      syncInFlight[clean.list_key] = false;
-    }
-  }
-
-  async function syncDeleteKey(listKey) {
-    if (isHydrating || !listKey) return;
-    delete knownListsMap[listKey];
-    await postSyncAction('delete', { list_key: String(listKey) });
-  }
-
-  // 2. Hook IDBObjectStore.prototype.put / add / delete & IDBCursor.prototype.delete
-  try {
-    var origPut = IDBObjectStore.prototype.put;
-    IDBObjectStore.prototype.put = function(value, key) {
-      var req = origPut.apply(this, arguments);
-      try {
-        if (!isHydrating && this.name === 'lists' && value && value.list_key) {
-          var captured = value;
-          req.addEventListener('success', function() {
-            setTimeout(function() { syncUpsertRow(captured); }, 60);
-          });
-        }
-      } catch (e) {}
-      return req;
-    };
-
-    var origAdd = IDBObjectStore.prototype.add;
-    IDBObjectStore.prototype.add = function(value, key) {
-      var req = origAdd.apply(this, arguments);
-      try {
-        if (!isHydrating && this.name === 'lists' && value && value.list_key) {
-          var captured = value;
-          req.addEventListener('success', function() {
-            setTimeout(function() { syncUpsertRow(captured); }, 60);
-          });
-        }
-      } catch (e) {}
-      return req;
-    };
-
-    var origDelete = IDBObjectStore.prototype.delete;
-    IDBObjectStore.prototype.delete = function(key) {
-      var req = origDelete.apply(this, arguments);
-      try {
-        if (!isHydrating && this.name === 'lists' && key) {
-          var capturedKey = key;
-          req.addEventListener('success', function() {
-            if (typeof capturedKey === 'string') {
-              setTimeout(function() { syncDeleteKey(capturedKey); }, 60);
-            }
-          });
-        }
-      } catch (e) {}
-      return req;
-    };
-
-    var origCursorDelete = IDBCursor.prototype.delete;
-    IDBCursor.prototype.delete = function() {
-      var req = origCursorDelete.apply(this, arguments);
-      try {
-        var storeName = this.source ? (this.source.name || (this.source.objectStore && this.source.objectStore.name)) : '';
-        if (!isHydrating && storeName === 'lists') {
-          var val = this.value;
-          var pKey = (val && val.list_key) || this.primaryKey;
-          req.addEventListener('success', function() {
-            if (pKey && typeof pKey === 'string') {
-              setTimeout(function() { syncDeleteKey(pKey); }, 60);
-            }
-          });
-        }
-      } catch (e) {}
-      return req;
-    };
-  } catch (err) {
-    console.warn('[OmniTactica Bridge] IDB hook notice:', err);
-  }
-
-  // Helper to safely open existing 'nr' IndexedDB only AFTER Dexie has created it
-  async function openExistingNrDb() {
-    try {
-      if (indexedDB.databases) {
-        var dbs = await indexedDB.databases();
-        var nrExists = dbs && dbs.some(function(d) { return d.name === 'nr' && d.version >= 10; });
-        if (!nrExists) return null;
-      }
-      return await new Promise(function(resolve) {
-        var req = indexedDB.open('nr');
-        req.onsuccess = function() {
-          var db = req.result;
-          if (db && db.objectStoreNames && db.objectStoreNames.contains('lists')) {
-            resolve(db);
-          } else {
-            if (db) db.close();
-            resolve(null);
-          }
-        };
-        req.onerror = function() { resolve(null); };
-      });
-    } catch (e) {
-      return null;
-    }
-  }
-
-  async function readAllNrLists() {
-    var db = await openExistingNrDb();
-    if (!db) return null;
-    return await new Promise(function(resolve) {
-      try {
-        var tx = db.transaction('lists', 'readonly');
-        var store = tx.objectStore('lists');
-        var req = store.getAll();
-        req.onsuccess = function() {
-          var rows = req.result || [];
-          db.close();
-          resolve(rows);
-        };
-        req.onerror = function() {
-          db.close();
-          resolve(null);
-        };
-      } catch (e) {
-        db.close();
-        resolve(null);
-      }
-    });
-  }
-
-  // 3. Hydrate IndexedDB 'nr.lists' from OmniTactica backend on startup
-  async function hydrateFromOmniTactica() {
-    if (initialHydrationDone) return;
-    var insertedNewCount = 0;
-    try {
-      var db = null;
-      for (var attempt = 0; attempt < 25; attempt++) {
-        db = await openExistingNrDb();
-        if (db) break;
-        await new Promise(function(r) { setTimeout(r, 160); });
-      }
-      if (!db) {
-        initialHydrationDone = true;
-        return;
-      }
-
-      var res = await fetch('/api/armylists/nr_state', { credentials: 'same-origin' });
-      if (!res.ok) {
-        db.close();
-        initialHydrationDone = true;
-        return;
-      }
-      var state = await res.json();
-      if (state && state.cloud_account && state.cloud_account.connected) {
-        if (state.cloud_account.access && !localStorage.getItem('access')) {
-          localStorage.setItem('access', state.cloud_account.access);
-        }
-        if (state.cloud_account.refresh && !localStorage.getItem('refresh')) {
-          localStorage.setItem('refresh', state.cloud_account.refresh);
-        }
-      }
-
-      var serverRows = (state && Array.isArray(state.nr_rows)) ? state.nr_rows.slice() : [];
-      if (pendingNrRowFromParent && pendingNrRowFromParent.list_key) {
-        var alreadyInServer = serverRows.some(function(r) { return r && r.list_key === pendingNrRowFromParent.list_key; });
-        if (!alreadyInServer) {
-          serverRows.push(pendingNrRowFromParent);
-        }
-      }
-
-      isHydrating = true;
-      await new Promise(function(resolve) {
-        try {
-          var tx = db.transaction('lists', 'readwrite');
-          var store = tx.objectStore('lists');
-          var existingByKey = {};
-          var serverKeyMap = {};
-          serverRows.forEach(function(sr) {
-            if (sr && sr.list_key) {
-              serverKeyMap[sr.list_key] = sr;
-            }
-          });
-          var curReq = store.openCursor();
-          curReq.onsuccess = function(ev) {
-            var cursor = ev.target.result;
-            if (cursor) {
-              var item = cursor.value;
-              if (item && item.list_key) {
-                if (
-                  !serverKeyMap[item.list_key] &&
-                  item.list_key !== requestedListKeyFromUrl &&
-                  !syncInFlight[item.list_key] &&
-                  !knownListsMap[item.list_key]
-                ) {
-                  try { cursor.delete(); } catch (e) {}
-                  delete knownListsMap[item.list_key];
-                  cursor.continue();
-                  return;
-                }
-                if (existingByKey[item.list_key]) {
-                  // Remove duplicate entry for the same list_key
-                  try { cursor.delete(); } catch (e) {}
-                  cursor.continue();
-                  return;
-                }
-                var sRow = serverKeyMap[item.list_key];
-                if (sRow) {
-                  var itemArmyId = item.army ? String(item.army.id || '') : '';
-                  var localIsLegacySynthetic = (
-                    item.id_system === 1 ||
-                    (!item._compiled_by_nr && sRow._synthetic_text && (!item.army || itemArmyId.indexOf('army-') === 0 || itemArmyId.indexOf('root-') === 0))
-                  );
-                  var isRequestedTarget = (requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key);
-                  if (localIsLegacySynthetic || isRequestedTarget) {
-                    var toUpdate = Object.assign({}, item, sRow);
-                    if (item._compiled_by_nr && item.army && itemArmyId.indexOf('army-') !== 0 && itemArmyId.indexOf('root-') !== 0) {
-                      toUpdate.army = item.army;
-                      toUpdate._compiled_by_nr = true;
-                      delete toUpdate._synthetic_text;
-                    }
-                    if (store.keyPath && item[store.keyPath] !== undefined) {
-                      toUpdate[store.keyPath] = item[store.keyPath];
-                    }
-                    if (isRequestedTarget) {
-                      toUpdate.metadata = Object.assign({}, toUpdate.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
-                    }
-                    try { cursor.update(toUpdate); } catch (e) {}
-                    existingByKey[item.list_key] = toUpdate;
-                    knownListsMap[item.list_key] = computeSignature(toUpdate);
-                    cursor.continue();
-                    return;
-                  }
-                }
-                existingByKey[item.list_key] = item;
-                knownListsMap[item.list_key] = computeSignature(item);
-              }
-              cursor.continue();
-            } else {
-              // Cursor finished scanning existing rows; now insert any serverRows not already in IndexedDB
-              serverRows.forEach(function(sRow) {
-                if (!sRow || !sRow.list_key || existingByKey[sRow.list_key]) return;
-                var toInsert = Object.assign({}, sRow);
-                delete toInsert._id;
-                if (requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key) {
-                  toInsert.metadata = Object.assign({}, toInsert.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
-                }
-                try { store.put(toInsert); } catch (e) {}
-                knownListsMap[sRow.list_key] = computeSignature(toInsert);
-                insertedNewCount++;
-              });
-            }
-          };
-          tx.oncomplete = function() {
-            db.close();
-            resolve();
-          };
-          tx.onerror = function() {
-            db.close();
-            resolve();
-          };
-        } catch (e) {
-          db.close();
-          resolve();
-        }
-      });
-    } catch (e) {
-      console.warn('[OmniTactica Bridge] Hydration notice:', e);
-    } finally {
-      isHydrating = false;
-      initialHydrationDone = true;
-      await ensurePlayModeAndStoreHooks();
-    }
-  }
-
   function getNrStores() {
     var s = globalThis.__nr_stores;
     if (!s || !s.system || !s.user) return null;
+    try {
+      s.user.isSupporter = function() { return true; };
+    } catch (e) {}
     var pMap = (s.system._p && s.system._p._s) ? s.system._p._s : null;
     var listsStore = s.lists || s.list || (pMap ? pMap.get('lists') : null);
     var optionsStore = s.options || s.option || (pMap ? pMap.get('optionsStore') : null);
@@ -652,55 +419,609 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     };
   }
 
+  // Extract live unit summary, detachment, and book metadata from a live Army instance or $debugOption
+  function extractLiveArmyMetadata(targetListKey, explicitArmy, explicitBook) {
+    var out = { units: null, detachment: '', bookName: '', systemName: '' };
+    try {
+      var stores = getNrStores();
+      var inst = explicitArmy || null;
+      var bookInst = explicitBook || null;
+      if (!inst && stores && stores.list && stores.list.currentList) {
+        var cl = stores.list.currentList;
+        if (!targetListKey || (cl.row && cl.row.list_key === targetListKey)) {
+          inst = cl.army || null;
+          bookInst = bookInst || cl.book || null;
+        }
+      }
+      if (!inst && window.$debugOption && typeof window.$debugOption.getForces === 'function') {
+        var curUrl = window.location.pathname || '';
+        if (!targetListKey || curUrl.indexOf('/Lists/') === -1 || curUrl.indexOf(targetListKey) !== -1) {
+          inst = window.$debugOption;
+        }
+      }
+      if (bookInst) {
+        if (typeof bookInst.getName === 'function') out.bookName = bookInst.getName() || '';
+        else if (bookInst.name) out.bookName = bookInst.name;
+        var sysObj = typeof bookInst.getSystem === 'function' ? bookInst.getSystem() : bookInst.system;
+        if (sysObj && (sysObj.name || sysObj.short)) out.systemName = sysObj.name || sysObj.short || '';
+      }
+      if (!inst || typeof inst.getForces !== 'function') return out;
+      var enriched = [];
+      var forces = inst.getForces() || [];
+      for (var fIdx = 0; fIdx < forces.length; fIdx++) {
+        var force = forces[fIdx];
+        if (!force || typeof force.getCategories !== 'function') continue;
+        if (!out.bookName && typeof force.getBook === 'function' && force.getBook()) {
+          var fb = force.getBook();
+          out.bookName = (typeof fb.getName === 'function' ? fb.getName() : fb.name) || '';
+        }
+        var cats = force.getCategories() || [];
+        for (var cIdx = 0; cIdx < cats.length; cIdx++) {
+          var cat = cats[cIdx];
+          if (!cat || typeof cat.getUnits !== 'function') continue;
+          if (cat.isConfiguration) {
+            var cfgUnits = cat.getUnits() || [];
+            for (var cuIdx = 0; cuIdx < cfgUnits.length; cuIdx++) {
+              var cu = cfgUnits[cuIdx];
+              if (!cu) continue;
+              var cuName = (typeof cu.getName === 'function' ? cu.getName() : (cu.name || '')).toLowerCase();
+              if (cuName.indexOf('detachment') !== -1 && typeof cu.getChildInstances === 'function') {
+                var ch = cu.getChildInstances() || [];
+                for (var chIdx = 0; chIdx < ch.length; chIdx++) {
+                  var cInst = ch[chIdx];
+                  if (cInst && (!cInst.getAmount || cInst.getAmount() > 0)) {
+                    var detVal = typeof cInst.getName === 'function' ? cInst.getName() : (cInst.name || '');
+                    if (detVal && detVal.toLowerCase().indexOf('detachment') === -1) {
+                      out.detachment = detVal;
+                    }
+                  }
+                }
+              }
+            }
+            continue;
+          }
+          var catName = cat.getName ? cat.getName() : (cat.name || 'Infantry');
+          var units = cat.getUnits() || [];
+          for (var uIdx = 0; uIdx < units.length; uIdx++) {
+            var u = units[uIdx];
+            if (!u) continue;
+            var uName = (typeof u.getCustomName === 'function' && u.getCustomName()) ||
+                        (typeof u.getName === 'function' ? u.getName() : (u.name || 'Unit'));
+            var pts = typeof u.getPointsCost === 'function' ? u.getPointsCost() : 0;
+            var models = typeof u.calcTotalUnitSize === 'function' ? u.calcTotalUnitSize() : 1;
+            var isWarlord = false;
+            try {
+              isWarlord = Boolean(u.isWarlord && (typeof u.isWarlord === 'function' ? u.isWarlord() : u.isWarlord));
+            } catch (e) {}
+            enriched.push({
+              name: uName,
+              role: catName,
+              points: Number(pts) || 0,
+              model_count: Math.max(1, Number(models) || 1),
+              is_warlord: isWarlord
+            });
+          }
+        }
+      }
+      if (enriched.length > 0) out.units = enriched;
+    } catch (e) {}
+    return out;
+  }
+
+  function cloneCleanRow(row, explicitArmy, explicitBook) {
+    if (!row || typeof row !== 'object') return null;
+    try {
+      var copy = JSON.parse(JSON.stringify(row));
+      if (!copy.list_key && copy._id) {
+        copy.list_key = String(copy._id);
+      }
+      var stores = getNrStores();
+      if (explicitArmy && typeof explicitArmy.toJson === 'function') {
+        try {
+          copy.army = explicitArmy.toJson();
+          if (typeof explicitArmy.getPointsCost === 'function') {
+            copy.totalCost = explicitArmy.getPointsCost() || copy.totalCost || 0;
+          }
+        } catch (e) {}
+      } else if (stores && stores.list && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === copy.list_key) {
+        var curArmy = stores.list.currentList.army;
+        if (curArmy && typeof curArmy.toJson === 'function') {
+          try {
+            copy.army = curArmy.toJson();
+            if (typeof curArmy.getPointsCost === 'function') {
+              copy.totalCost = curArmy.getPointsCost() || copy.totalCost || 0;
+            }
+          } catch (e) {}
+        }
+      }
+      var meta = extractLiveArmyMetadata(copy.list_key, explicitArmy, explicitBook);
+      if (meta.units && meta.units.length > 0) {
+        copy._omnitactica_enriched_units = meta.units;
+      }
+      if (meta.detachment) {
+        copy._omnitactica_detachment = meta.detachment;
+      }
+      if (meta.bookName) {
+        copy._omnitactica_book_name = meta.bookName;
+      }
+      if (meta.systemName) {
+        copy._omnitactica_system_name = meta.systemName;
+      }
+      // Also resolve book & system name from stores.system.library.index if not set yet
+      if (stores && stores.system && stores.system.library && stores.system.library.index && copy.id_system) {
+        var sysData = stores.system.library.index[copy.id_system];
+        if (sysData) {
+          if (!copy._omnitactica_system_name && (sysData.name || sysData.short)) {
+            copy._omnitactica_system_name = sysData.name || sysData.short;
+          }
+          if (!copy._omnitactica_book_name && copy.id_book && sysData.books && sysData.books.index && sysData.books.index[copy.id_book]) {
+            copy._omnitactica_book_name = sysData.books.index[copy.id_book].name || '';
+          }
+        }
+      }
+      return copy;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function postSyncAction(action, payload) {
+    try {
+      var res = await fetch('/api/armylists/nr_sync', {
+        method: 'POST',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        credentials: 'same-origin',
+        body: JSON.stringify(Object.assign({ action: action }, payload))
+      });
+      if (!res.ok) return null;
+      var data = await res.json();
+      notifyParent({
+        action: action,
+        list_key: payload.list_key || (payload.list && payload.list.list_key) || null,
+        army_list: data.army_list || null,
+        army_lists: data.army_lists || null,
+        deleted_id: data.deleted_id || null
+      });
+      return data;
+    } catch (e) {
+      console.warn('[OmniTactica Bridge] Sync error:', e);
+      return null;
+    }
+  }
+
+  async function syncUpsertRow(row, explicitArmy, explicitBook) {
+    if (isHydrating || !row || row._ephemeral_view) return;
+    var clean = cloneCleanRow(row, explicitArmy, explicitBook);
+    if (!clean || !clean.list_key) return;
+    var sig = computeSignature(clean);
+    if (knownListsMap[clean.list_key] === sig) {
+      return;
+    }
+    if (syncInFlight[clean.list_key]) return;
+    knownListsMap[clean.list_key] = sig;
+    syncInFlight[clean.list_key] = true;
+    try {
+      await postSyncAction('upsert', { list: clean });
+    } finally {
+      syncInFlight[clean.list_key] = false;
+    }
+  }
+
+  async function syncDeleteKey(listKey) {
+    if (isHydrating || !listKey) return;
+    delete knownListsMap[listKey];
+    await postSyncAction('delete', { list_key: String(listKey) });
+  }
+
+  // 2. Hook IDBObjectStore.prototype.put / add / delete & IDBCursor.prototype.delete
+  try {
+    var origPut = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function(value, key) {
+      var req = origPut.apply(this, arguments);
+      try {
+        if (!isHydrating && this.name === 'lists' && value && (value.list_key || value._id)) {
+          var captured = value;
+          req.addEventListener('success', function() {
+            setTimeout(function() { syncUpsertRow(captured); }, 40);
+          });
+        }
+      } catch (e) {}
+      return req;
+    };
+
+    var origAdd = IDBObjectStore.prototype.add;
+    IDBObjectStore.prototype.add = function(value, key) {
+      var req = origAdd.apply(this, arguments);
+      try {
+        if (!isHydrating && this.name === 'lists' && value && (value.list_key || value._id)) {
+          var captured = value;
+          req.addEventListener('success', function() {
+            setTimeout(function() { syncUpsertRow(captured); }, 40);
+          });
+        }
+      } catch (e) {}
+      return req;
+    };
+
+    var origDelete = IDBObjectStore.prototype.delete;
+    IDBObjectStore.prototype.delete = function(key) {
+      var req = origDelete.apply(this, arguments);
+      try {
+        if (!isHydrating && this.name === 'lists' && key) {
+          var capturedKey = key;
+          req.addEventListener('success', function() {
+            if (typeof capturedKey === 'string') {
+              setTimeout(function() { syncDeleteKey(capturedKey); }, 40);
+            }
+          });
+        }
+      } catch (e) {}
+      return req;
+    };
+
+    var origCursorDelete = IDBCursor.prototype.delete;
+    IDBCursor.prototype.delete = function() {
+      var req = origCursorDelete.apply(this, arguments);
+      try {
+        var storeName = this.source ? (this.source.name || (this.source.objectStore && this.source.objectStore.name)) : '';
+        if (!isHydrating && storeName === 'lists') {
+          var val = this.value;
+          var pKey = (val && val.list_key) || this.primaryKey;
+          req.addEventListener('success', function() {
+            if (pKey && typeof pKey === 'string') {
+              setTimeout(function() { syncDeleteKey(pKey); }, 40);
+            }
+          });
+        }
+      } catch (e) {}
+      return req;
+    };
+  } catch (err) {
+    console.warn('[OmniTactica Bridge] IDB hook notice:', err);
+  }
+
+  // Safely open existing 'nr' IndexedDB ONLY after Dexie has initialized it (version >= 200)
+  // and reuse the connection without calling db.close() so Dexie's on("close") handler never fires.
+  async function openExistingNrDb() {
+    if (cachedNrDb) {
+      try {
+        if (cachedNrDb.objectStoreNames && cachedNrDb.objectStoreNames.contains('lists')) {
+          return cachedNrDb;
+        }
+      } catch (e) {
+        cachedNrDb = null;
+      }
+    }
+    try {
+      var stores = getNrStores();
+      if (!stores || !stores.list || !stores.list.listsInitiated) {
+        return null;
+      }
+      if (indexedDB.databases) {
+        var dbs = await indexedDB.databases();
+        var nrExists = dbs && dbs.some(function(d) { return d.name === 'nr' && d.version >= 200; });
+        if (!nrExists) return null;
+      }
+      return await new Promise(function(resolve) {
+        var req = indexedDB.open('nr');
+        req.onsuccess = function() {
+          var db = req.result;
+          if (db && db.objectStoreNames && db.objectStoreNames.contains('lists')) {
+            db.onversionchange = function() {
+              try { db.close(); } catch (e) {}
+              cachedNrDb = null;
+            };
+            cachedNrDb = db;
+            resolve(db);
+          } else {
+            resolve(null);
+          }
+        };
+        req.onerror = function() { resolve(null); };
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Read all lists from BOTH Pinia stores.list.listData (authoritative live UI state) AND IndexedDB nr.lists
+  async function readAllNrLists() {
+    var mergedMap = {};
+    var mergedList = [];
+    var stores = getNrStores();
+    if (stores && stores.list) {
+      if (Array.isArray(stores.list.listData)) {
+        for (var i = 0; i < stores.list.listData.length; i++) {
+          var r = stores.list.listData[i];
+          if (r && (r.list_key || r._id)) {
+            var k = String(r.list_key || r._id);
+            r.list_key = k;
+            mergedMap[k] = r;
+            mergedList.push(r);
+          }
+        }
+      }
+      if (stores.list.currentList && stores.list.currentList.row) {
+        var cr = stores.list.currentList.row;
+        var ck = String(cr.list_key || cr._id || '');
+        if (ck) {
+          cr.list_key = ck;
+          if (stores.list.currentList.army && typeof stores.list.currentList.army.toJson === 'function') {
+            try {
+              cr.army = stores.list.currentList.army.toJson();
+              cr.totalCost = stores.list.currentList.army.getPointsCost() || cr.totalCost || 0;
+            } catch (e) {}
+          }
+          if (!mergedMap[ck]) {
+            mergedMap[ck] = cr;
+            mergedList.push(cr);
+          } else {
+            mergedMap[ck] = Object.assign(mergedMap[ck], cr);
+          }
+        }
+      }
+    }
+
+    var db = await openExistingNrDb();
+    if (db) {
+      var idbRows = await new Promise(function(resolve) {
+        try {
+          var tx = db.transaction('lists', 'readonly');
+          var store = tx.objectStore('lists');
+          var req = store.getAll();
+          req.onsuccess = function() { resolve(req.result || []); };
+          req.onerror = function() { resolve([]); };
+        } catch (e) {
+          resolve([]);
+        }
+      });
+      for (var j = 0; j < idbRows.length; j++) {
+        var ir = idbRows[j];
+        if (ir && (ir.list_key || ir._id)) {
+          var ik = String(ir.list_key || ir._id);
+          ir.list_key = ik;
+          if (!mergedMap[ik]) {
+            mergedMap[ik] = ir;
+            mergedList.push(ir);
+          } else if (!mergedMap[ik].army && ir.army) {
+            mergedMap[ik].army = ir.army;
+          }
+        }
+      }
+    }
+
+    if (mergedList.length > 0 || (stores && stores.list && stores.list.listsInitiated)) {
+      return mergedList;
+    }
+    return null;
+  }
+
+  // 3. Hydrate NewRecruit from OmniTactica backend on startup AND sync any unsynced local lists UP to OmniTactica
+  async function hydrateFromOmniTactica() {
+    if (initialHydrationDone) return;
+    var unsyncedLocalToUpload = [];
+    try {
+      var stores = null;
+      for (var attempt = 0; attempt < 80; attempt++) {
+        stores = getNrStores();
+        if (stores && stores.list && stores.list.listsInitiated) break;
+        await new Promise(function(r) { setTimeout(r, 120); });
+      }
+      if (!stores || !stores.list) {
+        initialHydrationDone = true;
+        return;
+      }
+
+      var res = await fetch('/api/armylists/nr_state', {
+        headers: getAuthHeaders(),
+        credentials: 'same-origin'
+      });
+      if (!res.ok) {
+        initialHydrationDone = true;
+        return;
+      }
+      var state = await res.json();
+      if (state && state.cloud_account && state.cloud_account.connected) {
+        if (state.cloud_account.access && !localStorage.getItem('access')) {
+          localStorage.setItem('access', state.cloud_account.access);
+        }
+        if (state.cloud_account.refresh && !localStorage.getItem('refresh')) {
+          localStorage.setItem('refresh', state.cloud_account.refresh);
+        }
+      }
+
+      var serverRows = (state && Array.isArray(state.nr_rows)) ? state.nr_rows.slice() : [];
+      if (pendingNrRowFromParent && pendingNrRowFromParent.list_key) {
+        var alreadyInServer = serverRows.some(function(r) { return r && r.list_key === pendingNrRowFromParent.list_key; });
+        if (!alreadyInServer) {
+          serverRows.push(pendingNrRowFromParent);
+        }
+      }
+
+      var serverKeyMap = {};
+      serverRows.forEach(function(sr) {
+        if (sr && sr.list_key) {
+          serverKeyMap[sr.list_key] = sr;
+        }
+      });
+
+      // Check existing local lists in Pinia listData first — NEVER delete local lists; if not on server, queue them for upload!
+      var currentListData = Array.isArray(stores.list.listData) ? stores.list.listData : [];
+      var piniaKeyMap = {};
+      for (var pIdx = 0; pIdx < currentListData.length; pIdx++) {
+        var pRow = currentListData[pIdx];
+        if (!pRow || !pRow.list_key) continue;
+        piniaKeyMap[pRow.list_key] = pRow;
+        if (!serverKeyMap[pRow.list_key] && !pRow._ephemeral_view) {
+          unsyncedLocalToUpload.push(pRow);
+        }
+      }
+
+      // Merge serverRows into Pinia stores.list.listData
+      serverRows.forEach(function(sRow) {
+        if (!sRow || !sRow.list_key) return;
+        sRow.metadata = Object.assign(
+          { builder_settings: {}, custom_categories: [], custom_view: false },
+          sRow.metadata || {}
+        );
+        if (requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key) {
+          sRow.metadata.play_mode = Boolean(wantPlayModeFromUrl);
+        }
+        var existingPinia = piniaKeyMap[sRow.list_key];
+        if (!existingPinia) {
+          stores.list.listData.push(sRow);
+          piniaKeyMap[sRow.list_key] = sRow;
+          knownListsMap[sRow.list_key] = computeSignature(sRow);
+        } else {
+          var itemArmyId = existingPinia.army ? String(existingPinia.army.id || '') : '';
+          var localIsLegacySynthetic = (
+            existingPinia.id_system === 1 ||
+            (!existingPinia._compiled_by_nr && sRow._synthetic_text && (!existingPinia.army || itemArmyId.indexOf('army-') === 0 || itemArmyId.indexOf('root-') === 0))
+          );
+          if (localIsLegacySynthetic || (requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key)) {
+            Object.assign(existingPinia, sRow);
+          }
+          knownListsMap[sRow.list_key] = computeSignature(existingPinia);
+        }
+      });
+
+      try {
+        if (typeof stores.list.rebuildTreeData === 'function') {
+          stores.list.rebuildTreeData();
+        }
+      } catch (e) {}
+
+      // Also persist serverRows into IndexedDB nr.lists if available
+      var db = await openExistingNrDb();
+      if (db) {
+        isHydrating = true;
+        await new Promise(function(resolve) {
+          try {
+            var tx = db.transaction('lists', 'readwrite');
+            var store = tx.objectStore('lists');
+            var existingByKey = {};
+            var curReq = store.openCursor();
+            curReq.onsuccess = function(ev) {
+              var cursor = ev.target.result;
+              if (cursor) {
+                var item = cursor.value;
+                if (item && item.list_key) {
+                  if (existingByKey[item.list_key]) {
+                    try { cursor.delete(); } catch (e) {}
+                    cursor.continue();
+                    return;
+                  }
+                  existingByKey[item.list_key] = item;
+                  if (!serverKeyMap[item.list_key] && !item._ephemeral_view) {
+                    if (!unsyncedLocalToUpload.some(function(u) { return u.list_key === item.list_key; })) {
+                      unsyncedLocalToUpload.push(item);
+                    }
+                    if (!piniaKeyMap[item.list_key]) {
+                      stores.list.listData.push(item);
+                      piniaKeyMap[item.list_key] = item;
+                    }
+                  } else if (serverKeyMap[item.list_key]) {
+                    var sRow = serverKeyMap[item.list_key];
+                    var itemArmyId = item.army ? String(item.army.id || '') : '';
+                    var localIsLegacySynthetic = (
+                      item.id_system === 1 ||
+                      (!item._compiled_by_nr && sRow._synthetic_text && (!item.army || itemArmyId.indexOf('army-') === 0 || itemArmyId.indexOf('root-') === 0))
+                    );
+                    var isRequestedTarget = (requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key);
+                    if (localIsLegacySynthetic || isRequestedTarget) {
+                      var toUpdate = Object.assign({}, item, sRow);
+                      if (item._compiled_by_nr && item.army && itemArmyId.indexOf('army-') !== 0 && itemArmyId.indexOf('root-') !== 0) {
+                        toUpdate.army = item.army;
+                        toUpdate._compiled_by_nr = true;
+                        delete toUpdate._synthetic_text;
+                      }
+                      if (store.keyPath && item[store.keyPath] !== undefined) {
+                        toUpdate[store.keyPath] = item[store.keyPath];
+                      }
+                      try { cursor.update(toUpdate); } catch (e) {}
+                      existingByKey[item.list_key] = toUpdate;
+                    }
+                  }
+                }
+                cursor.continue();
+              } else {
+                serverRows.forEach(function(sRow) {
+                  if (!sRow || !sRow.list_key || existingByKey[sRow.list_key]) return;
+                  var toInsert = Object.assign({}, sRow);
+                  delete toInsert._id;
+                  try { store.put(toInsert); } catch (e) {}
+                });
+              }
+            };
+            tx.oncomplete = function() { resolve(); };
+            tx.onerror = function() { resolve(); };
+          } catch (e) {
+            resolve();
+          }
+        });
+        try {
+          if (typeof stores.list.rebuildTreeData === 'function') {
+            stores.list.rebuildTreeData();
+          }
+        } catch (e) {}
+      }
+    } catch (e) {
+      console.warn('[OmniTactica Bridge] Hydration notice:', e);
+    } finally {
+      isHydrating = false;
+      initialHydrationDone = true;
+      await ensurePlayModeAndStoreHooks();
+      if (!readyNotified) {
+        readyNotified = true;
+        notifyParent({ action: 'ready' });
+      }
+      for (var uIdx = 0; uIdx < unsyncedLocalToUpload.length; uIdx++) {
+        await syncUpsertRow(unsyncedLocalToUpload[uIdx]);
+      }
+    }
+  }
+
   async function upsertSingleRowToIdb(row) {
     if (!row || !row.list_key) return false;
+    var stores = getNrStores();
+    if (stores && stores.list && Array.isArray(stores.list.listData)) {
+      row.metadata = Object.assign(
+        { builder_settings: {}, custom_categories: [], custom_view: false },
+        row.metadata || {}
+      );
+      var idx = stores.list.listData.findIndex(function(r) { return r && r.list_key === row.list_key; });
+      if (idx === -1) {
+        stores.list.listData.unshift(row);
+      } else {
+        stores.list.listData.splice(idx, 1, Object.assign({}, stores.list.listData[idx], row));
+      }
+      try {
+        if (typeof stores.list.rebuildTreeData === 'function') {
+          stores.list.rebuildTreeData();
+        }
+      } catch (e) {}
+    }
     var db = await openExistingNrDb();
-    if (!db) return false;
+    if (!db) return true;
     var prevHydrating = isHydrating;
     isHydrating = true;
     return await new Promise(function(resolve) {
       try {
         var tx = db.transaction('lists', 'readwrite');
         var store = tx.objectStore('lists');
-        var updatedExisting = false;
-        var curReq = store.openCursor();
-        curReq.onsuccess = function(ev) {
-          var cursor = ev.target.result;
-          if (cursor) {
-            var existing = cursor.value;
-            if (existing && existing.list_key === row.list_key) {
-              if (!updatedExisting) {
-                var toPut = Object.assign({}, existing, row);
-                if (store.keyPath && existing[store.keyPath] !== undefined) {
-                  toPut[store.keyPath] = existing[store.keyPath];
-                }
-                try { cursor.update(toPut); } catch (e) {}
-                knownListsMap[row.list_key] = computeSignature(toPut);
-                updatedExisting = true;
-              } else {
-                try { cursor.delete(); } catch (e) {}
-              }
-            }
-            cursor.continue();
-          } else if (!updatedExisting) {
-            var toInsert = Object.assign({}, row);
-            delete toInsert._id;
-            try { store.put(toInsert); } catch (e) {}
-            knownListsMap[row.list_key] = computeSignature(toInsert);
-          }
-        };
+        var toPut = Object.assign({}, row);
+        delete toPut._id;
+        try { store.put(toPut); } catch (e) {}
+        knownListsMap[row.list_key] = computeSignature(toPut);
         tx.oncomplete = function() {
-          db.close();
           isHydrating = prevHydrating;
           resolve(true);
         };
         tx.onerror = function() {
-          db.close();
           isHydrating = prevHydrating;
           resolve(false);
         };
       } catch (e) {
-        db.close();
         isHydrating = prevHydrating;
         resolve(false);
       }
@@ -765,17 +1086,20 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
   var activatingPlayMode = false;
 
-  // 4. Hook NewRecruit Pinia stores to unlock Play Mode (Datasheets + Stratagems + Leaders) and auto-open requested list
+  // 4. Hook NewRecruit Pinia stores to unlock Play Mode, hook list mutations, and auto-open requested list
   async function ensurePlayModeAndStoreHooks() {
     var stores = getNrStores();
     if (!stores || !stores.user || !stores.list || !stores.system) return;
 
-    // Always unlock Play Mode features (Stratagems book 105, Combined Leader Profiles, Casualty Tracking)
     try {
       stores.user.isSupporter = function() { return true; };
     } catch (e) {}
 
-    // Ensure findListByKey finds any hydrated list regardless of currently selected game system
+    if (!readyNotified && stores.list.listsInitiated) {
+      readyNotified = true;
+      notifyParent({ action: 'ready' });
+    }
+
     if (!stores.list.__omniPatchedFind) {
       stores.list.__omniPatchedFind = true;
       var origFind = stores.list.findListByKey.bind(stores.list);
@@ -800,6 +1124,53 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         } catch (e) {}
         return await origSelect(rowOrKey, opts);
       };
+
+      // Hook addList, doSaveList, and removeList directly on Pinia listsStore so any list created/edited/deleted syncs immediately!
+      if (typeof stores.list.doSaveList === 'function') {
+        var origDoSaveList = stores.list.doSaveList.bind(stores.list);
+        stores.list.doSaveList = async function(listObj, localOnly) {
+          var res = await origDoSaveList(listObj, localOnly);
+          try {
+            if (listObj && listObj.row) {
+              setTimeout(function() {
+                syncUpsertRow(listObj.row, listObj.army, listObj.book);
+              }, 20);
+            }
+          } catch (e) {}
+          return res;
+        };
+      }
+
+      if (typeof stores.list.addList === 'function') {
+        var origAddList = stores.list.addList.bind(stores.list);
+        stores.list.addList = async function(listObj, selectIt) {
+          var res = await origAddList(listObj, selectIt);
+          try {
+            if (listObj && listObj.row) {
+              setTimeout(function() {
+                syncUpsertRow(listObj.row, listObj.army, listObj.book);
+              }, 20);
+            }
+          } catch (e) {}
+          return res;
+        };
+      }
+
+      if (typeof stores.list.removeList === 'function') {
+        var origRemoveList = stores.list.removeList.bind(stores.list);
+        stores.list.removeList = async function(rowObj) {
+          var keyToDelete = rowObj && (rowObj.list_key || rowObj._id);
+          var res = await origRemoveList(rowObj);
+          try {
+            if (keyToDelete) {
+              setTimeout(function() {
+                syncDeleteKey(String(keyToDelete));
+              }, 20);
+            }
+          } catch (e) {}
+          return res;
+        };
+      }
     }
 
     if (!initialHydrationDone || activatingPlayMode) return;
@@ -834,8 +1205,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
     activatingPlayMode = true;
     try {
-      await stores.list.loadListsFromIndexDB();
-
       var targetRow = Array.isArray(stores.list.listData)
         ? stores.list.listData.find(function(r) { return r && r.list_key === targetKey; })
         : null;
@@ -844,7 +1213,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         var rowToSeed = Object.assign({}, pendingNrRowFromParent);
         rowToSeed.metadata = Object.assign({}, rowToSeed.metadata || {}, { play_mode: Boolean(wantPlay) });
         await upsertSingleRowToIdb(rowToSeed);
-        await stores.list.loadListsFromIndexDB();
         targetRow = Array.isArray(stores.list.listData)
           ? stores.list.listData.find(function(r) { return r && r.list_key === targetKey; })
           : null;
@@ -877,7 +1245,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         freshStores.listsPage.editedList = loadedListObj;
       }
 
-      // Navigate Nuxt 3 router ($router on lists store) to /app/Lists/{targetKey}
       var router = stores.list.$router || (window.$nuxt && window.$nuxt.$router);
       var nowPath = window.location.pathname || '';
       if (router) {
@@ -906,7 +1273,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
 
-  // 5. Snapshot diff watcher to catch any edits, imports, or cursor deletions
+  // 5. Snapshot diff watcher to catch any edits, imports, or deletions across Pinia listData & IndexedDB
   async function pollListsDiff() {
     await ensurePlayModeAndStoreHooks();
     if (!initialHydrationDone || isHydrating) return;
@@ -940,7 +1307,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
     var rows = await readAllNrLists();
     if (!rows) return null;
-    var cleaned = rows.filter(function(r) { return r && !r._ephemeral_view; }).map(cloneCleanRow).filter(Boolean);
+    var cleaned = rows.filter(function(r) { return r && !r._ephemeral_view; }).map(function(r) { return cloneCleanRow(r); }).filter(Boolean);
     cleaned.forEach(function(r) {
       knownListsMap[r.list_key] = computeSignature(r);
     });
@@ -952,19 +1319,28 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     pollListsDiff: pollListsDiff,
     hydrateFromOmniTactica: hydrateFromOmniTactica,
     ensurePlayModeAndStoreHooks: ensurePlayModeAndStoreHooks,
-    getNrStores: getNrStores
+    getNrStores: getNrStores,
+    readAllNrLists: readAllNrLists
   };
 
   window.addEventListener('message', async function(ev) {
     var msg = ev && ev.data;
     if (!msg || msg.type !== 'OMNITACTICA_NR_COMMAND') return;
     if (msg.command === 'force_sync') {
-      forceFullSync();
+      await forceFullSync();
     } else if (msg.command === 'delete_list' && msg.list_key) {
       var delKey = String(msg.list_key);
       delete knownListsMap[delKey];
       if (pendingNrRowFromParent && pendingNrRowFromParent.list_key === delKey) {
         pendingNrRowFromParent = null;
+      }
+      var stDel = getNrStores();
+      if (stDel && stDel.list && Array.isArray(stDel.list.listData)) {
+        var dIdx = stDel.list.listData.findIndex(function(x) { return x && x.list_key === delKey; });
+        if (dIdx !== -1) {
+          stDel.list.listData.splice(dIdx, 1);
+          try { if (typeof stDel.list.rebuildTreeData === 'function') stDel.list.rebuildTreeData(); } catch (e) {}
+        }
       }
       var db = await openExistingNrDb();
       if (db) {
@@ -974,25 +1350,11 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           try {
             var tx = db.transaction('lists', 'readwrite');
             var store = tx.objectStore('lists');
-            var curReq = store.openCursor();
-            curReq.onsuccess = function(evCur) {
-              var cursor = evCur.target.result;
-              if (cursor) {
-                var it = cursor.value;
-                if (it && it.list_key === delKey) {
-                  try { cursor.delete(); } catch (e) {}
-                }
-                cursor.continue();
-              }
-            };
-            tx.oncomplete = function() { db.close(); isHydrating = prevH; resolve(); };
-            tx.onerror = function() { db.close(); isHydrating = prevH; resolve(); };
-          } catch (e) { db.close(); isHydrating = prevH; resolve(); }
+            try { store.delete(delKey); } catch (e) {}
+            tx.oncomplete = function() { isHydrating = prevH; resolve(); };
+            tx.onerror = function() { isHydrating = prevH; resolve(); };
+          } catch (e) { isHydrating = prevH; resolve(); }
         });
-      }
-      var stDel = getNrStores();
-      if (stDel && stDel.list) {
-        try { await stDel.list.loadListsFromIndexDB(); } catch (e) {}
       }
     } else if (msg.command === 'open_play_mode' && msg.list_key) {
       requestedListKeyFromUrl = String(msg.list_key);
@@ -1010,26 +1372,46 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           var rowToWrite = Object.assign({}, msg.nr_row);
           rowToWrite.metadata = Object.assign({}, rowToWrite.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
           await upsertSingleRowToIdb(rowToWrite);
-          var st = getNrStores();
-          if (st && st.list) {
-            try { await st.list.loadListsFromIndexDB(); } catch (e) {}
-          }
         }
       }
       await ensurePlayModeAndStoreHooks();
     } else if (msg.command === 'navigate' && msg.path) {
       try {
-        window.location.href = msg.path;
+        var storesNav = getNrStores();
+        var rtrNav = storesNav && storesNav.list && (storesNav.list.$router || (window.$nuxt && window.$nuxt.$router));
+        var cleanTarget = String(msg.path).replace(/^\/nr\/app/, '/app');
+        if (rtrNav) {
+          await rtrNav.push(cleanTarget);
+        } else {
+          window.location.href = msg.path;
+        }
       } catch (e) {}
     }
   });
 
+  // Fast 40ms early hook to unlock Supporter mode and store hooks as soon as Pinia initializes
+  var earlyHookCount = 0;
+  var earlyHookTimer = setInterval(function() {
+    earlyHookCount++;
+    var s = getNrStores();
+    if (s && s.user) {
+      try { s.user.isSupporter = function() { return true; }; } catch (e) {}
+      if (s.list && s.list.listsInitiated) {
+        ensurePlayModeAndStoreHooks();
+        clearInterval(earlyHookTimer);
+      }
+    }
+    if (earlyHookCount > 250) {
+      clearInterval(earlyHookTimer);
+    }
+  }, 40);
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function() {
-      setTimeout(hydrateFromOmniTactica, 150);
+      setTimeout(hydrateFromOmniTactica, 80);
     });
   } else {
-    setTimeout(hydrateFromOmniTactica, 150);
+    setTimeout(hydrateFromOmniTactica, 80);
   }
 
   setInterval(pollListsDiff, 900);
@@ -1039,9 +1421,11 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
 
 def inject_nr_bridge_into_html(html: str) -> str:
-    """Injects the OmniTactica <-> NewRecruit IndexedDB live sync & Play Mode bridge script at the top of <head>."""
+    """Injects the OmniTactica <-> NewRecruit IndexedDB live sync & Play Mode bridge script at the top of <head> and strips 3rd-party tracker tags."""
     if "omnitactica-nr-bridge" in html:
         return html
+    # Strip Google Tag Manager script tags from the shell HTML so the browser never requests them
+    html = re.sub(r"<script[^>]+googletagmanager[^>]*></script>", "", html, flags=re.IGNORECASE)
     if "<head>" in html:
         return html.replace("<head>", "<head>" + OMNITACTICA_NR_BRIDGE_SCRIPT, 1)
     if "<head " in html:
@@ -1082,25 +1466,40 @@ def proxy_nr_request(
 ) -> Tuple[int, bytes, str]:
     """
     Proxies static assets (/_nuxt/*, /settings/*, /assets/*) and API calls (/api/rpc, /api/book/*, /api/token)
-    to https://www.newrecruit.eu with in-memory caching for static assets.
+    to https://www.newrecruit.eu with in-memory caching for static assets and read-only library RPCs.
     Returns (status_code, content_bytes, content_type).
     """
     clean_path = path_with_query if path_with_query.startswith("/") else f"/{path_with_query}"
-    is_cacheable_static = (
-        method.upper() == "GET"
+    method_up = method.upper()
+
+    # Short-circuit client error telemetry RPCs so they never hit upstream
+    if method_up == "POST" and ("report_client_error" in clean_path or "error_snapshot_save" in clean_path):
+        return 200, b"{}", "application/json"
+
+    is_cacheable_get = (
+        method_up == "GET"
         and (
             clean_path.startswith("/_nuxt/")
             or clean_path.startswith("/settings/")
             or clean_path.startswith("/assets/")
             or clean_path.startswith("/icons/")
+            or clean_path.startswith("/api/book/")
             or clean_path in ("/assets.json", "/favicon.ico", "/favicon-32x32.png")
         )
     )
+    body_str = body.decode("utf-8", errors="ignore") if (body and method_up == "POST" and len(body) < 512) else ""
+    is_cacheable_rpc = (
+        method_up == "POST"
+        and clean_path.startswith("/api/rpc")
+        and any(m_name in body_str for m_name in ('"get_library"', '"get_countries"', '"get_timezones"', '"get_games"'))
+    )
 
+    cache_key = f"POST:{clean_path}:{body_str}" if is_cacheable_rpc else clean_path
     now = time.time()
-    if is_cacheable_static and clean_path in _NR_STATIC_CACHE:
-        ts, cached_bytes, cached_ct = _NR_STATIC_CACHE[clean_path]
-        if now - ts < _NR_CACHE_TTL_SECONDS:
+    if (is_cacheable_get or is_cacheable_rpc) and cache_key in _NR_STATIC_CACHE:
+        ts, cached_bytes, cached_ct = _NR_STATIC_CACHE[cache_key]
+        ttl = 3600 if is_cacheable_rpc else _NR_CACHE_TTL_SECONDS
+        if now - ts < ttl:
             return 200, cached_bytes, cached_ct
 
     target_url = f"{NR_BASE_URL}{clean_path}"
@@ -1115,15 +1514,28 @@ def proxy_nr_request(
                 canonical = hdr_key.title() if hdr_key.islower() else hdr_key
                 headers[canonical] = req_headers[hdr_key]
 
-    req = urllib.request.Request(target_url, data=body if method.upper() != "GET" else None, headers=headers, method=method.upper())
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:
-            status = resp.status
-            data = resp.read()
+        if _NR_HTTP_POOL is not None:
+            resp = _NR_HTTP_POOL.request(
+                method_up,
+                target_url,
+                body=body if method_up != "GET" else None,
+                headers=headers,
+                timeout=15.0,
+            )
+            status = int(resp.status)
+            data = bytes(resp.data or b"")
             content_type = resp.headers.get("Content-Type", "application/octet-stream")
-            if is_cacheable_static and status == 200:
-                _NR_STATIC_CACHE[clean_path] = (now, data, content_type)
-            return status, data, content_type
+        else:
+            req = urllib.request.Request(target_url, data=body if method_up != "GET" else None, headers=headers, method=method_up)
+            with urllib.request.urlopen(req, timeout=15.0) as uresp:
+                status = uresp.status
+                data = uresp.read()
+                content_type = uresp.headers.get("Content-Type", "application/octet-stream")
+
+        if (is_cacheable_get or is_cacheable_rpc) and status == 200:
+            _NR_STATIC_CACHE[cache_key] = (now, data, content_type)
+        return status, data, content_type
     except urllib.error.HTTPError as he:
         err_body = he.read() if hasattr(he, "read") else b""
         ct = he.headers.get("Content-Type", "application/json") if he.headers else "application/json"
@@ -1147,7 +1559,8 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(roster.get("nr_row"), dict) and roster["nr_row"].get("list_key"):
         row = dict(roster["nr_row"])
         row["name"] = roster.get("name") or row.get("name") or "Army Roster"
-        row["totalCost"] = int(roster.get("points") or row.get("totalCost") or 0)
+        if row.get("totalCost") is None:
+            row["totalCost"] = int(roster.get("points") or 0)
         if roster.get("_ephemeral_view"):
             row["_ephemeral_view"] = True
         army_obj = row.get("army") if isinstance(row.get("army"), dict) else {}

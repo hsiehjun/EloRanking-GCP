@@ -5252,6 +5252,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             )
             self.send_response(status)
             self.send_header("Content-Type", content_type)
+            if status == 200:
+                if clean_path.startswith("_nuxt/"):
+                    self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+                else:
+                    self.send_header("Cache-Control", "public, max-age=3600")
             self.end_headers()
             if not is_head:
                 self.wfile.write(resp_bytes)

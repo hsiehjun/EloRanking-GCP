@@ -78,16 +78,31 @@ async def api_upload_armylist(request: Request):
     parsed["nr_row"] = nr_row
     return {"success": True, "army_list": parsed}
 
-@router.get("/api/armylists", summary="Get saved army lists for current user")
-async def api_get_armylists(request: Request, game_system: Optional[str] = Query(None)):
+def _resolve_user_id(request: Request) -> Optional[str]:
     auth_mgr = get_auth_manager()
-    session_token = request.cookies.get("session_token")
+    candidates: List[str] = []
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
-        session_token = auth_header.split(" ", 1)[1]
-    user = auth_mgr.get_session(session_token) if session_token else None
-    user_id = user["id"] if user else None
+        tok = auth_header.split(" ", 1)[1].strip()
+        if tok and tok not in ("null", "undefined"):
+            candidates.append(tok)
+    for cookie_name in ("session_token", "elo_auth_token", "native_session_token"):
+        c_val = request.cookies.get(cookie_name)
+        if c_val and c_val not in ("null", "undefined") and c_val not in candidates:
+            candidates.append(c_val)
+    for tok in candidates:
+        try:
+            user = auth_mgr.get_session(tok)
+            if user and user.get("id"):
+                return str(user["id"])
+        except Exception:
+            pass
+    return None
 
+
+@router.get("/api/armylists", summary="Get saved army lists for current user")
+async def api_get_armylists(request: Request, game_system: Optional[str] = Query(None)):
+    user_id = _resolve_user_id(request)
     db = get_database()
     lists = db.get_user_army_lists(user_id=user_id, game_system=game_system)
     return {"success": True, "army_lists": lists}
@@ -99,14 +114,7 @@ async def api_save_armylist(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
     
-    auth_mgr = get_auth_manager()
-    session_token = request.cookies.get("session_token")
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        session_token = auth_header.split(" ", 1)[1]
-    user = auth_mgr.get_session(session_token) if session_token else None
-    user_id = user["id"] if user else None
-
+    user_id = _resolve_user_id(request)
     db = get_database()
     saved = db.save_user_army_list(user_id=user_id, list_data=body)
     return {"success": True, "army_list": saved}
@@ -114,13 +122,7 @@ async def api_save_armylist(request: Request):
 @router.get("/api/armylists/nr_state", summary="Get NewRecruit IndexedDB hydration state and cloud connection status")
 async def api_get_nr_state(request: Request):
     from newrecruit_integration import get_nr_state_payload
-    auth_mgr = get_auth_manager()
-    session_token = request.cookies.get("session_token")
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        session_token = auth_header.split(" ", 1)[1]
-    user = auth_mgr.get_session(session_token) if session_token else None
-    user_id = user["id"] if user else None
+    user_id = _resolve_user_id(request)
 
     db = get_database()
     saved_lists = list(db.get_user_army_lists(user_id=user_id) or [])
@@ -148,14 +150,7 @@ async def api_post_nr_sync(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-    auth_mgr = get_auth_manager()
-    session_token = request.cookies.get("session_token")
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        session_token = auth_header.split(" ", 1)[1]
-    user = auth_mgr.get_session(session_token) if session_token else None
-    user_id = user["id"] if user else None
-
+    user_id = _resolve_user_id(request)
     db = get_database()
 
     def _save_and_propagate(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -192,14 +187,7 @@ async def api_post_nr_cloud_connect(request: Request):
     except Exception:
         body = {}
 
-    auth_mgr = get_auth_manager()
-    session_token = request.cookies.get("session_token")
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        session_token = auth_header.split(" ", 1)[1]
-    user = auth_mgr.get_session(session_token) if session_token else None
-    user_id = user["id"] if user else None
-
+    user_id = _resolve_user_id(request)
     db = get_database()
     return await asyncio.to_thread(
         handle_nr_cloud_connect,
@@ -213,14 +201,7 @@ async def api_post_nr_cloud_connect(request: Request):
 
 @router.get("/api/armylists/{list_id}", summary="Get single army list by ID")
 async def api_get_armylist(list_id: str, request: Request):
-    auth_mgr = get_auth_manager()
-    session_token = request.cookies.get("session_token")
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        session_token = auth_header.split(" ", 1)[1]
-    user = auth_mgr.get_session(session_token) if session_token else None
-    user_id = user["id"] if user else None
-
+    user_id = _resolve_user_id(request)
     db = get_database()
     item = db.get_user_army_list(list_id, user_id=user_id)
     if not item:
@@ -363,14 +344,7 @@ async def api_wahapedia_warscroll(name: str = Query(...), faction: Optional[str]
 
 @router.delete("/api/armylists/{list_id}", summary="Delete an army list")
 async def api_delete_armylist(list_id: str, request: Request):
-    auth_mgr = get_auth_manager()
-    session_token = request.cookies.get("session_token")
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        session_token = auth_header.split(" ", 1)[1]
-    user = auth_mgr.get_session(session_token) if session_token else None
-    user_id = user["id"] if user else None
-
+    user_id = _resolve_user_id(request)
     db = get_database()
     success = db.delete_user_army_list(list_id, user_id=user_id)
     clean_key = str(list_id or "").strip()
@@ -418,7 +392,13 @@ async def api_nr_static_get_proxy(request: Request, subpath: Optional[str] = Non
     status, data, content_type = await asyncio.to_thread(
         proxy_nr_request, full_path, "GET", None, dict(request.headers)
     )
-    return Response(content=data, status_code=status, media_type=content_type.split(";")[0])
+    resp_headers: Dict[str, str] = {}
+    if status == 200:
+        if request.url.path.startswith("/_nuxt/"):
+            resp_headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            resp_headers["Cache-Control"] = "public, max-age=3600"
+    return Response(content=data, status_code=status, media_type=content_type.split(";")[0], headers=resp_headers)
 
 
 @router.post("/api/rpc", include_in_schema=False)

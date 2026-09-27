@@ -3323,7 +3323,7 @@ async function loadHubArmyLists() {
 
   try {
     const [res, nrState] = await Promise.all([
-      window.api.getArmyLists(),
+      window.api.getArmyLists('all'),
       window.api.getNewRecruitState ? window.api.getNewRecruitState().catch(() => null) : Promise.resolve(null)
     ]);
     const lists = (res && res.army_lists) ? res.army_lists : [];
@@ -3443,6 +3443,23 @@ function renderHubArmyLists(lists) {
    OPTION 3 HYBRID: EMBEDDED NEWRECRUIT STUDIO DRAWER & CLOUD SYNC CONTROLLERS
    ========================================================================== */
 
+let _nrStudioLoadTimer = null;
+
+function hideNewRecruitStudioLoading() {
+  if (_nrStudioLoadTimer) {
+    clearInterval(_nrStudioLoadTimer);
+    _nrStudioLoadTimer = null;
+  }
+  const overlay = document.getElementById('hub-nr-studio-loading-overlay');
+  if (overlay && overlay.style.display !== 'none') {
+    overlay.style.opacity = '0';
+    overlay.style.pointerEvents = 'none';
+    setTimeout(() => {
+      if (overlay) overlay.style.display = 'none';
+    }, 220);
+  }
+}
+
 function openNewRecruitStudioForList(listId) {
   const list = (hubSavedLists || []).find(l => l.id === listId || l.list_key === listId);
   let listKey = '';
@@ -3469,6 +3486,24 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
     ? `Editing "${listTitle}" • All changes & deletions sync to My Hub automatically`
     : 'Create, modify, or delete rosters in NewRecruit • Changes sync to My Hub automatically';
 
+  // If the Studio iframe is already mounted & warm, reuse it without reloading from scratch!
+  const existingIframe = document.getElementById('hub-nr-studio-iframe');
+  if (existingIframe && existingIframe.contentWindow) {
+    const subEl = document.getElementById('hub-nr-studio-subtitle');
+    if (subEl) subEl.textContent = subtitle;
+    const closeBtn = document.getElementById('hub-btn-close-nr-studio');
+    if (closeBtn) {
+      closeBtn.disabled = false;
+      closeBtn.innerHTML = '✅ Done & Sync to Hub';
+    }
+    modal.style.display = 'flex';
+    hideNewRecruitStudioLoading();
+    if (safePath && safePath !== '/nr/app/Lists') {
+      navigateNewRecruitStudio(safePath);
+    }
+    return;
+  }
+
   modal.innerHTML = `
     <div class="hub-nr-studio-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:min(1460px, 100%); height:min(92vh, 960px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 30px 90px rgba(0,0,0,0.92); font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
       <!-- Studio Top Toolbar -->
@@ -3482,21 +3517,15 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
                 🟢 Live Auto-Sync Active
               </span>
             </div>
-            <div style="font-size:11px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px;">
+            <div id="hub-nr-studio-subtitle" style="font-size:11px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px;">
               ${escapeHtml(subtitle)}
             </div>
           </div>
         </div>
 
-        <!-- Quick Studio Navigation & Done Controls -->
-        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-          <button onclick="navigateNewRecruitStudio('/nr/app/Lists')" style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.32); font-weight:800; font-size:11.5px; padding:6px 11px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
-            📋 My Lists
-          </button>
-          <button onclick="navigateNewRecruitStudio('/nr/app/MySystems')" style="background:rgba(168,85,247,0.14); color:#c084fc; border:1px solid rgba(168,85,247,0.32); font-weight:800; font-size:11.5px; padding:6px 11px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
-            ➕ Game Systems
-          </button>
-          <button onclick="openNewRecruitCloudModal()" style="background:rgba(245,158,11,0.14); color:#fbbf24; border:1px solid rgba(245,158,11,0.32); font-weight:800; font-size:11.5px; padding:6px 11px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+        <!-- Cloud Sync & Done Controls -->
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <button onclick="openNewRecruitCloudModal()" style="background:rgba(245,158,11,0.14); color:#fbbf24; border:1px solid rgba(245,158,11,0.32); font-weight:800; font-size:11.5px; padding:6px 12px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
             🔗 Cloud Sync
           </button>
           <button id="hub-btn-close-nr-studio" onclick="closeNewRecruitStudioDrawer()" style="background:#10b981; color:#0f172a; border:none; font-weight:900; font-size:12px; padding:6px 14px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
@@ -3505,8 +3534,17 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
         </div>
       </div>
 
-      <!-- Embedded Same-Origin NewRecruit App Iframe -->
+      <!-- Embedded Same-Origin NewRecruit App Iframe + Loading Screen Overlay -->
       <div style="flex:1; position:relative; background:#090d16; overflow:hidden;">
+        <div id="hub-nr-studio-loading-overlay" style="position:absolute; inset:0; z-index:20; background:radial-gradient(circle at center, #0f172a 0%, #070b14 100%); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px; text-align:center; transition:opacity 0.22s ease;">
+          <div class="spinner" style="width:42px; height:42px; border-width:3.5px; border-top-color:#38bdf8;"></div>
+          <div style="font-size:16px; font-weight:900; color:#f8fafc; letter-spacing:0.01em;">
+            Loading NewRecruit Army Studio...
+          </div>
+          <div style="font-size:12.5px; color:#94a3b8; max-width:420px; line-height:1.5;">
+            Initializing faction books, detachment rules &amp; live Hub synchronization...
+          </div>
+        </div>
         <iframe
           id="hub-nr-studio-iframe"
           src="${escapeHtml(safePath)}"
@@ -3518,6 +3556,30 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
     </div>
   `;
   modal.style.display = 'flex';
+
+  const iframe = document.getElementById('hub-nr-studio-iframe');
+  if (_nrStudioLoadTimer) clearInterval(_nrStudioLoadTimer);
+  const startedAt = Date.now();
+  _nrStudioLoadTimer = setInterval(() => {
+    if (Date.now() - startedAt > 7500) {
+      hideNewRecruitStudioLoading();
+      return;
+    }
+    try {
+      const doc = iframe && iframe.contentDocument;
+      const win = iframe && iframe.contentWindow;
+      if (win && win.__nr_stores && win.__nr_stores.list && win.__nr_stores.list.listsInitiated) {
+        hideNewRecruitStudioLoading();
+        return;
+      }
+      if (doc && doc.body) {
+        const hasRenderedUi = doc.querySelector('.bar, .folder, .listLine, table, button.btn, .system, #__nuxt > div');
+        if (hasRenderedUi && (doc.body.innerText || '').trim().length > 20) {
+          hideNewRecruitStudioLoading();
+        }
+      }
+    } catch (e) {}
+  }, 150);
 }
 
 function navigateNewRecruitStudio(targetPath) {
@@ -3526,6 +3588,7 @@ function navigateNewRecruitStudio(targetPath) {
   try {
     if (iframe.contentWindow) {
       iframe.contentWindow.postMessage({ type: 'OMNITACTICA_NR_COMMAND', command: 'navigate', path: targetPath }, '*');
+      return;
     }
     iframe.src = targetPath;
   } catch (e) {
@@ -3536,13 +3599,27 @@ function navigateNewRecruitStudio(targetPath) {
 async function closeNewRecruitStudioDrawer() {
   const modal = document.getElementById('hub-newrecruit-studio-modal');
   const iframe = document.getElementById('hub-nr-studio-iframe');
+  const closeBtn = document.getElementById('hub-btn-close-nr-studio');
+  if (closeBtn) {
+    closeBtn.disabled = true;
+    closeBtn.innerHTML = '⏳ Syncing to Hub...';
+  }
   try {
     if (iframe && iframe.contentWindow && iframe.contentWindow.__omnitacticaNrBridge) {
-      await iframe.contentWindow.__omnitacticaNrBridge.forceFullSync();
+      const syncRes = await iframe.contentWindow.__omnitacticaNrBridge.forceFullSync();
+      if (syncRes && Array.isArray(syncRes.army_lists)) {
+        hubSavedLists = syncRes.army_lists;
+        window.hubSavedLists = hubSavedLists;
+        renderHubArmyLists(hubSavedLists);
+      }
     } else if (iframe && iframe.contentWindow) {
       iframe.contentWindow.postMessage({ type: 'OMNITACTICA_NR_COMMAND', command: 'force_sync' }, '*');
     }
   } catch (e) {}
+  if (closeBtn) {
+    closeBtn.disabled = false;
+    closeBtn.innerHTML = '✅ Done & Sync to Hub';
+  }
   if (modal) {
     modal.style.display = 'none';
   }
@@ -3555,6 +3632,11 @@ if (!window.__omnitacticaNrParentListenerBound) {
   window.addEventListener('message', async function(ev) {
     const msg = ev && ev.data;
     if (!msg || msg.type !== 'OMNITACTICA_NR_SYNC_EVENT') return;
+
+    hideNewRecruitStudioLoading();
+    if (msg.action === 'ready') {
+      return;
+    }
 
     const statusBadge = document.getElementById('hub-nr-studio-live-status');
     if (statusBadge) {
@@ -4118,20 +4200,31 @@ function exportArmyListToBcp(listId) {
 
 async function removeNrListKeyFromSameOriginIdb(listKey) {
   if (!listKey) return;
+  let handledByIframe = false;
   try {
     document.querySelectorAll('iframe[src*="/nr/"], iframe[src*="/newrecruit/"]').forEach(ifr => {
       if (ifr && ifr.contentWindow) {
         ifr.contentWindow.postMessage({ type: 'OMNITACTICA_NR_COMMAND', command: 'delete_list', list_key: listKey }, '*');
+        handledByIframe = true;
       }
     });
   } catch (e) {}
+  if (handledByIframe) return;
   try {
+    if (typeof indexedDB.databases === 'function') {
+      const dbs = await indexedDB.databases();
+      const nrMeta = (dbs || []).find(d => d && d.name === 'nr');
+      if (!nrMeta || (nrMeta.version && nrMeta.version < 200)) return;
+    }
     await new Promise(resolve => {
       const req = indexedDB.open('nr');
+      req.onupgradeneeded = (ev) => {
+        try { ev.target.transaction.abort(); } catch (e) {}
+        resolve();
+      };
       req.onsuccess = () => {
         const db = req.result;
         if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('lists')) {
-          if (db) db.close();
           resolve();
           return;
         }
@@ -4149,10 +4242,9 @@ async function removeNrListKeyFromSameOriginIdb(listKey) {
               cursor.continue();
             }
           };
-          tx.oncomplete = () => { db.close(); resolve(); };
-          tx.onerror = () => { db.close(); resolve(); };
+          tx.oncomplete = () => { resolve(); };
+          tx.onerror = () => { resolve(); };
         } catch (e) {
-          db.close();
           resolve();
         }
       };
