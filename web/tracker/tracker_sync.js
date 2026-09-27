@@ -1118,7 +1118,8 @@
         matchId = `BCP-${evId}-R${rNum}-T${tNum}`;
       }
 
-      const isSpectatorExplicit = params.get('role') === 'spectator' || params.get('spectate') === 'true';
+      const explicitRole = params.get('role');
+      const isSpectatorExplicit = explicitRole === 'spectator' || params.get('spectate') === 'true';
       if (isSpectatorExplicit && matchId) {
         window.__showGtLoadingOverlay(
           '👀 Spectator Mode Detected',
@@ -1218,7 +1219,7 @@
           body: JSON.stringify({
             token: getAuthToken(),
             player_name: myName || undefined,
-            claim_role: isSpectatorExplicit ? 'spectator' : undefined
+            claim_role: isSpectatorExplicit ? 'spectator' : (explicitRole || undefined)
           })
         });
         if (resp.ok) {
@@ -1797,7 +1798,7 @@
                   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
                     <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:var(--win, #22c55e); text-transform:uppercase; font-family:'JetBrains Mono',monospace;">
                       <span style="width:7px; height:7px; border-radius:50%; background:var(--win, #22c55e); display:inline-block;"></span>
-                      🟢 Active Match (Round ${rNum})
+                      Active Match (Round ${rNum})
                     </span>
                     <span style="font-size:11px; color:var(--text-secondary, #94a3b8); font-family:'JetBrains Mono',monospace;">#${escapeHtml(shortId)} • 📅 Created ${dateLabel}</span>
                   </div>
@@ -3532,7 +3533,7 @@
   }
   window.injectMobileBottomDock = injectMobileBottomDock;
 
-  // 9. Interactive Army List Inspector Modal & Wahapedia Rules Viewer
+  // 9. Interactive Army List Inspector Modal & NewRecruit Play Mode Viewer
   async function loadRoomArmyLists() {
     if (!clientState.matchId) return;
     try {
@@ -3541,8 +3542,33 @@
         const data = await resp.json();
         if (data.p1_army_list) clientState.p1ArmyList = data.p1_army_list;
         if (data.p2_army_list) clientState.p2ArmyList = data.p2_army_list;
-        injectMultiplayerHUD();
       }
+      // Auto-attach preloaded list from My Hub ("⚔️ Play") if current seat has no list yet
+      const isP1 = clientState.role !== 'player2';
+      const myCurrentList = isP1 ? clientState.p1ArmyList : clientState.p2ArmyList;
+      if (!myCurrentList && clientState.role !== 'spectator') {
+        const preloadedRaw = sessionStorage.getItem('omni_preloaded_list') || localStorage.getItem('omni_preloaded_list');
+        if (preloadedRaw) {
+          try {
+            const preloadedList = JSON.parse(preloadedRaw);
+            if (preloadedList && (preloadedList.id || preloadedList.list_key || preloadedList.name)) {
+              const role = clientState.role === 'player2' ? 'player2' : 'player1';
+              const attachResp = await fetch(`/api/tracker/room/${clientState.matchId}/armylist`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+                body: JSON.stringify({ role: role, army_list: preloadedList })
+              });
+              if (attachResp.ok) {
+                const attachData = await attachResp.json().catch(() => ({}));
+                const savedList = attachData.army_list || preloadedList;
+                if (role === 'player1') clientState.p1ArmyList = savedList;
+                else clientState.p2ArmyList = savedList;
+              }
+            }
+          } catch (err) {}
+        }
+      }
+      injectMultiplayerHUD();
     } catch(e) {}
   }
 
@@ -3598,12 +3624,14 @@
         body: JSON.stringify({ role: role, army_list: listData })
       });
       if (resp.ok) {
-        if (role === 'player1') clientState.p1ArmyList = listData;
-        else clientState.p2ArmyList = listData;
+        const resData = await resp.json().catch(() => ({}));
+        const attachedList = resData.army_list || listData;
+        if (role === 'player1') clientState.p1ArmyList = attachedList;
+        else clientState.p2ArmyList = attachedList;
         clientState.activeListTab = 'my';
+        clientState.rosterViewMode = 'play';
         injectMultiplayerHUD();
         renderArmyListModal();
-        alert(`🎉 Attached "${listData.name || 'Army List'}" to match!`);
       } else {
         const errData = await resp.json().catch(() => ({}));
         alert('Error attaching army list: ' + (errData.detail || resp.statusText));
@@ -3675,15 +3703,16 @@
   window.gtImportAndAttach = async function() {
     const textarea = document.getElementById('gt-import-raw-input');
     if (!textarea || !textarea.value.trim()) {
-      alert('Please paste your army roster text or JSON.');
+      alert('Please paste your NewRecruit share link or army roster text.');
       return;
     }
     const rawText = textarea.value.trim();
     try {
+      const isUrl = /^https?:\/\//i.test(rawText) && rawText.toLowerCase().includes('newrecruit');
       const parseResp = await fetch('/api/armylists/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: rawText })
+        body: JSON.stringify(isUrl ? { url: rawText } : { text: rawText })
       });
       if (!parseResp.ok) throw new Error('Failed to parse roster');
       const pData = await parseResp.json();
@@ -3705,53 +3734,106 @@
     }
   };
 
+  function resolveTrackerNrListKey(list) {
+    if (!list) return 'roster';
+    const rawKey = String(
+      list.list_key ||
+      (list.nr_row && list.nr_row.list_key) ||
+      list.id ||
+      'roster'
+    ).trim();
+    return rawKey.startsWith('nr_') ? rawKey.slice(3) : rawKey;
+  }
+
+  function renderSavedListsGridInTracker(lists) {
+    const grid = document.getElementById('gt-saved-lists-grid');
+    if (!grid) return;
+    if (!Array.isArray(lists) || lists.length === 0) {
+      grid.innerHTML = `<div style="color:#64748b; font-size:12px; grid-column:1/-1;">No saved lists found yet. Paste a NewRecruit link/text below or build one in My Hub's NewRecruit Studio.</div>`;
+      return;
+    }
+    grid.innerHTML = lists.map(l => `
+      <div class="gt-saved-list-card" data-list-id="${escapeHtml(l.id)}" style="background:#131d33; border:1px solid rgba(56,189,248,0.18); border-radius:10px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; gap:10px;">
+        <div>
+          <div style="font-weight:800; font-size:14px; color:#f8fafc;">${escapeHtml(l.name || 'Unnamed List')}</div>
+          <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-top:2px;">${escapeHtml(l.faction || '40k')} • ${escapeHtml(l.detachment || 'Core')}</div>
+          <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${l.points || 2000} pts • 🎮 Play Mode Ready</div>
+        </div>
+        <button onclick="window.gtAttachSavedList('${escapeHtml(l.id)}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:8px 12px; border-radius:6px; cursor:pointer;">
+          ⚔️ Attach This List
+        </button>
+      </div>
+    `).join('');
+  }
+
+  // Listen for live NewRecruit edits/creations/deletions inside Game Tracker
+  if (!window.__gtNrSyncListenerBound) {
+    window.__gtNrSyncListenerBound = true;
+    window.addEventListener('message', (ev) => {
+      const msg = ev && ev.data;
+      if (!msg || msg.type !== 'OMNITACTICA_NR_SYNC_EVENT') return;
+      if (Array.isArray(msg.army_lists)) {
+        window.gtSavedListsCache = msg.army_lists;
+        renderSavedListsGridInTracker(msg.army_lists);
+      }
+      const updated = msg.army_list;
+      if (updated && typeof updated === 'object') {
+        const uKey = resolveTrackerNrListKey(updated);
+        const matchSlot = (slotObj) => {
+          if (!slotObj) return false;
+          return slotObj.id === updated.id || resolveTrackerNrListKey(slotObj) === uKey;
+        };
+        if (matchSlot(clientState.p1ArmyList)) {
+          clientState.p1ArmyList = updated;
+        }
+        if (matchSlot(clientState.p2ArmyList)) {
+          clientState.p2ArmyList = updated;
+        }
+        const titleEl = document.getElementById('gt-active-roster-title');
+        const metaEl = document.getElementById('gt-active-roster-meta');
+        const isP1 = clientState.role === 'player1';
+        const curActive = clientState.activeListTab === 'opponent'
+          ? (isP1 ? clientState.p2ArmyList : clientState.p1ArmyList)
+          : (isP1 ? clientState.p1ArmyList : clientState.p2ArmyList);
+        if (curActive && matchSlot(curActive)) {
+          if (titleEl) titleEl.textContent = curActive.name || 'Army Roster';
+          if (metaEl) metaEl.textContent = `${curActive.faction || 'Warhammer 40,000'} • ${curActive.detachment || 'Core Detachment'} • ${curActive.points || 2000} PTS`;
+        }
+      }
+    });
+  }
+
   function renderTrackerNativeRoster(list) {
-    const activeMode = clientState.rosterViewMode || 'enriched';
-
-    let units = list.units || [];
-    let armyRules = list.army_rules || [];
-    let detachmentRules = list.detachment_rules || [];
-
-    if ((!units || units.length === 0) && list.list_data) {
-      let ld = list.list_data;
-      if (typeof ld === 'string') {
-        try { ld = JSON.parse(ld); } catch(e) {}
-      }
-      if (ld && typeof ld === 'object') {
-        if (ld.units && ld.units.length > 0) units = ld.units;
-        if (ld.army_rules && ld.army_rules.length > 0) armyRules = ld.army_rules;
-        if (ld.detachment_rules && ld.detachment_rules.length > 0) detachmentRules = ld.detachment_rules;
-        if (ld.stratagems && ld.stratagems.length > 0) stratagems = ld.stratagems;
-      }
-    }
-
-    let stratagems = list.stratagems || [];
-    if (stratagems.length === 0 && list.list_data) {
-      try {
-        const ld = typeof list.list_data === 'string' ? JSON.parse(list.list_data) : list.list_data;
-        if (ld && ld.stratagems) stratagems = ld.stratagems;
-      } catch(e) {}
-    }
+    const activeMode = (clientState.rosterViewMode === 'text' || clientState.rosterViewMode === 'edit')
+      ? clientState.rosterViewMode
+      : 'play';
 
     const name = list.name || 'Army Roster';
     const faction = list.faction || 'Warhammer 40,000';
     const detachment = list.detachment || 'Core Detachment';
     const points = list.points || 2000;
     const warlord = list.warlord || '';
+    const listKey = resolveTrackerNrListKey(list);
 
-    // Top Header with Dual View Mode Switcher
+    // Top Header with NewRecruit Play Mode Switcher
     const headerHtml = `
-      <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-        <div>
-          <span style="font-size:15px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(name)}</span>
-          <span style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:8px;">${escapeHtml(faction)} • ${escapeHtml(detachment)} • ${points} PTS</span>
-          ${warlord ? `<span style="font-size:12px; color:#facc15; font-weight:700; margin-left:8px;">👑 ${escapeHtml(warlord)}</span>` : ''}
+      <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; flex-shrink:0;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0;">
+          <span id="gt-active-roster-title" style="font-size:14.5px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(name)}</span>
+          <span id="gt-active-roster-meta" style="font-size:12px; color:#38bdf8; font-weight:700;">${escapeHtml(faction)} • ${escapeHtml(detachment)} • ${points} PTS</span>
+          ${warlord ? `<span style="font-size:12px; color:#facc15; font-weight:700;">👑 ${escapeHtml(warlord)}</span>` : ''}
+          <span style="font-size:10.5px; font-weight:800; padding:2px 7px; border-radius:999px; background:rgba(16,185,129,0.16); color:#34d399; border:1px solid rgba(16,185,129,0.35);">
+            ${activeMode === 'edit' ? '🛠️ NewRecruit Builder' : '🎮 NewRecruit Play Mode'}
+          </span>
         </div>
-        <div style="display:flex; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:3px; gap:4px;">
-          <button onclick="window.gtToggleRosterViewMode('enriched')" style="background:${activeMode==='enriched'?'#0284c7':'transparent'}; color:${activeMode==='enriched'?'#fff':'#94a3b8'}; border:none; padding:4px 10px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
-            ⚡ Enriched
+        <div style="display:flex; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:3px; gap:4px; flex-wrap:wrap;">
+          <button onclick="window.gtToggleRosterViewMode('play')" style="background:${activeMode==='play'?'#0284c7':'transparent'}; color:${activeMode==='play'?'#fff':'#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
+            🎮 Play Mode (Datasheets & Stratagems)
           </button>
-          <button onclick="window.gtToggleRosterViewMode('text')" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:4px 10px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
+          <button onclick="window.gtToggleRosterViewMode('edit')" style="background:${activeMode==='edit'?'#7c3aed':'transparent'}; color:${activeMode==='edit'?'#fff':'#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
+            🛠️ Edit in NewRecruit
+          </button>
+          <button onclick="window.gtToggleRosterViewMode('text')" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
             📄 Raw Text
           </button>
         </div>
@@ -3769,315 +3851,30 @@
               📋 Copy Raw Text
             </button>
           </div>
-          <pre style="flex:1; margin:0; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#e2e8f0; line-height:1.55; white-space:pre-wrap; overflow-y:auto; word-break:break-word; max-height:70vh;">${escapeHtml(rawText)}</pre>
+          <pre style="flex:1; margin:0; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#e2e8f0; line-height:1.55; white-space:pre-wrap; overflow-y:auto; word-break:break-word; max-height:72vh;">${escapeHtml(rawText)}</pre>
         </div>
       `;
     }
 
-    const categories = {
-      'Epic Heroes & Characters': [],
-      'Battleline': [],
-      'Infantry & Elites': [],
-      'Mounted & Fast Attack': [],
-      'Vehicles & Monsters': [],
-      'Transports & Dedicated': [],
-      'Other Datasheets': []
-    };
+    const iframeUrl = activeMode === 'edit'
+      ? `/nr/app/Lists/${encodeURIComponent(listKey)}?embed=tracker`
+      : `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=tracker`;
 
-    units.forEach((u, idx) => {
-      const role = (u.role || '').toLowerCase();
-      if (u.is_warlord || role.includes('character') || role.includes('epic hero') || role.includes('leader')) {
-        categories['Epic Heroes & Characters'].push({ ...u, _idx: idx });
-      } else if (role.includes('battleline')) {
-        categories['Battleline'].push({ ...u, _idx: idx });
-      } else if (role.includes('mounted') || role.includes('biker') || role.includes('cavalry')) {
-        categories['Mounted & Fast Attack'].push({ ...u, _idx: idx });
-      } else if (role.includes('vehicle') || role.includes('monster') || role.includes('walker') || role.includes('dreadnought')) {
-        categories['Vehicles & Monsters'].push({ ...u, _idx: idx });
-      } else if (role.includes('transport')) {
-        categories['Transports & Dedicated'].push({ ...u, _idx: idx });
-      } else if (role.includes('infantry') || role.includes('elites')) {
-        categories['Infantry & Elites'].push({ ...u, _idx: idx });
-      } else {
-        categories['Other Datasheets'].push({ ...u, _idx: idx });
-      }
-    });
-
-    let contentHtml = '';
-
-    function formatWahaText(text) {
-      if (!text) return '';
-      if (typeof text !== 'string') text = String(text);
-      let formatted = text
-        .replace(/<span class=["']?kwb["']?>\s*([^<]+?)\s*<\/span>/gi, '<span class="kwb-badge">$1</span>')
-        .replace(/<span class=["']?tooltip[^"']*["']?>\s*([^<]+?)\s*<\/span>/gi, '$1')
-        .replace(/<a [^>]*>([^<]+)<\/a>/gi, '$1');
-      formatted = formatted.replace(/<\/?(script|iframe|object|embed|style|form|input|button)[^>]*>/gi, '');
-      return formatted;
-    }
-
-    if (units.length > 0) {
-      contentHtml += `
-        <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-          <div>
-            <span style="font-size:15px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(name)}</span>
-            <span style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:8px;">${escapeHtml(faction)} • ${escapeHtml(detachment)} • ${points} PTS</span>
-            ${warlord ? `<span style="font-size:12px; color:#facc15; font-weight:700; margin-left:8px;">👑 ${escapeHtml(warlord)}</span>` : ''}
-          </div>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:16px; padding:16px; overflow-y:auto; max-height:75vh; background:#070b14;">
-      `;
-
-      // Army & Detachment Rules
-      if (armyRules.length > 0 || detachmentRules.length > 0) {
-        contentHtml += `
-          <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(56, 189, 248, 0.25); border-radius:12px; padding:12px 16px;">
-            <div style="font-size:13px; font-weight:800; color:#38bdf8; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-              <span>📜</span> Army & Detachment Rules
-            </div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:10px;">
-              ${armyRules.map(ar => `
-                <div style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px;">
-                  <div style="font-weight:800; font-size:13px; color:#f8fafc; margin-bottom:4px;">🛡️ ${escapeHtml(ar.name)}</div>
-                  <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${formatWahaText(ar.description || '')}</div>
-                </div>
-              `).join('')}
-              ${detachmentRules.map(dr => `
-                <div style="background:#070b14; border:1px solid rgba(192,132,252,0.25); border-radius:8px; padding:10px;">
-                  <div style="font-weight:800; font-size:13px; color:#c084fc; margin-bottom:4px;">⚡ ${escapeHtml(dr.name)}</div>
-                  <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${formatWahaText(dr.description || '')}</div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        `;
-      }
-
-      // Detachment Stratagems
-      if (stratagems.length > 0) {
-        contentHtml += `
-          <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(239, 68, 68, 0.25); border-radius:12px; padding:12px 16px;">
-            <div style="font-size:13px; font-weight:800; color:#f87171; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-              <span>⚔️</span> Detachment Stratagems <span style="font-size:11px; color:#94a3b8; font-weight:normal;">(${stratagems.length})</span>
-            </div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:10px;">
-              ${stratagems.map(st => `
-                <div style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:6px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <b style="font-size:12px; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(st.name)}</b>
-                    <span class="badge" style="background:rgba(239,68,68,0.2); color:#ef4444; font-size:10px; font-weight:800; border:1px solid rgba(239,68,68,0.4); padding:1px 5px;">${escapeHtml(st.cp_cost || '1 CP')}</span>
-                  </div>
-                  <div style="display:flex; flex-wrap:wrap; gap:4px; font-size:9.5px;">
-                    ${st.type ? `<span style="color:#38bdf8; background:rgba(56,189,248,0.1); padding:1px 4px; border-radius:3px;">${escapeHtml(st.type)}</span>` : ''}
-                    ${st.phase ? `<span style="color:#facc15; background:rgba(250,204,21,0.1); padding:1px 4px; border-radius:3px;">🕒 ${escapeHtml(st.phase)}</span>` : ''}
-                    ${st.turn ? `<span style="color:#a855f7; background:rgba(168,85,247,0.1); padding:1px 4px; border-radius:3px;">${escapeHtml(st.turn)}</span>` : ''}
-                  </div>
-                  <div style="font-size:11px; color:#94a3b8; line-height:1.4; white-space:pre-wrap;">${formatWahaText(st.description || '')}</div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        `;
-      }
-
-      // Helper to group identical units
-      function groupIdenticalUnits(catUnits) {
-        const grouped = [];
-        const map = new Map();
-
-        catUnits.forEach(u => {
-          const wKey = (u.weapons || []).map(w => `${w.name}-${w.Range || w.range}-${w.A}-${w.skill || w.BS || w.WS}-${w.S}-${w.AP}-${w.D}`).sort().join('|');
-          const aKey = (u.abilities || []).map(a => `${a.name}`).sort().join('|');
-          const sKey = u.stats ? `${u.stats.M}-${u.stats.T}-${u.stats.SV}-${u.stats.INV}-${u.stats.W}-${u.stats.LD}-${u.stats.OC}` : '';
-          const key = `${u.name}||${u.enhancement || ''}||${u.is_warlord ? '1' : '0'}||${sKey}||${wKey}||${aKey}`;
-
-          if (map.has(key)) {
-            const existing = map.get(key);
-            existing.quantity = (existing.quantity || 1) + (u.quantity || 1);
-            existing.totalPoints += (u.points || 0);
-            existing._indices.push(u._idx);
-          } else {
-            const entry = {
-              ...u,
-              quantity: u.quantity || 1,
-              unitPoints: u.points || 0,
-              totalPoints: u.points || 0,
-              _indices: [u._idx]
-            };
-            map.set(key, entry);
-            grouped.push(entry);
-          }
-        });
-
-        return grouped;
-      }
-
-      for (const [catName, rawUnits] of Object.entries(categories)) {
-        if (rawUnits.length === 0) continue;
-        const catUnits = groupIdenticalUnits(rawUnits);
-        const totalUnitsInCat = rawUnits.length;
-        const catIcon = catName.includes('Character') ? '👑' : (catName.includes('Battleline') ? '🛡️' : (catName.includes('Vehicle') ? '🚜' : (catName.includes('Mounted') ? '🚀' : '⚔️')));
-        
-        contentHtml += `
-          <div>
-            <div style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-              <span>${catIcon}</span> ${catName} <span style="font-size:11px; color:#64748b; font-weight:normal;">(${totalUnitsInCat})</span>
-            </div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(290px, 1fr)); gap:10px;">
-              ${catUnits.map(u => {
-                const uName = u.name || 'Unit';
-                const uPts = u.unitPoints || u.points || 0;
-                const totalPts = u.totalPoints || uPts;
-                const uQty = u.quantity || 1;
-                const uCount = u.model_count || 1;
-                const stats = u.stats || { M: '6"', T: 4, SV: '3+', INV: '-', W: 2, LD: '6+', OC: 1 };
-                const weapons = u.weapons || [];
-                const abilities = u.abilities || [];
-                const rules = u.rules || [];
-
-                const enhName = (u.enhancement_detail && u.enhancement_detail.name) || u.enhancement || '';
-                const enhDetail = u.enhancement_detail || (list.available_enhancements || []).find(e => e.name && e.name.toLowerCase() === enhName.toLowerCase()) || {};
-                const enhDesc = enhDetail.description || '';
-                const enhCost = enhDetail.cost || enhDetail.points || (u.enhancement_pts ? `+${u.enhancement_pts} pts` : '');
-
-                return `
-                  <div class="gt-unit-card" style="background:#0f172a; border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.45)' : (enhName ? 'rgba(192,132,252,0.4)' : 'rgba(255,255,255,0.08)')}; border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px; transition:all 0.2s;">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
-                      <div style="min-width:0; flex:1;">
-                        <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
-                          ${uQty > 1 ? `
-                            <span class="badge" style="background:#0284c7; color:#fff; font-size:11px; font-weight:800; padding:1px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace;">${uQty}x</span>
-                          ` : (uCount > 1 ? `<span style="font-size:11px; font-weight:800; color:#38bdf8; font-family:'JetBrains Mono',monospace;">${uCount}x</span>` : '')}
-                          <b style="font-size:13px; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(uName)}</b>
-                          ${u.is_warlord ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; font-size:10px; font-weight:800; border:1px solid rgba(245,158,11,0.4); padding:1px 5px;">👑 WARLORD</span>' : ''}
-                        </div>
-                        ${enhName ? `<div style="font-size:11px; color:#c084fc; font-weight:700; margin-top:2px;">✨ ${escapeHtml(enhName)} ${enhCost ? `(${escapeHtml(String(enhCost))})` : ''}</div>` : ''}
-                        ${(u.keywords && u.keywords.length > 0) ? `
-                          <div style="display:flex; flex-wrap:wrap; gap:3px; margin-top:4px;">
-                            ${u.keywords.map(k => `<span style="font-size:9px; color:#94a3b8; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); padding:0px 4px; border-radius:3px;">${escapeHtml(k)}</span>`).join('')}
-                          </div>
-                        ` : ''}
-                      </div>
-                      ${totalPts > 0 ? `
-                        <span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; font-size:11px; font-weight:800; font-family:'JetBrains Mono',monospace; flex-shrink:0; text-align:right;">
-                          ${uQty > 1 ? `${totalPts} PTS <span style="font-size:9px; color:#94a3b8; font-weight:normal;">(${uPts} ea)</span>` : `${totalPts} PTS`}
-                        </span>
-                      ` : ''}
-                    </div>
-
-                    <!-- Statline Bar -->
-                    <div style="display:grid; grid-template-columns:repeat(7, 1fr); background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:4px 2px; text-align:center; font-family:'JetBrains Mono',monospace;">
-                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">M</div><div style="font-size:11px; color:#fff; font-weight:800;">${stats.M || '6"'}</div></div>
-                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">T</div><div style="font-size:11px; color:#fff; font-weight:800;">${stats.T || 4}</div></div>
-                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">SV</div><div style="font-size:11px; color:#fff; font-weight:800;">${stats.SV || '3+'}</div></div>
-                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">INV</div><div style="font-size:11px; color:#38bdf8; font-weight:800;">${stats.INV || '-'}</div></div>
-                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">W</div><div style="font-size:11px; color:#ef4444; font-weight:800;">${stats.W || 2}</div></div>
-                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">LD</div><div style="font-size:11px; color:#fff; font-weight:800;">${stats.LD || '6+'}</div></div>
-                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">OC</div><div style="font-size:11px; color:#10b981; font-weight:800;">${stats.OC || 1}</div></div>
-                    </div>
-
-                    <!-- Weapons Table (Mobile Responsive) -->
-                    ${weapons.length > 0 ? `
-                      <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:6px; overflow-x:auto; -webkit-overflow-scrolling:touch;">
-                        <div style="min-width:300px;">
-                          <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:3px 6px; background:rgba(255,255,255,0.04); font-size:9px; font-weight:800; color:#94a3b8; font-family:'JetBrains Mono',monospace; text-transform:uppercase;">
-                            <div>Weapon</div><div style="text-align:center;">Rng</div><div style="text-align:center;">A</div><div style="text-align:center;">BS/WS</div><div style="text-align:center;">S</div><div style="text-align:center;">AP</div><div style="text-align:center;">D</div>
-                          </div>
-                          ${weapons.map(w => `
-                            <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:4px 6px; border-top:1px solid rgba(255,255,255,0.04); font-size:10px; font-family:'JetBrains Mono',monospace; align-items:center;">
-                              <div style="min-width:0;">
-                                <div style="font-weight:700; color:#f8fafc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.type === 'Melee' ? '⚔️' : '🔫'} ${escapeHtml(w.name)}</div>
-                                ${(w.keywords && w.keywords.length > 0) ? `
-                                  <div style="font-size:8.5px; color:#38bdf8; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.keywords.map(k => `[${escapeHtml(k)}]`).join(' ')}</div>
-                                ` : ''}
-                              </div>
-                              <div style="text-align:center; color:#cbd5e1;">${w.range || '-'}</div>
-                              <div style="text-align:center; color:#cbd5e1; font-weight:700;">${w.A || '-'}</div>
-                              <div style="text-align:center; color:#38bdf8; font-weight:700;">${w.skill || '-'}</div>
-                              <div style="text-align:center; color:#cbd5e1;">${w.S || '-'}</div>
-                              <div style="text-align:center; color:#ef4444; font-weight:700;">${w.AP || '0'}</div>
-                              <div style="text-align:center; color:#10b981; font-weight:700;">${w.D || '1'}</div>
-                            </div>
-                          `).join('')}
-                        </div>
-                      </div>
-                    ` : ((u.wargear && u.wargear.length > 0) ? `
-                      <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                        ${u.wargear.map(w => `<span style="font-size:10px; background:rgba(255,255,255,0.05); color:#94a3b8; border:1px solid rgba(255,255,255,0.06); padding:1px 5px; border-radius:4px;">${escapeHtml(w)}</span>`).join('')}
-                      </div>
-                    ` : '')}
-
-                    <!-- Abilities, Enhancement Details & Rules -->
-                    ${(abilities.length > 0 || rules.length > 0 || enhName) ? `
-                      <div style="display:flex; flex-direction:column; gap:4px;">
-                        ${rules.length > 0 ? `
-                          <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                            ${rules.map(r => `<span style="font-size:9px; font-weight:800; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.2); padding:1px 5px; border-radius:4px;">${escapeHtml(r.name)}</span>`).join('')}
-                          </div>
-                        ` : ''}
-                        ${enhName ? `
-                          <div style="background:rgba(192,132,252,0.12); border:1px solid rgba(192,132,252,0.3); border-radius:6px; padding:6px 8px; font-size:10px;">
-                            <b style="color:#c084fc;">✨ Enhancement: ${escapeHtml(enhName)} ${enhCost ? `(${escapeHtml(String(enhCost))})` : ''}:</b>
-                            ${enhDesc ? `<div style="color:#e2e8f0; line-height:1.4; margin-top:2px;">${formatWahaText(enhDesc)}</div>` : '<div style="color:#94a3b8; font-style:italic; margin-top:2px;">Detachment enhancement assigned to this character</div>'}
-                          </div>
-                        ` : ''}
-                        ${abilities.map(ab => `
-                          <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); border-radius:5px; padding:4px 6px; font-size:10px;">
-                            <b style="color:#facc15;">${escapeHtml(ab.name)}:</b>
-                            <div style="color:#cbd5e1; line-height:1.4; margin-top:2px;">${formatWahaText(ab.description)}</div>
-                          </div>
-                        `).join('')}
-                      </div>
-                    ` : ''}
-                  </div>
-                `;
-              }).join('')}
-            </div>
-          </div>
-        `;
-      }
-      contentHtml += `</div>`;
-    } else if (list.raw_text) {
-      contentHtml = `<div style="padding:20px; background:#070b14; border-radius:12px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#cbd5e1; white-space:pre-wrap; overflow-y:auto; max-height:75vh; line-height:1.5;">${escapeHtml(list.raw_text)}</div>`;
-    } else {
-      contentHtml = `<div style="padding:40px; text-align:center; color:#94a3b8;">No roster content available.</div>`;
-    }
-
-    return contentHtml;
+    return `
+      ${headerHtml}
+      <div style="flex:1; position:relative; background:#090d16; display:flex; flex-direction:column; min-height:520px; height:100%; overflow:hidden;">
+        <iframe
+          id="gt-nr-play-mode-iframe"
+          data-list-key="${escapeHtml(listKey)}"
+          data-play-mode="${activeMode === 'play' ? '1' : '0'}"
+          src="${iframeUrl}"
+          title="NewRecruit Play Mode - Datasheets & Stratagems"
+          style="width:100%; height:100%; flex:1; border:none; display:block; background:#090d16;"
+          allow="clipboard-read; clipboard-write"
+        ></iframe>
+      </div>
+    `;
   }
-
-  window.gtTrackerAdjustWounds = function(unitIdx, delta) {
-    const el = document.getElementById(`gt-wound-val-${unitIdx}`);
-    if (!el) return;
-    const parts = el.textContent.split('/');
-    if (parts.length === 2) {
-      let cur = parseInt(parts[0].trim(), 10) + delta;
-      const max = parseInt(parts[1].trim(), 10);
-      cur = Math.max(0, Math.min(max, cur));
-      el.textContent = `${cur} / ${max}`;
-      if (cur === 0) window.gtTrackerToggleSlain(unitIdx, true);
-    }
-  };
-
-  window.gtTrackerToggleSlain = function(unitIdx, forceSlain = null) {
-    const card = document.getElementById(`gt-unit-card-${unitIdx}`);
-    const btn = document.getElementById(`gt-slain-btn-${unitIdx}`);
-    if (!card || !btn) return;
-    const isSlain = forceSlain !== null ? forceSlain : !btn.textContent.includes('SLAIN');
-    if (isSlain) {
-      card.style.opacity = '0.45';
-      btn.textContent = '💀 SLAIN';
-      btn.style.background = 'rgba(239,68,68,0.2)';
-      btn.style.borderColor = 'rgba(239,68,68,0.5)';
-      btn.style.color = '#ef4444';
-    } else {
-      card.style.opacity = '1';
-      btn.textContent = '⚔️ ACTIVE';
-      btn.style.background = 'rgba(255,255,255,0.04)';
-      btn.style.borderColor = 'rgba(255,255,255,0.1)';
-      btn.style.color = '#94a3b8';
-    }
-  };
 
   async function renderArmyListModal() {
     const modal = document.getElementById('gt-army-list-modal');
@@ -4092,45 +3889,38 @@
     else if (clientState.activeListTab === 'my') activeList = myList;
 
     const tab = clientState.activeListTab;
+    const hasActiveRoster = (tab === 'opponent' || tab === 'my') && activeList && (activeList.list_key || activeList.nr_row || activeList.source_url || activeList.raw_text || (activeList.units && activeList.units.length > 0));
 
     let contentHtml = '';
 
     if (tab === 'attach') {
       // Attach / Import View
       contentHtml = `
-        <div style="margin-bottom: 20px;">
-          <h3 style="font-size:16px; font-weight:800; color:#38bdf8; margin-bottom:6px;">⚡ Import & Enrich Army List</h3>
-          <p style="font-size:12px; color:#94a3b8; margin-bottom:10px;">Paste your raw text from <b>NewRecruit</b> or the official <b>Warhammer 40k App</b> to automatically enrich with Wahapedia 11th Edition stats and attach to this match.</p>
-          
-          <!-- Recommended Exporter Options Guide -->
-          <div style="background:rgba(2,132,199,0.08); border:1px solid rgba(56,189,248,0.25); border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:11.5px; color:#cbd5e1; line-height:1.45;">
-            <div style="font-weight:700; color:#38bdf8; margin-bottom:4px; display:flex; align-items:center; gap:5px;">
-              <span>💡</span> Supported & Recommended Exporters:
-            </div>
-            <div style="color:#e2e8f0;">• <b>NewRecruit Text Export:</b> Options <code>Tournament, GW</code> &bull; Checked: <code>[✓] Constant selections</code> &bull; <code>[✓] Header</code></div>
-            <div style="color:#e2e8f0; margin-top:2px;">• <b>Official Warhammer 40k App:</b> Share / Export text list directly</div>
-            <div style="color:#94a3b8; font-size:11px; margin-top:5px; border-top:1px dashed rgba(255,255,255,0.1); padding-top:4px;">
-              ⚠️ <i>Note: Other formats (BattleScribe, raw JSON, or BCP plain text) might not have full Wahapedia stats/rules enrichment.</i>
+        <div id="gt-saved-lists-container" style="margin-bottom: 22px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+            <div>
+              <h3 style="font-size:16px; font-weight:800; color:#f8fafc; margin:0;">📋 Pick from Your NewRecruit Lists</h3>
+              <div style="font-size:12px; color:#94a3b8; margin-top:2px;">Select any roster synced from your NewRecruit Studio or Cloud account to open it in Play Mode.</div>
             </div>
           </div>
+          <div id="gt-saved-lists-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(270px, 1fr)); gap:12px;">
+            <div style="color:#94a3b8; font-size:12px; font-style:italic;">Loading your NewRecruit lists...</div>
+          </div>
+        </div>
 
-          <textarea id="gt-import-raw-input" rows="7" placeholder="Paste your army roster text here... e.g.
+        <div style="border-top:1px solid rgba(255,255,255,0.08); padding-top:18px;">
+          <h3 style="font-size:15px; font-weight:800; color:#38bdf8; margin:0 0 6px 0;">🔗 Or Paste NewRecruit Share Link / Roster Text</h3>
+          <p style="font-size:12px; color:#94a3b8; margin:0 0 10px 0;">Paste a <b>NewRecruit share URL</b> or exported text list to compile it into an interactive NewRecruit Play Mode roster with full datasheets and stratagems.</p>
+          <textarea id="gt-import-raw-input" rows="6" placeholder="Paste NewRecruit link (https://www.newrecruit.eu/app/list/...) or army roster text here... e.g.
 
 Space Marines - Gladius Task Force (2000 pts)
-1x Captain in Gravis Armour (80 pts): Warlord, Enhancement: The Artificer Armour (+10 pts)
+1x Captain in Gravis Armour (80 pts): Warlord
 10x Intercessor Squad (160 pts)
 5x Terminator Squad (175 pts)" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; font-size:12px; outline:none; box-sizing:border-box; line-height:1.5; resize:vertical;"></textarea>
           <div style="margin-top:10px; display:flex; justify-content:flex-end;">
             <button onclick="window.gtImportAndAttach()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:10px 18px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;">
-              ⚡ Import, Enrich & Attach
+              🎮 Attach & Open in Play Mode
             </button>
-          </div>
-        </div>
-
-        <div id="gt-saved-lists-container">
-          <h3 style="font-size:16px; font-weight:800; color:#f8fafc; margin-bottom:10px;">📋 Pick from Your Saved Lists</h3>
-          <div id="gt-saved-lists-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px;">
-            <div style="color:#94a3b8; font-size:12px; font-style:italic;">Loading saved lists...</div>
           </div>
         </div>
       `;
@@ -4148,14 +3938,14 @@ Space Marines - Gladius Task Force (2000 pts)
             const lists = data.army_lists || [];
             window.gtSavedListsCache = lists;
             if (lists.length === 0) {
-              grid.innerHTML = `<div style="color:#64748b; font-size:12px; grid-column:1/-1;">No saved lists found. Use the importer above or create one in My Hub.</div>`;
+              grid.innerHTML = `<div style="color:#64748b; font-size:12px; grid-column:1/-1;">No saved lists found yet. Paste a NewRecruit link/text below or build one in My Hub's NewRecruit Studio.</div>`;
             } else {
               grid.innerHTML = lists.map(l => `
-                <div style="background:#131d33; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; gap:10px;">
+                <div style="background:#131d33; border:1px solid rgba(56,189,248,0.18); border-radius:10px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; gap:10px;">
                   <div>
                     <div style="font-weight:800; font-size:14px; color:#f8fafc;">${escapeHtml(l.name || 'Unnamed List')}</div>
-                    <div style="font-size:12px; color:#38bdf8; font-weight:700;">${escapeHtml(l.faction || '40k')} • ${escapeHtml(l.detachment || 'Core')}</div>
-                    <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${l.points || 2000} pts</div>
+                    <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-top:2px;">${escapeHtml(l.faction || '40k')} • ${escapeHtml(l.detachment || 'Core')}</div>
+                    <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${l.points || 2000} pts • 🎮 Play Mode Ready</div>
                   </div>
                   <button onclick="window.gtAttachSavedList('${l.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:8px 12px; border-radius:6px; cursor:pointer;">
                     ⚔️ Attach This List
@@ -4167,19 +3957,19 @@ Space Marines - Gladius Task Force (2000 pts)
         } catch(e) {}
       }, 50);
 
-    } else if (!activeList || (!activeList.source_url && !activeList.raw_text && (!activeList.units || activeList.units.length === 0))) {
+    } else if (!hasActiveRoster) {
       // Empty state for Opponent or My List
       const isOpp = tab === 'opponent';
       contentHtml = `
         <div style="text-align:center; padding:50px 20px;">
           <div style="font-size:42px; margin-bottom:12px;">${isOpp ? '📜' : '📋'}</div>
           <h3 style="font-size:18px; font-weight:800; color:#f8fafc; margin-bottom:6px;">${isOpp ? "Opponent hasn't attached a list yet" : "You haven't attached an army list to this match"}</h3>
-          <p style="font-size:13px; color:#94a3b8; max-width:460px; margin:0 auto 20px;">
-            ${isOpp ? "When your opponent attaches their NewRecruit link, their full army roster will appear here in real time." : "Paste your NewRecruit share link to attach and view your army roster during play."}
+          <p style="font-size:13px; color:#94a3b8; max-width:480px; margin:0 auto 20px;">
+            ${isOpp ? "When your opponent attaches their NewRecruit roster, you can inspect their full interactive datasheets and stratagems here in NewRecruit Play Mode." : "Attach a list from your NewRecruit Studio or paste a roster to view interactive datasheets, stratagems, and wound tracking in NewRecruit Play Mode."}
           </p>
           ${!isOpp ? `
             <button onclick="window.gtSetListTab('attach')" style="background:#0284c7; color:#fff; font-weight:800; font-size:13px; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">
-              ➕ Attach / Import My Army List
+              ➕ Attach / Select My Army List
             </button>
           ` : ''}
         </div>
@@ -4189,8 +3979,8 @@ Space Marines - Gladius Task Force (2000 pts)
     }
 
     modal.innerHTML = `
-      <div class="gt-modal-dialog">
-        <div class="gt-modal-header">
+      <div class="gt-modal-dialog" style="max-width:${hasActiveRoster ? '1360px' : '960px'}; width:${hasActiveRoster ? '96vw' : '100%'}; height:${hasActiveRoster ? '90vh' : 'auto'}; max-height:92vh;">
+        <div class="gt-modal-header" style="padding:12px 16px; flex-shrink:0;">
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
             <button onclick="window.gtSetListTab('opponent')" class="gt-tab-btn ${tab === 'opponent' ? 'active' : ''}">
               📜 Opponent's List ${oppList ? '🟢' : ''}
@@ -4199,18 +3989,45 @@ Space Marines - Gladius Task Force (2000 pts)
               📋 My List ${myList ? '🟢' : ''}
             </button>
             <button onclick="window.gtSetListTab('attach')" class="gt-tab-btn ${tab === 'attach' ? 'active' : ''}">
-              ➕ Attach / Import
+              ➕ Attach / Switch List
             </button>
           </div>
           <button onclick="window.gtCloseArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer; padding:4px 8px; line-height:1;">
             ✕
           </button>
         </div>
-        <div class="gt-modal-body">
+        <div class="gt-modal-body" style="padding:${hasActiveRoster ? '0' : '20px'}; display:flex; flex-direction:column; flex:1; overflow:${hasActiveRoster ? 'hidden' : 'auto'};">
           ${contentHtml}
         </div>
       </div>
     `;
+
+    // Post activeList.nr_row to embedded NewRecruit Play Mode iframe so opponent & local lists open immediately
+    if (hasActiveRoster && activeList) {
+      const iframe = document.getElementById('gt-nr-play-mode-iframe');
+      if (iframe) {
+        const listKey = resolveTrackerNrListKey(activeList);
+        const isPlayMode = (clientState.rosterViewMode || 'play') !== 'edit';
+        const sendPlayCmd = () => {
+          try {
+            if (iframe.contentWindow) {
+              iframe.contentWindow.postMessage({
+                type: 'OMNITACTICA_NR_COMMAND',
+                command: 'open_play_mode',
+                list_key: listKey,
+                play: isPlayMode,
+                nr_row: activeList.nr_row || null
+              }, '*');
+            }
+          } catch (e) {}
+        };
+        iframe.addEventListener('load', () => {
+          sendPlayCmd();
+          setTimeout(sendPlayCmd, 600);
+          setTimeout(sendPlayCmd, 1600);
+        });
+      }
+    }
   }
 
   // 10. Tournament Dual Chess Clock Manager (Synchronized Multi-Device Live Clock)

@@ -124,6 +124,35 @@ def build_bundle():
         css_out = css_min.stat().st_size
         print(f"  ✓ Minified web/css/styles.css ({css_raw / 1024:.1f} KB -> {css_out / 1024:.1f} KB, -{(1 - (css_out / css_raw)) * 100:.1f}%)")
 
+    # 2b. Bundle and minify Event Studio standalone bundle (eventstudio.bundle.min.js)
+    es_modules = ["api.js", "auth.js", "connect.js", "eventstudio.js"]
+    es_parts = []
+    es_raw_bytes = 0
+    for mod_name in es_modules:
+        mod_path = WEB_JS_DIR / mod_name
+        if mod_path.exists():
+            raw_c = mod_path.read_text(encoding="utf-8")
+            es_raw_bytes += len(raw_c.encode("utf-8"))
+            c = raw_c.strip() if esbuild_bin else jsmin(raw_c).strip()
+            if not c.endswith(";"):
+                c += ";"
+            es_parts.append(c)
+    if es_parts:
+        es_bundle = "\n\n".join(es_parts)
+        if esbuild_bin:
+            res_es = subprocess.run(
+                [esbuild_bin, "--minify", "--legal-comments=none"],
+                input=es_bundle.encode("utf-8"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True
+            )
+            es_bundle = res_es.stdout.decode("utf-8")
+        es_out_path = WEB_JS_DIR / "eventstudio.bundle.min.js"
+        es_out_path.write_text(es_bundle, encoding="utf-8")
+        es_out_bytes = len(es_bundle.encode("utf-8"))
+        print(f"  ✓ Bundled web/js/eventstudio.bundle.min.js ({es_raw_bytes / 1024:.1f} KB -> {es_out_bytes / 1024:.1f} KB)")
+
     # 3. Update cache-busting query params and APP_VERSION in HTML templates
     html_targets = [
         ROOT_DIR / "web" / "app.html",

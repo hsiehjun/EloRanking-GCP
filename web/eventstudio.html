@@ -15,8 +15,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/styles.min.css?v=5521254c20">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=5521254c20">
+  <link rel="stylesheet" href="/css/styles.min.css?v=42cbe8653d">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=42cbe8653d">
 
   <!-- Synchronous iOS & Standalone PWA Safe-Area Detector -->
   <script>
@@ -400,14 +400,14 @@
             <button id="btn-refresh-tournament-workspace" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="refreshTournamentWorkspace(this)" title="Refresh live pairings, scores, and roster from BCP"><span class="refresh-icon" style="display:inline-block;">🔄</span> Refresh Live</button>
             <span id="studio-live-sync-indicator" style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; color:#10b981; padding:0.25rem 0.6rem; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.25); border-radius:6px; font-weight:600;" title="Automatic background live sync active"><span id="studio-live-sync-dot" style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block; box-shadow:0 0 6px #10b981; transition:transform 0.3s ease, background 0.3s ease;"></span> Live Sync</span>
             <button id="manage-event-start-btn" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; background: linear-gradient(135deg, #059669, #10b981); border-color: #10b981; color: #fff; font-weight: 700;" onclick="startTournamentEvent()">▶️ Start Event</button>
-            <div id="manage-round-timer-box" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+            <div id="manage-round-timer-box" style="display: none; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.75rem; align-items: center; gap: 0.5rem;">
               <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">MASTER CLOCK</span>
               <span id="manage-round-clock" style="font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700; color: #38bdf8;">02:30:00</span>
               <button id="btn-timer-toggle" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.2rem 0.45rem;" onclick="toggleRoundTimer()" title="Start / Pause Master Round Clock">▶️</button>
               <button id="btn-timer-add5" class="btn btn-outline" style="font-size: 0.7rem; padding: 0.2rem 0.4rem; color: #38bdf8;" onclick="adjustRoundTimer(5)" title="Add 5 Minutes to Master Clock">+5m</button>
               <button id="btn-timer-reset" class="btn btn-outline" style="font-size: 0.7rem; padding: 0.2rem 0.4rem; color: var(--text-muted);" onclick="resetRoundTimer()" title="Reset Clock to Round Duration">↺</button>
             </div>
-            <button id="btn-open-broadcast" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.35);" onclick="openBroadcastModal()" title="Broadcast Live Announcement to All Tables">📢 Broadcast</button>
+            <button id="btn-open-broadcast" class="btn btn-outline" style="display: none; font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.35);" onclick="openBroadcastModal()" title="Broadcast Live Announcement to All Tables">📢 Broadcast</button>
             <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="switchManageSubtab('settings')">⚙️ Settings</button>
             <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;" onclick="openStudioPublicListing(event)" title="Open Public Event Listing on Best Coast Pairings">🔗 Open on BCP</a>
           </div>
@@ -1099,9 +1099,6 @@
   <!-- Cloud Firestore SDK for Tournament Operations & Real-Time Desk -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <script src="/js/api.js?v=5521254c20"></script>
-  <script src="/js/auth.js?v=5521254c20"></script>
-  <script src="/js/connect.js?v=5521254c20"></script>
-  <script src="/js/eventstudio.js?v=5521254c20"></script>
+  <script src="/js/eventstudio.bundle.min.js?v=42cbe8653d"></script>
 </body>
 </html>

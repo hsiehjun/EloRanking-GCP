@@ -12,7 +12,7 @@ function normalizeLeagueIdToUuid(rawId) {
   if (!s || s === 'sd40k' || s === 'league_sd40k_big_league' || s === 'sd40k_big_league' || s === SD40K_CANONICAL_UUID) {
     return SD40K_CANONICAL_UUID;
   }
-  if (s === 'gauntlet' || s === 'the-gauntlet' || s === 'the_gauntlet' || s === 'league_the_gauntlet' || s === 'the_gauntlet_bfg' || s === GAUNTLET_CANONICAL_UUID) {
+  if (s === 'gauntlet' || s === 'the-gauntlet' || s === 'the_gauntlet' || s === 'league_the_gauntlet' || s === 'league_the_gauntlet_2026' || s === 'the_gauntlet_2026' || s === 'the_gauntlet_bfg' || s === GAUNTLET_CANONICAL_UUID) {
     return GAUNTLET_CANONICAL_UUID;
   }
   // Check if availableLeagues maps a slug to a UUID
@@ -371,7 +371,7 @@ function renderLeagueHub(league) {
                 ⚡ ${escapeHtml(actSeason.name || `Season ${currentSeasonNum}`)} • Current Active Season
               </span>
               <span id="league-hero-dates-pill" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); padding: 3px 10px; border-radius: 999px; font-size: 0.74rem; font-weight: 800;">
-                📅 Started: ${escapeHtml(prettyStartDate)} • Ends: ${escapeHtml(prettyEndDate)}
+                📅 ${escapeHtml(prettyStartDate)} – ${escapeHtml(prettyEndDate)}
               </span>
             </div>
             <div style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 0.5rem; word-break: break-word;">
@@ -383,8 +383,6 @@ function renderLeagueHub(league) {
               <span>👔 Commissioners: <strong>${escapeHtml((league.commissioners || []).map(c => c.name).join(' & ') || 'Coop & Ben')}</strong></span>
               <span>•</span>
               <span>🏢 Host Store: <strong>${escapeHtml((league.partner_venues && league.partner_venues[0]?.name) || 'At Ease Games')}</strong></span>
-              <span>•</span>
-              <span style="color: #7dd3fc;">🗓️ <strong>League Schedule:</strong> ${escapeHtml(prettyStartDate)} (${escapeHtml(rawStartDate)}) → ${escapeHtml(prettyEndDate)} (${escapeHtml(rawEndDate)})</span>
             </div>
           </div>
         </div>
@@ -426,9 +424,8 @@ function renderLeagueHub(league) {
           <div style="font-size: 1.2rem; font-weight: 800; color: #34d399;">${actSeason.rounds_count || 5} Games / ${actSeason.duration_weeks || 8} Wks</div>
         </div>
         <div id="league-hero-kpi-dates" style="background: rgba(56, 189, 248, 0.1); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.35);">
-          <div style="font-size: 0.68rem; color: #7dd3fc; text-transform: uppercase; font-weight: 700;">Season Timeline (Start → End)</div>
+          <div style="font-size: 0.68rem; color: #7dd3fc; text-transform: uppercase; font-weight: 700;">Season Timeline</div>
           <div style="font-size: 0.95rem; font-weight: 800; color: #f8fafc; margin-top: 2px;">${escapeHtml(prettyStartDate)} → ${escapeHtml(prettyEndDate)}</div>
-          <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 1px;">Started: ${escapeHtml(rawStartDate)} • Ends: ${escapeHtml(rawEndDate)}</div>
         </div>
         <div style="background: rgba(0, 0, 0, 0.25); padding: 0.55rem 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
           <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">History</div>
@@ -2179,12 +2176,18 @@ async function openPlayerLeagueModal(playerName) {
  * Score reporting modal for league games
  */
 function openScoreReportingModal(leagueId, podNum, roundNum, p1Name, p2Name) {
+  const safePod = podNum != null ? podNum : ((typeof leagueState !== 'undefined' && leagueState.activePodNumber) ? leagueState.activePodNumber : 1);
+  const safeRound = (roundNum != null && roundNum !== 'all') ? roundNum : ((typeof leagueState !== 'undefined' && leagueState.activePairingRound && leagueState.activePairingRound !== 'all') ? leagueState.activePairingRound : 1);
+  const safeP1 = p1Name || 'Player 1';
+  const safeP2 = p2Name || 'Player 2';
+  const existing = document.getElementById('league-score-modal-backdrop');
+  if (existing) existing.remove();
   const modalHtml = `
     <div id="league-score-modal-backdrop" onclick="closeLeagueModal(event)" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 1rem;">
       <div onclick="event.stopPropagation()" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 440px; padding: 1.5rem; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);">
         <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1rem;">
           <div>
-            <div style="font-size: 0.75rem; color: #60a5fa; font-weight: 700; text-transform: uppercase;">Pod #${podNum} • Round ${roundNum}</div>
+            <div style="font-size: 0.75rem; color: #60a5fa; font-weight: 700; text-transform: uppercase;">Pod #${safePod} • Round ${safeRound}</div>
             <h2 style="margin: 0; font-size: 1.3rem; font-weight: 800; color: #fff;">Record Match Score</h2>
           </div>
           <button onclick="document.getElementById('league-score-modal-backdrop').remove()" style="background: none; border: none; font-size: 1.25rem; color: var(--text-muted); cursor: pointer;">✕</button>
@@ -2197,13 +2200,13 @@ function openScoreReportingModal(leagueId, podNum, roundNum, p1Name, p2Name) {
         <div style="display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 1.25rem;">
           <div>
             <label style="display: block; font-size: 0.8rem; font-weight: 600; color: #fff; margin-bottom: 0.35rem;">
-              ${escapeHtml(p1Name)} (Actual VP: 0-100):
+              ${escapeHtml(safeP1)} (Actual VP: 0-100):
             </label>
             <input type="number" id="league-score-p1" min="0" max="100" value="75" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 1rem; font-weight: 700;" />
           </div>
           <div>
             <label style="display: block; font-size: 0.8rem; font-weight: 600; color: #fff; margin-bottom: 0.35rem;">
-              ${escapeHtml(p2Name)} (Actual VP: 0-100):
+              ${escapeHtml(safeP2)} (Actual VP: 0-100):
             </label>
             <input type="number" id="league-score-p2" min="0" max="100" value="60" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 1rem; font-weight: 700;" />
           </div>
@@ -2831,20 +2834,9 @@ window.viewLeagueInSparringRadar = viewLeagueInSparringRadar;
  */
 async function renderSparringRadarLeagueRegistrations() {
   const radarContainer = document.getElementById('radar-active-league-registrations');
-  const tourneySubview = document.getElementById('comm-subview-tournaments');
-  let tourneyContainer = document.getElementById('tournaments-active-league-registrations');
-  if (!tourneyContainer && tourneySubview) {
-    tourneyContainer = document.createElement('div');
-    tourneyContainer.id = 'tournaments-active-league-registrations';
-    tourneyContainer.style.marginBottom = '1rem';
-    const toolbar = tourneySubview.querySelector('.comm-tournaments-toolbar');
-    if (toolbar && toolbar.nextSibling) {
-      tourneySubview.insertBefore(tourneyContainer, toolbar.nextSibling);
-    } else {
-      tourneySubview.prepend(tourneyContainer);
-    }
-  }
-  if (!radarContainer && !tourneyContainer) return;
+  const staleTourneyContainer = document.getElementById('tournaments-active-league-registrations');
+  if (staleTourneyContainer) staleTourneyContainer.remove();
+  if (!radarContainer) return;
 
   try {
     const res = await fetch('/api/leagues');
@@ -2852,8 +2844,7 @@ async function renderSparringRadarLeagueRegistrations() {
     const json = await res.json();
     const openLeagues = (json.leagues || []).filter(l => l.registration_open !== false && l.publish_to_community_hub !== false);
     if (!openLeagues.length) {
-      if (radarContainer) radarContainer.innerHTML = '';
-      if (tourneyContainer) tourneyContainer.innerHTML = '';
+      radarContainer.innerHTML = '';
       return;
     }
 
@@ -2868,52 +2859,40 @@ async function renderSparringRadarLeagueRegistrations() {
       const wkInfo = l.active_week_info || (typeof computeLeagueActiveWeekClient === 'function' ? computeLeagueActiveWeekClient(l.start_date, l.end_date, meth.season_duration_weeks || 8) : { short_label: 'Week 2 of 8' });
       const podMin = Number(meth.pod_size_min ?? 6);
       const podMax = Number(meth.pod_size_max ?? 8);
-      const promoCnt = Number(meth.promotion_count ?? 2);
-      const relCnt = Number(meth.relegation_count ?? 2);
       const wksCnt = Number(wkInfo.total_weeks || meth.season_duration_weeks || 8);
       const gamesCnt = Number(meth.games_per_season ?? 5);
-      const finalsSize = meth.finals_bracket_size !== undefined && meth.finals_bracket_size !== null ? Number(meth.finals_bracket_size) : 16;
 
       return `
-        <div class="card" data-radar-league-id="${escapeHtml(lid)}" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(15, 23, 42, 0.92) 100%); border: 1px solid rgba(16, 185, 129, 0.45); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 0.85rem; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);">
-          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.85rem;">
-            <div style="flex: 1; min-width: 260px;">
-              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.3rem;">
-                <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.45); font-size: 0.68rem; font-weight: 800; padding: 2px 8px; border-radius: 999px; text-transform: uppercase;">
-                  📡 REGISTRATION OPEN (${escapeHtml(regS)} – ${escapeHtml(regE)})
-                </span>
-                <span style="background: rgba(56, 189, 248, 0.16); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 0.68rem; font-weight: 800; padding: 2px 8px; border-radius: 999px;">
-                  🗓️ ${escapeHtml(wkInfo.short_label || `${wksCnt} Weeks`)}
-                </span>
-                <span style="font-size: 0.74rem; color: #38bdf8; font-weight: 700;">
-                  📅 Season: ${escapeHtml(sDate)} – ${escapeHtml(eDate)}
-                </span>
-                <span style="font-size: 0.74rem; color: #fbbf24; font-weight: 700;">
-                  🔁 ${wksCnt}-Week Season • ${gamesCnt} Games
-                </span>
-              </div>
-              <h3 style="margin: 0 0 0.25rem 0; font-size: 1.15rem; font-weight: 800; color: #fff;">
-                🛡️ ${escapeHtml(l.name || 'San Diego 40k BIG League @ At Ease Games')}
-              </h3>
-              <div style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.45;">
-                📍 <strong>${escapeHtml(l.region || 'San Diego, CA')}</strong> • <strong>${podMin}–${podMax} Players / Pod</strong> • <strong>Top ${promoCnt} ▲ Up 1 Pod</strong> • <strong>Bottom ${relCnt} ▼ Down 1 Pod</strong> • <strong>${finalsSize > 0 ? `Top ${finalsSize} Playoffs` : 'No Playoff Bracket (Pod #1 Title)'}</strong>
-              </div>
+        <div class="card" data-radar-league-id="${escapeHtml(lid)}" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(15, 23, 42, 0.92) 100%); border: 1px solid rgba(16, 185, 129, 0.45); border-radius: 12px; padding: 0.8rem 1rem; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; justify-content: space-between; gap: 0.65rem;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.3rem;">
+              <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.45); font-size: 0.66rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; text-transform: uppercase;">
+                📡 REG OPEN (${escapeHtml(regS)} – ${escapeHtml(regE)})
+              </span>
+              <span style="background: rgba(56, 189, 248, 0.16); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 0.66rem; font-weight: 800; padding: 2px 7px; border-radius: 999px;">
+                🗓️ ${escapeHtml(wkInfo.short_label || `${wksCnt} Weeks`)}
+              </span>
             </div>
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-              <button onclick="openLeaguePlayerRegistrationModal('${escapeHtml(lid)}', '${escapeHtml(l.name || 'San Diego 40k BIG League')}')" class="btn btn-primary" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700; font-size: 0.8rem; padding: 0.45rem 0.9rem;">
-                📝 Register (Starts in Bottom Pod)
-              </button>
-              <button onclick="openLeagueHubPage('${escapeHtml(lid)}', '40k', { replaceUrl: true })" class="btn btn-outline" style="border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700; font-size: 0.8rem; padding: 0.45rem 0.9rem;">
-                🛡️ View Detailed League Page →
-              </button>
+            <h3 style="margin: 0 0 0.2rem 0; font-size: 0.98rem; font-weight: 800; color: #fff;">
+              🛡️ ${escapeHtml(l.name || 'San Diego 40k BIG League @ At Ease Games')}
+            </h3>
+            <div style="font-size: 0.75rem; color: #cbd5e1; line-height: 1.4;">
+              📍 <strong>${escapeHtml(l.region || 'San Diego, CA')}</strong> • ${escapeHtml(sDate)} – ${escapeHtml(eDate)} • ${podMin}–${podMax}p Pods • ${gamesCnt} Games / ${wksCnt} Wks
             </div>
+          </div>
+          <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+            <button onclick="openLeaguePlayerRegistrationModal('${escapeHtml(lid)}', '${escapeHtml(l.name || 'San Diego 40k BIG League')}')" class="btn btn-primary" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700; font-size: 0.76rem; padding: 0.38rem 0.75rem;">
+              📝 Register
+            </button>
+            <button onclick="openLeagueHubPage('${escapeHtml(lid)}', '40k', { replaceUrl: true })" class="btn btn-outline" style="border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700; font-size: 0.76rem; padding: 0.38rem 0.75rem;">
+              🛡️ League Hub →
+            </button>
           </div>
         </div>
       `;
     }).join('');
 
-    if (radarContainer) radarContainer.innerHTML = cardsHtml;
-    if (tourneyContainer) tourneyContainer.innerHTML = cardsHtml;
+    radarContainer.innerHTML = `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem;">${cardsHtml}</div>`;
   } catch (e) {}
 }
 window.renderSparringRadarLeagueRegistrations = renderSparringRadarLeagueRegistrations;

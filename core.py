@@ -209,7 +209,10 @@ _LAST_UPCOMING_SYNC_TIME = 0
 def get_database():
     global _db_instance
     if _db_instance is None:
-        _db_instance = get_db()
+        try:
+            _db_instance = get_db()
+        except Exception:
+            _db_instance = None
     return _db_instance
 
 def get_elo_engine():

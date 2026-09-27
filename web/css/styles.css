@@ -38,19 +38,23 @@ header {
 .header-inner {
   max-width: 1440px;
   margin: 0 auto;
-  padding: 0.7rem 1.5rem;
+  padding: 0.45rem 0.6rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
+  gap: 0.35rem;
   flex-wrap: nowrap;
   width: 100%;
   box-sizing: border-box;
 }
+.header-actions-group {
+  gap: 0.35rem !important;
+  flex-shrink: 0;
+}
 .logo-group {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
   text-decoration: none;
   flex-shrink: 0;
 }
@@ -68,18 +72,18 @@ header {
   box-shadow: 0 0 12px var(--accent-glow);
 }
 .logo-title {
-  font-size: 1.05rem;
+  font-size: 0.98rem;
   font-weight: 700;
   color: #fff;
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
 .logo-subtitle {
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   color: var(--text-muted);
   font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 
@@ -147,6 +151,24 @@ header {
   display: none !important;
 }
 
+@media (min-width: 769px) and (max-width: 1260px) {
+  .header-inner {
+    flex-wrap: wrap !important;
+    padding: 0.45rem 0.85rem !important;
+    gap: 0.4rem 0.65rem !important;
+  }
+  .header-inner > .nav-tabs {
+    order: 3 !important;
+    width: 100% !important;
+    justify-content: center !important;
+  }
+}
+
+#nav-btn-feedback {
+  padding: 4px 8px !important;
+  font-size: 0.72rem !important;
+}
+
 /* Hub Career Progression Drawer: Permanently visible on Desktop & Tablet, toggle button hidden */
 @media (min-width: 641px) {
   .hub-career-toggle-btn {
@@ -162,9 +184,9 @@ header {
 
 .nav-tabs {
   display: flex;
-  gap: 0.25rem;
+  gap: 0.1rem;
   background: var(--bg-primary);
-  padding: 0.25rem;
+  padding: 0.15rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
   flex-wrap: nowrap;
@@ -176,18 +198,18 @@ header {
   display: none;
 }
 .nav-btn {
-  padding: 0.42rem 0.8rem;
+  padding: 0.3rem 0.38rem;
   background: transparent;
   border: none;
   color: var(--text-secondary);
   font-weight: 500;
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.15s ease;
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.2rem;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -214,9 +236,9 @@ header {
 .game-system-pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  font-size: 0.78rem;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 0.73rem;
   font-weight: 700;
   border-radius: 9999px;
   border: 1px solid transparent;
@@ -2466,7 +2488,7 @@ input, select, textarea {
   }
 
   .mobile-bottom-nav .mobile-nav-item {
-    flex: 1 1 0 !important;
+    flex: 1 0 auto !important;
     min-width: 0 !important;
     display: flex !important;
     flex-direction: column !important;
@@ -2477,7 +2499,7 @@ input, select, textarea {
     border: none !important;
     color: #94a3b8 !important;
     text-decoration: none !important;
-    padding: 3px 1px !important;
+    padding: 3px 2px !important;
     cursor: pointer !important;
     transition: all 0.15s ease !important;
     -webkit-tap-highlight-color: transparent !important;
@@ -2492,9 +2514,9 @@ input, select, textarea {
   }
 
   .mobile-bottom-nav .mobile-nav-label {
-    font-size: 0.64rem !important;
+    font-size: 9.5px !important;
     font-weight: 700 !important;
-    letter-spacing: 0.01em !important;
+    letter-spacing: -0.01em !important;
     margin-top: 2px !important;
     line-height: 1.2 !important;
     white-space: nowrap !important;
@@ -2542,7 +2564,7 @@ input, select, textarea {
       font-size: 1.02rem !important;
     }
     .mobile-bottom-nav .mobile-nav-label {
-      font-size: 0.58rem !important;
+      font-size: 0.56rem !important;
       letter-spacing: -0.02em !important;
       margin-top: 1px !important;
     }
@@ -2550,21 +2572,21 @@ input, select, textarea {
 
   @media (min-width: 361px) and (max-width: 389px) {
     .mobile-bottom-nav .mobile-nav-icon {
-      font-size: 1.1rem !important;
+      font-size: 1.08rem !important;
     }
     .mobile-bottom-nav .mobile-nav-label {
-      font-size: 0.62rem !important;
+      font-size: 0.58rem !important;
       letter-spacing: -0.01em !important;
     }
   }
 
   @media (min-width: 390px) and (max-width: 768px) {
     .mobile-bottom-nav .mobile-nav-icon {
-      font-size: 1.2rem !important;
+      font-size: 1.15rem !important;
     }
     .mobile-bottom-nav .mobile-nav-label {
-      font-size: 0.67rem !important;
-      letter-spacing: 0.01em !important;
+      font-size: 9.5px !important;
+      letter-spacing: -0.01em !important;
     }
   }
 
@@ -9980,6 +10002,10 @@ body.is-authenticated #floating-chat-widget {
               linear-gradient(180deg, rgba(30, 41, 59, 0.85), rgba(15, 23, 42, 0.95));
 }
 
+.scope-text-compact {
+  display: none;
+}
+
 /* Responsive adjustments for Trophy Room */
 @media (max-width: 768px) {
   .trophy-scope-bar {
@@ -11071,42 +11097,45 @@ table.desktop-only,
   #hub-subtabs-bar.profile-subtabs-bar {
     display: flex !important;
     align-items: center !important;
-    gap: 0.35rem !important;
-    padding: 0.35rem !important;
-    overflow-x: hidden !important;
+    gap: 0.25rem !important;
+    padding: 0.3rem !important;
+    overflow-x: auto !important;
     scrollbar-width: none !important;
   }
   #hub-subtabs-bar.profile-subtabs-bar::-webkit-scrollbar {
     display: none !important;
   }
+  #hub-subtabs-bar .tab-label-full {
+    display: none !important;
+  }
   #hub-subtabs-bar .profile-subtab-btn {
-    flex: 1 1 0px !important;
-    min-width: 0 !important;
-    padding: 0.52rem 0.65rem !important;
-    font-size: 0.82rem !important;
-    gap: 0.35rem !important;
+    flex: 1 0 auto !important;
+    min-width: max-content !important;
+    padding: 0.42rem 0.42rem !important;
+    font-size: 0.75rem !important;
+    gap: 0.22rem !important;
     white-space: nowrap !important;
     border-radius: 8px !important;
   }
   #hub-subtabs-bar .profile-subtab-btn > span:first-child {
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
     white-space: nowrap !important;
   }
   #hub-subtabs-bar .profile-subtab-count {
-    font-size: 0.72rem !important;
-    padding: 0.12rem 0.45rem !important;
+    font-size: 0.68rem !important;
+    padding: 0.1rem 0.36rem !important;
     flex-shrink: 0 !important;
   }
   #hub-subtabs-bar .profile-subtab-btn.hub-subtab-armory-btn,
   #hub-subtabs-bar .profile-subtab-btn[data-tab="armory"] {
     flex: 0 0 auto !important;
     min-width: max-content !important;
-    padding: 0.52rem 0.85rem !important;
+    padding: 0.42rem 0.58rem !important;
     background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(217, 119, 6, 0.08) 100%) !important;
     border: 1px solid rgba(245, 158, 11, 0.35) !important;
     color: #fef08a !important;
-    margin-left: 0.35rem !important;
+    margin-left: 0.15rem !important;
   }
   #hub-subtabs-bar .profile-subtab-btn.hub-subtab-armory-btn:hover,
   #hub-subtabs-bar .profile-subtab-btn[data-tab="armory"]:hover {
@@ -14522,6 +14551,19 @@ table.desktop-only,
   margin-top: 0.25rem;
 }
 
+@media (max-width: 640px) {
+  .ledger-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+  }
+  .ledger-metric-box {
+    padding: 0.6rem 0.65rem !important;
+  }
+  .ledger-metric-val {
+    font-size: 1.15rem !important;
+  }
+}
+
 .ledger-math-formula {
   background: rgba(16, 185, 129, 0.08);
   border: 1px solid rgba(16, 185, 129, 0.25);
@@ -15210,8 +15252,7 @@ table.desktop-only,
   .comm-radius-control-box {
     flex-shrink: 0 !important;
   }
-  #comm-radius-select,
-  select[id*="radius"] {
+  #comm-radius-select {
     width: auto !important;
     min-width: 96px !important;
     max-width: 108px !important;
@@ -15240,6 +15281,20 @@ table.desktop-only,
     position: absolute !important;
     top: 0.75rem !important;
     right: 0.75rem !important;
+    margin: 0 !important;
+  }
+}
+
+@media (max-width: 1024px) {
+  .armory-modal-header {
+    position: relative !important;
+    padding-right: 3rem !important;
+    flex-wrap: wrap !important;
+  }
+  .armory-modal-header .modal-close {
+    position: absolute !important;
+    top: 0.85rem !important;
+    right: 0.85rem !important;
     margin: 0 !important;
   }
 }

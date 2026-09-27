@@ -23,10 +23,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=5521254c20">
-  <link rel="stylesheet" href="/css/styles.min.css?v=5521254c20">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=5521254c20">
-  <link rel="preload" href="/js/app.bundle.min.js?v=5521254c20" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=42cbe8653d">
+  <link rel="stylesheet" href="/css/styles.min.css?v=42cbe8653d">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=42cbe8653d">
+  <link rel="preload" href="/js/app.bundle.min.js?v=42cbe8653d" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 
   <style>
@@ -1699,14 +1699,14 @@
                 <button id="btn-refresh-tournament-workspace" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="refreshTournamentWorkspace(this)" title="Refresh live pairings, scores, and roster from BCP"><span class="refresh-icon" style="display:inline-block;">🔄</span> Refresh Live</button>
                 <span id="studio-live-sync-indicator" style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; color:#10b981; padding:0.25rem 0.6rem; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.25); border-radius:6px; font-weight:600;" title="Automatic background live sync active"><span id="studio-live-sync-dot" style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block; box-shadow:0 0 6px #10b981; transition:transform 0.3s ease, background 0.3s ease;"></span> Live Sync</span>
                 <button id="manage-event-start-btn" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; background: linear-gradient(135deg, #059669, #10b981); border-color: #10b981; color: #fff; font-weight: 700;" onclick="startTournamentEvent()">▶️ Start Event</button>
-                <div id="manage-round-timer-box" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                <div id="manage-round-timer-box" style="display: none; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.75rem; align-items: center; gap: 0.5rem;">
                   <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">MASTER CLOCK</span>
                   <span id="manage-round-clock" style="font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700; color: #38bdf8;">02:30:00</span>
                   <button id="btn-timer-toggle" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.2rem 0.45rem;" onclick="toggleRoundTimer()" title="Start / Pause Master Round Clock">▶️</button>
                   <button id="btn-timer-add5" class="btn btn-outline" style="font-size: 0.7rem; padding: 0.2rem 0.4rem; color: #38bdf8;" onclick="adjustRoundTimer(5)" title="Add 5 Minutes to Master Clock">+5m</button>
                   <button id="btn-timer-reset" class="btn btn-outline" style="font-size: 0.7rem; padding: 0.2rem 0.4rem; color: var(--text-muted);" onclick="resetRoundTimer()" title="Reset Clock to Round Duration">↺</button>
                 </div>
-                <button id="btn-open-broadcast" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.35);" onclick="openBroadcastModal()" title="Broadcast Live Announcement to All Tables">📢 Broadcast</button>
+                <button id="btn-open-broadcast" class="btn btn-outline" style="display: none; font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.35);" onclick="openBroadcastModal()" title="Broadcast Live Announcement to All Tables">📢 Broadcast</button>
                 <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="openCircuitsModal()">🏆 Circuits</button>
                 <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="openEditTournamentModal()">⚙️ Edit Details</button>
                 <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;" onclick="openStudioPublicListing(event)" title="Open Public Event Listing on Best Coast Pairings">🔗 Public Listing ↗</a>
@@ -2647,7 +2647,7 @@
 
   <!-- MODAL: Competitor Army List Viewer -->
   <div id="event-army-list-modal" class="modal-backdrop" style="display: none;" onclick="closeModalOnBackdrop(event)">
-    <div class="modal-window event-army-list-window" style="max-width: 980px; width: 95vw; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+    <div class="modal-window event-army-list-window" style="max-width: 1360px; width: 96vw; height: 90vh; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden;">
       <div class="modal-header event-army-list-modal-header" style="padding: 0.85rem 1.15rem; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.65rem; background: #0f172a;">
         <!-- Top Row: Title, Subtitle & Pinned Close Button -->
         <div class="event-army-list-modal-top" style="display: flex; align-items: flex-start; justify-content: space-between; width: 100%; gap: 0.75rem;">
@@ -2663,11 +2663,11 @@
             📄 Raw List
           </button>
           <button type="button" id="btn-army-list-mode-enriched" onclick="setEventArmyListViewMode('enriched')" class="btn-sm" style="flex: 1; font-size: 0.78rem; font-weight: 700; padding: 0.42rem 0.75rem; border-radius: 6px; border: none; cursor: pointer; transition: all 0.15s ease; color: #38bdf8; text-align: center;">
-            ⚡ Enriched with Wahapedia
+            🎮 NewRecruit Play Mode
           </button>
         </div>
       </div>
-      <div class="modal-body event-army-list-modal-body" style="padding: 0; flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-height: 280px; max-height: calc(90vh - 140px); background: #070b14;">
+      <div class="modal-body event-army-list-modal-body" style="padding: 0; flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-height: 280px; max-height: calc(92vh - 130px); background: #070b14;">
         <div id="event-army-list-modal-content" style="flex: 1; display: flex; flex-direction: column; min-height: 240px; width: 100%; box-sizing: border-box;"></div>
       </div>
       <div class="modal-footer event-army-list-modal-footer" style="padding: 0.75rem 1.15rem; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.95); border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; gap: 0.5rem;">
@@ -3293,7 +3293,7 @@
   <!-- Faction Details & Games Modal -->
   <div id="faction-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
     <div class="modal-window" style="max-width: 900px;">
-      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; position: relative; padding-right: 3rem;">
         <div>
           <h2 id="modal-faction-title" style="font-size: 1.35rem; font-weight: 700; color: #fff; margin: 0;">Faction Meta</h2>
           <div id="modal-faction-subtitle" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.2rem;"></div>
@@ -3304,7 +3304,7 @@
             <button type="button" id="faction-tf-1yr" class="faction-tf-btn active" onclick="changeFactionModalTimeframe('1yr')" style="border:none; background:var(--accent); color:#fff; font-size:0.75rem; font-weight:700; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;">1 Year</button>
             <button type="button" id="faction-tf-all" class="faction-tf-btn" onclick="changeFactionModalTimeframe('all')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;">All Time</button>
           </div>
-          <button class="modal-close" onclick="closeModal('faction-modal')">✕</button>
+          <button class="modal-close" onclick="closeModal('faction-modal')" style="position: absolute; top: 0.85rem; right: 0.85rem; margin: 0;">✕</button>
         </div>
       </div>
 
@@ -3394,8 +3394,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "5521254c20";</script>
-  <script src="/js/app.bundle.min.js?v=5521254c20"></script>
+  <script>window.APP_VERSION = "42cbe8653d";</script>
+  <script src="/js/app.bundle.min.js?v=42cbe8653d"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

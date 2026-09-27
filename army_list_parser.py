@@ -21,181 +21,11 @@ class ArmyListParser:
     """Parses army list links, JSON, and text exports into structured match rosters."""
 
     def _enrich_with_wahapedia(self, roster: Dict[str, Any]) -> Dict[str, Any]:
-        """Auto-enriches parsed roster with full datasheets, stats, weapons, abilities, stratagems, enhancements, and detachment rules from PostgreSQL."""
-        if not roster or not isinstance(roster, dict):
-            return roster
-
-        try:
-            from database import get_db
-            db = get_db()
-        except Exception as e:
-            logger.debug(f"Wahapedia DB not available for enrichment: {e}")
-            return roster
-
-        faction = roster.get("faction") or ""
-        detachment = roster.get("detachment") or ""
-        
-        # Include any detachment rule names in lookup if available
-        rule_hints = [r.get("name") for r in (roster.get("detachment_rules") or []) if r.get("name")]
-        if rule_hints:
-            lookup_det = f"{detachment} ({', '.join(rule_hints)})"
-        else:
-            lookup_det = detachment
-
-        # 1. Enrich Army Rules if missing
-        if faction and not roster.get("army_rules"):
-            try:
-                army_rules = db.waha_get_army_rules(faction)
-                if army_rules:
-                    roster["army_rules"] = army_rules
-            except Exception as e:
-                logger.debug(f"Error enriching army rules: {e}")
-
-        # 2. Enrich Stratagems if missing
-        if lookup_det and not roster.get("stratagems"):
-            try:
-                strats = db.waha_get_stratagems(lookup_det)
-                if strats:
-                    roster["stratagems"] = strats
-            except Exception as e:
-                logger.debug(f"Error enriching stratagems: {e}")
-
-        # 3. Enrich Detachment Enhancements if missing
-        available_enhancements = roster.get("available_enhancements") or []
-        if lookup_det and not available_enhancements:
-            try:
-                enhancements = db.waha_get_enhancements(lookup_det)
-                if enhancements:
-                    roster["available_enhancements"] = enhancements
-                    available_enhancements = enhancements
-            except Exception as e:
-                logger.debug(f"Error enriching enhancements: {e}")
-
-        # 4. Enrich Detachment Rules from Wahapedia
-        if lookup_det:
-            try:
-                det_rules = db.waha_get_detachment_rules(lookup_det)
-                if det_rules:
-                    roster["detachment_rules"] = det_rules
-            except Exception as e:
-                logger.debug(f"Error enriching detachment rules: {e}")
-
-        # 4. Enrich each unit & match enhancements
-        units = roster.get("units") or []
-        for u in units:
-            u_name = u.get("name") or ""
-            if not u_name:
-                continue
-
-            try:
-                w_unit = db.waha_find_unit(u_name, faction_name=faction)
-                if w_unit:
-                    if not u.get("stats") or not u.get("weapons"):
-                        u["stats"] = w_unit.get("stats") or u.get("stats")
-                    
-                    ds_weapons = w_unit.get("weapons") or []
-                    u_wargear = u.get("wargear") or []
-                    
-                    cleaned_wargear = []
-                    for wg in u_wargear:
-                        c = re.sub(r'^\s*\d+x?\s+(?:with\s+)?', '', str(wg), flags=re.IGNORECASE).strip()
-                        c = re.sub(r'\s*\(\+?\d+\s*pts?\)', '', c, flags=re.IGNORECASE).strip()
-                        if c and c.lower() not in ('warlord', 'leading', 'attached to') and not c.lower().startswith('char'):
-                            cleaned_wargear.append(c)
-
-                    # 1. Filter weapons if unit explicitly specified wargear
-                    if cleaned_wargear and ds_weapons:
-                        def matches_weapon(w_item, w_names):
-                            w_clean = (w_item.get("name") or "").strip().lower()
-                            w_base = re.split(r'[\–\-\/]', w_clean)[0].strip()
-                            for item in w_names:
-                                i_clean = item.strip().lower()
-                                i_base = re.split(r'[\–\-\/]', i_clean)[0].strip()
-                                if w_clean == i_clean or w_base == i_clean or w_base == i_base:
-                                    return True
-                                if (i_clean and i_clean in w_clean) or (i_base and i_base in w_base) or (w_clean and w_clean in i_clean):
-                                    return True
-                            return False
-
-                        matched_weapons = [w for w in ds_weapons if matches_weapon(w, cleaned_wargear)]
-                        if matched_weapons:
-                            u["weapons"] = matched_weapons
-                        elif not u.get("weapons") or len(u.get("weapons", [])) == 0:
-                            u["weapons"] = ds_weapons
-                    elif not u.get("weapons") or len(u.get("weapons", [])) == 0:
-                        u["weapons"] = ds_weapons
-
-                    # 2. Filter abilities (optional wargear abilities vs intrinsic datasheet abilities)
-                    ds_abilities = w_unit.get("abilities") or []
-                    if cleaned_wargear and ds_abilities:
-                        wg_lower_set = {wg.lower() for wg in cleaned_wargear}
-                        filtered_abilities = []
-                        for ab in ds_abilities:
-                            ab_name = (ab.get("name") or "").strip()
-                            ab_name_lower = ab_name.lower()
-                            ab_type = (ab.get("type") or "").strip().lower()
-                            
-                            if ab_type == 'wargear':
-                                if any(wg in ab_name_lower or ab_name_lower in wg for wg in wg_lower_set):
-                                    filtered_abilities.append(ab)
-                            else:
-                                filtered_abilities.append(ab)
-                        u["abilities"] = filtered_abilities or ds_abilities
-                    elif not u.get("abilities") or len(u.get("abilities", [])) == 0:
-                        u["abilities"] = ds_abilities
-
-                    if not u.get("keywords") or len(u.get("keywords", [])) <= 2:
-                        u["keywords"] = w_unit.get("keywords") or u.get("keywords", [])
-                    if (not u.get("role") or u.get("role") == "Infantry") and w_unit.get("role"):
-                        u["role"] = w_unit["role"]
-            except Exception as e:
-                logger.debug(f"Error enriching unit {u_name}: {e}")
-
-            # Match unit's enhancement with available_enhancements or database
-            u_enh = u.get("enhancement")
-            if u_enh:
-                enh_name_clean = re.sub(r'\(.*?\)', '', str(u_enh)).strip().lower()
-                matched_enh = None
-                for enh in available_enhancements:
-                    e_name = (enh.get("name") or "").strip().lower()
-                    if e_name and (e_name == enh_name_clean or enh_name_clean in e_name or e_name in enh_name_clean):
-                        matched_enh = enh
-                        break
-
-                if not matched_enh and lookup_det:
-                    try:
-                        matched_enh_list = db.waha_get_enhancements(lookup_det)
-                        for enh in matched_enh_list:
-                            e_name = (enh.get("name") or "").strip().lower()
-                            if e_name and (e_name == enh_name_clean or enh_name_clean in e_name or e_name in enh_name_clean):
-                                matched_enh = enh
-                                break
-                    except Exception:
-                        pass
-
-                if not matched_enh:
-                    try:
-                        matched_enh = db.waha_find_enhancement(u_enh, faction_name=faction)
-                    except Exception:
-                        pass
-
-                if matched_enh:
-                    u["enhancement_detail"] = {
-                        "name": matched_enh.get("name") or u_enh,
-                        "description": matched_enh.get("description") or "",
-                        "cost": matched_enh.get("cost") or matched_enh.get("points") or "",
-                        "legend": matched_enh.get("legend") or ""
-                    }
-                    u["enhancement_data"] = u["enhancement_detail"]
-                    if matched_enh not in available_enhancements:
-                        available_enhancements.append(matched_enh)
-
-        if available_enhancements:
-            roster["available_enhancements"] = available_enhancements
-
+        """Legacy pass-through: NewRecruit Play Mode now renders all datasheets, stats, weapons, abilities, and stratagems natively."""
         return roster
 
-    def parse_file(self, raw_bytes: bytes, filename: str = "") -> Dict[str, Any]:
+
+    def parse_file(self, raw_bytes: bytes, filename: str = "", enrich: bool = False) -> Dict[str, Any]:
         """Parses an uploaded file (.rosz, .ros, .json, .txt) into a structured match roster."""
         if not raw_bytes:
             return self._create_empty_roster()
@@ -236,13 +66,14 @@ class ArmyListParser:
         if not res:
             try:
                 text_str = raw_bytes.decode("utf-8", errors="ignore")
-                res = self.parse(text_str)
+                res = self.parse(text_str, enrich=enrich)
             except Exception:
                 res = self._create_empty_roster()
 
-        return self._enrich_with_wahapedia(res or self._create_empty_roster())
+        final_res = res or self._create_empty_roster()
+        return self._enrich_with_wahapedia(final_res) if enrich else final_res
 
-    def parse(self, raw_input: str, source_hint: Optional[str] = None) -> Dict[str, Any]:
+    def parse(self, raw_input: str, source_hint: Optional[str] = None, enrich: bool = False) -> Dict[str, Any]:
         if not raw_input or not raw_input.strip():
             return self._create_empty_roster()
 
@@ -289,7 +120,8 @@ class ArmyListParser:
             else:
                 res = self._parse_generic_text(content)
 
-        return self._enrich_with_wahapedia(res or self._create_empty_roster())
+        final_res = res or self._create_empty_roster()
+        return self._enrich_with_wahapedia(final_res) if enrich else final_res
 
     def _parse_battlescribe_xml(self, xml_content: str) -> Dict[str, Any]:
         """Parses BattleScribe .ros / .rosz XML content into a rich tactical roster."""
@@ -472,11 +304,310 @@ class ArmyListParser:
             'raw_text': xml_content[:500]
         }
 
+    def parse_newrecruit_dict(
+        self,
+        data: Dict[str, Any],
+        default_id: Optional[str] = None,
+        source_url: Optional[str] = None,
+        enrich: bool = False,
+    ) -> Dict[str, Any]:
+        """Parses a NewRecruit list object (from IndexedDB nr.lists, get_list_bulk, or open_share_link) into an OmniTactica roster."""
+        if not isinstance(data, dict):
+            return self._create_empty_roster()
+
+        list_key = str(data.get("list_key") or data.get("share_id") or "").strip()
+        roster_id = data.get("id") or (f"nr_{list_key}" if list_key else (default_id or f"nr_{uuid.uuid4().hex[:8]}"))
+        if not str(roster_id).startswith(("nr_", "list_")):
+            roster_id = f"nr_{roster_id}"
+
+        roster = self._create_empty_roster()
+        roster["id"] = roster_id
+        if list_key:
+            roster["list_key"] = list_key
+        roster["name"] = (data.get("name") or roster["name"]).strip()
+        total_cost = data.get("totalCost")
+        if total_cost is None and isinstance(data.get("totalCosts"), dict):
+            total_cost = data["totalCosts"].get("pts")
+        try:
+            total_cost = int(float(total_cost)) if total_cost is not None else 0
+        except Exception:
+            total_cost = 0
+
+        roster["points"] = total_cost
+        roster["points_limit"] = 2000 if total_cost <= 2000 else 3000
+        roster["source_url"] = source_url or data.get("source_url") or (f"https://www.newrecruit.eu/app/Lists/{list_key}" if list_key else None)
+        roster["source_format"] = data.get("source_format") or "NewRecruit Sync"
+        roster["date_mod"] = data.get("date_mod")
+        roster["id_system"] = data.get("id_system")
+        roster["id_book"] = data.get("id_book")
+
+        # Keep clean copy of NewRecruit row for bidirectional IndexedDB hydration
+        nr_row_keys = (
+            "_id", "list_key", "name", "id_system", "id_book", "bsid_system", "bsid_book",
+            "totalCost", "totalCosts", "booksDate", "date_mod", "version", "synced", "metadata", "army"
+        )
+        nr_row = {k: data[k] for k in nr_row_keys if k in data}
+        if nr_row.get("list_key") or nr_row.get("army"):
+            roster["nr_row"] = nr_row
+
+        army = data.get("army") if isinstance(data.get("army"), dict) else {}
+        faction = data.get("faction") or roster["faction"]
+        detachment = data.get("detachment") or "Core Detachment"
+        warlord = data.get("warlord") or None
+        units: List[Dict[str, Any]] = []
+
+        if army:
+            army_root_name = str(army.get("name") or "").strip()
+            if " - " in army_root_name:
+                faction = army_root_name.split(" - ")[-1].strip()
+            elif army_root_name and army_root_name not in ("Army Roster", "New Roster", "Roster", "Force"):
+                faction = army_root_name
+
+            def find_army_roster_node(node: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+                nonlocal faction
+                name = str(node.get("name") or "").strip()
+                if " - " in name:
+                    faction = name.split(" - ")[-1].strip()
+                for opt in node.get("options") or []:
+                    if not isinstance(opt, dict):
+                        continue
+                    if opt.get("name") in ("Army Roster", "Force", "Primary Detachment", "General's Regiment"):
+                        return opt
+                    res = find_army_roster_node(opt)
+                    if res:
+                        return res
+                return None
+
+            roster_node = find_army_roster_node(army) or army
+            roster["faction"] = faction
+
+            categories = roster_node.get("options") or []
+            for cat in categories:
+                if not isinstance(cat, dict):
+                    continue
+                cat_name = str(cat.get("name") or "").strip()
+                if cat_name in ("Configuration", "Show/Hide Options", "Detachment Rules", "Battle Size", "Detachment"):
+                    for opt in cat.get("options") or []:
+                        if not isinstance(opt, dict):
+                            continue
+                        opt_name = str(opt.get("name") or "").strip()
+                        if opt_name in ("Detachment", "Detachment Choice") or "detachment" in opt_name.lower():
+                            for sub in opt.get("options") or []:
+                                if not isinstance(sub, dict):
+                                    continue
+                                if sub.get("options"):
+                                    for sub_sub in sub.get("options") or []:
+                                        if isinstance(sub_sub, dict) and sub_sub.get("name"):
+                                            detachment = str(sub_sub.get("name")).strip()
+                                elif sub.get("name") and sub.get("name") not in ("Detachment", "Detachment Choice"):
+                                    detachment = str(sub.get("name")).strip()
+                        elif opt_name == "Battle Size" or "battle size" in opt_name.lower():
+                            for sub in opt.get("options") or []:
+                                if not isinstance(sub, dict):
+                                    continue
+                                candidates = [sub] + [s for s in (sub.get("options") or []) if isinstance(s, dict)]
+                                for cand in candidates:
+                                    cname = str(cand.get("name") or "")
+                                    m_lim = re.search(r"(\d{3,4})\s*Point", cname, re.IGNORECASE)
+                                    if m_lim:
+                                        try:
+                                            roster["points_limit"] = int(m_lim.group(1))
+                                        except Exception:
+                                            pass
+                    continue
+
+                # Parse unit entries in this category
+                for unit_node in cat.get("options") or []:
+                    if not isinstance(unit_node, dict):
+                        continue
+                    u_name = str(unit_node.get("customName") or unit_node.get("name") or "Unit").strip()
+                    u_amount = unit_node.get("amount", 1)
+                    try:
+                        u_amount = int(u_amount)
+                    except Exception:
+                        u_amount = 1
+                    u_warlord = False
+                    u_enhancement = None
+                    wargear: List[str] = []
+                    model_count_sum = 0
+
+                    def parse_unit_sub(sub_node: Dict[str, Any]):
+                        nonlocal u_warlord, u_enhancement, model_count_sum
+                        if not isinstance(sub_node, dict):
+                            return
+                        s_name = str(sub_node.get("name") or "").strip()
+                        s_amt = sub_node.get("amount", 1)
+                        try:
+                            s_amt = int(s_amt)
+                        except Exception:
+                            s_amt = 1
+
+                        if s_name == "Warlord" or "warlord" in s_name.lower():
+                            u_warlord = True
+                        elif s_name in ("Enhancements", "Enhancement") or "enhancement" in s_name.lower():
+                            for enh in sub_node.get("options") or []:
+                                if isinstance(enh, dict) and enh.get("name"):
+                                    u_enhancement = str(enh.get("name")).strip()
+                        elif s_name in ("Wargear", "Weapons", "Wargear options", "Ranged Weapons", "Melee Weapons"):
+                            for wg in sub_node.get("options") or []:
+                                parse_unit_sub(wg)
+                        else:
+                            if sub_node.get("options"):
+                                if s_amt > 1:
+                                    model_count_sum += s_amt
+                                for c in sub_node.get("options") or []:
+                                    parse_unit_sub(c)
+                            elif s_name and s_name not in ("Unit", "Model", "Option"):
+                                wg_label = f"{s_amt}x {s_name}" if s_amt > 1 else s_name
+                                wargear.append(wg_label)
+
+                    for sub in unit_node.get("options") or []:
+                        parse_unit_sub(sub)
+
+                    if u_warlord and not warlord:
+                        warlord = u_name
+
+                    final_models = max(1, u_amount if u_amount > 1 else (model_count_sum if model_count_sum > 1 else 1))
+
+                    m_val = '10"' if ("Mounted" in cat_name or "Vehicle" in cat_name) else '6"'
+                    t_val = 10 if ("Vehicle" in cat_name or "Monster" in cat_name) else 4
+                    w_val = 12 if "Vehicle" in cat_name else (5 if "Character" in cat_name or "Epic Hero" in cat_name else 2)
+                    sv_val = "2+" if ("Vehicle" in cat_name or "Character" in cat_name or "Epic Hero" in cat_name) else "3+"
+
+                    u_pts = 0
+                    if unit_node.get("points") is not None or unit_node.get("totalCost") is not None:
+                        try:
+                            u_pts = int(float(unit_node.get("points") or unit_node.get("totalCost") or 0))
+                        except Exception:
+                            u_pts = 0
+
+                    units.append({
+                        "id": unit_node.get("id") or f"u_{len(units)+1}",
+                        "name": u_name,
+                        "role": cat_name or "Infantry",
+                        "is_warlord": u_warlord,
+                        "enhancement": u_enhancement,
+                        "model_count": final_models,
+                        "wargear": list(dict.fromkeys(wargear))[:8],
+                        "stats": {
+                            "M": m_val,
+                            "T": t_val,
+                            "SV": sv_val,
+                            "INV": "4+" if (u_warlord or "Character" in cat_name or "Epic Hero" in cat_name) else "-",
+                            "W": w_val,
+                            "LD": "6+",
+                            "OC": 2 if "Battleline" in cat_name else 1
+                        },
+                        "keywords": [faction, cat_name, u_name],
+                        "points": u_pts
+                    })
+
+        # Merge live enriched unit metadata if provided by NewRecruit Studio Bridge ($debugOption)
+        enriched_units = data.get("_omnitactica_enriched_units")
+        if isinstance(enriched_units, list) and enriched_units:
+            if not units:
+                for idx, eu in enumerate(enriched_units):
+                    if not isinstance(eu, dict):
+                        continue
+                    u_name = str(eu.get("name") or "Unit").strip()
+                    u_wl = bool(eu.get("is_warlord"))
+                    if u_wl and not warlord:
+                        warlord = u_name
+                    units.append({
+                        "id": eu.get("id") or f"u_{idx+1}",
+                        "name": u_name,
+                        "role": eu.get("role") or "Infantry",
+                        "is_warlord": u_wl,
+                        "enhancement": eu.get("enhancement"),
+                        "model_count": int(eu.get("model_count") or 1),
+                        "wargear": eu.get("wargear") or [],
+                        "stats": eu.get("stats") or {"M": '6"', "T": 4, "SV": "3+", "INV": "-", "W": 2, "LD": "6+", "OC": 1},
+                        "weapons": eu.get("weapons") or [],
+                        "abilities": eu.get("abilities") or [],
+                        "keywords": eu.get("keywords") or [faction, u_name],
+                        "points": int(eu.get("points") or 0),
+                    })
+            else:
+                used_indices = set()
+                for u in units:
+                    u_low = u["name"].lower()
+                    matched_eu = None
+                    for idx, eu in enumerate(enriched_units):
+                        if idx in used_indices or not isinstance(eu, dict):
+                            continue
+                        if str(eu.get("name") or "").strip().lower() == u_low:
+                            matched_eu = eu
+                            used_indices.add(idx)
+                            break
+                    if matched_eu:
+                        if matched_eu.get("points") is not None:
+                            try:
+                                u["points"] = int(float(matched_eu["points"]))
+                            except Exception:
+                                pass
+                        if matched_eu.get("model_count"):
+                            try:
+                                u["model_count"] = int(matched_eu["model_count"])
+                            except Exception:
+                                pass
+                        if matched_eu.get("stats"):
+                            u["stats"] = matched_eu["stats"]
+                        if matched_eu.get("weapons"):
+                            u["weapons"] = matched_eu["weapons"]
+                        if matched_eu.get("abilities"):
+                            u["abilities"] = matched_eu["abilities"]
+
+        roster["detachment"] = detachment
+        roster["warlord"] = warlord or (units[0]["name"] if units else "")
+        roster["units"] = units
+        roster["enhancements"] = [u["enhancement"] for u in units if u.get("enhancement")]
+
+        sum_unit_pts = sum(int(u.get("points") or 0) for u in units)
+        if not roster["points"] and sum_unit_pts > 0:
+            roster["points"] = sum_unit_pts
+
+        existing_raw = str(data.get("raw_text") or "").strip()
+        if existing_raw:
+            roster["raw_text"] = existing_raw
+        else:
+            raw_lines = [
+                "+++++++++++++++++++++++++++++++++++++++++++++++",
+                f"+ ARMY NAME: {roster['name']}",
+                f"+ FACTION KEYWORD: {roster.get('faction') or 'Space Marines'}",
+                f"+ DETACHMENT: {detachment}",
+                f"+ TOTAL ARMY POINTS: {roster['points']}pts",
+            ]
+            if roster.get("warlord"):
+                raw_lines.append(f"+ WARLORD: {roster['warlord']}")
+            raw_lines.append("+++++++++++++++++++++++++++++++++++++++++++++++")
+            raw_lines.append("")
+            for u in units:
+                u_name = str(u.get("name") or "Unit").strip()
+                u_pts = int(u.get("points") or 0)
+                u_models = int(u.get("model_count") or 1)
+                prefix = f"{u_models}x " if u_models > 1 and not re.match(r"^\d+x\s+", u_name, re.I) else ""
+                pts_str = f" ({u_pts} pts)" if u_pts > 0 else ""
+                raw_lines.append(f"{prefix}{u_name}{pts_str}")
+                if u.get("is_warlord"):
+                    raw_lines.append("• Warlord")
+                if u.get("enhancement"):
+                    raw_lines.append(f"• Enhancement: {u['enhancement']}")
+                for wg in (u.get("wargear") or []):
+                    wg_s = str(wg).strip()
+                    if wg_s and wg_s.lower() not in ("warlord",):
+                        raw_lines.append(f"• {wg_s}")
+                raw_lines.append("")
+            roster["raw_text"] = "\n".join(raw_lines).strip()
+
+        if enrich:
+            return self._enrich_with_wahapedia(roster)
+        return roster
+
     def parse_url(self, url: str) -> Dict[str, Any]:
         """Resolves a NewRecruit share link into a complete, rich tactical roster."""
         import urllib.request
         clean_url = url.strip().split()[0]
-        list_id_match = re.search(r"/list/([a-zA-Z0-9_\-]+)", clean_url)
+        list_id_match = re.search(r"/list/([a-zA-Z0-9_\-]+)", clean_url) or re.search(r"/Lists/([a-zA-Z0-9_\-]+)", clean_url)
         list_id = list_id_match.group(1) if list_id_match else uuid.uuid4().hex[:8]
         canonical_url = f"https://www.newrecruit.eu/app/list/{list_id}" if list_id_match else clean_url
 
@@ -502,110 +633,12 @@ class ArmyListParser:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
                     if isinstance(data, dict) and data.get("army"):
-                        roster["name"] = data.get("name") or roster["name"]
-                        total_cost = data.get("totalCost") or 2000
-                        roster["points"] = total_cost
-                        roster["points_limit"] = total_cost
-                        
-                        roster["source_url"] = canonical_url
-
-                        army = data.get("army", {})
-                        faction = roster["faction"]
-                        detachment = "Core Detachment"
-                        warlord = None
-                        units = []
-
-                        # Traverse root options to find faction & categories
-                        def find_army_roster_node(node):
-                            nonlocal faction
-                            name = node.get("name", "")
-                            if " - " in name:
-                                faction = name.split(" - ")[-1].strip()
-                            for opt in node.get("options", []):
-                                if opt.get("name") == "Army Roster":
-                                    return opt
-                                res = find_army_roster_node(opt)
-                                if res:
-                                    return res
-                            return None
-
-                        roster_node = find_army_roster_node(army) or army
-                        roster["faction"] = faction
-
-                        categories = roster_node.get("options", [])
-                        for cat in categories:
-                            cat_name = cat.get("name", "")
-                            if cat_name in ["Configuration", "Show/Hide Options", "Detachment Rules"]:
-                                for opt in cat.get("options", []):
-                                    if opt.get("name") == "Detachment":
-                                        for sub in opt.get("options", []):
-                                            for sub_sub in sub.get("options", []):
-                                                detachment = sub_sub.get("name", detachment)
-                                continue
-
-                            # Parse unit entries in this category
-                            for unit_node in cat.get("options", []):
-                                u_name = unit_node.get("customName") or unit_node.get("name", "Unit")
-                                u_amount = unit_node.get("amount", 1)
-                                u_warlord = False
-                                u_enhancement = None
-                                wargear = []
-
-                                def parse_unit_sub(sub_node):
-                                    nonlocal u_warlord, u_enhancement
-                                    s_name = sub_node.get("name", "")
-                                    if s_name == "Warlord" or "Warlord" in s_name:
-                                        u_warlord = True
-                                    elif s_name in ["Enhancements", "Enhancement"]:
-                                        for enh in sub_node.get("options", []):
-                                            if enh.get("name"):
-                                                u_enhancement = enh.get("name")
-                                    elif s_name in ["Wargear", "Weapons", "Wargear options", "Ranged Weapons", "Melee Weapons"]:
-                                        for wg in sub_node.get("options", []):
-                                            parse_unit_sub(wg)
-                                    else:
-                                        if sub_node.get("options"):
-                                            for c in sub_node.get("options", []):
-                                                parse_unit_sub(c)
-                                        elif s_name and s_name not in ["Unit", "Model", "Option"]:
-                                            wargear.append(s_name)
-
-                                for sub in unit_node.get("options", []):
-                                    parse_unit_sub(sub)
-
-                                if u_warlord and not warlord:
-                                    warlord = u_name
-
-                                m_val = '10"' if ("Mounted" in cat_name or "Vehicle" in cat_name) else '6"'
-                                t_val = 10 if ("Vehicle" in cat_name or "Monster" in cat_name) else 4
-                                w_val = 12 if "Vehicle" in cat_name else (5 if "Character" in cat_name else 2)
-                                sv_val = "2+" if ("Vehicle" in cat_name or "Character" in cat_name) else "3+"
-
-                                units.append({
-                                    "id": f"u_{len(units)+1}",
-                                    "name": u_name,
-                                    "role": cat_name,
-                                    "is_warlord": u_warlord,
-                                    "enhancement": u_enhancement,
-                                    "model_count": max(1, u_amount),
-                                    "wargear": list(dict.fromkeys(wargear))[:6],
-                                    "stats": {
-                                        "M": m_val,
-                                        "T": t_val,
-                                        "SV": sv_val,
-                                        "INV": "4+" if (u_warlord or "Character" in cat_name) else "-",
-                                        "W": w_val,
-                                        "LD": "6+",
-                                        "OC": 2 if "Battleline" in cat_name else 1
-                                    },
-                                    "keywords": [faction, cat_name, u_name],
-                                    "points": 0
-                                })
-
-                        roster["detachment"] = detachment
-                        roster["warlord"] = warlord
-                        roster["units"] = units
-                        return roster
+                        return self.parse_newrecruit_dict(
+                            data,
+                            default_id=f"nr_{list_id}",
+                            source_url=canonical_url,
+                            enrich=False,
+                        )
         except Exception as e:
             logger.debug("NewRecruit RPC fetch notice: %s", e)
 
@@ -661,6 +694,9 @@ class ArmyListParser:
         }
 
     def _parse_json_roster(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        if isinstance(data, dict) and (isinstance(data.get("army"), dict) or data.get("list_key")):
+            return self.parse_newrecruit_dict(data, enrich=False)
+
         roster_obj = data.get("roster", data)
         roster_name = roster_obj.get("name") or data.get("name") or data.get("rosterName") or "Army Roster"
         roster_name = roster_name.strip()

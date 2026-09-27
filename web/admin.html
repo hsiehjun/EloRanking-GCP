@@ -26,7 +26,8 @@
         if (profileStr) {
           var p = JSON.parse(profileStr);
           var role = (p.role || (p.user && p.user.role) || '').trim().toLowerCase();
-          if (role && role !== 'admin' && !p.is_admin) {
+          var isAdmin = Boolean(p.is_admin || (p.user && p.user.is_admin));
+          if (role && role !== 'admin' && !isAdmin) {
             document.documentElement.style.display = 'none';
             window.location.replace('/');
           }

@@ -4340,8 +4340,11 @@ function onRegistrationSavedListChange() {
     }
   }
 
-  if (armyListInput && (matched.raw_text || matched.list_text || matched.army_list)) {
-    armyListInput.value = matched.raw_text || matched.list_text || matched.army_list || '';
+  if (armyListInput) {
+    const resolvedText = matched.raw_text || matched.list_text || matched.army_list || (window.generateRawRosterText ? window.generateRawRosterText(matched) : '');
+    if (resolvedText) {
+      armyListInput.value = resolvedText;
+    }
   }
 }
 

@@ -1054,12 +1054,12 @@ function renderShareStudioContent() {
   ].map(f => {
     const active = _shareStudioState.format === f.id;
     return `
-      <button type="button" onclick="setShareProfileFormat('${f.id}')" style="flex: 1; min-width: 155px; text-align: left; padding: 0.6rem 0.8rem; border-radius: 10px; cursor: pointer; transition: all 0.15s ease; background: ${active ? 'rgba(56, 189, 248, 0.16)' : 'rgba(15, 23, 42, 0.7)'}; border: 1.5px solid ${active ? '#38bdf8' : 'rgba(255,255,255,0.1)'}; color: #fff;">
-        <div style="font-weight: 800; font-size: 0.84rem; display: flex; align-items: center; gap: 0.4rem; color: ${active ? '#38bdf8' : '#f8fafc'};">
+      <button type="button" onclick="setShareProfileFormat('${f.id}')" style="flex: 1 1 120px; min-width: 0; text-align: left; padding: 0.48rem 0.65rem; border-radius: 10px; cursor: pointer; transition: all 0.15s ease; background: ${active ? 'rgba(56, 189, 248, 0.16)' : 'rgba(15, 23, 42, 0.7)'}; border: 1.5px solid ${active ? '#38bdf8' : 'rgba(255,255,255,0.1)'}; color: #fff; box-sizing: border-box;">
+        <div style="font-weight: 800; font-size: 0.8rem; display: flex; align-items: center; gap: 0.35rem; color: ${active ? '#38bdf8' : '#f8fafc'};">
           <span>${f.icon}</span>
           <span>${f.title}</span>
         </div>
-        <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 2px;">${f.sub}</div>
+        <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 2px;">${f.sub}</div>
       </button>
     `;
   }).join('');
@@ -1067,26 +1067,26 @@ function renderShareStudioContent() {
   const themeButtonsHtml = Object.values(_SHARE_THEMES).map(t => {
     const active = _shareStudioState.theme === t.id;
     return `
-      <button type="button" onclick="setShareProfileTheme('${t.id}')" style="padding: 0.38rem 0.7rem; border-radius: 999px; font-size: 0.76rem; font-weight: 700; cursor: pointer; background: ${active ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.75)'}; border: 1.5px solid ${active ? t.accent : 'rgba(255,255,255,0.12)'}; color: ${active ? '#fff' : '#cbd5e1'}; display: inline-flex; align-items: center; gap: 0.35rem;">
-        <span style="width: 10px; height: 10px; border-radius: 50%; background: ${t.accent}; box-shadow: 0 0 6px ${t.accent};"></span>
+      <button type="button" onclick="setShareProfileTheme('${t.id}')" style="padding: 0.34rem 0.6rem; border-radius: 999px; font-size: 0.74rem; font-weight: 700; cursor: pointer; background: ${active ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.75)'}; border: 1.5px solid ${active ? t.accent : 'rgba(255,255,255,0.12)'}; color: ${active ? '#fff' : '#cbd5e1'}; display: inline-flex; align-items: center; gap: 0.3rem;">
+        <span style="width: 9px; height: 9px; border-radius: 50%; background: ${t.accent}; box-shadow: 0 0 6px ${t.accent};"></span>
         <span>${t.label}</span>
       </button>
     `;
   }).join('');
 
   body.innerHTML = `
-    <div style="display: grid; grid-template-columns: 1fr; gap: 1rem;">
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.7rem; max-width: 100%; box-sizing: border-box;">
       <!-- 1. Format & Theme Selector Bar -->
-      <div style="display: flex; flex-direction: column; gap: 0.75rem; background: rgba(6, 10, 19, 0.65); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 0.85rem;">
-        <div style="display: flex; gap: 0.55rem; flex-wrap: wrap;">
+      <div style="display: flex; flex-direction: column; gap: 0.55rem; background: rgba(6, 10, 19, 0.65); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 0.7rem; box-sizing: border-box;">
+        <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
           ${formatButtonsHtml}
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem; padding-top: 0.35rem; border-top: 1px solid rgba(255,255,255,0.06);">
-          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-            <span style="font-size: 0.72rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-right: 0.2rem;">Theme:</span>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding-top: 0.35rem; border-top: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+            <span style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-right: 0.15rem;">Theme:</span>
             ${themeButtonsHtml}
           </div>
-          <div style="display: flex; align-items: center; gap: 0.65rem; font-size: 0.75rem; color: #cbd5e1;">
+          <div style="display: flex; align-items: center; gap: 0.6rem; font-size: 0.74rem; color: #cbd5e1;">
             ${_shareStudioState.format !== 'avatar' ? `
               <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
                 <input type="checkbox" ${_shareStudioState.showSparkline ? 'checked' : ''} onchange="toggleShareProfileOption('showSparkline', this.checked)">
@@ -1102,24 +1102,24 @@ function renderShareStudioContent() {
       </div>
 
       <!-- 2. Live High-Resolution Canvas Preview -->
-      <div style="background: radial-gradient(circle at center, rgba(30, 41, 59, 0.55) 0%, rgba(6, 10, 18, 0.92) 100%); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 1rem; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 280px;">
-        <canvas id="share-profile-canvas" style="max-width: 100%; max-height: 410px; width: auto; height: auto; border-radius: 12px; box-shadow: 0 18px 45px rgba(0,0,0,0.75); border: 1px solid rgba(255,255,255,0.12);"></canvas>
-        <div style="margin-top: 0.65rem; font-size: 0.74rem; color: #94a3b8; text-align: center;">
-          💡 <b>Tip:</b> Copy the generated image to paste directly into Discord, Slack, Reddit, or X — or download the HD PNG to set as your Profile Picture!
+      <div style="background: radial-gradient(circle at center, rgba(30, 41, 59, 0.55) 0%, rgba(6, 10, 18, 0.92) 100%); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 0.75rem; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; max-width: 100%; box-sizing: border-box; overflow: hidden;">
+        <canvas id="share-profile-canvas" style="width: 100%; max-width: 620px; max-height: 300px; height: auto; object-fit: contain; border-radius: 10px; box-shadow: 0 14px 35px rgba(0,0,0,0.75); border: 1px solid rgba(255,255,255,0.12); display: block;"></canvas>
+        <div style="margin-top: 0.5rem; font-size: 0.72rem; color: #94a3b8; text-align: center;">
+          💡 <b>Tip:</b> Copy the generated image to paste directly into Discord, Slack, Reddit, or X — or download the HD PNG!
         </div>
       </div>
 
       <!-- 3. Primary Image Export Actions -->
-      <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: center;">
+      <div style="display: flex; gap: 0.55rem; flex-wrap: wrap; justify-content: center;">
         ${canNativeShare ? `
-          <button type="button" class="btn btn-primary" onclick="nativeShareProfileCard()" style="flex: 1; min-width: 190px; padding: 0.65rem 1rem; font-weight: 800; font-size: 0.88rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; background: linear-gradient(135deg, #0284c7, #2563eb); border: none;">
+          <button type="button" class="btn btn-primary" onclick="nativeShareProfileCard()" style="flex: 1 1 150px; min-width: 0; padding: 0.58rem 0.85rem; font-weight: 800; font-size: 0.84rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; background: linear-gradient(135deg, #0284c7, #2563eb); border: none;">
             <span>📲</span> <span>Share Image + Link...</span>
           </button>
         ` : ''}
-        <button type="button" class="btn btn-primary" onclick="copyShareProfileImage()" style="flex: 1; min-width: 190px; padding: 0.65rem 1rem; font-weight: 800; font-size: 0.88rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;">
+        <button type="button" class="btn btn-primary" onclick="copyShareProfileImage()" style="flex: 1 1 160px; min-width: 0; padding: 0.58rem 0.85rem; font-weight: 800; font-size: 0.84rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
           <span>📋</span> <span>Copy Image to Clipboard</span>
         </button>
-        <button type="button" class="btn btn-outline" onclick="downloadShareProfileImage()" style="flex: 1; min-width: 180px; padding: 0.65rem 1rem; font-weight: 800; font-size: 0.88rem; border-color: rgba(251, 191, 36, 0.45); color: #fbbf24; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;">
+        <button type="button" class="btn btn-outline" onclick="downloadShareProfileImage()" style="flex: 1 1 150px; min-width: 0; padding: 0.58rem 0.85rem; font-weight: 800; font-size: 0.84rem; border-color: rgba(251, 191, 36, 0.45); color: #fbbf24; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
           <span>⬇️</span> <span>Download HD PNG</span>
         </button>
       </div>
@@ -1409,9 +1409,10 @@ function _drawRecentFormBeads(ctx, x, y, w, d, theme) {
   ctx.fillStyle = '#94a3b8';
   ctx.font = '800 13px system-ui, -apple-system, sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText('RECENT FORM (NEWEST FIRST):', x, y + 20);
+  const labelText = 'RECENT FORM (NEWEST FIRST):';
+  ctx.fillText(labelText, x, y + 20);
 
-  let bx = x + 215;
+  let bx = x + Math.max(228, Math.ceil(ctx.measureText(labelText).width) + 16);
   form.slice(0, 8).forEach(res => {
     const col = res === 'W' ? '#10b981' : (res === 'L' ? '#ef4444' : '#f59e0b');
     const bg = res === 'W' ? 'rgba(16,185,129,0.18)' : (res === 'L' ? 'rgba(239,68,68,0.18)' : 'rgba(245,158,11,0.18)');
@@ -1590,7 +1591,12 @@ function _renderBannerFormat(ctx, w, h, d, theme, svgImg) {
     ctx.fillText(st.label, sx + 16, statY + 30);
 
     ctx.fillStyle = st.col;
-    ctx.font = `900 ${st.val.length > 7 ? 22 : 26}px monospace`;
+    let fontSize = st.val.length > 7 ? 22 : 26;
+    ctx.font = `900 ${fontSize}px monospace`;
+    while (fontSize > 14 && ctx.measureText(st.val).width > statW - 28) {
+      fontSize -= 1;
+      ctx.font = `900 ${fontSize}px monospace`;
+    }
     ctx.fillText(st.val, sx + 16, statY + 74);
   });
 
@@ -1720,7 +1726,12 @@ function _renderStoryTradingCardFormat(ctx, w, h, d, theme, svgImg) {
     ctx.fillText(st.label, sx + sW / 2, sY + 38);
 
     ctx.fillStyle = st.col;
-    ctx.font = '900 32px monospace';
+    let fontSize = 32;
+    ctx.font = `900 ${fontSize}px monospace`;
+    while (fontSize > 16 && ctx.measureText(st.val).width > sW - 24) {
+      fontSize -= 1;
+      ctx.font = `900 ${fontSize}px monospace`;
+    }
     ctx.fillText(st.val, sx + sW / 2, sY + 88);
   });
 

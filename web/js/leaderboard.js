@@ -276,7 +276,7 @@ function renderLeaderboardRows() {
         })()}
       </td>
       <td class="col-last-active" style="font-size:0.8rem; color:var(--text-muted); font-family:var(--font-mono);">
-        ${(p.last_active_date || '').slice(0, 10) || '-'}
+        ${(p.last_active_date || p.last_active || '').slice(0, 10) || '-'}
       </td>
     `;
     tbody.appendChild(tr);
@@ -385,8 +385,9 @@ function renderLeaderboardTeamsRows() {
   const offset = (page - 1) * pageSize;
 
   list.forEach((t, idx) => {
+    const teamName = t.team || t.name || t.team_name || 'Team';
     const tr = document.createElement('tr');
-    tr.onclick = (e) => { e.stopPropagation(); openTeamModal(t.team); };
+    tr.onclick = (e) => { e.stopPropagation(); openTeamModal(teamName); };
 
     const rank = t.rank != null ? Number(t.rank) : (offset + idx + 1);
     let rankClass = '';
@@ -395,11 +396,11 @@ function renderLeaderboardTeamsRows() {
     else if (rank === 3) rankClass = 'rank-top-3';
 
     const pRating = Number(t.power_rating || 0).toFixed(1);
-    const activeAvg = Number(t.active_avg_elo != null ? t.active_avg_elo : (t.avg_elo || 1500)).toFixed(1);
-    const allAvg = Number(t.avg_elo || t.active_avg_elo || 1500).toFixed(1);
+    const activeAvg = Number(t.active_avg_elo != null ? t.active_avg_elo : (t.avg_elo || t.top5_avg_elo || 1500)).toFixed(1);
+    const allAvg = Number(t.avg_elo || t.active_avg_elo || t.top5_avg_elo || 1500).toFixed(1);
     const avgEloTitle = `${activeAvg} Active Club Avg (${allAvg} All-Time Registered Avg)`;
     const topElo = Number(t.top_player_elo || 1500).toFixed(1);
-    const wr = Number(t.team_win_rate || 0).toFixed(1);
+    const wr = Number(t.team_win_rate != null ? t.team_win_rate : (t.win_rate || 0)).toFixed(1);
     const activeCount = t.active_roster_count !== undefined && t.active_roster_count !== null ? t.active_roster_count : (t.roster_count || 1);
     const totalCount = t.roster_count || activeCount || 1;
     const rosterTitle = `${totalCount} Total Registered Competitors (${activeCount} Active in last 180 days)`;
@@ -410,7 +411,7 @@ function renderLeaderboardTeamsRows() {
       <td>
         <div style="font-weight:600; color:#fff; display:flex; align-items:center; gap:0.4rem;">
           <span>🛡️</span>
-          <span class="player-link">${escapeHtml(t.team || 'Team')}</span>
+          <span class="player-link">${escapeHtml(teamName)}</span>
         </div>
       </td>
       <td>

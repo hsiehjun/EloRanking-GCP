@@ -675,8 +675,8 @@ class FirestoreRoomEngine:
 
     def delete_league_season_group_chats(self, league_id: str, season_number: Optional[int] = None) -> int:
         """
-        Deletes League and Pod Firestore group chat instances for an ended season so they disappear
-        once the season concludes or rolls over.
+        Deletes League and Pod Firestore group chat instances for an ended season or ended league
+        so they disappear once the season concludes, rolls over, or the league ends.
         """
         if not league_id:
             return 0
@@ -715,6 +715,51 @@ class FirestoreRoomEngine:
                         except Exception:
                             pass
         return deleted
+
+    def delete_league_pod_group_chats(self, league_id: str, season_number: Optional[int] = None, keep_pod_numbers: Optional[List[int]] = None) -> int:
+        """
+        Deletes Pod-specific Firestore group chat instances ('grp_pod_{lid}_...') for a league/season
+        (e.g., when a season ends before next season starts, or when pods are not yet populated).
+        If keep_pod_numbers is provided, only deletes pod chats whose podNumber is not in keep_pod_numbers.
+        """
+        if not league_id:
+            return 0
+        lid = str(league_id).strip().lower()
+        keep_set = {int(x) for x in (keep_pod_numbers or [])}
+        deleted = 0
+        prefix = f"grp_pod_{lid}_s{int(season_number)}_" if season_number is not None else f"grp_pod_{lid}_"
+
+        # 1. Remove from in-memory fallback
+        for k in list(self._fallback_rooms.keys()):
+            kl = str(k).lower()
+            if kl.startswith(prefix):
+                if keep_set:
+                    doc_c = self._fallback_rooms.get(k) or {}
+                    pnum = doc_c.get("podNumber")
+                    if pnum is not None and int(pnum) in keep_set:
+                        continue
+                self._fallback_rooms.pop(k, None)
+                deleted += 1
+
+        # 2. Remove from Cloud Firestore connect_chats
+        if self._client:
+            try:
+                col = self._client.collection("connect_chats")
+                query = _apply_where(col, "leagueId", "==", lid)
+                for doc in query.stream():
+                    d = doc.to_dict() or {}
+                    if str(d.get("groupType") or "").lower() != "pod" and not str(doc.id).lower().startswith("grp_pod_"):
+                        continue
+                    if season_number is not None and int(d.get("seasonNumber") or 0) != int(season_number):
+                        continue
+                    if keep_set and d.get("podNumber") is not None and int(d.get("podNumber")) in keep_set:
+                        continue
+                    doc.reference.delete()
+                    deleted += 1
+            except Exception as e:
+                logger.warning(f"Notice deleting pod group chats for league {lid} season {season_number}: {e}")
+        return deleted
+
 
     def get_tournament_doc_ref(self, event_id: str):
         if not event_id or not self._client:

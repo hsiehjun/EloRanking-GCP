@@ -68,7 +68,7 @@ function renderBcpLinkRequiredCard(listUrl) {
         need bcp subscription - please subscribe here: <a href="https://www.bestcoastpairings.com/subscription" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline; font-weight:700; word-break:break-all;">https://www.bestcoastpairings.com/subscription</a>
       </div>
       <div style="font-size:0.84rem; color:var(--text-secondary); line-height:1.55; margin-bottom:1.6rem;">
-        Viewing competitor tournament army rosters requires an active Best Coast Pairings subscription. Once subscribed, link your BCP account to unlock full in-app roster and Wahapedia datasheet enrichment.
+        Viewing competitor tournament army rosters requires an active Best Coast Pairings subscription. Once subscribed, link your BCP account to unlock full in-app roster viewing and interactive NewRecruit Play Mode datasheets.
       </div>
       <div style="display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:0.75rem;">
         <a href="https://www.bestcoastpairings.com/subscription" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.45rem; font-weight:700; font-size:0.86rem; padding:0.65rem 1.4rem; background:linear-gradient(135deg, #0284c7 0%, #2563eb 100%); border:1px solid #38bdf8; color:#fff; border-radius:8px; text-decoration:none; box-shadow:0 4px 14px rgba(2,132,199,0.4); cursor:pointer;">
@@ -2812,7 +2812,7 @@ function applySavedListToPlayerDetails() {
 
   const al = lists[idx];
   if (ta) {
-    ta.value = al.raw_text || '';
+    ta.value = (al.raw_text && al.raw_text.trim()) ? al.raw_text : (window.generateRawRosterText ? window.generateRawRosterText(al) : '');
     updatePlayerListCharCount();
   }
 
@@ -3300,13 +3300,14 @@ function isEventEnded(ev, regData = null) {
 }
 window.isEventEnded = isEventEnded;
 
-function getEventTierBadgeHtml(totalPlayers) {
+function getEventTierBadgeHtml(totalPlayers, eventName = '') {
   const count = Number(totalPlayers || 0);
-  if (count >= 100) {
+  const nameLower = String(eventName || '').toLowerCase();
+  if (count >= 100 || nameLower.includes('super major') || nameLower.includes('lvo') || nameLower.includes('adepticon') || nameLower.includes('nova open')) {
     return `<span class="badge" style="background:rgba(234,179,8,0.18); color:#facc15; border:1px solid rgba(234,179,8,0.4); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">👑 SUPER MAJOR</span>`;
-  } else if (count >= 60) {
+  } else if (count >= 60 || nameLower.includes('major') || nameLower.includes(' open')) {
     return `<span class="badge" style="background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.4); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">🏆 MAJOR</span>`;
-  } else if (count >= 28) {
+  } else if (count >= 28 || /\bgt\b/.test(nameLower) || nameLower.includes('grand tournament')) {
     return `<span class="badge" style="background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">⚔️ GT</span>`;
   }
   return `<span class="badge" style="background:rgba(148,163,184,0.16); color:#cbd5e1; border:1px solid rgba(148,163,184,0.35); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">🛡️ RTT</span>`;
@@ -3523,7 +3524,7 @@ function renderQuickEventModal(ev, userRegData) {
 
   const badgesEl = document.getElementById('modal-event-badges');
   if (badgesEl) {
-    badgesEl.innerHTML = `${getEventTierBadgeHtml(kpi.totalPlayers)} ${sysBadge} ${statusBadge} ${formatBadge}`;
+    badgesEl.innerHTML = `${getEventTierBadgeHtml(kpi.totalPlayers, ev.name || ev.event_name || '')} ${sysBadge} ${statusBadge} ${formatBadge}`;
   }
 
   // Personal Registration Status Banner
@@ -4049,7 +4050,7 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
           </div>
           <div class="profile-name-meta">
             <div class="profile-badges-row" style="margin-bottom: 0.35rem;">
-              ${getEventTierBadgeHtml(kpi.totalPlayers)}
+              ${getEventTierBadgeHtml(kpi.totalPlayers, eventName)}
               ${sysBadge}
               ${statusBadge}
               ${formatBadge}
@@ -4766,13 +4767,18 @@ function copyEventHubLink(eventId, sys = '40k') {
   }
 }
 
-function openEventPlayerListModal(playerIdentifier) {
-  const q = String(playerIdentifier || '').trim().toLowerCase();
-  let p = (eventPlayersCache || []).find(item => {
-    const pid = String(item.player_id || item.id || '').trim().toLowerCase();
-    const pname = String(item.full_name || item.name || '').trim().toLowerCase();
-    return (pid && pid === q) || (pname && pname === q);
-  });
+function openEventPlayerListModal(playerIdentifier, directPlayerObj = null) {
+  let p = (directPlayerObj && typeof directPlayerObj === 'object')
+    ? directPlayerObj
+    : (playerIdentifier && typeof playerIdentifier === 'object' ? playerIdentifier : null);
+  const q = String((p ? (p.player_id || p.id || p.full_name) : playerIdentifier) || '').trim().toLowerCase();
+  if (!p) {
+    p = (eventPlayersCache || []).find(item => {
+      const pid = String(item.player_id || item.id || '').trim().toLowerCase();
+      const pname = String(item.full_name || item.name || '').trim().toLowerCase();
+      return (pid && pid === q) || (pname && pname === q);
+    });
+  }
 
   if (!p && typeof currentEventData !== 'undefined' && currentEventData) {
     const candidates = [
@@ -4788,7 +4794,7 @@ function openEventPlayerListModal(playerIdentifier) {
     });
   }
 
-  currentArmyListModalPlayer = p || { full_name: playerIdentifier, player_id: playerIdentifier };
+  currentArmyListModalPlayer = p || { full_name: String(playerIdentifier || ''), player_id: String(playerIdentifier || '') };
   currentEventParsedRoster = p?._parsed_roster || null;
   currentEventArmyListText = '';
 
@@ -4931,6 +4937,63 @@ function openEventPlayerListModal(playerIdentifier) {
   }
 }
 
+function _renderEventCompetitorPlayMode(contentEl, parsedRoster, fallbackText) {
+  if (!contentEl) return;
+  let matchedSaved = false;
+  // If parsedRoster does not have nr_row yet, check if it matches a saved NewRecruit list in hubSavedLists
+  if (parsedRoster && typeof hubSavedLists !== 'undefined' && Array.isArray(hubSavedLists)) {
+    const matchSaved = hubSavedLists.find(l => l.nr_row && (
+      (parsedRoster.id && l.id === parsedRoster.id) ||
+      (parsedRoster.name && l.name === parsedRoster.name) ||
+      (fallbackText && l.raw_text && l.raw_text.trim() === fallbackText.trim())
+    ));
+    if (matchSaved) {
+      matchedSaved = true;
+      parsedRoster = Object.assign({}, parsedRoster, {
+        id: matchSaved.id,
+        nr_list_key: matchSaved.nr_list_key || matchSaved.list_key,
+        nr_row: matchSaved.nr_row,
+        source: matchSaved.source || 'newrecruit'
+      });
+    }
+  }
+  if (parsedRoster && parsedRoster.nr_row && !matchedSaved) {
+    parsedRoster.nr_row = Object.assign({}, parsedRoster.nr_row, { _ephemeral_view: true });
+  }
+  const renderer = window.renderNativeRosterViewer || (typeof renderNativeRosterViewer === 'function' ? renderNativeRosterViewer : null);
+  if (renderer && parsedRoster) {
+    contentEl.innerHTML = renderer(parsedRoster, { mode: 'play' });
+    setTimeout(() => {
+      const iframe = contentEl.querySelector('#hub-nr-play-mode-iframe');
+      if (iframe) {
+        const rawKey = String(parsedRoster.nr_list_key || parsedRoster.list_key || (parsedRoster.nr_row && parsedRoster.nr_row.list_key) || parsedRoster.id || 'roster').trim();
+        const listKey = rawKey.startsWith('nr_') ? rawKey.slice(3) : rawKey;
+        const postPlayCmd = () => {
+          try {
+            if (iframe.contentWindow) {
+              iframe.contentWindow.postMessage({
+                type: 'OMNITACTICA_NR_COMMAND',
+                command: 'open_play_mode',
+                list_key: listKey,
+                play: true,
+                nr_row: parsedRoster.nr_row || null
+              }, '*');
+            }
+          } catch (e) {}
+        };
+        postPlayCmd();
+        iframe.addEventListener('load', () => {
+          postPlayCmd();
+          setTimeout(postPlayCmd, 600);
+          setTimeout(postPlayCmd, 1500);
+        });
+      }
+    }, 50);
+  } else {
+    contentEl.innerHTML = `<pre style="padding:1.25rem; color:#e2e8f0; font-family:var(--font-mono); font-size:0.82rem; line-height:1.6; white-space:pre-wrap;">${escapeHtml(fallbackText)}</pre>`;
+  }
+}
+
 function setEventArmyListViewMode(mode) {
   currentEventArmyListViewMode = mode || 'text';
   const btnText = document.getElementById('btn-army-list-mode-text');
@@ -4939,7 +5002,7 @@ function setEventArmyListViewMode(mode) {
   if (!contentEl) return;
 
   if (btnText && btnEnriched) {
-    if (mode === 'enriched') {
+    if (mode === 'enriched' || mode === 'play') {
       btnEnriched.classList.add('active');
       btnText.classList.remove('active');
     } else {
@@ -4948,21 +5011,16 @@ function setEventArmyListViewMode(mode) {
     }
   }
 
-  if (mode === 'enriched') {
+  if (mode === 'enriched' || mode === 'play') {
     if (currentEventParsedRoster) {
-      const renderer = window.renderNativeRosterViewer || (typeof renderNativeRosterViewer === 'function' ? renderNativeRosterViewer : null);
-      if (renderer) {
-        contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'enriched' });
-      } else {
-        contentEl.innerHTML = `<pre style="padding:1.25rem; color:#e2e8f0; font-family:var(--font-mono); font-size:0.82rem; line-height:1.6; white-space:pre-wrap;">${escapeHtml(currentEventArmyListText)}</pre>`;
-      }
+      _renderEventCompetitorPlayMode(contentEl, currentEventParsedRoster, currentEventArmyListText);
     } else {
-      // Show loading spinner while parsing with Wahapedia
+      // Show loading spinner while parsing into NewRecruit Play Mode
       contentEl.innerHTML = `
         <div style="text-align:center; padding:3.5rem 1.5rem; margin:auto;">
           <div class="spinner-mini" style="display:inline-block; width:38px; height:38px; border:3px solid rgba(56,189,248,0.2); border-top-color:#38bdf8; border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:1rem;"></div>
-          <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.35rem;">⚡ Enriching Roster with Wahapedia...</div>
-          <div style="font-size:0.84rem; color:var(--text-muted);">Parsing datasheets, statlines, weapons, abilities & stratagems</div>
+          <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.35rem;">🎮 Preparing NewRecruit Play Mode...</div>
+          <div style="font-size:0.84rem; color:var(--text-muted);">Loading interactive datasheets, statlines, weapons, abilities & stratagems</div>
         </div>
       `;
 
@@ -4973,18 +5031,13 @@ function setEventArmyListViewMode(mode) {
             if (currentArmyListModalPlayer) {
               currentArmyListModalPlayer._parsed_roster = res.army_list;
             }
-            if (currentEventArmyListViewMode === 'enriched') {
-              const renderer = window.renderNativeRosterViewer || (typeof renderNativeRosterViewer === 'function' ? renderNativeRosterViewer : null);
-              if (renderer) {
-                contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'enriched' });
-              } else {
-                contentEl.innerHTML = `<pre style="padding:1.25rem; color:#e2e8f0; font-family:var(--font-mono); font-size:0.82rem; line-height:1.6; white-space:pre-wrap;">${escapeHtml(currentEventArmyListText)}</pre>`;
-              }
+            if (currentEventArmyListViewMode === 'enriched' || currentEventArmyListViewMode === 'play') {
+              _renderEventCompetitorPlayMode(contentEl, currentEventParsedRoster, currentEventArmyListText);
             }
           } else {
             setEventArmyListViewMode('text');
             if (typeof showToast === 'function') {
-              showToast('Wahapedia datasheet parser could not enrich this list format.', 'info');
+              showToast('Could not parse this roster format into Play Mode.', 'info');
             }
           }
         })
@@ -5015,6 +5068,8 @@ function closeEventArmyListModal() {
     if (m) m.style.display = 'none';
   }
 }
+window.openEventPlayerListModal = openEventPlayerListModal;
+window.openEventArmyListModal = openEventPlayerListModal;
 window.closeEventArmyListModal = closeEventArmyListModal;
 window.setEventArmyListViewMode = setEventArmyListViewMode;
 

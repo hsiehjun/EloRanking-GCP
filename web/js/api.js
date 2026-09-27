@@ -38,6 +38,7 @@ window.api = {
     if (method && method.toUpperCase() !== 'GET') return false;
     const noCachePrefixes = [
       '/api/auth',
+      '/api/armylists',
       '/api/tracker',
       '/api/eventstudio',
       '/api/chat',
@@ -1288,6 +1289,29 @@ window.api = {
       method: 'POST',
       headers: { 'X-Filename': encodeURIComponent(file.name || '') },
       body: formData
+    });
+  },
+
+  // NewRecruit Studio & Cloud Sync (Option 3 Hybrid Architecture)
+  async getNewRecruitState() {
+    return this._fetchJson('/api/armylists/nr_state', {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    });
+  },
+
+  async syncNewRecruitLists(payload) {
+    return this._fetchJson('/api/armylists/nr_sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify(payload || {})
+    });
+  },
+
+  async connectNewRecruitCloud(payload) {
+    return this._fetchJson('/api/armylists/nr_cloud_connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify(payload || {})
     });
   },
 

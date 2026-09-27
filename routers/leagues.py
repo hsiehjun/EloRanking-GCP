@@ -75,7 +75,7 @@ async def assign_league_owner(league_id: str, request: Request):
 async def get_league_details(league_id: str, season: Optional[int] = None):
     norm_lid = leagues_hub_service._normalize_league_id(league_id)
     svc = leagues_hub_service.get_leagues_hub_service()
-    league = svc.get_league(norm_lid, season_number=season)
+    league = svc.slim_league_for_api(svc.get_league(norm_lid, season_number=season))
     if not league:
         raise HTTPException(status_code=404, detail=f"League '{league_id}' not found")
     return {
@@ -151,7 +151,7 @@ async def get_league_seasons(league_id: str):
 @router.get("/api/league/{league_id}/season/{season_num}", summary="Get specific historical season")
 async def get_league_season(league_id: str, season_num: int):
     svc = leagues_hub_service.get_leagues_hub_service()
-    league = svc.get_league(league_id, season_number=season_num)
+    league = svc.slim_league_for_api(svc.get_league(league_id, season_number=season_num))
     if not league:
         raise HTTPException(status_code=404, detail=f"Season {season_num} not found in league '{league_id}'")
     return {
@@ -208,6 +208,7 @@ async def create_community_league(request: Request):
 
 
 @router.post("/api/league/{league_id}/config", summary="Update community league methodology, pod rules, and scoring configuration")
+@router.put("/api/league/{league_id}/config", summary="Update community league methodology, pod rules, and scoring configuration")
 async def update_community_league_config(league_id: str, request: Request):
     try:
         body = await request.json()
@@ -221,6 +222,7 @@ async def update_community_league_config(league_id: str, request: Request):
 
 
 @router.post("/api/league/{league_id}/match/report", summary="Report a completed league match score")
+@router.post("/api/league/{league_id}/report-match", summary="Report a completed league match score")
 async def report_league_match(league_id: str, request: Request):
     try:
         body = await request.json()
@@ -259,6 +261,7 @@ async def get_league_rollover_preview(league_id: str, season: Optional[int] = No
 
 
 @router.post("/api/league/{league_id}/season/rollover", summary="Execute automated season rollover and seed next season")
+@router.post("/api/league/{league_id}/rollover", summary="Execute automated season rollover and seed next season")
 async def execute_league_season_rollover(league_id: str, request: Request):
     try:
         body = await request.json()
@@ -268,6 +271,55 @@ async def execute_league_season_rollover(league_id: str, request: Request):
     try:
         result = svc.rollover_season(league_id, options=body)
         return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/api/league/{league_id}/pods/create", summary="Create and seed pods from registered players and initialize pod chats")
+async def create_league_pods_endpoint(league_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    try:
+        return svc.create_pods_from_registrations(league_id, payload=body)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/api/league/{league_id}/season/end", summary="End the active season of a league and remove its pod chats")
+async def end_league_season_endpoint(league_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    try:
+        res = svc.end_season(league_id, options=body)
+        if res.get("error"):
+            raise HTTPException(status_code=404, detail=res["error"])
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/api/league/{league_id}/end", summary="End an entire league and remove all its League and Pod chats")
+async def end_league_endpoint(league_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    svc = leagues_hub_service.get_leagues_hub_service()
+    try:
+        res = svc.end_league(league_id, options=body)
+        if res.get("error"):
+            raise HTTPException(status_code=404, detail=res["error"])
+        return res
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -372,6 +424,7 @@ async def update_league_season_schedule_endpoint(league_id: str, request: Reques
 
 
 @router.post("/api/league/{league_id}/pairings/update", summary="Reassign/swap pod pairings, assign Ringers, or override match scores")
+@router.post("/api/league/{league_id}/pod/pairings", summary="Reassign/swap pod pairings, assign Ringers, or override match scores")
 async def update_league_pod_pairings_endpoint(league_id: str, request: Request):
     try:
         body = await request.json()
@@ -385,6 +438,7 @@ async def update_league_pod_pairings_endpoint(league_id: str, request: Request):
 
 
 @router.post("/api/league/{league_id}/roster/update", summary="Add/move pod players or assign disciplinary cards (Yellow/Red/Black)")
+@router.post("/api/league/{league_id}/pod/roster", summary="Add/move pod players or assign disciplinary cards (Yellow/Red/Black)")
 async def update_league_pod_roster_endpoint(league_id: str, request: Request):
     try:
         body = await request.json()

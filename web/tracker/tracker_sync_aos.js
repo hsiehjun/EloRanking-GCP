@@ -1036,10 +1036,10 @@
     hud.style.cssText = `
       position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
       background: rgba(18, 22, 31, 0.95); border-bottom: 1px solid #273042;
-      backdrop-filter: blur(8px); padding: 5px 16px;
+      backdrop-filter: blur(8px); padding: 5px 12px;
       display: flex; justify-content: space-between; align-items: center;
       font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #f0f4fc;
-      gap: 8px; flex-wrap: nowrap; overflow: hidden;
+      gap: 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
     `;
 
     const st = getAosState() || {};
@@ -1067,7 +1067,7 @@
       </div>
 
       <!-- Center: Connected Players Matchup -->
-      <div class="gt-desktop-actions" style="display:inline-flex; align-items:center; gap:6px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:11px; padding:0 6px; flex-shrink:0;">
+      <div class="gt-desktop-actions" style="display:inline-flex; align-items:center; gap:6px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:11px; padding:0 4px; flex-shrink:0;">
         <span style="width:7px; height:7px; border-radius:50%; background:#10b981; flex-shrink:0;"></span>
         <span style="${isP1 ? 'color:#38bdf8; font-weight:700;' : 'color:#cbd5e1;'}">${escapeHtml(p1Name)}</span>
         <span style="color:#64748b; font-size:10px;">vs</span>
@@ -1075,41 +1075,35 @@
       </div>
 
       <!-- Right: Action Buttons (Desktop / Wide Screen) -->
-      <div class="gt-desktop-actions" style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
-        <button onclick="window.gtToggleChessClock()" style="background:#0f172a; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Table Chess Clock">
+      <div class="gt-desktop-actions" style="display:inline-flex; align-items:center; gap:5px; flex-shrink:0;">
+        <button onclick="window.gtToggleChessClock()" style="background:#0f172a; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Table Chess Clock">
           ⏱️ Table Clock
         </button>
-        <button onclick="window.gtToggleDiceRoller()" style="background:#0f172a; color:#f59e0b; border:1px solid rgba(245,158,11,0.4); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Synchronized Dice Tray">
+        <button onclick="window.gtToggleDiceRoller()" style="background:#0f172a; color:#f59e0b; border:1px solid rgba(245,158,11,0.4); padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Synchronized Dice Tray">
           🎲 Dice
         </button>
         ${!isSpectator ? `
-          <button onclick="window.gtOpenJudgeModal()" style="background:#881337; color:#fff; border:1px solid #f43f5e; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Call Tournament Judge">
+          <button onclick="window.gtOpenJudgeModal()" style="background:#881337; color:#fff; border:1px solid #f43f5e; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Call Tournament Judge">
             🙋‍♂️ Call Judge
           </button>
         ` : ''}
-        <button onclick="window.gtOpenArmyListModal('opponent')" style="background:#1e293b; color:#fff; border:1px solid #334155; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Opponent's List">
+        <button onclick="window.gtOpenArmyListModal('opponent')" style="background:#1e293b; color:#fff; border:1px solid #334155; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Opponent's List">
           📜 Opponent List
         </button>
-        <button onclick="window.gtOpenArmyListModal('my')" style="background:#1e293b; color:#fff; border:1px solid #334155; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Your List">
+        <button onclick="window.gtOpenArmyListModal('my')" style="background:#1e293b; color:#fff; border:1px solid #334155; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Your List">
           📋 My List
         </button>
-        <button onclick="window.__openScorecardModal()" style="background:rgba(245,158,11,0.12); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Scorecard">
+        <button onclick="window.__openScorecardModal()" style="background:rgba(245,158,11,0.12); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Scorecard">
           📄 Scorecard
         </button>
         ${!isSpectator ? `
-          <button onclick="window.__openCompleteModal()" style="background:#059669; color:#fff; border:1px solid #10b981; padding:4px 9px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Complete Game">
+          <button onclick="window.__openCompleteModal()" style="background:#059669; color:#fff; border:1px solid #10b981; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Complete Game">
             🏁 Finish
           </button>
         ` : ''}
-        <button onclick="const shareUrl = window.location.origin + '/11th/tracker/aos?match_id=' + encodeURIComponent('${matchId || ''}'); navigator.clipboard.writeText(shareUrl); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Room Link">
+        <button onclick="const shareUrl = window.location.origin + '/11th/tracker/aos?match_id=' + encodeURIComponent('${matchId || ''}'); navigator.clipboard.writeText(shareUrl); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Room Link">
           🔗 Share
         </button>
-      </div>
-
-      <!-- Mobile Top Links -->
-      <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;" class="md:hidden">
-        <a href="/aos#my-hub" style="color:#94a3b8; text-decoration:none; font-size:11px; white-space:nowrap;">← Hub</a>
-        <a href="/scorecard/${encodeURIComponent(matchId || '')}" target="_blank" style="color:#f59e0b; text-decoration:none; font-weight:700; font-size:11px; white-space:nowrap; display:inline-flex; align-items:center; gap:2px;">📄 Scorecard</a>
       </div>
     `;
 

@@ -112,6 +112,22 @@ function closeAllModals() {
       el.style.display = 'none';
     }
   });
+  [
+    'league-score-modal-backdrop',
+    'league-player-modal-backdrop',
+    'league-matrix-matchup-modal',
+    'league-copy-modal-backdrop',
+    'league-config-modal-backdrop',
+    'league-hist-archive-modal'
+  ].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
+  const staticLeagueScoreModal = document.getElementById('league-score-modal');
+  if (staticLeagueScoreModal) {
+    staticLeagueScoreModal.classList.remove('active');
+    staticLeagueScoreModal.style.display = 'none';
+  }
   modalStack = [];
   modalZIndexCounter = 10000;
   if (typeof window !== 'undefined') {

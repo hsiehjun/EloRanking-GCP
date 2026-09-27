@@ -8,7 +8,6 @@
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <link rel="stylesheet" href="/css/main.css">
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <style>
@@ -312,7 +311,10 @@
 
     @media(max-width: 768px), (max-width: 640px) {
       .sc-top-bar {
-        display: none !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 0.4rem !important;
+        margin-bottom: 0.65rem !important;
       }
       .sc-container {
         margin: 0.5rem auto 1.5rem auto;
@@ -996,7 +998,7 @@
       } else {
         winnerBanner.className = 'sc-live-banner';
         winnerBanner.style.display = 'flex';
-        winnerText.innerHTML = `<span class="sc-badge-pulse"></span> 🔴 LIVE SCORECARD • Battle Round ${roundNum} In Progress • Auto-updating`;
+        winnerText.innerHTML = `<span class="sc-badge-pulse"></span> LIVE SCORECARD • Battle Round ${roundNum} In Progress • Auto-updating`;
       }
 
       if (eventId) {

@@ -36,7 +36,7 @@ def generate_unique_match_id(db, game_system: str = "40k") -> str:
     for _ in range(20):
         token = secrets.token_hex(4).upper()
         match_id = f"{prefix}-{token[:4]}-{token[4:]}"
-        if match_id not in TRACKER_ROOMS and not db.get_tracker_game(match_id):
+        if match_id not in TRACKER_ROOMS and not (db and hasattr(db, "get_tracker_game") and db.get_tracker_game(match_id)):
             return match_id
     return f"{prefix}-{secrets.token_hex(6).upper()}"
 
@@ -802,7 +802,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
                 "chess_clock": fs_doc.get("chess_clock")
             }
 
-        saved_game = db.get_tracker_game(match_id)
+        saved_game = db.get_tracker_game(match_id) if (db and hasattr(db, "get_tracker_game")) else None
         if saved_game and saved_game.get("state"):
             u_id = user["id"] if user else None
             role, claim_slot = determine_existing_room_role(user, saved_game, match_id, payload)
@@ -1996,12 +1996,14 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
 
     # 1. Update PostgreSQL permanently for both casual and tournament games
     try:
-        db.save_tracker_game(match_id, state, user_id_p1=p1_id, user_id_p2=p2_id)
+        if db and hasattr(db, "save_tracker_game"):
+            db.save_tracker_game(match_id, state, user_id_p1=p1_id, user_id_p2=p2_id)
     except Exception as e:
         logger.warning(f"Notice saving finalized game to DB {match_id}: {e}")
 
     # 1b. Auto-submit to League Scoring System if this is a League Match
     league_submitted = False
+    resolved_league_id = None
     try:
         game_info = (state.get("game") if isinstance(state, dict) else {}) or {}
         league_id = (
@@ -2048,6 +2050,9 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
 
         if p1_name and p2_name:
             import re as _re
+            from leagues_hub_service import get_leagues_hub_service
+            lh_svc = get_leagues_hub_service()
+
             pod_num = int(
                 (state.get("pod_number") if isinstance(state, dict) else 0)
                 or game_info.get("podNumber")
@@ -2058,7 +2063,7 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
                 (state.get("round_num") if isinstance(state, dict) else 0)
                 or game_info.get("roundNum")
                 or room.get("round_num")
-                or 1
+                or 0
             )
             m_pod = _re.search(r"-P(\d+)-R(\d+)-", match_id.upper())
             if m_pod:
@@ -2066,19 +2071,52 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
                     pod_num = int(m_pod.group(1))
                 if not round_num:
                     round_num = int(m_pod.group(2))
-            from leagues_hub_service import get_leagues_hub_service
-            lh_svc = get_leagues_hub_service()
-            lh_svc.report_match(
-                league_id=league_id or "league_sd40k_big_league",
-                pod_number=pod_num or 1,
-                round_number=round_num or 1,
-                p1_name=p1_name,
-                p2_name=p2_name,
-                p1_score=p1_score,
-                p2_score=p2_score,
-                scorecard_id=match_id
-            )
-            league_submitted = True
+
+            p1_low = p1_name.lower()
+            p2_low = p2_name.lower()
+
+            # Auto-detect league, pod_number, and round_number from active leagues if not explicitly provided
+            candidate_leagues = [league_id] if league_id else [lg.get("league_id") for lg in lh_svc.get_leagues_list() if lg.get("league_id")]
+            for cand_lid in candidate_leagues:
+                lg_data = lh_svc.get_league(cand_lid)
+                if not lg_data or str(lg_data.get("status") or "active").lower() in ("ended", "completed", "archived"):
+                    continue
+                act_s = lg_data.get("active_season") or {}
+                if str(act_s.get("status") or "active").lower() in ("ended", "completed", "archived"):
+                    continue
+                matched_in_league = False
+                for p_obj in (act_s.get("pods") or []):
+                    p_n = int(p_obj.get("pod_number") or 1)
+                    if pod_num and p_n != pod_num:
+                        continue
+                    st_by_name = {(s.get("name") or s.get("player_name") or "").strip().lower(): s for s in (p_obj.get("standings") or [])}
+                    if p1_low in st_by_name and p2_low in st_by_name:
+                        league_id = lg_data.get("league_id") or cand_lid
+                        pod_num = p_n
+                        if not round_num:
+                            for pr in (st_by_name[p1_low].get("pairings") or []):
+                                opp_c = _re.sub(r"\s*\([^)]*\)\s*$", "", str(pr.get("opponent_name") or "")).strip().lower()
+                                if opp_c == p2_low:
+                                    round_num = int(pr.get("round") or 1)
+                                    break
+                        matched_in_league = True
+                        break
+                if matched_in_league:
+                    break
+
+            if league_id:
+                resolved_league_id = league_id
+                lh_svc.report_match(
+                    league_id=league_id,
+                    pod_number=pod_num or 1,
+                    round_number=round_num or 1,
+                    p1_name=p1_name,
+                    p2_name=p2_name,
+                    p1_score=p1_score,
+                    p2_score=p2_score,
+                    scorecard_id=match_id
+                )
+                league_submitted = True
     except Exception as le:
         logger.debug(f"Auto league score submit check on finalize ({match_id}): {le}")
 
@@ -2114,6 +2152,8 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
         "success": True,
         "match_id": match_id,
         "status": "completed",
+        "league_submitted": league_submitted,
+        "league_id": resolved_league_id,
         "scorecard_url": f"/scorecard/{urllib.parse.quote(match_id)}"
     }
 
@@ -2359,6 +2399,12 @@ async def api_tracker_attach_armylist(match_id: str, request: Request):
         if not (is_p1 or is_p2 or is_ref):
             raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot attach army lists.")
 
+    if isinstance(army_list, dict) and army_list:
+        from newrecruit_integration import build_synthetic_nr_row
+        nr_row = build_synthetic_nr_row(army_list)
+        army_list["list_key"] = nr_row.get("list_key")
+        army_list["nr_row"] = nr_row
+
     if role == "player1":
         TRACKER_ROOMS[match_id]["p1_army_list"] = army_list
     else:
@@ -2394,6 +2440,7 @@ async def api_tracker_attach_armylist(match_id: str, request: Request):
 
 @router.get("/api/tracker/room/{match_id}/armylists", summary="Get attached army lists for Player 1 and Player 2")
 async def api_tracker_get_armylists(match_id: str):
+    from newrecruit_integration import build_synthetic_nr_row
     match_id = normalize_tracker_match_id(match_id)
     fs_engine = get_firestore_engine()
     p1_list = None
@@ -2415,6 +2462,12 @@ async def api_tracker_get_armylists(match_id: str):
         if game_rec:
             if not p1_list: p1_list = game_rec.get("p1_army_list")
             if not p2_list: p2_list = game_rec.get("p2_army_list")
+
+    for r_item in (p1_list, p2_list):
+        if isinstance(r_item, dict) and r_item and not r_item.get("list_key"):
+            nr_row = build_synthetic_nr_row(r_item)
+            r_item["list_key"] = nr_row.get("list_key")
+            r_item["nr_row"] = nr_row
 
     return {
         "success": True,

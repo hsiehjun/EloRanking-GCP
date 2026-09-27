@@ -27,7 +27,8 @@
         if (profileStr) {
           var p = JSON.parse(profileStr);
           var role = (p.role || (p.user && p.user.role) || '').trim().toLowerCase();
-          if (role && role !== 'admin' && !p.is_admin) {
+          var isAdmin = Boolean(p.is_admin || (p.user && p.user.is_admin));
+          if (role && role !== 'admin' && !isAdmin) {
             document.documentElement.style.display = 'none';
             window.location.replace('/');
           }
@@ -560,7 +561,8 @@
         userDisplayName = u.display_name || u.email || 'Admin';
       }
 
-      const isAdmin = currentAdminUser && (userRole === 'admin' || Boolean(currentAdminUser.is_admin));
+      const uObj = (currentAdminUser && currentAdminUser.user && typeof currentAdminUser.user === 'object') ? currentAdminUser.user : currentAdminUser;
+      const isAdmin = currentAdminUser && (userRole === 'admin' || Boolean(currentAdminUser.is_admin) || Boolean(uObj && uObj.is_admin));
 
       if (!isAdmin) {
         window.location.replace('/');

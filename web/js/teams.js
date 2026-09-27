@@ -95,10 +95,11 @@ function renderTeamsDirectoryRows() {
   const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
   const list = Array.isArray(teamsDirectoryData) ? teamsDirectoryData : (teamsDirectoryData && Array.isArray(teamsDirectoryData.items) ? teamsDirectoryData.items : []);
   list.forEach((t, idx) => {
+    const teamName = t.team || t.name || t.team_name || 'Team';
     const tr = document.createElement('tr');
-    tr.onclick = () => openTeamModal(t.team);
+    tr.onclick = () => openTeamModal(teamName);
     const safeTopName = String(t.top_player_name || '').replace(/'/g, "\\'");
-    const activeAvg = Number(t.active_avg_elo != null ? t.active_avg_elo : (t.avg_elo || 1500));
+    const activeAvg = Number(t.active_avg_elo != null ? t.active_avg_elo : (t.avg_elo || t.top5_avg_elo || 1500));
     const avgBadge = typeof renderEloBadgePill === 'function'
       ? renderEloBadgePill(activeAvg, null, { showTierName: true, size: 'sm', gameSystem: sys })
       : `<span style="font-family:var(--font-mono); font-weight:600; color:var(--accent);">${activeAvg.toFixed(1)}</span>`;
@@ -110,7 +111,7 @@ function renderTeamsDirectoryRows() {
       <td>
         <div style="font-weight:600; color:#fff; display:flex; align-items:center; gap:0.4rem;">
           <span>🛡️</span>
-          <span class="player-link">${escapeHtml(t.team)}</span>
+          <span class="player-link">${escapeHtml(teamName)}</span>
         </div>
       </td>
       <td>

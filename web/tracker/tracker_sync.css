@@ -770,6 +770,12 @@ body:has(#gt-sync-hud) {
 #gt-user-status-bar {
   top: max(12px, calc(6px + env(safe-area-inset-top, 0px))) !important;
   left: max(16px, env(safe-area-inset-left, 0px)) !important;
+  max-width: calc(100vw - 32px) !important;
+  box-sizing: border-box !important;
+}
+
+body:has(#gt-user-status-bar) {
+  padding-top: max(56px, calc(48px + env(safe-area-inset-top, 0px))) !important;
 }
 
 @supports (-webkit-touch-callout: none) {

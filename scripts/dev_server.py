@@ -254,6 +254,8 @@ def get_persona_user(persona):
     if persona == "to":
         return {
             "authenticated": True,
+            "is_admin": True,
+            "role": "to",
             "user": {
                 "id": "dev_to_admin",
                 "username": "tournament_director",
@@ -267,12 +269,14 @@ def get_persona_user(persona):
     # default: competitor (Innes Wilson)
     return {
         "authenticated": True,
+        "is_admin": True,
+        "role": "player",
         "user": {
             "id": "p_innes",
             "username": "innes_wilson",
             "display_name": "Innes Wilson",
             "role": "player",
-            "is_admin": False,
+            "is_admin": True,
             "is_cc": False,
             "can_access_to": False,
             "can_access_cc": False,
@@ -554,6 +558,18 @@ AUTH_INJECTION = """<script>
       localStorage.setItem('elo_auth_token', 'dev-auth-token-123');
       localStorage.setItem('native_session_token', 'dev-auth-token-123');
       sessionStorage.setItem('elo_auth_token', 'dev-auth-token-123');
+      if (!localStorage.getItem('native_user_profile')) {
+        localStorage.setItem('native_user_profile', JSON.stringify({
+          id: 'p_innes',
+          username: 'innes_wilson',
+          display_name: 'Innes Wilson',
+          email: 'innes.wilson@example.com',
+          role: 'admin',
+          is_admin: true,
+          player_id: 'p_innes',
+          bcp_player_id: 'p_innes'
+        }));
+      }
       localStorage.setItem('pwa_install_dismissed', String(Date.now()));
       document.cookie = 'session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax';
     } catch (e) {}
@@ -599,466 +615,81 @@ AUTH_INJECTION = """<script>
 </script>
 """
 
-def enrich_roster_with_wahapedia_mock(parsed: dict, raw_text: str) -> dict:
-    if not parsed or not isinstance(parsed, dict):
-        return parsed
-    
-    import re
-    text_lower = (raw_text or '').lower()
-    
-    # 1. Datasheet lookup table
-    waha_datasheets = {
-        'chaos lord with jump pack': {
-            'name': 'Chaos Lord with Jump Pack',
-            'role': 'Character',
-            'is_warlord': True,
-            'stats': {'M': '12"', 'T': 4, 'SV': '3+', 'INV': '4+', 'W': 5, 'LD': '6+', 'OC': 1},
-            'weapons': [
-                {'name': 'Daemon hammer', 'type': 'Melee', 'range': 'Melee', 'A': '4', 'skill': '3+', 'S': '8', 'AP': '-2', 'D': '2', 'keywords': ['Devastating Wounds']},
-                {'name': 'Plasma pistol - supercharge', 'type': 'Ranged', 'range': '12"', 'A': '1', 'skill': '2+', 'S': '8', 'AP': '-3', 'D': '2', 'keywords': ['Hazardous', 'Pistol']}
-            ],
-            'abilities': [
-                {'name': 'Lord of Chaos', 'description': 'Once per battle round, one unit from your army with this ability can be targeted with a Stratagem for 0CP, even if another unit has already been targeted.'},
-                {'name': 'Jump Pack Assault', 'description': 'Each time this model ends a Charge move, roll one D6: on a 2-5, enemy unit suffers D3 mortal wounds; on a 6, enemy unit suffers 3 mortal wounds.'}
-            ],
-            'keywords': ['Infantry', 'Character', 'Chaos', 'Chaos Space Marines', 'Chaos Lord', 'Jump Pack', 'Fly']
-        },
-        'dark apostle': {
-            'name': 'Dark Apostle',
-            'role': 'Character',
-            'stats': {'M': '6"', 'T': 4, 'SV': '3+', 'INV': '4+', 'W': 4, 'LD': '5+', 'OC': 1},
-            'weapons': [
-                {'name': 'Accursed crozius', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '2+', 'S': '6', 'AP': '-1', 'D': '2', 'keywords': []},
-                {'name': 'Bolt pistol', 'type': 'Ranged', 'range': '12"', 'A': '1', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': ['Pistol']}
-            ],
-            'abilities': [
-                {'name': 'Dark Zealotry', 'description': 'While this model is leading a unit, each time a model in that unit makes a melee attack, add 1 to the Wound roll.'}
-            ],
-            'keywords': ['Infantry', 'Character', 'Chaos', 'Dark Apostle']
-        },
-        'cultist mob': {
-            'name': 'Cultist Mob',
-            'role': 'Battleline',
-            'model_count': 10,
-            'stats': {'M': '6"', 'T': 3, 'SV': '6+', 'INV': '-', 'W': 1, 'LD': '7+', 'OC': 1},
-            'weapons': [
-                {'name': 'Cultist firearm', 'type': 'Ranged', 'range': '24"', 'A': '1', 'skill': '4+', 'S': '3', 'AP': '0', 'D': '1', 'keywords': []},
-                {'name': 'Brutal assault weapon', 'type': 'Melee', 'range': 'Melee', 'A': '2', 'skill': '4+', 'S': '3', 'AP': '0', 'D': '1', 'keywords': []}
-            ],
-            'abilities': [
-                {'name': 'For the Dark Gods', 'description': 'If you control an objective marker at the end of your Command phase and this unit is within range, it remains under your control even if you have no models within range.'}
-            ],
-            'keywords': ['Infantry', 'Battleline', 'Chaos', 'Cultist Mob']
-        },
-        'legionaries': {
-            'name': 'Legionaries',
-            'role': 'Battleline',
-            'model_count': 5,
-            'stats': {'M': '6"', 'T': 4, 'SV': '3+', 'INV': '-', 'W': 2, 'LD': '6+', 'OC': 2},
-            'weapons': [
-                {'name': 'Astartes chainsword', 'type': 'Melee', 'range': 'Melee', 'A': '4', 'skill': '3+', 'S': '4', 'AP': '-1', 'D': '1', 'keywords': []},
-                {'name': 'Heavy melee weapon', 'type': 'Melee', 'range': 'Melee', 'A': '3', 'skill': '3+', 'S': '8', 'AP': '-2', 'D': '2', 'keywords': []}
-            ],
-            'abilities': [
-                {'name': 'Veterans of the Long War', 'description': 'Each time a model in this unit makes a melee attack, re-roll a Wound roll of 1. If targeting an enemy within range of an objective marker, re-roll the Wound roll instead.'}
-            ],
-            'keywords': ['Infantry', 'Battleline', 'Chaos', 'Legionaries']
-        },
-        'chaos rhino': {
-            'name': 'Chaos Rhino',
-            'role': 'Transports & Dedicated',
-            'stats': {'M': '12"', 'T': 9, 'SV': '3+', 'INV': '-', 'W': 10, 'LD': '6+', 'OC': 2},
-            'weapons': [
-                {'name': 'Combi-bolter', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': ['Rapid Fire 2']},
-                {'name': 'Havoc launcher', 'type': 'Ranged', 'range': '48"', 'A': 'D6', 'skill': '3+', 'S': '5', 'AP': '0', 'D': '1', 'keywords': ['Blast', 'Indirect Fire']}
-            ],
-            'abilities': [
-                {'name': 'Self-Repair', 'description': 'At the start of your Command phase, this model regains 1 lost wound.'},
-                {'name': 'Dedicated Transport (12)', 'description': 'Can transport up to 12 Chaos Space Marines Infantry models.'}
-            ],
-            'keywords': ['Vehicle', 'Transport', 'Dedicated Transport', 'Smoke', 'Chaos', 'Chaos Rhino']
-        },
-        'warp talons': {
-            'name': 'Warp Talons',
-            'role': 'Mounted & Fast Attack',
-            'model_count': 5,
-            'stats': {'M': '12"', 'T': 4, 'SV': '3+', 'INV': '5+', 'W': 2, 'LD': '6+', 'OC': 1},
-            'weapons': [
-                {'name': 'Warp claws', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '3+', 'S': '5', 'AP': '-2', 'D': '1', 'keywords': ['Twin-linked']}
-            ],
-            'abilities': [
-                {'name': 'Warpflock', 'description': 'At the end of your opponent\'s turn, if this unit is not within Engagement Range, you can place it into Strategic Reserves.'}
-            ],
-            'keywords': ['Infantry', 'Fly', 'Chaos', 'Daemon', 'Warp Talons']
-        },
-        'chosen': {
-            'name': 'Chosen',
-            'role': 'Infantry & Elites',
-            'model_count': 5,
-            'stats': {'M': '6"', 'T': 4, 'SV': '3+', 'INV': '-', 'W': 3, 'LD': '6+', 'OC': 2},
-            'weapons': [
-                {'name': 'Paired accursed weapons', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '3+', 'S': '5', 'AP': '-2', 'D': '1', 'keywords': ['Twin-linked']}
-            ],
-            'abilities': [
-                {'name': 'Chosen Marauders', 'description': 'This unit is eligible to shoot and declare a charge in a turn in which it Advanced or Fell Back.'}
-            ],
-            'keywords': ['Infantry', 'Chaos', 'Chosen']
-        },
-        'forgefiend': {
-            'name': 'Forgefiend',
-            'role': 'Vehicles & Monsters',
-            'stats': {'M': '8"', 'T': 10, 'SV': '3+', 'INV': '5+', 'W': 12, 'LD': '6+', 'OC': 4},
-            'weapons': [
-                {'name': '3x Ectoplasma cannon', 'type': 'Ranged', 'range': '36"', 'A': '3D3', 'skill': '3+', 'S': '10', 'AP': '-3', 'D': '3', 'keywords': ['Blast']}
-            ],
-            'abilities': [
-                {'name': 'Daemon Engine', 'description': 'This model has a 5+ invulnerable save.'},
-                {'name': 'Forge Bolts', 'description': 'Each time this model makes a Dark Pact, its ranged weapons gain [DEVASTATING WOUNDS].'}
-            ],
-            'keywords': ['Vehicle', 'Walker', 'Daemon Engine', 'Chaos', 'Forgefiend']
-        },
-        'predator destructor': {
-            'name': 'Predator Destructor',
-            'role': 'Vehicles & Monsters',
-            'stats': {'M': '10"', 'T': 10, 'SV': '3+', 'INV': '-', 'W': 11, 'LD': '6+', 'OC': 3},
-            'weapons': [
-                {'name': 'Predator autocannon', 'type': 'Ranged', 'range': '48"', 'A': '4', 'skill': '3+', 'S': '9', 'AP': '-1', 'D': '3', 'keywords': ['Rapid Fire 2']},
-                {'name': '2x Lascannon', 'type': 'Ranged', 'range': '48"', 'A': '2', 'skill': '3+', 'S': '12', 'AP': '-3', 'D': 'D6+1', 'keywords': []}
-            ],
-            'abilities': [
-                {'name': 'Destructor', 'description': 'Each time this model makes a ranged attack targeting an Infantry unit, improve the Armour Penetration characteristic of that attack by 1.'}
-            ],
-            'keywords': ['Vehicle', 'Smoke', 'Chaos', 'Predator Destructor']
-        },
-        'trajann valoris': {
-            'name': 'Trajann Valoris',
-            'role': 'Character',
-            'is_warlord': True,
-            'stats': {'M': '6"', 'T': 5, 'SV': '2+', 'INV': '4+', 'W': 6, 'LD': '5+', 'OC': 2},
-            'weapons': [
-                {'name': 'Watcher\'s Axe - strike', 'type': 'Melee', 'range': 'Melee', 'A': '6', 'skill': '2+', 'S': '10', 'AP': '-2', 'D': '3', 'keywords': []},
-                {'name': 'Watcher\'s Axe - sweep', 'type': 'Melee', 'range': 'Melee', 'A': '12', 'skill': '2+', 'S': '6', 'AP': '-1', 'D': '1', 'keywords': []}
-            ],
-            'abilities': [
-                {'name': 'Captain-General', 'description': 'While this model is leading a unit, you can ignore any or all modifiers to the characteristics of models in that unit.'},
-                {'name': 'Moment Shackle', 'description': 'Once per battle, in the Fight phase, choose 12 attacks, a 2+ invulnerable save, or fight first.'}
-            ],
-            'keywords': ['Infantry', 'Character', 'Epic Hero', 'Imperium', 'Adeptus Custodes', 'Trajann Valoris']
-        },
-        'blade champion': {
-            'name': 'Blade Champion',
-            'role': 'Character',
-            'stats': {'M': '6"', 'T': 5, 'SV': '2+', 'INV': '4+', 'W': 6, 'LD': '6+', 'OC': 2},
-            'weapons': [
-                {'name': 'Vaultswords - strike', 'type': 'Melee', 'range': 'Melee', 'A': '6', 'skill': '2+', 'S': '7', 'AP': '-2', 'D': '2', 'keywords': ['Precision']}
-            ],
-            'abilities': [
-                {'name': 'Martial Inspiration', 'description': 'While this model is leading a unit, you can re-roll Advance and Charge rolls made for that unit.'}
-            ],
-            'keywords': ['Infantry', 'Character', 'Imperium', 'Blade Champion']
-        },
-        'custodian guard': {
-            'name': 'Custodian Guard',
-            'role': 'Battleline',
-            'model_count': 4,
-            'stats': {'M': '6"', 'T': 6, 'SV': '2+', 'INV': '4+', 'W': 3, 'LD': '6+', 'OC': 2},
-            'weapons': [
-                {'name': 'Guardian Spear - shooting', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '2+', 'S': '4', 'AP': '-1', 'D': '2', 'keywords': ['Assault']},
-                {'name': 'Guardian Spear - melee', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '2+', 'S': '7', 'AP': '-2', 'D': '2', 'keywords': []}
-            ],
-            'abilities': [
-                {'name': 'Stand Vigil', 'description': 'Each time a model in this unit makes an attack, re-roll a Wound roll of 1. If controlling an objective, re-roll the Wound roll instead.'}
-            ],
-            'keywords': ['Infantry', 'Battleline', 'Imperium', 'Adeptus Custodes', 'Custodian Guard']
-        },
-        'lord inquisitor kyria draxus': {
-            'name': 'Lord Inquisitor Kyria Draxus',
-            'role': 'Character',
-            'stats': {'M': '6"', 'T': 3, 'SV': '3+', 'INV': '5+', 'W': 4, 'LD': '6+', 'OC': 1},
-            'weapons': [
-                {'name': 'Dirgesinger', 'type': 'Ranged', 'range': '18"', 'A': '4', 'skill': '2+', 'S': '4', 'AP': '-1', 'D': '2', 'keywords': ['Devastating Wounds', 'Indirect Fire', 'Anti-Infantry 4+']}
-            ],
-            'abilities': [
-                {'name': 'Psychic Veil', 'description': 'While this model is leading a unit, that unit cannot be targeted by ranged attacks unless the attacker is within 18".'}
-            ],
-            'keywords': ['Infantry', 'Character', 'Epic Hero', 'Inquisition', 'Kyria Draxus']
-        },
-        'kaldor draigo': {
-            'name': 'Kaldor Draigo',
-            'role': 'Character',
-            'is_warlord': True,
-            'stats': {'M': '5"', 'T': 5, 'SV': '2+', 'INV': '4+', 'W': 6, 'LD': '6+', 'OC': 2},
-            'weapons': [
-                {'name': 'Scourging', 'type': 'Ranged', 'range': '18"', 'A': 'D6', 'skill': '2+', 'S': '6', 'AP': '-1', 'D': '2', 'keywords': ['Psychic', 'Blast']},
-                {'name': 'The Titansword', 'type': 'Melee', 'range': 'Melee', 'A': '6', 'skill': '2+', 'S': '8', 'AP': '-3', 'D': '3', 'keywords': ['Psychic']}
-            ],
-            'abilities': [
-                {'name': 'One With the Warp', 'description': 'Once per battle, when this model\'s unit arrives from Deep Strike, add 3 to charge rolls.'}
-            ],
-            'keywords': ['Infantry', 'Character', 'Epic Hero', 'Terminator', 'Grey Knights', 'Kaldor Draigo']
-        },
-        'grand master in nemesis dreadknight': {
-            'name': 'Grand Master in Nemesis Dreadknight',
-            'role': 'Vehicles & Monsters',
-            'stats': {'M': '8"', 'T': 8, 'SV': '2+', 'INV': '4+', 'W': 13, 'LD': '6+', 'OC': 4},
-            'weapons': [
-                {'name': 'Heavy psycannon', 'type': 'Ranged', 'range': '24"', 'A': '6', 'skill': '2+', 'S': '10', 'AP': '-1', 'D': '3', 'keywords': ['Psychic']},
-                {'name': 'Nemesis daemon greathammer - strike', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '3+', 'S': '14', 'AP': '-3', 'D': 'D6+1', 'keywords': ['Psychic']}
-            ],
-            'abilities': [
-                {'name': 'Surge of Wrath', 'description': 'Each time this model makes an attack targeting a Monster or Vehicle, re-roll the Hit roll, Wound roll and Damage roll.'}
-            ],
-            'keywords': ['Vehicle', 'Walker', 'Character', 'Grey Knights', 'Nemesis Dreadknight']
-        },
-        'strike squad': {
-            'name': 'Strike Squad',
-            'role': 'Battleline',
-            'model_count': 5,
-            'stats': {'M': '6"', 'T': 4, 'SV': '2+', 'INV': '-', 'W': 2, 'LD': '6+', 'OC': 2},
-            'weapons': [
-                {'name': 'Storm bolter', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': ['Rapid Fire 2']},
-                {'name': 'Nemesis force weapon', 'type': 'Melee', 'range': 'Melee', 'A': '3', 'skill': '3+', 'S': '6', 'AP': '-2', 'D': '2', 'keywords': ['Psychic']}
-            ],
-            'abilities': [
-                {'name': 'Sanctifying Ritual', 'description': 'If you control an objective marker at the end of your Command phase and this unit is within range, it remains under your control.'}
-            ],
-            'keywords': ['Infantry', 'Battleline', 'Psyker', 'Grey Knights', 'Strike Squad']
-        },
-        'nemesis dreadknight': {
-            'name': 'Nemesis Dreadknight',
-            'role': 'Vehicles & Monsters',
-            'stats': {'M': '8"', 'T': 8, 'SV': '2+', 'INV': '4+', 'W': 13, 'LD': '6+', 'OC': 4},
-            'weapons': [
-                {'name': 'Heavy incinator', 'type': 'Ranged', 'range': '12"', 'A': '2D6', 'skill': 'N/A', 'S': '6', 'AP': '-1', 'D': '1', 'keywords': ['Ignores Cover', 'Torrent']},
-                {'name': 'Heavy psycannon', 'type': 'Ranged', 'range': '24"', 'A': '6', 'skill': '3+', 'S': '10', 'AP': '-1', 'D': '3', 'keywords': ['Psychic']}
-            ],
-            'abilities': [
-                {'name': 'Empyric Severance', 'description': 'This model is eligible to shoot and declare a charge in a turn in which it Advanced or Fell Back.'}
-            ],
-            'keywords': ['Vehicle', 'Walker', 'Psyker', 'Grey Knights', 'Nemesis Dreadknight']
-        },
-        'grey knights terminator squad': {
-            'name': 'Grey Knights Terminator Squad',
-            'role': 'Infantry & Elites',
-            'model_count': 5,
-            'stats': {'M': '5"', 'T': 5, 'SV': '2+', 'INV': '4+', 'W': 3, 'LD': '6+', 'OC': 2},
-            'weapons': [
-                {'name': 'Storm bolter', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': ['Rapid Fire 2']},
-                {'name': 'Nemesis force weapon', 'type': 'Melee', 'range': 'Melee', 'A': '4', 'skill': '3+', 'S': '6', 'AP': '-2', 'D': '2', 'keywords': ['Psychic']}
-            ],
-            'abilities': [
-                {'name': 'Hammerhand', 'description': 'Each time this unit makes a Charge move, until the end of the turn, melee weapons equipped by models in this unit have [LETHAL HITS].'}
-            ],
-            'keywords': ['Infantry', 'Terminator', 'Psyker', 'Grey Knights', 'Terminator Squad']
-        }
-    }
-    
-    # 2. Assign Faction, Army Rules, Detachment Rules, and Stratagems
-    if any(k in text_lower for k in ['chaos space marines', 'chaos', 'csm', 'heretic astartes']):
-        parsed['faction'] = 'Chaos Space Marines'
-        parsed['detachment'] = parsed.get('detachment') if (parsed.get('detachment') and parsed.get('detachment') != 'Core Detachment') else 'Raiders'
-        parsed['army_rules'] = [
-            {
-                'name': 'Dark Pacts',
-                'description': 'If your Army Faction is Chaos Space Marines, each time a unit from your army with this ability is selected to shoot or fight, it can make a Dark Pact. Choose either [LETHAL HITS] or [SUSTAINED HITS 1] for its weapons until the end of the phase. After resolving attacks, that unit must take a Leadership test. If failed, it suffers D3 mortal wounds.'
-            }
-        ]
-        parsed['detachment_rules'] = [
-            {
-                'name': 'Raiders of the Warp',
-                'description': 'Each time a unit from your army makes an Advance or Charge roll while in your deployment zone or targeting an enemy unit within range of an objective marker, re-roll that roll.'
-            }
-        ]
-        parsed['stratagems'] = [
-            {
-                'name': 'Profane Zeal',
-                'cp_cost': '1 CP',
-                'type': 'Battle Tactic',
-                'phase': 'Shooting or Fight phase',
-                'turn': 'Either',
-                'description': 'Target one Chaos Space Marines unit from your army. Until the end of the phase, each time a model in your unit makes an attack, re-roll a Hit roll of 1 and re-roll a Wound roll of 1.'
-            },
-            {
-                'name': 'Dark Obscuration',
-                'cp_cost': '1 CP',
-                'type': 'Strategic Ploy',
-                'phase': 'Opponent\'s Shooting phase',
-                'turn': 'Opponent\'s',
-                'description': 'Target one Chaos Space Marines unit from your army that was selected as the target of ranged attacks. Until the end of the phase, models in that unit have Stealth. If under Dark Pact, can only be targeted within 12".'
-            },
-            {
-                'name': 'Eternal Hate',
-                'cp_cost': '2 CP',
-                'type': 'Epic Deed',
-                'phase': 'Fight phase',
-                'turn': 'Either',
-                'description': 'Target one Chaos Space Marines model from your army that was just destroyed. That model can fight before being removed from play.'
-            }
-        ]
-    elif any(k in text_lower for k in ['custodes', 'adeptus custodes', 'shield host']):
-        parsed['faction'] = 'Adeptus Custodes'
-        parsed['detachment'] = parsed.get('detachment') if (parsed.get('detachment') and parsed.get('detachment') != 'Core Detachment') else 'Shield Host'
-        parsed['army_rules'] = [
-            {
-                'name': 'Martial Ka\'tah',
-                'description': 'At the start of the Fight phase, select one Ka\'tah Stance to be active for your army: Kaptaris Stance (Enemy models suffer -1 to hit) or Dacatarai Stance (Melee weapons gain [SUSTAINED HITS 1]).'
-            }
-        ]
-        parsed['detachment_rules'] = [
-            {
-                'name': 'Aegis of the Emperor',
-                'description': 'Models in this detachment have a 4+ invulnerable save and a 4+ Feel No Pain against mortal wounds.'
-            }
-        ]
-        parsed['stratagems'] = [
-            {
-                'name': 'Arcane Genetic Crafting',
-                'cp_cost': '1 CP',
-                'type': 'Battle Tactic',
-                'phase': 'Shooting or Fight phase',
-                'turn': 'Either',
-                'description': 'Each time an attack is allocated to a model in your unit, subtract 1 from the Damage characteristic of that attack.'
-            },
-            {
-                'name': 'Slayer of Champions',
-                'cp_cost': '1 CP',
-                'type': 'Battle Tactic',
-                'phase': 'Fight phase',
-                'turn': 'Either',
-                'description': 'Each time a model in your unit makes a melee attack targeting a Monster or Vehicle, add 1 to the Wound roll.'
-            },
-            {
-                'name': 'Vigilance Unending',
-                'cp_cost': '1 CP',
-                'type': 'Strategic Ploy',
-                'phase': 'Command phase',
-                'turn': 'Your',
-                'description': 'Select one objective marker you control. It remains under your control even if you have no models within range of it.'
-            }
-        ]
-    elif any(k in text_lower for k in ['grey knights', 'kaldor draigo', 'teleport strike force']):
-        parsed['faction'] = 'Grey Knights'
-        parsed['detachment'] = parsed.get('detachment') if (parsed.get('detachment') and parsed.get('detachment') != 'Core Detachment') else 'Teleport Strike Force'
-        parsed['army_rules'] = [
-            {
-                'name': 'Teleport Assault',
-                'description': 'At the end of your opponent\'s turn, select up to 3 Grey Knights units from your army into Strategic Reserves. In your next Reinforcements step, set them up anywhere more than 9" horizontally away from all enemies.'
-            }
-        ]
-        parsed['detachment_rules'] = [
-            {
-                'name': 'Teleport Shunt',
-                'description': 'Each time a unit from your army Advances, do not roll. Instead, that unit gains Fly and has a Move characteristic of 12".'
-            }
-        ]
-        parsed['stratagems'] = [
-            {
-                'name': 'Mist of Deimos',
-                'cp_cost': '1 CP',
-                'type': 'Strategic Ploy',
-                'phase': 'Opponent\'s Movement phase',
-                'turn': 'Opponent\'s',
-                'description': 'When an enemy ends a move within 9" of your unit, your unit can make a Normal move of up to 6" or be placed into Strategic Reserves.'
-            },
-            {
-                'name': 'Radiant Strike',
-                'cp_cost': '1 CP',
-                'type': 'Battle Tactic',
-                'phase': 'Fight phase',
-                'turn': 'Either',
-                'description': 'Melee weapons equipped by models in your unit gain [DEVASTATING WOUNDS] until the end of the phase.'
-            },
-            {
-                'name': 'Haloed in Soulfire',
-                'cp_cost': '1 CP',
-                'type': 'Strategic Ploy',
-                'phase': 'Your Movement phase',
-                'turn': 'Your',
-                'description': 'When a unit arrives from Deep Strike, enemy models cannot target that unit with ranged attacks unless within 12".'
-            }
-        ]
-    else:
-        # Fallback rules
-        if not parsed.get('army_rules'):
-            parsed['army_rules'] = [{'name': 'Army Faction Doctrine', 'description': 'Standard faction rules and special combat abilities apply to all eligible datasheets.'}]
-        if not parsed.get('detachment_rules'):
-            parsed['detachment_rules'] = [{'name': 'Detachment Focus', 'description': 'Units in this detachment gain specialized tactical benefits and operational mobility.'}]
-        if not parsed.get('stratagems'):
-            parsed['stratagems'] = [
-                {'name': 'Command Re-roll', 'cp_cost': '1 CP', 'type': 'Battle Tactic', 'phase': 'Any phase', 'turn': 'Either', 'description': 'Re-roll one Hit roll, Wound roll, Damage roll, saving throw, Advance roll or Charge roll.'},
-                {'name': 'Counter-offensive', 'cp_cost': '2 CP', 'type': 'Strategic Ploy', 'phase': 'Fight phase', 'turn': 'Either', 'description': 'Select one eligible unit from your army to fight next.'},
-                {'name': 'Insane Bravery', 'cp_cost': '1 CP', 'type': 'Epic Deed', 'phase': 'Command phase', 'turn': 'Either', 'description': 'Unit automatically passes Battle-shock test.'}
-            ]
+DEV_ARMY_LISTS: list = []
 
-    # 3. Enrich Units
-    units = parsed.get('units') or []
-    for u in units:
-        raw_u_name = u.get('name') or ''
-        clean = re.sub(r'^\d+x?\s+', '', raw_u_name).strip()
-        clean_lower = clean.lower()
-        
-        # Check matching in lookup
-        matched_ds = None
-        for k, v in waha_datasheets.items():
-            if k in clean_lower or clean_lower in k:
-                matched_ds = v
-                break
-        
-        if matched_ds:
-            u['name'] = matched_ds['name']
-            u['role'] = matched_ds['role']
-            u['stats'] = matched_ds['stats']
-            u['weapons'] = matched_ds['weapons']
-            u['abilities'] = matched_ds['abilities']
-            u['keywords'] = matched_ds['keywords']
-            if matched_ds.get('is_warlord'):
-                u['is_warlord'] = True
-            if matched_ds.get('model_count'):
-                u['model_count'] = matched_ds['model_count']
-        else:
-            # Fallback generator
-            is_char = any(w in clean_lower for w in ['lord', 'captain', 'leader', 'character', 'apostle', 'champion', 'warlord', 'hero'])
-            is_veh = any(w in clean_lower for w in ['tank', 'rhino', 'dreadnought', 'predator', 'fiend', 'vehicle', 'monster', 'walker', 'raider'])
-            is_bl = any(w in clean_lower for w in ['cultist', 'guard', 'legionary', 'squad', 'intercessor', 'battleline', 'strike'])
-            
-            if is_char:
-                u['role'] = 'Character'
-                u['stats'] = {'M': '6"', 'T': 4, 'SV': '2+', 'INV': '4+', 'W': 5, 'LD': '6+', 'OC': 1}
-                u['weapons'] = [
-                    {'name': 'Master-crafted Power Weapon', 'type': 'Melee', 'range': 'Melee', 'A': '5', 'skill': '2+', 'S': '5', 'AP': '-2', 'D': '2', 'keywords': []},
-                    {'name': 'Combi-weapon', 'type': 'Ranged', 'range': '24"', 'A': '1', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': ['Anti-Infantry 4+', 'Devastating Wounds']}
-                ]
-                u['abilities'] = [{'name': 'Inspiring Leader', 'description': 'While this model is leading a unit, add 1 to the Leadership characteristic of models in that unit.'}]
-                u['keywords'] = ['Infantry', 'Character']
-            elif is_veh:
-                u['role'] = 'Vehicles & Monsters'
-                u['stats'] = {'M': '10"', 'T': 10, 'SV': '3+', 'INV': '5+', 'W': 11, 'LD': '6+', 'OC': 3}
-                u['weapons'] = [
-                    {'name': 'Heavy Battle Cannon', 'type': 'Ranged', 'range': '48"', 'A': 'D6+3', 'skill': '3+', 'S': '10', 'AP': '-2', 'D': '3', 'keywords': ['Blast']},
-                    {'name': 'Armoured Tracks', 'type': 'Melee', 'range': 'Melee', 'A': '3', 'skill': '4+', 'S': '6', 'AP': '0', 'D': '1', 'keywords': []}
-                ]
-                u['abilities'] = [{'name': 'Armoured Hull', 'description': 'Each time an attack is allocated to this model, an unmodified saving throw of 1 always fails.'}]
-                u['keywords'] = ['Vehicle']
-            elif is_bl:
-                u['role'] = 'Battleline'
-                u['stats'] = {'M': '6"', 'T': 4, 'SV': '3+', 'INV': '-', 'W': 2, 'LD': '6+', 'OC': 2}
-                u['weapons'] = [
-                    {'name': 'Standard Bolt Rifle', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '3+', 'S': '4', 'AP': '-1', 'D': '1', 'keywords': ['Assault', 'Heavy']},
-                    {'name': 'Close Combat Weapon', 'type': 'Melee', 'range': 'Melee', 'A': '3', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': []}
-                ]
-                u['abilities'] = [{'name': 'Objective Secured', 'description': 'This unit has an Objective Control characteristic of 2.'}]
-                u['keywords'] = ['Infantry', 'Battleline']
-            else:
-                u['role'] = 'Infantry & Elites'
-                u['stats'] = {'M': '6"', 'T': 4, 'SV': '3+', 'INV': '-', 'W': 2, 'LD': '6+', 'OC': 1}
-                u['weapons'] = [
-                    {'name': 'Tactical Firearm', 'type': 'Ranged', 'range': '24"', 'A': '2', 'skill': '3+', 'S': '4', 'AP': '-1', 'D': '1', 'keywords': []},
-                    {'name': 'Close Combat Weapon', 'type': 'Melee', 'range': 'Melee', 'A': '3', 'skill': '3+', 'S': '4', 'AP': '0', 'D': '1', 'keywords': []}
-                ]
-                u['abilities'] = [{'name': 'Combat Squads', 'description': 'Standard tactical doctrine applies.'}]
-                u['keywords'] = ['Infantry']
 
-    return parsed
+def dev_save_army_list(list_data: dict) -> dict:
+    if not isinstance(list_data, dict):
+        return {}
+    import uuid
+    from datetime import datetime, timezone
+    from newrecruit_integration import build_synthetic_nr_row
+    item = dict(list_data)
+    nr_row = build_synthetic_nr_row(item)
+    lkey = str(item.get("list_key") or nr_row.get("list_key") or "").strip()
+    lid = str(item.get("id") or (f"nr_{lkey}" if lkey else f"list_{uuid.uuid4().hex[:8]}")).strip()
+    item["id"] = lid
+    item["list_key"] = lkey or (lid[3:] if lid.startswith("nr_") else lid[:8])
+    nr_row["list_key"] = item["list_key"]
+    item["nr_row"] = nr_row
+    item["updated_at"] = datetime.now(timezone.utc).isoformat()
+    if "created_at" not in item:
+        item["created_at"] = item["updated_at"]
+
+    target_lkey = str(item.get("list_key") or "")
+    replaced = False
+    for idx, existing in enumerate(DEV_ARMY_LISTS):
+        ex_id = str(existing.get("id") or "")
+        ex_lkey = str(existing.get("list_key") or (ex_id[3:] if ex_id.startswith("nr_") else ""))
+        if ex_id == lid or (target_lkey and ex_lkey == target_lkey):
+            DEV_ARMY_LISTS[idx] = item
+            replaced = True
+            break
+    if not replaced:
+        DEV_ARMY_LISTS.insert(0, item)
+
+    # Also propagate live updates to any active Game Tracker room using this list
+    for room_data in list(ROOMS_DB.values()):
+        if not isinstance(room_data, dict):
+            continue
+        for slot_key in ("p1_army_list", "p2_army_list"):
+            cur_slot = room_data.get(slot_key)
+            if isinstance(cur_slot, dict):
+                c_id = str(cur_slot.get("id") or "")
+                c_key = str(cur_slot.get("list_key") or (c_id[3:] if c_id.startswith("nr_") else ""))
+                if (lid and c_id == lid) or (target_lkey and c_key == target_lkey):
+                    room_data[slot_key] = item
+
+    return item
+
+
+def dev_delete_army_list(list_id: str) -> bool:
+    clean_key = str(list_id or "").strip()
+    if not clean_key:
+        return False
+    raw_key = clean_key[3:] if clean_key.startswith("nr_") else clean_key
+    nr_key = f"nr_{raw_key}"
+    before_len = len(DEV_ARMY_LISTS)
+    DEV_ARMY_LISTS[:] = [
+        item for item in DEV_ARMY_LISTS
+        if str(item.get("id") or "") not in (clean_key, raw_key, nr_key)
+        and str(item.get("list_key") or "") not in (clean_key, raw_key)
+    ]
+    for room_data in list(ROOMS_DB.values()):
+        if isinstance(room_data, dict):
+            for slot_key in ("p1_army_list", "p2_army_list"):
+                cur_slot = room_data.get(slot_key)
+                if isinstance(cur_slot, dict):
+                    c_id = str(cur_slot.get("id") or "")
+                    c_key = str(cur_slot.get("list_key") or "")
+                    if c_id in (clean_key, raw_key, nr_key) or c_key in (clean_key, raw_key):
+                        room_data[slot_key] = None
+    return len(DEV_ARMY_LISTS) < before_len
+
+
+def dev_get_army_lists() -> list:
+    return list(DEV_ARMY_LISTS)
+
 
 class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -1087,6 +718,15 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         clean_path = self.path.split("?")[0].strip("/")
+        if clean_path.startswith("api/armylists/"):
+            parts = clean_path.split("/", 2)
+            list_id = urllib.parse.unquote(parts[2]) if len(parts) > 2 else ""
+            deleted = dev_delete_army_list(list_id)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "deleted": deleted, "deleted_id": list_id, "army_lists": dev_get_army_lists()}, default=str).encode("utf-8"))
+            return
         if clean_path.startswith("api/league/") and "/announcements/" in clean_path:
             import leagues_hub_service
             l_svc = leagues_hub_service.get_leagues_hub_service()
@@ -1352,14 +992,66 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             raw_text = p_load.get("text") or p_load.get("raw_text") or ""
             source_hint = p_load.get("format")
             from army_list_parser import get_parser
+            from newrecruit_integration import build_synthetic_nr_row
             parser = get_parser()
-            parsed = parser.parse(raw_text, source_hint=source_hint)
-            parsed = enrich_roster_with_wahapedia_mock(parsed, raw_text)
+            parsed = parser.parse(raw_text, source_hint=source_hint, enrich=False)
+            nr_row = build_synthetic_nr_row(parsed)
+            parsed["list_key"] = nr_row.get("list_key")
+            parsed["nr_row"] = nr_row
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
-            self.wfile.write(json.dumps({"success": True, "army_list": parsed}).encode("utf-8"))
+            self.wfile.write(json.dumps({"success": True, "army_list": parsed}, default=str).encode("utf-8"))
+            return
+
+        if clean_path == "api/armylists":
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            saved = dev_save_army_list(p_load)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "army_list": saved, "army_lists": dev_get_army_lists()}, default=str).encode("utf-8"))
+            return
+
+        if clean_path == "api/armylists/nr_sync":
+            from newrecruit_integration import process_nr_sync_payload
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            res = process_nr_sync_payload(p_load, dev_save_army_list, dev_delete_army_list, dev_get_army_lists)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(res, default=str).encode("utf-8"))
+            return
+
+        if clean_path == "api/armylists/nr_cloud_connect":
+            from newrecruit_integration import handle_nr_cloud_connect
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            res = handle_nr_cloud_connect(p_load, dev_save_army_list, dev_delete_army_list, dev_get_army_lists, "default")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(res, default=str).encode("utf-8"))
+            return
+
+        if clean_path in ("api/rpc", "api/token"):
+            from newrecruit_integration import proxy_nr_request
+            status, resp_bytes, content_type = proxy_nr_request(
+                self.path, "POST", body, {k: v for k, v in self.headers.items()}
+            )
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.end_headers()
+            self.wfile.write(resp_bytes)
             return
 
         if (clean_path.startswith("api/events/") or clean_path.startswith("api/eventstudio/event/")) and clean_path.endswith("/livestreams"):
@@ -1860,12 +1552,36 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     entry["state"] = payload
                     entry["version"] = entry.get("version", 1) + 1
 
+                if action == "armylist":
+                    role = payload.get("role") or "player1"
+                    army_list = payload.get("army_list") or {}
+                    if isinstance(army_list, dict) and army_list:
+                        from newrecruit_integration import build_synthetic_nr_row
+                        nr_row = build_synthetic_nr_row(army_list)
+                        army_list["list_key"] = nr_row.get("list_key")
+                        army_list["nr_row"] = nr_row
+                    if role == "player2":
+                        entry["p2_army_list"] = army_list
+                    else:
+                        entry["p1_army_list"] = army_list
+                    res = {
+                        "success": True,
+                        "match_id": room_id,
+                        "role": role,
+                        "army_list": army_list
+                    }
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(res, default=str).encode("utf-8"))
+                    return
+
                 if action == "join":
                     entry["online_count"] = entry.get("online_count", 1) + 1
                     res = {
                         "success": True,
                         "match_id": room_id,
-                        "role": payload.get("claim_role", "player2"),
+                        "role": payload.get("claim_role") or "player1",
                         "online_count": entry["online_count"],
                         "version": entry.get("version", 1),
                         "state": entry.get("state")
@@ -2321,12 +2037,22 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             cat["active_pokes"] = act_p
             cat["unseen_pokes"] = [p for p in act_p if not p.get("seen")]
             cat["user_vault"] = v
+            import hashlib
+            payload_bytes = json.dumps(cat).encode("utf-8")
+            etag = f'"{hashlib.md5(payload_bytes).hexdigest()[:16]}"'
+            if self.headers.get("If-None-Match") == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
+                self.end_headers()
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps(cat).encode("utf-8"))
+                self.wfile.write(payload_bytes)
             return
 
         if clean_path == "api/armory/pokes/active":
@@ -3033,6 +2759,18 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "raw_json": {"active": True, "isActive": True, "currentRound": 0, "started": False}
                 }
             ]
+            local_lb = [
+                {"rank": 1, "player_id": "p_innes", "player_name": "Innes Wilson", "current_elo": 2185.4, "peak_elo": 2210.0, "wins": 28, "losses": 4, "draws": 0, "matches_played": 32, "win_rate": 87.5, "team": "Art of War", "top_faction": "Adeptus Custodes", "city": "San Diego", "state": "CA"},
+                {"rank": 2, "player_id": "p_david", "player_name": "David Gaylard", "current_elo": 2120.0, "peak_elo": 2145.0, "wins": 22, "losses": 5, "draws": 0, "matches_played": 27, "win_rate": 81.5, "team": "Team Zero Comp", "top_faction": "Necrons", "city": "San Diego", "state": "CA"},
+                {"rank": 3, "player_id": "p_jack", "player_name": "Jack Harpster", "current_elo": 2095.8, "peak_elo": 2118.0, "wins": 19, "losses": 5, "draws": 0, "matches_played": 24, "win_rate": 79.2, "team": "Art of War", "top_faction": "Blood Angels", "city": "Seattle", "state": "WA"},
+                {"rank": 4, "player_id": "Te1Q9lp3By", "player_name": "Junior Aflleje", "current_elo": 2068.2, "peak_elo": 2090.0, "wins": 21, "losses": 6, "draws": 1, "matches_played": 28, "win_rate": 75.0, "team": "Dicehammer", "top_faction": "Leagues of Votann", "city": "San Diego", "state": "CA"},
+                {"rank": 5, "player_id": "p_vik", "player_name": "Vik Vijay", "current_elo": 2042.1, "peak_elo": 2060.0, "wins": 16, "losses": 5, "draws": 0, "matches_played": 21, "win_rate": 76.2, "team": "Team Ignite", "top_faction": "Aeldari", "city": "Portland", "state": "OR"}
+            ]
+            local_teams = [
+                {"rank": 1, "id": "team-art-of-war", "name": "Art of War", "team": "Art of War", "short_tag": "AOW", "power_rating": 2195.4, "active_avg_elo": 2145.2, "active_roster_count": 8, "total_wins": 142, "total_losses": 28, "team_win_rate": 83.5, "home_city": "San Diego", "home_state": "CA"},
+                {"rank": 2, "id": "team-dicehammer", "name": "Dicehammer", "team": "Dicehammer", "short_tag": "DHM", "power_rating": 2088.6, "active_avg_elo": 2032.0, "active_roster_count": 12, "total_wins": 118, "total_losses": 42, "team_win_rate": 73.8, "home_city": "San Diego", "home_state": "CA"},
+                {"rank": 3, "id": "team-stat-check", "name": "Stat Check", "team": "Stat Check", "short_tag": "STC", "power_rating": 2054.1, "active_avg_elo": 2005.8, "active_roster_count": 7, "total_wins": 96, "total_losses": 34, "team_win_rate": 73.8, "home_city": "Seattle", "state": "WA"}
+            ]
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -3045,8 +2783,162 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "events_recent": [],
                     "ongoing_events": [ongoing_ev],
                     "past_events": [],
-                    "local_leaderboard": [],
-                    "team_standings": []
+                    "local_leaderboard": local_lb,
+                    "team_standings": local_teams
+                }).encode("utf-8"))
+            return
+
+        if clean_path in ("api/connect/profile", "api/connect/profile/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "profile": {
+                        "user_id": "p_innes",
+                        "player_id": "p_innes",
+                        "display_name": "Innes Wilson",
+                        "looking_for_game": True,
+                        "home_city": "San Diego",
+                        "home_state": "CA",
+                        "home_country": "USA",
+                        "lat": 32.7157,
+                        "lng": -117.1611,
+                        "radius_miles": 50,
+                        "preferred_modes": ["Competitive", "GT Prep"],
+                        "primary_faction": "Adeptus Custodes",
+                        "secondary_factions": ["Necrons", "Dark Angels"],
+                        "availability": ["Weeknights", "Weekends"],
+                        "home_store": "At Ease Games",
+                        "bio": "Preparing for Tacoma & LVO Majors. Down for 2000pt WTC/GW layout sparring."
+                    }
+                }).encode("utf-8"))
+            return
+
+        if clean_path in ("api/connect/players", "api/connect/players/"):
+            sparring_players = [
+                {
+                    "user_id": "u_junior",
+                    "player_id": "Te1Q9lp3By",
+                    "display_name": "Junior Aflleje",
+                    "player_name": "Junior Aflleje",
+                    "current_elo": 2068.2,
+                    "team": "Dicehammer",
+                    "primary_faction": "Leagues of Votann",
+                    "secondary_factions": ["Space Marines", "Death Guard"],
+                    "home_city": "San Diego",
+                    "home_state": "CA",
+                    "distance_miles": 4.2,
+                    "looking_for_game": True,
+                    "preferred_modes": ["Competitive", "GT Prep"],
+                    "availability": ["Weeknights", "Weekends"],
+                    "home_store": "At Ease Games",
+                    "bio": "SD40K Commissioner & LVTT Champ. Always down for practice rounds at At Ease Games."
+                },
+                {
+                    "user_id": "u_david",
+                    "player_id": "p_david_gaylard",
+                    "display_name": "David Gaylard",
+                    "player_name": "David Gaylard",
+                    "current_elo": 2280.4,
+                    "team": "Team Zero Comp",
+                    "primary_faction": "Necrons",
+                    "secondary_factions": ["Adeptus Custodes"],
+                    "home_city": "San Diego",
+                    "home_state": "CA",
+                    "distance_miles": 7.8,
+                    "looking_for_game": True,
+                    "preferred_modes": ["Competitive"],
+                    "availability": ["Weekends"],
+                    "home_store": "Game Empire",
+                    "bio": "Testing Canoptek Court & Hypercrypt lists into current meta."
+                },
+                {
+                    "user_id": "u_jack",
+                    "player_id": "p_jack_harpster",
+                    "display_name": "Jack Harpster",
+                    "player_name": "Jack Harpster",
+                    "current_elo": 2240.1,
+                    "team": "Art of War",
+                    "primary_faction": "Blood Angels",
+                    "secondary_factions": ["Grey Knights"],
+                    "home_city": "Carlsbad",
+                    "home_state": "CA",
+                    "distance_miles": 18.5,
+                    "looking_for_game": True,
+                    "preferred_modes": ["Competitive", "Crusade / Casual"],
+                    "availability": ["Weeknights", "Weekends"],
+                    "home_store": "Pair A Dice Games",
+                    "bio": "Sons of Sanguinius melee pressure testing."
+                }
+            ]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "players": sparring_players,
+                    "items": sparring_players,
+                    "count": len(sparring_players)
+                }).encode("utf-8"))
+            return
+
+        if clean_path in ("api/community/stores", "api/community/stores/"):
+            stores = [
+                {
+                    "id": "store_at_ease",
+                    "name": "At Ease Games",
+                    "city": "San Diego",
+                    "state": "CA",
+                    "address": "8990 Miramar Rd #150, San Diego, CA 92126",
+                    "lat": 32.8938,
+                    "lng": -117.1319,
+                    "distance_miles": 5.4,
+                    "tables_count": 24,
+                    "weekly_night": "Tuesdays & Thursdays 5:30 PM",
+                    "active_leagues": ["SD40K Big League", "The Gauntlet"],
+                    "verified": True
+                },
+                {
+                    "id": "store_game_empire",
+                    "name": "Game Empire San Diego",
+                    "city": "San Diego",
+                    "state": "CA",
+                    "address": "7051 Clairemont Mesa Blvd #306, San Diego, CA 92111",
+                    "lat": 32.8338,
+                    "lng": -117.1625,
+                    "distance_miles": 6.8,
+                    "tables_count": 18,
+                    "weekly_night": "Wednesdays 6:00 PM",
+                    "active_leagues": ["SD40K Big League"],
+                    "verified": True
+                },
+                {
+                    "id": "store_tc_rockets",
+                    "name": "TC's Rockets",
+                    "city": "San Diego",
+                    "state": "CA",
+                    "address": "5155 Waring Rd, San Diego, CA 92120",
+                    "lat": 32.7931,
+                    "lng": -117.0789,
+                    "distance_miles": 8.1,
+                    "tables_count": 14,
+                    "weekly_night": "Fridays 6:00 PM",
+                    "active_leagues": ["SD40K Big League"],
+                    "verified": True
+                }
+            ]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "stores": stores,
+                    "items": stores,
+                    "count": len(stores)
                 }).encode("utf-8"))
             return
 
@@ -3253,6 +3145,69 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": True, "users": DEV_USERS_LIST}).encode("utf-8"))
             return
 
+        if clean_path in ("api/admin/metrics", "api/admin/metrics/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "total_users": len(DEV_USERS_LIST),
+                    "signups_today": 2,
+                    "signups_week": 14,
+                    "bcp_linked": len(DEV_USERS_LIST),
+                    "bcp_percent": 100,
+                    "active_sessions": max(1, len(ROOMS_DB)),
+                    "games_tracked": 48,
+                    "total_redemptions": 19,
+                    "active_codes_count": 3,
+                    "invites_enabled": True
+                }).encode("utf-8"))
+            return
+
+        if clean_path in ("api/admin/invites", "api/admin/invites/", "api/admin/codes", "api/admin/codes/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "codes": [
+                        {"code": "OMNI-FOUNDER-2026", "is_admin_code": True, "creator_name": "Head Admin", "creator_email": "admin@omnitactica.com", "is_active": True, "status_label": "Active", "use_count": 12, "max_uses": 100, "expires_at": None, "created_at": "2026-01-01T00:00:00Z"},
+                        {"code": "SD40K-LEAGUE-VIP", "is_admin_code": True, "creator_name": "John Hsieh", "creator_email": "hsiehjun@google.com", "is_active": True, "status_label": "Active", "use_count": 5, "max_uses": 50, "expires_at": None, "created_at": "2026-08-15T12:00:00Z"},
+                        {"code": "AOW-SPARRING-24H", "is_admin_code": False, "creator_name": "Innes Wilson", "creator_email": "innes.wilson@example.com", "is_active": True, "status_label": "Active", "use_count": 2, "max_uses": 5, "expires_at": "2026-12-31T23:59:59Z", "created_at": "2026-09-20T18:00:00Z"}
+                    ]
+                }).encode("utf-8"))
+            return
+
+        if clean_path in ("api/admin/referrals", "api/admin/referrals/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "referrals": [
+                        {"redeemed_at": "2026-09-22T14:15:00Z", "new_user_name": "Junior Aflleje", "new_user_email": "junior@dicehammer.org", "inviter_name": "John Hsieh", "inviter_email": "hsiehjun@google.com", "code": "SD40K-LEAGUE-VIP", "new_user_bcp": True, "ip_address": "192.0.2.14"},
+                        {"redeemed_at": "2026-09-18T09:40:00Z", "new_user_name": "Jack Harpster", "new_user_email": "jack@artofwar40k.com", "inviter_name": "Innes Wilson", "inviter_email": "innes.wilson@example.com", "code": "AOW-SPARRING-24H", "new_user_bcp": True, "ip_address": "192.0.2.88"}
+                    ]
+                }).encode("utf-8"))
+            return
+
+        if clean_path in ("api/admin/feedback", "api/admin/feedback/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "feedbacks": [
+                        {"id": "fb_01", "feedback_type": "feature", "status": "resolved", "user_email": "innes.wilson@example.com", "user_name": "Innes Wilson", "page_url": "/app#/40k/my-hub", "message": "Share Profile card looks super crisp on Discord & Instagram Stories!", "admin_notes": "Shipped in v92 Studio update.", "created_at": "2026-09-24T18:30:00Z"},
+                        {"id": "fb_02", "feedback_type": "bug", "status": "open", "user_email": "organizer@georgia40k.com", "user_name": "Atlanta TO Team", "page_url": "/app#/40k/event-studio", "message": "Unified Floor Ops command bar timer syncs smoothly with BCP tables.", "admin_notes": "Verified live during Round 3.", "created_at": "2026-09-25T11:15:00Z"}
+                    ]
+                }).encode("utf-8"))
+            return
+
         if clean_path in ("api/leagues", "api/leagues/"):
             import leagues_hub_service
             l_svc = leagues_hub_service.get_leagues_hub_service()
@@ -3349,7 +3304,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             parts = clean_path.split("/")
             l_id = parts[2]
             s_num = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 38
-            league_data = l_svc.get_league(l_id, season_number=s_num)
+            league_data = l_svc.slim_league_for_api(l_svc.get_league(l_id, season_number=s_num))
             self.send_response(200 if league_data else 404)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -3418,7 +3373,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             l_id = clean_path.replace("api/league/", "").strip("/")
             s_param = query_params.get("season", [None])[0]
             s_num = int(s_param) if s_param and s_param.isdigit() else None
-            league_data = l_svc.get_league(l_id, season_number=s_num)
+            league_data = l_svc.slim_league_for_api(l_svc.get_league(l_id, season_number=s_num))
             self.send_response(200 if league_data else 404)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -4866,6 +4821,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         if clean_path in ("api/badges/catalog", "api/badges/catalog/"):
             import badges
             import seasonal_badges
+            import hashlib
             req_gs = query_params.get("game_system", ["40k"])[0].lower()
             is_aos = req_gs == "aos"
             seasonal_cat = seasonal_badges.SEASON_2026_CATALOG_AOS if is_aos else seasonal_badges.SEASON_2026_CATALOG_40K
@@ -4881,11 +4837,21 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "seasonal_categories": seasonal_cats,
                 "active_season": "2026"
             }
+            payload_bytes = json.dumps(catalog).encode("utf-8")
+            etag = f'"{hashlib.md5(payload_bytes).hexdigest()[:16]}"'
+            if self.headers.get("If-None-Match") == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "public, max-age=300, stale-while-revalidate=600")
+                self.end_headers()
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "public, max-age=300, stale-while-revalidate=600")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps(catalog).encode("utf-8"))
+                self.wfile.write(payload_bytes)
             return
 
         if clean_path.startswith("api/scorecard/"):
@@ -4912,6 +4878,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             tail = clean_path.replace("api/tracker/", "")
             if tail.startswith("room/"):
                 tail = tail[5:]
+            is_armylists_req = tail.endswith("/armylists")
             for sa in ["/check", "/armylists", "/clock", "/state"]:
                 if tail.endswith(sa):
                     tail = tail[:-len(sa)].strip("/")
@@ -4926,15 +4893,26 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 ver = data.get("version", 1) if isinstance(data, dict) else 1
                 online = data.get("online_count", 2) if isinstance(data, dict) else 2
                 sys_id = (data.get("game_system") if isinstance(data, dict) else None) or (st.get("gameSystem") if isinstance(st, dict) else None) or ("aos" if room_id.startswith("AOS-") else "40k")
+                p1_list = data.get("p1_army_list") if isinstance(data, dict) else None
+                p2_list = data.get("p2_army_list") if isinstance(data, dict) else None
+                if is_armylists_req:
+                    from newrecruit_integration import build_synthetic_nr_row
+                    for r_item in (p1_list, p2_list):
+                        if isinstance(r_item, dict) and r_item:
+                            nr_row = build_synthetic_nr_row(r_item)
+                            r_item["list_key"] = nr_row.get("list_key")
+                            r_item["nr_row"] = nr_row
                 self.wfile.write(json.dumps({
                     "success": True,
                     "match_id": room_id,
                     "game_system": sys_id,
+                    "p1_army_list": p1_list,
+                    "p2_army_list": p2_list,
                     "data": data,
                     "state": st,
                     "version": ver,
                     "online_count": online
-                }).encode("utf-8"))
+                }, default=str).encode("utf-8"))
             return
 
         if clean_path.startswith("api/bcp/armylist/"):
@@ -5087,6 +5065,107 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
+        if clean_path == "api/armylists/nr_state":
+            from newrecruit_integration import get_nr_state_payload
+            saved_lists = list(dev_get_army_lists() or [])
+            saved_ids = {str(x.get("id") or "") for x in saved_lists if isinstance(x, dict)}
+            saved_keys = {str(x.get("list_key") or "") for x in saved_lists if isinstance(x, dict) and x.get("list_key")}
+            combined_lists = list(saved_lists)
+            for r_data in list(ROOMS_DB.values()):
+                if isinstance(r_data, dict):
+                    for k in ("p1_army_list", "p2_army_list"):
+                        rl = r_data.get(k)
+                        if isinstance(rl, dict) and rl:
+                            rl_id = str(rl.get("id") or "")
+                            rl_key = str(rl.get("list_key") or "")
+                            if rl_id not in saved_ids and (not rl_key or rl_key not in saved_keys):
+                                combined_lists.append(dict(rl, _ephemeral_view=True))
+            payload = get_nr_state_payload(combined_lists, "default")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(payload, default=str).encode("utf-8"))
+            return
+
+        if clean_path == "api/armylists":
+            lists = dev_get_army_lists()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "army_lists": lists, "lists": lists}, default=str).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/armylists/") and clean_path not in ("api/armylists/nr_state", "api/armylists/nr_sync", "api/armylists/nr_cloud_connect"):
+            lid = urllib.parse.unquote(clean_path.split("/", 2)[2])
+            raw_key = re.sub(r"^(nr_|list_)", "", lid)
+            found = next(
+                (
+                    item for item in dev_get_army_lists()
+                    if str(item.get("id")) in (lid, raw_key, f"nr_{raw_key}", f"list_{raw_key}")
+                    or str(item.get("list_key")) in (lid, raw_key)
+                ),
+                None,
+            )
+            if not found:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps({"success": False, "error": "Army list not found"}).encode("utf-8"))
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "army_list": found}, default=str).encode("utf-8"))
+            return
+
+        if (
+            clean_path == "nr/app"
+            or clean_path.startswith("nr/app/")
+            or clean_path == "app/Lists"
+            or clean_path.startswith("app/Lists/")
+            or clean_path == "app/MySystems"
+            or clean_path.startswith("app/MySystems/")
+            or clean_path == "app/MyBooks"
+            or clean_path.startswith("app/list/")
+            or clean_path.startswith("nr_proxy/")
+            or clean_path.startswith("api/armylists/nr_proxy/")
+            or clean_path.startswith("api/armylist/nr_proxy/")
+        ):
+            from newrecruit_integration import fetch_nr_html_shell
+            try:
+                html_shell = fetch_nr_html_shell()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(html_shell.encode("utf-8"))
+            except Exception as e:
+                self.send_response(302)
+                self.send_header("Location", "https://www.newrecruit.eu/app/Lists")
+                self.end_headers()
+            return
+
+        if (
+            clean_path.startswith("_nuxt/")
+            or clean_path.startswith("settings/")
+            or clean_path.startswith("api/book/")
+            or clean_path == "assets.json"
+        ):
+            from newrecruit_integration import proxy_nr_request
+            status, resp_bytes, content_type = proxy_nr_request(
+                self.path, "GET", None, {k: v for k, v in self.headers.items()}
+            )
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(resp_bytes)
+            return
+
         if clean_path.startswith("api/"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -5099,12 +5178,24 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_html_with_auth(WEB_DIR / "app.html", is_head)
             return
 
+        if clean_path in ("admin", "admin.html"):
+            self._serve_html_with_auth(WEB_DIR / "admin.html", is_head)
+            return
+
+        if clean_path in ("admin/feedback", "admin_feedback.html"):
+            self._serve_html_with_auth(WEB_DIR / "admin_feedback.html", is_head)
+            return
+
+        if clean_path in ("login", "login.html", "tracker/login", "tracker/login.html"):
+            self._serve_file(TRACKER_DIR / "login.html", "text/html; charset=utf-8", is_head)
+            return
+
         if clean_path.startswith("scorecard"):
             self._serve_html_with_auth(WEB_DIR / "scorecard.html", is_head)
             return
 
-        # 2. Redirects to /11th/tracker/play or Lobby
-        if clean_path in ("", "login"):
+        # 2. Redirect root to /11th/tracker/play
+        if clean_path == "":
             target = f"/11th/tracker/play{('?' + query_str) if query_str else ''}"
             self.send_response(302)
             self.send_header("Location", target)

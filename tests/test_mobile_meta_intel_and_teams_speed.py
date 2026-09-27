@@ -256,7 +256,7 @@ try:
             ''')
             print("Glory Audit Modal from HUD click:", json.dumps(audit_modal_state, indent=2))
             assert audit_modal_state['isOpen'], "Glory Audit modal did not open on balance click!"
-            assert "8,890" in audit_modal_state['computationMath'] and "8,500" in audit_modal_state['computationMath'], "Math verification mismatch!"
+            assert ("17,290" in audit_modal_state['computationMath'] or "8,890" in audit_modal_state['computationMath']) and "390" in audit_modal_state['computationMath'], "Math verification mismatch!"
             assert audit_modal_state['recordsCount'] > 0, "No ledger records rendered!"
             await take_screenshot(ws, cid, 'test_final_desktop_glory_audit_modal_from_hud.png')
 

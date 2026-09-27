@@ -1867,12 +1867,20 @@ function renderMyHub(data) {
         <div class="hub-card" id="hub-armylists-card" style="display:flex; flex-direction:column; justify-content:space-between;">
           <div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
-              <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                 <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📋 Army Lists & Rosters</h3>
+                <span id="hub-nr-sync-pill" style="font-size: 0.68rem; font-weight: 800; padding: 0.15rem 0.5rem; border-radius: 999px; background: rgba(16, 185, 129, 0.14); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); display: inline-flex; align-items: center; gap: 4px;">
+                  ⚡ NewRecruit Linked
+                </span>
               </div>
-              <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.75rem; padding: 0.3rem 0.75rem; background: var(--accent); color: #0f172a; font-weight: 800;">
-                ➕ Import
-              </button>
+              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                <button id="hub-btn-nr-cloud-sync" class="subtab-btn" onclick="openNewRecruitCloudModal()" style="font-size: 0.74rem; padding: 0.3rem 0.65rem; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.32); font-weight: 800; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+                  🔗 Cloud Sync
+                </button>
+                <button id="hub-btn-launch-nr-studio" class="bcp-login-btn" onclick="openNewRecruitStudioDrawer('/nr/app/Lists')" style="font-size: 0.75rem; padding: 0.32rem 0.8rem; background: var(--accent); color: #0f172a; font-weight: 800; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
+                  ⚔️ NewRecruit Studio
+                </button>
+              </div>
             </div>
 
             <div id="hub-armylists-list-container" class="hub-armylists-list-container">
@@ -3307,18 +3315,47 @@ window.executeHubEventsSearch = executeHubEventsSearch;
    ========================================================================== */
 
 let hubSavedLists = [];
+let hubNrCloudAccount = { connected: false, login: '', last_sync: null };
 
 async function loadHubArmyLists() {
   const container = document.getElementById('hub-armylists-list-container');
   if (!container) return;
 
   try {
-    const res = await window.api.getArmyLists();
-    const lists = res.army_lists || [];
+    const [res, nrState] = await Promise.all([
+      window.api.getArmyLists(),
+      window.api.getNewRecruitState ? window.api.getNewRecruitState().catch(() => null) : Promise.resolve(null)
+    ]);
+    const lists = (res && res.army_lists) ? res.army_lists : [];
     hubSavedLists = lists;
+    if (nrState && nrState.cloud_account) {
+      hubNrCloudAccount = nrState.cloud_account;
+      updateHubNrSyncPill();
+    }
     renderHubArmyLists(lists);
   } catch(e) {
     container.innerHTML = `<div style="color:var(--loss); font-size:0.85rem; padding:1.5rem; text-align:center;">Error loading army lists: ${e.message}</div>`;
+  }
+}
+
+function updateHubNrSyncPill() {
+  const pill = document.getElementById('hub-nr-sync-pill');
+  const cloudBtn = document.getElementById('hub-btn-nr-cloud-sync');
+  if (pill) {
+    if (hubNrCloudAccount && hubNrCloudAccount.connected) {
+      pill.innerHTML = `🟢 Cloud: ${escapeHtml(hubNrCloudAccount.login || 'Connected')}`;
+      pill.style.background = 'rgba(16, 185, 129, 0.16)';
+      pill.style.color = '#10b981';
+      pill.style.borderColor = 'rgba(16, 185, 129, 0.35)';
+    } else {
+      pill.innerHTML = `⚡ Studio Auto-Sync`;
+      pill.style.background = 'rgba(56, 189, 248, 0.14)';
+      pill.style.color = '#38bdf8';
+      pill.style.borderColor = 'rgba(56, 189, 248, 0.3)';
+    }
+  }
+  if (cloudBtn && hubNrCloudAccount && hubNrCloudAccount.connected) {
+    cloudBtn.innerHTML = `🔄 Cloud Sync`;
   }
 }
 
@@ -3328,15 +3365,20 @@ function renderHubArmyLists(lists) {
 
   if (!lists || lists.length === 0) {
     container.innerHTML = `
-      <div style="padding: 1.25rem 1rem 0.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
-        <div style="font-size: 1.6rem; margin-bottom: 0.35rem;">📋</div>
-        <div style="font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 0.25rem;">No Army Lists Imported Yet</div>
-        <div style="font-size: 0.78rem; max-width: 440px; margin: 0 auto 0.85rem; color: #94a3b8; line-height: 1.45;">
-          Import your rosters from <b>NewRecruit</b> using a share link to view your units and launch into Game Tracker!
+      <div style="padding: 1.35rem 1rem 0.65rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+        <div style="font-size: 1.75rem; margin-bottom: 0.35rem;">⚔️</div>
+        <div style="font-size: 1rem; font-weight: 800; color: #fff; margin-bottom: 0.3rem;">No Army Lists Created Yet</div>
+        <div style="font-size: 0.78rem; max-width: 460px; margin: 0 auto 0.95rem; color: #94a3b8; line-height: 1.5;">
+          Create, modify, and manage your rosters directly inside the embedded <b>NewRecruit Studio</b> or sync your <b>NewRecruit Cloud</b> account — your lists automatically appear here ready for Game Tracker!
         </div>
-        <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.82rem; padding: 0.4rem 0.95rem; background: var(--accent); color: #0f172a; font-weight: 800;">
-          ➕ Import from NewRecruit
-        </button>
+        <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; flex-wrap: wrap;">
+          <button id="hub-empty-launch-nr-studio" class="bcp-login-btn" onclick="openNewRecruitStudioDrawer('/nr/app/Lists')" style="font-size: 0.82rem; padding: 0.45rem 1rem; background: var(--accent); color: #0f172a; font-weight: 800; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+            ⚔️ Launch NewRecruit Studio
+          </button>
+          <button id="hub-empty-connect-nr-cloud" class="subtab-btn" onclick="openNewRecruitCloudModal()" style="font-size: 0.8rem; padding: 0.45rem 0.9rem; background: rgba(56, 189, 248, 0.14); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-weight: 800; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
+            🔗 Sync NewRecruit Cloud
+          </button>
+        </div>
       </div>
     `;
     return;
@@ -3345,15 +3387,25 @@ function renderHubArmyLists(lists) {
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; gap: 0.75rem;">
       ${lists.map(l => {
-        const pts = l.points || 2000;
+        const pts = l.points !== undefined && l.points !== null ? l.points : 2000;
+        const unitCount = Array.isArray(l.units) ? l.units.length : 0;
+        const rawId = String(l.list_key || l.id || '');
+        const listKey = rawId.startsWith('nr_') ? rawId.slice(3) : rawId;
+        const srcBadge = (l.source_format && l.source_format.includes('Cloud')) ? '☁️ Cloud Synced' : '⚡ NewRecruit';
 
         return `
-          <div class="hub-rec-card" style="flex-direction: column; align-items: stretch; gap: 0.65rem; padding: 0.85rem 1rem; background: rgba(19, 29, 51, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px;">
+          <div class="hub-rec-card" data-list-id="${escapeHtml(l.id)}" data-list-key="${escapeHtml(listKey)}" style="flex-direction: column; align-items: stretch; gap: 0.65rem; padding: 0.85rem 1rem; background: rgba(19, 29, 51, 0.75); border: 1px solid rgba(56, 189, 248, 0.16); border-radius: 10px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
               <div style="min-width: 0; flex: 1;">
-                <div style="font-size: 0.98rem; font-weight: 800; color: #fff; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(l.name || 'NewRecruit Roster')}</div>
-                <div style="font-size: 0.78rem; color: #38bdf8; font-weight: 700; margin-top: 0.15rem;">
+                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                  <div style="font-size: 0.98rem; font-weight: 800; color: #fff; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(l.name || 'NewRecruit Roster')}</div>
+                  <span style="font-size: 0.65rem; font-weight: 800; padding: 0.1rem 0.42rem; border-radius: 999px; background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.28);">
+                    ${srcBadge}
+                  </span>
+                </div>
+                <div style="font-size: 0.78rem; color: #38bdf8; font-weight: 700; margin-top: 0.18rem;">
                   ${escapeHtml(l.faction || 'Warhammer 40k')} • <span style="color: #c084fc;">${escapeHtml(l.detachment || 'Core Detachment')}</span>
+                  ${unitCount > 0 ? ` • <span style="color: #94a3b8; font-weight: 600;">${unitCount} ${unitCount === 1 ? 'Unit' : 'Units'}</span>` : ''}
                 </div>
               </div>
               <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-weight: 800; font-family: var(--font-mono); font-size: 0.72rem; border: 1px solid rgba(245, 158, 11, 0.3); flex-shrink: 0;">
@@ -3361,24 +3413,24 @@ function renderHubArmyLists(lists) {
               </span>
             </div>
 
-            <!-- Action Buttons Row -->
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 0.55rem; flex-wrap: wrap;">
+            <!-- Action Buttons Row: View, Play, Manage in NewRecruit, Delete -->
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.45rem; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 0.55rem; flex-wrap: wrap;">
               <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-                <button onclick="openViewArmyListModal('${l.id}')" class="subtab-btn" style="font-size: 0.74rem; padding: 0.25rem 0.65rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-weight: 700;">
-                  👁️ View
+                <button onclick="openViewArmyListModal('${escapeHtml(l.id)}')" class="subtab-btn" style="font-size: 0.74rem; padding: 0.28rem 0.68rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-weight: 700; cursor: pointer;" title="View interactive datasheets & stratagems in NewRecruit Play Mode">
+                  🎮 Play Mode
                 </button>
-                <button onclick="launchTrackerWithList('${l.id}')" class="subtab-btn" style="font-size: 0.74rem; padding: 0.25rem 0.65rem; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-weight: 700;">
-                  ⚔️ Play
+                <button onclick="launchTrackerWithList('${escapeHtml(l.id)}')" class="subtab-btn" style="font-size: 0.74rem; padding: 0.28rem 0.68rem; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-weight: 700; cursor: pointer;">
+                  ⚔️ Play in Tracker
                 </button>
-                ${l.source_url ? `
-                  <a href="${escapeHtml(l.source_url)}" target="_blank" class="subtab-btn" style="font-size: 0.74rem; padding: 0.25rem 0.65rem; background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); text-decoration: none; display: inline-flex; align-items: center; gap: 3px; font-weight: 700;" title="Edit roster on NewRecruit">
-                    ✏️ Edit ↗
-                  </a>
-                ` : ''}
               </div>
-              <button onclick="deleteHubArmyList('${l.id}')" style="background: transparent; border: none; color: #ef4444; font-size: 0.85rem; cursor: pointer; padding: 0.2rem 0.3rem;" title="Delete List">
-                🗑️
-              </button>
+              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                <button onclick="openNewRecruitStudioForList('${escapeHtml(l.id)}')" class="subtab-btn" style="font-size: 0.74rem; padding: 0.28rem 0.72rem; background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.35); font-weight: 800; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="Modify or delete this list inside NewRecruit Studio">
+                  🛠️ Manage in NewRecruit
+                </button>
+                <button onclick="deleteHubArmyList('${escapeHtml(l.id)}', false)" class="subtab-btn" style="font-size: 0.74rem; padding: 0.28rem 0.55rem; background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.3); font-weight: 800; cursor: pointer;" title="Delete Army List">
+                  🗑️
+                </button>
+              </div>
             </div>
           </div>
         `;
@@ -3387,58 +3439,245 @@ function renderHubArmyLists(lists) {
   `;
 }
 
-function openImportArmyListModal() {
-  let modal = document.getElementById('hub-import-armylist-modal');
+/* ==========================================================================
+   OPTION 3 HYBRID: EMBEDDED NEWRECRUIT STUDIO DRAWER & CLOUD SYNC CONTROLLERS
+   ========================================================================== */
+
+function openNewRecruitStudioForList(listId) {
+  const list = (hubSavedLists || []).find(l => l.id === listId || l.list_key === listId);
+  let listKey = '';
+  if (list) {
+    listKey = list.list_key || (String(list.id || '').startsWith('nr_') ? String(list.id).slice(3) : '');
+  } else if (String(listId || '').startsWith('nr_')) {
+    listKey = String(listId).slice(3);
+  }
+  const targetPath = listKey ? `/nr/app/Lists/${encodeURIComponent(listKey)}` : '/nr/app/Lists';
+  openNewRecruitStudioDrawer(targetPath, list ? list.name : '');
+}
+
+function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '') {
+  let modal = document.getElementById('hub-newrecruit-studio-modal');
   if (!modal) {
     modal = document.createElement('div');
-    modal.id = 'hub-import-armylist-modal';
-    modal.style.cssText = 'position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.85); backdrop-filter:blur(8px); padding:16px;';
+    modal.id = 'hub-newrecruit-studio-modal';
+    modal.style.cssText = 'position:fixed; inset:0; z-index:100050; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.9); backdrop-filter:blur(8px); padding:10px; box-sizing:border-box;';
     document.body.appendChild(modal);
   }
 
+  const safePath = initialPath || '/nr/app/Lists';
+  const subtitle = listTitle
+    ? `Editing "${listTitle}" • All changes & deletions sync to My Hub automatically`
+    : 'Create, modify, or delete rosters in NewRecruit • Changes sync to My Hub automatically';
+
   modal.innerHTML = `
-    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:600px; box-shadow:0 25px 60px rgba(0,0,0,0.85); display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+    <div class="hub-nr-studio-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:min(1460px, 100%); height:min(92vh, 960px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 30px 90px rgba(0,0,0,0.92); font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+      <!-- Studio Top Toolbar -->
+      <div style="padding:10px 16px; background:linear-gradient(90deg, #0f172a 0%, #172554 100%); border-bottom:1px solid rgba(56,189,248,0.25); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
+          <span style="font-size:20px; flex-shrink:0;">⚔️</span>
+          <div style="min-width:0;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <h3 style="font-size:15px; font-weight:900; color:#fff; margin:0; letter-spacing:0.01em;">NewRecruit Army Studio</h3>
+              <span id="hub-nr-studio-live-status" style="font-size:11px; font-weight:800; padding:2px 8px; border-radius:999px; background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.35); display:inline-flex; align-items:center; gap:4px;">
+                🟢 Live Auto-Sync Active
+              </span>
+            </div>
+            <div style="font-size:11px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px;">
+              ${escapeHtml(subtitle)}
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Studio Navigation & Done Controls -->
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+          <button onclick="navigateNewRecruitStudio('/nr/app/Lists')" style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.32); font-weight:800; font-size:11.5px; padding:6px 11px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+            📋 My Lists
+          </button>
+          <button onclick="navigateNewRecruitStudio('/nr/app/MySystems')" style="background:rgba(168,85,247,0.14); color:#c084fc; border:1px solid rgba(168,85,247,0.32); font-weight:800; font-size:11.5px; padding:6px 11px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+            ➕ Game Systems
+          </button>
+          <button onclick="openNewRecruitCloudModal()" style="background:rgba(245,158,11,0.14); color:#fbbf24; border:1px solid rgba(245,158,11,0.32); font-weight:800; font-size:11.5px; padding:6px 11px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+            🔗 Cloud Sync
+          </button>
+          <button id="hub-btn-close-nr-studio" onclick="closeNewRecruitStudioDrawer()" style="background:#10b981; color:#0f172a; border:none; font-weight:900; font-size:12px; padding:6px 14px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+            ✅ Done & Sync to Hub
+          </button>
+        </div>
+      </div>
+
+      <!-- Embedded Same-Origin NewRecruit App Iframe -->
+      <div style="flex:1; position:relative; background:#090d16; overflow:hidden;">
+        <iframe
+          id="hub-nr-studio-iframe"
+          src="${escapeHtml(safePath)}"
+          title="NewRecruit Army Studio"
+          style="width:100%; height:100%; border:none; display:block; background:#090d16;"
+          allow="clipboard-read; clipboard-write"
+        ></iframe>
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+}
+
+function navigateNewRecruitStudio(targetPath) {
+  const iframe = document.getElementById('hub-nr-studio-iframe');
+  if (!iframe) return;
+  try {
+    if (iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'OMNITACTICA_NR_COMMAND', command: 'navigate', path: targetPath }, '*');
+    }
+    iframe.src = targetPath;
+  } catch (e) {
+    iframe.src = targetPath;
+  }
+}
+
+async function closeNewRecruitStudioDrawer() {
+  const modal = document.getElementById('hub-newrecruit-studio-modal');
+  const iframe = document.getElementById('hub-nr-studio-iframe');
+  try {
+    if (iframe && iframe.contentWindow && iframe.contentWindow.__omnitacticaNrBridge) {
+      await iframe.contentWindow.__omnitacticaNrBridge.forceFullSync();
+    } else if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'OMNITACTICA_NR_COMMAND', command: 'force_sync' }, '*');
+    }
+  } catch (e) {}
+  if (modal) {
+    modal.style.display = 'none';
+  }
+  await loadHubArmyLists();
+}
+
+// Listen for real-time IndexedDB sync events from the embedded NewRecruit Studio Bridge
+if (!window.__omnitacticaNrParentListenerBound) {
+  window.__omnitacticaNrParentListenerBound = true;
+  window.addEventListener('message', async function(ev) {
+    const msg = ev && ev.data;
+    if (!msg || msg.type !== 'OMNITACTICA_NR_SYNC_EVENT') return;
+
+    const statusBadge = document.getElementById('hub-nr-studio-live-status');
+    if (statusBadge) {
+      if (msg.action === 'delete') {
+        statusBadge.innerHTML = `🗑️ Removed list from My Hub`;
+        statusBadge.style.color = '#f87171';
+      } else {
+        const listName = (msg.army_list && msg.army_list.name) ? msg.army_list.name : 'Roster';
+        statusBadge.innerHTML = `⚡ Synced "${escapeHtml(listName)}" to My Hub!`;
+        statusBadge.style.color = '#38bdf8';
+      }
+      setTimeout(() => {
+        const el = document.getElementById('hub-nr-studio-live-status');
+        if (el) {
+          el.innerHTML = `🟢 Live Auto-Sync Active`;
+          el.style.color = '#34d399';
+        }
+      }, 2600);
+    }
+
+    if (Array.isArray(msg.army_lists)) {
+      hubSavedLists = msg.army_lists;
+      renderHubArmyLists(hubSavedLists);
+    } else {
+      await loadHubArmyLists();
+    }
+  });
+}
+
+async function openNewRecruitCloudModal() {
+  let modal = document.getElementById('hub-newrecruit-cloud-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'hub-newrecruit-cloud-modal';
+    modal.style.cssText = 'position:fixed; inset:0; z-index:100060; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.88); backdrop-filter:blur(8px); padding:16px; box-sizing:border-box;';
+    document.body.appendChild(modal);
+  }
+
+  try {
+    const st = await window.api.connectNewRecruitCloud({ action: 'status' });
+    if (st && typeof st.connected === 'boolean') {
+      hubNrCloudAccount = st;
+      updateHubNrSyncPill();
+    }
+  } catch (e) {}
+
+  const isConnected = Boolean(hubNrCloudAccount && hubNrCloudAccount.connected);
+  const connectedLogin = (hubNrCloudAccount && hubNrCloudAccount.login) || '';
+
+  modal.innerHTML = `
+    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:100%; max-width:540px; box-shadow:0 25px 70px rgba(0,0,0,0.9); display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
       <!-- Header -->
       <div style="padding:16px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; align-items:center; gap:10px;">
-          <span style="font-size:22px;">📋</span>
+          <span style="font-size:22px;">🔗</span>
           <div>
-            <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">Import Army Roster</h3>
-            <div style="font-size:11px; color:#38bdf8; margin-top:2px;">Paste text from NewRecruit or Official 40k App for full Wahapedia enrichment</div>
+            <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">NewRecruit Cloud Sync</h3>
+            <div style="font-size:11.5px; color:#38bdf8; margin-top:2px;">Sync your rosters directly from your newrecruit.eu account or share link</div>
           </div>
         </div>
-        <button onclick="closeImportArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer;">✕</button>
+        <button onclick="closeNewRecruitCloudModal()" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;">✕</button>
       </div>
 
-      <!-- Paste Text Content -->
-      <div style="padding:20px;">
-        <!-- Recommended Exporter Options Guide -->
-        <div style="background:rgba(2,132,199,0.08); border:1px solid rgba(56,189,248,0.25); border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:11.5px; color:#cbd5e1; line-height:1.45;">
-          <div style="font-weight:700; color:#38bdf8; margin-bottom:4px; display:flex; align-items:center; gap:5px;">
-            <span>💡</span> Supported & Recommended Exporters:
+      <div style="padding:20px; display:flex; flex-direction:column; gap:16px; overflow-y:auto; max-height:80vh;">
+        ${isConnected ? `
+          <div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.35); border-radius:10px; padding:12px 14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div>
+              <div style="font-size:12.5px; font-weight:800; color:#10b981;">🟢 Connected as ${escapeHtml(connectedLogin)}</div>
+              <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Cloud rosters automatically sync with My Hub & NewRecruit Studio.</div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button id="hub-btn-nr-cloud-resync" onclick="triggerNewRecruitCloudSync()" style="background:#10b981; color:#0f172a; border:none; font-weight:800; font-size:11.5px; padding:7px 13px; border-radius:7px; cursor:pointer;">
+                🔄 Sync Now
+              </button>
+              <button onclick="disconnectNewRecruitCloud()" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); font-weight:700; font-size:11.5px; padding:7px 11px; border-radius:7px; cursor:pointer;">
+                Disconnect
+              </button>
+            </div>
           </div>
-          <div style="color:#e2e8f0;">• <b>NewRecruit Text Export:</b> Options <code>Tournament, GW</code> &bull; Checked: <code>[✓] Constant selections</code> &bull; <code>[✓] Header</code></div>
-          <div style="color:#e2e8f0; margin-top:2px;">• <b>Official Warhammer 40k App:</b> Share / Export text list directly</div>
-          <div style="color:#94a3b8; font-size:11px; margin-top:5px; border-top:1px dashed rgba(255,255,255,0.1); padding-top:4px;">
-            ⚠️ <i>Note: Other formats (BattleScribe, raw JSON, or BCP plain text) might not have full Wahapedia stats/rules enrichment.</i>
+        ` : ''}
+
+        <!-- Section 1: Link NewRecruit Cloud Credentials -->
+        <div style="background:rgba(15,23,42,0.65); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:14px 16px;">
+          <div style="font-size:12.5px; font-weight:800; color:#e2e8f0; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+            <span>☁️</span> ${isConnected ? 'Update Linked NewRecruit Account' : 'Link NewRecruit.eu Account'}
+          </div>
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px;">NewRecruit Username or Email</label>
+              <input id="hub-nr-cloud-login" type="text" value="${escapeHtml(connectedLogin)}" placeholder="e.g. CommanderDante or email@example.com" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px; box-sizing:border-box; outline:none;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px;">NewRecruit Password</label>
+              <input id="hub-nr-cloud-password" type="password" placeholder="Enter your NewRecruit password" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px; box-sizing:border-box; outline:none;" />
+            </div>
+            <div id="hub-nr-cloud-status-msg" style="font-size:11.5px; display:none;"></div>
+            <button id="hub-btn-nr-cloud-submit" onclick="submitNewRecruitCloudConnect()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12.5px; border:none; padding:10px 16px; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px;">
+              🔗 Connect & Sync Cloud Lists
+            </button>
           </div>
         </div>
 
-        <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:8px;">
-          Paste Army List Text:
-        </label>
-        <textarea id="hub-import-text-input" rows="10" placeholder="Paste your army roster text here... (e.g. Space Marines - Gladius Task Force, Units, Enhancements, Points)" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:10px; padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; resize:vertical; line-height:1.5;"></textarea>
-
-        <div style="margin-top:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
-          <div style="font-size:11px; color:#94a3b8;">
-            ✨ Automatically enriches with <b>11th Edition Wahapedia</b> datasheets & stratagems.
+        <!-- Section 2: Quick Sync by NewRecruit Share Link / List ID -->
+        <div style="background:rgba(15,23,42,0.65); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:14px 16px;">
+          <div style="font-size:12.5px; font-weight:800; color:#e2e8f0; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+            <span>⚡</span> Quick Sync via NewRecruit Share Link
+          </div>
+          <div style="font-size:11px; color:#94a3b8; margin-bottom:8px;">
+            Have a NewRecruit share URL (<code>https://www.newrecruit.eu/app/list/...</code>)? Sync it straight into your Studio & Hub:
           </div>
           <div style="display:flex; gap:8px;">
-            <button onclick="closeImportArmyListModal()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:9px 16px; border-radius:8px; cursor:pointer;">Cancel</button>
-            <button id="hub-btn-do-import-text" onclick="handleHubParseAndSaveText()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:9px 20px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;">
-              ⚡ Import & Enrich Roster
+            <input id="hub-nr-share-url-input" type="text" placeholder="https://www.newrecruit.eu/app/list/..." style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 12px; color:#fff; font-size:12px; box-sizing:border-box; outline:none;" />
+            <button id="hub-btn-nr-share-sync" onclick="handleNewRecruitShareUrlSync()" style="background:var(--accent); color:#0f172a; font-weight:800; font-size:12px; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; white-space:nowrap;">
+              Sync Link
             </button>
           </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px; border-top:1px solid rgba(255,255,255,0.06); font-size:11px; color:#64748b;">
+          <span>Want to build or import inside NewRecruit directly?</span>
+          <button onclick="closeNewRecruitCloudModal(); openNewRecruitStudioDrawer('/nr/app/Lists');" style="background:transparent; border:none; color:#38bdf8; font-size:11.5px; font-weight:700; cursor:pointer; text-decoration:underline;">
+            Open NewRecruit Studio →
+          </button>
         </div>
       </div>
     </div>
@@ -3446,41 +3685,139 @@ function openImportArmyListModal() {
   modal.style.display = 'flex';
 }
 
-async function handleHubParseAndSaveText() {
-  const input = document.getElementById('hub-import-text-input');
-  const btn = document.getElementById('hub-btn-do-import-text');
-  if (!input || !input.value.trim()) {
-    alert('Please paste your army roster text.');
+function closeNewRecruitCloudModal() {
+  const modal = document.getElementById('hub-newrecruit-cloud-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitNewRecruitCloudConnect() {
+  const loginEl = document.getElementById('hub-nr-cloud-login');
+  const passEl = document.getElementById('hub-nr-cloud-password');
+  const msgEl = document.getElementById('hub-nr-cloud-status-msg');
+  const btn = document.getElementById('hub-btn-nr-cloud-submit');
+  const login = loginEl ? loginEl.value.trim() : '';
+  const password = passEl ? passEl.value.trim() : '';
+
+  if (!login || !password) {
+    if (msgEl) {
+      msgEl.style.display = 'block';
+      msgEl.style.color = '#f87171';
+      msgEl.textContent = 'Please enter both your NewRecruit username/email and password.';
+    }
     return;
   }
 
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; margin-right:6px; vertical-align:middle;"></span> Enriching with Wahapedia...';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Connecting to NewRecruit.eu...';
+  }
+  if (msgEl) {
+    msgEl.style.display = 'none';
+  }
 
   try {
-    const raw = input.value.trim();
-    const parseRes = await window.api.parseArmyList(raw);
-    if (parseRes.error || !parseRes.army_list) throw new Error(parseRes.error || 'Failed to parse text');
-
-    const armyList = parseRes.army_list;
-    const saveRes = await window.api.saveArmyList(armyList);
-    if (saveRes.error) throw new Error(saveRes.error);
-
-    closeImportArmyListModal();
-    alert(`🎉 Successfully imported and enriched "${armyList.name}" (${armyList.points} pts, ${armyList.units?.length || 0} units)!`);
-    await loadHubArmyLists();
-    openViewArmyListModal(armyList.id);
-  } catch(e) {
-    alert('Error importing roster: ' + e.message);
+    const res = await window.api.connectNewRecruitCloud({ action: 'connect', login, password });
+    if (!res || !res.success) {
+      throw new Error((res && res.error) || 'Failed to authenticate with NewRecruit Cloud');
+    }
+    hubNrCloudAccount = {
+      connected: true,
+      login: res.login || login,
+      last_sync: res.last_sync
+    };
+    updateHubNrSyncPill();
+    if (Array.isArray(res.army_lists)) {
+      hubSavedLists = res.army_lists;
+      renderHubArmyLists(hubSavedLists);
+    } else {
+      await loadHubArmyLists();
+    }
+    closeNewRecruitCloudModal();
+  } catch (e) {
+    if (msgEl) {
+      msgEl.style.display = 'block';
+      msgEl.style.color = '#f87171';
+      msgEl.textContent = e.message || 'Authentication failed';
+    }
   } finally {
-    btn.disabled = false;
-    btn.textContent = '⚡ Import & Enrich Roster';
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🔗 Connect & Sync Cloud Lists';
+    }
   }
 }
 
-function closeImportArmyListModal() {
-  const modal = document.getElementById('hub-import-armylist-modal');
-  if (modal) modal.style.display = 'none';
+async function triggerNewRecruitCloudSync() {
+  const btn = document.getElementById('hub-btn-nr-cloud-resync');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Syncing...';
+  }
+  try {
+    const res = await window.api.connectNewRecruitCloud({ action: 'sync' });
+    if (res && res.success) {
+      if (Array.isArray(res.army_lists)) {
+        hubSavedLists = res.army_lists;
+        renderHubArmyLists(hubSavedLists);
+      } else {
+        await loadHubArmyLists();
+      }
+      closeNewRecruitCloudModal();
+    }
+  } catch (e) {
+    console.warn('Cloud sync error:', e);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🔄 Sync Now';
+    }
+  }
+}
+
+async function disconnectNewRecruitCloud() {
+  try {
+    await window.api.connectNewRecruitCloud({ action: 'disconnect' });
+    hubNrCloudAccount = { connected: false, login: '', last_sync: null };
+    updateHubNrSyncPill();
+    closeNewRecruitCloudModal();
+  } catch (e) {}
+}
+
+async function handleNewRecruitShareUrlSync() {
+  const input = document.getElementById('hub-nr-share-url-input');
+  const btn = document.getElementById('hub-btn-nr-share-sync');
+  const msgEl = document.getElementById('hub-nr-cloud-status-msg');
+  const urlVal = input ? input.value.trim() : '';
+  if (!urlVal) return;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Syncing...';
+  }
+  try {
+    const res = await window.api.connectNewRecruitCloud({ action: 'sync_link', share_url: urlVal });
+    if (!res || !res.success) {
+      throw new Error((res && res.error) || 'Could not sync NewRecruit link');
+    }
+    if (Array.isArray(res.army_lists)) {
+      hubSavedLists = res.army_lists;
+      renderHubArmyLists(hubSavedLists);
+    } else {
+      await loadHubArmyLists();
+    }
+    closeNewRecruitCloudModal();
+  } catch (e) {
+    if (msgEl) {
+      msgEl.style.display = 'block';
+      msgEl.style.color = '#f87171';
+      msgEl.textContent = e.message;
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Sync Link';
+    }
+  }
 }
 
 function generateRawRosterText(list) {
@@ -3532,8 +3869,20 @@ window.setHubRosterViewMode = function(mode, listId) {
   openViewArmyListModal(listId, mode);
 };
 
+function resolveHubNrListKey(list) {
+  if (!list) return 'roster';
+  const rawKey = String(
+    list.nr_list_key ||
+    list.list_key ||
+    (list.nr_row && list.nr_row.list_key) ||
+    list.id ||
+    'roster'
+  ).trim();
+  return rawKey.startsWith('nr_') ? rawKey.slice(3) : rawKey;
+}
+
 function renderNativeRosterViewer(list, options = {}) {
-  const viewMode = options.mode || window.hubCurrentViewMode || 'enriched';
+  const viewMode = (options.mode || window.hubCurrentViewMode) === 'text' ? 'text' : 'play';
 
   if (viewMode === 'text') {
     const rawText = generateRawRosterText(list);
@@ -3552,394 +3901,82 @@ function renderNativeRosterViewer(list, options = {}) {
     `;
   }
 
-  let units = list.units || [];
-  let armyRules = list.army_rules || [];
-  let detachmentRules = list.detachment_rules || [];
+  const hasNrBacking = Boolean(
+    list && (
+      list.nr_row ||
+      list.nr_list_key ||
+      list.list_key ||
+      String(list.id || '').startsWith('nr_') ||
+      list.source === 'newrecruit' ||
+      list.source === 'newrecruit_link'
+    )
+  );
 
-  if ((!units || units.length === 0) && list.list_data) {
-    let ld = list.list_data;
-    if (typeof ld === 'string') {
-      try { ld = JSON.parse(ld); } catch(e) {}
-    }
-    if (ld && typeof ld === 'object') {
-      if (ld.units && ld.units.length > 0) units = ld.units;
-      if (ld.army_rules && ld.army_rules.length > 0) armyRules = ld.army_rules;
-      if (ld.detachment_rules && ld.detachment_rules.length > 0) detachmentRules = ld.detachment_rules;
-      if (ld.stratagems && ld.stratagems.length > 0) stratagems = ld.stratagems;
-    }
-  }
-
-  let stratagems = list.stratagems || [];
-  if (stratagems.length === 0 && list.list_data) {
-    try {
-      const ld = typeof list.list_data === 'string' ? JSON.parse(list.list_data) : list.list_data;
-      if (ld && ld.stratagems) stratagems = ld.stratagems;
-    } catch(e) {}
-  }
-
-  const name = list.name || 'Army Roster';
-  const faction = list.faction || 'Warhammer 40,000';
-  const detachment = list.detachment || 'Core Detachment';
-  const points = list.points || 2000;
-  const warlord = list.warlord || '';
-
-  function formatWahaText(text) {
-    if (!text) return '';
-    if (typeof text !== 'string') text = String(text);
-    let formatted = text
-      .replace(/<span class=["']?kwb["']?>\s*([^<]+?)\s*<\/span>/gi, '<span class="kwb-badge">$1</span>')
-      .replace(/<span class=["']?tooltip[^"']*["']?>\s*([^<]+?)\s*<\/span>/gi, '$1')
-      .replace(/<a [^>]*>([^<]+)<\/a>/gi, '$1');
-    formatted = formatted.replace(/<\/?(script|iframe|object|embed|style|form|input|button)[^>]*>/gi, '');
-
-    // Normalize Wahapedia tables: strip inline widths and wrap in responsive horizontal scrolling container
-    if (formatted.includes('<table')) {
-      formatted = formatted.replace(/<table\b([^>]*)>/gi, (match, attrs) => {
-        const cleanedAttrs = (attrs || '')
-          .replace(/\b(?:width|height)\s*=\s*["'][^"']*?["']/gi, '')
-          .replace(/\bstyle\s*=\s*["'][^"']*?(?:width|min-width|max-width)[^"']*?["']/gi, '');
-        return `<div class="waha-table-wrap"><table class="waha-responsive-table" ${cleanedAttrs}>`;
-      });
-      formatted = formatted.replace(/<\/table>/gi, '</table></div>');
-    }
-
-    return formatted;
-  }
-
-  let contentHtml = `<div class="roster-viewer-body" style="display:flex; flex-direction:column; gap:1.25rem; padding:1.25rem; overflow-y:auto; flex:1; background:#070b14; width:100%; box-sizing:border-box;">`;
-
-  // 1. Army & Detachment Rules Banner
-  if (armyRules.length > 0 || detachmentRules.length > 0) {
-    contentHtml += `
-      <div class="roster-rules-card" style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(56, 189, 248, 0.25); border-radius:12px; padding:12px 14px; width:100%; box-sizing:border-box;">
-        <div style="font-size:13px; font-weight:800; color:#38bdf8; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-          <span>📜</span> Army & Detachment Rules
-        </div>
-        <div class="roster-rules-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap:10px; width:100%; box-sizing:border-box;">
-          ${armyRules.map(ar => `
-            <div class="roster-rule-item" style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px 12px; min-width:0; width:100%; box-sizing:border-box; overflow:hidden;">
-              <div style="font-weight:800; font-size:13px; color:#f8fafc; margin-bottom:6px; display:flex; align-items:center; gap:6px;">🛡️ ${escapeHtml(ar.name)}</div>
-              <div class="waha-rich-text">${formatWahaText(ar.description || '')}</div>
-            </div>
-          `).join('')}
-          ${detachmentRules.map(dr => `
-            <div class="roster-rule-item" style="background:#070b14; border:1px solid rgba(192,132,252,0.25); border-radius:8px; padding:10px 12px; min-width:0; width:100%; box-sizing:border-box; overflow:hidden;">
-              <div style="font-weight:800; font-size:13px; color:#c084fc; margin-bottom:6px; display:flex; align-items:center; gap:6px;">⚡ ${escapeHtml(dr.name)}</div>
-              <div class="waha-rich-text">${formatWahaText(dr.description || '')}</div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  // 2. Detachment Stratagems Banner
-  if (stratagems.length > 0) {
-    contentHtml += `
-      <div class="roster-stratagems-card" style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(239, 68, 68, 0.25); border-radius:12px; padding:12px 14px; width:100%; box-sizing:border-box;">
-        <div style="font-size:13px; font-weight:800; color:#f87171; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-          <span>⚔️</span> Detachment Stratagems <span style="font-size:11px; color:#94a3b8; font-weight:normal;">(${stratagems.length})</span>
-        </div>
-        <div class="roster-stratagems-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap:10px; width:100%; box-sizing:border-box;">
-          ${stratagems.map(st => `
-            <div class="roster-stratagem-item" style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; gap:6px; min-width:0; width:100%; box-sizing:border-box; overflow:hidden;">
-              <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
-                <b style="font-size:12px; color:#fff; font-family:'JetBrains Mono',monospace; overflow-wrap:break-word; word-break:break-word;">${escapeHtml(st.name)}</b>
-                <span class="badge" style="background:rgba(239,68,68,0.2); color:#ef4444; font-size:10px; font-weight:800; border:1px solid rgba(239,68,68,0.4); padding:1px 5px; flex-shrink:0;">${escapeHtml(st.cp_cost || '1 CP')}</span>
+  if (!hasNrBacking && list && Array.isArray(list.units) && list.units.length > 0) {
+    const unitCardsHtml = list.units.map(u => {
+      const wg = Array.isArray(u.wargear) && u.wargear.length > 0
+        ? `<div style="margin-top:6px; font-size:11px; color:#94a3b8; line-height:1.45;">${u.wargear.map(w => `<div>• ${escapeHtml(w)}</div>`).join('')}</div>`
+        : '';
+      return `
+        <div style="background:#0f172a; border:1px solid rgba(56,189,248,0.18); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; justify-content:space-between;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+            <div>
+              <div style="font-size:13px; font-weight:800; color:#f8fafc;">
+                ${escapeHtml(u.name || 'Unit')}${u.is_warlord ? ' <span style="color:#facc15; font-size:11px;">👑 Warlord</span>' : ''}
               </div>
-              <div style="display:flex; flex-wrap:wrap; gap:4px; font-size:9.5px;">
-                ${st.type ? `<span style="color:#38bdf8; background:rgba(56,189,248,0.1); padding:1px 4px; border-radius:3px;">${escapeHtml(st.type)}</span>` : ''}
-                ${st.phase ? `<span style="color:#facc15; background:rgba(250,204,21,0.1); padding:1px 4px; border-radius:3px;">🕒 ${escapeHtml(st.phase)}</span>` : ''}
-                ${st.turn ? `<span style="color:#a855f7; background:rgba(168,85,247,0.1); padding:1px 4px; border-radius:3px;">${escapeHtml(st.turn)}</span>` : ''}
+              <div style="font-size:11px; color:#38bdf8; font-weight:600; margin-top:2px;">
+                ${escapeHtml(u.role || 'Unit')}${u.models && u.models > 1 ? ` • ${u.models} Models` : ''}
               </div>
-              <div class="waha-rich-text">${formatWahaText(st.description || '')}</div>
             </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  // Group units by category/role
-  const categories = {
-    'Epic Heroes & Characters': [],
-    'Battleline': [],
-    'Infantry & Elites': [],
-    'Mounted & Fast Attack': [],
-    'Vehicles & Monsters': [],
-    'Transports & Dedicated': [],
-    'Other Datasheets': []
-  };
-
-  units.forEach((u, idx) => {
-    const role = (u.role || '').toLowerCase();
-    if (u.is_warlord || role.includes('character') || role.includes('epic hero') || role.includes('leader')) {
-      categories['Epic Heroes & Characters'].push({ ...u, _idx: idx });
-    } else if (role.includes('battleline')) {
-      categories['Battleline'].push({ ...u, _idx: idx });
-    } else if (role.includes('mounted') || role.includes('biker') || role.includes('cavalry')) {
-      categories['Mounted & Fast Attack'].push({ ...u, _idx: idx });
-    } else if (role.includes('vehicle') || role.includes('monster') || role.includes('walker') || role.includes('dreadnought')) {
-      categories['Vehicles & Monsters'].push({ ...u, _idx: idx });
-    } else if (role.includes('transport')) {
-      categories['Transports & Dedicated'].push({ ...u, _idx: idx });
-    } else if (role.includes('infantry') || role.includes('elites')) {
-      categories['Infantry & Elites'].push({ ...u, _idx: idx });
-    } else {
-      categories['Other Datasheets'].push({ ...u, _idx: idx });
-    }
-  });
-
-  // Helper to group identical units
-  function groupIdenticalUnits(catUnits) {
-    const grouped = [];
-    const map = new Map();
-
-    catUnits.forEach(u => {
-      const wKey = (u.weapons || []).map(w => `${w.name}-${w.Range || w.range}-${w.A}-${w.skill || w.BS || w.WS}-${w.S}-${w.AP}-${w.D}`).sort().join('|');
-      const aKey = (u.abilities || []).map(a => `${a.name}`).sort().join('|');
-      const sKey = u.stats ? `${u.stats.M}-${u.stats.T}-${u.stats.SV}-${u.stats.INV}-${u.stats.W}-${u.stats.LD}-${u.stats.OC}` : '';
-      const key = `${u.name}||${u.enhancement || ''}||${u.is_warlord ? '1' : '0'}||${sKey}||${wKey}||${aKey}`;
-
-      if (map.has(key)) {
-        const existing = map.get(key);
-        existing.quantity = (existing.quantity || 1) + (u.quantity || 1);
-        existing.totalPoints += (u.points || 0);
-        existing._indices.push(u._idx);
-      } else {
-        const entry = {
-          ...u,
-          quantity: u.quantity || 1,
-          unitPoints: u.points || 0,
-          totalPoints: u.points || 0,
-          _indices: [u._idx]
-        };
-        map.set(key, entry);
-        grouped.push(entry);
-      }
-    });
-
-    return grouped;
-  }
-
-  if (units.length > 0) {
-    for (const [catName, rawUnits] of Object.entries(categories)) {
-      if (rawUnits.length === 0) continue;
-      const catUnits = groupIdenticalUnits(rawUnits);
-      const totalUnitsInCat = rawUnits.length;
-      const catIcon = catName.includes('Character') ? '👑' : (catName.includes('Battleline') ? '🛡️' : (catName.includes('Vehicle') ? '🚜' : (catName.includes('Mounted') ? '🚀' : '⚔️')));
-      
-      contentHtml += `
-        <div>
-          <div style="font-size:0.85rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; margin-bottom:0.6rem; display:flex; align-items:center; gap:0.4rem;">
-            <span>${catIcon}</span> ${catName} <span style="font-size:0.75rem; color:#64748b; font-weight:normal;">(${totalUnitsInCat})</span>
+            <span style="font-size:12px; font-weight:800; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); padding:2px 8px; border-radius:6px; font-family:var(--font-mono); white-space:nowrap;">
+              ${u.points || 0} pts
+            </span>
           </div>
-          <div class="roster-units-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap:0.85rem; width:100%; box-sizing:border-box;">
-            ${catUnits.map(u => {
-              const uName = u.name || 'Unit';
-              const uPts = u.unitPoints || u.points || 0;
-              const totalPts = u.totalPoints || uPts;
-              const uQty = u.quantity || 1;
-              const uCount = u.model_count || 1;
-              const stats = u.stats || { M: '6"', T: 4, SV: '3+', INV: '-', W: 2, LD: '6+', OC: 1 };
-              const weapons = u.weapons || [];
-              const abilities = u.abilities || [];
-              const rules = u.rules || [];
-
-              const enhName = (u.enhancement_detail && u.enhancement_detail.name) || u.enhancement || '';
-              const enhDetail = u.enhancement_detail || (list.available_enhancements || []).find(e => e.name && e.name.toLowerCase() === enhName.toLowerCase()) || {};
-              const enhDesc = enhDetail.description || '';
-              const enhCost = enhDetail.cost || enhDetail.points || (u.enhancement_pts ? `+${u.enhancement_pts} pts` : '');
-
-              return `
-                <div class="gt-unit-card" style="background:rgba(15, 23, 42, 0.9); border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.45)' : (enhName ? 'rgba(192,132,252,0.4)' : 'rgba(255,255,255,0.08)')}; border-radius:12px; padding:0.85rem; display:flex; flex-direction:column; gap:0.65rem; transition:all 0.2s; min-width:0; width:100%; box-sizing:border-box; overflow:hidden;">
-                  <!-- Top Row: Unit Name & Points -->
-                  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.4rem;">
-                    <div style="min-width:0; flex:1;">
-                      <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
-                        ${uQty > 1 ? `
-                          <span class="badge" style="background:#0284c7; color:#fff; font-size:0.75rem; font-weight:800; padding:1px 6px; border-radius:4px; font-family:var(--font-mono);">${uQty}x</span>
-                        ` : (uCount > 1 ? `<span style="font-size:0.8rem; font-weight:800; color:#38bdf8; font-family:var(--font-mono);">${uCount}x</span>` : '')}
-                        <b style="font-size:0.95rem; color:#fff; font-family:var(--font-mono); overflow-wrap:break-word; word-break:break-word;">${escapeHtml(uName)}</b>
-                        ${u.is_warlord ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; font-size:0.65rem; font-weight:800; border:1px solid rgba(245,158,11,0.4); padding:0.1rem 0.35rem; white-space:nowrap;">👑 WARLORD</span>' : ''}
-                      </div>
-                      ${enhName ? `<div style="font-size:0.75rem; color:#c084fc; font-weight:700; margin-top:0.2rem; overflow-wrap:break-word;">✨ ${escapeHtml(enhName)} ${enhCost ? `(${escapeHtml(String(enhCost))})` : ''}</div>` : ''}
-                      ${(u.keywords && u.keywords.length > 0) ? `
-                        <div style="display:flex; flex-wrap:wrap; gap:3px; margin-top:4px;">
-                          ${u.keywords.map(k => `<span style="font-size:0.62rem; color:#94a3b8; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); padding:0px 5px; border-radius:3px;">${escapeHtml(k)}</span>`).join('')}
-                        </div>
-                      ` : ''}
-                    </div>
-                    ${totalPts > 0 ? `
-                      <span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; font-size:0.75rem; font-weight:800; font-family:var(--font-mono); flex-shrink:0; text-align:right;">
-                        ${uQty > 1 ? `${totalPts} PTS <span style="font-size:0.62rem; color:#94a3b8; font-weight:normal;">(${uPts} ea)</span>` : `${totalPts} PTS`}
-                      </span>
-                    ` : ''}
-                  </div>
-
-                  <!-- Tactical Statline Bar -->
-                  <div style="display:grid; grid-template-columns:repeat(7, 1fr); background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.4rem 0.15rem; text-align:center; font-family:var(--font-mono); width:100%; box-sizing:border-box;">
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">M</div><div style="font-size:0.8rem; color:#fff; font-weight:800;">${stats.M || '6"'}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">T</div><div style="font-size:0.8rem; color:#fff; font-weight:800;">${stats.T || 4}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">SV</div><div style="font-size:0.8rem; color:#fff; font-weight:800;">${stats.SV || '3+'}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">INV</div><div style="font-size:0.8rem; color:#38bdf8; font-weight:800;">${stats.INV || '-'}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">W</div><div style="font-size:0.8rem; color:#ef4444; font-weight:800;">${stats.W || 2}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">LD</div><div style="font-size:0.8rem; color:#fff; font-weight:800;">${stats.LD || '6+'}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">OC</div><div style="font-size:0.8rem; color:#10b981; font-weight:800;">${stats.OC || 1}</div></div>
-                  </div>
-
-                  <!-- Weapons Table (Mobile Responsive) -->
-                  ${weapons.length > 0 ? `
-                    <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; overflow-x:auto; -webkit-overflow-scrolling:touch; width:100%; box-sizing:border-box;">
-                      <div style="min-width:320px;">
-                        <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:4px 8px; background:rgba(255,255,255,0.04); font-size:0.62rem; font-weight:800; color:#94a3b8; font-family:var(--font-mono); text-transform:uppercase;">
-                          <div>Weapon</div><div style="text-align:center;">Rng</div><div style="text-align:center;">A</div><div style="text-align:center;">BS/WS</div><div style="text-align:center;">S</div><div style="text-align:center;">AP</div><div style="text-align:center;">D</div>
-                        </div>
-                        ${weapons.map(w => `
-                          <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:5px 8px; border-top:1px solid rgba(255,255,255,0.04); font-size:0.7rem; font-family:var(--font-mono); align-items:center;">
-                            <div style="min-width:0;">
-                              <div style="font-weight:700; color:#f8fafc; font-size:0.72rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.type === 'Melee' ? '⚔️' : '🔫'} ${escapeHtml(w.name)}</div>
-                              ${(w.keywords && w.keywords.length > 0) ? `
-                                <div style="font-size:0.6rem; color:#38bdf8; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.keywords.map(k => `[${escapeHtml(k)}]`).join(' ')}</div>
-                              ` : ''}
-                            </div>
-                            <div style="text-align:center; color:#cbd5e1;">${w.range || '-'}</div>
-                            <div style="text-align:center; color:#cbd5e1; font-weight:700;">${w.A || '-'}</div>
-                            <div style="text-align:center; color:#38bdf8; font-weight:700;">${w.skill || '-'}</div>
-                            <div style="text-align:center; color:#cbd5e1;">${w.S || '-'}</div>
-                            <div style="text-align:center; color:#ef4444; font-weight:700;">${w.AP || '0'}</div>
-                            <div style="text-align:center; color:#10b981; font-weight:700;">${w.D || '1'}</div>
-                          </div>
-                        `).join('')}
-                      </div>
-                    </div>
-                  ` : ((u.wargear && u.wargear.length > 0) ? `
-                    <div style="display:flex; flex-wrap:wrap; gap:0.25rem;">
-                      ${u.wargear.map(w => `<span style="font-size:0.68rem; background:rgba(255,255,255,0.05); color:#94a3b8; border:1px solid rgba(255,255,255,0.06); padding:0.1rem 0.35rem; border-radius:4px;">${escapeHtml(w)}</span>`).join('')}
-                    </div>
-                  ` : '')}
-
-                  <!-- Abilities, Enhancement Details & Rules -->
-                  ${(abilities.length > 0 || rules.length > 0 || enhName) ? `
-                    <div style="display:flex; flex-direction:column; gap:4px; width:100%; box-sizing:border-box;">
-                      ${rules.length > 0 ? `
-                        <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                          ${rules.map(r => `<span style="font-size:0.62rem; font-weight:800; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.2); padding:1px 5px; border-radius:4px;">${escapeHtml(r.name)}</span>`).join('')}
-                        </div>
-                      ` : ''}
-                      ${enhName ? `
-                        <div style="background:rgba(192,132,252,0.12); border:1px solid rgba(192,132,252,0.3); border-radius:6px; padding:6px 8px; font-size:0.7rem; min-width:0; width:100%; box-sizing:border-box;">
-                          <b style="color:#c084fc; font-size:0.72rem;">✨ Enhancement: ${escapeHtml(enhName)} ${enhCost ? `(${escapeHtml(String(enhCost))})` : ''}:</b>
-                          ${enhDesc ? `<div class="waha-rich-text" style="color:#e2e8f0; margin-top:2px;">${formatWahaText(enhDesc)}</div>` : '<div style="color:#94a3b8; font-style:italic; margin-top:2px;">Detachment enhancement assigned to this character</div>'}
-                        </div>
-                      ` : ''}
-                      ${abilities.map(ab => `
-                        <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:6px 8px; font-size:0.7rem; min-width:0; width:100%; box-sizing:border-box;">
-                          <b style="color:#facc15; font-size:0.72rem;">${escapeHtml(ab.name)}:</b>
-                          <div class="waha-rich-text" style="margin-top:2px;">${formatWahaText(ab.description)}</div>
-                        </div>
-                      `).join('')}
-                    </div>
-                  ` : ''}
-                </div>
-              `;
-            }).join('')}
-          </div>
+          ${wg}
         </div>
       `;
-    }
-  } else if (list.raw_text) {
-    contentHtml += `
-      <div style="padding:1.5rem; overflow-y:auto; flex:1; font-family:var(--font-mono); font-size:0.82rem; color:#cbd5e1; white-space:pre-wrap; line-height:1.6;">
-        ${escapeHtml(list.raw_text)}
-      </div>
-    `;
-  } else {
-    contentHtml += `
-      <div style="padding:3rem 1rem; text-align:center; color:#94a3b8;">
-        <div style="font-size:1.8rem; margin-bottom:0.5rem;">📋</div>
-        <div style="font-weight:700; color:#fff; font-size:1.05rem; margin-bottom:0.35rem;">No unit datasheets found</div>
-        <div style="font-size:0.82rem; color:#64748b; margin-bottom:1rem;">Click below to re-fetch and extract datasheets.</div>
-        ${(list.source_url || list.raw_text || list.id) ? `
-          <button onclick="window.gtRefreshRoster('${list.id}')" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:8px 16px; border-radius:8px; cursor:pointer;">
-            🔄 Refresh / Re-parse Roster
-          </button>
-        ` : ''}
+    }).join('');
+
+    return `
+      <div style="display:flex; flex-direction:column; padding:18px; flex:1; overflow-y:auto; background:#070b14; gap:14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:10px 14px;">
+          <div style="font-size:12px; color:#cbd5e1;">
+            <b style="color:#38bdf8;">📋 Parsed Roster Overview</b> — ${escapeHtml(list.faction || 'Warhammer 40,000')} • ${escapeHtml(list.detachment || 'Detachment')} • <b style="color:#f59e0b;">${list.points || 0} pts</b> (${list.units.length} units)
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">
+          ${unitCardsHtml}
+        </div>
       </div>
     `;
   }
 
-  contentHtml += `</div>`;
-  return contentHtml;
+  const listKey = resolveHubNrListKey(list);
+  const iframeUrl = `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=hub`;
+
+  return `
+    <div style="flex:1; position:relative; background:#090d16; display:flex; flex-direction:column; overflow:hidden;">
+      <iframe
+        id="hub-nr-play-mode-iframe"
+        data-list-key="${escapeHtml(listKey)}"
+        src="${iframeUrl}"
+        title="NewRecruit Play Mode - Datasheets & Stratagems"
+        style="width:100%; height:100%; flex:1; border:none; display:block; background:#090d16;"
+        allow="clipboard-read; clipboard-write"
+      ></iframe>
+    </div>
+  `;
 }
 
-window.gtRefreshRoster = async function(listId) {
-  let list = hubSavedLists.find(l => l.id === listId);
-  if (!list) {
-    try {
-      const res = await window.api.getArmyList(listId);
-      if (res && res.army_list) list = res.army_list;
-    } catch(e) {}
-  }
-  if (!list) return;
-
-  const parseSource = list.source_url || list.raw_text;
-  if (!parseSource) {
-    alert('No source URL or text available to re-parse.');
-    return;
-  }
-
-  try {
-    const parseRes = await window.api.parseArmyList(parseSource);
-    if (parseRes && parseRes.army_list) {
-      const updated = { ...list, ...parseRes.army_list, id: list.id };
-      await window.api.saveArmyList(updated);
-      await loadHubArmyLists();
-      openViewArmyListModal(listId);
-    }
-  } catch(e) {
-    alert('Error re-parsing list: ' + e.message);
-  }
-};
-
-window.gtAdjustWounds = function(unitIdx, delta) {
-  const el = document.getElementById(`wound-val-${unitIdx}`);
-  if (!el) return;
-  const parts = el.textContent.split('/');
-  if (parts.length === 2) {
-    let cur = parseInt(parts[0].trim(), 10) + delta;
-    const max = parseInt(parts[1].trim(), 10);
-    cur = Math.max(0, Math.min(max, cur));
-    el.textContent = `${cur} / ${max}`;
-    if (cur === 0) {
-      window.gtToggleSlain(unitIdx, true);
-    }
-  }
-};
-
-window.gtToggleSlain = function(unitIdx, forceSlain = null) {
-  const card = document.getElementById(`unit-card-${unitIdx}`);
-  const btn = document.getElementById(`slain-btn-${unitIdx}`);
-  if (!card || !btn) return;
-  const isSlain = forceSlain !== null ? forceSlain : !btn.textContent.includes('SLAIN');
-  if (isSlain) {
-    card.style.opacity = '0.45';
-    btn.textContent = '💀 SLAIN';
-    btn.style.background = 'rgba(239,68,68,0.2)';
-    btn.style.borderColor = 'rgba(239,68,68,0.5)';
-    btn.style.color = '#ef4444';
-  } else {
-    card.style.opacity = '1';
-    btn.textContent = '⚔️ ACTIVE';
-    btn.style.background = 'rgba(255,255,255,0.04)';
-    btn.style.borderColor = 'rgba(255,255,255,0.1)';
-    btn.style.color = '#94a3b8';
-  }
-};
-
 async function openViewArmyListModal(listId, mode = null) {
-  let list = (hubSavedLists || []).find(l => l.id === listId);
-  if (!list || !list.units || list.units.length === 0) {
+  const cleanKey = String(listId || '').replace(/^(nr_|list_)/, '');
+  let list = (hubSavedLists || []).find(l =>
+    l.id === listId ||
+    l.list_key === listId ||
+    l.list_key === cleanKey ||
+    String(l.id || '').replace(/^(nr_|list_)/, '') === cleanKey
+  );
+  if (!list || (!list.nr_row && !list.list_key && (!list.units || list.units.length === 0))) {
     try {
       const res = await window.api.getArmyList(listId);
       if (res && res.army_list) list = res.army_list;
@@ -3950,43 +3987,32 @@ async function openViewArmyListModal(listId, mode = null) {
     return;
   }
 
-  const activeMode = mode || window.hubCurrentViewMode || 'enriched';
+  const activeMode = (mode || window.hubCurrentViewMode) === 'text' ? 'text' : 'play';
   window.hubCurrentViewMode = activeMode;
-
-  // Auto-heal if list is missing units and has a source_url or raw_text
-  if ((!list.units || list.units.length === 0) && (list.source_url || list.raw_text)) {
-    try {
-      const parseSource = list.source_url || list.raw_text;
-      const parseRes = await window.api.parseArmyList(parseSource);
-      if (parseRes && parseRes.army_list && parseRes.army_list.units && parseRes.army_list.units.length > 0) {
-        list = { ...list, ...parseRes.army_list, id: list.id };
-        await window.api.saveArmyList(list);
-        await loadHubArmyLists();
-      }
-    } catch(err) {
-      console.warn('Auto re-parsing on view:', err);
-    }
-  }
 
   let modal = document.getElementById('hub-view-armylist-modal');
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'hub-view-armylist-modal';
-    modal.style.cssText = 'position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.88); backdrop-filter:blur(8px); padding:16px;';
+    modal.style.cssText = 'position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.88); backdrop-filter:blur(8px); padding:10px;';
     document.body.appendChild(modal);
   }
 
-  const units = list.units || [];
   const warlord = list.warlord || '';
   const bodyHtml = renderNativeRosterViewer(list, { mode: activeMode });
 
   modal.innerHTML = `
-    <div class="modal-window hub-armylist-modal-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:1100px; height:88vh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc; box-shadow:0 30px 80px rgba(0,0,0,0.9);">
+    <div class="modal-window hub-armylist-modal-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:min(1400px, 100%); height:91vh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc; box-shadow:0 30px 80px rgba(0,0,0,0.9);">
       <!-- Header -->
-      <div class="modal-header hub-armylist-modal-header" style="padding:12px 18px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; flex-direction:column; gap:10px;">
+      <div class="modal-header hub-armylist-modal-header" style="padding:12px 18px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; flex-direction:column; gap:10px; flex-shrink:0;">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; width:100%; gap:10px;">
           <div style="min-width:0; flex:1;">
-            <div style="font-size:16px; font-weight:900; color:#fff; font-family:var(--font-mono); line-height:1.3; overflow-wrap:break-word; word-break:break-word;">${escapeHtml(list.name || 'Army Roster')}</div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <div style="font-size:16px; font-weight:900; color:#fff; font-family:var(--font-mono); line-height:1.3; overflow-wrap:break-word; word-break:break-word;">${escapeHtml(list.name || 'Army Roster')}</div>
+              <span style="font-size:11px; font-weight:800; padding:2px 8px; border-radius:999px; background:rgba(16,185,129,0.16); color:#34d399; border:1px solid rgba(16,185,129,0.35);">
+                🎮 NewRecruit Play Mode
+              </span>
+            </div>
             <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-top:2px; line-height:1.35; overflow-wrap:break-word; word-break:break-word;">
               ${escapeHtml(list.faction || '40k')} • <span style="color:#a855f7;">${escapeHtml(list.detachment || 'Core Detachment')}</span> • <span style="color:#f59e0b;">${list.points || 2000} PTS</span>
               ${warlord ? ` • <span style="color:#facc15;">👑 ${escapeHtml(warlord)}</span>` : ''}
@@ -3998,19 +4024,22 @@ async function openViewArmyListModal(listId, mode = null) {
         <div class="hub-armylist-controls-row" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; width:100%;">
           <!-- Mode Toggle Segmented Control -->
           <div style="display:flex; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:3px; gap:4px; flex:1; min-width:240px; box-sizing:border-box;">
-            <button onclick="setHubRosterViewMode('enriched', '${list.id}')" style="flex:1; background:${activeMode==='enriched'?'#0284c7':'transparent'}; color:${activeMode==='enriched'?'#fff':'#94a3b8'}; border:none; padding:6px 12px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; text-align:center;">
-              ⚡ Enriched Datasheets
+            <button onclick="setHubRosterViewMode('play', '${list.id}')" style="flex:1; background:${activeMode==='play'?'#0284c7':'transparent'}; color:${activeMode==='play'?'#fff':'#94a3b8'}; border:none; padding:6px 12px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; text-align:center;">
+              🎮 Play Mode (Datasheets & Stratagems)
             </button>
             <button onclick="setHubRosterViewMode('text', '${list.id}')" style="flex:1; background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:6px 12px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; text-align:center;">
               📄 Raw Roster Text
             </button>
           </div>
 
-          <div class="hub-armylist-actions" style="display:flex; align-items:center; gap:8px;">
+          <div class="hub-armylist-actions" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
             <button onclick="launchTrackerWithList('${list.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:6px 14px; border-radius:6px; cursor:pointer;">
               ⚔️ Play in Tracker
             </button>
-            <button onclick="deleteHubArmyList('${list.id}', true)" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); font-weight:800; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;">
+            <button onclick="closeViewArmyListModal(); openNewRecruitStudioForList('${list.id}')" style="background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.38); font-weight:800; font-size:12px; padding:6px 13px; border-radius:6px; cursor:pointer;">
+              🛠️ Manage in NewRecruit
+            </button>
+            <button onclick="deleteHubArmyList('${list.id}', true)" style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.35); font-weight:800; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;" title="Delete Army List">
               🗑️ Delete
             </button>
           </div>
@@ -4022,6 +4051,29 @@ async function openViewArmyListModal(listId, mode = null) {
     </div>
   `;
   modal.style.display = 'flex';
+
+  const iframe = document.getElementById('hub-nr-play-mode-iframe');
+  if (iframe && activeMode === 'play') {
+    const listKey = resolveHubNrListKey(list);
+    const sendPlayCmd = () => {
+      try {
+        if (iframe.contentWindow) {
+          iframe.contentWindow.postMessage({
+            type: 'OMNITACTICA_NR_COMMAND',
+            command: 'open_play_mode',
+            list_key: listKey,
+            play: true,
+            nr_row: list.nr_row || null
+          }, '*');
+        }
+      } catch (e) {}
+    };
+    iframe.addEventListener('load', () => {
+      sendPlayCmd();
+      setTimeout(sendPlayCmd, 600);
+      setTimeout(sendPlayCmd, 1600);
+    });
+  }
 }
 
 function closeViewArmyListModal() {
@@ -4064,24 +4116,72 @@ function exportArmyListToBcp(listId) {
   });
 }
 
+async function removeNrListKeyFromSameOriginIdb(listKey) {
+  if (!listKey) return;
+  try {
+    document.querySelectorAll('iframe[src*="/nr/"], iframe[src*="/newrecruit/"]').forEach(ifr => {
+      if (ifr && ifr.contentWindow) {
+        ifr.contentWindow.postMessage({ type: 'OMNITACTICA_NR_COMMAND', command: 'delete_list', list_key: listKey }, '*');
+      }
+    });
+  } catch (e) {}
+  try {
+    await new Promise(resolve => {
+      const req = indexedDB.open('nr');
+      req.onsuccess = () => {
+        const db = req.result;
+        if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('lists')) {
+          if (db) db.close();
+          resolve();
+          return;
+        }
+        try {
+          const tx = db.transaction('lists', 'readwrite');
+          const store = tx.objectStore('lists');
+          const curReq = store.openCursor();
+          curReq.onsuccess = (ev) => {
+            const cursor = ev.target.result;
+            if (cursor) {
+              const row = cursor.value;
+              if (row && row.list_key === listKey) {
+                try { cursor.delete(); } catch (e) {}
+              }
+              cursor.continue();
+            }
+          };
+          tx.oncomplete = () => { db.close(); resolve(); };
+          tx.onerror = () => { db.close(); resolve(); };
+        } catch (e) {
+          db.close();
+          resolve();
+        }
+      };
+      req.onerror = () => resolve();
+    });
+  } catch (e) {}
+}
+
 async function deleteHubArmyList(listId, fromModal = false) {
-  if (!confirm('Are you sure you want to permanently delete this army list?')) return;
+  if (!window.__omniSkipDeleteConfirm && !confirm('Are you sure you want to permanently delete this army list?')) return;
   
   if (fromModal) {
     closeViewArmyListModal();
   }
 
+  const targetItem = (hubSavedLists || []).find(l => l.id === listId || l.list_key === listId);
+  const listKey = targetItem ? resolveHubNrListKey(targetItem) : (String(listId || '').startsWith('nr_') ? String(listId).slice(3) : String(listId || ''));
+
   // 1. Instant 0ms Optimistic UI Removal
   const prevLists = [...(hubSavedLists || [])];
-  hubSavedLists = (hubSavedLists || []).filter(l => l.id !== listId);
+  hubSavedLists = (hubSavedLists || []).filter(l => l.id !== listId && l.list_key !== listId);
   renderHubArmyLists(hubSavedLists);
 
-  // 2. Perform async deletion in background
+  // 2. Perform async deletion in background + purge from same-origin NewRecruit IndexedDB
   try {
+    await removeNrListKeyFromSameOriginIdb(listKey);
     const res = await window.api.deleteArmyList(listId);
     if (res && res.error) {
       console.warn('Delete army list warning:', res.error);
-      // Revert if server returned an error
       hubSavedLists = prevLists;
       renderHubArmyLists(hubSavedLists);
       alert('Error deleting list: ' + res.error);
@@ -4195,9 +4295,16 @@ function discardTrackerSession(matchId) {
 }
 
 window.loadHubArmyLists = loadHubArmyLists;
-window.openImportArmyListModal = openImportArmyListModal;
-window.closeImportArmyListModal = closeImportArmyListModal;
-window.handleHubParseAndSaveText = handleHubParseAndSaveText;
+window.openNewRecruitStudioDrawer = openNewRecruitStudioDrawer;
+window.openNewRecruitStudioForList = openNewRecruitStudioForList;
+window.navigateNewRecruitStudio = navigateNewRecruitStudio;
+window.closeNewRecruitStudioDrawer = closeNewRecruitStudioDrawer;
+window.openNewRecruitCloudModal = openNewRecruitCloudModal;
+window.closeNewRecruitCloudModal = closeNewRecruitCloudModal;
+window.submitNewRecruitCloudConnect = submitNewRecruitCloudConnect;
+window.triggerNewRecruitCloudSync = triggerNewRecruitCloudSync;
+window.disconnectNewRecruitCloud = disconnectNewRecruitCloud;
+window.handleNewRecruitShareUrlSync = handleNewRecruitShareUrlSync;
 window.openViewArmyListModal = openViewArmyListModal;
 window.closeViewArmyListModal = closeViewArmyListModal;
 window.exportArmyListToBcp = exportArmyListToBcp;

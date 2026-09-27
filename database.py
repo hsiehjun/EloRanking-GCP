@@ -7378,20 +7378,36 @@ class PostgresDatabase:
 
     def save_user_army_list(self, user_id: Optional[str], list_data: Dict[str, Any]) -> Dict[str, Any]:
         """Saves or updates a user army list in the database."""
-        list_id = str(list_data.get("id") or f"list_{uuid.uuid4().hex[:10]}")
+        raw_id = str(list_data.get("id") or "").strip()
+        raw_lkey = str(list_data.get("list_key") or "").strip()
+        if raw_lkey:
+            clean_k = re.sub(r"^(nr_|list_)", "", raw_lkey)
+            list_id = f"nr_{clean_k}"
+        elif raw_id:
+            clean_k = re.sub(r"^(nr_|list_)", "", raw_id)
+            list_id = f"nr_{clean_k}" if raw_id.startswith("nr_") else raw_id
+        else:
+            clean_k = uuid.uuid4().hex[:10]
+            list_id = f"nr_{clean_k}"
+        list_data["id"] = list_id
+        if not list_data.get("list_key"):
+            list_data["list_key"] = clean_k
+
         name = str(list_data.get("name") or "Unnamed Army List")
         faction = str(list_data.get("faction") or "Unknown Faction")
         detachment = str(list_data.get("detachment") or "")
-        points = int(list_data.get("points") or 2000)
+        points = int(list_data["points"]) if list_data.get("points") is not None else 2000
         points_limit = int(list_data.get("points_limit") or 2000)
         warlord = str(list_data.get("warlord") or "")
         source_format = str(list_data.get("source_format") or "Custom")
         raw_text = str(list_data.get("raw_text") or "")
         game_system = str(list_data.get("game_system") or "40k").strip().lower()
-        list_json = json.dumps(list_data)
+        list_json = json.dumps(list_data, default=str)
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                if list_id.startswith("nr_"):
+                    cursor.execute("DELETE FROM user_army_lists WHERE id = %s;", (f"list_{clean_k}",))
                 cursor.execute("""
                 INSERT INTO user_army_lists (
                     id, user_id, name, faction, detachment, points, points_limit,
@@ -7464,6 +7480,9 @@ class PostgresDatabase:
                 res = []
                 for r in rows:
                     item = dict(r)
+                    for dt_col in ("created_at", "updated_at"):
+                        if hasattr(item.get(dt_col), "isoformat"):
+                            item[dt_col] = item[dt_col].isoformat()
                     ld = item.get("list_data")
                     if isinstance(ld, str):
                         try:
@@ -7472,25 +7491,30 @@ class PostgresDatabase:
                             ld = None
                     if isinstance(ld, dict):
                         for k, v in ld.items():
-                            if k not in item or not item[k]:
+                            if k not in item or item[k] is None or item[k] == "":
                                 item[k] = v
                     res.append(item)
                 return res
 
     def get_user_army_list(self, list_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieves a single army list by ID."""
+        clean_key = str(list_id or "").strip()
+        raw_k = re.sub(r"^(nr_|list_)", "", clean_key)
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 cursor.execute("""
                 SELECT id, user_id, name, faction, detachment, points, points_limit,
                        warlord, source_format, raw_text, list_data, created_at, updated_at
                 FROM user_army_lists
-                WHERE id = %s;
-                """, (list_id,))
+                WHERE id IN (%s, %s, %s, %s);
+                """, (clean_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}"))
                 row = cursor.fetchone()
                 if not row:
                     return None
                 item = dict(row)
+                for dt_col in ("created_at", "updated_at"):
+                    if hasattr(item.get(dt_col), "isoformat"):
+                        item[dt_col] = item[dt_col].isoformat()
                 ld = item.get("list_data")
                 if isinstance(ld, str):
                     try:
@@ -7499,15 +7523,20 @@ class PostgresDatabase:
                         ld = None
                 if isinstance(ld, dict):
                     for k, v in ld.items():
-                        if k not in item or not item[k]:
+                        if k not in item or item[k] is None or item[k] == "":
                             item[k] = v
                 return item
 
     def delete_user_army_list(self, list_id: str, user_id: Optional[str] = None) -> bool:
         """Deletes an army list by ID from user_army_lists table."""
+        clean_key = str(list_id or "").strip()
+        raw_k = re.sub(r"^(nr_|list_)", "", clean_key)
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("DELETE FROM user_army_lists WHERE id = %s;", (list_id,))
+                cursor.execute(
+                    "DELETE FROM user_army_lists WHERE id IN (%s, %s, %s, %s);",
+                    (clean_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}"),
+                )
             conn.commit()
         return True
 

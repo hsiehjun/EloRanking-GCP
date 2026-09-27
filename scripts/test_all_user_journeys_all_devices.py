@@ -453,7 +453,7 @@ async def run_all_journeys_suite():
                 # PAGE 4: AoS Live Tracker (/11th/tracker/aos)
                 # ----------------------------------------------------------------------
                 print("\n  📍 PAGE 4: /11th/tracker/aos AoS Live Scorecard Journey")
-                await t.navigate(f'http://localhost:{DEV_SERVER_PORT}/11th/tracker/aos', wait_sec=2.2)
+                await t.navigate(f'http://localhost:{DEV_SERVER_PORT}/11th/tracker/aos?match_id=AOS-DEV1', wait_sec=2.2)
                 await t.snap(f"test_all_{dev}_07_tracker_aos.png")
                 await t.assert_true("AoS scorecard container mounted", "document.getElementById('root') !== null")
 

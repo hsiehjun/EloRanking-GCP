@@ -644,7 +644,8 @@
 
       if (mode !== 'register' && !urlInvite) {
         const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
-        if (token) {
+        const hasExplicitRedirect = Boolean(params.get('redirect'));
+        if (token && (token !== 'dev-auth-token-123' || hasExplicitRedirect)) {
           document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
           let target = redirectUrl;
           if (target === '/' || !target) target = '/app';
@@ -652,7 +653,8 @@
             try {
               const p = JSON.parse(localStorage.getItem('native_user_profile') || '{}');
               const role = (p.role || (p.user && p.user.role) || '').trim().toLowerCase();
-              if (role !== 'admin' && !p.is_admin) {
+              const isAdmin = Boolean(p.is_admin || (p.user && p.user.is_admin));
+              if (role && role !== 'admin' && !isAdmin) {
                 target = '/app';
               }
             } catch(e) {

@@ -948,18 +948,24 @@ class TeamsHubService:
 
         top_player = sorted(roster, key=lambda p: float(p.get("current_elo", 1500.0)), reverse=True)[0] if roster else {}
 
+        team["name"] = team.get("name") or team.get("team") or "Unknown Club"
+        team["team"] = team["name"]
+        team["team_name"] = team["name"]
         team["power_rating"] = pwr_metrics["power_rating"]
         team["skill_baseline"] = pwr_metrics["skill_baseline"]
         team["maturity_pct"] = pwr_metrics["maturity_pct"]
         team["combat_factor"] = pwr_metrics["combat_factor"]
         team["top5_avg"] = pwr_metrics["top5_avg"]
+        team["top5_avg_elo"] = pwr_metrics["top5_avg"]
         team["top_player_elo"] = pwr_metrics["top_ace"]
         team["top_player_name"] = top_player.get("player_name", "Top Player")
         team["top_player_id"] = top_player.get("player_id", "")
         team["active_avg_elo"] = pwr_metrics["all_active_avg"]
+        team["avg_elo"] = pwr_metrics["all_active_avg"]
         team["active_roster_count"] = len(active_roster)
         team["roster_count"] = len(roster)
         team["team_win_rate"] = win_rate
+        team["win_rate"] = win_rate
         team["total_matches"] = total_matches
         team["is_qualified"] = (len(active_roster) >= 3 and total_matches >= 15)
 
@@ -1061,6 +1067,12 @@ class TeamsHubService:
                 t for t in all_teams
                 if q in t.get("name", "").lower() or q in t.get("short_tag", "").lower() or q in t.get("captain_name", "").lower()
             ]
+        else:
+            # Exclude 0-match unranked/test shell fixtures from default leaderboard rankings
+            all_teams = [
+                t for t in all_teams
+                if t.get("total_matches", 0) > 0
+            ]
 
         if min_roster > 1:
             all_teams = [t for t in all_teams if t.get("active_roster_count", 0) >= min_roster]
@@ -1069,12 +1081,60 @@ class TeamsHubService:
         valid_fields = ["power_rating", "glory_score", "active_avg_elo", "top_player_elo", "active_roster_count", "roster_count", "team_win_rate", "total_wins", "total_matches"]
         field = sort_by if sort_by in valid_fields else "power_rating"
         all_teams.sort(key=lambda t: t.get(field, 0.0), reverse=reverse)
+        for idx, t in enumerate(all_teams, 1):
+            t["rank"] = idx
 
         total = len(all_teams)
         total_pages = max(1, math.ceil(total / page_size))
         start = (page - 1) * page_size
         end = start + page_size
-        items = all_teams[start:end]
+        raw_items = all_teams[start:end]
+
+        # Return slim summary objects for leaderboard/directory list endpoints (omitting heavy full roster/trophy arrays)
+        items = [
+            {
+                "rank": t.get("rank", i + 1),
+                "id": t.get("id"),
+                "name": t.get("name"),
+                "team": t.get("team") or t.get("name"),
+                "team_name": t.get("team_name") or t.get("name"),
+                "short_tag": t.get("short_tag", ""),
+                "captain_name": t.get("captain_name", ""),
+                "home_venue": t.get("home_venue", ""),
+                "home_city": t.get("home_city", ""),
+                "home_state": t.get("home_state", ""),
+                "home_country": t.get("home_country", ""),
+                "logo_url": t.get("logo_url", ""),
+                "heraldry_tier": t.get("heraldry_tier", ""),
+                "heraldry_badge": t.get("heraldry_badge", ""),
+                "heraldry_border": t.get("heraldry_border", ""),
+                "heraldry_color": t.get("heraldry_color", ""),
+                "power_rating": t.get("power_rating", 0.0),
+                "skill_baseline": t.get("skill_baseline", 1500.0),
+                "maturity_pct": t.get("maturity_pct", 0.0),
+                "combat_factor": t.get("combat_factor", 1.0),
+                "top5_avg": t.get("top5_avg", 1500.0),
+                "top5_avg_elo": t.get("top5_avg", 1500.0),
+                "top_player_elo": t.get("top_player_elo", 1500.0),
+                "top_player_name": t.get("top_player_name", "Top Player"),
+                "top_player_id": t.get("top_player_id", ""),
+                "active_avg_elo": t.get("active_avg_elo", 1500.0),
+                "avg_elo": t.get("active_avg_elo", 1500.0),
+                "active_roster_count": t.get("active_roster_count", 1),
+                "roster_count": t.get("roster_count", 1),
+                "team_win_rate": t.get("team_win_rate", 0.0),
+                "win_rate": t.get("team_win_rate", 0.0),
+                "total_wins": t.get("total_wins", 0),
+                "total_losses": t.get("total_losses", 0),
+                "total_draws": t.get("total_draws", 0),
+                "total_matches": t.get("total_matches", 0),
+                "is_qualified": t.get("is_qualified", False),
+                "glory_score": t.get("glory_score", 0),
+                "team_glory_honor": t.get("team_glory_honor", 0),
+                "game_system": t.get("game_system", game_system),
+            }
+            for i, t in enumerate(raw_items, start)
+        ]
 
         return {
             "teams": items,

@@ -30,8 +30,9 @@ router = APIRouter(tags=["Army Lists & Wahapedia"])
 # ARMY LISTS & WAHAPEDIA DATASHEET ENDPOINTS
 # ==========================================
 
-@router.post("/api/armylists/parse", summary="Parse and enrich army list from text or JSON")
+@router.post("/api/armylists/parse", summary="Parse army list from text or JSON for NewRecruit Play Mode")
 async def api_parse_armylist(req: Request):
+    from newrecruit_integration import build_synthetic_nr_row
     try:
         body = await req.json()
     except Exception:
@@ -39,11 +40,15 @@ async def api_parse_armylist(req: Request):
     raw_text = body.get("text") or body.get("raw_text") or ""
     source_format = body.get("format")
     parser = get_army_parser()
-    parsed = parser.parse(raw_text, source_hint=source_format)
+    parsed = parser.parse(raw_text, source_hint=source_format, enrich=bool(body.get("enrich")))
+    nr_row = build_synthetic_nr_row(parsed)
+    parsed["list_key"] = nr_row.get("list_key")
+    parsed["nr_row"] = nr_row
     return {"success": True, "army_list": parsed}
 
 @router.post("/api/armylists/upload", summary="Upload and parse army list file (.json, .ros, .rosz, .txt)")
 async def api_upload_armylist(request: Request):
+    from newrecruit_integration import build_synthetic_nr_row
     content_type = request.headers.get("content-type", "")
     filename = request.headers.get("x-filename", "")
     file_bytes = b""
@@ -67,7 +72,10 @@ async def api_upload_armylist(request: Request):
         raise HTTPException(status_code=400, detail="Empty file payload")
     
     parser = get_army_parser()
-    parsed = parser.parse_file(file_bytes, filename=filename)
+    parsed = parser.parse_file(file_bytes, filename=filename, enrich=False)
+    nr_row = build_synthetic_nr_row(parsed)
+    parsed["list_key"] = nr_row.get("list_key")
+    parsed["nr_row"] = nr_row
     return {"success": True, "army_list": parsed}
 
 @router.get("/api/armylists", summary="Get saved army lists for current user")
@@ -102,6 +110,106 @@ async def api_save_armylist(request: Request):
     db = get_database()
     saved = db.save_user_army_list(user_id=user_id, list_data=body)
     return {"success": True, "army_list": saved}
+
+@router.get("/api/armylists/nr_state", summary="Get NewRecruit IndexedDB hydration state and cloud connection status")
+async def api_get_nr_state(request: Request):
+    from newrecruit_integration import get_nr_state_payload
+    auth_mgr = get_auth_manager()
+    session_token = request.cookies.get("session_token")
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        session_token = auth_header.split(" ", 1)[1]
+    user = auth_mgr.get_session(session_token) if session_token else None
+    user_id = user["id"] if user else None
+
+    db = get_database()
+    saved_lists = list(db.get_user_army_lists(user_id=user_id) or [])
+    saved_ids = {str(x.get("id") or "") for x in saved_lists if isinstance(x, dict)}
+    saved_keys = {str(x.get("list_key") or "") for x in saved_lists if isinstance(x, dict) and x.get("list_key")}
+    lists = list(saved_lists)
+    # Also include any active Game Tracker room lists (Player 1 & Player 2) as ephemeral so Opponent's List opens in Play Mode
+    for room_data in list(TRACKER_ROOMS.values()):
+        if isinstance(room_data, dict):
+            for k in ("p1_army_list", "p2_army_list"):
+                r_list = room_data.get(k)
+                if isinstance(r_list, dict):
+                    rl_id = str(r_list.get("id") or "")
+                    rl_key = str(r_list.get("list_key") or "")
+                    if rl_id not in saved_ids and (not rl_key or rl_key not in saved_keys):
+                        lists.append(dict(r_list, _ephemeral_view=True))
+    return get_nr_state_payload(lists, user_key=user_id or "default")
+
+
+@router.post("/api/armylists/nr_sync", summary="Sync army list creation, modification, or deletion from embedded NewRecruit Studio")
+async def api_post_nr_sync(request: Request):
+    from newrecruit_integration import process_nr_sync_payload
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    auth_mgr = get_auth_manager()
+    session_token = request.cookies.get("session_token")
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        session_token = auth_header.split(" ", 1)[1]
+    user = auth_mgr.get_session(session_token) if session_token else None
+    user_id = user["id"] if user else None
+
+    db = get_database()
+
+    def _save_and_propagate(item: Dict[str, Any]) -> Dict[str, Any]:
+        saved = db.save_user_army_list(user_id=user_id, list_data=item)
+        if isinstance(saved, dict):
+            s_id = str(saved.get("id") or "")
+            s_key = str(saved.get("list_key") or (s_id[3:] if s_id.startswith("nr_") else ""))
+            for room_data in list(TRACKER_ROOMS.values()):
+                if not isinstance(room_data, dict):
+                    continue
+                for slot_key in ("p1_army_list", "p2_army_list"):
+                    cur_slot = room_data.get(slot_key)
+                    if isinstance(cur_slot, dict):
+                        c_id = str(cur_slot.get("id") or "")
+                        c_key = str(cur_slot.get("list_key") or (c_id[3:] if c_id.startswith("nr_") else ""))
+                        if (s_id and c_id == s_id) or (s_key and c_key == s_key):
+                            room_data[slot_key] = saved
+        return saved
+
+    return await asyncio.to_thread(
+        process_nr_sync_payload,
+        body,
+        _save_and_propagate,
+        lambda lid: db.delete_user_army_list(lid, user_id=user_id),
+        lambda: db.get_user_army_lists(user_id=user_id),
+    )
+
+
+@router.post("/api/armylists/nr_cloud_connect", summary="Connect NewRecruit Cloud account and sync cloud army lists")
+async def api_post_nr_cloud_connect(request: Request):
+    from newrecruit_integration import handle_nr_cloud_connect
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    auth_mgr = get_auth_manager()
+    session_token = request.cookies.get("session_token")
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        session_token = auth_header.split(" ", 1)[1]
+    user = auth_mgr.get_session(session_token) if session_token else None
+    user_id = user["id"] if user else None
+
+    db = get_database()
+    return await asyncio.to_thread(
+        handle_nr_cloud_connect,
+        body,
+        lambda item: db.save_user_army_list(user_id=user_id, list_data=item),
+        lambda lid: db.delete_user_army_list(lid, user_id=user_id),
+        lambda: db.get_user_army_lists(user_id=user_id),
+        user_id or "default",
+    )
+
 
 @router.get("/api/armylists/{list_id}", summary="Get single army list by ID")
 async def api_get_armylist(list_id: str, request: Request):
@@ -265,67 +373,79 @@ async def api_delete_armylist(list_id: str, request: Request):
 
     db = get_database()
     success = db.delete_user_army_list(list_id, user_id=user_id)
+    clean_key = str(list_id or "").strip()
+    raw_key = clean_key[3:] if clean_key.startswith("nr_") else clean_key
+    nr_key = f"nr_{raw_key}"
+    for room_data in list(TRACKER_ROOMS.values()):
+        if isinstance(room_data, dict):
+            for slot_key in ("p1_army_list", "p2_army_list"):
+                cur_slot = room_data.get(slot_key)
+                if isinstance(cur_slot, dict):
+                    c_id = str(cur_slot.get("id") or "")
+                    c_key = str(cur_slot.get("list_key") or "")
+                    if c_id in (clean_key, raw_key, nr_key) or c_key in (clean_key, raw_key):
+                        room_data[slot_key] = None
     return {"success": success, "deleted_id": list_id}
 
-@router.get("/nr/app/list/{share_id}", include_in_schema=False)
+@router.get("/nr/app", include_in_schema=False)
+@router.get("/nr/app/{subpath:path}", include_in_schema=False)
+@router.get("/app/Lists", include_in_schema=False)
+@router.get("/app/Lists/{subpath:path}", include_in_schema=False)
+@router.get("/app/MySystems", include_in_schema=False)
+@router.get("/app/MySystems/{subpath:path}", include_in_schema=False)
+@router.get("/app/MyBooks", include_in_schema=False)
+@router.get("/app/list/{subpath:path}", include_in_schema=False)
+async def api_nr_studio_shell(request: Request, subpath: Optional[str] = None):
+    """Serves the Same-Origin NewRecruit Studio SPA shell with the OmniTactica IndexedDB live sync bridge."""
+    from newrecruit_integration import fetch_nr_html_shell
+    try:
+        html = await asyncio.to_thread(fetch_nr_html_shell)
+        return HTMLResponse(content=html, status_code=200)
+    except Exception as e:
+        logger.warning(f"Notice serving NewRecruit Studio shell: {e}")
+        return RedirectResponse(url="https://www.newrecruit.eu/app/Lists", status_code=302)
+
+
+@router.get("/_nuxt/{subpath:path}", include_in_schema=False)
+@router.get("/settings/{subpath:path}", include_in_schema=False)
+@router.get("/api/book/{subpath:path}", include_in_schema=False)
+@router.get("/assets.json", include_in_schema=False)
+async def api_nr_static_get_proxy(request: Request, subpath: Optional[str] = None):
+    from newrecruit_integration import proxy_nr_request
+    full_path = request.url.path
+    if request.url.query:
+        full_path = f"{full_path}?{request.url.query}"
+    status, data, content_type = await asyncio.to_thread(
+        proxy_nr_request, full_path, "GET", None, dict(request.headers)
+    )
+    return Response(content=data, status_code=status, media_type=content_type.split(";")[0])
+
+
+@router.post("/api/rpc", include_in_schema=False)
+@router.post("/api/token", include_in_schema=False)
+async def api_nr_rpc_post_proxy(request: Request):
+    from newrecruit_integration import proxy_nr_request
+    full_path = request.url.path
+    if request.url.query:
+        full_path = f"{full_path}?{request.url.query}"
+    body = await request.body()
+    status, data, content_type = await asyncio.to_thread(
+        proxy_nr_request, full_path, "POST", body, dict(request.headers)
+    )
+    return Response(content=data, status_code=status, media_type=content_type.split(";")[0])
+
+
 @router.get("/nr_proxy/{share_id}", summary="Proxy NewRecruit share page and automatically import list")
 @router.get("/api/armylist/nr_proxy/{share_id}", include_in_schema=False)
 @router.get("/api/armylists/nr_proxy/{share_id}", include_in_schema=False)
 async def api_nr_proxy(share_id: str):
     """Proxies NewRecruit share page with auto-import and direct interactive mode script injection."""
-    clean_id = share_id.strip()
+    from newrecruit_integration import fetch_nr_html_shell
     try:
-        url = f"https://www.newrecruit.eu/app/list/{clean_id}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-        def _fetch():
-            with urllib.request.urlopen(req, timeout=4.0) as resp:
-                return resp.read().decode("utf-8")
-        html = await asyncio.to_thread(_fetch)
-        
-        # Rewrite relative paths to absolute newrecruit.eu
-        html = html.replace('href="/_nuxt/', 'href="https://www.newrecruit.eu/_nuxt/')
-        html = html.replace('src="/_nuxt/', 'src="https://www.newrecruit.eu/_nuxt/')
-        html = html.replace('href="/favicon', 'href="https://www.newrecruit.eu/favicon')
-        
-        # Inject auto-import and auto-play script
-        auto_script = """
-        <script>
-        (function() {
-          let clickedImport = false;
-          let clickedPlay = false;
-          const timer = setInterval(() => {
-            try {
-              // 1. Auto-click 'Import List' on share preview page
-              if (!clickedImport) {
-                const btns = Array.from(document.querySelectorAll('button'));
-                const importBtn = btns.find(b => (b.textContent || '').trim().toLowerCase() === 'import list');
-                if (importBtn) {
-                  clickedImport = true;
-                  console.log('[Auto-Import] Found and auto-clicked Import List button');
-                  importBtn.click();
-                }
-              }
-              // 2. Auto-enable Play Mode once list is imported / loaded
-              if (!clickedPlay && (window.location.href.includes('/app/Lists') || document.querySelector('.actionButtons, .unitName, .rosterHeader'))) {
-                const playBtn = Array.from(document.querySelectorAll('button, a, div, span')).find(el => {
-                  const txt = (el.textContent || '').trim().toLowerCase();
-                  return txt === 'play mode' || txt === '🎮 play mode' || txt.includes('play mode');
-                });
-                if (playBtn) {
-                  clickedPlay = true;
-                  playBtn.click();
-                  clearInterval(timer);
-                }
-              }
-            } catch(e) {}
-          }, 120);
-          setTimeout(() => clearInterval(timer), 12000);
-        })();
-        </script>
-        """
-        html = html.replace("</body>", auto_script + "</body>")
+        html = await asyncio.to_thread(fetch_nr_html_shell)
         return HTMLResponse(content=html, status_code=200)
     except Exception as e:
         logger.warning(f"Notice proxying NewRecruit auto-import: {e}")
-        return RedirectResponse(url=f"https://www.newrecruit.eu/app/list/{clean_id}", status_code=302)
+        return RedirectResponse(url=f"https://www.newrecruit.eu/app/list/{share_id.strip()}", status_code=302)
+
 
