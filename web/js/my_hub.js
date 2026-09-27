@@ -3482,8 +3482,9 @@ function openNewRecruitStudioForList(listId) {
   } else if (String(listId || '').startsWith('nr_')) {
     listKey = String(listId).slice(3);
   }
-  const targetPath = listKey ? `/nr/app/Lists/${encodeURIComponent(listKey)}` : '/nr/app/Lists';
-  openNewRecruitStudioDrawer(targetPath, list ? list.name : '', false);
+  const nameParam = list && list.name ? `?name=${encodeURIComponent(list.name)}` : '';
+  const targetPath = listKey ? `/nr/app/Lists/${encodeURIComponent(listKey)}${nameParam}` : '/nr/app/Lists';
+  openNewRecruitStudioDrawer(targetPath, list ? list.name : '', false, list ? list.nr_row : null);
 }
 
 function startNrStudioLoadWatcher(iframe, isDirectListTarget) {
@@ -3519,7 +3520,7 @@ function startNrStudioLoadWatcher(iframe, isDirectListTarget) {
   }, 120);
 }
 
-function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '', silentWarmup = false) {
+function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '', silentWarmup = false, nrRow = null) {
   let modal = document.getElementById('hub-newrecruit-studio-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -3555,7 +3556,7 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
     modal.style.display = 'flex';
     if (safePath && safePath !== '/nr/app/Lists') {
       showNewRecruitStudioLoading(listTitle ? `Opening "${listTitle}"...` : 'Opening Army Roster...');
-      navigateNewRecruitStudio(safePath);
+      navigateNewRecruitStudio(safePath, listTitle, nrRow);
       startNrStudioLoadWatcher(existingIframe, isDirectListTarget);
     } else {
       navigateNewRecruitStudio('/nr/app/Lists');
@@ -3563,6 +3564,8 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
     }
     return;
   }
+
+  const iframeSrc = safePath + (safePath.includes('?') ? `&_cb=${Date.now()}` : `?_cb=${Date.now()}`);
 
   modal.innerHTML = `
     <div class="hub-nr-studio-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:min(1460px, 100%); height:min(92vh, 960px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 30px 90px rgba(0,0,0,0.92); font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
@@ -3602,7 +3605,7 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
         </div>
         <iframe
           id="hub-nr-studio-iframe"
-          src="${escapeHtml(safePath)}"
+          src="${escapeHtml(iframeSrc)}"
           title="NewRecruit Army Studio"
           style="width:100%; height:100%; border:none; display:block; background:#090d16;"
           allow="clipboard-read; clipboard-write"
@@ -3627,12 +3630,18 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
   startNrStudioLoadWatcher(iframe, isDirectListTarget);
 }
 
-function navigateNewRecruitStudio(targetPath) {
+function navigateNewRecruitStudio(targetPath, listName = '', nrRow = null) {
   const iframe = document.getElementById('hub-nr-studio-iframe');
   if (!iframe) return;
   try {
     if (iframe.contentWindow) {
-      iframe.contentWindow.postMessage({ type: 'OMNITACTICA_NR_COMMAND', command: 'navigate', path: targetPath }, '*');
+      iframe.contentWindow.postMessage({
+        type: 'OMNITACTICA_NR_COMMAND',
+        command: 'navigate',
+        path: targetPath,
+        list_name: listName || '',
+        nr_row: nrRow || null
+      }, '*');
       return;
     }
     iframe.src = targetPath;
@@ -3680,7 +3689,15 @@ if (!window.__omnitacticaNrParentListenerBound) {
     const msg = ev && ev.data;
     if (!msg || msg.type !== 'OMNITACTICA_NR_SYNC_EVENT') return;
 
-    hideNewRecruitStudioLoading();
+    try {
+      const studioIframe = document.getElementById('hub-nr-studio-iframe');
+      const studioDoc = studioIframe && studioIframe.contentDocument;
+      if (!studioDoc || !studioDoc.documentElement.classList.contains('omnitactica-nr-direct-list-loading')) {
+        hideNewRecruitStudioLoading();
+      }
+    } catch (e) {
+      hideNewRecruitStudioLoading();
+    }
     if (msg.action === 'ready') {
       return;
     }
@@ -4091,10 +4108,16 @@ function renderNativeRosterViewer(list, options = {}) {
   }
 
   const listKey = resolveHubNrListKey(list);
-  const iframeUrl = `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=hub`;
+  const nameParam = list.name ? `&name=${encodeURIComponent(list.name)}` : '';
+  const iframeUrl = `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=hub${nameParam}&_cb=${Date.now()}`;
 
   return `
     <div style="flex:1; position:relative; background:#090d16; display:flex; flex-direction:column; overflow:hidden;">
+      <div id="hub-nr-play-loading-overlay" style="position:absolute; inset:0; z-index:20; background:radial-gradient(circle at center, #0f172a 0%, #070b14 100%); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:24px; text-align:center; transition:opacity 0.2s ease;">
+        <div class="spinner" style="width:38px; height:38px; border-width:3px; border-top-color:#38bdf8;"></div>
+        <div style="font-size:15px; font-weight:900; color:#f8fafc;">Opening "${escapeHtml(list.name || 'Army Roster')}" in Play Mode...</div>
+        <div style="font-size:12px; color:#94a3b8;">Loading interactive datasheets, weapons &amp; detachment stratagems...</div>
+      </div>
       <iframe
         id="hub-nr-play-mode-iframe"
         data-list-key="${escapeHtml(listKey)}"
@@ -4137,7 +4160,8 @@ async function openViewArmyListModal(listId, mode = null) {
     document.body.appendChild(modal);
   }
 
-  const warlord = list.warlord || '';
+  const rawWarlord = String(list.warlord || '').trim();
+  const warlord = /^(character|characters|infantry|battleline|vehicle|monster|unit)$/i.test(rawWarlord) ? '' : rawWarlord;
   const bodyHtml = renderNativeRosterViewer(list, { mode: activeMode });
 
   modal.innerHTML = `
@@ -4194,6 +4218,33 @@ async function openViewArmyListModal(listId, mode = null) {
   const iframe = document.getElementById('hub-nr-play-mode-iframe');
   if (iframe && activeMode === 'play') {
     const listKey = resolveHubNrListKey(list);
+    const hidePlayLoading = () => {
+      const ov = document.getElementById('hub-nr-play-loading-overlay');
+      if (ov) {
+        ov.style.opacity = '0';
+        ov.style.pointerEvents = 'none';
+        setTimeout(() => { if (ov) ov.style.display = 'none'; }, 180);
+      }
+    };
+    const startedAt = Date.now();
+    const playWatcher = setInterval(() => {
+      if (Date.now() - startedAt > 5500 || !document.getElementById('hub-nr-play-mode-iframe')) {
+        clearInterval(playWatcher);
+        hidePlayLoading();
+        return;
+      }
+      try {
+        const doc = iframe.contentDocument;
+        const win = iframe.contentWindow;
+        if (win && win.location && /\/Lists\/[^\/\?\#]+/i.test(win.location.pathname || '')) {
+          if (!doc || !doc.documentElement.classList.contains('omnitactica-nr-direct-list-loading')) {
+            clearInterval(playWatcher);
+            hidePlayLoading();
+          }
+        }
+      } catch (e) {}
+    }, 100);
+
     const sendPlayCmd = () => {
       try {
         if (iframe.contentWindow) {
@@ -4201,6 +4252,7 @@ async function openViewArmyListModal(listId, mode = null) {
             type: 'OMNITACTICA_NR_COMMAND',
             command: 'open_play_mode',
             list_key: listKey,
+            list_name: list.name || '',
             play: true,
             nr_row: list.nr_row || null
           }, '*');

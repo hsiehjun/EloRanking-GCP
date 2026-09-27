@@ -285,6 +285,14 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
 
   /* 4. Direct-List Loading Screen (prevents flashing /app/MyLists when opening a specific list) */
+  html.omnitactica-nr-embedded-viewer header,
+  html.omnitactica-nr-embedded-viewer .menu.mainMenu {
+    display: none !important;
+  }
+  html.omnitactica-nr-embedded-viewer .main-view {
+    padding-top: 4px !important;
+    margin-top: 0 !important;
+  }
   html.omnitactica-nr-direct-list-loading,
   html.omnitactica-nr-direct-list-loading body {
     background: #090d16 !important;
@@ -470,12 +478,24 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
   var initialSearch = window.location.search || '';
   var initialPath = window.location.pathname || '';
+  var isEmbeddedViewer = (
+    initialSearch.indexOf('embed=hub') !== -1 ||
+    initialSearch.indexOf('embed=tracker') !== -1
+  );
+  if (isEmbeddedViewer) {
+    try { document.documentElement.classList.add('omnitactica-nr-embedded-viewer'); } catch (e) {}
+  }
   var wantPlayModeFromUrl = (
     initialSearch.indexOf('view=play') !== -1 ||
     initialSearch.indexOf('play=1') !== -1 ||
     initialSearch.indexOf('mode=play') !== -1
   );
   var requestedListKeyFromUrl = null;
+  var requestedListNameFromUrl = '';
+  var mNameQuery = initialSearch.match(/[?&]name=([^&#]+)/i);
+  if (mNameQuery && mNameQuery[1]) {
+    try { requestedListNameFromUrl = decodeURIComponent(mNameQuery[1]).trim(); } catch (e) {}
+  }
   var mListUrl = initialPath.match(/\/Lists\/([^\/\?\#]+)/i) || initialPath.match(/\/list\/([^\/\?\#]+)/i);
   if (mListUrl && mListUrl[1]) {
     requestedListKeyFromUrl = decodeURIComponent(mListUrl[1]);
@@ -487,6 +507,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
 
   var directListLoaderTimer = null;
+  var directListLookupRetries = 0;
   function showDirectListLoader(label) {
     try {
       document.documentElement.classList.add('omnitactica-nr-direct-list-loading');
@@ -509,7 +530,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       if (document.body) ensureDom();
       else document.addEventListener('DOMContentLoaded', ensureDom, { once: true });
       if (directListLoaderTimer) clearTimeout(directListLoaderTimer);
-      directListLoaderTimer = setTimeout(hideDirectListLoader, 5500);
+      directListLoaderTimer = setTimeout(hideDirectListLoader, 7500);
     } catch (e) {}
   }
 
@@ -527,27 +548,15 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     showDirectListLoader(wantPlayModeFromUrl ? 'Loading Play Mode Datasheets...' : 'Opening Army Roster...');
   }
 
-  // 1. Rewrite /nr/app/... path to /app/... BEFORE Nuxt vue-router initializes.
+  // 1. Rewrite /nr/app/... path to clean /app/MyLists BEFORE Nuxt vue-router initializes
+  // so Lists.vue never misinterprets cache-busting query params (e.g. _cb) as a broken list query.
   try {
     var curPath = window.location.pathname || '';
-    if (requestedListKeyFromUrl) {
+    if (requestedListKeyFromUrl || /^\/(?:nr\/)?app(?:\/Lists|\/MyLists|\/)?$/i.test(curPath)) {
       window.history.replaceState(null, '', '/app/MyLists');
     } else if (curPath.indexOf('/nr/app') === 0) {
       var mappedPath = curPath.replace(/^\/nr\/app/, '/app');
-      if (!mappedPath || mappedPath === '/app' || mappedPath === '/app/') {
-        mappedPath = '/app/Lists';
-      }
-      window.history.replaceState(
-        null,
-        '',
-        mappedPath + (window.location.search || '') + (window.location.hash || '')
-      );
-    } else if (curPath === '/app' || curPath === '/app/') {
-      window.history.replaceState(
-        null,
-        '',
-        '/app/Lists' + (window.location.search || '') + (window.location.hash || '')
-      );
+      window.history.replaceState(null, '', mappedPath);
     }
   } catch (err) {
     console.warn('[OmniTactica Bridge] Path rewrite notice:', err);
@@ -777,15 +786,30 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       if (meta.systemName) {
         copy._omnitactica_system_name = meta.systemName;
       }
-      // Also resolve book & system name from stores.system.library.index if not set yet
-      if (stores && stores.system && stores.system.library && stores.system.library.index && copy.id_system) {
-        var sysData = stores.system.library.index[copy.id_system];
+      // Also resolve book & system name from stores.system.library (index or array) if not set yet
+      if (stores && stores.system && stores.system.library && (copy.id_system || copy.bsid_system)) {
+        var lib = stores.system.library;
+        var sysData = (lib.index && copy.id_system && lib.index[copy.id_system]) ? lib.index[copy.id_system] : null;
+        if (!sysData && Array.isArray(lib.array)) {
+          sysData = lib.array.find(function(n) {
+            return n && (n.id == copy.id_system || (n.bsid != null && (n.bsid == copy.id_system || n.bsid == copy.bsid_system)));
+          }) || null;
+        }
         if (sysData) {
           if (!copy._omnitactica_system_name && (sysData.name || sysData.short)) {
             copy._omnitactica_system_name = sysData.name || sysData.short;
           }
-          if (!copy._omnitactica_book_name && copy.id_book && sysData.books && sysData.books.index && sysData.books.index[copy.id_book]) {
-            copy._omnitactica_book_name = sysData.books.index[copy.id_book].name || '';
+          if (!copy._omnitactica_book_name && (copy.id_book || copy.bsid_book) && sysData.books) {
+            if (sysData.books.index && copy.id_book && sysData.books.index[copy.id_book]) {
+              copy._omnitactica_book_name = sysData.books.index[copy.id_book].name || '';
+            } else if (Array.isArray(sysData.books.array)) {
+              var bkMatch = sysData.books.array.find(function(d) {
+                return d && (d.id == copy.id_book || (d.bsid != null && (d.bsid == copy.id_book || d.bsid == copy.bsid_book)));
+              });
+              if (bkMatch && bkMatch.name) {
+                copy._omnitactica_book_name = bkMatch.name;
+              }
+            }
           }
         }
       }
@@ -972,33 +996,26 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           if (isHiddenFolder) return false;
         }
       }
-      // 2. Check valid system & book in library when books are loaded (exclude "(Deleted book)")
-      if (stores.system && (r.id_system || r.bsid_system)) {
-        var sysObj = null;
-        if (typeof stores.system.findSystem === 'function') {
-          sysObj = stores.system.findSystem({ id: r.id_system, bsid: r.bsid_system });
-        } else if (stores.system.library && Array.isArray(stores.system.library.array)) {
-          sysObj = stores.system.library.array.find(function(s) {
-            return s && (
-              s.id === r.id_system ||
-              (s.bsid != null && (s.id === r.bsid_system || s.bsid === r.id_system || s.bsid === r.bsid_system))
+      // 2. Check valid system & book in library using NewRecruit's ListsView.getBookName logic
+      if (stores.system && stores.system.library && (r.id_system || r.bsid_system) && (r.id_book || r.bsid_book)) {
+        var lib = stores.system.library;
+        if (lib.index && lib.index[r.id_system] && lib.index[r.id_system].books && lib.index[r.id_system].books.index && lib.index[r.id_system].books.index[r.id_book]) {
+          return true;
+        }
+        if (Array.isArray(lib.array) && lib.array.length > 0) {
+          var sysObj = lib.array.find(function(n) {
+            return n && (
+              n.id == r.id_system ||
+              (n.bsid != null && (n.bsid == r.id_system || n.bsid == r.bsid_system))
             );
           });
-        }
-        if (sysObj) {
-          var booksArr = sysObj.books && Array.isArray(sysObj.books.array) ? sysObj.books.array : null;
-          if (booksArr && booksArr.length > 0 && (r.id_book || r.bsid_book)) {
-            var bkObj = null;
-            if (typeof stores.system.findBook === 'function') {
-              bkObj = stores.system.findBook(sysObj, { id: r.id_book, bsid: r.bsid_book });
-            } else {
-              bkObj = booksArr.find(function(b) {
-                return b && (
-                  b.id === r.id_book ||
-                  (b.bsid != null && (b.id === r.bsid_book || b.bsid === r.id_book || b.bsid === r.bsid_book))
-                );
-              });
-            }
+          if (sysObj && sysObj.books && Array.isArray(sysObj.books.array) && sysObj.books.array.length > 0) {
+            var bkObj = sysObj.books.array.find(function(d) {
+              return d && (
+                d.id == r.id_book ||
+                (d.bsid != null && (d.bsid == r.id_book || d.bsid == r.bsid_book))
+              );
+            });
             if (!bkObj) return false;
           }
         }
@@ -1007,7 +1024,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     return true;
   }
 
-  // Read active lists from Pinia stores.list.listData (authoritative live UI state) without resurrecting deleted IndexedDB rows
+  // Read active lists from Pinia stores.list.listData (authoritative live UI state) matching the active game system
   async function readAllNrLists() {
     var mergedMap = {};
     var mergedList = [];
@@ -1077,6 +1094,20 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       }
     }
 
+    // Filter to the currently selected game system (matching NewRecruit's filteredListsSystem) when lists exist for that system
+    if (stores && stores.system && stores.system.selectedSystem && mergedList.length > 0) {
+      var selSys = stores.system.selectedSystem;
+      var sysFiltered = mergedList.filter(function(e) {
+        return e && (
+          e.id_system == selSys.id ||
+          (selSys.bsid != null && (e.id_system == selSys.bsid || e.bsid_system == selSys.bsid))
+        );
+      });
+      if (sysFiltered.length > 0) {
+        return sysFiltered;
+      }
+    }
+
     if (mergedList.length > 0 || piniaInitiated) {
       return mergedList;
     }
@@ -1098,12 +1129,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         return;
       }
 
-      // If NewRecruit is syncing with its cloud server, wait briefly for whenSynced() so deleted cloud lists are already removed from listData
+      // Wait for NewRecruit cloud sync if running
       try {
         if (typeof stores.list.whenSynced === 'function') {
           await Promise.race([
             stores.list.whenSynced(),
-            new Promise(function(r) { setTimeout(r, 2200); })
+            new Promise(function(r) { setTimeout(r, 2500); })
           ]);
         }
       } catch (e) {}
@@ -1141,21 +1172,36 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
       var currentListData = Array.isArray(stores.list.listData) ? stores.list.listData : [];
       var piniaKeyMap = {};
+      var piniaNameMap = {};
       for (var pIdx = 0; pIdx < currentListData.length; pIdx++) {
         var pRow = currentListData[pIdx];
         if (!pRow || !pRow.list_key) continue;
         piniaKeyMap[pRow.list_key] = pRow;
+        if (pRow.name) {
+          piniaNameMap[String(pRow.name).trim().toLowerCase()] = pRow;
+        }
       }
 
       // Only seed serverRows into Pinia if:
-      // - It is the explicitly requested list key from URL (e.g. viewing an opponent/ephemeral list), OR
-      // - The user is NOT logged into NewRecruit AND Pinia has no lists at all yet (fresh anonymous browser).
-      // Never push old synced lists back into a logged-in NewRecruit session where they were deleted!
+      // - It is the explicitly requested list from URL (and no real list with that key/name is already in Pinia), OR
+      // - The user is NOT logged into NewRecruit AND Pinia has no lists at all yet.
       var allowSeedFromOmniServer = (!isNrLoggedIn && currentListData.length === 0);
       serverRows.forEach(function(sRow) {
         if (!sRow || !sRow.list_key) return;
-        var isTargetUrlRow = Boolean(requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key);
+        var sNameLow = String(sRow.name || '').trim().toLowerCase();
+        var isTargetUrlRow = Boolean(
+          (requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key) ||
+          (requestedListNameFromUrl && sNameLow && sNameLow === requestedListNameFromUrl.toLowerCase())
+        );
         if (!isTargetUrlRow && !allowSeedFromOmniServer) return;
+
+        // If Pinia already has a real list with the same name (e.g. migrated to 11th Ed), don't seed a duplicate synthetic row
+        if (isTargetUrlRow && piniaNameMap[sNameLow] && !piniaKeyMap[sRow.list_key]) {
+          var realMatch = piniaNameMap[sNameLow];
+          realMatch.metadata = Object.assign({}, realMatch.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
+          requestedListKeyFromUrl = realMatch.list_key;
+          return;
+        }
 
         sRow.metadata = Object.assign(
           { builder_settings: {}, custom_categories: [], custom_view: false },
@@ -1180,37 +1226,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           stores.list.rebuildTreeData();
         }
       } catch (e) {}
-
-      // Clean up stale/deleted rows in IndexedDB nr.lists that are no longer in stores.list.listData
-      var db = await openExistingNrDb();
-      if (db) {
-        isHydrating = true;
-        await new Promise(function(resolve) {
-          try {
-            var tx = db.transaction('lists', 'readwrite');
-            var store = tx.objectStore('lists');
-            var seenKeys = {};
-            var curReq = store.openCursor();
-            curReq.onsuccess = function(ev) {
-              var cursor = ev.target.result;
-              if (cursor) {
-                var item = cursor.value;
-                var ik = item && (item.list_key || item._id) ? String(item.list_key || item._id) : '';
-                if (!ik || seenKeys[ik] || !piniaKeyMap[ik]) {
-                  try { cursor.delete(); } catch (e) {}
-                } else {
-                  seenKeys[ik] = true;
-                }
-                cursor.continue();
-              }
-            };
-            tx.oncomplete = function() { resolve(); };
-            tx.onerror = function() { resolve(); };
-          } catch (e) {
-            resolve();
-          }
-        });
-      }
     } catch (e) {
       console.warn('[OmniTactica Bridge] Hydration notice:', e);
     } finally {
@@ -1221,8 +1236,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         readyNotified = true;
         notifyParent({ action: 'ready' });
       }
-      // Immediately reconcile active NewRecruit lists to OmniTactica (purging any old/deleted lists)
-      await forceFullSync();
+      if (!isEmbeddedViewer && !requestedListKeyFromUrl) {
+        await forceFullSync();
+      }
     }
   }
 
@@ -1274,21 +1290,32 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
 
   // Compile synthetic/text-imported row into a real NewRecruit BattleScribe catalogue army using ukVEh7Py.js
-  async function compileSyntheticRowIfNeeded(row, systemStore, listStore) {
-    if (!row || !row.list_key || !row._synthetic_text || row._compiled_by_nr) return row;
+  async function compileSyntheticRowIfNeeded(row, systemStore, listStore, forceCompile) {
+    if (!row || !row.list_key || !row._synthetic_text) return row;
+    if (row._compiled_by_nr && !forceCompile) return row;
     var rowArmyId = row.army ? String(row.army.id || '') : '';
-    var hasSyntheticArmy = !row.army || rowArmyId.indexOf('army-') === 0 || rowArmyId.indexOf('root-') === 0;
+    var hasSyntheticArmy = Boolean(
+      forceCompile ||
+      !row.army ||
+      !row.nrversion ||
+      rowArmyId.indexOf('army-') === 0 ||
+      rowArmyId.indexOf('root-') === 0 ||
+      rowArmyId.indexOf('cat-') === 0
+    );
     if (!hasSyntheticArmy) return row;
     if (compilingKeys[row.list_key]) {
       return await compilingKeys[row.list_key];
     }
     var compilePromise = (async function() {
       try {
-        var sys = await systemStore.selectSystem(row.id_system || 2821148162);
+        var sys = await systemStore.selectSystem(row.id_system || 827374861);
+        if (!sys) {
+          sys = await systemStore.selectSystem(2821148162);
+        }
         if (!sys) return row;
         var booksArr = (sys.books && Array.isArray(sys.books.array)) ? sys.books.array : [];
         var fallbackBook = booksArr.find(function(b) {
-          return b && (b.id === row.id_book || b.bsid === row.bsid_book);
+          return b && (b.id == row.id_book || b.bsid == row.bsid_book);
         }) || booksArr.find(function(b) { return b && b.playable; }) || null;
         var mod = await import('/_nuxt/ukVEh7Py.js');
         var importTextFn = mod && mod.i;
@@ -1312,6 +1339,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             row.totalCosts = res.list.army.calcTotalCosts();
           }
           row._compiled_by_nr = true;
+          if (listStore && Array.isArray(listStore.listData)) {
+            var existingIdx = listStore.listData.findIndex(function(r) { return r && r.list_key === row.list_key; });
+            if (existingIdx !== -1) {
+              Object.assign(listStore.listData[existingIdx], row);
+            }
+          }
           await listStore.saveListLocally({
             row: row,
             army: res.list.army,
@@ -1363,27 +1396,32 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       stores.user.isSupporter = function() { return true; };
     } catch (e) {}
 
-    // Auto-select the game system of the user's lists (or Warhammer 40,000) on first load if no system was explicitly chosen yet
-    if (!stores.system.__omniDefaultSysChecked && stores.list.listsInitiated) {
+    // Auto-select the game system of the user's active lists ONLY when not opening a specific list URL
+    // and ONLY if no system is selected or if the currently selected system has 0 matching lists while another system has lists
+    if (!requestedListKeyFromUrl && !stores.system.__omniDefaultSysChecked && stores.list.listsInitiated) {
       var sysArr = (stores.system.library && Array.isArray(stores.system.library.array) && stores.system.library.array.length)
         ? stores.system.library.array
         : (Array.isArray(stores.system.installedSystems) ? stores.system.installedSystems : []);
       if (sysArr.length > 0) {
         stores.system.__omniDefaultSysChecked = true;
         try {
-          var firstRowSysId = (Array.isArray(stores.list.listData) && stores.list.listData.length > 0 && stores.list.listData[0] && stores.list.listData[0].id_system)
-            ? stores.list.listData[0].id_system
-            : null;
-          var alreadyInit = localStorage.getItem('omnitactica_nr_default_sys_init');
-          if (!alreadyInit || (firstRowSysId && (!stores.system.selectedSystem || stores.system.selectedSystem.id !== firstRowSysId))) {
-            var targetSys = (firstRowSysId && sysArr.find(function(s) { return s && s.id == firstRowSysId; })) ||
+          var activeRows = Array.isArray(stores.list.listData)
+            ? stores.list.listData.filter(function(r) { return isActiveNrListRow(r, stores); })
+            : [];
+          var curSel = stores.system.selectedSystem;
+          var curSelHasLists = Boolean(curSel && activeRows.some(function(r) {
+            return r.id_system == curSel.id || (curSel.bsid != null && (r.id_system == curSel.bsid || r.bsid_system == curSel.bsid));
+          }));
+          if (!curSel || (activeRows.length > 0 && !curSelHasLists)) {
+            // Prefer 11th Edition (827374861) if the user has lists in 11th Edition, else most recent list's system
+            var row11e = activeRows.find(function(r) { return r.id_system == 827374861 || r.bsid_system === 'sys-352e-adc2-7639-d610'; });
+            var preferredSysId = row11e ? row11e.id_system : (activeRows.length > 0 ? activeRows[0].id_system : null);
+            var targetSys = (preferredSysId && sysArr.find(function(s) { return s && s.id == preferredSysId; })) ||
+              sysArr.find(function(s) { return s && s.id == 827374861; }) ||
               sysArr.find(function(s) { return s && s.id == 2821148162; }) ||
               sysArr.find(function(s) { return s && String(s.name || '').indexOf('Warhammer 40,000') !== -1; });
-            if (targetSys) {
-              localStorage.setItem('omnitactica_nr_default_sys_init', '1');
-              if (!stores.system.selectedSystem || stores.system.selectedSystem.id !== targetSys.id) {
-                await stores.system.selectSystem(targetSys.id);
-              }
+            if (targetSys && (!curSel || curSel.id !== targetSys.id)) {
+              await stores.system.selectSystem(targetSys.id);
             }
           }
         } catch (e) {}
@@ -1423,6 +1461,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         if (!found && listKey && Array.isArray(this.listData)) {
           found = this.listData.find(function(n) { return n && n.list_key === listKey; }) || null;
         }
+        if (!found && listKey && listKey === requestedListKeyFromUrl && requestedListNameFromUrl && Array.isArray(this.listData)) {
+          var wantName = String(requestedListNameFromUrl).trim().toLowerCase();
+          found = this.listData.find(function(n) {
+            return n && !n._ephemeral_view && String(n.name || '').trim().toLowerCase() === wantName;
+          }) || null;
+        }
         return found;
       };
 
@@ -1440,7 +1484,20 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         return await origSelect(rowOrKey, opts);
       };
 
-      // Hook addList, doSaveList, removeList, and syncAllLists directly on Pinia listsStore so any list created/edited/deleted/synced syncs immediately!
+      // Hook system switching so changing game system in Studio updates My Hub to match
+      if (stores.system && typeof stores.system.selectSystem === 'function' && !stores.system.__omniPatchedSelectSys) {
+        stores.system.__omniPatchedSelectSys = true;
+        var origSelectSystem = stores.system.selectSystem.bind(stores.system);
+        stores.system.selectSystem = async function(sysId, forceReload) {
+          var res = await origSelectSystem(sysId, forceReload);
+          if (!isEmbeddedViewer && !requestedListKeyFromUrl && initialHydrationDone) {
+            setTimeout(function() { forceFullSync(); }, 180);
+          }
+          return res;
+        };
+      }
+
+      // Hook addList, doSaveList, removeList, and syncAllLists directly on Pinia listsStore
       if (typeof stores.list.doSaveList === 'function') {
         var origDoSaveList = stores.list.doSaveList.bind(stores.list);
         stores.list.doSaveList = async function(listObj, localOnly) {
@@ -1487,20 +1544,48 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         };
       }
 
+      if (typeof stores.list.selectList === 'function') {
+        var origSelectList = stores.list.selectList.bind(stores.list);
+        stores.list.selectList = async function(rowObj) {
+          if (rowObj && rowObj._synthetic_text && !rowObj._compiled_by_nr) {
+            await compileSyntheticRowIfNeeded(rowObj, stores.system, stores.list, false);
+          }
+          var res = await origSelectList(rowObj);
+          if (!res && rowObj) {
+            if (rowObj.booksDate) {
+              delete rowObj.booksDate;
+              res = await origSelectList(rowObj);
+            }
+            if (!res && rowObj._synthetic_text) {
+              rowObj._compiled_by_nr = false;
+              await compileSyntheticRowIfNeeded(rowObj, stores.system, stores.list, true);
+              res = await origSelectList(rowObj);
+            }
+          }
+          if (res && res.row && requestedListKeyFromUrl) {
+            var wantPlayNow = Boolean(wantPlayModeFromUrl || (window.location.search || '').indexOf('view=play') !== -1);
+            res.row.metadata = Object.assign({}, res.row.metadata || {}, { play_mode: wantPlayNow });
+          }
+          return res;
+        };
+      }
+
       if (typeof stores.list.syncAllLists === 'function') {
         var origSyncAll = stores.list.syncAllLists.bind(stores.list);
         stores.list.syncAllLists = async function() {
           var res = await origSyncAll.apply(this, arguments);
           setTimeout(function() {
             pollListsDiff();
-            forceFullSync();
+            if (!isEmbeddedViewer) {
+              forceFullSync();
+            }
             try {
               if ((window.location.pathname || '').indexOf('/Login') !== -1 && stores.user && stores.user.user) {
                 var rtr = stores.list.$router || (window.$nuxt && window.$nuxt.$router);
                 if (rtr) rtr.push('/app/MyLists');
               }
             } catch (e) {}
-          }, 150);
+          }, 180);
           return res;
         };
       }
@@ -1546,30 +1631,71 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
     activatingPlayMode = true;
     try {
-      var targetRow = Array.isArray(stores.list.listData)
-        ? stores.list.listData.find(function(r) { return r && r.list_key === targetKey; })
-        : null;
+      var listArr = Array.isArray(stores.list.listData) ? stores.list.listData : [];
+      var targetRow = listArr.find(function(r) { return r && r.list_key === targetKey; }) || null;
 
-      if (!targetRow && pendingNrRowFromParent && pendingNrRowFromParent.list_key === targetKey) {
+      // Fallback: match by list name (e.g. if the list was migrated to 11th Edition with a new list_key)
+      var searchName = (
+        requestedListNameFromUrl ||
+        (targetRow && targetRow.name) ||
+        (pendingNrRowFromParent && pendingNrRowFromParent.name) ||
+        ''
+      ).trim().toLowerCase();
+
+      if (searchName && listArr.length > 0) {
+        var nameMatches = listArr.filter(function(r) {
+          return r && !r._ephemeral_view && String(r.name || '').trim().toLowerCase() === searchName;
+        });
+        if (nameMatches.length > 0) {
+          nameMatches.sort(function(a, b) {
+            var aReal = a._synthetic_text ? 0 : 1;
+            var bReal = b._synthetic_text ? 0 : 1;
+            if (aReal !== bReal) return bReal - aReal;
+            var a11e = (a.id_system == 827374861) ? 1 : 0;
+            var b11e = (b.id_system == 827374861) ? 1 : 0;
+            if (a11e !== b11e) return b11e - a11e;
+            return String(b.date_mod || '').localeCompare(String(a.date_mod || ''));
+          });
+          if (!targetRow || (targetRow._synthetic_text && !nameMatches[0]._synthetic_text)) {
+            targetRow = nameMatches[0];
+            targetKey = targetRow.list_key;
+            requestedListKeyFromUrl = targetKey;
+            modeToken = targetKey + ':' + (wantPlay ? 'play' : 'edit');
+          }
+        }
+      }
+
+      if (!targetRow && pendingNrRowFromParent && (pendingNrRowFromParent.list_key === targetKey || !pendingNrRowFromParent.list_key || listArr.length === 0)) {
         var rowToSeed = Object.assign({}, pendingNrRowFromParent);
+        if (!rowToSeed.list_key) rowToSeed.list_key = targetKey;
         rowToSeed.metadata = Object.assign({}, rowToSeed.metadata || {}, { play_mode: Boolean(wantPlay) });
         await upsertSingleRowToIdb(rowToSeed);
         targetRow = Array.isArray(stores.list.listData)
-          ? stores.list.listData.find(function(r) { return r && r.list_key === targetKey; })
+          ? stores.list.listData.find(function(r) { return r && r.list_key === rowToSeed.list_key; })
           : null;
+        if (targetRow) {
+          targetKey = targetRow.list_key;
+          requestedListKeyFromUrl = targetKey;
+          modeToken = targetKey + ':' + (wantPlay ? 'play' : 'edit');
+        }
       }
 
       if (!targetRow) {
+        directListLookupRetries++;
+        if (directListLookupRetries < 25) {
+          return;
+        }
         hideDirectListLoader();
         readyNotified = true;
         notifyParent({ action: 'ready' });
         return;
       }
 
+      stores.system.__omniDefaultSysChecked = true;
       if (stores.options && typeof stores.options.addInstalledSystemVue === 'function' && targetRow.id_system) {
         stores.options.addInstalledSystemVue(targetRow.id_system);
       }
-      if (!stores.system.selectedSystem || stores.system.selectedSystem.id !== targetRow.id_system) {
+      if (!stores.system.selectedSystem || stores.system.selectedSystem.id != targetRow.id_system) {
         await stores.system.selectSystem(targetRow.id_system);
       }
       await compileSyntheticRowIfNeeded(targetRow, stores.system, stores.list);
@@ -1611,6 +1737,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           });
         }
       }
+      var postNavStores = getNrStores();
+      if (postNavStores && postNavStores.listsPage && loadedListObj) {
+        postNavStores.listsPage.editedList = loadedListObj;
+      }
       playModeActivatedForKey = modeToken;
       setTimeout(function() {
         hideDirectListLoader();
@@ -1628,7 +1758,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   // 5. Snapshot diff watcher to catch any edits, imports, or deletions across Pinia listData & IndexedDB
   async function pollListsDiff() {
     await ensurePlayModeAndStoreHooks();
-    if (!initialHydrationDone || isHydrating) return;
+    if (!initialHydrationDone || isHydrating || isEmbeddedViewer) return;
     var rows = await readAllNrLists();
     if (!rows) return;
 
@@ -1654,21 +1784,29 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
 
   async function forceFullSync() {
+    if (isEmbeddedViewer) return null;
     if (!initialHydrationDone) {
       await hydrateFromOmniTactica();
     }
+    var st = getNrStores();
+    try {
+      if (st && st.list && typeof st.list.whenSynced === 'function') {
+        await Promise.race([
+          st.list.whenSynced(),
+          new Promise(function(r) { setTimeout(r, 2500); })
+        ]);
+      }
+    } catch (e) {}
     var rows = await readAllNrLists();
     if (!rows) return null;
     var cleaned = rows.filter(function(r) { return r && !r._ephemeral_view; }).map(function(r) { return cloneCleanRow(r); }).filter(Boolean);
+    if (cleaned.length === 0) {
+      return null;
+    }
     knownListsMap = {};
     cleaned.forEach(function(r) {
       knownListsMap[r.list_key] = computeSignature(r);
     });
-    var st = getNrStores();
-    var isLoggedIn = Boolean((st && st.user && st.user.user && st.user.user.login) || localStorage.getItem('access'));
-    if (cleaned.length === 0 && !isLoggedIn) {
-      return null;
-    }
     return await postSyncAction('bulk_sync', {
       lists: cleaned,
       reconcile_deletions: true
@@ -1719,18 +1857,28 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       }
     } else if (msg.command === 'open_play_mode' && msg.list_key) {
       requestedListKeyFromUrl = String(msg.list_key);
+      if (msg.list_name) {
+        requestedListNameFromUrl = String(msg.list_name).trim();
+      } else if (msg.nr_row && msg.nr_row.name) {
+        requestedListNameFromUrl = String(msg.nr_row.name).trim();
+      }
       wantPlayModeFromUrl = msg.play !== false;
       playModeActivatedForKey = null;
+      directListLookupRetries = 0;
       showDirectListLoader(wantPlayModeFromUrl ? 'Loading Play Mode Datasheets...' : 'Opening Army Roster...');
       if (msg.nr_row && msg.nr_row.list_key) {
         pendingNrRowFromParent = Object.assign({}, msg.nr_row);
         var existingRows = await readAllNrLists();
         var existingMap = {};
+        var existingByName = {};
         (existingRows || []).forEach(function(er) {
-          if (er && er.list_key) existingMap[er.list_key] = er;
+          if (er && er.list_key) {
+            existingMap[er.list_key] = er;
+            if (er.name) existingByName[String(er.name).trim().toLowerCase()] = er;
+          }
         });
-        var cur = existingMap[msg.nr_row.list_key];
-        if (!cur || (!cur._compiled_by_nr && msg.nr_row._synthetic_text)) {
+        var cur = existingMap[msg.nr_row.list_key] || (requestedListNameFromUrl ? existingByName[requestedListNameFromUrl.toLowerCase()] : null);
+        if (!cur || (!cur._compiled_by_nr && msg.nr_row._synthetic_text && cur._synthetic_text)) {
           var rowToWrite = Object.assign({}, msg.nr_row);
           rowToWrite.metadata = Object.assign({}, rowToWrite.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
           await upsertSingleRowToIdb(rowToWrite);
@@ -1740,16 +1888,28 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     } else if (msg.command === 'navigate' && msg.path) {
       try {
         var cleanTarget = String(msg.path).replace(/^\/nr\/app/, '/app');
+        var mNavName = cleanTarget.match(/[?&]name=([^&#]+)/i);
+        if (mNavName && mNavName[1]) {
+          try { requestedListNameFromUrl = decodeURIComponent(mNavName[1]).trim(); } catch (e) {}
+        } else if (msg.list_name) {
+          requestedListNameFromUrl = String(msg.list_name).trim();
+        } else {
+          requestedListNameFromUrl = '';
+        }
+        if (msg.nr_row && msg.nr_row.list_key) {
+          pendingNrRowFromParent = Object.assign({}, msg.nr_row);
+        }
         var mNavList = cleanTarget.match(/\/Lists\/([^\/\?\#]+)/i);
         if (mNavList && mNavList[1]) {
           requestedListKeyFromUrl = decodeURIComponent(mNavList[1]);
           wantPlayModeFromUrl = cleanTarget.indexOf('view=play') !== -1;
           playModeActivatedForKey = null;
+          directListLookupRetries = 0;
           showDirectListLoader(wantPlayModeFromUrl ? 'Loading Play Mode Datasheets...' : 'Opening Army Roster...');
           await ensurePlayModeAndStoreHooks();
           return;
         }
-        if (/^\/app\/Lists\/?$/i.test(cleanTarget)) {
+        if (/^\/app\/Lists(?:\?.*)?$/i.test(cleanTarget)) {
           cleanTarget = '/app/MyLists';
         }
         requestedListKeyFromUrl = null;
@@ -1819,19 +1979,25 @@ def fetch_nr_html_shell() -> str:
     if _NR_HTML_SHELL_CACHE and (now - _NR_HTML_SHELL_CACHE[0] < _NR_CACHE_TTL_SECONDS):
         return _NR_HTML_SHELL_CACHE[1]
 
-    req = urllib.request.Request(
-        f"{NR_BASE_URL}/app/Lists",
-        headers={
-            "User-Agent": NR_USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=10.0) as resp:
-        raw_html = resp.read().decode("utf-8", errors="ignore")
+    try:
+        req = urllib.request.Request(
+            f"{NR_BASE_URL}/app/Lists",
+            headers={
+                "User-Agent": NR_USER_AGENT,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
+            raw_html = resp.read().decode("utf-8", errors="ignore")
 
-    injected = inject_nr_bridge_into_html(raw_html)
-    _NR_HTML_SHELL_CACHE = (now, injected)
-    return injected
+        injected = inject_nr_bridge_into_html(raw_html)
+        _NR_HTML_SHELL_CACHE = (now, injected)
+        return injected
+    except Exception as e:
+        logger.warning("Notice fetching upstream NewRecruit HTML shell: %s", e)
+        if _NR_HTML_SHELL_CACHE:
+            return _NR_HTML_SHELL_CACHE[1]
+        return inject_nr_bridge_into_html("<!DOCTYPE html><html><head><meta charset='utf-8'><title>NewRecruit Studio</title></head><body><div id='__nuxt'></div></body></html>")
 
 
 def proxy_nr_request(
@@ -1941,6 +2107,8 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
             row["totalCost"] = int(roster.get("points") or 0)
         if roster.get("_ephemeral_view"):
             row["_ephemeral_view"] = True
+        if not row.get("_synthetic_text"):
+            row["_synthetic_text"] = build_roster_text_for_nr_compiler(roster, book_name)
         army_obj = row.get("army") if isinstance(row.get("army"), dict) else {}
         is_legacy_synthetic = (
             row.get("id_system") in (None, 1)
@@ -2011,12 +2179,18 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
 
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     synthetic_text = build_roster_text_for_nr_compiler(roster, book_name)
+    sys_id = int(roster.get("id_system") or NR_40K_SYSTEM_ID)
+    sys_bsid = (
+        "sys-352e-adc2-7639-d610"
+        if sys_id == 827374861
+        else str(roster.get("bsid_system") or NR_40K_SYSTEM_BSID)
+    )
     out_row = {
         "list_key": list_key,
         "name": str(roster.get("name") or f"{faction} - {det_name}"),
-        "id_system": NR_40K_SYSTEM_ID,
+        "id_system": sys_id,
         "id_book": id_book,
-        "bsid_system": NR_40K_SYSTEM_BSID,
+        "bsid_system": sys_bsid,
         "bsid_book": bsid_book,
         "totalCost": int(roster.get("points") or 0),
         "totalCosts": {"pts": int(roster.get("points") or 0)},

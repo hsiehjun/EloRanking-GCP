@@ -370,6 +370,8 @@ class ArmyListParser:
             "_id", "list_key", "name", "id_system", "id_book", "bsid_system", "bsid_book",
             "totalCost", "totalCosts", "booksDate", "books_revision", "nrversion",
             "date_mod", "version", "synced", "metadata", "army",
+            "locked", "favorite", "id_folder", "id_tournament", "description", "notes", "points_limit", "valid",
+            "_synthetic_text", "_compiled_by_nr",
             "_omnitactica_book_name", "_omnitactica_system_name", "_omnitactica_detachment", "_omnitactica_points_limit"
         )
         nr_row = {k: data[k] for k in nr_row_keys if k in data}
@@ -513,7 +515,7 @@ class ArmyListParser:
                 for sub in unit_node.get("options") or []:
                     parse_unit_sub(sub)
 
-                if u_warlord and not warlord:
+                if u_warlord and not warlord and u_name.lower() not in known_category_wrappers:
                     warlord = u_name
 
                 final_models = max(1, u_amount if u_amount > 1 else (model_count_sum if model_count_sum > 1 else 1))
@@ -575,7 +577,7 @@ class ArmyListParser:
 
                 is_cat_wrapper = (
                     str(cat.get("id") or "").startswith("cat-")
-                    or (not cat.get("option_id") and not cat.get("uid") and not cat.get("link_id") and cat_low in known_category_wrappers)
+                    or cat_low in known_category_wrappers
                 )
                 if is_cat_wrapper:
                     for unit_node in cat.get("options") or []:
@@ -592,7 +594,7 @@ class ArmyListParser:
                         continue
                     u_name = str(eu.get("name") or "Unit").strip()
                     u_wl = bool(eu.get("is_warlord"))
-                    if u_wl and not warlord:
+                    if u_wl and not warlord and u_name.lower() not in ("character", "characters", "unit"):
                         warlord = u_name
                     units.append({
                         "id": eu.get("id") or f"u_{idx+1}",
@@ -640,6 +642,8 @@ class ArmyListParser:
                         if matched_eu.get("abilities"):
                             u["abilities"] = matched_eu["abilities"]
 
+        if warlord and str(warlord).strip().lower() in ("character", "characters", "infantry", "battleline", "vehicle", "monster", "unit"):
+            warlord = None
         roster["detachment"] = detachment
         roster["warlord"] = warlord or (units[0]["name"] if units else "")
         roster["units"] = units

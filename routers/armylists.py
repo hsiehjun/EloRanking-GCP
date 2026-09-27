@@ -375,12 +375,13 @@ async def api_delete_armylist(list_id: str, request: Request):
 async def api_nr_studio_shell(request: Request, subpath: Optional[str] = None):
     """Serves the Same-Origin NewRecruit Studio SPA shell with the OmniTactica IndexedDB live sync bridge."""
     from newrecruit_integration import fetch_nr_html_shell
-    try:
-        html = await asyncio.to_thread(fetch_nr_html_shell)
-        return HTMLResponse(content=html, status_code=200)
-    except Exception as e:
-        logger.warning(f"Notice serving NewRecruit Studio shell: {e}")
-        return RedirectResponse(url="https://www.newrecruit.eu/app/Lists", status_code=302)
+    no_cache_headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+    html = await asyncio.to_thread(fetch_nr_html_shell)
+    return HTMLResponse(content=html, status_code=200, headers=no_cache_headers)
 
 
 @router.get("/_nuxt/{subpath:path}", include_in_schema=False)
@@ -424,11 +425,12 @@ async def api_nr_rpc_post_proxy(request: Request):
 async def api_nr_proxy(share_id: str):
     """Proxies NewRecruit share page with auto-import and direct interactive mode script injection."""
     from newrecruit_integration import fetch_nr_html_shell
-    try:
-        html = await asyncio.to_thread(fetch_nr_html_shell)
-        return HTMLResponse(content=html, status_code=200)
-    except Exception as e:
-        logger.warning(f"Notice proxying NewRecruit auto-import: {e}")
-        return RedirectResponse(url=f"https://www.newrecruit.eu/app/list/{share_id.strip()}", status_code=302)
+    no_cache_headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+    html = await asyncio.to_thread(fetch_nr_html_shell)
+    return HTMLResponse(content=html, status_code=200, headers=no_cache_headers)
 
 

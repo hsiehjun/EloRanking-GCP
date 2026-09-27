@@ -3991,9 +3991,11 @@
       `;
     }
 
+    const nameParam = list.name ? `&name=${encodeURIComponent(list.name)}` : '';
+    const cbParam = `&_cb=${Date.now()}`;
     const iframeUrl = activeMode === 'edit'
-      ? `/nr/app/Lists/${encodeURIComponent(listKey)}?embed=tracker`
-      : `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=tracker`;
+      ? `/nr/app/Lists/${encodeURIComponent(listKey)}?embed=tracker${nameParam}${cbParam}`
+      : `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=tracker${nameParam}${cbParam}`;
 
     return `
       ${headerHtml}
@@ -4150,6 +4152,7 @@ Space Marines - Gladius Task Force (2000 pts)
                 type: 'OMNITACTICA_NR_COMMAND',
                 command: 'open_play_mode',
                 list_key: listKey,
+                list_name: activeList.name || '',
                 play: isPlayMode,
                 nr_row: activeList.nr_row || null
               }, '*');

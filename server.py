@@ -141,6 +141,8 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
         path.startswith("/scorecard") or
         path.startswith("/aos") or
         path.startswith("/40k") or
+        path.startswith("/nr") or
+        path.startswith("/app/") or
         path.endswith(".html") or
         path in ("/", "/app", "/app.html", "/index.html", "/login", "/eventstudio", "/eventstudio.html", "/version.json", "/manifest.json")
     ):

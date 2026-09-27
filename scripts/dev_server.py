@@ -5230,17 +5230,15 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             or clean_path.startswith("api/armylist/nr_proxy/")
         ):
             from newrecruit_integration import fetch_nr_html_shell
-            try:
-                html_shell = fetch_nr_html_shell()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.end_headers()
-                if not is_head:
-                    self.wfile.write(html_shell.encode("utf-8"))
-            except Exception as e:
-                self.send_response(302)
-                self.send_header("Location", "https://www.newrecruit.eu/app/Lists")
-                self.end_headers()
+            html_shell = fetch_nr_html_shell()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(html_shell.encode("utf-8"))
             return
 
         if (
