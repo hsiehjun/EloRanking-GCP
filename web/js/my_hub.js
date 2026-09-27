@@ -1712,7 +1712,7 @@ function renderMyHub(data) {
                 <span class="hero-title-badge-slot" style="${titleHtml ? 'display: inline-flex;' : 'display: none;'}">${titleHtml}</span>
                 ${p.player_name && p.player_name !== competitorName && p.player_name.toLowerCase() !== 'competitor' ? `<span style="font-size: 0.8rem; color: #94a3b8; font-weight: 500;">(Ranked as: ${escapeHtml(p.player_name)})</span>` : ''}
                 ${rankings.global_rank ? `<span class="tier-badge tier-S" style="font-size: 0.78rem; padding: 0.15rem 0.55rem;">World #${rankings.global_rank}</span>` : ''}
-                ${rankings.faction_rank ? `<span class="tier-badge tier-A" style="font-size: 0.78rem; padding: 0.15rem 0.55rem;">${escapeHtml(p.top_faction || '')} #${rankings.faction_rank}</span>` : ''}
+                ${p.top_faction ? `<span class="tier-badge tier-A" style="font-size: 0.78rem; padding: 0.15rem 0.55rem;">${escapeHtml(p.top_faction)}</span>` : ''}
               </div>
               <div class="profile-badges-row" style="margin-top: 0.15rem;">
                 ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(currentEloNum, totalMatches, { showTierName: true, size: 'lg', gameSystem: sys }) : `<span class="badge">${currentElo} Elo</span>`}
