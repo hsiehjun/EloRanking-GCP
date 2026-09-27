@@ -1699,7 +1699,7 @@ function renderMyHub(data) {
   let html = `
     <div id="my-hub-container" class="my-hub-container" data-active-tab="${currentHubSubtab || 'active'}">
       <!-- Upgraded 16-Tier Competitor Hero Card with Military Rank Border -->
-      <div class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''} ${frameClass} ${finishClass}" style="margin-bottom: 1.25rem;">
+      <div id="my-hub-hero-card" class="profile-hero-card ${tier.themeClass || ''} ${(data.rank && data.rank.css_class) || ''} ${frameClass} ${finishClass}" style="margin-bottom: 1.25rem;">
         <div class="profile-hero-top">
           <div class="profile-identity-group">
             <div class="profile-rank-crest" title="${escapeHtml(tier.name)}" data-default-icon="${escapeHtml(tier.icon)}" style="${avatarSigilStyle}">
@@ -2123,9 +2123,9 @@ function renderMyHub(data) {
 
   container.innerHTML = html;
 
-  // Apply active equipped armory decorations (frames, sigil avatar, titles)
+  // Apply active equipped armory decorations (frames, sigil avatar, titles) scoped to My Hub
   if (window.Armory && typeof window.Armory.applyEquippedDecorations === 'function') {
-    window.Armory.applyEquippedDecorations(sys, myEq);
+    window.Armory.applyEquippedDecorations(sys, myEq, container);
   }
 
   // Render SVG Trajectory & Load Army Lists

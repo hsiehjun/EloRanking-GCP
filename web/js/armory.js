@@ -571,8 +571,8 @@
 
     var topHex = activeHexes[0];
     var container = document.getElementById(targetContainerId || 'hub-active-hex-container') ||
-                    document.getElementById('hub-content') ||
-                    document.querySelector('.profile-hero-card');
+                    document.getElementById('my-hub-container') ||
+                    document.getElementById('hub-content');
     if (!container) return;
 
     var banner = document.createElement('div');
@@ -681,98 +681,134 @@
     return finishId.replace(/_/g, '-');
   }
 
+  function isTeamViewElement(el) {
+    if (!el || !el.closest) return false;
+    if (el.classList && (el.classList.contains('team-hero-card') || el.classList.contains('team-rank-crest') || el.classList.contains('team-reliquary-container'))) {
+      return true;
+    }
+    return Boolean(el.closest('#team-profile-container, #teams-view, #tab-teams, #team-directory-container'));
+  }
+
   /**
-   * Effect Dispatcher: Applies active decorations across the entire page
+   * Effect Dispatcher: Applies active decorations only to player profile / My Hub hero cards (never Team View)
    */
-  function applyEquippedDecorations(system, overrideEquipped) {
+  function applyEquippedDecorations(system, overrideEquipped, scopeRoot) {
     var rawSys = (typeof system === 'string' && system) ? system : ((typeof currentGameSystem !== 'undefined' && typeof currentGameSystem === 'string' && currentGameSystem) ? currentGameSystem : ((typeof window !== 'undefined' && typeof window.currentGameSystem === 'string' && window.currentGameSystem) ? window.currentGameSystem : '40k'));
     var sys = String(rawSys).toLowerCase();
     var allEq = overrideEquipped || currentVault.equipped || {};
     var eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
 
-    // 1. Apply Card Frame (Border)
+    // Always ensure Team View cards are clean of any personal Armory frame/finish classes
+    var teamCards = document.querySelectorAll('#team-profile-container .profile-hero-card, .team-hero-card');
+    teamCards.forEach(function(tc) {
+      Array.from(tc.classList).forEach(function(c) {
+        if (c.startsWith('frame-') || c.startsWith('frame_') || c.startsWith('finish-') || c.startsWith('finish_')) {
+          tc.classList.remove(c);
+        }
+      });
+    });
+
+    // Resolve target root(s): if scopeRoot is provided, only decorate within scopeRoot;
+    // otherwise only decorate the logged-in user's My Hub hero card (#my-hub-container / #hub-content).
+    var roots = [];
+    if (scopeRoot) {
+      var resolved = typeof scopeRoot === 'string' ? document.querySelector(scopeRoot) : scopeRoot;
+      if (resolved) roots.push(resolved);
+    } else {
+      var hubRoot = document.getElementById('my-hub-container') || document.getElementById('hub-content');
+      if (hubRoot) roots.push(hubRoot);
+    }
+
+    // 1. Apply Card Frame (Border) & Card Finish
     var frameId = eq.active_card_frame;
     var targetCssClass = frameId ? getFrameCssClass(frameId) : null;
-
-    // 1b. Apply Card Finish (Astral Holo-Foil Finish)
     var finishId = eq.active_card_finish;
     var targetFinishClass = finishId ? getFinishCssClass(finishId) : null;
 
-    var heroCards = document.querySelectorAll('.hero-card, .profile-hero-card, #my-hub-hero-card');
-    heroCards.forEach(function(card) {
-      Array.from(card.classList).forEach(function(c) {
-        if (c.startsWith('frame-') || c.startsWith('frame_')) card.classList.remove(c);
-        if (c.startsWith('finish-') || c.startsWith('finish_')) card.classList.remove(c);
+    roots.forEach(function(root) {
+      var heroCards = root.querySelectorAll('.hero-card, #my-hub-hero-card, .profile-hero-card');
+      heroCards.forEach(function(card) {
+        if (isTeamViewElement(card)) return;
+        // Only apply frame/finish to the main competitor hero card (which contains .profile-hero-top), not inner sub-panels
+        if (card.classList.contains('profile-hero-card') && !card.querySelector('.profile-hero-top') && card.id !== 'my-hub-hero-card') {
+          return;
+        }
+        Array.from(card.classList).forEach(function(c) {
+          if (c.startsWith('frame-') || c.startsWith('frame_')) card.classList.remove(c);
+          if (c.startsWith('finish-') || c.startsWith('finish_')) card.classList.remove(c);
+        });
+        if (targetCssClass) {
+          card.classList.add(targetCssClass);
+        }
+        if (targetFinishClass) {
+          card.classList.add(targetFinishClass);
+        }
       });
-      if (targetCssClass) {
-        card.classList.add(targetCssClass);
-      }
-      if (targetFinishClass) {
-        card.classList.add(targetFinishClass);
-      }
-    });
 
-    // 2. Render Equipped Title
-    var titleId = eq.active_title;
-    var titleBadgeContainers = document.querySelectorAll('.hero-title-badge-slot');
-    titleBadgeContainers.forEach(function(el) {
-      if (!titleId) {
-        el.innerHTML = '';
-        el.style.display = 'none';
-      } else {
-        var tItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === titleId; }) : null;
-        var tText = tItem && tItem.payload ? tItem.payload.title_text : (tItem ? tItem.name : titleId.replace(/^title_/, '').replace(/_/g, ' '));
-        var tClass = tItem && tItem.payload ? tItem.payload.css_class : (titleId.includes('warp') ? 'title-badge-warp' : (titleId.includes('forge') ? 'title-badge-forge' : (titleId.includes('strategist') ? 'title-badge-strategist' : 'title-badge-unbroken')));
-        el.innerHTML = '<span class="armory-title-chip ' + escapeHtml(tClass) + '"><span class="title-chip-icon">🏷️</span> ' + escapeHtml(tText.toUpperCase()) + '</span>';
-        el.style.display = 'inline-flex';
-      }
-    });
-
-    // 3. Render Equipped Faction Avatar Sigil (Replaces rank crest icon!)
-    var avatarId = eq.active_avatar;
-    var rankCrests = document.querySelectorAll('.profile-rank-crest');
-    rankCrests.forEach(function(crest) {
-      var slot = crest.querySelector('.hero-avatar-sigil-slot');
-      var defIcon = crest.querySelector('.hero-crest-default-icon');
-
-      if (!slot) {
-        var origHtml = crest.innerHTML.trim();
-        var fallbackIcon = crest.getAttribute('data-default-icon') || origHtml || '🎖️';
-        crest.innerHTML = '<span class="hero-crest-default-icon">' + fallbackIcon + '</span><span class="hero-avatar-sigil-slot" style="display:none;"></span>';
-        slot = crest.querySelector('.hero-avatar-sigil-slot');
-        defIcon = crest.querySelector('.hero-crest-default-icon');
-      }
-
-      if (!avatarId) {
-        if (slot) {
-          slot.innerHTML = '';
-          slot.style.display = 'none';
+      // 2. Render Equipped Title
+      var titleId = eq.active_title;
+      var titleBadgeContainers = root.querySelectorAll('.hero-title-badge-slot');
+      titleBadgeContainers.forEach(function(el) {
+        if (isTeamViewElement(el)) return;
+        if (!titleId) {
+          el.innerHTML = '';
+          el.style.display = 'none';
+        } else {
+          var tItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === titleId; }) : null;
+          var tText = tItem && tItem.payload ? tItem.payload.title_text : (tItem ? tItem.name : titleId.replace(/^title_/, '').replace(/_/g, ' '));
+          var tClass = tItem && tItem.payload ? tItem.payload.css_class : (titleId.includes('warp') ? 'title-badge-warp' : (titleId.includes('forge') ? 'title-badge-forge' : (titleId.includes('strategist') ? 'title-badge-strategist' : 'title-badge-unbroken')));
+          el.innerHTML = '<span class="armory-title-chip ' + escapeHtml(tClass) + '"><span class="title-chip-icon">🏷️</span> ' + escapeHtml(tText.toUpperCase()) + '</span>';
+          el.style.display = 'inline-flex';
         }
-        if (defIcon) {
-          defIcon.style.display = 'inline-flex';
-        }
-        crest.style.borderColor = '';
-        crest.style.boxShadow = '';
-      } else {
-        var svgCode = typeof window.getArmoryAvatarSvg === 'function' ? window.getArmoryAvatarSvg(avatarId) : '';
-        var aItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === avatarId; }) : null;
-        var aColor = (aItem && aItem.payload && aItem.payload.badge_color) ? aItem.payload.badge_color : '#38bdf8';
+      });
 
-        if (defIcon) {
-          defIcon.style.display = 'none';
+      // 3. Render Equipped Faction Avatar Sigil (Replaces rank crest icon on player/My Hub cards only!)
+      var avatarId = eq.active_avatar;
+      var rankCrests = root.querySelectorAll('.profile-rank-crest');
+      rankCrests.forEach(function(crest) {
+        if (isTeamViewElement(crest)) return;
+        var slot = crest.querySelector('.hero-avatar-sigil-slot');
+        var defIcon = crest.querySelector('.hero-crest-default-icon');
+
+        if (!slot) {
+          var origHtml = crest.innerHTML.trim();
+          var fallbackIcon = crest.getAttribute('data-default-icon') || origHtml || '🎖️';
+          crest.innerHTML = '<span class="hero-crest-default-icon">' + fallbackIcon + '</span><span class="hero-avatar-sigil-slot" style="display:none;"></span>';
+          slot = crest.querySelector('.hero-avatar-sigil-slot');
+          defIcon = crest.querySelector('.hero-crest-default-icon');
         }
-        if (slot) {
-          if (svgCode) {
-            slot.innerHTML = svgCode;
-          } else {
-            var aIcon = (aItem && aItem.payload && aItem.payload.avatar_icon) || (aItem && aItem.icon) || '🛡️';
-            slot.innerHTML = '<span class="armory-avatar-sigil" style="font-size: 2.2rem; filter: drop-shadow(0 0 10px ' + aColor + ');">' + aIcon + '</span>';
+
+        if (!avatarId) {
+          if (slot) {
+            slot.innerHTML = '';
+            slot.style.display = 'none';
           }
-          slot.style.display = 'flex';
+          if (defIcon) {
+            defIcon.style.display = 'inline-flex';
+          }
+          crest.style.borderColor = '';
+          crest.style.boxShadow = '';
+        } else {
+          var svgCode = typeof window.getArmoryAvatarSvg === 'function' ? window.getArmoryAvatarSvg(avatarId) : '';
+          var aItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === avatarId; }) : null;
+          var aColor = (aItem && aItem.payload && aItem.payload.badge_color) ? aItem.payload.badge_color : '#38bdf8';
+
+          if (defIcon) {
+            defIcon.style.display = 'none';
+          }
+          if (slot) {
+            if (svgCode) {
+              slot.innerHTML = svgCode;
+            } else {
+              var aIcon = (aItem && aItem.payload && aItem.payload.avatar_icon) || (aItem && aItem.icon) || '🛡️';
+              slot.innerHTML = '<span class="armory-avatar-sigil" style="font-size: 2.2rem; filter: drop-shadow(0 0 10px ' + aColor + ');">' + aIcon + '</span>';
+            }
+            slot.style.display = 'flex';
+          }
+          crest.style.borderColor = aColor;
+          crest.style.boxShadow = '0 0 20px ' + aColor + '55, inset 0 0 14px ' + aColor + '22';
         }
-        crest.style.borderColor = aColor;
-        crest.style.boxShadow = '0 0 20px ' + aColor + '55, inset 0 0 14px ' + aColor + '22';
-      }
+      });
     });
 
     // 4. Sync localStorage active_dice for real-time dice tray integration (only for current user)

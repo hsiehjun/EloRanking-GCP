@@ -675,7 +675,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
   }
 
   if (window.Armory && typeof window.Armory.applyEquippedDecorations === 'function') {
-    window.Armory.applyEquippedDecorations(sys, playerEq);
+    window.Armory.applyEquippedDecorations(sys, playerEq, container);
   }
 }
 
