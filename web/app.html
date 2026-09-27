@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=3.0">
+  <link rel="manifest" href="/manifest.json?v=1302df63fc">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,11 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=54242eed35">
-  <link rel="stylesheet" href="/css/styles.min.css?v=54242eed35">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=54242eed35">
-  <link rel="preload" href="/js/app.bundle.min.js?v=54242eed35" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=1302df63fc">
+  <link rel="stylesheet" href="/css/styles.min.css?v=1302df63fc">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=1302df63fc">
+  <link rel="preload" href="/js/app.bundle.min.js?v=1302df63fc" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <script>window.APP_VERSION = "1302df63fc";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -233,38 +234,98 @@
       window.addEventListener('error', forceDismissSplash);
 
       // Automatically detect new server deployment and purge stale mobile/PWA cache
-      function verifyLiveServerVersion() {
-        fetch('/api/version?_t=' + Date.now(), { cache: 'no-store' })
+      var _lastVerCheck = 0;
+      var _isReloading = false;
+      try {
+        var curUrl = new URL(window.location.href);
+        var urlV = curUrl.searchParams.get('_v');
+        var hasUpd = curUrl.searchParams.has('_upd');
+        var inlineV = (typeof window.APP_VERSION === 'string' && window.APP_VERSION !== 'dev') ? window.APP_VERSION.trim() : null;
+        if ((urlV && (!inlineV || urlV === inlineV)) || hasUpd) {
+          curUrl.searchParams.delete('_v');
+          curUrl.searchParams.delete('_upd');
+          window.history.replaceState(null, '', curUrl.pathname + curUrl.search + curUrl.hash);
+        }
+      } catch (e) {}
+
+      function triggerHardReload(serverVer) {
+        if (_isReloading) return;
+        _isReloading = true;
+        try {
+          sessionStorage.setItem('omnitactica_reloaded_ver', serverVer);
+          localStorage.setItem('omnitactica_live_version', serverVer);
+        } catch (e) {}
+        try {
+          if (document.body && !document.getElementById('omni-auto-update-toast')) {
+            var t = document.createElement('div');
+            t.id = 'omni-auto-update-toast';
+            t.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(15,23,42,0.96);border:1px solid rgba(56,189,248,0.55);color:#f8fafc;padding:10px 18px;border-radius:999px;font-family:Inter,-apple-system,sans-serif;font-size:13px;font-weight:700;box-shadow:0 12px 32px rgba(0,0,0,0.65);display:flex;align-items:center;gap:10px;backdrop-filter:blur(10px);';
+            t.innerHTML = '<span style="width:14px;height:14px;border:2px solid rgba(56,189,248,0.3);border-top-color:#38bdf8;border-radius:50%;display:inline-block;animation:oc-spin 0.7s linear infinite;"></span><span>Updating OmniTactica to latest version...</span><style>@keyframes oc-spin{to{transform:rotate(360deg)}}</style>';
+            document.body.appendChild(t);
+          }
+        } catch (e) {}
+        var bustAndReload = function() {
+          var u = new URL(window.location.href);
+          u.searchParams.set('_v', serverVer);
+          window.location.replace(u.toString());
+        };
+        var tasks = [];
+        if ('caches' in window && window.caches) {
+          tasks.push(caches.keys().then(function(keys) {
+            return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+          }).catch(function() {}));
+        }
+        if ('serviceWorker' in navigator && navigator.serviceWorker) {
+          tasks.push(navigator.serviceWorker.getRegistrations().then(function(regs) {
+            return Promise.all(regs.map(function(r) { return r.update().catch(function() {}); }));
+          }).catch(function() {}));
+        }
+        if (tasks.length > 0) {
+          Promise.all(tasks).finally(bustAndReload);
+        } else {
+          bustAndReload();
+        }
+      }
+
+      function verifyLiveServerVersion(force) {
+        var now = Date.now();
+        if (!force && (now - _lastVerCheck < 15000)) return;
+        _lastVerCheck = now;
+        fetch('/api/version?_t=' + now, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
+        })
           .then(function(r) { return r.ok ? r.json() : null; })
           .then(function(data) {
             if (!data || !data.version) return;
             var serverVer = String(data.version).trim();
-            var prev = localStorage.getItem('omnitactica_live_version');
+            if (!serverVer || serverVer === 'dev') return;
+            var prev = null;
+            try { prev = localStorage.getItem('omnitactica_live_version'); } catch (e) {}
             var inlineVer = (typeof window.APP_VERSION === 'string' && window.APP_VERSION !== 'dev') ? window.APP_VERSION.trim() : null;
-            localStorage.setItem('omnitactica_live_version', serverVer);
-            var isStale = (prev && prev !== serverVer) || (inlineVer && inlineVer !== serverVer);
-            if (isStale && sessionStorage.getItem('omnitactica_reloaded_ver') !== serverVer) {
-              sessionStorage.setItem('omnitactica_reloaded_ver', serverVer);
-              var bustAndReload = function() {
-                var u = new URL(window.location.href);
-                u.searchParams.set('_v', serverVer);
-                window.location.replace(u.toString());
-              };
-              if ('caches' in window) {
-                caches.keys().then(function(keys) {
-                  return Promise.all(keys.map(function(k) { return caches.delete(k); }));
-                }).finally(bustAndReload);
-              } else {
-                bustAndReload();
+            var isStale = (inlineVer && inlineVer !== serverVer) || (prev && prev !== serverVer);
+            try { localStorage.setItem('omnitactica_live_version', serverVer); } catch (e) {}
+            if (isStale) {
+              var alreadyReloaded = null;
+              try { alreadyReloaded = sessionStorage.getItem('omnitactica_reloaded_ver'); } catch (e) {}
+              if (alreadyReloaded !== serverVer) {
+                triggerHardReload(serverVer);
               }
             }
           })
           .catch(function() {});
       }
-      verifyLiveServerVersion();
-      window.addEventListener('pageshow', function(e) {
-        if (e && e.persisted) verifyLiveServerVersion();
+      window.verifyLiveServerVersion = verifyLiveServerVersion;
+      verifyLiveServerVersion(true);
+      window.addEventListener('pageshow', function() { verifyLiveServerVersion(true); });
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') verifyLiveServerVersion(true);
       });
+      window.addEventListener('focus', function() { verifyLiveServerVersion(false); });
+      window.addEventListener('online', function() { verifyLiveServerVersion(true); });
+      setInterval(function() {
+        if (document.visibilityState === 'visible') verifyLiveServerVersion(false);
+      }, 60000);
     })();
   </script>
 
@@ -3394,8 +3455,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "54242eed35";</script>
-  <script src="/js/app.bundle.min.js?v=54242eed35"></script>
+  <script>window.APP_VERSION = "1302df63fc";</script>
+  <script src="/js/app.bundle.min.js?v=1302df63fc"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
@@ -3961,8 +4022,8 @@
           <div class="oc-chat-layout">
             <div class="oc-chat-sidebar">
               <div style="padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); font-weight: 800; font-size: 0.82rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em; display:flex; justify-content:space-between; align-items:center;">
-                <span>Sparring Chats</span>
-                <button onclick="loadUserRequests()" class="btn btn-outline" style="padding: 2px 7px; font-size: 0.7rem;" title="Refresh conversations">🔄</button>
+                <span>Channels &amp; Chats</span>
+                <button id="chat-refresh-btn" onclick="loadUserRequests({ showLoading: true })" class="btn btn-outline" style="padding: 2px 7px; font-size: 0.7rem;" title="Refresh conversations">🔄</button>
               </div>
 
               <div id="chat-pending-section" style="border-bottom: 1px solid var(--border); padding: 0.75rem 1rem; display: none;">
@@ -3980,8 +4041,44 @@
               </div>
 
               <div id="chat-conversations-list" style="flex: 1; overflow-y: auto; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
-                <div style="text-align: center; padding: 2rem 1rem; color: #64748b; font-size: 0.82rem;">
-                  No active conversations yet.<br>Propose a sparring match from Community Hub!
+                <div class="oc-chat-loading-wrap" data-loading-state="true">
+                  <div class="oc-chat-loading-banner">
+                    <div class="oc-chat-spinner"></div>
+                    <div style="min-width: 0;">
+                      <div style="font-size: 0.84rem; font-weight: 800; color: #f8fafc;">Loading your chats &amp; channels...</div>
+                      <div style="font-size: 0.73rem; color: #94a3b8; margin-top: 2px;">Syncing League, Pod &amp; 1-on-1 Sparring conversations</div>
+                    </div>
+                  </div>
+                  <div class="oc-convo-skeleton">
+                    <div style="display: flex; align-items: center; gap: 0.65rem; flex: 1; min-width: 0;">
+                      <div class="oc-skeleton-avatar"></div>
+                      <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
+                        <div class="oc-skeleton-line" style="width: 68%;"></div>
+                        <div class="oc-skeleton-line" style="width: 48%; height: 8px; opacity: 0.75;"></div>
+                      </div>
+                    </div>
+                    <div class="oc-skeleton-pill"></div>
+                  </div>
+                  <div class="oc-convo-skeleton">
+                    <div style="display: flex; align-items: center; gap: 0.65rem; flex: 1; min-width: 0;">
+                      <div class="oc-skeleton-avatar"></div>
+                      <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
+                        <div class="oc-skeleton-line" style="width: 56%;"></div>
+                        <div class="oc-skeleton-line" style="width: 72%; height: 8px; opacity: 0.75;"></div>
+                      </div>
+                    </div>
+                    <div class="oc-skeleton-pill"></div>
+                  </div>
+                  <div class="oc-convo-skeleton">
+                    <div style="display: flex; align-items: center; gap: 0.65rem; flex: 1; min-width: 0;">
+                      <div class="oc-skeleton-avatar"></div>
+                      <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
+                        <div class="oc-skeleton-line" style="width: 62%;"></div>
+                        <div class="oc-skeleton-line" style="width: 42%; height: 8px; opacity: 0.75;"></div>
+                      </div>
+                    </div>
+                    <div class="oc-skeleton-pill"></div>
+                  </div>
                 </div>
               </div>
             </div>

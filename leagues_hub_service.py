@@ -6710,21 +6710,25 @@ class LeaguesHubService:
                 continue
 
             primary_pod = min(user_pods) if user_pods else None
-            docs = self.sync_league_group_chats(lid)
-            for d in docs:
-                cid = str(d.get("channelId") or d.get("requestId") or "")
+            from firestore_db import get_firestore_engine
+            fs_engine = get_firestore_engine()
+            specs = self._build_seasonal_group_chat_specs(league)
+            for sp in specs:
+                cid = str(sp.get("channel_id") or "")
                 if not cid or cid in seen_cids:
                     continue
-                gtype = d.get("groupType")
-                p_num = d.get("podNumber")
-                if gtype == "league":
+                gmeta = sp.get("group_meta") or {}
+                gtype = gmeta.get("group_type")
+                p_num = gmeta.get("pod_number")
+                if gtype == "league" or (gtype == "pod" and primary_pod is not None and int(p_num or 0) == int(primary_pod)):
+                    doc = fs_engine.ensure_seasonal_group_chat(
+                        channel_id=cid,
+                        group_meta=gmeta,
+                        greeting_message=sp["greeting_message"],
+                        initial_messages=sp.get("initial_messages")
+                    )
                     seen_cids.add(cid)
-                    results.append(self._format_group_chat_for_request_list(d, user_id=str(user_id or "")))
-                elif gtype == "pod":
-                    # Strictly include ONLY the single pod-specific chat that the player is in!
-                    if primary_pod is not None and int(p_num or 0) == int(primary_pod):
-                        seen_cids.add(cid)
-                        results.append(self._format_group_chat_for_request_list(d, user_id=str(user_id or "")))
+                    results.append(self._format_group_chat_for_request_list(doc, user_id=str(user_id or "")))
 
         return results
 
@@ -6776,9 +6780,18 @@ class LeaguesHubService:
                 "error": f"Season {season_num} has ended and its pod chat has been removed."
             }
 
-        # Sync dynamic roster and ensure greeting message exists
-        self.sync_league_group_chats(lid)
-        doc = fs_engine.get_group_chat(channel_id)
+        # Sync dynamic roster and greeting message for the requested channel
+        specs = self._build_seasonal_group_chat_specs(league)
+        target_spec = next((sp for sp in specs if sp.get("channel_id") == channel_id), None)
+        if target_spec:
+            doc = fs_engine.ensure_seasonal_group_chat(
+                channel_id=target_spec["channel_id"],
+                group_meta=target_spec["group_meta"],
+                greeting_message=target_spec["greeting_message"],
+                initial_messages=target_spec.get("initial_messages")
+            )
+        else:
+            doc = fs_engine.get_group_chat(channel_id)
         if not doc:
             return {"success": False, "error": "Seasonal group chat is disabled or unavailable"}
 

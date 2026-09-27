@@ -14,8 +14,16 @@ const connectState = {
   userSyncSnapshotUnsub: null,
   activeMessages: [],
   placesAutocomplete: null,
-  initialized: false
+  initialized: false,
+  isLoadingRequests: false,
+  hasLoadedRequestsOnce: false,
+  isLoadingMessages: false,
+  _requestsLoadPromise: null,
+  _prefetchedRequestsOnce: false
 };
+if (typeof window !== 'undefined') {
+  window.connectState = connectState;
+}
 
 // Global entry point called when switching to 'connect' tab
 async function initConnectTab() {
@@ -989,11 +997,74 @@ async function loadNearbyTournaments() {
 /* --------------------------------------------------------------------------
    SUBVIEW 3: MATCH CHATS & REQUESTS
    -------------------------------------------------------------------------- */
+function getChatConversationsLoadingHtml(
+  title = 'Loading your chats & channels...',
+  subtitle = 'Syncing League, Pod & 1-on-1 Sparring conversations'
+) {
+  return `
+    <div class="oc-chat-loading-wrap" data-loading-state="true">
+      <div class="oc-chat-loading-banner">
+        <div class="oc-chat-spinner"></div>
+        <div style="min-width: 0;">
+          <div style="font-size: 0.84rem; font-weight: 800; color: #f8fafc;">${escapeHtml(title)}</div>
+          <div style="font-size: 0.73rem; color: #94a3b8; margin-top: 2px;">${escapeHtml(subtitle)}</div>
+        </div>
+      </div>
+      <div class="oc-convo-skeleton">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex: 1; min-width: 0;">
+          <div class="oc-skeleton-avatar"></div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
+            <div class="oc-skeleton-line" style="width: 68%;"></div>
+            <div class="oc-skeleton-line" style="width: 48%; height: 8px; opacity: 0.75;"></div>
+          </div>
+        </div>
+        <div class="oc-skeleton-pill"></div>
+      </div>
+      <div class="oc-convo-skeleton">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex: 1; min-width: 0;">
+          <div class="oc-skeleton-avatar"></div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
+            <div class="oc-skeleton-line" style="width: 56%;"></div>
+            <div class="oc-skeleton-line" style="width: 72%; height: 8px; opacity: 0.75;"></div>
+          </div>
+        </div>
+        <div class="oc-skeleton-pill"></div>
+      </div>
+      <div class="oc-convo-skeleton">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex: 1; min-width: 0;">
+          <div class="oc-skeleton-avatar"></div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
+            <div class="oc-skeleton-line" style="width: 62%;"></div>
+            <div class="oc-skeleton-line" style="width: 42%; height: 8px; opacity: 0.75;"></div>
+          </div>
+        </div>
+        <div class="oc-skeleton-pill"></div>
+      </div>
+    </div>
+  `;
+}
+window.getChatConversationsLoadingHtml = getChatConversationsLoadingHtml;
+
+function getChatMessagesLoadingHtml(
+  title = 'Loading messages...',
+  subtitle = 'Syncing conversation history'
+) {
+  return `
+    <div class="oc-messages-loading-wrap" data-loading-state="true">
+      <div class="oc-chat-spinner" style="width: 28px; height: 28px; border-width: 3px;"></div>
+      <div style="font-size: 0.9rem; font-weight: 800; color: #f8fafc;">${escapeHtml(title)}</div>
+      <div style="font-size: 0.76rem; color: #94a3b8;">${escapeHtml(subtitle)}</div>
+    </div>
+  `;
+}
+window.getChatMessagesLoadingHtml = getChatMessagesLoadingHtml;
+
 function renderRequestsList(requests = connectState.requestsList, myId = null) {
   if (!myId) {
     myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id || '';
   }
 
+  const safeRequests = Array.isArray(requests) ? requests : [];
   const pendingSection = document.getElementById('chat-pending-section');
   const pendingList = document.getElementById('chat-pending-list');
   const pendingCount = document.getElementById('pending-count');
@@ -1002,9 +1073,19 @@ function renderRequestsList(requests = connectState.requestsList, myId = null) {
   const sentCount = document.getElementById('sent-count');
   const convoList = document.getElementById('chat-conversations-list');
 
-  const incomingPending = requests.filter(r => r.status === 'pending' && r.receiver_id === myId);
-  const outgoingPending = requests.filter(r => r.status === 'pending' && r.sender_id === myId);
-  const acceptedConvos = requests.filter(r => r.status === 'accepted');
+  // If initial load is still in progress and no requests are cached yet, keep the loading screen visible
+  if ((connectState.isLoadingRequests || !connectState.hasLoadedRequestsOnce) && safeRequests.length === 0) {
+    if (pendingSection) pendingSection.style.display = 'none';
+    if (sentSection) sentSection.style.display = 'none';
+    if (convoList && !convoList.querySelector('[data-loading-state="true"]')) {
+      convoList.innerHTML = getChatConversationsLoadingHtml();
+    }
+    return;
+  }
+
+  const incomingPending = safeRequests.filter(r => r.status === 'pending' && r.receiver_id === myId);
+  const outgoingPending = safeRequests.filter(r => r.status === 'pending' && r.sender_id === myId);
+  const acceptedConvos = safeRequests.filter(r => r.status === 'accepted');
 
   // 1. Render Incoming Pending Requests
   if (pendingSection && pendingList && pendingCount) {
@@ -1113,8 +1194,9 @@ function renderRequestsList(requests = connectState.requestsList, myId = null) {
 
       const renderDirectItem = (req) => {
         const isMeSender = (req.sender_id === myId);
-        const otherName = isMeSender ? req.receiver_name : req.sender_name;
-        const otherElo = Math.round(isMeSender ? req.receiver_elo : req.sender_elo);
+        const otherName = (isMeSender ? req.receiver_name : req.sender_name) || req.from_display_name || req.to_display_name || 'Player';
+        const rawElo = isMeSender ? req.receiver_elo : req.sender_elo;
+        const otherElo = (rawElo != null && !Number.isNaN(Number(rawElo))) ? Math.round(Number(rawElo)) : 1500;
         const initials = (otherName || 'P').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
         const isSelected = (connectState.activeRequestId === req.id);
         const unread = parseInt(req.unread_count || 0, 10);
@@ -1167,19 +1249,50 @@ function renderRequestsList(requests = connectState.requestsList, myId = null) {
 }
 window.renderRequestsList = renderRequestsList;
 
-async function loadUserRequests() {
-  try {
-    const res = await window.api.getConnectRequests();
-    const requests = (res && res.requests) ? res.requests : [];
-    const myId = res?.current_user_id || (typeof currentUser !== 'undefined' && currentUser?.id) || '';
-    connectState.requestsList = requests;
-    renderRequestsList(requests, myId);
-    if (typeof updateUnreadCountBadge === 'function') {
-      updateUnreadCountBadge();
+async function loadUserRequests(options = {}) {
+  const showLoading = Boolean(options && options.showLoading);
+  const refreshBtn = document.getElementById('chat-refresh-btn');
+  if (refreshBtn) refreshBtn.classList.add('oc-refresh-btn-spinning');
+
+  const hasCachedConvos = Array.isArray(connectState.requestsList) && connectState.requestsList.length > 0;
+  if (!hasCachedConvos || !connectState.hasLoadedRequestsOnce || showLoading) {
+    const convoList = document.getElementById('chat-conversations-list');
+    if (convoList && (!hasCachedConvos || showLoading)) {
+      convoList.innerHTML = getChatConversationsLoadingHtml();
     }
-  } catch (err) {
-    console.warn("Failed to load requests:", err);
   }
+
+  if (connectState._requestsLoadPromise) {
+    return connectState._requestsLoadPromise;
+  }
+
+  connectState.isLoadingRequests = true;
+  connectState._requestsLoadPromise = (async () => {
+    try {
+      const res = await window.api.getConnectRequests();
+      const requests = (res && res.requests) ? res.requests : [];
+      const myId = res?.current_user_id || (typeof currentUser !== 'undefined' && currentUser?.id) || '';
+      connectState.requestsList = requests;
+      connectState.hasLoadedRequestsOnce = true;
+      connectState.isLoadingRequests = false;
+      renderRequestsList(requests, myId);
+      if (typeof updateUnreadCountBadge === 'function') {
+        updateUnreadCountBadge();
+      }
+    } catch (err) {
+      console.warn("Failed to load requests:", err);
+      connectState.isLoadingRequests = false;
+      connectState.hasLoadedRequestsOnce = true;
+      renderRequestsList(connectState.requestsList || []);
+    } finally {
+      connectState.isLoadingRequests = false;
+      connectState._requestsLoadPromise = null;
+      const btn = document.getElementById('chat-refresh-btn');
+      if (btn) btn.classList.remove('oc-refresh-btn-spinning');
+    }
+  })();
+
+  return connectState._requestsLoadPromise;
 }
 window.loadUserRequests = loadUserRequests;
 
@@ -1613,6 +1726,9 @@ function toggleFloatingChatWide(forceState) {
 window.toggleFloatingChatWide = toggleFloatingChatWide;
 
 function toggleFloatingChat(forceState) {
+  if (typeof ensureFloatingChatWidgetDom === 'function' && !document.getElementById('floating-chat-window')) {
+    ensureFloatingChatWidgetDom();
+  }
   const widget = document.getElementById('floating-chat-widget');
   const win = document.getElementById('floating-chat-window');
   const bubble = document.getElementById('floating-chat-bubble');
@@ -1630,6 +1746,13 @@ function toggleFloatingChat(forceState) {
     win.style.display = 'flex';
     bubble.classList.add('active');
     if (widget) widget.classList.add('is-open');
+
+    // Immediately show loading screen if conversations have not loaded yet
+    const hasCachedConvos = Array.isArray(connectState.requestsList) && connectState.requestsList.length > 0;
+    const convoList = document.getElementById('chat-conversations-list');
+    if (convoList && !hasCachedConvos && !connectState.hasLoadedRequestsOnce) {
+      convoList.innerHTML = getChatConversationsLoadingHtml();
+    }
 
     if (window.innerWidth <= 768) {
       document.body.classList.add('chat-mode-active');
@@ -1714,7 +1837,6 @@ function backToChatList() {
 window.backToChatList = backToChatList;
 
 function openChatWithRequest(requestId) {
-  connectState.activeRequestId = requestId;
   if (typeof toggleFloatingChat === 'function') {
     toggleFloatingChat(true);
   } else if (typeof switchTab === 'function') {
@@ -1740,13 +1862,15 @@ async function selectConversation(requestId) {
   // Immediately clear unread status on click
   markCurrentChatAsRead(requestId);
 
-  if (connectState.activeRequestId === requestId && connectState.chatSnapshotUnsub) {
+  const isSameActiveConvo = (connectState.activeRequestId === requestId);
+  if (isSameActiveConvo && connectState.chatSnapshotUnsub && connectState.activeMessages && connectState.activeMessages.length > 0) {
     return;
   }
   connectState.activeRequestId = requestId;
 
   const header = document.getElementById('chat-active-header');
   const inputForm = document.getElementById('chat-input-form');
+  const msgContainer = document.getElementById('chat-messages-container');
 
   if (header) header.style.display = 'flex';
   if (inputForm) inputForm.style.display = 'flex';
@@ -1782,6 +1906,17 @@ async function selectConversation(requestId) {
       if (avatarEl && otherName) avatarEl.textContent = otherName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
       if (subEl) subEl.textContent = `Proposed: ${localReq.proposed_points || 2000} pts at ${localReq.proposed_venue || 'Local Store'}`;
       if (inviteBtn) inviteBtn.style.display = 'inline-flex';
+    }
+  }
+
+  // Render cached group messages immediately if available, or show loading spinner while fetching
+  if (localReq && Array.isArray(localReq.messages) && localReq.messages.length > 0) {
+    connectState.activeMessages = localReq.messages;
+    renderChatMessages(localReq.messages, false);
+  } else if (!isSameActiveConvo || !connectState.activeMessages || connectState.activeMessages.length === 0) {
+    connectState.activeMessages = [];
+    if (msgContainer) {
+      msgContainer.innerHTML = getChatMessagesLoadingHtml();
     }
   }
 
@@ -2323,6 +2458,16 @@ async function updateUnreadCountBadge() {
         bubbleBtn.classList.remove('has-unread');
       }
     }
+
+    // Pre-warm user chats in the background once so opening Chat is near-instant
+    if (!connectState._prefetchedRequestsOnce && !connectState.hasLoadedRequestsOnce && !connectState.isLoadingRequests) {
+      connectState._prefetchedRequestsOnce = true;
+      setTimeout(() => {
+        if (!connectState.hasLoadedRequestsOnce && !connectState.isLoadingRequests && typeof loadUserRequests === 'function') {
+          loadUserRequests();
+        }
+      }, 300);
+    }
   } catch (e) {}
 }
 
@@ -2857,8 +3002,8 @@ function ensureFloatingChatWidgetDom() {
             <div class="oc-chat-layout">
               <div class="oc-chat-sidebar">
                 <div style="padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); font-weight: 800; font-size: 0.82rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em; display:flex; justify-content:space-between; align-items:center;">
-                  <span>Channels & Chats</span>
-                  <button onclick="loadUserRequests()" class="btn btn-outline" style="padding: 2px 7px; font-size: 0.7rem;" title="Refresh conversations">🔄</button>
+                  <span>Channels &amp; Chats</span>
+                  <button id="chat-refresh-btn" onclick="loadUserRequests({ showLoading: true })" class="btn btn-outline" style="padding: 2px 7px; font-size: 0.7rem;" title="Refresh conversations">🔄</button>
                 </div>
                 <div id="chat-pending-section" style="border-bottom: 1px solid var(--border); padding: 0.75rem 1rem; display: none;">
                   <div style="font-size: 0.72rem; font-weight: 800; color: #f59e0b; text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.04em;">
@@ -2872,7 +3017,9 @@ function ensureFloatingChatWidgetDom() {
                   </div>
                   <div id="chat-sent-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
                 </div>
-                <div id="chat-conversations-list" style="flex: 1; overflow-y: auto; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;"></div>
+                <div id="chat-conversations-list" style="flex: 1; overflow-y: auto; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                  ${getChatConversationsLoadingHtml()}
+                </div>
               </div>
               <div class="oc-chat-main">
                 <div class="oc-chat-header" id="chat-active-header" style="display: none;">
@@ -2897,7 +3044,13 @@ function ensureFloatingChatWidgetDom() {
                     </button>
                   </div>
                 </div>
-                <div class="oc-messages-list" id="chat-messages-container"></div>
+                <div class="oc-messages-list" id="chat-messages-container">
+                  <div style="text-align: center; margin: auto; color: #64748b; padding: 2rem 1rem;">
+                    <div style="font-size: 2.2rem; margin-bottom: 0.4rem;">💬</div>
+                    <p style="margin: 0; font-size: 0.88rem; font-weight: 700; color: #94a3b8;">Select a sparring match</p>
+                    <p style="margin: 4px 0 0; font-size: 0.78rem;">Chat with opponents to coordinate game time, points, and mission packs.</p>
+                  </div>
+                </div>
                 <form class="oc-chat-input-bar" id="chat-input-form" onsubmit="handleSendChatMessage(event)" style="display: none;">
                   <input type="text" id="chat-input-text" class="search-input" style="flex: 1;" placeholder="Ask a rules question or message your Pod..." autocomplete="off">
                   <button type="submit" class="btn btn-primary oc-chat-send-btn" aria-label="Send message">
@@ -2929,6 +3082,28 @@ async function openLeagueGroupChat(leagueId, podNumber = null, seasonNumber = nu
   }
   ensureFloatingChatWidgetDom();
 
+  const win = document.getElementById('floating-chat-window');
+  const bubble = document.getElementById('floating-chat-bubble');
+  const widget = document.getElementById('floating-chat-widget');
+  const wasOpen = Boolean(win && win.style.display !== 'none');
+
+  // Open chat window immediately with loading indicator so the user never waits on a blank screen
+  if (win) win.style.display = 'flex';
+  if (bubble) bubble.classList.add('active');
+  if (widget) widget.classList.add('is-open');
+
+  const loadingTitle = podNumber ? `Opening Pod #${podNumber} Chat...` : 'Opening League Group Chat...';
+  const loadingSub = 'Syncing seasonal channel roster & messages';
+  const hasCachedConvos = Array.isArray(connectState.requestsList) && connectState.requestsList.length > 0;
+  const convoList = document.getElementById('chat-conversations-list');
+  if (convoList && !hasCachedConvos) {
+    convoList.innerHTML = getChatConversationsLoadingHtml(loadingTitle, loadingSub);
+  }
+  const msgContainer = document.getElementById('chat-messages-container');
+  if (msgContainer && (!connectState.activeRequestId || !connectState.activeMessages || connectState.activeMessages.length === 0)) {
+    msgContainer.innerHTML = getChatMessagesLoadingHtml(loadingTitle, loadingSub);
+  }
+
   // Refresh the user's authorized chats from backend (strictly at most 2 per league: general league chat + player's own pod chat)
   await loadUserRequests();
 
@@ -2949,18 +3124,14 @@ async function openLeagueGroupChat(leagueId, podNumber = null, seasonNumber = nu
   }
 
   if (!targetChatObj) {
+    if (!wasOpen) {
+      toggleFloatingChat(false);
+    }
     alert(podNumber
       ? `🔒 Pod #${podNumber} Group Chat is only available to players assigned to Pod #${podNumber}.`
       : '🔒 League Group Chat is only available to registered players in this league.');
     return;
   }
-
-  const win = document.getElementById('floating-chat-window');
-  const bubble = document.getElementById('floating-chat-bubble');
-  const widget = document.getElementById('floating-chat-widget');
-  if (win) win.style.display = 'flex';
-  if (bubble) bubble.classList.add('active');
-  if (widget) widget.classList.add('is-open');
 
   renderRequestsList(connectState.requestsList);
   await selectConversation(targetChatObj.id);

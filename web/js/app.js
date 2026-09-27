@@ -824,10 +824,10 @@ function showIosPwaBanner() {
 let _pwaUpdateBannerActive = false;
 let _pwaLastVersionCheckTime = 0;
 
-async function checkAppVersionForUpdates() {
+async function checkAppVersionForUpdates(force = false) {
   const now = Date.now();
-  // Throttle checks to at most once every 30 seconds
-  if (now - _pwaLastVersionCheckTime < 30000) {
+  // Throttle checks to at most once every 15 seconds unless forced
+  if (!force && (now - _pwaLastVersionCheckTime < 15000)) {
     return;
   }
   _pwaLastVersionCheckTime = now;
@@ -840,15 +840,28 @@ async function checkAppVersionForUpdates() {
   try {
     const res = await fetch(`/api/version?_t=${now}`, {
       cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache, no-store' }
+      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
     });
     if (!res.ok) return;
     const data = await res.json();
     const serverVersion = data && data.version ? String(data.version).trim() : null;
 
-    if (serverVersion && serverVersion !== currentVersion && serverVersion !== 'dev') {
-      console.log(`[PWA Update] Client version (${currentVersion}) differs from server (${serverVersion}). Prompting reload.`);
-      showAppUpdateBanner(serverVersion);
+    if (serverVersion && serverVersion !== 'dev') {
+      try {
+        localStorage.setItem('omnitactica_live_version', serverVersion);
+      } catch (e) {}
+      if (serverVersion !== currentVersion) {
+        let alreadyReloaded = null;
+        try {
+          alreadyReloaded = sessionStorage.getItem('omnitactica_reloaded_ver');
+        } catch (e) {}
+        if (alreadyReloaded !== serverVersion) {
+          console.log(`[PWA Update] Client version (${currentVersion}) differs from server (${serverVersion}). Auto-refreshing to latest release.`);
+          await applyAppUpdateNow(serverVersion);
+        } else {
+          showAppUpdateBanner(serverVersion);
+        }
+      }
     }
   } catch (e) {
     // Network errors or offline shouldn't break the app
@@ -892,7 +905,7 @@ function showAppUpdateBanner(newVersion) {
 
   const applyBtn = document.getElementById('btn-pwa-apply-update');
   if (applyBtn) {
-    applyBtn.onclick = () => applyAppUpdateNow();
+    applyBtn.onclick = () => applyAppUpdateNow(newVersion);
   }
 
   const dismissBtn = document.getElementById('btn-pwa-dismiss-update');
@@ -914,12 +927,30 @@ function dismissAppUpdateBanner() {
   localStorage.setItem('pwa_update_dismissed_until', String(Date.now() + 15 * 60 * 1000));
 }
 
-async function applyAppUpdateNow() {
+async function applyAppUpdateNow(targetVersion = null) {
   const updateBtn = document.getElementById('btn-pwa-apply-update');
   if (updateBtn) {
     updateBtn.textContent = 'Updating...';
     updateBtn.disabled = true;
   }
+
+  if (targetVersion) {
+    try {
+      sessionStorage.setItem('omnitactica_reloaded_ver', String(targetVersion));
+      localStorage.setItem('omnitactica_live_version', String(targetVersion));
+    } catch (e) {}
+  }
+
+  // Show a brief non-blocking status toast so the user sees why the page is refreshing
+  try {
+    if (document.body && !document.getElementById('omni-auto-update-toast')) {
+      const toast = document.createElement('div');
+      toast.id = 'omni-auto-update-toast';
+      toast.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(15,23,42,0.96);border:1px solid rgba(56,189,248,0.55);color:#f8fafc;padding:10px 18px;border-radius:999px;font-family:Inter,-apple-system,sans-serif;font-size:13px;font-weight:700;box-shadow:0 12px 32px rgba(0,0,0,0.65);display:flex;align-items:center;gap:10px;backdrop-filter:blur(10px);';
+      toast.innerHTML = '<span style="width:14px;height:14px;border:2px solid rgba(56,189,248,0.3);border-top-color:#38bdf8;border-radius:50%;display:inline-block;animation:oc-spin 0.7s linear infinite;"></span><span>Updating OmniTactica to latest version...</span><style>@keyframes oc-spin{to{transform:rotate(360deg)}}</style>';
+      document.body.appendChild(toast);
+    }
+  } catch (e) {}
 
   // Clear client cache storage if available
   if (window.caches) {
@@ -945,7 +976,7 @@ async function applyAppUpdateNow() {
 
   // Force cache-busting page reload
   const url = new URL(window.location.href);
-  url.searchParams.set('_upd', String(Date.now()));
+  url.searchParams.set('_v', targetVersion ? String(targetVersion) : String(Date.now()));
   window.location.replace(url.toString());
 }
 
@@ -986,20 +1017,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     syncAppAuthView();
   }
 
-  // Live update checks
-  setTimeout(checkAppVersionForUpdates, 2000);
+  // Live update checks (immediate + on resume/focus/visibility + periodic every 60s)
+  setTimeout(() => checkAppVersionForUpdates(true), 1200);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      checkAppVersionForUpdates();
+      checkAppVersionForUpdates(true);
     }
   });
   window.addEventListener('pageshow', () => {
-    checkAppVersionForUpdates();
+    checkAppVersionForUpdates(true);
   });
   window.addEventListener('focus', () => {
-    checkAppVersionForUpdates();
+    checkAppVersionForUpdates(false);
   });
-  setInterval(checkAppVersionForUpdates, 5 * 60 * 1000);
+  window.addEventListener('online', () => {
+    checkAppVersionForUpdates(true);
+  });
+  setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      checkAppVersionForUpdates(false);
+    }
+  }, 60 * 1000);
 
   // Gate all features behind login
   if (!currentUser) {

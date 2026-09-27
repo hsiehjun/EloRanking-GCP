@@ -101,18 +101,7 @@ def build_bundle():
     import re
     from datetime import datetime, timezone
 
-    bundle_hash = hashlib.md5(full_bundle.encode("utf-8")).hexdigest()[:10]
-
-    # 1. Stamped version manifest for live PWA update checking
-    version_file = ROOT_DIR / "web" / "version.json"
-    version_data = {
-        "version": bundle_hash,
-        "updated_at": datetime.now(timezone.utc).isoformat()
-    }
-    version_file.write_text(json.dumps(version_data, indent=2) + "\n", encoding="utf-8")
-    print(f"  ✓ Stamped web/version.json with release hash: {bundle_hash}")
-
-    # 2. Minify CSS styles.css -> styles.min.css
+    # 1. Minify CSS styles.css -> styles.min.css
     css_src = ROOT_DIR / "web" / "css" / "styles.css"
     css_min = ROOT_DIR / "web" / "css" / "styles.min.css"
     if esbuild_bin and css_src.exists():
@@ -124,7 +113,7 @@ def build_bundle():
         css_out = css_min.stat().st_size
         print(f"  ✓ Minified web/css/styles.css ({css_raw / 1024:.1f} KB -> {css_out / 1024:.1f} KB, -{(1 - (css_out / css_raw)) * 100:.1f}%)")
 
-    # 2b. Bundle and minify Event Studio standalone bundle (eventstudio.bundle.min.js)
+    # 2. Bundle and minify Event Studio standalone bundle (eventstudio.bundle.min.js)
     es_modules = ["api.js", "auth.js", "connect.js", "eventstudio.js"]
     es_parts = []
     es_raw_bytes = 0
@@ -153,35 +142,73 @@ def build_bundle():
         es_out_bytes = len(es_bundle.encode("utf-8"))
         print(f"  ✓ Bundled web/js/eventstudio.bundle.min.js ({es_raw_bytes / 1024:.1f} KB -> {es_out_bytes / 1024:.1f} KB)")
 
-    # 3. Update cache-busting query params and APP_VERSION in HTML templates
+    # 3. Compute composite release hash across all JS, CSS, Tracker, and HTML assets
+    hasher = hashlib.md5()
+    hasher.update(full_bundle.encode("utf-8"))
+    extra_hash_files = [
+        ROOT_DIR / "web" / "css" / "styles.css",
+        ROOT_DIR / "web" / "css" / "theme.css",
+        ROOT_DIR / "web" / "css" / "eventstudio.css",
+        ROOT_DIR / "web" / "js" / "eventstudio.js",
+        ROOT_DIR / "web" / "tracker" / "tracker_sync.js",
+        ROOT_DIR / "web" / "tracker" / "tracker_sync_aos.js",
+        ROOT_DIR / "web" / "tracker" / "tracker_sync.css",
+    ]
+    for ef in extra_hash_files:
+        if ef.exists():
+            hasher.update(ef.read_bytes())
+
     html_targets = [
         ROOT_DIR / "web" / "app.html",
         ROOT_DIR / "web" / "index.html",
-        ROOT_DIR / "web" / "eventstudio.html"
+        ROOT_DIR / "web" / "eventstudio.html",
+        ROOT_DIR / "web" / "tracker" / "lobby.html",
+        ROOT_DIR / "web" / "tracker" / "play.html",
+        ROOT_DIR / "web" / "tracker" / "aos.html",
+        ROOT_DIR / "web" / "tracker" / "login.html",
+        ROOT_DIR / "web" / "scorecard.html",
     ]
+    for hp in html_targets:
+        if hp.exists():
+            norm_html = re.sub(r'\?v=[a-zA-Z0-9._-]+', '?v=HASH', hp.read_text(encoding="utf-8"))
+            norm_html = re.sub(r'window\.APP_VERSION\s*=\s*["\'][^"\']*["\']', 'window.APP_VERSION = "HASH"', norm_html)
+            hasher.update(norm_html.encode("utf-8"))
+
+    bundle_hash = hasher.hexdigest()[:10]
+
+    # 4. Stamped version manifest for live PWA update checking
+    version_file = ROOT_DIR / "web" / "version.json"
+    version_data = {
+        "version": bundle_hash,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    version_file.write_text(json.dumps(version_data, indent=2) + "\n", encoding="utf-8")
+    print(f"  ✓ Stamped web/version.json with release hash: {bundle_hash}")
+
+    # 5. Update cache-busting query params and APP_VERSION in all HTML templates
     for html_path in html_targets:
         if not html_path.exists():
             continue
         content = html_path.read_text(encoding="utf-8")
-        
-        # Ensure stylesheet points to styles.min.css
-        content = content.replace('/css/styles.css', '/css/styles.min.css')
 
-        # Replace ?v=... for styles and scripts
+        # Ensure stylesheet points to styles.min.css
+        updated = content.replace('/css/styles.css', '/css/styles.min.css')
+
+        # Replace ?v=... for styles, scripts, tracker assets, and manifest
         updated = re.sub(
-            r'((?:/css/[a-zA-Z0-9_.-]+\.css|/js/[a-zA-Z0-9_.-]+\.js))\?v=[a-zA-Z0-9._-]+',
+            r'((?:/css/[a-zA-Z0-9_.-]+\.css|/js/[a-zA-Z0-9_.-]+\.js|/tracker/[a-zA-Z0-9_.-]+\.(?:js|css)|/manifest\.json))\?v=[a-zA-Z0-9._-]+',
             rf'\1?v={bundle_hash}',
-            content
+            updated
         )
-        # Update window.APP_VERSION in app.html
+        # Update window.APP_VERSION in all HTML templates
         updated = re.sub(
             r'window\.APP_VERSION\s*=\s*["\'][^"\']*["\']',
             f'window.APP_VERSION = "{bundle_hash}"',
             updated
         )
-        if updated != content or content != html_path.read_text(encoding="utf-8"):
+        if updated != content:
             html_path.write_text(updated, encoding="utf-8")
-            print(f"  ✓ Updated asset query versions (?v={bundle_hash}) in {html_path.name}")
+            print(f"  ✓ Updated asset query versions (?v={bundle_hash}) in {html_path.relative_to(ROOT_DIR / 'web')}")
 
 if __name__ == "__main__":
     build_bundle()

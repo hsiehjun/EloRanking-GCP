@@ -626,7 +626,19 @@ class FirestoreRoomEngine:
             "expiresAt": expires_dt
         }
 
-        if self._client:
+        needs_write = (
+            existing_doc is None
+            or not found_greet
+            or had_seed_msgs
+            or existing_doc.get("title") != doc_data["title"]
+            or existing_doc.get("subtitle") != doc_data["subtitle"]
+            or existing_doc.get("participants") != doc_data["participants"]
+            or existing_doc.get("participantNames") != doc_data["participantNames"]
+            or existing_doc.get("memberCount") != doc_data["memberCount"]
+            or (existing_doc.get("greetingMessage") or {}).get("message_text") != greeting_message.get("message_text")
+        )
+
+        if self._client and needs_write:
             try:
                 ref = self.get_chat_doc_ref(channel_id)
                 if ref:

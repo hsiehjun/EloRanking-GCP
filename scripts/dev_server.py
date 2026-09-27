@@ -1914,8 +1914,41 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         clean_path = raw_path.strip("/")
 
         # 1. API routes
+        if clean_path in ("api/version", "version.json"):
+            v_file = WEB_DIR / "version.json"
+            v_str = "1.0.0"
+            u_at = None
+            if v_file.exists():
+                try:
+                    v_data = json.loads(v_file.read_text(encoding="utf-8"))
+                    v_str = str(v_data.get("version") or v_str).strip()
+                    u_at = v_data.get("updated_at")
+                except Exception:
+                    pass
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"version": v_str, "updated_at": u_at, "status": "ok"}).encode("utf-8"))
+            return
+
         if clean_path in ("api/auth/me", "api/auth/session"):
             cookie_hdr = self.headers.get("Cookie", "")
+            auth_hdr = self.headers.get("Authorization", "")
+            qp_auth = urllib.parse.parse_qs(query_str)
+            token_param = (qp_auth.get("token") or [""])[0].strip()
+            bearer_tok = auth_hdr[7:].strip() if auth_hdr.startswith("Bearer ") else ""
+            candidate_tok = token_param or bearer_tok
+            if candidate_tok and any(candidate_tok.lower().startswith(p) for p in ("stale", "invalid", "expired", "dead", "revoked")):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Set-Cookie", "session_token=; Path=/; Max-Age=0")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps({"authenticated": False}).encode("utf-8"))
+                return
             persona_hdr = self.headers.get("X-Dev-Persona", "")
             persona = "competitor"
             if "dev_persona=spectator" in cookie_hdr or persona_hdr == "spectator" or "persona=spectator" in query_str:

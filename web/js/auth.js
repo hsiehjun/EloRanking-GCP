@@ -389,6 +389,9 @@ async function initAuth() {
         localStorage.removeItem('native_session_token');
         localStorage.removeItem('elo_auth_token');
         localStorage.removeItem('native_user_profile');
+        ['session_token', 'elo_auth_token', 'native_session_token'].forEach(c => {
+          document.cookie = `${c}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+        });
         if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
       }
     } catch (e) {
@@ -427,6 +430,9 @@ async function initAuth() {
       localStorage.removeItem('native_session_token');
       localStorage.removeItem('elo_auth_token');
       localStorage.removeItem('native_user_profile');
+      ['session_token', 'elo_auth_token', 'native_session_token'].forEach(c => {
+        document.cookie = `${c}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+      });
       if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
     }
   } catch (e) {

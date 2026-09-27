@@ -145,7 +145,7 @@ async def api_auth_verify_registration(request: Request, payload: VerifyRegistra
     token = res.get("session_token")
     is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
     if token:
-        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=True, samesite="lax", secure=is_sec)
+        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax", secure=is_sec)
     if res.get("device_id"):
         response.set_cookie(key="omni_device_id", value=res["device_id"], max_age=31536000, path="/", httponly=False, samesite="lax", secure=is_sec)
     return res
@@ -185,7 +185,7 @@ async def api_auth_login(request: Request, payload: LoginPayload, response: Resp
     token = res.get("session_token")
     is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
     if token and not res.get("requires_2fa"):
-        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=True, samesite="lax", secure=is_sec)
+        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax", secure=is_sec)
     if res.get("device_id") and not res.get("requires_2fa"):
         response.set_cookie(key="omni_device_id", value=res["device_id"], max_age=31536000, path="/", httponly=False, samesite="lax", secure=is_sec)
     return res
@@ -211,7 +211,7 @@ async def api_auth_verify_login_2fa(request: Request, payload: VerifyLogin2FAPay
     token = res.get("session_token")
     is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
     if token:
-        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=True, samesite="lax", secure=is_sec)
+        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax", secure=is_sec)
     if res.get("device_id"):
         response.set_cookie(key="omni_device_id", value=res["device_id"], max_age=31536000, path="/", httponly=False, samesite="lax", secure=is_sec)
     return res
@@ -267,21 +267,35 @@ async def api_auth_reset_password(request: Request, payload: ResetPasswordPayloa
     token = res.get("session_token")
     is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
     if token:
-        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=True, samesite="lax", secure=is_sec)
+        response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax", secure=is_sec)
     if res.get("device_id"):
         response.set_cookie(key="omni_device_id", value=res["device_id"], max_age=31536000, path="/", httponly=False, samesite="lax", secure=is_sec)
     return res
 
 @router.get("/api/auth/me", summary="Check active user session and BCP link status")
-async def api_auth_me(request: Request, token: Optional[str] = Query(None)):
+async def api_auth_me(request: Request, response: Response, token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
-    session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    if not session_token:
-        return {"authenticated": False}
-    session = get_auth_manager().get_session(session_token)
-    if not session:
-        return {"authenticated": False}
-    return {"authenticated": True, "user": session}
+    bearer_tok = auth_header[7:].strip() if auth_header.startswith("Bearer ") else None
+    candidates = [
+        token,
+        bearer_tok,
+        request.cookies.get("session_token"),
+        request.cookies.get("elo_auth_token"),
+        request.cookies.get("native_session_token"),
+    ]
+    auth_mgr = get_auth_manager()
+    is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
+    for cand in candidates:
+        if not cand or cand == "dev-auth-token-123":
+            continue
+        session = auth_mgr.get_session(cand)
+        if session:
+            response.set_cookie(key="session_token", value=cand, max_age=2592000, path="/", httponly=False, samesite="lax", secure=is_sec)
+            return {"authenticated": True, "user": session}
+    response.delete_cookie(key="session_token", path="/", samesite="lax")
+    response.delete_cookie(key="elo_auth_token", path="/", samesite="lax")
+    response.delete_cookie(key="native_session_token", path="/", samesite="lax")
+    return {"authenticated": False}
 
 @router.post("/api/auth/logout", summary="Logout current user session")
 async def api_auth_logout(request: Request, response: Response, token: Optional[str] = Query(None)):
@@ -290,6 +304,8 @@ async def api_auth_logout(request: Request, response: Response, token: Optional[
     if session_token:
         get_auth_manager().logout(session_token)
     response.delete_cookie(key="session_token", path="/", samesite="lax")
+    response.delete_cookie(key="elo_auth_token", path="/", samesite="lax")
+    response.delete_cookie(key="native_session_token", path="/", samesite="lax")
     return {"success": True}
 
 @router.post("/api/auth/logout-all", summary="Sign out user from all active devices")

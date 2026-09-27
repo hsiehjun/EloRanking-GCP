@@ -322,17 +322,22 @@
       });
       if (resp.ok) {
         const data = await resp.json();
-        if (data && data.authenticated && data.user) {
-          currentUser = data.user;
+        const userObj = data && (data.user || ((data.id || data.email) ? data : null));
+        if (data && data.authenticated !== false && userObj) {
+          currentUser = userObj;
           try {
-            originalSetItem('native_user_profile', JSON.stringify(data.user));
+            originalSetItem('native_user_profile', JSON.stringify(userObj));
           } catch(e) {}
           renderUserBar();
           return true;
+        } else if (data && data.authenticated === false) {
+          clearAuthToken();
+          window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+          return false;
         }
       } else if (resp.status === 401 || resp.status === 403) {
         clearAuthToken();
-        window.location.href = '/login?redirect=' + encodeURIComponent(window.location.href);
+        window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
         return false;
       }
     } catch (e) {

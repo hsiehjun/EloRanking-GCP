@@ -133,7 +133,17 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
         response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
         if "Pragma" in response.headers:
             del response.headers["Pragma"]
-    elif path.startswith("/css") or path.startswith("/js") or path in ("/", "/app", "/app.html", "/index.html", "/login", "/eventstudio", "/eventstudio.html", "/version.json"):
+    elif (
+        path.startswith("/css") or
+        path.startswith("/js") or
+        path.startswith("/tracker") or
+        path.startswith("/11th") or
+        path.startswith("/scorecard") or
+        path.startswith("/aos") or
+        path.startswith("/40k") or
+        path.endswith(".html") or
+        path in ("/", "/app", "/app.html", "/index.html", "/login", "/eventstudio", "/eventstudio.html", "/version.json", "/manifest.json")
+    ):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
@@ -251,19 +261,23 @@ async def serve_tracker_asset(rel_path: str) -> Response:
 
     raise HTTPException(status_code=404, detail="Asset not found")
 
+def _clear_stale_auth_cookies(resp: Response) -> Response:
+    for ck in ("session_token", "elo_auth_token", "native_session_token"):
+        resp.delete_cookie(key=ck, path="/", samesite="lax")
+    return resp
+
 async def serve_tracker_html(path: str, request: Request) -> Response:
     """Serves local Tracker HTML page (play.html, aos.html, or lobby.html) with SSO authentication."""
     # Enforce SSO authentication on all Tracker routes
     if "tracker" in path.lower():
-        auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
+        user = _get_request_user(request)
         if not user:
             redirect_target = f"/{path}"
             if request.url.query:
                 redirect_target += f"?{request.url.query}"
-            return RedirectResponse(url=f"/login?redirect={urllib.parse.quote(redirect_target)}", status_code=303)
+            return _clear_stale_auth_cookies(
+                RedirectResponse(url=f"/login?redirect={urllib.parse.quote(redirect_target)}", status_code=303)
+            )
 
     is_aos = "aos" in path.lower()
     is_play_page = (
@@ -296,7 +310,9 @@ async def serve_tracker_html(path: str, request: Request) -> Response:
                 status_code=200,
                 headers={
                     "Content-Type": "text/html; charset=utf-8",
-                    "Cache-Control": "no-cache, must-revalidate"
+                    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
                 }
             )
         except Exception as e:
@@ -306,21 +322,25 @@ async def serve_tracker_html(path: str, request: Request) -> Response:
 
 def _get_request_user(request: Request, token: Optional[str] = None):
     auth_header = request.headers.get("Authorization", "")
-    session_token = (
-        token
-        or request.cookies.get("session_token")
-        or request.cookies.get("elo_auth_token")
-        or request.cookies.get("native_session_token")
-        or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    )
-    if not session_token:
-        return None
+    bearer_tok = auth_header[7:].strip() if auth_header.startswith("Bearer ") else None
+    candidates = [
+        token,
+        bearer_tok,
+        request.cookies.get("session_token"),
+        request.cookies.get("elo_auth_token"),
+        request.cookies.get("native_session_token"),
+    ]
     try:
         auth_mgr = get_auth_manager()
-        return auth_mgr.get_session(session_token)
+        for cand in candidates:
+            if not cand or cand == "dev-auth-token-123":
+                continue
+            session = auth_mgr.get_session(cand)
+            if session:
+                return session
     except Exception as e:
         logger.warning(f"Failed to validate session token: {e}")
-        return None
+    return None
 
 # Root Landing Page
 @app.get("/", include_in_schema=False)
@@ -376,7 +396,9 @@ async def serve_app(request: Request, token: Optional[str] = Query(None)):
     user = _get_request_user(request, token)
     if not user:
         target_path = request.url.path or "/app"
-        return RedirectResponse(url=f"/login?redirect={urllib.parse.quote(target_path)}", status_code=307)
+        return _clear_stale_auth_cookies(
+            RedirectResponse(url=f"/login?redirect={urllib.parse.quote(target_path)}", status_code=307)
+        )
     app_file = web_dir / "app.html"
     if app_file.exists():
         return FileResponse(
@@ -389,24 +411,24 @@ async def serve_app(request: Request, token: Optional[str] = Query(None)):
 @app.get("/tracker/tracker_sync.js", include_in_schema=False)
 @app.get("/11th/tracker/tracker_sync.js", include_in_schema=False)
 async def serve_tracker_sync_js():
-    return FileResponse(str(web_dir / "tracker" / "tracker_sync.js"), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
+    return FileResponse(str(web_dir / "tracker" / "tracker_sync.js"), media_type="application/javascript", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"})
 
 @app.get("/tracker/tracker_sync_aos.js", include_in_schema=False)
 @app.get("/11th/tracker/tracker_sync_aos.js", include_in_schema=False)
 async def serve_tracker_sync_aos_js():
-    return FileResponse(str(web_dir / "tracker" / "tracker_sync_aos.js"), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
+    return FileResponse(str(web_dir / "tracker" / "tracker_sync_aos.js"), media_type="application/javascript", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"})
 
 @app.get("/tracker/tracker_sync.css", include_in_schema=False)
 @app.get("/11th/tracker/tracker_sync.css", include_in_schema=False)
 async def serve_tracker_sync_css():
-    return FileResponse(str(web_dir / "tracker" / "tracker_sync.css"), media_type="text/css", headers={"Cache-Control": "no-cache, must-revalidate"})
+    return FileResponse(str(web_dir / "tracker" / "tracker_sync.css"), media_type="text/css", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"})
 
 @app.get("/tracker/bundle.js", include_in_schema=False)
 @app.get("/11th/tracker/bundle.js", include_in_schema=False)
 async def serve_tracker_bundle_js():
     bundle_file = web_dir / "tracker" / "bundle.js"
     if bundle_file.exists():
-        return FileResponse(str(bundle_file), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
+        return FileResponse(str(bundle_file), media_type="application/javascript", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"})
     raise HTTPException(status_code=404, detail="Tracker bundle not found")
 
 @app.get("/tracker/bundle_aos.js", include_in_schema=False)
@@ -415,7 +437,7 @@ async def serve_tracker_bundle_js():
 async def serve_tracker_bundle_aos_js():
     bundle_file = web_dir / "tracker" / "bundle_aos.js"
     if bundle_file.exists():
-        return FileResponse(str(bundle_file), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
+        return FileResponse(str(bundle_file), media_type="application/javascript", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"})
     raise HTTPException(status_code=404, detail="AoS bundle not found")
 
 @app.get("/tracker/bundle_40k.js", include_in_schema=False)
@@ -423,10 +445,10 @@ async def serve_tracker_bundle_aos_js():
 async def serve_tracker_bundle_40k_js():
     bundle_file = web_dir / "tracker" / "bundle_40k.js"
     if bundle_file.exists():
-        return FileResponse(str(bundle_file), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
+        return FileResponse(str(bundle_file), media_type="application/javascript", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"})
     bundle_fallback = web_dir / "tracker" / "bundle.js"
     if bundle_fallback.exists():
-        return FileResponse(str(bundle_fallback), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
+        return FileResponse(str(bundle_fallback), media_type="application/javascript", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"})
     raise HTTPException(status_code=404, detail="40k bundle not found")
 
 @app.get("/tracker/aos", include_in_schema=False)
@@ -443,7 +465,7 @@ async def serve_login(redirect: Optional[str] = Query(None)):
         return FileResponse(
             str(login_file),
             media_type="text/html",
-            headers={"Cache-Control": "no-cache, must-revalidate"}
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"}
         )
     raise HTTPException(status_code=404, detail="login.html not found")
 
@@ -457,16 +479,13 @@ async def serve_connect_page():
 async def serve_my_hub(request: Request, token: Optional[str] = Query(None)):
     user = _get_request_user(request, token)
     if not user:
-        return RedirectResponse(url="/login?redirect=/app#my-hub", status_code=303)
+        return _clear_stale_auth_cookies(RedirectResponse(url="/login?redirect=/app#my-hub", status_code=303))
     return RedirectResponse(url="/app#my-hub", status_code=303)
 
 @app.get("/tracker", include_in_schema=False)
 @app.get("/tracker/", include_in_schema=False)
 async def serve_tracker_alias(request: Request, token: Optional[str] = Query(None)):
-    auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    user = auth_mgr.get_session(session_token) if session_token else None
+    user = _get_request_user(request, token)
 
     qp = dict(request.query_params)
     event_id = qp.get("eventId") or qp.get("event_id")
@@ -495,7 +514,7 @@ async def serve_tracker_alias(request: Request, token: Optional[str] = Query(Non
         target = f"/11th/tracker{query_str}"
 
     if not user:
-        return RedirectResponse(url=f"/login?redirect={urllib.parse.quote_plus(target)}", status_code=303)
+        return _clear_stale_auth_cookies(RedirectResponse(url=f"/login?redirect={urllib.parse.quote_plus(target)}", status_code=303))
     return RedirectResponse(url=target, status_code=303)
 
 @app.get("/tracker/play", include_in_schema=False)
@@ -637,7 +656,7 @@ async def serve_favicon():
 async def serve_eventstudio(request: Request, token: Optional[str] = Query(None)):
     user = _get_request_user(request, token)
     if not user:
-        return RedirectResponse(url="/login?redirect=/eventstudio", status_code=303)
+        return _clear_stale_auth_cookies(RedirectResponse(url="/login?redirect=/eventstudio", status_code=303))
     es_file = web_dir / "eventstudio.html"
     if es_file.exists():
         return FileResponse(str(es_file), media_type="text/html")

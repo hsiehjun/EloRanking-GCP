@@ -4,10 +4,67 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=3.0">
+  <link rel="manifest" href="/manifest.json?v=1302df63fc">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <script>window.APP_VERSION = "1302df63fc";</script>
+  <script>
+    (function() {
+      var _lastVerCheck = 0, _isReloading = false;
+      try {
+        var curUrl = new URL(window.location.href);
+        var urlV = curUrl.searchParams.get('_v');
+        var hasUpd = curUrl.searchParams.has('_upd');
+        var inlineV = (typeof window.APP_VERSION === 'string' && window.APP_VERSION !== 'dev') ? window.APP_VERSION.trim() : null;
+        if ((urlV && (!inlineV || urlV === inlineV)) || hasUpd) {
+          curUrl.searchParams.delete('_v');
+          curUrl.searchParams.delete('_upd');
+          window.history.replaceState(null, '', curUrl.pathname + curUrl.search + curUrl.hash);
+        }
+      } catch (e) {}
+      function verifyLiveServerVersion(force) {
+        var now = Date.now();
+        if (!force && (now - _lastVerCheck < 15000)) return;
+        _lastVerCheck = now;
+        fetch('/api/version?_t=' + now, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } })
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(data) {
+            if (!data || !data.version) return;
+            var serverVer = String(data.version).trim();
+            if (!serverVer || serverVer === 'dev') return;
+            var prev = null;
+            try { prev = localStorage.getItem('omnitactica_live_version'); } catch (e) {}
+            var inlineVer = (typeof window.APP_VERSION === 'string' && window.APP_VERSION !== 'dev') ? window.APP_VERSION.trim() : null;
+            var isStale = (inlineVer && inlineVer !== serverVer) || (prev && prev !== serverVer);
+            try { localStorage.setItem('omnitactica_live_version', serverVer); } catch (e) {}
+            if (isStale && !_isReloading) {
+              var alreadyReloaded = null;
+              try { alreadyReloaded = sessionStorage.getItem('omnitactica_reloaded_ver'); } catch (e) {}
+              if (alreadyReloaded !== serverVer) {
+                _isReloading = true;
+                try { sessionStorage.setItem('omnitactica_reloaded_ver', serverVer); } catch (e) {}
+                var bust = function() {
+                  var u = new URL(window.location.href);
+                  u.searchParams.set('_v', serverVer);
+                  window.location.replace(u.toString());
+                };
+                if ('caches' in window && window.caches) {
+                  caches.keys().then(function(keys) { return Promise.all(keys.map(function(k) { return caches.delete(k); })); }).finally(bust);
+                } else { bust(); }
+              }
+            }
+          }).catch(function() {});
+      }
+      window.verifyLiveServerVersion = verifyLiveServerVersion;
+      verifyLiveServerVersion(true);
+      window.addEventListener('pageshow', function() { verifyLiveServerVersion(true); });
+      document.addEventListener('visibilitychange', function() { if (document.visibilityState === 'visible') verifyLiveServerVersion(true); });
+      window.addEventListener('focus', function() { verifyLiveServerVersion(false); });
+      window.addEventListener('online', function() { verifyLiveServerVersion(true); });
+      setInterval(function() { if (document.visibilityState === 'visible') verifyLiveServerVersion(false); }, 60000);
+    })();
+  </script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <style>
