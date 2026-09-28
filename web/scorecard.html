@@ -4,14 +4,24 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=2ea996e2d7">
+  <link rel="manifest" href="/manifest.json?v=a33ee7d585">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "2ea996e2d7";</script>
+  <script>window.APP_VERSION = "a33ee7d585";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
+      try {
+        if ('serviceWorker' in navigator && navigator.serviceWorker && typeof navigator.serviceWorker.getRegistrations === 'function') {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            regs.forEach(function(r) { try { r.unregister(); } catch (e) {} });
+          }).catch(function() {});
+        }
+        if ('caches' in window && window.caches && typeof window.caches.delete === 'function') {
+          window.caches.delete('newrecruit').catch(function() {});
+        }
+      } catch (e) {}
       try {
         var curUrl = new URL(window.location.href);
         var urlV = curUrl.searchParams.get('_v');
@@ -49,9 +59,14 @@
                   u.searchParams.set('_v', serverVer);
                   window.location.replace(u.toString());
                 };
+                var tasks = [];
                 if ('caches' in window && window.caches) {
-                  caches.keys().then(function(keys) { return Promise.all(keys.map(function(k) { return caches.delete(k); })); }).finally(bust);
-                } else { bust(); }
+                  tasks.push(caches.keys().then(function(keys) { return Promise.all(keys.map(function(k) { return caches.delete(k); })); }).catch(function() {}));
+                }
+                if ('serviceWorker' in navigator && navigator.serviceWorker && typeof navigator.serviceWorker.getRegistrations === 'function') {
+                  tasks.push(navigator.serviceWorker.getRegistrations().then(function(regs) { return Promise.all(regs.map(function(r) { return r.unregister().catch(function() {}); })); }).catch(function() {}));
+                }
+                if (tasks.length > 0) { Promise.all(tasks).finally(bust); } else { bust(); }
               }
             }
           }).catch(function() {});

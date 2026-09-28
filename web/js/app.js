@@ -962,15 +962,15 @@ async function applyAppUpdateNow(targetVersion = null) {
     }
   }
 
-  // Check and update service workers if registered
+  // Unregister any stale service workers (e.g. legacy /worker.js) so they never intercept requests
   if ('serviceWorker' in navigator) {
     try {
       const registrations = await navigator.serviceWorker.getRegistrations();
       for (const reg of registrations) {
-        await reg.update();
+        await reg.unregister();
       }
     } catch (e) {
-      console.warn('[PWA Update] Service worker update error:', e);
+      console.warn('[PWA Update] Service worker unregister error:', e);
     }
   }
 

@@ -5261,12 +5261,47 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(html_shell.encode("utf-8"))
             return
 
+        if clean_path in ("worker.js", "nr/worker.js", "sw.js", "service-worker.js"):
+            sw_killer_js = (
+                "// OmniTactica Service Worker Unregister & Cache Cleaner\n"
+                "self.addEventListener('install', function(event) {\n"
+                "  self.skipWaiting();\n"
+                "});\n"
+                "self.addEventListener('activate', function(event) {\n"
+                "  event.waitUntil(\n"
+                "    caches.keys().then(function(keys) {\n"
+                "      return Promise.all(keys.map(function(k) { return caches.delete(k); }));\n"
+                "    }).then(function() {\n"
+                "      return self.registration.unregister();\n"
+                "    }).then(function() {\n"
+                "      return self.clients.matchAll({ type: 'window' });\n"
+                "    }).then(function(clients) {\n"
+                "      clients.forEach(function(client) {\n"
+                "        if (client.url && 'navigate' in client) {\n"
+                "          client.navigate(client.url).catch(function() {});\n"
+                "        }\n"
+                "      });\n"
+                "    })\n"
+                "  );\n"
+                "});\n"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+            self.send_header("Service-Worker-Allowed", "/")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(sw_killer_js.encode("utf-8"))
+            return
+
         if (
             clean_path.startswith("_nuxt/")
             or clean_path.startswith("settings/")
             or clean_path.startswith("api/book/")
             or clean_path.startswith("fonts/")
-            or clean_path in ("assets.json", "Tahoma.ttf", "TahomaBold.ttf", "worker.js")
+            or clean_path in ("assets.json", "Tahoma.ttf", "TahomaBold.ttf")
         ):
             from newrecruit_integration import proxy_nr_request
             status, resp_bytes, content_type = proxy_nr_request(

@@ -153,6 +153,8 @@ def build_bundle():
         ROOT_DIR / "web" / "tracker" / "tracker_sync.js",
         ROOT_DIR / "web" / "tracker" / "tracker_sync_aos.js",
         ROOT_DIR / "web" / "tracker" / "tracker_sync.css",
+        ROOT_DIR / "newrecruit_integration.py",
+        ROOT_DIR / "army_list_parser.py",
     ]
     for ef in extra_hash_files:
         if ef.exists():

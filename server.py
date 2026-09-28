@@ -144,7 +144,7 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
         path.startswith("/nr") or
         path.startswith("/app/") or
         path.endswith(".html") or
-        path in ("/", "/app", "/app.html", "/index.html", "/login", "/eventstudio", "/eventstudio.html", "/version.json", "/manifest.json")
+        path in ("/", "/app", "/app.html", "/index.html", "/login", "/eventstudio", "/eventstudio.html", "/version.json", "/manifest.json", "/worker.js", "/nr/worker.js", "/sw.js", "/service-worker.js")
     ):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"

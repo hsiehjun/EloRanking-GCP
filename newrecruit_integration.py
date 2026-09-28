@@ -328,7 +328,35 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   if (window.__omnitacticaNrBridgeInstalled) return;
   window.__omnitacticaNrBridgeInstalled = true;
 
-  // 0. Block all 3rd-party Ad/RTB/Telemetry requests (Playwire, Prebid, OpenX, Rubicon, GTag, Sentry)
+  // 0a. Prevent NewRecruit from registering /worker.js as a root Service Worker on OmniTactica's origin,
+  // and immediately unregister any legacy Service Worker & 'newrecruit' CacheStorage bucket.
+  try {
+    if ('serviceWorker' in navigator && navigator.serviceWorker) {
+      if (typeof navigator.serviceWorker.getRegistrations === 'function') {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          regs.forEach(function(r) { try { r.unregister(); } catch (e) {} });
+        }).catch(function() {});
+      }
+      navigator.serviceWorker.register = function() {
+        return Promise.resolve({
+          installing: null,
+          waiting: null,
+          active: null,
+          scope: '/',
+          updateViaCache: 'none',
+          addEventListener: function() {},
+          removeEventListener: function() {},
+          update: function() { return Promise.resolve(); },
+          unregister: function() { return Promise.resolve(true); }
+        });
+      };
+    }
+    if ('caches' in window && window.caches && typeof window.caches.delete === 'function') {
+      window.caches.delete('newrecruit').catch(function() {});
+    }
+  } catch (e) {}
+
+  // 0b. Block all 3rd-party Ad/RTB/Telemetry requests (Playwire, Prebid, OpenX, Rubicon, GTag, Sentry)
   // so 0 red "(blocked:other)" errors occur and page load is never delayed by ad auctions.
   var AD_BLOCK_RE = /playwire|intergient|prebid|openx|rubiconproject|doubleclick|googlesyndication|googletagmanager|google-analytics|btloader|adnxs|criteo|pubmatic|sonobi|sharethrough|gumgum|3lift|casalemedia|amazon-adsystem|indexexchange|smartadserver|yieldmo|kargo|teads|onetag|medianet|bidswitch|taboola|outbrain|sentry\.io|report_client_error|error_snapshot_save/i;
 
@@ -2669,7 +2697,7 @@ def proxy_nr_request(
             or clean_path.startswith("/icons/")
             or clean_path.startswith("/fonts/")
             or clean_path.startswith("/api/book/")
-            or clean_path in ("/assets.json", "/favicon.ico", "/favicon-32x32.png", "/Tahoma.ttf", "/TahomaBold.ttf", "/worker.js")
+            or clean_path in ("/assets.json", "/favicon.ico", "/favicon-32x32.png", "/Tahoma.ttf", "/TahomaBold.ttf")
         )
     )
     has_auth = bool(req_headers and (req_headers.get("Authorization") or req_headers.get("authorization")))

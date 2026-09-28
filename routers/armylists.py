@@ -347,6 +347,53 @@ async def api_nr_studio_shell(request: Request, subpath: Optional[str] = None):
     return HTMLResponse(content=html, status_code=200, headers=no_cache_headers)
 
 
+@router.get("/worker.js", include_in_schema=False)
+@router.get("/nr/worker.js", include_in_schema=False)
+@router.get("/sw.js", include_in_schema=False)
+@router.get("/service-worker.js", include_in_schema=False)
+async def api_kill_stale_service_worker():
+    """
+    Serves a self-unregistering Service Worker script so NewRecruit's root-scoped /worker.js
+    can never hijack OmniTactica's origin or cache stale HTML/JS in Browser or PWA mode.
+    Any client that previously registered /worker.js will automatically install this script,
+    purge all CacheStorage buckets, and unregister the Service Worker.
+    """
+    sw_killer_js = (
+        "// OmniTactica Service Worker Unregister & Cache Cleaner\n"
+        "self.addEventListener('install', function(event) {\n"
+        "  self.skipWaiting();\n"
+        "});\n"
+        "self.addEventListener('activate', function(event) {\n"
+        "  event.waitUntil(\n"
+        "    caches.keys().then(function(keys) {\n"
+        "      return Promise.all(keys.map(function(k) { return caches.delete(k); }));\n"
+        "    }).then(function() {\n"
+        "      return self.registration.unregister();\n"
+        "    }).then(function() {\n"
+        "      return self.clients.matchAll({ type: 'window' });\n"
+        "    }).then(function(clients) {\n"
+        "      clients.forEach(function(client) {\n"
+        "        if (client.url && 'navigate' in client) {\n"
+        "          client.navigate(client.url).catch(function() {});\n"
+        "        }\n"
+        "      });\n"
+        "    })\n"
+        "  );\n"
+        "});\n"
+    )
+    return Response(
+        content=sw_killer_js,
+        status_code=200,
+        media_type="application/javascript",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "Service-Worker-Allowed": "/",
+        },
+    )
+
+
 @router.get("/_nuxt/{subpath:path}", include_in_schema=False)
 @router.get("/settings/{subpath:path}", include_in_schema=False)
 @router.get("/api/book/{subpath:path}", include_in_schema=False)
@@ -354,7 +401,6 @@ async def api_nr_studio_shell(request: Request, subpath: Optional[str] = None):
 @router.get("/assets.json", include_in_schema=False)
 @router.get("/Tahoma.ttf", include_in_schema=False)
 @router.get("/TahomaBold.ttf", include_in_schema=False)
-@router.get("/worker.js", include_in_schema=False)
 async def api_nr_static_get_proxy(request: Request, subpath: Optional[str] = None):
     from newrecruit_integration import proxy_nr_request
     full_path = request.url.path

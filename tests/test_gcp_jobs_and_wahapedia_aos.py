@@ -212,6 +212,38 @@ def test_elo_engine_partitioning_and_isolation():
     print("✅ test_elo_engine_partitioning_and_isolation passed")
 
 
+def test_pwa_and_browser_auto_update_and_sw_killer():
+    """Verify /worker.js serves a self-unregistering Service Worker killer and all HTML shells unregister stale SWs."""
+    nr_src = (ROOT_DIR / "newrecruit_integration.py").read_text(encoding="utf-8")
+    assert "navigator.serviceWorker.register = function()" in nr_src
+    assert "window.caches.delete('newrecruit')" in nr_src
+    assert '"/worker.js"' not in nr_src
+
+    armylists_src = (ROOT_DIR / "routers" / "armylists.py").read_text(encoding="utf-8")
+    assert "async def api_kill_stale_service_worker()" in armylists_src
+    assert "self.registration.unregister()" in armylists_src
+
+    build_src = (ROOT_DIR / "scripts" / "build_bundle.py").read_text(encoding="utf-8")
+    assert '"newrecruit_integration.py"' in build_src
+    assert '"army_list_parser.py"' in build_src
+
+    for html_rel in (
+        "web/app.html",
+        "web/index.html",
+        "web/eventstudio.html",
+        "web/scorecard.html",
+        "web/tracker/lobby.html",
+        "web/tracker/play.html",
+        "web/tracker/aos.html",
+        "web/tracker/login.html",
+    ):
+        html_src = (ROOT_DIR / html_rel).read_text(encoding="utf-8")
+        assert "r.unregister()" in html_src, f"Missing r.unregister() in {html_rel}"
+        assert "window.caches.delete('newrecruit')" in html_src, f"Missing newrecruit cache cleanup in {html_rel}"
+
+    print("✅ test_pwa_and_browser_auto_update_and_sw_killer passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING GCP JOBS & MULTI-GAME TEST SUITE ===")
     test_faction_groups_and_legacy_wahapedia_removed()
@@ -220,4 +252,5 @@ if __name__ == "__main__":
     test_main_cli_multigame_support()
     test_cloudbuild_deployment_pipeline()
     test_elo_engine_partitioning_and_isolation()
+    test_pwa_and_browser_auto_update_and_sw_killer()
     print("\n🎉 ALL GCP JOBS & MULTI-GAME TESTS PASSED 100%!")
