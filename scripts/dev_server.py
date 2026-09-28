@@ -5265,7 +5265,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             clean_path.startswith("_nuxt/")
             or clean_path.startswith("settings/")
             or clean_path.startswith("api/book/")
-            or clean_path == "assets.json"
+            or clean_path.startswith("fonts/")
+            or clean_path in ("assets.json", "Tahoma.ttf", "TahomaBold.ttf", "worker.js")
         ):
             from newrecruit_integration import proxy_nr_request
             status, resp_bytes, content_type = proxy_nr_request(
@@ -5416,6 +5417,21 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         local_static = TRACKER_STATIC_DIR / clean_path
         if local_static.is_file():
             self._serve_file(local_static, is_head=is_head)
+            return
+
+        # 8. Fallback to NewRecruit static asset proxy for /assets/* and /icons/*
+        if clean_path.startswith(("assets/", "icons/")):
+            from newrecruit_integration import proxy_nr_request
+            status, resp_bytes, content_type = proxy_nr_request(
+                self.path, "GET", None, {k: v for k, v in self.headers.items()}
+            )
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            if status == 200:
+                self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(resp_bytes)
             return
 
         # Fallback to play.html

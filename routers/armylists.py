@@ -395,7 +395,11 @@ async def api_nr_studio_shell(request: Request, subpath: Optional[str] = None):
 @router.get("/_nuxt/{subpath:path}", include_in_schema=False)
 @router.get("/settings/{subpath:path}", include_in_schema=False)
 @router.get("/api/book/{subpath:path}", include_in_schema=False)
+@router.get("/fonts/{subpath:path}", include_in_schema=False)
 @router.get("/assets.json", include_in_schema=False)
+@router.get("/Tahoma.ttf", include_in_schema=False)
+@router.get("/TahomaBold.ttf", include_in_schema=False)
+@router.get("/worker.js", include_in_schema=False)
 async def api_nr_static_get_proxy(request: Request, subpath: Optional[str] = None):
     from newrecruit_integration import proxy_nr_request
     full_path = request.url.path

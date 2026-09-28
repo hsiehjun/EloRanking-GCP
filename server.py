@@ -176,9 +176,7 @@ app.add_middleware(
 async def root_health_check():
     return {"status": "ok"}
 
-# Static Assets Mount
-if (web_dir / "assets").exists():
-    app.mount("/assets", StaticFiles(directory=str(web_dir / "assets")), name="assets")
+# Static Assets Mount (/assets is served by serve_tracker_media_assets with local + NewRecruit fallback)
 if (web_dir / "css").exists():
     app.mount("/css", StaticFiles(directory=str(web_dir / "css")), name="css")
 if (web_dir / "js").exists():
@@ -243,7 +241,7 @@ app.include_router(leagues.router)
 # NATIVE GAME TRACKER STATIC ASSET & PAGE SERVING
 # =========================================================================
 async def serve_tracker_asset(rel_path: str) -> Response:
-    """Serves static CSS, fonts, and media images from local disk. Returns 404 if missing."""
+    """Serves static CSS, fonts, and media images from local disk, falling back to NewRecruit proxy for /assets/* and /icons/*."""
     cache_key = rel_path.lstrip("/")
 
     # 1. Check local tracker static directory web/tracker/static/
@@ -256,10 +254,24 @@ async def serve_tracker_asset(rel_path: str) -> Response:
         }
         return FileResponse(str(local_tracker_file), media_type=c_type, headers=hdrs)
 
-    # 2. Check general web directory
+    # 2. Check general web directory (includes web/assets/*)
     local_web_file = web_dir / cache_key
     if local_web_file.is_file():
         return FileResponse(str(local_web_file))
+
+    # 3. Fallback to NewRecruit static asset proxy for /assets/* and /icons/*
+    if cache_key.startswith(("assets/", "icons/")):
+        from newrecruit_integration import proxy_nr_request
+        status, data, content_type = await asyncio.to_thread(
+            proxy_nr_request, f"/{cache_key}", "GET"
+        )
+        if status == 200:
+            return Response(
+                content=data,
+                status_code=200,
+                media_type=content_type.split(";")[0],
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
 
     raise HTTPException(status_code=404, detail="Asset not found")
 
@@ -614,13 +626,6 @@ async def serve_pwa_manifest():
             ]
         }
     )
-
-@app.get("/assets/{file:path}", include_in_schema=False)
-async def serve_custom_assets(file: str):
-    target = web_dir / "assets" / file
-    if target.exists() and target.is_file():
-        return FileResponse(str(target))
-    raise HTTPException(status_code=404, detail="Asset not found")
 
 @app.get("/logo-mark.svg", include_in_schema=False)
 async def serve_logo_svg():
