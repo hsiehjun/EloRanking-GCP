@@ -114,6 +114,10 @@ function applyGameSystem(sys, updateUrl = true) {
   if (typeof window !== 'undefined' && window.Armory && typeof window.Armory.syncGlobalGameSystem === 'function') {
     window.Armory.syncGlobalGameSystem(currentGameSystem);
   }
+  // Synchronize NewRecruit Studio game system & edition switcher to the active game system's latest edition
+  if (typeof window !== 'undefined' && typeof window.syncNewRecruitStudioToGameSystem === 'function') {
+    window.syncNewRecruitStudioToGameSystem(currentGameSystem);
+  }
 }
 
 function switchGameSystem(sys) {

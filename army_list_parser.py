@@ -391,12 +391,24 @@ class ArmyListParser:
         roster["date_mod"] = str(data.get("date_mod") or "")
         roster["id_system"] = data.get("id_system")
         roster["id_book"] = data.get("id_book")
+        roster["bsid_system"] = data.get("bsid_system")
+        roster["bsid_book"] = data.get("bsid_book")
 
-        sys_name_hint = str(data.get("_omnitactica_system_name") or data.get("system_name") or "").lower()
-        if "sigmar" in sys_name_hint or "aos" in sys_name_hint:
-            roster["game_system"] = "aos"
-        else:
-            roster["game_system"] = str(data.get("game_system") or "40k").strip().lower()
+        try:
+            from newrecruit_integration import detect_nr_game_system_and_edition
+            gs, edition = detect_nr_game_system_and_edition(data)
+            roster["game_system"] = gs
+            roster["system_edition"] = edition
+        except Exception:
+            sys_name_hint = str(data.get("_omnitactica_system_name") or data.get("system_name") or "").lower()
+            if "sigmar" in sys_name_hint or "aos" in sys_name_hint:
+                roster["game_system"] = "aos"
+                roster["system_edition"] = "AoS 4.0"
+            else:
+                roster["game_system"] = str(data.get("game_system") or "40k").strip().lower()
+                roster["system_edition"] = "11th Ed"
+
+        is_aos = roster.get("game_system") == "aos"
 
         # Keep clean copy of NewRecruit row for bidirectional IndexedDB hydration
         nr_row_keys = (
@@ -414,22 +426,30 @@ class ArmyListParser:
         faction = data.get("faction") or data.get("_omnitactica_book_name") or data.get("book_name") or ""
         if not faction and (data.get("id_book") or data.get("bsid_book")):
             try:
-                from newrecruit_integration import NR_40K_FACTION_BOOKS
+                from newrecruit_integration import NR_40K_FACTION_BOOKS, NR_AOS_FACTION_BOOKS
                 target_book_id = data.get("id_book")
                 target_bsid = str(data.get("bsid_book") or "")
-                for _, (bid, bsid, bname) in NR_40K_FACTION_BOOKS.items():
+                books_to_search = (
+                    list(NR_AOS_FACTION_BOOKS.values()) + list(NR_40K_FACTION_BOOKS.values())
+                    if is_aos
+                    else list(NR_40K_FACTION_BOOKS.values()) + list(NR_AOS_FACTION_BOOKS.values())
+                )
+                for bid, bsid, bname in books_to_search:
                     if (target_book_id and str(bid) == str(target_book_id)) or (target_bsid and bsid == target_bsid):
                         faction = bname
                         break
             except Exception:
                 pass
         if not faction:
-            faction = roster["faction"]
+            faction = "Stormcast Eternals" if is_aos else roster["faction"]
+        if is_aos and faction == "Space Marines":
+            faction = "Stormcast Eternals"
         if " - " in faction:
             faction = faction.split(" - ")[-1].strip()
         roster["faction"] = faction
 
-        detachment = str(data.get("_omnitactica_detachment") or data.get("detachment") or "Core Detachment").strip()
+        default_detachment = "Battle Formation" if is_aos else "Core Detachment"
+        detachment = str(data.get("_omnitactica_detachment") or data.get("detachment") or default_detachment).strip()
         warlord = data.get("warlord") or None
         units: List[Dict[str, Any]] = []
 
@@ -437,7 +457,11 @@ class ArmyListParser:
             army_root_name = str(army.get("name") or "").strip()
             if " - " in army_root_name:
                 faction = army_root_name.split(" - ")[-1].strip()
-            elif army_root_name and army_root_name not in ("Army Roster", "New Roster", "Roster", "Force", "Warhammer 40,000", "Warhammer 40,000 11th Edition"):
+            elif army_root_name and army_root_name not in (
+                "Army Roster", "New Roster", "Roster", "Force",
+                "Warhammer 40,000", "Warhammer 40,000 11th Edition",
+                "Age of Sigmar 4.0", "Warhammer Age of Sigmar",
+            ):
                 faction = army_root_name
 
             def find_army_roster_node(node: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -451,7 +475,7 @@ class ArmyListParser:
                     opt_n = str(opt.get("name") or "").strip()
                     if " - " in opt_n:
                         faction = opt_n.split(" - ")[-1].strip()
-                    if opt_n in ("Army Roster", "Force", "Primary Detachment", "General's Regiment") or opt.get("catalogue_id"):
+                    if opt_n in ("Army Roster", "Force", "Primary Detachment"):
                         return opt
                     res = find_army_roster_node(opt)
                     if res:
@@ -467,7 +491,12 @@ class ArmyListParser:
                     return
                 c_name = str(cfg_node.get("name") or "").strip()
                 c_low = c_name.lower()
-                if c_name in ("Detachment", "Detachment Choice") or "detachment" in c_low:
+                if (
+                    c_name in ("Detachment", "Detachment Choice", "Battle Formation", "Battle Formations", "Subfaction", "Allegiance")
+                    or "detachment" in c_low
+                    or "battle formation" in c_low
+                    or c_low in ("subfaction", "allegiance", "greatfray", "glade", "host", "lodge", "temple", "court", "tribe")
+                ):
                     for sub in cfg_node.get("options") or []:
                         if not isinstance(sub, dict):
                             continue
@@ -475,7 +504,7 @@ class ArmyListParser:
                             for sub_sub in sub.get("options") or []:
                                 if isinstance(sub_sub, dict) and sub_sub.get("name"):
                                     detachment = str(sub_sub.get("name")).strip()
-                        elif sub.get("name") and str(sub.get("name")).strip() not in ("Detachment", "Detachment Choice"):
+                        elif sub.get("name") and str(sub.get("name")).strip() not in ("Detachment", "Detachment Choice", "Battle Formation", "Battle Formations"):
                             detachment = str(sub.get("name")).strip()
                 elif c_name == "Battle Size" or "battle size" in c_low:
                     for sub in cfg_node.get("options") or []:
@@ -490,17 +519,34 @@ class ArmyListParser:
                                     roster["points_limit"] = int(m_lim.group(1))
                                 except Exception:
                                     pass
-                elif c_name in ("Configuration", "Show/Hide Options", "Detachment Rules", "Force Disposition"):
+                elif c_name in ("Configuration", "Army Composition", "Show/Hide Options", "Detachment Rules", "Force Disposition"):
                     for sub in cfg_node.get("options") or []:
                         if isinstance(sub, dict):
                             parse_config_node(sub)
+
+            known_category_wrappers = {
+                "character", "characters", "epic hero", "epic heroes", "battleline",
+                "infantry", "mounted", "monster", "monsters", "vehicle", "vehicles",
+                "dedicated transport", "dedicated transports", "transport", "allied units",
+                "fortifications", "other datasheets", "regiment", "auxiliary",
+                "auxillary units", "auxiliary units", "general's regiment", "regiments of renown",
+                "hero", "heroes", "cavalry", "beast", "beasts", "war machine", "war machines",
+                "faction terrain", "endless spell", "endless spells", "invocations", "manifestations",
+                "leader", "leaders", "behemoth", "artillery", "other", "units",
+            }
+            ignored_config_names = {
+                "configuration", "army composition", "battle size", "detachment", "detachment choice",
+                "battle formation", "battle formations", "spell lore", "prayer lore", "manifestation lore",
+                "show/hide options", "force disposition", "regiment options",
+            }
 
             def parse_single_unit_node(unit_node: Dict[str, Any], role_hint: str = "Infantry"):
                 nonlocal warlord
                 if not isinstance(unit_node, dict):
                     return
                 u_name = str(unit_node.get("customName") or unit_node.get("name") or "Unit").strip()
-                if not u_name or u_name in ("Configuration", "Battle Size", "Detachment", "Detachment Choice", "Show/Hide Options", "Force Disposition"):
+                u_low = u_name.lower()
+                if not u_name or u_low in ignored_config_names or u_low.startswith(("spell lore", "prayer lore", "manifestation lore", "battle formation")):
                     return
                 u_amount = unit_node.get("amount", 1)
                 try:
@@ -517,24 +563,33 @@ class ArmyListParser:
                     if not isinstance(sub_node, dict):
                         return
                     s_name = str(sub_node.get("name") or "").strip()
+                    s_low = s_name.lower()
                     s_amt = sub_node.get("amount", 1)
                     try:
                         s_amt = int(s_amt)
                     except Exception:
                         s_amt = 1
 
-                    if s_name == "Warlord" or "warlord" in s_name.lower():
+                    if s_name in ("Warlord", "General", "Warmaster") or "warlord" in s_low:
                         u_warlord = True
-                    elif s_name in ("Enhancements", "Enhancement") or "enhancement" in s_name.lower():
+                    elif (
+                        s_name in ("Enhancements", "Enhancement", "Heroic Traits", "Heroic Trait", "Artefacts of Power", "Artefact of Power", "Command Traits", "Artefacts")
+                        or "enhancement" in s_low
+                        or "heroic trait" in s_low
+                        or "artefact" in s_low
+                    ):
                         if sub_node.get("options"):
                             for enh in sub_node.get("options") or []:
                                 if isinstance(enh, dict) and enh.get("name"):
                                     u_enhancement = str(enh.get("name")).strip()
-                        elif s_name not in ("Enhancements", "Enhancement"):
-                            u_enhancement = re.sub(r"^Enhancements?:\s*", "", s_name, flags=re.I).strip()
+                        elif s_low not in ("enhancements", "enhancement", "heroic traits", "heroic trait", "artefacts of power", "artefact of power"):
+                            u_enhancement = re.sub(r"^(Enhancements?|Heroic Traits?|Artefacts?(?: of Power)?):\s*", "", s_name, flags=re.I).strip()
                     elif s_name in ("Wargear", "Weapons", "Wargear options", "Ranged Weapons", "Melee Weapons"):
                         for wg in sub_node.get("options") or []:
                             parse_unit_sub(wg)
+                    elif s_low in ("regiment options", "reinforced"):
+                        if s_low == "reinforced":
+                            wargear.append("Reinforced")
                     else:
                         if sub_node.get("options"):
                             if s_amt > 1:
@@ -548,16 +603,19 @@ class ArmyListParser:
                 for sub in unit_node.get("options") or []:
                     parse_unit_sub(sub)
 
-                if u_warlord and not warlord and u_name.lower() not in known_category_wrappers:
+                if u_warlord and not warlord and u_low not in known_category_wrappers:
                     warlord = u_name
 
                 final_models = max(1, u_amount if u_amount > 1 else (model_count_sum if model_count_sum > 1 else 1))
-                role_label = role_hint or ("Character" if (u_warlord or u_enhancement) else "Infantry")
+                clean_role_hint = role_hint
+                if clean_role_hint and (clean_role_hint.lower().startswith("regiment") or "regiment" in clean_role_hint.lower() or "auxil" in clean_role_hint.lower()):
+                    clean_role_hint = "Hero" if (u_warlord or u_enhancement) else "Infantry"
+                role_label = clean_role_hint or (("Hero" if is_aos else "Character") if (u_warlord or u_enhancement) else "Infantry")
 
-                m_val = '10"' if ("Mounted" in role_label or "Vehicle" in role_label) else '6"'
-                t_val = 10 if ("Vehicle" in role_label or "Monster" in role_label) else 4
-                w_val = 12 if "Vehicle" in role_label else (5 if "Character" in role_label or "Epic Hero" in role_label else 2)
-                sv_val = "2+" if ("Vehicle" in role_label or "Character" in role_label or "Epic Hero" in role_label) else "3+"
+                m_val = '10"' if ("Mounted" in role_label or "Cavalry" in role_label or "Vehicle" in role_label) else '6"'
+                t_val = 10 if ("Vehicle" in role_label or "Monster" in role_label or "War Machine" in role_label) else 4
+                w_val = 12 if ("Vehicle" in role_label or "Monster" in role_label) else (5 if ("Character" in role_label or "Hero" in role_label or "Epic Hero" in role_label) else 2)
+                sv_val = "2+" if ("Vehicle" in role_label or "Character" in role_label or "Hero" in role_label or "Epic Hero" in role_label) else "3+"
 
                 u_pts = 0
                 if unit_node.get("points") is not None or unit_node.get("totalCost") is not None:
@@ -578,7 +636,7 @@ class ArmyListParser:
                         "M": m_val,
                         "T": t_val,
                         "SV": sv_val,
-                        "INV": "4+" if (u_warlord or "Character" in role_label or "Epic Hero" in role_label) else "-",
+                        "INV": "4+" if (u_warlord or "Character" in role_label or "Hero" in role_label or "Epic Hero" in role_label) else "-",
                         "W": w_val,
                         "LD": "6+",
                         "OC": 2 if "Battleline" in role_label else 1
@@ -587,36 +645,39 @@ class ArmyListParser:
                     "points": u_pts
                 })
 
-            known_category_wrappers = {
-                "character", "characters", "epic hero", "epic heroes", "battleline",
-                "infantry", "mounted", "monster", "monsters", "vehicle", "vehicles",
-                "dedicated transport", "dedicated transports", "transport", "allied units",
-                "fortifications", "other datasheets", "regiment", "auxiliary",
-            }
+            def walk_roster_categories(nodes: List[Any], current_role: str = "Infantry"):
+                for cat in nodes or []:
+                    if not isinstance(cat, dict):
+                        continue
+                    cat_name = str(cat.get("name") or "").strip()
+                    cat_low = cat_name.lower()
+                    if (
+                        cat_low in ignored_config_names
+                        or "detachment" in cat_low
+                        or "battle formation" in cat_low
+                        or "battle size" in cat_low
+                        or cat_low.startswith(("spell lore", "prayer lore", "manifestation lore"))
+                    ):
+                        parse_config_node(cat)
+                        continue
 
-            categories = roster_node.get("options") or []
-            for cat in categories:
-                if not isinstance(cat, dict):
-                    continue
-                cat_name = str(cat.get("name") or "").strip()
-                cat_low = cat_name.lower()
-                if (
-                    cat_name in ("Configuration", "Show/Hide Options", "Detachment Rules", "Battle Size", "Detachment", "Detachment Choice", "Force Disposition")
-                    or "detachment" in cat_low
-                    or "battle size" in cat_low
-                ):
-                    parse_config_node(cat)
-                    continue
+                    is_cat_wrapper = (
+                        str(cat.get("id") or "").startswith("cat-")
+                        or cat_low in known_category_wrappers
+                        or cat_low.startswith("regiment")
+                        or "regiment" in cat_low
+                        or "auxil" in cat_low
+                        or bool(cat.get("catalogue_id"))
+                    )
+                    if is_cat_wrapper:
+                        next_role = current_role
+                        if cat_name and not (cat_low.startswith("regiment") or "regiment" in cat_low or "auxil" in cat_low or cat_low == "units"):
+                            next_role = cat_name
+                        walk_roster_categories(cat.get("options") or [], next_role)
+                    else:
+                        parse_single_unit_node(cat, current_role)
 
-                is_cat_wrapper = (
-                    str(cat.get("id") or "").startswith("cat-")
-                    or cat_low in known_category_wrappers
-                )
-                if is_cat_wrapper:
-                    for unit_node in cat.get("options") or []:
-                        parse_single_unit_node(unit_node, cat_name or "Infantry")
-                else:
-                    parse_single_unit_node(cat, "Infantry")
+            walk_roster_categories(roster_node.get("options") or [], "Hero" if is_aos else "Infantry")
 
         # Merge live enriched unit metadata if provided by NewRecruit Studio Bridge ($debugOption / currentList.army)
         enriched_units = data.get("_omnitactica_enriched_units")
@@ -627,12 +688,12 @@ class ArmyListParser:
                         continue
                     u_name = str(eu.get("name") or "Unit").strip()
                     u_wl = bool(eu.get("is_warlord"))
-                    if u_wl and not warlord and u_name.lower() not in ("character", "characters", "unit"):
+                    if u_wl and not warlord and u_name.lower() not in ("character", "characters", "hero", "heroes", "unit"):
                         warlord = u_name
                     units.append({
                         "id": eu.get("id") or f"u_{idx+1}",
                         "name": u_name,
-                        "role": eu.get("role") or "Infantry",
+                        "role": eu.get("role") or ("Hero" if is_aos else "Infantry"),
                         "is_warlord": u_wl,
                         "enhancement": eu.get("enhancement"),
                         "model_count": int(eu.get("model_count") or 1),

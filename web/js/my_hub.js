@@ -3494,13 +3494,114 @@ function updateHubNrSyncPill() {
   }
 }
 
+const NR_STUDIO_SYSTEMS = {
+  827374861: { id: 827374861, gameSystem: '40k', edition: '11th Ed', label: '⚔️ Warhammer 40K — 11th Ed (Latest)' },
+  4255553472: { id: 4255553472, gameSystem: 'aos', edition: 'AoS 4.0', label: '⚡ Age of Sigmar — 4.0 (Latest)' },
+  2821148162: { id: 2821148162, gameSystem: '40k', edition: '10th Ed', label: '🛡️ Warhammer 40K — 10th Ed' },
+  4194757354: { id: 4194757354, gameSystem: 'aos', edition: 'AoS 3.0', label: '🔨 Age of Sigmar — 3.0' }
+};
+
+function getDefaultNrStudioSystemIdForGameSystem(sys) {
+  const activeSys = String(sys || (typeof currentGameSystem !== 'undefined' && currentGameSystem) || '40k').toLowerCase();
+  return activeSys === 'aos' ? 4255553472 : 827374861;
+}
+window.getDefaultNrStudioSystemIdForGameSystem = getDefaultNrStudioSystemIdForGameSystem;
+
+function resolveHubListGameSystemAndEdition(list) {
+  if (!list || typeof list !== 'object') {
+    const defSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? 'aos' : '40k';
+    return {
+      gameSystem: defSys,
+      edition: defSys === 'aos' ? 'AoS 4.0' : '11th Ed',
+      sysId: getDefaultNrStudioSystemIdForGameSystem(defSys)
+    };
+  }
+  const row = (list.nr_row && typeof list.nr_row === 'object') ? list.nr_row : {};
+  const sysId = Number(list.id_system || row.id_system || 0);
+  const bsidSys = String(list.bsid_system || row.bsid_system || '').trim();
+
+  if (sysId === 4255553472 || bsidSys === 'e51d-b1a3-75fc-dc3g') {
+    return { gameSystem: 'aos', edition: 'AoS 4.0', sysId: 4255553472 };
+  }
+  if (sysId === 4194757354 || bsidSys === 'e51d-b1a3-75fc-dc33') {
+    return { gameSystem: 'aos', edition: 'AoS 3.0', sysId: 4194757354 };
+  }
+  if (sysId === 827374861 || bsidSys === 'sys-352e-adc2-7639-d610') {
+    return { gameSystem: '40k', edition: '11th Ed', sysId: 827374861 };
+  }
+  if (sysId === 2821148162 || bsidSys === 'sys-352e-adc2-7639-d6a9') {
+    return { gameSystem: '40k', edition: '10th Ed', sysId: 2821148162 };
+  }
+
+  const gsHint = String(list.game_system || row._omnitactica_system_name || '').toLowerCase();
+  const edHint = String(list.system_edition || '').trim();
+  if (gsHint === 'aos' || gsHint.includes('sigmar')) {
+    const is3e = edHint.includes('3') || gsHint.includes('3.0');
+    return {
+      gameSystem: 'aos',
+      edition: edHint || (is3e ? 'AoS 3.0' : 'AoS 4.0'),
+      sysId: is3e ? 4194757354 : 4255553472
+    };
+  }
+  const is10e = edHint.includes('10');
+  return {
+    gameSystem: '40k',
+    edition: edHint || (is10e ? '10th Ed' : '11th Ed'),
+    sysId: is10e ? 2821148162 : 827374861
+  };
+}
+window.resolveHubListGameSystemAndEdition = resolveHubListGameSystemAndEdition;
+
+function changeNewRecruitStudioSystem(sysId, returnToMyLists = true) {
+  const numSysId = Number(sysId) || getDefaultNrStudioSystemIdForGameSystem();
+  window._activeNrStudioSystemId = numSysId;
+  const selEl = document.getElementById('hub-nr-studio-system-select');
+  if (selEl && String(selEl.value) !== String(numSysId)) {
+    selEl.value = String(numSysId);
+  }
+  const meta = NR_STUDIO_SYSTEMS[numSysId];
+  const subEl = document.getElementById('hub-nr-studio-subtitle');
+  if (subEl && meta) {
+    subEl.textContent = `Active System: ${meta.label.replace(/^[^\w]+/, '')} • All lists sync automatically with My Hub`;
+  }
+  const iframe = document.getElementById('hub-nr-studio-iframe');
+  if (iframe && iframe.contentWindow) {
+    try {
+      iframe.contentWindow.postMessage({
+        type: 'OMNITACTICA_NR_COMMAND',
+        command: 'select_system',
+        id_system: numSysId,
+        return_to_mylists: returnToMyLists
+      }, '*');
+    } catch (e) {}
+  }
+}
+window.changeNewRecruitStudioSystem = changeNewRecruitStudioSystem;
+
+function syncNewRecruitStudioToGameSystem(sys) {
+  const targetSysId = getDefaultNrStudioSystemIdForGameSystem(sys);
+  window._activeNrStudioSystemId = targetSysId;
+  const selEl = document.getElementById('hub-nr-studio-system-select');
+  if (selEl) {
+    selEl.value = String(targetSysId);
+  }
+  const iframe = document.getElementById('hub-nr-studio-iframe');
+  if (iframe && iframe.contentWindow) {
+    changeNewRecruitStudioSystem(targetSysId, false);
+  }
+}
+window.syncNewRecruitStudioToGameSystem = syncNewRecruitStudioToGameSystem;
+
 function triggerNewRecruitStudioCreateList() {
   const iframe = document.getElementById('hub-nr-studio-iframe');
   if (!iframe || !iframe.contentWindow) return;
+  const selEl = document.getElementById('hub-nr-studio-system-select');
+  const activeSysId = (selEl && Number(selEl.value)) || window._activeNrStudioSystemId || getDefaultNrStudioSystemIdForGameSystem();
   try {
     iframe.contentWindow.postMessage({
       type: 'OMNITACTICA_NR_COMMAND',
-      command: 'create_list'
+      command: 'create_list',
+      id_system: activeSysId
     }, '*');
   } catch (e) {}
 }
@@ -3543,17 +3644,27 @@ function renderHubArmyLists(lists) {
   const container = document.getElementById('hub-armylists-list-container');
   if (!container) return;
 
-  if (!lists || lists.length === 0) {
+  const activeSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? 'aos' : '40k';
+  const allLists = Array.isArray(lists) ? lists : [];
+  const filteredLists = allLists.filter(l => resolveHubListGameSystemAndEdition(l).gameSystem === activeSys);
+  const otherSysCount = allLists.length - filteredLists.length;
+
+  const sysDisplayName = activeSys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K';
+  const latestEditionName = activeSys === 'aos' ? 'Age of Sigmar 4.0' : 'Warhammer 40K 11th Edition';
+  const otherSysName = activeSys === 'aos' ? 'Warhammer 40K' : 'Age of Sigmar';
+
+  if (filteredLists.length === 0) {
     container.innerHTML = `
       <div style="padding: 1.35rem 1rem 0.65rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
-        <div style="font-size: 1.75rem; margin-bottom: 0.35rem;">⚔️</div>
-        <div style="font-size: 1rem; font-weight: 800; color: #fff; margin-bottom: 0.3rem;">No Army Lists Created Yet</div>
+        <div style="font-size: 1.75rem; margin-bottom: 0.35rem;">${activeSys === 'aos' ? '⚡' : '⚔️'}</div>
+        <div style="font-size: 1rem; font-weight: 800; color: #fff; margin-bottom: 0.3rem;">No ${sysDisplayName} Lists Created Yet</div>
         <div style="font-size: 0.78rem; max-width: 460px; margin: 0 auto 0.95rem; color: #94a3b8; line-height: 1.5;">
-          Create, view, and manage your rosters — or sign in to your NewRecruit account — directly inside <b>NewRecruit Studio</b>. Your lists persist on this device and sync to My Hub automatically!
+          Create, view, and manage your <b>${latestEditionName}</b> rosters — or switch between game systems &amp; editions — directly inside <b>NewRecruit Studio</b>. Your lists persist on this device and sync to My Hub automatically!
+          ${otherSysCount > 0 ? `<div style="margin-top: 0.45rem; color: #38bdf8; font-weight: 600;">💡 You also have ${otherSysCount} saved ${otherSysName} ${otherSysCount === 1 ? 'roster' : 'rosters'}.</div>` : ''}
         </div>
         <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; flex-wrap: wrap;">
           <button id="hub-empty-launch-nr-studio" class="bcp-login-btn" onclick="openNewRecruitStudioDrawer('/nr/app/Lists')" style="font-size: 0.82rem; padding: 0.45rem 1rem; background: var(--accent); color: #0f172a; font-weight: 800; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
-            ⚔️ Launch NewRecruit Studio
+            ${activeSys === 'aos' ? '⚡' : '⚔️'} Launch NewRecruit Studio (${activeSys === 'aos' ? 'AoS 4.0' : '11th Ed'})
           </button>
         </div>
       </div>
@@ -3563,25 +3674,33 @@ function renderHubArmyLists(lists) {
 
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-      ${lists.map(l => {
+      ${filteredLists.map(l => {
         const pts = l.points !== undefined && l.points !== null ? l.points : 2000;
         const unitCount = Array.isArray(l.units) ? l.units.length : 0;
         const rawId = String(l.list_key || l.id || '');
         const listKey = rawId.startsWith('nr_') ? rawId.slice(3) : rawId;
         const srcBadge = (l.source_format && l.source_format.includes('Cloud')) ? '☁️ Cloud Synced' : '⚡ NewRecruit';
+        const sysMeta = resolveHubListGameSystemAndEdition(l);
+        const isAosList = sysMeta.gameSystem === 'aos';
+        const editionLabel = sysMeta.edition || (isAosList ? 'AoS 4.0' : '11th Ed');
+        const defaultFactionLabel = isAosList ? 'Age of Sigmar' : 'Warhammer 40k';
+        const defaultDetLabel = isAosList ? 'Battle Formation' : 'Core Detachment';
 
         return `
-          <div class="hub-rec-card" data-list-id="${escapeHtml(l.id)}" data-list-key="${escapeHtml(listKey)}" style="flex-direction: column; align-items: stretch; gap: 0.65rem; padding: 0.85rem 1rem; background: rgba(19, 29, 51, 0.75); border: 1px solid rgba(56, 189, 248, 0.16); border-radius: 10px;">
+          <div class="hub-rec-card" data-list-id="${escapeHtml(l.id)}" data-list-key="${escapeHtml(listKey)}" data-game-system="${escapeHtml(sysMeta.gameSystem)}" data-system-edition="${escapeHtml(editionLabel)}" style="flex-direction: column; align-items: stretch; gap: 0.65rem; padding: 0.85rem 1rem; background: rgba(19, 29, 51, 0.75); border: 1px solid rgba(56, 189, 248, 0.16); border-radius: 10px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
               <div style="min-width: 0; flex: 1;">
                 <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: nowrap; min-width: 0;">
                   <div style="font-size: 0.98rem; font-weight: 800; color: #fff; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;">${escapeHtml(l.name || 'NewRecruit Roster')}</div>
+                  <span style="font-size: 0.65rem; font-weight: 800; padding: 0.1rem 0.42rem; border-radius: 999px; background: rgba(56, 189, 248, 0.14); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.32); flex-shrink: 0; white-space: nowrap;">
+                    ${escapeHtml(editionLabel)}
+                  </span>
                   <span style="font-size: 0.65rem; font-weight: 800; padding: 0.1rem 0.42rem; border-radius: 999px; background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.28); flex-shrink: 0; white-space: nowrap;">
                     ${srcBadge}
                   </span>
                 </div>
                 <div style="font-size: 0.78rem; color: #38bdf8; font-weight: 700; margin-top: 0.18rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                  ${escapeHtml(l.faction || 'Warhammer 40k')} • <span style="color: #c084fc;">${escapeHtml(l.detachment || 'Core Detachment')}</span>
+                  ${escapeHtml(l.faction || defaultFactionLabel)} • <span style="color: #c084fc;">${escapeHtml(l.detachment || defaultDetLabel)}</span>
                   ${unitCount > 0 ? ` • <span style="color: #94a3b8; font-weight: 600;">${unitCount} ${unitCount === 1 ? 'Unit' : 'Units'}</span>` : ''}
                 </div>
               </div>
@@ -3660,7 +3779,8 @@ function openNewRecruitStudioForList(listId) {
   }
   const nameParam = list && list.name ? `?name=${encodeURIComponent(list.name)}` : '';
   const targetPath = listKey ? `/nr/app/Lists/${encodeURIComponent(listKey)}${nameParam}` : '/nr/app/Lists';
-  openNewRecruitStudioDrawer(targetPath, list ? list.name : '', false, list ? list.nr_row : null);
+  const rowToPass = list ? (list.nr_row || { id_system: resolveHubListGameSystemAndEdition(list).sysId }) : null;
+  openNewRecruitStudioDrawer(targetPath, list ? list.name : '', false, rowToPass);
 }
 
 function startNrStudioLoadWatcher(iframe, isDirectListTarget) {
@@ -3711,9 +3831,16 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
     safePath = `/nr/app/Lists/${encodeURIComponent(cleanKey)}`;
   }
   const isDirectListTarget = /\/Lists\/[^\/\?\#]+/i.test(safePath);
+
+  // Default to the latest edition of the active game system (40K 11th Ed or AoS 4.0), unless opening a specific list with its own id_system
+  const activeSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? 'aos' : '40k';
+  const defaultSysId = (nrRow && Number(nrRow.id_system)) || getDefaultNrStudioSystemIdForGameSystem(activeSys);
+  window._activeNrStudioSystemId = defaultSysId;
+  const activeSysMeta = NR_STUDIO_SYSTEMS[defaultSysId] || NR_STUDIO_SYSTEMS[827374861];
+
   const subtitle = listTitle
     ? `Editing "${listTitle}" • All changes & deletions sync to My Hub automatically`
-    : 'All lists below sync automatically with My Hub';
+    : `Active System: ${activeSysMeta.label.replace(/^[^\w]+/, '')} • All lists sync automatically with My Hub`;
 
   // If the Studio iframe is already mounted & warm, reuse it without reloading from scratch!
   const existingIframe = document.getElementById('hub-nr-studio-iframe');
@@ -3721,6 +3848,8 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
     if (silentWarmup) return;
     const subEl = document.getElementById('hub-nr-studio-subtitle');
     if (subEl) subEl.textContent = subtitle;
+    const selEl = document.getElementById('hub-nr-studio-system-select');
+    if (selEl) selEl.value = String(defaultSysId);
     const closeBtn = document.getElementById('hub-btn-close-nr-studio');
     if (closeBtn) {
       closeBtn.disabled = false;
@@ -3733,16 +3862,17 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
     modal.style.display = 'flex';
     if (safePath && safePath !== '/nr/app/Lists') {
       showNewRecruitStudioLoading(listTitle ? `Opening "${listTitle}"...` : 'Opening Army Roster...');
-      navigateNewRecruitStudio(safePath, listTitle, nrRow);
+      navigateNewRecruitStudio(safePath, listTitle, nrRow, defaultSysId);
       startNrStudioLoadWatcher(existingIframe, isDirectListTarget);
     } else {
-      navigateNewRecruitStudio('/nr/app/Lists');
+      navigateNewRecruitStudio('/nr/app/Lists', '', null, defaultSysId);
       hideNewRecruitStudioLoading();
     }
     return;
   }
 
-  const iframeSrc = safePath + (safePath.includes('?') ? `&_cb=${Date.now()}` : `?_cb=${Date.now()}`);
+  const sysParams = `sys=${encodeURIComponent(activeSys)}&sys_id=${encodeURIComponent(defaultSysId)}&_cb=${Date.now()}`;
+  const iframeSrc = safePath + (safePath.includes('?') ? `&${sysParams}` : `?${sysParams}`);
   const isConnected = Boolean(hubNrCloudAccount && hubNrCloudAccount.connected);
   const loginName = (hubNrCloudAccount && hubNrCloudAccount.login) ? String(hubNrCloudAccount.login) : '';
 
@@ -3765,12 +3895,21 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
           </div>
         </div>
 
-        <!-- Studio Header Controls: Back to Lists (when in builder/login), Create List, Login/Logout, Close -->
+        <!-- Studio Header Controls: Game System & Edition Switcher, Back to Lists, Create List, Login/Logout, Close -->
         <div style="display:flex; align-items:center; gap:7px; flex-shrink:0; flex-wrap:wrap;">
+          <label for="hub-nr-studio-system-select" style="display:inline-flex; align-items:center; gap:5px; background:rgba(15,23,42,0.85); border:1px solid rgba(56,189,248,0.4); border-radius:8px; padding:3px 8px; font-size:11.5px; font-weight:800; color:#e2e8f0;" title="Switch Game System &amp; Edition in NewRecruit Army Studio">
+            <span style="color:#38bdf8; font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em;">Game:</span>
+            <select id="hub-nr-studio-system-select" onchange="changeNewRecruitStudioSystem(this.value)" style="background:transparent; border:none; color:#fff; font-size:11.5px; font-weight:800; outline:none; cursor:pointer; padding:2px 2px;">
+              <option value="827374861" ${defaultSysId === 827374861 ? 'selected' : ''} style="background:#0f172a; color:#fff;">⚔️ Warhammer 40K — 11th Ed (Latest)</option>
+              <option value="4255553472" ${defaultSysId === 4255553472 ? 'selected' : ''} style="background:#0f172a; color:#fff;">⚡ Age of Sigmar — 4.0 (Latest)</option>
+              <option value="2821148162" ${defaultSysId === 2821148162 ? 'selected' : ''} style="background:#0f172a; color:#fff;">🛡️ Warhammer 40K — 10th Ed</option>
+              <option value="4194757354" ${defaultSysId === 4194757354 ? 'selected' : ''} style="background:#0f172a; color:#fff;">🔨 Age of Sigmar — 3.0</option>
+            </select>
+          </label>
           <button id="hub-btn-nr-studio-mylists" onclick="navigateNewRecruitStudio('/nr/app/Lists')" title="Back to My Lists" style="display:${isDirectListTarget ? 'inline-flex' : 'none'}; align-items:center; gap:5px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); border-radius:8px; font-size:12px; font-weight:800; padding:6px 11px; cursor:pointer; transition:all 0.15s ease;">
             📋 Lists
           </button>
-          <button id="hub-btn-nr-studio-create" onclick="triggerNewRecruitStudioCreateList()" title="Create a new Army List in NewRecruit" style="display:inline-flex; align-items:center; gap:5px; background:#10b981; color:#052e16; border:1px solid #34d399; border-radius:8px; font-size:12px; font-weight:900; padding:6px 12px; cursor:pointer; transition:all 0.15s ease; box-shadow:0 2px 8px rgba(16,185,129,0.25);">
+          <button id="hub-btn-nr-studio-create" onclick="triggerNewRecruitStudioCreateList()" title="Create a new Army List in the selected Game System &amp; Edition" style="display:inline-flex; align-items:center; gap:5px; background:#10b981; color:#052e16; border:1px solid #34d399; border-radius:8px; font-size:12px; font-weight:900; padding:6px 12px; cursor:pointer; transition:all 0.15s ease; box-shadow:0 2px 8px rgba(16,185,129,0.25);">
             ➕ Create List
           </button>
           <button id="hub-btn-nr-studio-auth" onclick="triggerNewRecruitStudioAuth()" title="${isConnected ? `Signed in as ${escapeHtml(loginName || 'NewRecruit')} • Click to log out` : 'Sign in to your NewRecruit account'}" style="display:inline-flex; align-items:center; gap:5px; background:${isConnected ? 'rgba(239,68,68,0.16)' : 'rgba(56,189,248,0.18)'}; color:${isConnected ? '#fca5a5' : '#38bdf8'}; border:1px solid ${isConnected ? 'rgba(239,68,68,0.38)' : 'rgba(56,189,248,0.4)'}; border-radius:8px; font-size:12px; font-weight:800; padding:6px 12px; cursor:pointer; transition:all 0.15s ease;">
@@ -3822,9 +3961,10 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
   startNrStudioLoadWatcher(iframe, isDirectListTarget);
 }
 
-function navigateNewRecruitStudio(targetPath, listName = '', nrRow = null) {
+function navigateNewRecruitStudio(targetPath, listName = '', nrRow = null, sysId = null) {
   const iframe = document.getElementById('hub-nr-studio-iframe');
   if (!iframe) return;
+  const effectiveSysId = Number(sysId) || window._activeNrStudioSystemId || getDefaultNrStudioSystemIdForGameSystem();
   try {
     if (iframe.contentWindow) {
       iframe.contentWindow.postMessage({
@@ -3832,7 +3972,8 @@ function navigateNewRecruitStudio(targetPath, listName = '', nrRow = null) {
         command: 'navigate',
         path: targetPath,
         list_name: listName || '',
-        nr_row: nrRow || null
+        nr_row: nrRow || null,
+        id_system: effectiveSysId
       }, '*');
       return;
     }
@@ -3905,6 +4046,21 @@ if (!window.__omnitacticaNrParentListenerBound) {
     if (msg.action === 'compile_failed') {
       if (window.__activeHubPlayModeController && typeof window.__activeHubPlayModeController.showCompileFailedFallback === 'function') {
         window.__activeHubPlayModeController.showCompileFailedFallback(msg.errors || []);
+      }
+      return;
+    }
+    if (msg.action === 'system_status' && msg.id_system) {
+      const numSys = Number(msg.id_system);
+      if (NR_STUDIO_SYSTEMS[numSys]) {
+        window._activeNrStudioSystemId = numSys;
+        const selEl = document.getElementById('hub-nr-studio-system-select');
+        if (selEl && String(selEl.value) !== String(numSys)) {
+          selEl.value = String(numSys);
+        }
+        const subEl = document.getElementById('hub-nr-studio-subtitle');
+        if (subEl && !String(subEl.textContent || '').startsWith('Editing ')) {
+          subEl.textContent = `Active System: ${NR_STUDIO_SYSTEMS[numSys].label.replace(/^[^\w]+/, '')} • All lists sync automatically with My Hub`;
+        }
       }
       return;
     }
@@ -4777,7 +4933,8 @@ async function deleteHubArmyList(listId, fromModal = false) {
 
 function launchTrackerWithList(listId) {
   const list = (hubSavedLists || []).find(l => l.id === listId);
-  const isAos = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos');
+  const listSys = list ? resolveHubListGameSystemAndEdition(list).gameSystem : null;
+  const isAos = listSys ? (listSys === 'aos') : (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos');
   const trackerUrl = isAos ? '/11th/tracker/aos' : '/11th/tracker';
   if (list) {
     try {

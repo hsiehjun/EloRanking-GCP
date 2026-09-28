@@ -27,11 +27,67 @@ NR_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-# Real NewRecruit Warhammer 40,000 system and faction catalogue IDs (11th Edition default, 10th Edition fallback)
+# Real NewRecruit Warhammer 40,000 & Age of Sigmar system and faction catalogue IDs
+# Latest editions default: Warhammer 40,000 11th Edition (827374861) & Age of Sigmar 4.0 (4255553472)
 NR_40K_SYSTEM_ID = 827374861
 NR_40K_SYSTEM_BSID = "sys-352e-adc2-7639-d610"
 NR_40K_10E_SYSTEM_ID = 2821148162
 NR_40K_10E_SYSTEM_BSID = "sys-352e-adc2-7639-d6a9"
+NR_40K_9E_SYSTEM_ID = 176797394
+NR_40K_9E_SYSTEM_BSID = "28ec-711c-d87f-3aeb"
+
+NR_AOS_SYSTEM_ID = 4255553472
+NR_AOS_SYSTEM_BSID = "e51d-b1a3-75fc-dc3g"
+NR_AOS_3E_SYSTEM_ID = 4194757354
+NR_AOS_3E_SYSTEM_BSID = "e51d-b1a3-75fc-dc33"
+
+NR_SYSTEM_METADATA: Dict[int, Dict[str, Any]] = {
+    NR_40K_SYSTEM_ID: {
+        "id_system": NR_40K_SYSTEM_ID,
+        "bsid_system": NR_40K_SYSTEM_BSID,
+        "game_system": "40k",
+        "edition_label": "11th Ed",
+        "short": "wh40k-11e",
+        "name": "Warhammer 40,000 11th Edition",
+        "is_latest": True,
+    },
+    NR_40K_10E_SYSTEM_ID: {
+        "id_system": NR_40K_10E_SYSTEM_ID,
+        "bsid_system": NR_40K_10E_SYSTEM_BSID,
+        "game_system": "40k",
+        "edition_label": "10th Ed",
+        "short": "wh40k-10e",
+        "name": "Warhammer 40,000 10th Edition",
+        "is_latest": False,
+    },
+    NR_40K_9E_SYSTEM_ID: {
+        "id_system": NR_40K_9E_SYSTEM_ID,
+        "bsid_system": NR_40K_9E_SYSTEM_BSID,
+        "game_system": "40k",
+        "edition_label": "9th Ed",
+        "short": "wh40k",
+        "name": "Warhammer 40,000 9th Edition",
+        "is_latest": False,
+    },
+    NR_AOS_SYSTEM_ID: {
+        "id_system": NR_AOS_SYSTEM_ID,
+        "bsid_system": NR_AOS_SYSTEM_BSID,
+        "game_system": "aos",
+        "edition_label": "AoS 4.0",
+        "short": "age-of-sigmar-4th",
+        "name": "Age of Sigmar 4.0",
+        "is_latest": True,
+    },
+    NR_AOS_3E_SYSTEM_ID: {
+        "id_system": NR_AOS_3E_SYSTEM_ID,
+        "bsid_system": NR_AOS_3E_SYSTEM_BSID,
+        "game_system": "aos",
+        "edition_label": "AoS 3.0",
+        "short": "warhammer-age-of-sigmar",
+        "name": "Age of Sigmar 3.0",
+        "is_latest": False,
+    },
+}
 
 NR_40K_FACTION_BOOKS: Dict[str, Tuple[int, str, str]] = {
     "adepta sororitas": (2058815731, "b39e-4401-8f3e-fdf7", "Imperium - Adepta Sororitas"),
@@ -79,6 +135,47 @@ NR_40K_FACTION_BOOKS: Dict[str, Tuple[int, str, str]] = {
     "tyranids": (1071245710, "b984-7317-81cc-20f", "Xenos - Tyranids"),
 }
 
+# Real NewRecruit Age of Sigmar 4.0 (id_system = 4255553472) faction catalogue IDs
+NR_AOS_FACTION_BOOKS: Dict[str, Tuple[int, str, str]] = {
+    "blades of khorne": (2430265077, "d545-cdca-9e60-ad27", "Blades of Khorne"),
+    "khorne": (2430265077, "d545-cdca-9e60-ad27", "Blades of Khorne"),
+    "cities of sigmar": (1760185752, "42ad-8ca7-4b48-7df1", "Cities of Sigmar"),
+    "daughters of khaine": (2065050843, "5232-3bab-5562-3172", "Daughters of Khaine"),
+    "disciples of tzeentch": (3079939502, "d731-9058-b0e5-6ff5", "Disciples of Tzeentch"),
+    "tzeentch": (3079939502, "d731-9058-b0e5-6ff5", "Disciples of Tzeentch"),
+    "flesh-eater courts": (833854484, "b53b-1217-df2e-66d2", "Flesh-eater Courts"),
+    "flesh eater courts": (833854484, "b53b-1217-df2e-66d2", "Flesh-eater Courts"),
+    "fyreslayers": (2762353561, "b3f9-6c96-b99a-1e71", "Fyreslayers"),
+    "gloomspite gitz": (2962537137, "9baf-c109-f621-e60", "Gloomspite Gitz"),
+    "hedonites of slaanesh": (2859114640, "afdb-68a1-283e-3bf2", "Hedonites of Slaanesh"),
+    "slaanesh": (2859114640, "afdb-68a1-283e-3bf2", "Hedonites of Slaanesh"),
+    "helsmiths of hashut": (392328091, "b7b7-cf58-4189-56ec", "Helsmiths of Hashut"),
+    "chaos dwarfs": (392328091, "b7b7-cf58-4189-56ec", "Helsmiths of Hashut"),
+    "idoneth deepkin": (3467102999, "40a4-1c1c-8a00-bb65", "Idoneth Deepkin"),
+    "ironjawz": (207065146, "832c-fd6-a535-ffae", "Ironjawz"),
+    "orruk warclans": (207065146, "832c-fd6-a535-ffae", "Ironjawz"),
+    "kharadron overlords": (1912747296, "1100-a22f-15c6-bdea", "Kharadron Overlords"),
+    "kruleboyz": (2752358123, "8aef-b85d-b63a-ef05", "Kruleboyz"),
+    "lumineth realm-lords": (3664181305, "efc5-b8d-894c-67c6", "Lumineth Realm-lords"),
+    "lumineth realm lords": (3664181305, "efc5-b8d-894c-67c6", "Lumineth Realm-lords"),
+    "lumineth": (3664181305, "efc5-b8d-894c-67c6", "Lumineth Realm-lords"),
+    "maggotkin of nurgle": (3159505906, "5079-92b5-4879-69f8", "Maggotkin of Nurgle"),
+    "nurgle": (3159505906, "5079-92b5-4879-69f8", "Maggotkin of Nurgle"),
+    "nighthaunt": (250802668, "640e-6bc1-c83d-13c", "Nighthaunt"),
+    "ogor mawtribes": (1060811875, "6353-cb84-ac7f-9a15", "Ogor Mawtribes"),
+    "ossiarch bonereapers": (1475362429, "8e0e-5e8c-5824-89c9", "Ossiarch Bonereapers"),
+    "seraphon": (2426044300, "4e3-e1a7-a8d4-8719", "Seraphon"),
+    "skaven": (794864200, "231a-2a83-26f0-a718", "Skaven"),
+    "slaves to darkness": (3504641722, "2c23-a678-196b-ad69", "Slaves to Darkness"),
+    "sons of behemat": (2684306298, "de5f-588b-ea57-d6b5", "Sons of Behemat"),
+    "soulblight gravelords": (2411478563, "405e-c5f4-8579-b05c", "Soulblight Gravelords"),
+    "stormcast eternals": (1531352143, "1bd9-ad7d-68ee-3b53", "Stormcast Eternals"),
+    "stormcast": (1531352143, "1bd9-ad7d-68ee-3b53", "Stormcast Eternals"),
+    "sylvaneth": (1920653173, "bb7e-b0da-5c2-a980", "Sylvaneth"),
+    "beasts of chaos": (62299914, "6cc-9eb2-c5b4-2877", "Beasts of Chaos [LEGENDS]"),
+    "bonesplitterz": (2247251353, "7acb-3141-6008-1c09", "Bonesplitterz [LEGENDS]"),
+}
+
 # In-memory cache for static NewRecruit assets (/_nuxt/*, /settings/*, /assets/*, /api/book/*, HTML shell)
 _NR_STATIC_CACHE: Dict[str, Tuple[float, bytes, str]] = {}
 _NR_HTML_SHELL_CACHE: Optional[Tuple[float, str]] = None
@@ -86,6 +183,7 @@ _NR_CACHE_TTL_SECONDS = 86400  # 24 hours
 
 # Bounded cache of ephemeral parsed competitor rows so /nr/app/Lists/{list_key}?view=play always has immediate access
 _EPHEMERAL_NR_ROWS: Dict[str, Dict[str, Any]] = {}
+_EPHEMERAL_NR_ROWS_MAX = 200
 
 try:
     import urllib3
@@ -95,6 +193,63 @@ except Exception:
 
 # Per-user NewRecruit Cloud Account session store (keyed by user_id or 'default')
 _NR_CLOUD_ACCOUNTS: Dict[str, Dict[str, Any]] = {}
+
+
+def detect_nr_game_system_and_edition(data: Dict[str, Any]) -> Tuple[str, str]:
+    """
+    Accurately resolves ('40k' | 'aos', edition_label) from a NewRecruit list row or OmniTactica roster dict.
+    Inspects id_system, bsid_system, _omnitactica_system_name, id_book, bsid_book, and faction.
+    """
+    raw_sys_id = data.get("id_system")
+    try:
+        sys_id_int = int(raw_sys_id) if raw_sys_id is not None else None
+    except Exception:
+        sys_id_int = None
+
+    if sys_id_int in NR_SYSTEM_METADATA:
+        meta = NR_SYSTEM_METADATA[sys_id_int]
+        return str(meta["game_system"]), str(meta["edition_label"])
+
+    bsid_sys = str(data.get("bsid_system") or "").strip().lower()
+    if bsid_sys.startswith("e51d-b1a3-75fc-dc3g"):
+        return "aos", "AoS 4.0"
+    if bsid_sys.startswith("e51d-b1a3-75fc-"):
+        return "aos", "AoS 3.0"
+    if bsid_sys == NR_40K_SYSTEM_BSID.lower():
+        return "40k", "11th Ed"
+    if bsid_sys == NR_40K_10E_SYSTEM_BSID.lower():
+        return "40k", "10th Ed"
+
+    sys_name_hint = str(data.get("_omnitactica_system_name") or data.get("system_name") or "").lower()
+    if "sigmar" in sys_name_hint or "aos" in sys_name_hint:
+        edition = "AoS 3.0" if ("3.0" in sys_name_hint or "3rd" in sys_name_hint) else "AoS 4.0"
+        return "aos", edition
+    if "10th" in sys_name_hint or "10e" in sys_name_hint:
+        return "40k", "10th Ed"
+    if "11th" in sys_name_hint or "11e" in sys_name_hint:
+        return "40k", "11th Ed"
+
+    target_book_id = data.get("id_book")
+    target_bsid_book = str(data.get("bsid_book") or "").strip()
+    if target_book_id or target_bsid_book:
+        for _, (bid, bsid, _) in NR_AOS_FACTION_BOOKS.items():
+            if (target_book_id and str(bid) == str(target_book_id)) or (target_bsid_book and bsid == target_bsid_book):
+                return "aos", "AoS 4.0"
+        for _, (bid, bsid, _) in NR_40K_FACTION_BOOKS.items():
+            if (target_book_id and str(bid) == str(target_book_id)) or (target_bsid_book and bsid == target_bsid_book):
+                return "40k", "11th Ed"
+
+    explicit_gs = str(data.get("game_system") or "").strip().lower()
+    if explicit_gs == "aos":
+        return "aos", str(data.get("system_edition") or "AoS 4.0")
+    if explicit_gs == "40k":
+        return "40k", str(data.get("system_edition") or "11th Ed")
+
+    fac_low = str(data.get("faction") or data.get("_omnitactica_book_name") or data.get("book_name") or "").strip().lower()
+    if fac_low and fac_low in NR_AOS_FACTION_BOOKS and fac_low not in NR_40K_FACTION_BOOKS:
+        return "aos", "AoS 4.0"
+
+    return "40k", "11th Ed"
 
 
 def resolve_nr_40k_book(faction: str) -> Tuple[int, str, str]:
@@ -108,11 +263,33 @@ def resolve_nr_40k_book(faction: str) -> Tuple[int, str, str]:
     return NR_40K_FACTION_BOOKS["space marines"]
 
 
+def resolve_nr_aos_book(faction: str) -> Tuple[int, str, str]:
+    """Resolves a faction name to its NewRecruit Age of Sigmar 4.0 (id_book, bsid_book, book_name)."""
+    f_clean = (faction or "").strip().lower()
+    if " - " in f_clean:
+        f_clean = f_clean.split(" - ")[-1].strip()
+    if f_clean in NR_AOS_FACTION_BOOKS:
+        return NR_AOS_FACTION_BOOKS[f_clean]
+    for key, val in NR_AOS_FACTION_BOOKS.items():
+        if key in f_clean or f_clean in key:
+            return val
+    return NR_AOS_FACTION_BOOKS["stormcast eternals"]
+
+
+def resolve_nr_book(faction: str, game_system: str = "40k") -> Tuple[int, str, str]:
+    """Resolves a faction name to its NewRecruit (id_book, bsid_book, book_name) for either '40k' or 'aos'."""
+    if str(game_system or "").strip().lower() == "aos":
+        return resolve_nr_aos_book(faction)
+    return resolve_nr_40k_book(faction)
+
+
 def build_roster_text_for_nr_compiler(roster: Dict[str, Any], book_name: str) -> str:
-    """Builds a normalized Warhammer 40,000 text export from parsed units for NewRecruit's native text compiler."""
+    """Builds a normalized Warhammer 40,000 or Age of Sigmar text export from parsed units for NewRecruit's native text compiler."""
     raw_text = str(roster.get("raw_text") or "").strip()
-    detachment = str(roster.get("detachment") or "Gladius Task Force").strip()
-    if detachment in ("Core Detachment", "Unknown Detachment", "Tournament Standard"):
+    gs, _ = detect_nr_game_system_and_edition(roster)
+    default_det = "Sentinels of the Bleak Citadels" if gs == "aos" else "Gladius Task Force"
+    detachment = str(roster.get("detachment") or default_det).strip()
+    if detachment in ("Core Detachment", "Unknown Detachment", "Tournament Standard", "Battle Formation"):
         detachment = ""
     pts = int(roster.get("points") or 2000)
 
@@ -545,6 +722,38 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     initialSearch.indexOf('play=1') !== -1 ||
     initialSearch.indexOf('mode=play') !== -1
   );
+  var preferredStudioSystemId = null;
+  var mIdSysQuery = initialSearch.match(/[?&]id_system=(\d+)/i);
+  var mSysQuery = initialSearch.match(/[?&]sys=([a-z0-9_-]+)/i);
+  if (mIdSysQuery && mIdSysQuery[1]) {
+    preferredStudioSystemId = Number(mIdSysQuery[1]);
+  } else if (mSysQuery && mSysQuery[1]) {
+    var sParam = mSysQuery[1].toLowerCase();
+    if (sParam === 'aos' || sParam === 'aos4') preferredStudioSystemId = 4255553472;
+    else if (sParam === 'aos3') preferredStudioSystemId = 4194757354;
+    else if (sParam === '40k10' || sParam === '10e') preferredStudioSystemId = 2821148162;
+    else if (sParam === '40k' || sParam === '11e') preferredStudioSystemId = 827374861;
+  }
+  if (preferredStudioSystemId) {
+    try { sessionStorage.setItem('omni_nr_studio_id_system', String(preferredStudioSystemId)); } catch (e) {}
+  }
+
+  function getDefaultSystemIdForOmniGameSystem() {
+    if (preferredStudioSystemId) return preferredStudioSystemId;
+    try {
+      var omniGs = (localStorage.getItem('omni_game_system') || '40k').toLowerCase();
+      var savedStudioSys = Number(sessionStorage.getItem('omni_nr_studio_id_system') || 0);
+      if (savedStudioSys) {
+        var isSavedAos = (savedStudioSys === 4255553472 || savedStudioSys === 4194757354);
+        if ((omniGs === 'aos' && isSavedAos) || (omniGs !== 'aos' && !isSavedAos)) {
+          return savedStudioSys;
+        }
+      }
+      if (omniGs === 'aos') return 4255553472; // Age of Sigmar 4.0 (Latest)
+    } catch (e) {}
+    return 827374861; // Warhammer 40,000 11th Edition (Latest)
+  }
+
   var requestedListKeyFromUrl = null;
   var requestedListNameFromUrl = '';
   var mNameQuery = initialSearch.match(/[?&]name=([^&#]+)/i);
@@ -727,7 +936,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     };
   }
 
-  // Extract live unit summary, detachment, and book metadata from a live Army instance or $debugOption
+  // Extract live unit summary, detachment/battle formation, and book metadata from a live Army instance or $debugOption
   function extractLiveArmyMetadata(targetListKey, explicitArmy, explicitBook) {
     var out = { units: null, detachment: '', bookName: '', systemName: '' };
     try {
@@ -767,39 +976,74 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         for (var cIdx = 0; cIdx < cats.length; cIdx++) {
           var cat = cats[cIdx];
           if (!cat || typeof cat.getUnits !== 'function') continue;
-          if (cat.isConfiguration) {
+          var catName = cat.getName ? cat.getName() : (cat.name || 'Infantry');
+          var catNameLow = String(catName || '').trim().toLowerCase();
+          if (cat.isConfiguration || catNameLow === 'configuration' || catNameLow === 'army composition') {
             var cfgUnits = cat.getUnits() || [];
             for (var cuIdx = 0; cuIdx < cfgUnits.length; cuIdx++) {
               var cu = cfgUnits[cuIdx];
               if (!cu) continue;
               var cuName = (typeof cu.getName === 'function' ? cu.getName() : (cu.name || '')).toLowerCase();
-              if (cuName.indexOf('detachment') !== -1 && typeof cu.getChildInstances === 'function') {
+              if (
+                (cuName.indexOf('detachment') !== -1 ||
+                 cuName.indexOf('battle formation') !== -1 ||
+                 cuName.indexOf('subfaction') !== -1 ||
+                 cuName.indexOf('allegiance') !== -1) &&
+                typeof cu.getChildInstances === 'function'
+              ) {
                 var ch = cu.getChildInstances() || [];
                 for (var chIdx = 0; chIdx < ch.length; chIdx++) {
                   var cInst = ch[chIdx];
                   if (cInst && (!cInst.getAmount || cInst.getAmount() > 0)) {
                     var detVal = typeof cInst.getName === 'function' ? cInst.getName() : (cInst.name || '');
-                    if (detVal && detVal.toLowerCase().indexOf('detachment') === -1) {
-                      out.detachment = detVal;
+                    var detLow = String(detVal || '').trim().toLowerCase();
+                    if (detVal && detLow.indexOf('detachment') === -1 && detLow.indexOf('battle formation') === -1) {
+                      out.detachment = String(detVal).replace(/^[0-9.]+[.:)-]\s*/, '').trim();
                     }
+                  }
+                }
+                if (!out.detachment && typeof cu.calcOptionsList === 'function') {
+                  var optListStr = String(cu.calcOptionsList(true) || '').trim();
+                  if (optListStr) {
+                    out.detachment = optListStr.replace(/^Battle Formations?:\s*/i, '').trim();
                   }
                 }
               }
             }
             continue;
           }
-          var catName = cat.getName ? cat.getName() : (cat.name || 'Infantry');
           var units = cat.getUnits() || [];
           for (var uIdx = 0; uIdx < units.length; uIdx++) {
             var u = units[uIdx];
             if (!u) continue;
             var uName = (typeof u.getCustomName === 'function' && u.getCustomName()) ||
                         (typeof u.getName === 'function' ? u.getName() : (u.name || 'Unit'));
+            var uNameLow = String(uName || '').trim().toLowerCase();
+            if (
+              uNameLow === 'battle formation' ||
+              uNameLow === 'spell lore' ||
+              uNameLow === 'prayer lore' ||
+              uNameLow === 'manifestation lore'
+            ) {
+              continue;
+            }
             var pts = typeof u.getPointsCost === 'function' ? u.getPointsCost() : 0;
             var models = typeof u.calcTotalUnitSize === 'function' ? u.calcTotalUnitSize() : 1;
             var isWarlord = false;
             try {
               isWarlord = Boolean(u.isWarlord && (typeof u.isWarlord === 'function' ? u.isWarlord() : u.isWarlord));
+              if (!isWarlord && typeof u.getChildInstances === 'function') {
+                var uCh = u.getChildInstances() || [];
+                for (var ucIdx = 0; ucIdx < uCh.length; ucIdx++) {
+                  var uc = uCh[ucIdx];
+                  if (!uc || (uc.getAmount && uc.getAmount() <= 0)) continue;
+                  var ucName = String(typeof uc.getName === 'function' ? uc.getName() : (uc.name || '')).trim().toLowerCase();
+                  if (ucName === 'general' || ucName === 'warlord') {
+                    isWarlord = true;
+                    break;
+                  }
+                }
+              }
             } catch (e) {}
             enriched.push({
               name: uName,
@@ -1584,9 +1828,11 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
     var compilePromise = (async function() {
       try {
-        var sys = await systemStore.selectSystem(row.id_system || 827374861);
+        var targetSysId = Number(row.id_system) || getDefaultSystemIdForOmniGameSystem();
+        var sys = await systemStore.selectSystem(targetSysId);
         if (!sys) {
-          sys = await systemStore.selectSystem(2821148162);
+          var fallbackSysId = (targetSysId === 4255553472 || targetSysId === 4194757354) ? 4194757354 : 2821148162;
+          sys = await systemStore.selectSystem(fallbackSysId);
         }
         if (!sys) return row;
 
@@ -1802,8 +2048,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       await purgeTombstonedRowsFromPiniaAndCloud(stores);
     }
 
-    // Auto-select the game system of the user's active lists once hydration is complete
-    // so /app/MyLists always displays the user's lists without needing the hidden system dropdown
+    // Auto-select the latest edition of the active game system (or preferredStudioSystemId) once hydration is complete
     if (!requestedListKeyFromUrl && initialHydrationDone && stores.list.listsInitiated) {
       var sysArr = (stores.system.library && Array.isArray(stores.system.library.array) && stores.system.library.array.length)
         ? stores.system.library.array
@@ -1817,6 +2062,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             var instSys = (stores.options.options && Array.isArray(stores.options.options.installed_systems))
               ? stores.options.options.installed_systems
               : [];
+            var coreSystems = [827374861, 2821148162, 4255553472, 4194757354];
+            coreSystems.forEach(function(cid) {
+              if (instSys.indexOf(cid) === -1) {
+                try { stores.options.addInstalledSystemVue(cid); } catch (e) {}
+              }
+            });
             activeRows.forEach(function(r) {
               if (r && r.id_system && instSys.indexOf(r.id_system) === -1) {
                 try { stores.options.addInstalledSystemVue(r.id_system); } catch (e) {}
@@ -1824,34 +2075,43 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             });
           }
           var curSel = stores.system.selectedSystem;
-          var curSelHasLists = Boolean(curSel && activeRows.some(function(r) {
-            return r.id_system == curSel.id || (curSel.bsid != null && (r.id_system == curSel.bsid || r.bsid_system == curSel.bsid));
-          }));
-          if (!curSel || (activeRows.length > 0 && !curSelHasLists) || !stores.system.__omniDefaultSysChecked) {
+          var desiredSysId = Number(preferredStudioSystemId) || getDefaultSystemIdForOmniGameSystem();
+          if (!curSel || !stores.system.__omniDefaultSysChecked || (preferredStudioSystemId && curSel.id != preferredStudioSystemId)) {
             stores.system.__omniDefaultSysChecked = true;
-            if (!curSel || (activeRows.length > 0 && !curSelHasLists)) {
-              var row11e = activeRows.find(function(r) { return r.id_system == 827374861 || r.bsid_system === 'sys-352e-adc2-7639-d610'; });
-              var preferredSysId = row11e ? row11e.id_system : (activeRows.length > 0 ? activeRows[0].id_system : null);
-              var targetSys = (preferredSysId && sysArr.find(function(s) { return s && s.id == preferredSysId; })) ||
-                sysArr.find(function(s) { return s && s.id == 827374861; }) ||
-                sysArr.find(function(s) { return s && s.id == 2821148162; }) ||
-                sysArr.find(function(s) { return s && String(s.name || '').indexOf('Warhammer 40,000') !== -1; });
-              if (targetSys) {
-                if (stores.options && typeof stores.options.addInstalledSystemVue === 'function') {
-                  try { stores.options.addInstalledSystemVue(targetSys.id); } catch (e) {}
-                }
-                if (!curSel || curSel.id !== targetSys.id) {
-                  await stores.system.selectSystem(targetSys.id);
-                }
-                if (typeof stores.list.rebuildTreeData === 'function') {
-                  try { stores.list.rebuildTreeData(); } catch (e) {}
-                }
+            var targetSys = sysArr.find(function(s) { return s && s.id == desiredSysId; }) ||
+              sysArr.find(function(s) { return s && s.id == 827374861; }) ||
+              sysArr.find(function(s) { return s && s.id == 4255553472; }) ||
+              sysArr[0];
+            if (targetSys) {
+              if (stores.options && typeof stores.options.addInstalledSystemVue === 'function') {
+                try { stores.options.addInstalledSystemVue(targetSys.id); } catch (e) {}
+              }
+              if (!curSel || curSel.id !== targetSys.id) {
+                await stores.system.selectSystem(targetSys.id);
+              }
+              if (typeof stores.list.rebuildTreeData === 'function') {
+                try { stores.list.rebuildTreeData(); } catch (e) {}
               }
             }
           }
         } catch (e) {}
       }
     }
+
+    // Notify parent whenever the active NewRecruit system changes
+    try {
+      var curSysNow = stores.system && stores.system.selectedSystem;
+      var curSysNowId = curSysNow ? Number(curSysNow.id) : 0;
+      if (curSysNowId && stores.system.__omniLastNotifiedSysId !== curSysNowId) {
+        stores.system.__omniLastNotifiedSysId = curSysNowId;
+        notifyParent({
+          action: 'system_status',
+          id_system: curSysNowId,
+          bsid_system: curSysNow.bsid || '',
+          system_name: curSysNow.name || ''
+        });
+      }
+    } catch (e) {}
 
     // Suppress transient "Downloaded list: ..." / "lists were synced" info banners so Play Mode & MyLists stay clean
     try {
@@ -1949,6 +2209,18 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         var origSelectSystem = stores.system.selectSystem.bind(stores.system);
         stores.system.selectSystem = async function(sysId, forceReload) {
           var res = await origSelectSystem(sysId, forceReload);
+          try {
+            var selNow = this.selectedSystem;
+            if (selNow && selNow.id) {
+              this.__omniLastNotifiedSysId = Number(selNow.id);
+              notifyParent({
+                action: 'system_status',
+                id_system: Number(selNow.id),
+                bsid_system: selNow.bsid || '',
+                system_name: selNow.name || ''
+              });
+            }
+          } catch (e) {}
           if (!isEmbeddedViewer && !requestedListKeyFromUrl && initialHydrationDone) {
             setTimeout(function() { forceFullSync(); }, 180);
           }
@@ -2545,9 +2817,54 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
       }
       await ensurePlayModeAndStoreHooks();
+    } else if (msg.command === 'select_system' && msg.id_system) {
+      try {
+        var nextSysId = Number(msg.id_system);
+        if (!nextSysId) return;
+        preferredStudioSystemId = nextSysId;
+        requestedListKeyFromUrl = null;
+        hideDirectListLoader();
+        var stSys = getNrStores();
+        var addListPopupWasOpen = Boolean(document.querySelector('[data-v-9ccd5431], .addListPopup, .popup_bg .createList'));
+        if (stSys && stSys.system) {
+          if (stSys.options && typeof stSys.options.addInstalledSystemVue === 'function') {
+            try { stSys.options.addInstalledSystemVue(nextSysId); } catch (e) {}
+          }
+          await stSys.system.selectSystem(nextSysId);
+          if (stSys.list && typeof stSys.list.rebuildTreeData === 'function') {
+            try { stSys.list.rebuildTreeData(); } catch (e) {}
+          }
+        }
+        var curSysPath = window.location.pathname || '';
+        if (msg.return_to_mylists !== false && curSysPath.indexOf('/Lists/') !== -1) {
+          var rtrSys = getNrRouter(stSys);
+          if (rtrSys) {
+            await rtrSys.push('/app/MyLists');
+          }
+        }
+        if (addListPopupWasOpen) {
+          var closeBtn = document.querySelector('.popup_bg .close_btn, .popup_bg button.close, .popup_bg .cross');
+          if (closeBtn) {
+            try { closeBtn.click(); } catch (e) {}
+          }
+          setTimeout(function() {
+            var cBtn = document.querySelector('button.createToolbarBtn') || document.querySelector('button.createFab');
+            if (cBtn && !document.querySelector('[data-v-9ccd5431]')) {
+              try { cBtn.click(); } catch (e) {}
+            }
+          }, 120);
+        }
+      } catch (e) {}
     } else if (msg.command === 'navigate' && msg.path) {
       try {
         var cleanTarget = String(msg.path).replace(/^\/nr\/app/, '/app');
+        if (msg.id_system) {
+          preferredStudioSystemId = Number(msg.id_system) || preferredStudioSystemId;
+        }
+        var mNavSys = cleanTarget.match(/[?&]sys_id=(\d+)/i);
+        if (mNavSys && mNavSys[1]) {
+          preferredStudioSystemId = Number(mNavSys[1]) || preferredStudioSystemId;
+        }
         var mNavName = cleanTarget.match(/[?&]name=([^&#]+)/i);
         if (mNavName && mNavName[1]) {
           try { requestedListNameFromUrl = decodeURIComponent(mNavName[1]).trim(); } catch (e) {}
@@ -2569,16 +2886,27 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           await ensurePlayModeAndStoreHooks();
           return;
         }
-        if (/^\/app\/Lists(?:\?.*)?$/i.test(cleanTarget)) {
+        if (/^\/app\/Lists(?:\?.*)?$/i.test(cleanTarget) || /^\/app\/MyLists(?:\?.*)?$/i.test(cleanTarget)) {
           cleanTarget = '/app/MyLists';
         }
         requestedListKeyFromUrl = null;
         hideDirectListLoader();
+        var storesNav = getNrStores();
+        if (preferredStudioSystemId && storesNav && storesNav.system) {
+          if (storesNav.options && typeof storesNav.options.addInstalledSystemVue === 'function') {
+            try { storesNav.options.addInstalledSystemVue(preferredStudioSystemId); } catch (e) {}
+          }
+          if (!storesNav.system.selectedSystem || storesNav.system.selectedSystem.id != preferredStudioSystemId) {
+            await storesNav.system.selectSystem(preferredStudioSystemId);
+            if (storesNav.list && typeof storesNav.list.rebuildTreeData === 'function') {
+              try { storesNav.list.rebuildTreeData(); } catch (e) {}
+            }
+          }
+        }
         var curNavPath = (window.location.pathname || '').replace(/^\/nr\/app/, '/app');
         if (curNavPath === cleanTarget) {
           return;
         }
-        var storesNav = getNrStores();
         var rtrNav = getNrRouter(storesNav);
         if (rtrNav) {
           await rtrNav.push(cleanTarget);
@@ -2590,22 +2918,28 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       try {
         requestedListKeyFromUrl = null;
         hideDirectListLoader();
+        if (msg.id_system) {
+          preferredStudioSystemId = Number(msg.id_system) || preferredStudioSystemId;
+        }
         var stCreate = getNrStores();
         if (stCreate && stCreate.system) {
           var sysList = (stCreate.system.library && Array.isArray(stCreate.system.library.array))
             ? stCreate.system.library.array
             : [];
           var curSys = stCreate.system.selectedSystem;
-          var is40k = curSys && (curSys.id == 827374861 || curSys.id == 2821148162 || String(curSys.name || '').indexOf('Warhammer 40,000') !== -1);
-          if (!curSys || !is40k) {
-            var defSys = sysList.find(function(s) { return s && s.id == 827374861; }) ||
-                         sysList.find(function(s) { return s && s.id == 2821148162; }) ||
+          var wantCreateSysId = Number(msg.id_system) || Number(preferredStudioSystemId) || (curSys && Number(curSys.id)) || getDefaultSystemIdForOmniGameSystem();
+          if (!curSys || Number(curSys.id) !== wantCreateSysId) {
+            var defSys = sysList.find(function(s) { return s && s.id == wantCreateSysId; }) ||
+                         sysList.find(function(s) { return s && s.id == getDefaultSystemIdForOmniGameSystem(); }) ||
                          sysList[0];
             if (defSys) {
               if (stCreate.options && typeof stCreate.options.addInstalledSystemVue === 'function') {
                 try { stCreate.options.addInstalledSystemVue(defSys.id); } catch (e) {}
               }
               await stCreate.system.selectSystem(defSys.id);
+              if (stCreate.list && typeof stCreate.list.rebuildTreeData === 'function') {
+                try { stCreate.list.rebuildTreeData(); } catch (e) {}
+              }
             }
           }
         }
@@ -2853,11 +3187,13 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
     """
     Builds a valid NewRecruit IndexedDB nr.lists row from an OmniTactica roster.
     If the roster already has an authentic NewRecruit `nr_row` (created in NewRecruit Studio or Cloud), preserves it.
-    Otherwise maps the faction to its real NewRecruit 40k catalogue (id_system, id_book) and attaches
+    Otherwise maps the faction to its real NewRecruit 40k or AoS catalogue (id_system, id_book) and attaches
     `_synthetic_text` so NewRecruit's native engine compiles it into an interactive Play Mode roster with full datasheets and stratagems.
     """
-    faction = str(roster.get("faction") or "Space Marines").strip()
-    id_book, bsid_book, book_name = resolve_nr_40k_book(faction)
+    gs, edition = detect_nr_game_system_and_edition(roster)
+    default_faction = "Stormcast Eternals" if gs == "aos" else "Space Marines"
+    faction = str(roster.get("faction") or default_faction).strip()
+    id_book, bsid_book, book_name = resolve_nr_book(faction, gs)
 
     if isinstance(roster.get("nr_row"), dict) and roster["nr_row"].get("list_key"):
         row = dict(roster["nr_row"])
@@ -2892,18 +3228,21 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
     for u in roster.get("units") or []:
         if not isinstance(u, dict):
             continue
-        role = str(u.get("role") or "Infantry")
+        role = str(u.get("role") or ("Hero" if gs == "aos" else "Infantry"))
         by_role.setdefault(role, []).append(u)
 
     cat_options = []
-    det_name = str(roster.get("detachment") or "Gladius Task Force")
+    det_default = "Battle Formation" if gs == "aos" else "Gladius Task Force"
+    det_name = str(roster.get("detachment") or det_default)
+    cfg_root_name = "Army Composition" if gs == "aos" else "Configuration"
+    cfg_det_name = "Battle Formation" if gs == "aos" else "Detachment"
     cat_options.append({
         "id": "cfg-root",
-        "name": "Configuration",
+        "name": cfg_root_name,
         "options": [
             {
                 "id": "cfg-det",
-                "name": "Detachment",
+                "name": cfg_det_name,
                 "options": [{"id": "cfg-det-val", "name": det_name, "options": [{"id": "cfg-det-leaf", "name": det_name}]}],
             }
         ],
@@ -2914,11 +3253,11 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
         for idx, u in enumerate(u_list):
             sub_opts = []
             if u.get("is_warlord"):
-                sub_opts.append({"id": f"wl-{idx}", "name": "Warlord"})
+                sub_opts.append({"id": f"wl-{idx}", "name": "General" if gs == "aos" else "Warlord"})
             if u.get("enhancement"):
                 sub_opts.append({
                     "id": f"enh-{idx}",
-                    "name": "Enhancements",
+                    "name": "Heroic Traits" if gs == "aos" else "Enhancements",
                     "options": [{"id": f"enh-val-{idx}", "name": str(u["enhancement"])}],
                 })
             for wg_idx, wg in enumerate(u.get("wargear") or []):
@@ -2941,12 +3280,25 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
     synthetic_text = build_roster_text_for_nr_compiler({**roster, "raw_text": ""}, book_name)
     if not synthetic_text and raw_text_val:
         synthetic_text = raw_text_val
-    sys_id = int(roster.get("id_system") or NR_40K_SYSTEM_ID)
-    sys_bsid = (
-        "sys-352e-adc2-7639-d610"
-        if sys_id == 827374861
-        else str(roster.get("bsid_system") or NR_40K_SYSTEM_BSID)
-    )
+
+    if roster.get("id_system"):
+        sys_id = int(roster["id_system"])
+    elif gs == "aos":
+        sys_id = NR_AOS_3E_SYSTEM_ID if edition == "AoS 3.0" else NR_AOS_SYSTEM_ID
+    else:
+        sys_id = NR_40K_10E_SYSTEM_ID if edition == "10th Ed" else NR_40K_SYSTEM_ID
+
+    if sys_id == NR_AOS_SYSTEM_ID:
+        sys_bsid = NR_AOS_SYSTEM_BSID
+    elif sys_id == NR_AOS_3E_SYSTEM_ID:
+        sys_bsid = NR_AOS_3E_SYSTEM_BSID
+    elif sys_id == NR_40K_SYSTEM_ID:
+        sys_bsid = NR_40K_SYSTEM_BSID
+    elif sys_id == NR_40K_10E_SYSTEM_ID:
+        sys_bsid = NR_40K_10E_SYSTEM_BSID
+    else:
+        sys_bsid = str(roster.get("bsid_system") or (NR_AOS_SYSTEM_BSID if gs == "aos" else NR_40K_SYSTEM_BSID))
+
     out_row = {
         "list_key": list_key,
         "name": str(roster.get("name") or f"{faction} - {det_name}"),
