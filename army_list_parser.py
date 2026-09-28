@@ -20,11 +20,6 @@ logger = logging.getLogger("ArmyListParser")
 class ArmyListParser:
     """Parses army list links, JSON, and text exports into structured match rosters."""
 
-    def _enrich_with_wahapedia(self, roster: Dict[str, Any]) -> Dict[str, Any]:
-        """Legacy pass-through: NewRecruit Play Mode now renders all datasheets, stats, weapons, abilities, and stratagems natively."""
-        return roster
-
-
     def parse_file(self, raw_bytes: bytes, filename: str = "", enrich: bool = False) -> Dict[str, Any]:
         """Parses an uploaded file (.rosz, .ros, .json, .txt) into a structured match roster."""
         if not raw_bytes:
@@ -66,16 +61,45 @@ class ArmyListParser:
         if not res:
             try:
                 text_str = raw_bytes.decode("utf-8", errors="ignore")
-                res = self.parse(text_str, enrich=enrich)
+                res = self.parse(text_str)
             except Exception:
                 res = self._create_empty_roster()
 
-        final_res = res or self._create_empty_roster()
-        return self._enrich_with_wahapedia(final_res) if enrich else final_res
+        return self._finalize_roster_compatibility(res or self._create_empty_roster())
+
+    def _finalize_roster_compatibility(self, roster: Dict[str, Any]) -> Dict[str, Any]:
+        """Annotates whether a parsed roster can be compiled/opened in NewRecruit Play Mode."""
+        if not isinstance(roster, dict):
+            return self._create_empty_roster()
+        units = roster.get("units") or []
+        has_nr_row = bool(isinstance(roster.get("nr_row"), dict) and roster["nr_row"].get("list_key"))
+        src_fmt = str(roster.get("source_format") or "").strip()
+        raw_txt = str(roster.get("raw_text") or "").strip()
+        is_nr_export = bool(
+            has_nr_row
+            or src_fmt in ("NewRecruit", "NewRecruit Sync", "NewRecruit Studio", "NewRecruit Link")
+            or "FACTION KEYWORD:" in raw_txt.upper()
+            or "DETACHMENT POINTS" in raw_txt.upper()
+            or "FORCE DISPOSITIONS:" in raw_txt.upper()
+            or "ATTACHED UNIT" in raw_txt.upper()
+            or "NEWRECRUIT" in raw_txt.upper()
+        )
+        has_valid_units = bool(
+            len(units) > 0
+            and (
+                is_nr_export
+                or src_fmt in ("Warhammer 40k App", "BattleScribe", "BattleScribe XML (.ros / .rosz)", "JSON Roster")
+                or any(int(u.get("points") or 0) > 0 for u in units if isinstance(u, dict))
+                or str(roster.get("faction") or "") not in ("", "Warhammer 40,000")
+            )
+        )
+        roster["is_newrecruit_compatible"] = bool(has_nr_row or has_valid_units)
+        roster["created_by_newrecruit"] = bool(is_nr_export and (has_nr_row or len(units) > 0))
+        return roster
 
     def parse(self, raw_input: str, source_hint: Optional[str] = None, enrich: bool = False) -> Dict[str, Any]:
         if not raw_input or not raw_input.strip():
-            return self._create_empty_roster()
+            return self._finalize_roster_compatibility(self._create_empty_roster())
 
         content = raw_input.strip()
         res = None
@@ -111,17 +135,26 @@ class ArmyListParser:
 
         # 5. Text Format Detection
         if not res:
-            if "FACTION KEYWORD:" in content or (content.startswith("++") and "TOTAL ARMY POINTS" in content):
+            content_up = content.upper()
+            if "FACTION KEYWORD:" in content_up or (content.startswith("++") and "TOTAL ARMY POINTS" in content_up):
                 res = self._parse_newrecruit_text(content)
-            elif "++ Army Roster" in content or "+ Epic Hero +" in content or "+ Character +" in content:
+            elif "++ ARMY ROSTER" in content_up or "+ EPIC HERO +" in content_up or "+ CHARACTER +" in content_up:
                 res = self._parse_battlescribe_text(content)
-            elif "CHARACTERS" in content or "BATTLELINE" in content or "OTHER DATASHEETS" in content or "ATTACHED UNITS" in content.upper() or "Exported with App Version" in content:
+            elif (
+                "CHARACTERS" in content
+                or "BATTLELINE" in content
+                or "OTHER DATASHEETS" in content
+                or "ATTACHED UNITS" in content_up
+                or "ATTACHED UNIT 1" in content_up
+                or "DETACHMENT POINTS)" in content_up
+                or "FORCE DISPOSITIONS:" in content_up
+                or "EXPORTED WITH APP VERSION" in content_up
+            ):
                 res = self._parse_warhammer_app_text(content)
             else:
                 res = self._parse_generic_text(content)
 
-        final_res = res or self._create_empty_roster()
-        return self._enrich_with_wahapedia(final_res) if enrich else final_res
+        return self._finalize_roster_compatibility(res or self._create_empty_roster())
 
     def _parse_battlescribe_xml(self, xml_content: str) -> Dict[str, Any]:
         """Parses BattleScribe .ros / .rosz XML content into a rich tactical roster."""
@@ -690,9 +723,7 @@ class ArmyListParser:
                 raw_lines.append("")
             roster["raw_text"] = "\n".join(raw_lines).strip()
 
-        if enrich:
-            return self._enrich_with_wahapedia(roster)
-        return roster
+        return self._finalize_roster_compatibility(roster)
 
     def parse_url(self, url: str) -> Dict[str, Any]:
         """Resolves a NewRecruit share link into a complete, rich tactical roster."""
@@ -1349,7 +1380,7 @@ class ArmyListParser:
             return False
 
         unit_line_re = re.compile(r"^([^\(\[]+?)\s*\((?:(\d+)\s*pts|(\d+)\s*points)\)", re.IGNORECASE)
-        enh_re = re.compile(r"^[•\-\*\s]*Enhancements?:\s*(.+?)(?:\s*\((?:Upgrade|\+?\d+\s*pts?)\))?$", re.IGNORECASE)
+        enh_re = re.compile(r"^[•\-\*\s]*Enhancements?:\s*(.+?)(?:\s*\((?:Upgrade|\+?(\d+)\s*(?:pts?|points?))\))?$", re.IGNORECASE)
 
         for line in body_lines:
             trimmed = line.strip()
@@ -1400,6 +1431,11 @@ class ArmyListParser:
                     enh_name = enh_m.group(1).replace("’", "'").strip()
                     enh_clean = re.sub(r"\(.*?\)", "", enh_name).strip()
                     current_unit["enhancement"] = enh_clean
+                    if enh_m.group(2):
+                        try:
+                            current_unit["enhancement_pts"] = int(enh_m.group(2))
+                        except Exception:
+                            pass
                     continue
 
                 if "warlord" in trimmed.lower() and len(trimmed) < 20:
@@ -1425,15 +1461,24 @@ class ArmyListParser:
                 if item_clean and item_clean not in current_unit["wargear"]:
                     current_unit["wargear"].append(item_clean)
 
+        base_sum = sum(u["points"] for u in parsed_units)
+        enh_sum = sum(int(u.get("enhancement_pts") or 0) for u in parsed_units)
+        total_calc = (base_sum + enh_sum) if enh_sum > 0 else base_sum
+        text_up = text.upper()
+        is_nr_gw_export = any(
+            marker in text_up
+            for marker in ("DETACHMENT POINTS)", "FORCE DISPOSITIONS:", "ATTACHED UNIT ", "ATTACHED AS:")
+        )
+
         return {
             "id": f"list_{uuid.uuid4().hex[:10]}",
             "name": roster_name,
             "faction": faction,
             "detachment": detachment,
-            "points": sum(u["points"] for u in parsed_units) or points,
+            "points": total_calc or points,
             "points_limit": points or 2000,
             "warlord": warlord or (parsed_units[0]["name"] if parsed_units else ""),
-            "source_format": "Warhammer 40k App",
+            "source_format": "NewRecruit" if is_nr_gw_export else "Warhammer 40k App",
             "source_url": None,
             "units": parsed_units,
             "enhancements": [u["enhancement"] for u in parsed_units if u.get("enhancement")],
@@ -1443,7 +1488,8 @@ class ArmyListParser:
 
     def _parse_generic_text(self, text: str) -> Dict[str, Any]:
         """Intelligently parses any plain text, tournament, app, or note roster."""
-        lines = [line.strip() for line in text.splitlines()]
+        raw_lines = [line.rstrip() for line in text.splitlines()]
+        lines = [line.strip() for line in raw_lines]
         non_empty_lines = [l for l in lines if l]
         if not non_empty_lines:
             return self._create_empty_roster()
@@ -1454,7 +1500,7 @@ class ArmyListParser:
             "Adeptus Mechanicus", "Astra Militarum", "Imperial Knights", "Chaos Space Marines",
             "Death Guard", "Thousand Sons", "World Eaters", "Chaos Knights", "Chaos Daemons",
             "Tyranids", "Genestealer Cults", "Necrons", "Orks", "T'au Empire", "Aeldari",
-            "Drukhari", "Leagues of Votann", "Imperial Agents"
+            "Drukhari", "Leagues of Votann", "Imperial Agents", "Emperor's Children"
         ]
 
         faction = "Warhammer 40,000"
@@ -1504,16 +1550,19 @@ class ArmyListParser:
         current_role = "Infantry"
         current_unit = None
         enhancements_list = []
+        saw_category_header = False
 
         category_pattern = re.compile(r"^[\+\#\=]*\s*(CHARACTERS?|EPIC HEROES?|BATTLELINE|INFANTRY|MOUNTED|VEHICLES?|MONSTERS?|DEDICATED TRANSPORTS?|OTHER DATASHEETS?|ALLIED UNITS?)\s*[\+\#\=]*$", re.IGNORECASE)
 
-        for line in lines:
+        for raw_line in raw_lines:
+            line = raw_line.strip()
             if not line:
                 continue
 
             # Check Category Header
             m_cat = category_pattern.match(line)
             if m_cat:
+                saw_category_header = True
                 c_upper = m_cat.group(1).upper()
                 if "CHAR" in c_upper or "EPIC" in c_upper:
                     current_role = "Character"
@@ -1530,11 +1579,11 @@ class ArmyListParser:
                 continue
 
             # Skip section dividers & metadata headers
-            if line.startswith(("++", "==", "--")) or line.lower().startswith(("faction keyword:", "detachment:", "total army points:", "battle size:")):
+            if line.startswith(("++", "==", "--")) or line.lower().startswith(("faction keyword:", "detachment:", "total army points:", "battle size:", "force dispositions:")):
                 continue
 
             # Skip roster title line if matched
-            if (roster_name and roster_name.lower() in line.lower()) or (any(kf.lower() in line.lower() for kf in known_factions) and any(kw in line.lower() for kw in ["task force", "detachment", "court", "spearhead", "host", "cadre", "phalanx", "fleet", "brotherhood", "crusade", "army roster", "legion", "cult", "coven", "swarm", "strike force"])):
+            if (roster_name and line.lower() == roster_name.lower()) or (any(kf.lower() in line.lower() for kf in known_factions) and any(kw in line.lower() for kw in ["task force", "detachment", "court", "spearhead", "host", "cadre", "phalanx", "fleet", "brotherhood", "crusade", "army roster", "legion", "cult", "coven", "swarm", "strike force"])):
                 continue
 
             # Check if line is an Enhancement subline
@@ -1553,6 +1602,8 @@ class ArmyListParser:
                     warlord = current_unit["name"]
                 continue
 
+            is_bullet_or_indented = raw_line.startswith((" ", "\t")) or line.startswith(("•", "◦", "‣", "*", "-"))
+
             # Process unit line
             line_clean = re.sub(r"^(?:(?:Char\d+|Unit\d+)\s*:\s*)", "", line).strip()
             line_clean = re.sub(r"^[\-\*•\+]\s*", "", line_clean).strip()
@@ -1566,6 +1617,18 @@ class ArmyListParser:
 
             # Extract points: (80 pts) or [80pts] or (80 points)
             m_pts = re.search(r"[\(\[]\s*(\d{2,4})\s*(?:pts|points)?\s*[\)\]]", line_clean, re.IGNORECASE)
+
+            # If this is a bulleted or indented sub-line WITHOUT points under an active unit, attach as wargear
+            if is_bullet_or_indented and not m_pts and current_unit is not None:
+                wg_item = re.sub(r"^\d+x?\s+", "", line_clean).strip()
+                if wg_item and wg_item.lower() not in ("warlord",) and wg_item not in current_unit["wargear"]:
+                    current_unit["wargear"].append(wg_item)
+                continue
+
+            # Do not turn arbitrary plain-text sentences without points/counts/headers into fake units
+            if not m_pts and not m_cnt and not saw_category_header:
+                continue
+
             pts = 0
             wargear_part = ""
             if m_pts:

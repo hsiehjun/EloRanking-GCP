@@ -54,21 +54,7 @@ steps:
       - '--region'
       - 'us-central1'
 
-  # 5. Update Cloud Run Job: wahapedia-sync-job
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'update-wahapedia-job'
-    entrypoint: gcloud
-    args:
-      - 'run'
-      - 'jobs'
-      - 'update'
-      - 'wahapedia-sync-job'
-      - '--image'
-      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
-      - '--region'
-      - 'us-central1'
-
-  # 6. Update Cloud Run Job: elo-historical-scrape
+  # 5. Update Cloud Run Job: elo-historical-scrape
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-historical-scrape-job'
     entrypoint: gcloud

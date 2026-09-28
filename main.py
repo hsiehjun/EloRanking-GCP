@@ -263,13 +263,6 @@ def cmd_sync(args):
     )
 
 
-def cmd_wahapedia(args):
-    """Executes the Wahapedia sync job."""
-    from wahapedia_sync import sync_wahapedia_job
-    res = sync_wahapedia_job(force=args.force, game_system=args.game_system)
-    print("Wahapedia Sync Result:", res)
-
-
 def cmd_player_sync(args):
     """Executes the BCP player name sync and data repair job."""
     from player_sync import sync_player_names_job
@@ -395,11 +388,6 @@ def main():
     p_sync.add_argument("--days", type=int, default=int(os.getenv("DAYS", "3")), help="Days of past tournaments to scrape (default: 3)")
     p_sync.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS")) if os.getenv("MAX_EVENTS") else None, help="Max tournaments to scrape per game system (default: None for unlimited)")
 
-    # Wahapedia sync command
-    p_waha = subparsers.add_parser("wahapedia", help="Sync rules and points from Wahapedia into PostgreSQL")
-    p_waha.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (default: all)")
-    p_waha.add_argument("--force", action="store_true", help="Force re-sync even if remote timestamps match")
-
     # Player name sync command
     p_psync = subparsers.add_parser("sync-players", aliases=["player-sync"], help="Sync and repair placeholder player names ('Player 1', 'Player 2') from BCP")
     p_psync.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to check (default: all)")
@@ -440,8 +428,6 @@ def main():
         cmd_player(args)
     elif args.command == "sync":
         cmd_sync(args)
-    elif args.command == "wahapedia":
-        cmd_wahapedia(args)
     elif args.command in ("sync-players", "player-sync"):
         cmd_player_sync(args)
     elif args.command == "stats":

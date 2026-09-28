@@ -19,7 +19,6 @@ window.api = {
     '/api/armory': 90000,
     '/api/community': 45000,
     '/api/badges': 120000,
-    '/api/wahapedia': 180000,
   },
 
   clearCache(pattern) {

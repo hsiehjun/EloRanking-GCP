@@ -21,7 +21,6 @@ endpoints = [
     ("Armory Catalog", "/api/armory/catalog"),
     ("Armory Vault", "/api/armory/vault"),
     ("Badges Catalog", "/api/badges/catalog"),
-    ("Wahapedia Status", "/api/wahapedia/status"),
 ]
 
 base = "http://localhost:5178"

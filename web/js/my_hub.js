@@ -3889,6 +3889,21 @@ if (!window.__omnitacticaNrParentListenerBound) {
       hideNewRecruitStudioLoading();
     }
     if (msg.action === 'ready') {
+      const playOv = document.getElementById('hub-nr-play-loading-overlay');
+      if (playOv) {
+        playOv.style.opacity = '0';
+        playOv.style.pointerEvents = 'none';
+        setTimeout(() => { if (playOv) playOv.style.display = 'none'; }, 180);
+      }
+      if (window.__activeHubPlayModeController && typeof window.__activeHubPlayModeController.hidePlayLoading === 'function') {
+        window.__activeHubPlayModeController.hidePlayLoading();
+      }
+      return;
+    }
+    if (msg.action === 'compile_failed') {
+      if (window.__activeHubPlayModeController && typeof window.__activeHubPlayModeController.showCompileFailedFallback === 'function') {
+        window.__activeHubPlayModeController.showCompileFailedFallback(msg.errors || []);
+      }
       return;
     }
     if (msg.action === 'auth_status' || msg.action === 'route_status') {
@@ -4242,6 +4257,77 @@ function resolveHubNrListKey(list) {
   return rawKey.startsWith('nr_') ? rawKey.slice(3) : rawKey;
 }
 
+function renderNonNewRecruitFallbackView(list, options = {}) {
+  const units = (list && Array.isArray(list.units)) ? list.units : [];
+  const rawText = generateRawRosterText(list || {});
+  const switchRawJs = options.onViewRawText || `setHubRosterViewMode('text', '${escapeHtml(list && list.id ? list.id : '')}')`;
+  const sourceFmt = (list && list.source_format) ? String(list.source_format) : 'Plain Text';
+
+  const unitCardsHtml = units.length > 0 ? units.map(u => {
+    const wg = Array.isArray(u.wargear) && u.wargear.length > 0
+      ? `<div style="margin-top:6px; font-size:11px; color:#94a3b8; line-height:1.45;">${u.wargear.map(w => `<div>• ${escapeHtml(w)}</div>`).join('')}</div>`
+      : '';
+    const enh = u.enhancement
+      ? `<div style="margin-top:4px; font-size:11px; color:#c084fc; font-weight:700;">✨ Enhancement: ${escapeHtml(u.enhancement)}</div>`
+      : '';
+    const modelCnt = u.model_count || u.models || 1;
+    return `
+      <div style="background:#0f172a; border:1px solid rgba(56,189,248,0.18); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; justify-content:space-between;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+          <div>
+            <div style="font-size:13px; font-weight:800; color:#f8fafc;">
+              ${escapeHtml(u.name || 'Unit')}${u.is_warlord ? ' <span style="color:#facc15; font-size:11px;">👑 Warlord</span>' : ''}
+            </div>
+            <div style="font-size:11px; color:#38bdf8; font-weight:600; margin-top:2px;">
+              ${escapeHtml(u.role || 'Unit')}${modelCnt > 1 ? ` • ${modelCnt} Models` : ''}
+            </div>
+          </div>
+          <span style="font-size:12px; font-weight:800; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); padding:2px 8px; border-radius:6px; font-family:var(--font-mono); white-space:nowrap;">
+            ${u.points || 0} pts
+          </span>
+        </div>
+        ${enh}
+        ${wg}
+      </div>
+    `;
+  }).join('') : '';
+
+  return `
+    <div id="hub-nr-non-compatible-notice" style="display:flex; flex-direction:column; padding:20px; flex:1; overflow-y:auto; background:#070b14; gap:16px;">
+      <div style="background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.35); border-radius:12px; padding:16px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div style="display:flex; align-items:flex-start; gap:12px; max-width:780px;">
+          <span style="font-size:24px; line-height:1;">⚠️</span>
+          <div>
+            <div style="font-size:14px; font-weight:900; color:#fbbf24; margin-bottom:4px;">
+              List Not Created by NewRecruit
+            </div>
+            <div style="font-size:12.5px; color:#cbd5e1; line-height:1.5;">
+              This army list was submitted in <b>${escapeHtml(sourceFmt)}</b> format rather than exported from NewRecruit, so interactive NewRecruit Play Mode datasheets cannot be generated for this roster. You can inspect the raw list text or parsed unit summary below.
+            </div>
+          </div>
+        </div>
+        <button onclick="${switchRawJs}" style="background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-weight:800; font-size:12px; padding:8px 14px; border-radius:8px; cursor:pointer; white-space:nowrap;">
+          📄 View Raw List
+        </button>
+      </div>
+
+      ${units.length > 0 ? `
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:10px 14px;">
+          <div style="font-size:12px; color:#cbd5e1;">
+            <b style="color:#38bdf8;">📋 Parsed Unit Summary</b> — ${escapeHtml((list && list.faction) || 'Warhammer 40,000')} • ${escapeHtml((list && list.detachment) || 'Detachment')} • <b style="color:#f59e0b;">${(list && list.points) || 0} pts</b> (${units.length} ${units.length === 1 ? 'unit' : 'units'})
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">
+          ${unitCardsHtml}
+        </div>
+      ` : `
+        <pre style="flex:1; margin:0; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:18px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#e2e8f0; line-height:1.6; white-space:pre-wrap; overflow-y:auto; word-break:break-word;">${escapeHtml(rawText)}</pre>
+      `}
+    </div>
+  `;
+}
+window.renderNonNewRecruitFallbackView = renderNonNewRecruitFallbackView;
+
 function renderNativeRosterViewer(list, options = {}) {
   const viewMode = (options.mode || window.hubCurrentViewMode) === 'text' ? 'text' : 'play';
 
@@ -4262,6 +4348,13 @@ function renderNativeRosterViewer(list, options = {}) {
     `;
   }
 
+  const isExplicitlyIncompatible = Boolean(
+    options.compileFailed ||
+    !list ||
+    list.is_newrecruit_compatible === false ||
+    (list.nr_row && list.nr_row._is_nr_compatible === false)
+  );
+
   const hasNrBacking = Boolean(
     list && (
       list.nr_row ||
@@ -4273,51 +4366,22 @@ function renderNativeRosterViewer(list, options = {}) {
     )
   );
 
-  if (!hasNrBacking && list && Array.isArray(list.units) && list.units.length > 0) {
-    const unitCardsHtml = list.units.map(u => {
-      const wg = Array.isArray(u.wargear) && u.wargear.length > 0
-        ? `<div style="margin-top:6px; font-size:11px; color:#94a3b8; line-height:1.45;">${u.wargear.map(w => `<div>• ${escapeHtml(w)}</div>`).join('')}</div>`
-        : '';
-      return `
-        <div style="background:#0f172a; border:1px solid rgba(56,189,248,0.18); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; justify-content:space-between;">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
-            <div>
-              <div style="font-size:13px; font-weight:800; color:#f8fafc;">
-                ${escapeHtml(u.name || 'Unit')}${u.is_warlord ? ' <span style="color:#facc15; font-size:11px;">👑 Warlord</span>' : ''}
-              </div>
-              <div style="font-size:11px; color:#38bdf8; font-weight:600; margin-top:2px;">
-                ${escapeHtml(u.role || 'Unit')}${u.models && u.models > 1 ? ` • ${u.models} Models` : ''}
-              </div>
-            </div>
-            <span style="font-size:12px; font-weight:800; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); padding:2px 8px; border-radius:6px; font-family:var(--font-mono); white-space:nowrap;">
-              ${u.points || 0} pts
-            </span>
-          </div>
-          ${wg}
-        </div>
-      `;
-    }).join('');
-
-    return `
-      <div style="display:flex; flex-direction:column; padding:18px; flex:1; overflow-y:auto; background:#070b14; gap:14px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:10px 14px;">
-          <div style="font-size:12px; color:#cbd5e1;">
-            <b style="color:#38bdf8;">📋 Parsed Roster Overview</b> — ${escapeHtml(list.faction || 'Warhammer 40,000')} • ${escapeHtml(list.detachment || 'Detachment')} • <b style="color:#f59e0b;">${list.points || 0} pts</b> (${list.units.length} units)
-          </div>
-        </div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">
-          ${unitCardsHtml}
-        </div>
-      </div>
-    `;
+  if (isExplicitlyIncompatible || !hasNrBacking) {
+    return renderNonNewRecruitFallbackView(list, options);
   }
 
   const listKey = resolveHubNrListKey(list);
+  try {
+    if (list.nr_row && window.sessionStorage) {
+      window.sessionStorage.setItem('omni_pending_nr_row_' + listKey, JSON.stringify(list.nr_row));
+    }
+  } catch (e) {}
+
   const nameParam = list.name ? `&name=${encodeURIComponent(list.name)}` : '';
   const iframeUrl = `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=hub${nameParam}&_cb=${Date.now()}`;
 
   return `
-    <div style="flex:1; position:relative; background:#090d16; display:flex; flex-direction:column; overflow:hidden;">
+    <div id="hub-nr-play-mode-wrapper" style="flex:1; width:100%; height:100%; min-height:560px; position:relative; background:#090d16; display:flex; flex-direction:column; overflow:hidden;">
       <div id="hub-nr-play-loading-overlay" style="position:absolute; inset:0; z-index:20; background:radial-gradient(circle at center, #0f172a 0%, #070b14 100%); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:24px; text-align:center; transition:opacity 0.2s ease;">
         <div class="spinner" style="width:38px; height:38px; border-width:3px; border-top-color:#38bdf8;"></div>
         <div style="font-size:15px; font-weight:900; color:#f8fafc;">Opening "${escapeHtml(list.name || 'Army Roster')}" in Play Mode...</div>
@@ -4328,12 +4392,98 @@ function renderNativeRosterViewer(list, options = {}) {
         data-list-key="${escapeHtml(listKey)}"
         src="${iframeUrl}"
         title="NewRecruit Play Mode - Datasheets & Stratagems"
-        style="width:100%; height:100%; flex:1; border:none; display:block; background:#090d16;"
+        style="width:100%; height:100%; min-height:560px; flex:1; border:none; display:block; background:#090d16;"
         allow="clipboard-read; clipboard-write"
       ></iframe>
     </div>
   `;
 }
+window.renderNativeRosterViewer = renderNativeRosterViewer;
+
+function attachHubPlayModeIframeLifecycle(list, containerEl = null, options = {}) {
+  const root = containerEl || document;
+  const iframe = root.querySelector ? root.querySelector('#hub-nr-play-mode-iframe') : document.getElementById('hub-nr-play-mode-iframe');
+  if (!iframe || !list) return;
+
+  const listKey = resolveHubNrListKey(list);
+  let settled = false;
+
+  const hidePlayLoading = () => {
+    const ov = (root.querySelector ? root.querySelector('#hub-nr-play-loading-overlay') : null) || document.getElementById('hub-nr-play-loading-overlay');
+    if (ov) {
+      ov.style.opacity = '0';
+      ov.style.pointerEvents = 'none';
+      setTimeout(() => { if (ov) ov.style.display = 'none'; }, 180);
+    }
+  };
+
+  const showCompileFailedFallback = (errors = []) => {
+    if (settled) return;
+    settled = true;
+    if (playWatcher) clearInterval(playWatcher);
+    hidePlayLoading();
+    const wrapper = (root.querySelector ? root.querySelector('#hub-nr-play-mode-wrapper') : null) || document.getElementById('hub-nr-play-mode-wrapper') || (iframe && iframe.parentElement);
+    if (wrapper) {
+      wrapper.outerHTML = renderNonNewRecruitFallbackView(list, Object.assign({}, options, { compileFailed: true, compileErrors: errors }));
+    }
+  };
+
+  window.__activeHubPlayModeController = {
+    listKey,
+    list,
+    hidePlayLoading,
+    showCompileFailedFallback
+  };
+
+  const startedAt = Date.now();
+  const playWatcher = setInterval(() => {
+    if (!document.body.contains(iframe)) {
+      clearInterval(playWatcher);
+      return;
+    }
+    if (Date.now() - startedAt > 12000) {
+      clearInterval(playWatcher);
+      hidePlayLoading();
+      return;
+    }
+    try {
+      const doc = iframe.contentDocument;
+      const win = iframe.contentWindow;
+      if (win && win.__omniCompileFailedForKey === listKey) {
+        showCompileFailedFallback();
+        return;
+      }
+      if (win && win.__omnitacticaNrBridge && win.location && /\/Lists\/[^\/\?\#]+/i.test(win.location.pathname || '')) {
+        if (doc && !doc.documentElement.classList.contains('omnitactica-nr-direct-list-loading') && doc.body && (doc.body.innerText || '').trim().length > 10) {
+          clearInterval(playWatcher);
+          hidePlayLoading();
+        }
+      }
+    } catch (e) {}
+  }, 100);
+
+  const sendPlayCmd = () => {
+    if (settled) return;
+    try {
+      if (iframe.contentWindow) {
+        iframe.contentWindow.postMessage({
+          type: 'OMNITACTICA_NR_COMMAND',
+          command: 'open_play_mode',
+          list_key: listKey,
+          list_name: list.name || '',
+          play: true,
+          nr_row: list.nr_row || null
+        }, '*');
+      }
+    } catch (e) {}
+  };
+
+  iframe.addEventListener('load', () => {
+    sendPlayCmd();
+    setTimeout(sendPlayCmd, 500);
+  });
+}
+window.attachHubPlayModeIframeLifecycle = attachHubPlayModeIframeLifecycle;
 
 async function openViewArmyListModal(listId, mode = null) {
   const cleanKey = String(listId || '').replace(/^(nr_|list_)/, '');
@@ -4411,55 +4561,8 @@ async function openViewArmyListModal(listId, mode = null) {
   `;
   modal.style.display = 'flex';
 
-  const iframe = document.getElementById('hub-nr-play-mode-iframe');
-  if (iframe && activeMode === 'play') {
-    const listKey = resolveHubNrListKey(list);
-    const hidePlayLoading = () => {
-      const ov = document.getElementById('hub-nr-play-loading-overlay');
-      if (ov) {
-        ov.style.opacity = '0';
-        ov.style.pointerEvents = 'none';
-        setTimeout(() => { if (ov) ov.style.display = 'none'; }, 180);
-      }
-    };
-    const startedAt = Date.now();
-    const playWatcher = setInterval(() => {
-      if (Date.now() - startedAt > 5500 || !document.getElementById('hub-nr-play-mode-iframe')) {
-        clearInterval(playWatcher);
-        hidePlayLoading();
-        return;
-      }
-      try {
-        const doc = iframe.contentDocument;
-        const win = iframe.contentWindow;
-        if (win && win.location && /\/Lists\/[^\/\?\#]+/i.test(win.location.pathname || '')) {
-          if (!doc || !doc.documentElement.classList.contains('omnitactica-nr-direct-list-loading')) {
-            clearInterval(playWatcher);
-            hidePlayLoading();
-          }
-        }
-      } catch (e) {}
-    }, 100);
-
-    const sendPlayCmd = () => {
-      try {
-        if (iframe.contentWindow) {
-          iframe.contentWindow.postMessage({
-            type: 'OMNITACTICA_NR_COMMAND',
-            command: 'open_play_mode',
-            list_key: listKey,
-            list_name: list.name || '',
-            play: true,
-            nr_row: list.nr_row || null
-          }, '*');
-        }
-      } catch (e) {}
-    };
-    iframe.addEventListener('load', () => {
-      sendPlayCmd();
-      setTimeout(sendPlayCmd, 600);
-      setTimeout(sendPlayCmd, 1600);
-    });
+  if (activeMode === 'play') {
+    attachHubPlayModeIframeLifecycle(list, modal);
   }
 }
 

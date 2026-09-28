@@ -4961,42 +4961,21 @@ function _renderEventCompetitorPlayMode(contentEl, parsedRoster, fallbackText) {
         id: matchSaved.id,
         nr_list_key: matchSaved.nr_list_key || matchSaved.list_key,
         nr_row: matchSaved.nr_row,
-        source: matchSaved.source || 'newrecruit'
+        source: matchSaved.source || 'newrecruit',
+        is_newrecruit_compatible: true
       });
     }
   }
   if (parsedRoster && parsedRoster.nr_row && !matchedSaved) {
     parsedRoster.nr_row = Object.assign({}, parsedRoster.nr_row, { _ephemeral_view: true });
   }
+  const viewOpts = { mode: 'play', onViewRawText: "setEventArmyListViewMode('text')" };
   const renderer = window.renderNativeRosterViewer || (typeof renderNativeRosterViewer === 'function' ? renderNativeRosterViewer : null);
   if (renderer && parsedRoster) {
-    contentEl.innerHTML = renderer(parsedRoster, { mode: 'play' });
-    setTimeout(() => {
-      const iframe = contentEl.querySelector('#hub-nr-play-mode-iframe');
-      if (iframe) {
-        const rawKey = String(parsedRoster.nr_list_key || parsedRoster.list_key || (parsedRoster.nr_row && parsedRoster.nr_row.list_key) || parsedRoster.id || 'roster').trim();
-        const listKey = rawKey.startsWith('nr_') ? rawKey.slice(3) : rawKey;
-        const postPlayCmd = () => {
-          try {
-            if (iframe.contentWindow) {
-              iframe.contentWindow.postMessage({
-                type: 'OMNITACTICA_NR_COMMAND',
-                command: 'open_play_mode',
-                list_key: listKey,
-                play: true,
-                nr_row: parsedRoster.nr_row || null
-              }, '*');
-            }
-          } catch (e) {}
-        };
-        postPlayCmd();
-        iframe.addEventListener('load', () => {
-          postPlayCmd();
-          setTimeout(postPlayCmd, 600);
-          setTimeout(postPlayCmd, 1500);
-        });
-      }
-    }, 50);
+    contentEl.innerHTML = renderer(parsedRoster, viewOpts);
+    if (typeof window.attachHubPlayModeIframeLifecycle === 'function') {
+      window.attachHubPlayModeIframeLifecycle(parsedRoster, contentEl, viewOpts);
+    }
   } else {
     contentEl.innerHTML = `<pre style="padding:1.25rem; color:#e2e8f0; font-family:var(--font-mono); font-size:0.82rem; line-height:1.6; white-space:pre-wrap;">${escapeHtml(fallbackText)}</pre>`;
   }

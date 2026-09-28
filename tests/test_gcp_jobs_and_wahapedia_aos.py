@@ -1,14 +1,12 @@
-"""Comprehensive test suite for GCP Cloud Run Jobs and Wahapedia AoS integration:
-1. Wahapedia AoS Sync Engine & PostgreSQL schema isolation.
+"""Comprehensive test suite for GCP Cloud Run Jobs and Multi-Game (40k & AoS) integration:
+1. 40k & AoS Faction Grouping & Clean Legacy Wahapedia Removal.
 2. Cloud Run Job: elo-tournament-sync-job (Dual 40k & AoS scraping + incremental Elo).
 3. Cloud Run Job: elo-historical-scrape (Flexible start/end date + multi-game parameterization).
-4. Wahapedia Sync Job: wahapedia-sync-job (AoS 4th edition rules & warscrolls).
-5. Cloud Build deployment configuration (all 3 Cloud Run jobs updated in pipeline).
-6. 40k data protection guarantee (zero cross-contamination or regression).
+4. Cloud Build deployment configuration (all active Cloud Run jobs updated in pipeline).
+5. 40k & AoS Elo Engine partitioning and data isolation guarantee.
 """
 
 import inspect
-import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -17,112 +15,32 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 import config
-from wahapedia_sync import (
-    WahapediaSync, WH40K_BASE_URL, AOS_BASE_URL,
-    WH40K_TABLE_MAPPING, AOS_TABLE_MAPPING, sync_wahapedia_job
-)
-import database
-from database import PostgresDatabase, Database
-from scraper import BestCoastPairingsScraper
+from database import PostgresDatabase
 from elo import EloEngine
 from scripts.sync_tournaments import run_tournament_sync
 from scripts.historical_scrape import run_historical_scrape
 
 
-def test_wahapedia_aos_configuration():
-    """Verify Wahapedia AoS base URL and table mapping structure."""
-    assert AOS_BASE_URL == "https://wahapedia.ru/aos4"
-    assert WH40K_BASE_URL == "https://wahapedia.ru/wh40k11ed"
-    
-    # 12 AoS tables mapped to dedicated waha_aos_* prefix
-    expected_aos_tables = [
-        "waha_aos_factions",
-        "waha_aos_sources",
-        "waha_aos_warscrolls",
-        "waha_aos_warscroll_abilities",
-        "waha_aos_warscroll_weapons",
-        "waha_aos_warscroll_keywords",
-        "waha_aos_warscroll_bases",
-        "waha_aos_warscroll_organisation",
-        "waha_aos_warscroll_ror_factions",
-        "waha_aos_faction_abilities",
-        "waha_aos_faction_ability_types",
-        "waha_aos_faction_ability_subtypes",
-    ]
-    for tbl in expected_aos_tables:
-        assert tbl in AOS_TABLE_MAPPING.values(), f"Missing AoS table {tbl}"
+def test_faction_groups_and_legacy_wahapedia_removed():
+    """Verify 40k and AoS faction groups in PostgresDatabase and confirm legacy Wahapedia code is removed."""
+    groups_40k = PostgresDatabase.get_factions(game_system="40k", grouped=True)
+    groups_aos = PostgresDatabase.get_factions(game_system="aos", grouped=True)
 
-    # Strict isolation: No collision with 40k tables
-    for tbl in AOS_TABLE_MAPPING.values():
-        assert tbl not in WH40K_TABLE_MAPPING.values(), f"AoS table {tbl} collides with 40k tables!"
+    assert len(groups_40k) == 4
+    assert {g["group"] for g in groups_40k} == {"Imperium", "Space Marines", "Chaos", "Xenos"}
+    assert len(groups_aos) == 4
+    assert {g["group"] for g in groups_aos} == {"Order", "Chaos", "Death", "Destruction"}
 
-    print("✅ test_wahapedia_aos_configuration passed")
-
-
-def test_wahapedia_schema_in_database():
-    """Verify that PostgresDatabase contains schema definitions and queries for AoS Wahapedia tables."""
     with open(ROOT_DIR / "database.py", "r", encoding="utf-8") as f:
         db_code = f.read()
 
-    # DDL creates all 12 AoS tables
-    assert "CREATE TABLE IF NOT EXISTS waha_aos_warscrolls" in db_code
-    assert "CREATE TABLE IF NOT EXISTS waha_aos_factions" in db_code
-    assert "CREATE TABLE IF NOT EXISTS waha_aos_warscroll_abilities" in db_code
-    assert "CREATE TABLE IF NOT EXISTS waha_aos_warscroll_weapons" in db_code
-    assert "CREATE TABLE IF NOT EXISTS waha_aos_warscroll_keywords" in db_code
-    assert "CREATE TABLE IF NOT EXISTS waha_aos_warscroll_bases" in db_code
+    assert "CREATE TABLE IF NOT EXISTS waha_" not in db_code
+    assert not hasattr(PostgresDatabase, "waha_find_unit")
+    assert not hasattr(PostgresDatabase, "waha_get_sync_status")
+    assert not (ROOT_DIR / "wahapedia_sync.py").exists()
+    assert not (ROOT_DIR / "scripts" / "sync_wahapedia.py").exists()
 
-    # Performance indexes for AoS
-    assert "idx_waha_aos_ws_name" in db_code
-    assert "idx_waha_aos_ws_faction" in db_code
-    assert "idx_waha_aos_ws_wp_ws" in db_code
-    assert "idx_waha_aos_ws_ab_ws" in db_code
-
-    # Multi-game methods exist
-    db = PostgresDatabase.__new__(PostgresDatabase)
-    assert hasattr(db, "waha_get_sync_status")
-    assert hasattr(db, "waha_aos_find_warscroll")
-    assert hasattr(db, "waha_aos_get_factions")
-    assert hasattr(db, "waha_aos_get_faction_abilities")
-    assert hasattr(db, "waha_find_unit")
-
-    print("✅ test_wahapedia_schema_in_database passed")
-
-
-def test_wahapedia_sync_engine_dispatch():
-    """Verify WahapediaSync correctly routes sync_40k, sync_aos, and sync_all."""
-    syncer = WahapediaSync(db=MagicMock())
-
-    with patch.object(syncer, "sync_40k", return_value={"success": True, "game_system": "40k"}) as mock_40k, \
-         patch.object(syncer, "sync_aos", return_value={"success": True, "game_system": "aos"}) as mock_aos:
-
-        # 1. 40k only
-        res_40k = syncer.sync_all(force=True, game_system="40k")
-        assert res_40k["game_system"] == "40k"
-        mock_40k.assert_called_once_with(force=True)
-        mock_aos.assert_not_called()
-
-        mock_40k.reset_mock()
-        mock_aos.reset_mock()
-
-        # 2. AoS only
-        res_aos = syncer.sync_all(force=True, game_system="aos")
-        assert res_aos["game_system"] == "aos"
-        mock_aos.assert_called_once_with(force=True)
-        mock_40k.assert_not_called()
-
-        mock_40k.reset_mock()
-        mock_aos.reset_mock()
-
-        # 3. All (default)
-        res_all = syncer.sync_all(force=False, game_system="all")
-        assert res_all["success"] is True
-        assert "40k" in res_all["game_systems"]
-        assert "aos" in res_all["game_systems"]
-        mock_40k.assert_called_once_with(force=False)
-        mock_aos.assert_called_once_with(force=False)
-
-    print("✅ test_wahapedia_sync_engine_dispatch passed")
+    print("✅ test_faction_groups_and_legacy_wahapedia_removed passed")
 
 
 def test_elo_tournament_sync_job():
@@ -197,7 +115,7 @@ def test_elo_historical_scrape_job():
 
         # 2. Scrape with custom game_system_id override
         custom_id = "CUSTOM_AOS_LEAGUE_123"
-        res_custom = run_historical_scrape(
+        run_historical_scrape(
             start_date="2026-08-01",
             end_date="2026-08-10",
             game_system="aos",
@@ -226,7 +144,7 @@ def test_elo_historical_scrape_job():
 
 
 def test_main_cli_multigame_support():
-    """Verify main.py CLI commands support --game-system, --game-system-id, and sync/wahapedia commands."""
+    """Verify main.py CLI commands support --game-system, --game-system-id, and sync/sync-players commands."""
     with open(ROOT_DIR / "main.py", "r", encoding="utf-8") as f:
         main_src = f.read()
 
@@ -237,28 +155,27 @@ def test_main_cli_multigame_support():
     assert "p_lead.add_argument(\"--game-system\"" in main_src
     assert "p_player.add_argument(\"--game-system\"" in main_src
     assert "p_sync = subparsers.add_parser(\"sync\"" in main_src
-    assert "p_waha = subparsers.add_parser(\"wahapedia\"" in main_src
+    assert "cmd_wahapedia" not in main_src
 
     # Verify cmd_scrape logic handles systems_to_scrape
     assert "DEFAULT_GAME_SYSTEM_ID" in main_src
     assert "AOS_GAME_SYSTEM_ID" in main_src
     assert "cmd_sync" in main_src
-    assert "cmd_wahapedia" in main_src
+    assert "cmd_player_sync" in main_src
 
     print("✅ test_main_cli_multigame_support passed")
 
 
 def test_cloudbuild_deployment_pipeline():
-    """Verify cloudbuild.yaml has update steps for all Cloud Run jobs: elo-tournament-sync-job, wahapedia-sync-job, elo-historical-scrape, and player-sync-job."""
+    """Verify cloudbuild.yaml has update steps for active Cloud Run jobs: elo-tournament-sync-job, elo-historical-scrape, and player-sync-job."""
     with open(ROOT_DIR / "cloudbuild.yaml", "r", encoding="utf-8") as f:
         cb_src = f.read()
 
     assert "elo-tournament-sync-job" in cb_src
-    assert "wahapedia-sync-job" in cb_src
     assert "elo-historical-scrape" in cb_src
     assert "player-sync-job" in cb_src
+    assert "wahapedia-sync-job" not in cb_src
     assert "id: 'update-tournament-job'" in cb_src
-    assert "id: 'update-wahapedia-job'" in cb_src
     assert "id: 'update-historical-scrape-job'" in cb_src
     assert "id: 'update-player-sync-job'" in cb_src
 
@@ -296,13 +213,11 @@ def test_elo_engine_partitioning_and_isolation():
 
 
 if __name__ == "__main__":
-    print("=== RUNNING GCP JOBS & WAHAPEDIA AOS TEST SUITE ===")
-    test_wahapedia_aos_configuration()
-    test_wahapedia_schema_in_database()
-    test_wahapedia_sync_engine_dispatch()
+    print("=== RUNNING GCP JOBS & MULTI-GAME TEST SUITE ===")
+    test_faction_groups_and_legacy_wahapedia_removed()
     test_elo_tournament_sync_job()
     test_elo_historical_scrape_job()
     test_main_cli_multigame_support()
     test_cloudbuild_deployment_pipeline()
     test_elo_engine_partitioning_and_isolation()
-    print("\n🎉 ALL GCP JOBS & WAHAPEDIA AOS TESTS PASSED 100%!")
+    print("\n🎉 ALL GCP JOBS & MULTI-GAME TESTS PASSED 100%!")

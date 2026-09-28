@@ -27,14 +27,16 @@ NR_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-# Real NewRecruit Warhammer 40,000 system and faction catalogue IDs
-NR_40K_SYSTEM_ID = 2821148162
-NR_40K_SYSTEM_BSID = "sys-352e-adc2-7639-d6a9"
+# Real NewRecruit Warhammer 40,000 system and faction catalogue IDs (11th Edition default, 10th Edition fallback)
+NR_40K_SYSTEM_ID = 827374861
+NR_40K_SYSTEM_BSID = "sys-352e-adc2-7639-d610"
+NR_40K_10E_SYSTEM_ID = 2821148162
+NR_40K_10E_SYSTEM_BSID = "sys-352e-adc2-7639-d6a9"
 
 NR_40K_FACTION_BOOKS: Dict[str, Tuple[int, str, str]] = {
     "adepta sororitas": (2058815731, "b39e-4401-8f3e-fdf7", "Imperium - Adepta Sororitas"),
     "sisters of battle": (2058815731, "b39e-4401-8f3e-fdf7", "Imperium - Adepta Sororitas"),
-    "black templars": (142652252, "36d3-36bc-68dd-40ac", "Imperium - Adeptus Astartes - Black Templars"),
+    "black templars": (142652252, "36d3-36bc-68dd-68dd", "Imperium - Adeptus Astartes - Black Templars"),
     "blood angels": (3811889199, "4ef9-15ce-e3e6-36de", "Imperium - Adeptus Astartes - Blood Angels"),
     "dark angels": (331927583, "470a-6daa-9014-12df", "Imperium - Adeptus Astartes - Dark Angels"),
     "deathwatch": (1708061280, "f89b-84e0-6e3b-f1e2", "Imperium - Adeptus Astartes - Deathwatch"),
@@ -82,6 +84,9 @@ _NR_STATIC_CACHE: Dict[str, Tuple[float, bytes, str]] = {}
 _NR_HTML_SHELL_CACHE: Optional[Tuple[float, str]] = None
 _NR_CACHE_TTL_SECONDS = 86400  # 24 hours
 
+# Bounded cache of ephemeral parsed competitor rows so /nr/app/Lists/{list_key}?view=play always has immediate access
+_EPHEMERAL_NR_ROWS: Dict[str, Dict[str, Any]] = {}
+
 try:
     import urllib3
     _NR_HTTP_POOL: Optional[Any] = urllib3.PoolManager(maxsize=16, retries=urllib3.Retry(total=2, backoff_factor=0.1))
@@ -104,25 +109,19 @@ def resolve_nr_40k_book(faction: str) -> Tuple[int, str, str]:
 
 
 def build_roster_text_for_nr_compiler(roster: Dict[str, Any], book_name: str) -> str:
-    """Builds a clean Warhammer 40,000 text export that NewRecruit's native text compiler (ukVEh7Py.js) can compile into a full catalogue army."""
+    """Builds a normalized Warhammer 40,000 text export from parsed units for NewRecruit's native text compiler."""
     raw_text = str(roster.get("raw_text") or "").strip()
     detachment = str(roster.get("detachment") or "Gladius Task Force").strip()
     if detachment in ("Core Detachment", "Unknown Detachment", "Tournament Standard"):
         detachment = ""
     pts = int(roster.get("points") or 2000)
 
-    # If raw_text already has units, prepend FACTION KEYWORD / DETACHMENT headers if missing so NewRecruit's parser resolves book & detachment
-    if raw_text and len(raw_text.splitlines()) >= 4 and not raw_text.startswith("{"):
-        header_lines = [
-            "+++++++++++++++++++++++++++++++++++++++++++++++",
-            f"+ FACTION KEYWORD: {book_name}",
-        ]
-        if detachment:
-            header_lines.append(f"+ DETACHMENT: {detachment}")
-        header_lines.append(f"+ TOTAL ARMY POINTS: {pts}pts")
-        header_lines.append("+++++++++++++++++++++++++++++++++++++++++++++++")
-        if "FACTION KEYWORD" not in raw_text.upper():
-            return "\n".join(header_lines) + "\n\n" + raw_text
+    # If raw_text already has explicit NewRecruit "+ FACTION KEYWORD:" header, preserve it directly
+    if raw_text and "FACTION KEYWORD:" in raw_text.upper() and not raw_text.startswith("{"):
+        return raw_text
+
+    units = [u for u in (roster.get("units") or []) if isinstance(u, dict) and u.get("name")]
+    if not units and raw_text and not raw_text.startswith("{"):
         return raw_text
 
     lines = [
@@ -135,7 +134,6 @@ def build_roster_text_for_nr_compiler(roster: Dict[str, Any], book_name: str) ->
     lines.append("+++++++++++++++++++++++++++++++++++++++++++++++")
     lines.append("")
 
-    units = [u for u in (roster.get("units") or []) if isinstance(u, dict) and u.get("name")]
     for u in units:
         u_name = str(u.get("name") or "Unit").strip()
         u_pts = int(u.get("points") or 0)
@@ -189,14 +187,21 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     overflow: hidden !important;
     pointer-events: none !important;
   }
-  html body {
+  html,
+  body,
+  #__nuxt {
+    height: 100% !important;
+    max-height: 100% !important;
     padding-top: 0 !important;
     padding-bottom: 0 !important;
+    margin: 0 !important;
   }
   #mainContent,
   .mainContent {
     top: 0 !important;
     bottom: 0 !important;
+    height: 100% !important;
+    max-height: 100% !important;
   }
   .main-view {
     padding-top: 0 !important;
@@ -514,6 +519,15 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   var syncInFlight = {};
   var pendingNrRowFromParent = null;
   var cachedNrDb = null;
+
+  try {
+    if (requestedListKeyFromUrl && window.sessionStorage) {
+      var savedPendingRow = window.sessionStorage.getItem('omni_pending_nr_row_' + requestedListKeyFromUrl);
+      if (savedPendingRow) {
+        pendingNrRowFromParent = JSON.parse(savedPendingRow);
+      }
+    }
+  } catch (e) {}
 
   function getAuthHeaders(extraHeaders) {
     var hdrs = Object.assign({}, extraHeaders || {});
@@ -1410,9 +1424,43 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     });
   }
 
+  function countCompiledUnitsInArmy(armyInst) {
+    if (!armyInst || typeof armyInst.getForces !== 'function') return 0;
+    try {
+      var forces = armyInst.getForces() || [];
+      var total = 0;
+      for (var i = 0; i < forces.length; i++) {
+        var f = forces[i];
+        if (!f) continue;
+        if (typeof f.getCategories === 'function') {
+          var cats = f.getCategories() || [];
+          for (var cIdx = 0; cIdx < cats.length; cIdx++) {
+            var cat = cats[cIdx];
+            if (!cat || cat.isConfiguration || typeof cat.getUnits !== 'function') continue;
+            var catName = (typeof cat.getName === 'function') ? String(cat.getName() || '') : String(cat.name || '');
+            if (catName.toLowerCase() === 'configuration') continue;
+            var units = cat.getUnits() || [];
+            total += units.length;
+          }
+        } else if (f.units && Array.isArray(f.units.array)) {
+          for (var j = 0; j < f.units.array.length; j++) {
+            var u = f.units.array[j];
+            if (!u) continue;
+            var uCat = (typeof u.getCategoryName === 'function') ? String(u.getCategoryName() || '') : '';
+            if (uCat.toLowerCase() === 'configuration') continue;
+            total++;
+          }
+        }
+      }
+      return total;
+    } catch (e) {
+      return 0;
+    }
+  }
+
   // Compile synthetic/text-imported row into a real NewRecruit BattleScribe catalogue army using the live Nuxt entry module's system parser
   async function compileSyntheticRowIfNeeded(row, systemStore, listStore, forceCompile) {
-    if (!row || !row.list_key || !row._synthetic_text) return row;
+    if (!row || !row.list_key || (!row._synthetic_text && !row._raw_text)) return row;
     if (row._compiled_by_nr && !forceCompile) return row;
     var rowArmyId = row.army ? String(row.army.id || '') : '';
     var hasSyntheticArmy = Boolean(
@@ -1434,11 +1482,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           sys = await systemStore.selectSystem(2821148162);
         }
         if (!sys) return row;
-        var booksArr = (sys.books && Array.isArray(sys.books.array)) ? sys.books.array : [];
-        var fallbackBook = booksArr.find(function(b) {
-          return b && (b.id == row.id_book || b.bsid == row.bsid_book);
-        }) || booksArr.find(function(b) { return b && b.playable; }) || null;
-        if (!fallbackBook) return row;
 
         var entryScriptEl = document.querySelector('script[type="module"][src*="/_nuxt/"]');
         var entrySrc = entryScriptEl ? entryScriptEl.getAttribute('src') : null;
@@ -1467,34 +1510,118 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           }
         }
         if (!adapter || typeof sys.getBook !== 'function') return row;
+
+        var candidateTexts = [];
+        if (row._raw_text && String(row._raw_text).trim()) {
+          candidateTexts.push(String(row._raw_text));
+        }
+        if (row._synthetic_text && String(row._synthetic_text).trim() && String(row._synthetic_text) !== String(row._raw_text || '')) {
+          candidateTexts.push(String(row._synthetic_text));
+        }
+        if (candidateTexts.length === 0) return row;
+
+        var firstLines = candidateTexts[0].match(/[^\r\n]+/g) || [];
+        var firstHdr = (firstLines.length > 0 && typeof adapter.parseTextListHeader === 'function')
+          ? await adapter.parseTextListHeader(firstLines)
+          : { start: 0 };
+
+        var booksArr = (sys.books && Array.isArray(sys.books.array)) ? sys.books.array : [];
+        var wantedBookNames = [];
+        if (firstHdr && firstHdr.bookName) wantedBookNames.push(String(firstHdr.bookName).trim().toLowerCase());
+        if (row._omnitactica_book_name) wantedBookNames.push(String(row._omnitactica_book_name).trim().toLowerCase());
+        if (row.army && row.army.name) wantedBookNames.push(String(row.army.name).trim().toLowerCase());
+
+        var fallbackBook = null;
+        for (var wIdx = 0; wIdx < wantedBookNames.length && !fallbackBook; wIdx++) {
+          var wn = wantedBookNames[wIdx];
+          if (!wn) continue;
+          fallbackBook = booksArr.find(function(b) {
+            return b && String(b.name || '').trim().toLowerCase() === wn;
+          }) || null;
+        }
+        if (!fallbackBook) {
+          fallbackBook = booksArr.find(function(b) {
+            return b && (b.id == row.id_book || b.bsid == row.bsid_book);
+          }) || null;
+        }
+        if (!fallbackBook) {
+          for (var wIdx2 = 0; wIdx2 < wantedBookNames.length && !fallbackBook; wIdx2++) {
+            var wn2 = wantedBookNames[wIdx2];
+            var shortWn = wn2.indexOf(' - ') !== -1 ? wn2.split(' - ').pop().trim() : wn2;
+            if (!shortWn) continue;
+            fallbackBook = booksArr.find(function(b) {
+              if (!b || !b.name) return false;
+              var bn = String(b.name).trim().toLowerCase();
+              var shortBn = bn.indexOf(' - ') !== -1 ? bn.split(' - ').pop().trim() : bn;
+              return shortBn === shortWn || bn.indexOf(shortWn) !== -1;
+            }) || null;
+          }
+        }
+        if (!fallbackBook) {
+          fallbackBook = booksArr.find(function(b) { return b && b.playable; }) || null;
+        }
+        if (!fallbackBook) return row;
+
         var bookInst = await sys.getBook(fallbackBook.id);
         if (!bookInst) return row;
-        var rawLines = String(row._synthetic_text || '').match(/[^\r\n]+/g) || [];
-        if (rawLines.length === 0) return row;
-        var hdr = (typeof adapter.parseTextListHeader === 'function')
-          ? await adapter.parseTextListHeader(rawLines)
-          : { start: 0 };
-        var startIdx = (hdr && typeof hdr.start === 'number') ? hdr.start : 0;
-        var maxCost = (hdr && hdr.maxCost) || Number(row.totalCost) || 2000;
-        var parsed = await adapter.parseTextList(bookInst, rawLines, maxCost, startIdx);
-        if (parsed && parsed.army) {
+
+        var bestParsed = null;
+        var bestUnitCount = 0;
+        var lastErrors = [];
+
+        for (var cIdx = 0; cIdx < candidateTexts.length; cIdx++) {
+          var rawLines = candidateTexts[cIdx].match(/[^\r\n]+/g) || [];
+          if (rawLines.length === 0) continue;
+          var hdr = (typeof adapter.parseTextListHeader === 'function')
+            ? await adapter.parseTextListHeader(rawLines)
+            : { start: 0 };
+          var startIdx = (hdr && typeof hdr.start === 'number') ? hdr.start : 0;
+          var maxCost = (hdr && hdr.maxCost) || Number(row.totalCost) || 2000;
+          var parsed = await adapter.parseTextList(bookInst, rawLines, maxCost, startIdx);
+          if (parsed && Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+            lastErrors = parsed.errors;
+          }
+          var uCount = (parsed && parsed.army) ? countCompiledUnitsInArmy(parsed.army) : 0;
+          if (uCount > bestUnitCount) {
+            bestParsed = parsed;
+            bestUnitCount = uCount;
+            break;
+          }
+          if (!bestParsed && parsed && parsed.army) {
+            bestParsed = parsed;
+          }
+        }
+
+        if (bestParsed && bestParsed.army && bestUnitCount > 0) {
           row.id_system = sys.id;
           row.bsid_system = sys.bsid || row.bsid_system;
           row.id_book = fallbackBook.id || row.id_book;
           row.bsid_book = fallbackBook.bsid || row.bsid_book;
           row.nrversion = fallbackBook.nrversion || row.nrversion || 1;
           delete row.booksDate;
-          if (parsed.leaders && typeof adapter.migrateLegacyLeaders === 'function') {
+          if (bestParsed.leaders && typeof adapter.migrateLegacyLeaders === 'function') {
             row.metadata = row.metadata || {};
-            row.metadata.leaders = parsed.leaders;
-            try { adapter.migrateLegacyLeaders(row, parsed.army); } catch (e) {}
+            row.metadata.leaders = bestParsed.leaders;
+            try { adapter.migrateLegacyLeaders(row, bestParsed.army); } catch (e) {}
           }
-          row.army = parsed.army.toJson();
-          row.totalCost = parsed.army.getPointsCost() || row.totalCost || 2000;
-          if (typeof parsed.army.calcTotalCosts === 'function') {
-            row.totalCosts = parsed.army.calcTotalCosts();
+          var wantPlayCompile = Boolean(
+            (row.metadata && row.metadata.play_mode) ||
+            wantPlayModeFromUrl ||
+            (window.location.search || '').indexOf('view=play') !== -1
+          );
+          row.metadata = Object.assign(
+            { builder_settings: {}, custom_categories: [], custom_view: false },
+            row.metadata || {},
+            { play_mode: wantPlayCompile }
+          );
+          row.army = bestParsed.army.toJson();
+          row.totalCost = bestParsed.army.getPointsCost() || row.totalCost || 2000;
+          if (typeof bestParsed.army.calcTotalCosts === 'function') {
+            row.totalCosts = bestParsed.army.calcTotalCosts();
           }
           row._compiled_by_nr = true;
+          row._compiled_unit_count = bestUnitCount;
+          row._nr_compile_failed = false;
           if (listStore && Array.isArray(listStore.listData)) {
             var existingIdx = listStore.listData.findIndex(function(r) { return r && r.list_key === row.list_key; });
             if (existingIdx !== -1) {
@@ -1503,8 +1630,20 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           }
           await listStore.saveListLocally({
             row: row,
-            army: parsed.army,
+            army: bestParsed.army,
             book: bookInst
+          });
+        } else {
+          row._nr_compile_failed = true;
+          row._compiled_unit_count = 0;
+          row._nr_compile_errors = lastErrors;
+          window.__omniCompileFailedForKey = row.list_key;
+          hideDirectListLoader();
+          notifyParent({
+            action: 'compile_failed',
+            list_key: row.list_key,
+            name: row.name || '',
+            errors: lastErrors
           });
         }
       } catch (err) {
@@ -1697,20 +1836,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         return found;
       };
 
-      var origSelect = stores.list.selectList.bind(stores.list);
-      stores.list.selectList = async function(rowOrKey, opts) {
-        try {
-          var rowObj = (typeof rowOrKey === 'string') ? this.findListByKey(rowOrKey) : rowOrKey;
-          if (rowObj && rowObj._synthetic_text && !rowObj._compiled_by_nr) {
-            if (stores.options && typeof stores.options.addInstalledSystemVue === 'function' && rowObj.id_system) {
-              stores.options.addInstalledSystemVue(rowObj.id_system);
-            }
-            await compileSyntheticRowIfNeeded(rowObj, stores.system, stores.list);
-          }
-        } catch (e) {}
-        return await origSelect(rowOrKey, opts);
-      };
-
       // Hook system switching so changing game system in Studio updates My Hub to match
       if (stores.system && typeof stores.system.selectSystem === 'function' && !stores.system.__omniPatchedSelectSys) {
         stores.system.__omniPatchedSelectSys = true;
@@ -1801,25 +1926,35 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
       if (typeof stores.list.selectList === 'function') {
         var origSelectList = stores.list.selectList.bind(stores.list);
-        stores.list.selectList = async function(rowObj) {
-          if (rowObj && rowObj._synthetic_text && !rowObj._compiled_by_nr) {
-            await compileSyntheticRowIfNeeded(rowObj, stores.system, stores.list, false);
+        stores.list.selectList = async function(rowOrKey, opts) {
+          var rowObj = (typeof rowOrKey === 'string') ? this.findListByKey(rowOrKey) : rowOrKey;
+          var wantPlayNow = Boolean(wantPlayModeFromUrl || (window.location.search || '').indexOf('view=play') !== -1);
+          if (rowObj) {
+            if (requestedListKeyFromUrl) {
+              rowObj.metadata = Object.assign({}, rowObj.metadata || {}, { play_mode: wantPlayNow });
+            }
+            if ((rowObj._synthetic_text || rowObj._raw_text) && !rowObj._compiled_by_nr) {
+              if (stores.options && typeof stores.options.addInstalledSystemVue === 'function' && rowObj.id_system) {
+                stores.options.addInstalledSystemVue(rowObj.id_system);
+              }
+              await compileSyntheticRowIfNeeded(rowObj, stores.system, stores.list, false);
+            }
           }
-          var res = await origSelectList(rowObj);
+          var res = await origSelectList(rowObj || rowOrKey, opts);
           if (!res && rowObj) {
             if (rowObj.booksDate) {
               delete rowObj.booksDate;
-              res = await origSelectList(rowObj);
+              res = await origSelectList(rowObj, opts);
             }
-            if (!res && rowObj._synthetic_text) {
+            if (!res && (rowObj._synthetic_text || rowObj._raw_text)) {
               rowObj._compiled_by_nr = false;
               await compileSyntheticRowIfNeeded(rowObj, stores.system, stores.list, true);
-              res = await origSelectList(rowObj);
+              res = await origSelectList(rowObj, opts);
             }
           }
-          if (res && res.row && requestedListKeyFromUrl) {
-            var wantPlayNow = Boolean(wantPlayModeFromUrl || (window.location.search || '').indexOf('view=play') !== -1);
-            res.row.metadata = Object.assign({}, res.row.metadata || {}, { play_mode: wantPlayNow });
+          var activeList = res || this.currentList;
+          if (activeList && activeList.row && requestedListKeyFromUrl) {
+            activeList.row.metadata = Object.assign({}, activeList.row.metadata || {}, { play_mode: wantPlayNow });
           }
           return res;
         };
@@ -1863,6 +1998,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     var curList = stores.list.currentList;
     var isOnListRoute = curPath.indexOf('/Lists/' + targetKey) !== -1;
     if (playModeActivatedForKey === modeToken && curList && curList.row && curList.row.list_key === targetKey) {
+      if (curList.row) {
+        curList.row.metadata = Object.assign({}, curList.row.metadata || {}, { play_mode: Boolean(wantPlay) });
+      }
       if (stores.listsPage && stores.listsPage.editedList !== curList) {
         stores.listsPage.editedList = curList;
       }
@@ -1955,8 +2093,19 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         await stores.system.selectSystem(targetRow.id_system);
       }
       var rowArmyIdBefore = (targetRow && targetRow.army) ? String(targetRow.army.id || '') : '';
+      if (targetRow && targetRow._nr_compile_failed) {
+        hideDirectListLoader();
+        playModeActivatedForKey = modeToken;
+        notifyParent({
+          action: 'compile_failed',
+          list_key: targetKey,
+          name: targetRow.name || '',
+          errors: targetRow._nr_compile_errors || []
+        });
+        return;
+      }
       var needsCompile = Boolean(
-        targetRow && targetRow._synthetic_text && (
+        targetRow && (targetRow._synthetic_text || targetRow._raw_text) && (
           !targetRow._compiled_by_nr ||
           !targetRow.army ||
           !targetRow.nrversion ||
@@ -1967,15 +2116,24 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       );
       if (needsCompile) {
         await compileSyntheticRowIfNeeded(targetRow, stores.system, stores.list, true);
+        if (targetRow._nr_compile_failed) {
+          hideDirectListLoader();
+          playModeActivatedForKey = modeToken;
+          notifyParent({
+            action: 'compile_failed',
+            list_key: targetKey,
+            name: targetRow.name || '',
+            errors: targetRow._nr_compile_errors || []
+          });
+          return;
+        }
       }
 
-      targetRow.metadata = targetRow.metadata || {};
-      targetRow.metadata.play_mode = Boolean(wantPlay);
+      targetRow.metadata = Object.assign({}, targetRow.metadata || {}, { play_mode: Boolean(wantPlay) });
 
-      var loadedListObj = await stores.list.selectList(targetRow);
+      var loadedListObj = (await stores.list.selectList(targetRow)) || stores.list.currentList;
       if (loadedListObj && loadedListObj.row) {
-        loadedListObj.row.metadata = loadedListObj.row.metadata || {};
-        loadedListObj.row.metadata.play_mode = Boolean(wantPlay);
+        loadedListObj.row.metadata = Object.assign({}, loadedListObj.row.metadata || {}, { play_mode: Boolean(wantPlay) });
       }
       stores.list.lastSelectedListKey = targetKey;
       var freshStores = getNrStores();
@@ -2005,17 +2163,23 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       }
       var postNavStores = getNrStores();
       if (postNavStores && postNavStores.listsPage && loadedListObj) {
+        if (loadedListObj.row) {
+          loadedListObj.row.metadata = Object.assign({}, loadedListObj.row.metadata || {}, { play_mode: Boolean(wantPlay) });
+        }
         postNavStores.listsPage.editedList = loadedListObj;
       }
       playModeActivatedForKey = modeToken;
       setTimeout(function() {
         var sAfter = getNrStores();
         if (sAfter && sAfter.listsPage && loadedListObj) {
+          if (loadedListObj.row) {
+            loadedListObj.row.metadata = Object.assign({}, loadedListObj.row.metadata || {}, { play_mode: Boolean(wantPlay) });
+          }
           sAfter.listsPage.editedList = loadedListObj;
         }
         hideDirectListLoader();
         readyNotified = true;
-        notifyParent({ action: 'ready' });
+        notifyParent({ action: 'ready', list_key: targetKey });
       }, 90);
     } catch (err) {
       console.warn('[OmniTactica Bridge] Play Mode activation notice:', err);
@@ -2205,10 +2369,21 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       var nextPlay = msg.play !== false;
       var nextToken = nextKey + ':' + (nextPlay ? 'play' : 'edit');
       var stOpen = getNrStores();
-      if (playModeActivatedForKey === nextToken && stOpen && stOpen.list && stOpen.list.currentList && stOpen.list.currentList.row && stOpen.list.currentList.row.list_key === nextKey) {
+      if (window.__omniCompileFailedForKey === nextKey) {
+        hideDirectListLoader();
+        notifyParent({
+          action: 'compile_failed',
+          list_key: nextKey,
+          name: msg.list_name || (msg.nr_row && msg.nr_row.name) || ''
+        });
         return;
       }
-      if (activatingPlayMode && requestedListKeyFromUrl === nextKey && wantPlayModeFromUrl === nextPlay) {
+      if (playModeActivatedForKey === nextToken && stOpen && stOpen.list && stOpen.list.currentList && stOpen.list.currentList.row && stOpen.list.currentList.row.list_key === nextKey) {
+        hideDirectListLoader();
+        notifyParent({ action: 'ready', list_key: nextKey });
+        return;
+      }
+      if ((activatingPlayMode || compilingKeys[nextKey]) && requestedListKeyFromUrl === nextKey && wantPlayModeFromUrl === nextPlay) {
         return;
       }
       requestedListKeyFromUrl = nextKey;
@@ -2223,22 +2398,43 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       showDirectListLoader(wantPlayModeFromUrl ? 'Loading Play Mode Datasheets...' : 'Opening Army Roster...');
       if (msg.nr_row && msg.nr_row.list_key) {
         pendingNrRowFromParent = Object.assign({}, msg.nr_row);
-        var existingRows = await readAllNrLists();
-        var existingMap = {};
-        var existingByName = {};
-        (existingRows || []).forEach(function(er) {
-          if (er && er.list_key) {
-            existingMap[er.list_key] = er;
-            if (er.name) existingByName[String(er.name).trim().toLowerCase()] = er;
+        var cur = null;
+        if (stOpen && stOpen.list && Array.isArray(stOpen.list.listData)) {
+          cur = stOpen.list.listData.find(function(er) {
+            return er && er.list_key === msg.nr_row.list_key;
+          }) || null;
+          if (!cur && requestedListNameFromUrl) {
+            cur = stOpen.list.listData.find(function(er) {
+              return er && !er._ephemeral_view && String(er.name || '').trim().toLowerCase() === requestedListNameFromUrl.toLowerCase();
+            }) || null;
           }
-        });
-        var cur = existingMap[msg.nr_row.list_key] || (requestedListNameFromUrl ? existingByName[requestedListNameFromUrl.toLowerCase()] : null);
+        }
+        if (!cur) {
+          var existingRows = await readAllNrLists();
+          var existingMap = {};
+          var existingByName = {};
+          (existingRows || []).forEach(function(er) {
+            if (er && er.list_key) {
+              existingMap[er.list_key] = er;
+              if (er.name) existingByName[String(er.name).trim().toLowerCase()] = er;
+            }
+          });
+          cur = existingMap[msg.nr_row.list_key] || (requestedListNameFromUrl ? existingByName[requestedListNameFromUrl.toLowerCase()] : null);
+        }
         if (!cur) {
           var rowToWrite = Object.assign({}, msg.nr_row);
           rowToWrite.metadata = Object.assign({}, rowToWrite.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
           await upsertSingleRowToIdb(rowToWrite);
-        } else if (!cur._synthetic_text && msg.nr_row._synthetic_text) {
-          cur._synthetic_text = msg.nr_row._synthetic_text;
+        } else {
+          if (!cur._synthetic_text && msg.nr_row._synthetic_text) {
+            cur._synthetic_text = msg.nr_row._synthetic_text;
+          }
+          if (!cur._raw_text && msg.nr_row._raw_text) {
+            cur._raw_text = msg.nr_row._raw_text;
+          }
+          if (!cur._omnitactica_book_name && msg.nr_row._omnitactica_book_name) {
+            cur._omnitactica_book_name = msg.nr_row._omnitactica_book_name;
+          }
         }
       }
       await ensurePlayModeAndStoreHooks();
@@ -2625,7 +2821,10 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
         })
 
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    synthetic_text = build_roster_text_for_nr_compiler(roster, book_name)
+    raw_text_val = str(roster.get("raw_text") or "").strip()
+    synthetic_text = build_roster_text_for_nr_compiler({**roster, "raw_text": ""}, book_name)
+    if not synthetic_text and raw_text_val:
+        synthetic_text = raw_text_val
     sys_id = int(roster.get("id_system") or NR_40K_SYSTEM_ID)
     sys_bsid = (
         "sys-352e-adc2-7639-d610"
@@ -2645,7 +2844,11 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
         "version": 1,
         "synced": 1,
         "metadata": {"play_mode": True},
+        "_raw_text": raw_text_val,
         "_synthetic_text": synthetic_text,
+        "_omnitactica_book_name": book_name,
+        "_is_nr_compatible": bool(roster.get("is_newrecruit_compatible", True)),
+        "_created_by_nr": bool(roster.get("created_by_newrecruit", False)),
         "army": {
             "id": f"army-{list_key}",
             "name": book_name,
@@ -2660,6 +2863,10 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
     }
     if roster.get("_ephemeral_view"):
         out_row["_ephemeral_view"] = True
+        if len(_EPHEMERAL_NR_ROWS) >= _EPHEMERAL_NR_ROWS_MAX:
+            oldest_key = next(iter(_EPHEMERAL_NR_ROWS))
+            _EPHEMERAL_NR_ROWS.pop(oldest_key, None)
+        _EPHEMERAL_NR_ROWS[list_key] = out_row
     return out_row
 
 
@@ -2678,6 +2885,11 @@ def get_nr_state_payload(
         if lkey and lkey not in seen_keys:
             seen_keys.add(lkey)
             nr_rows.append(row)
+
+    for ekey, erow in list(_EPHEMERAL_NR_ROWS.items()):
+        if ekey and ekey not in seen_keys and isinstance(erow, dict):
+            seen_keys.add(ekey)
+            nr_rows.append(erow)
 
     acct = _NR_CLOUD_ACCOUNTS.get(user_key) or _NR_CLOUD_ACCOUNTS.get("default") or {}
     return {
