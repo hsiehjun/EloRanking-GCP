@@ -377,14 +377,12 @@ def _get_dev_user_glory_and_stats():
                 "active_title": "title_gt_champion",
                 "active_avatar": "avatar_dark_angels"
             },
-            "aos": {"active_dice": None, "active_card_frame": None, "active_card_finish": None, "active_title": None, "active_avatar": None},
-            "active_dice": "dice_40k_dark_angels",
-            "active_card_frame": "frame_peak_high_warlord",
-            "active_card_finish": "frame_astral_holofoil",
-            "active_title": "title_gt_champion",
-            "active_avatar": "avatar_dark_angels"
+            "aos": {"active_dice": None, "active_card_frame": None, "active_card_finish": None, "active_title": None, "active_avatar": None}
         }
     })
+    import armory_catalog
+    v = armory_catalog.normalize_armory_vault(v)
+    DEV_USER["armory_vault"] = v
     glory_aos = int(DEV_USER.get("glory_aos") if DEV_USER.get("glory_aos") is not None else 110)
     if DEV_USER.get("total_glory") is not None:
         total_earned = int(DEV_USER["total_glory"])
@@ -1298,16 +1296,18 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             if clean_path == "api/armory/equip":
                 slot = payload.get("slot")
                 item_id = payload.get("item_id")
-                sys_key = (payload.get("game_system") or "40k").lower().strip()
-                if sys_key not in ("40k", "aos"):
-                    sys_key = "40k"
+                req_sys = (payload.get("game_system") or "").lower().strip()
 
                 glory_state = _get_dev_user_glory_and_stats()
-                v = glory_state["vault"]
-                inv = v.setdefault("inventory", {})
-                eq = v.setdefault("equipped", {})
-
                 import armory_catalog
+                v = armory_catalog.normalize_armory_vault(glory_state["vault"])
+                inv = v["inventory"]
+                eq = v["equipped"]
+
+                item_meta = armory_catalog.get_item_by_id(item_id) or {}
+                item_sys = (item_meta.get("game_system") or "").lower().strip()
+                sys_key = item_sys if item_sys in ("40k", "aos") else (req_sys if req_sys in ("40k", "aos") else "40k")
+
                 canon_id = getattr(armory_catalog, "ARMORY_ALIASES", {}).get(item_id, item_id)
                 if item_id not in inv and canon_id not in inv and not any(getattr(armory_catalog, "ARMORY_ALIASES", {}).get(k) == canon_id for k in inv.keys()):
                     self.send_response(400)
@@ -1316,9 +1316,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     self.wfile.write(json.dumps({"detail": f"You do not own item '{item_id}'"}).encode("utf-8"))
                     return
 
-                sys_eq = eq.setdefault(sys_key, {"active_dice": None, "active_card_frame": None, "active_card_finish": None, "active_title": None, "active_avatar": None})
-                sys_eq[slot] = item_id
-                eq[slot] = item_id
+                eq[sys_key][slot] = item_id
                 DEV_USER["armory_vault"] = v
 
                 self.send_response(200)
@@ -1342,11 +1340,12 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     sys_key = "40k"
 
                 glory_state = _get_dev_user_glory_and_stats()
-                v = glory_state["vault"]
-                eq = v.setdefault("equipped", {})
+                import armory_catalog
+                v = armory_catalog.normalize_armory_vault(glory_state["vault"])
+                eq = v["equipped"]
                 if isinstance(eq.get(sys_key), dict):
                     eq[sys_key][slot] = None
-                eq[slot] = None
+                eq.pop(slot, None)
                 DEV_USER["armory_vault"] = v
 
                 self.send_response(200)
@@ -2680,18 +2679,37 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 user_pinned_ids=None,
                 game_system=req_game_sys
             )
+            import armory_catalog
             if is_self:
-                res["armory_vault"] = DEV_USER.get("armory_vault", {})
-                res["equipped"] = DEV_USER.get("armory_vault", {}).get("equipped", {})
+                norm_vault = armory_catalog.normalize_armory_vault(DEV_USER.get("armory_vault", {}))
+                res["armory_vault"] = norm_vault
+                res["equipped"] = norm_vault.get("equipped", {})
             else:
                 if "equipped" not in res:
-                    res["equipped"] = {
-                        "active_dice": "dice_cyber_grid",
-                        "active_card_frame": "frame_cyber_matrix",
-                        "active_title": "title_unbroken",
-                        "active_avatar": "avatar_sigil_tau"
-                    }
-                    res["armory_vault"] = {"equipped": res["equipped"]}
+                    norm_other = armory_catalog.normalize_armory_vault({
+                        "equipped": {
+                            "40k": {
+                                "active_dice": "dice_cyber_grid",
+                                "active_card_frame": "frame_cyber_matrix",
+                                "active_card_finish": None,
+                                "active_title": "title_unbroken",
+                                "active_avatar": "avatar_sigil_tau"
+                            },
+                            "aos": {
+                                "active_dice": None,
+                                "active_card_frame": None,
+                                "active_card_finish": None,
+                                "active_title": None,
+                                "active_avatar": None
+                            }
+                        }
+                    })
+                    res["armory_vault"] = norm_other
+                    res["equipped"] = norm_other["equipped"]
+                else:
+                    norm_other = armory_catalog.normalize_armory_vault(res.get("armory_vault") or {"equipped": res.get("equipped")})
+                    res["armory_vault"] = norm_other
+                    res["equipped"] = norm_other["equipped"]
 
             res.update({
                 "armory_vault": res.get("armory_vault", {}),

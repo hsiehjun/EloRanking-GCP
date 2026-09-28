@@ -4790,7 +4790,7 @@ Space Marines - Gladius Task Force (2000 pts)
 
           <!-- Grid of Clickable Dice -->
           ${(() => {
-            const activeSkinId = (window.Armory && typeof window.Armory.getEquipped === 'function' ? window.Armory.getEquipped('active_dice') : null) || localStorage.getItem('omnitactica_active_dice') || 'dice_warpfire_plasma';
+            const activeSkinId = (window.Armory && typeof window.Armory.getEquipped === 'function' ? window.Armory.getEquipped('active_dice', '40k') : null) || localStorage.getItem('omnitactica_active_dice_40k') || 'dice_warpfire_plasma';
             let skinClass = 'skin-warpfire-plasma';
             let customStyle = '';
             let isCustom = false;
@@ -4801,7 +4801,7 @@ Space Marines - Gladius Task Force (2000 pts)
             } else if (activeSkinId === 'dice_warpfire_plasma') {
               skinClass = 'skin-warpfire-plasma';
             } else if (activeSkinId) {
-              const eqItem = (window.Armory && typeof window.Armory.getEquippedItem === 'function' ? (window.Armory.getEquippedItem('active_dice') || window.Armory.getEquippedItem(activeSkinId)) : null) || getFallbackDiceMetadata(activeSkinId);
+              const eqItem = (window.Armory && typeof window.Armory.getEquippedItem === 'function' ? (window.Armory.getEquippedItem('active_dice', '40k') || window.Armory.getEquippedItem(activeSkinId, '40k')) : null) || getFallbackDiceMetadata(activeSkinId);
               if (eqItem && eqItem.payload) {
                 skinClass = 'skin-faction-custom';
                 isCustom = true;
@@ -4831,8 +4831,8 @@ Space Marines - Gladius Task Force (2000 pts)
               const selCls = die.selected ? 'selected' : 'unselected';
               let displayVal = die.rolled ? die.val : '•';
               if (die.rolled && die.val === 6) {
-                const activeSkin = (window.Armory && typeof window.Armory.getEquipped === 'function' ? window.Armory.getEquipped('active_dice') : null) || localStorage.getItem('omnitactica_active_dice') || 'dice_warpfire_plasma';
-                const eqItem = (window.Armory && typeof window.Armory.getEquippedItem === 'function' ? (window.Armory.getEquippedItem('active_dice') || window.Armory.getEquippedItem(activeSkin)) : null) || getFallbackDiceMetadata(activeSkin);
+                const activeSkin = (window.Armory && typeof window.Armory.getEquipped === 'function' ? window.Armory.getEquipped('active_dice', '40k') : null) || localStorage.getItem('omnitactica_active_dice_40k') || 'dice_warpfire_plasma';
+                const eqItem = (window.Armory && typeof window.Armory.getEquippedItem === 'function' ? (window.Armory.getEquippedItem('active_dice', '40k') || window.Armory.getEquippedItem(activeSkin, '40k')) : null) || getFallbackDiceMetadata(activeSkin);
                 const svgId = eqItem && eqItem.payload ? eqItem.payload.six_face_svg_id : null;
                 if (svgId && typeof window.getArmoryAvatarSvg === 'function') {
                   const svg = window.getArmoryAvatarSvg(svgId);
@@ -5753,7 +5753,7 @@ Space Marines - Gladius Task Force (2000 pts)
       }
     });
     window.addEventListener('storage', function(e) {
-      if (e.key === 'omnitactica_active_dice') {
+      if (e.key === 'omnitactica_active_dice_40k' || e.key === 'omnitactica_active_dice') {
         if (typeof renderDiceRollerContent === 'function') {
           renderDiceRollerContent();
         }
@@ -5767,7 +5767,7 @@ Space Marines - Gladius Task Force (2000 pts)
     await origInit();
     setTimeout(loadRoomArmyLists, 100);
     if (window.Armory && typeof window.Armory.loadArmoryData === 'function') {
-      window.Armory.loadArmoryData().then(function() {
+      window.Armory.loadArmoryData('40k').then(function() {
         if (typeof renderDiceRollerContent === 'function') {
           renderDiceRollerContent();
         }

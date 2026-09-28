@@ -413,9 +413,11 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
   const netCareerElo = currentElo - 1500;
   const netCareerEloStr = (netCareerElo >= 0 ? '+' : '') + netCareerElo.toFixed(1);
 
-  // Resolve equipped cosmetic loadout
+  // Resolve equipped cosmetic loadout strictly for the active game system
   const allEq = data.equipped || (data.armory_vault && data.armory_vault.equipped) || (data.is_self && window.Armory && window.Armory.getCurrentVault && window.Armory.getCurrentVault().equipped) || {};
-  const playerEq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
+  const playerEq = (typeof window.getEquippedForSystem === 'function')
+    ? window.getEquippedForSystem(allEq, sys)
+    : ((allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : {});
 
   const activeFrameId = playerEq.active_card_frame;
   const frameClass = activeFrameId ? (window.Armory && typeof window.Armory.getFrameCssClass === 'function' ? window.Armory.getFrameCssClass(activeFrameId) : activeFrameId.replace(/_/g, '-')) : '';
@@ -900,7 +902,9 @@ function _extractNormalizedShareData(rawData, fallbackPlayerId, sys) {
     : { name: 'Veteran', shortName: 'Veteran', icon: '⚔️' };
 
   const allEq = d.equipped || (d.armory_vault && d.armory_vault.equipped) || (window.Armory && window.Armory.getCurrentVault && window.Armory.getCurrentVault().equipped) || {};
-  const eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
+  const eq = (typeof window.getEquippedForSystem === 'function')
+    ? window.getEquippedForSystem(allEq, sys)
+    : ((allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : {});
   const activeTitleId = eq.active_title || '';
   const activeTitleText = activeTitleId ? activeTitleId.replace(/^title_/, '').replace(/_/g, ' ').toUpperCase() : '';
   const activeAvatarId = eq.active_avatar || '';

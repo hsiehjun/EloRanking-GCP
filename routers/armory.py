@@ -166,36 +166,16 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
 
 
 def _get_or_init_vault(user_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Extracts or initializes the player's armory vault."""
+    """Extracts or initializes the player's armory vault with strict 40k/AoS equipped isolation."""
     vault = user_data.get("armory_vault")
-    if isinstance(vault, str):
-        try:
-            vault = json.loads(vault)
-        except Exception:
-            vault = None
-
-    if not isinstance(vault, dict):
-        vault = {}
-
-    if "inventory" not in vault or not isinstance(vault["inventory"], dict):
-        vault["inventory"] = {}
-    if "equipped" not in vault or not isinstance(vault["equipped"], dict):
-        vault["equipped"] = {
-            "active_dice": None,
-            "active_card_frame": None,
-            "active_title": None,
-            "active_avatar": None,
-            "active_card_finish": None
-        }
-
-    return vault
+    return armory_catalog.normalize_armory_vault(vault)
 
 
 @router.get("/api/armory/catalog", summary="Get Retribution Armory catalog")
 async def get_catalog(request: Request):
     """Returns the full Armory catalog with ownership flags and equipped status."""
     auth_mgr = get_auth_manager()
-    user_vault = {"inventory": {}, "equipped": {}}
+    user_vault = armory_catalog.normalize_armory_vault({})
     user_crest_tier = 1
     glory_state = {"spendable_glory": 0, "total_earned": 0, "glory_spent": 0, "peak_elo": 1500.0}
 
@@ -524,15 +504,12 @@ async def equip_item(request: Request):
     if item_id not in inventory and canon_id not in inventory and not any(getattr(armory_catalog, "ARMORY_ALIASES", {}).get(k) == canon_id for k in inventory.keys()):
         raise HTTPException(status_code=400, detail=f"You do not own item '{item_id}'. Please requisition it first.")
 
-    sys_key = (body.get("game_system") or item.get("game_system") or "40k").lower().strip()
-    if sys_key not in ("40k", "aos"):
-        sys_key = "40k"
+    item_sys = (item.get("game_system") or "").lower().strip()
+    req_sys = (body.get("game_system") or "").lower().strip()
+    sys_key = item_sys if item_sys in ("40k", "aos") else (req_sys if req_sys in ("40k", "aos") else "40k")
 
-    if not isinstance(vault.get("equipped"), dict):
-        vault["equipped"] = {}
-    sys_eq = vault["equipped"].setdefault(sys_key, {"active_dice": None, "active_card_frame": None, "active_title": None, "active_avatar": None, "active_card_finish": None})
-    sys_eq[slot] = item_id
-    vault["equipped"][slot] = item_id
+    vault = armory_catalog.normalize_armory_vault(vault)
+    vault["equipped"][sys_key][slot] = item_id
     user_data["armory_vault"] = vault
     session["armory_vault"] = vault
 
@@ -583,7 +560,7 @@ async def unequip_item(request: Request):
     if isinstance(vault.get("equipped"), dict):
         if isinstance(vault["equipped"].get(sys_key), dict):
             vault["equipped"][sys_key][slot] = None
-        vault["equipped"][slot] = None
+        vault["equipped"].pop(slot, None)
     user_data["armory_vault"] = vault
     session["armory_vault"] = vault
 

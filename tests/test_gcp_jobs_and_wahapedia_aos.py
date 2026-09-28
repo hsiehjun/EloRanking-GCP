@@ -244,6 +244,68 @@ def test_pwa_and_browser_auto_update_and_sw_killer():
     print("✅ test_pwa_and_browser_auto_update_and_sw_killer passed")
 
 
+def test_armory_40k_and_aos_equipped_isolation():
+    """Verify 40K equipped Armory cosmetics never bleed into AoS and vice versa."""
+    import armory_catalog
+
+    # 1. Legacy vault with only flat 40K keys and missing 'aos' sub-dict
+    legacy_vault = {
+        "inventory": {
+            "dice_40k_dark_angels": {"id": "dice_40k_dark_angels"},
+            "frame_peak_high_warlord": {"id": "frame_peak_high_warlord"},
+            "frame_astral_holofoil": {"id": "frame_astral_holofoil"},
+            "title_gt_champion": {"id": "title_gt_champion"},
+            "avatar_dark_angels": {"id": "avatar_dark_angels"},
+        },
+        "equipped": {
+            "40k": {
+                "active_dice": "dice_40k_dark_angels",
+                "active_card_frame": "frame_peak_high_warlord",
+                "active_card_finish": "frame_astral_holofoil",
+                "active_title": "title_gt_champion",
+                "active_avatar": "avatar_dark_angels",
+            },
+            "active_dice": "dice_40k_dark_angels",
+            "active_card_frame": "frame_peak_high_warlord",
+            "active_card_finish": "frame_astral_holofoil",
+            "active_title": "title_gt_champion",
+            "active_avatar": "avatar_dark_angels",
+        },
+    }
+
+    norm = armory_catalog.normalize_armory_vault(legacy_vault)
+    assert set(norm["equipped"].keys()) == {"40k", "aos"}
+    assert norm["equipped"]["40k"]["active_dice"] == "dice_40k_dark_angels"
+    assert norm["equipped"]["40k"]["active_card_frame"] == "frame_peak_high_warlord"
+    assert all(v is None for v in norm["equipped"]["aos"].values()), f"Expected empty AoS loadout, got {norm['equipped']['aos']}"
+
+    # 2. Cross-contaminated vault where a 40K item was accidentally stored in 'aos'
+    contaminated = {
+        "inventory": {},
+        "equipped": {
+            "40k": {"active_dice": None, "active_card_frame": None, "active_card_finish": None, "active_title": None, "active_avatar": None},
+            "aos": {"active_dice": "dice_40k_chaos", "active_card_frame": "frame_peak_high_warlord", "active_card_finish": None, "active_title": None, "active_avatar": "avatar_stormcast_eternals"},
+        },
+    }
+    norm2 = armory_catalog.normalize_armory_vault(contaminated)
+    assert norm2["equipped"]["aos"]["active_dice"] is None
+    assert norm2["equipped"]["aos"]["active_card_frame"] is None
+    assert norm2["equipped"]["aos"]["active_avatar"] == "avatar_stormcast_eternals"
+    assert norm2["equipped"]["40k"]["active_dice"] == "dice_40k_chaos"
+    assert norm2["equipped"]["40k"]["active_card_frame"] == "frame_peak_high_warlord"
+
+    # 3. Catalog for AoS must have 0 equipped items when only 40K items are equipped
+    cat_aos = armory_catalog.get_armory_catalog(user_vault=legacy_vault, game_system="aos")
+    equipped_aos = [i["id"] for i in cat_aos["items"] if i.get("is_equipped")]
+    assert equipped_aos == [], f"Expected 0 equipped AoS items, got {equipped_aos}"
+
+    cat_40k = armory_catalog.get_armory_catalog(user_vault=legacy_vault, game_system="40k")
+    equipped_40k = [i["id"] for i in cat_40k["items"] if i.get("is_equipped")]
+    assert len(equipped_40k) == 5, f"Expected 5 equipped 40K items, got {equipped_40k}"
+
+    print("✅ test_armory_40k_and_aos_equipped_isolation passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING GCP JOBS & MULTI-GAME TEST SUITE ===")
     test_faction_groups_and_legacy_wahapedia_removed()
@@ -253,4 +315,6 @@ if __name__ == "__main__":
     test_cloudbuild_deployment_pipeline()
     test_elo_engine_partitioning_and_isolation()
     test_pwa_and_browser_auto_update_and_sw_killer()
+    test_armory_40k_and_aos_equipped_isolation()
     print("\n🎉 ALL GCP JOBS & MULTI-GAME TESTS PASSED 100%!")
+

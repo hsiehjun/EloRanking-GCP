@@ -168,29 +168,25 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
                 data["existing_request_id"] = req["id"]
                 data["existing_request_status"] = req["status"]
 
-        raw_vault = user_row.get("armory_vault")
-        if raw_vault and isinstance(raw_vault, str):
-            try:
-                vault = json.loads(raw_vault)
-            except Exception:
-                vault = {}
-        elif isinstance(raw_vault, dict):
-            vault = raw_vault
-        else:
-            vault = {}
+        import armory_catalog
+        vault = armory_catalog.normalize_armory_vault(user_row.get("armory_vault"))
         data["armory_vault"] = vault
         data["equipped"] = vault.get("equipped", {})
     else:
+        import armory_catalog
+        empty_vault = armory_catalog.normalize_armory_vault({})
         data["has_account"] = False
         data["account_user_id"] = None
         data["can_chat"] = False
         data["is_self"] = False
-        data["armory_vault"] = {}
-        data["equipped"] = {}
+        data["armory_vault"] = empty_vault
+        data["equipped"] = empty_vault.get("equipped", {})
 
-    if data.get("is_self") and current_user and not data.get("equipped") and current_user.get("armory_vault"):
-        data["armory_vault"] = current_user.get("armory_vault", {})
-        data["equipped"] = current_user.get("armory_vault", {}).get("equipped", {})
+    if data.get("is_self") and current_user and current_user.get("armory_vault"):
+        import armory_catalog
+        norm_self_vault = armory_catalog.normalize_armory_vault(current_user.get("armory_vault", {}))
+        data["armory_vault"] = norm_self_vault
+        data["equipped"] = norm_self_vault.get("equipped", {})
 
     import badges
     events_attended = db.get_player_tournaments(actual_pid, game_system=game_system)

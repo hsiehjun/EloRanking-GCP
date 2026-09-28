@@ -109,6 +109,11 @@ function applyGameSystem(sys, updateUrl = true) {
     const targetPath = `${prefix}${prefix ? '/' : ''}${hash}`;
     window.history.replaceState(null, '', targetPath || `/${hash}`);
   }
+
+  // Synchronize Retribution Armory game system & decorations
+  if (typeof window !== 'undefined' && window.Armory && typeof window.Armory.syncGlobalGameSystem === 'function') {
+    window.Armory.syncGlobalGameSystem(currentGameSystem);
+  }
 }
 
 function switchGameSystem(sys) {

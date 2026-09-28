@@ -727,7 +727,7 @@
               const selCls = die.selected ? 'selected' : 'unselected';
               let displayVal = die.rolled ? die.val : '•';
               if (die.rolled && die.val === 6) {
-                const activeSkin = (window.Armory && typeof window.Armory.getEquipped === 'function' ? window.Armory.getEquipped('active_dice', 'aos') : null) || localStorage.getItem('omnitactica_active_dice');
+                const activeSkin = (window.Armory && typeof window.Armory.getEquipped === 'function' ? window.Armory.getEquipped('active_dice', 'aos') : null) || localStorage.getItem('omnitactica_active_dice_aos');
                 const eqItem = (window.Armory && typeof window.Armory.getEquippedItem === 'function' ? (window.Armory.getEquippedItem('active_dice', 'aos') || window.Armory.getEquippedItem(activeSkin, 'aos')) : null) || (window.getFallbackDiceMetadata ? window.getFallbackDiceMetadata(activeSkin) : null);
                 const svgId = eqItem && eqItem.payload ? eqItem.payload.six_face_svg_id : null;
                 if (svgId && typeof window.getArmoryAvatarSvg === 'function') {

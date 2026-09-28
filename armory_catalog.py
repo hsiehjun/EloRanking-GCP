@@ -4125,6 +4125,90 @@ ARMORY_ALIASES: Dict[str, str] = {
 }
 
 
+ARMORY_VALID_SLOTS = (
+    "active_dice",
+    "active_card_frame",
+    "active_card_finish",
+    "active_title",
+    "active_avatar",
+)
+
+
+def _empty_system_equipped() -> Dict[str, Optional[str]]:
+    return {slot: None for slot in ARMORY_VALID_SLOTS}
+
+
+def normalize_armory_vault(vault: Any) -> Dict[str, Any]:
+    """Normalizes a user's armory_vault so 40k and AoS equipped loadouts are strictly isolated."""
+    if isinstance(vault, str):
+        try:
+            import json
+            vault = json.loads(vault)
+        except Exception:
+            vault = {}
+    if not isinstance(vault, dict):
+        vault = {}
+
+    inv = vault.get("inventory")
+    if not isinstance(inv, dict):
+        inv = {}
+    vault["inventory"] = inv
+
+    raw_eq = vault.get("equipped")
+    if not isinstance(raw_eq, dict):
+        raw_eq = {}
+
+    eq_40k = _empty_system_equipped()
+    eq_aos = _empty_system_equipped()
+
+    had_40k_dict = isinstance(raw_eq.get("40k"), dict)
+    had_aos_dict = isinstance(raw_eq.get("aos"), dict)
+
+    if had_40k_dict:
+        for slot in ARMORY_VALID_SLOTS:
+            val = raw_eq["40k"].get(slot)
+            if isinstance(val, str) and val.strip():
+                val = val.strip()
+                item = get_item_by_id(val)
+                if item and item.get("game_system") == "aos":
+                    if not eq_aos.get(slot):
+                        eq_aos[slot] = val
+                else:
+                    eq_40k[slot] = val
+
+    if had_aos_dict:
+        for slot in ARMORY_VALID_SLOTS:
+            val = raw_eq["aos"].get(slot)
+            if isinstance(val, str) and val.strip():
+                val = val.strip()
+                item = get_item_by_id(val)
+                if item and item.get("game_system") == "40k":
+                    if not eq_40k.get(slot):
+                        eq_40k[slot] = val
+                else:
+                    eq_aos[slot] = val
+
+    # Migrate legacy flat top-level slot keys only into their matching game system
+    for slot in ARMORY_VALID_SLOTS:
+        val = raw_eq.get(slot)
+        if isinstance(val, str) and val.strip():
+            val = val.strip()
+            item = get_item_by_id(val)
+            item_sys = (item.get("game_system") if item else "40k") or "40k"
+            if item_sys == "aos":
+                if not had_aos_dict and not eq_aos.get(slot):
+                    eq_aos[slot] = val
+            else:
+                if not had_40k_dict and not eq_40k.get(slot):
+                    eq_40k[slot] = val
+
+    vault["equipped"] = {
+        "40k": eq_40k,
+        "aos": eq_aos,
+    }
+    return vault
+
+
 def get_armory_catalog(
     user_vault: Optional[Dict[str, Any]] = None,
     user_crest_tier: int = 1,
@@ -4133,16 +4217,16 @@ def get_armory_catalog(
     user_championships: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Returns the game-specific Armory catalog with user ownership flags, equipped status, and affordability."""
-    vault = user_vault or {"inventory": {}, "equipped": {}}
-    inventory = vault.get("inventory", {})
-    equipped_all = vault.get("equipped", {})
+    vault = normalize_armory_vault(user_vault)
+    inventory = vault["inventory"]
+    equipped_all = vault["equipped"]
 
     req_sys = (game_system or "40k").lower().strip()
     if req_sys not in ("40k", "aos"):
         req_sys = "40k"
 
-    # Support game-specific equipped isolation: vault["equipped"][sys] or fallback to flat equipped
-    equipped = equipped_all.get(req_sys) if isinstance(equipped_all.get(req_sys), dict) else equipped_all
+    # Strict game-specific equipped isolation: never fall back to another system's equipped items
+    equipped = equipped_all.get(req_sys) if isinstance(equipped_all.get(req_sys), dict) else _empty_system_equipped()
 
     # Filter items by the requested game system
     system_items = [item for item in ARMORY_ITEMS if item.get("game_system") == req_sys]

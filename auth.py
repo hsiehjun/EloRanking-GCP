@@ -1255,16 +1255,8 @@ class AuthManager:
                             data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
                             data["bcp_connected"] = bool(data.get("bcp_user_id"))
 
-                            raw_vault = data.get("armory_vault")
-                            if raw_vault and isinstance(raw_vault, str):
-                                try:
-                                    data["armory_vault"] = json.loads(raw_vault)
-                                except Exception:
-                                    data["armory_vault"] = {}
-                            elif isinstance(raw_vault, dict):
-                                data["armory_vault"] = raw_vault
-                            else:
-                                data["armory_vault"] = {}
+                            import armory_catalog
+                            data["armory_vault"] = armory_catalog.normalize_armory_vault(data.get("armory_vault"))
                             data["equipped"] = data["armory_vault"].get("equipped", {})
                             data["glory_spent"] = int(data.get("glory_spent") or 0)
                             data["total_glory"] = int(data.get("total_glory") or 0)
@@ -1401,16 +1393,9 @@ class AuthManager:
             else:
                 data["acknowledged_badge_ids"] = []
 
-            raw_vault = data.get("armory_vault")
-            if raw_vault and isinstance(raw_vault, str):
-                try:
-                    data["armory_vault"] = json.loads(raw_vault)
-                except Exception:
-                    data["armory_vault"] = {}
-            elif isinstance(raw_vault, dict):
-                data["armory_vault"] = raw_vault
-            else:
-                data["armory_vault"] = {}
+            import armory_catalog
+            data["armory_vault"] = armory_catalog.normalize_armory_vault(data.get("armory_vault"))
+            data["equipped"] = data["armory_vault"].get("equipped", {})
             data["glory_spent"] = int(data.get("glory_spent") or 0)
             data["total_glory"] = int(data.get("total_glory") or 0)
             data["glory_balance"] = int(data.get("glory_balance") or 0)

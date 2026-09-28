@@ -1662,9 +1662,11 @@ function renderMyHub(data) {
     }).join('');
   }
 
-  // Resolve equipped cosmetic loadout
+  // Resolve equipped cosmetic loadout strictly for the active game system
   const allEq = data.equipped || (data.armory_vault && data.armory_vault.equipped) || (window.Armory && window.Armory.getCurrentVault && window.Armory.getCurrentVault().equipped) || {};
-  const myEq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
+  const myEq = (typeof window.getEquippedForSystem === 'function')
+    ? window.getEquippedForSystem(allEq, sys)
+    : ((allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : {});
 
   const activeFrameId = myEq.active_card_frame;
   const frameClass = activeFrameId ? (window.Armory && typeof window.Armory.getFrameCssClass === 'function' ? window.Armory.getFrameCssClass(activeFrameId) : activeFrameId.replace(/_/g, '-')) : '';

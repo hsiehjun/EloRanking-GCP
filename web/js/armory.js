@@ -6,14 +6,170 @@
 (function(window) {
   'use strict';
 
-  var currentGameSystem = '40k';
+  var VALID_ARMORY_SLOTS = ['active_dice', 'active_card_frame', 'active_card_finish', 'active_title', 'active_avatar'];
+
+  var AOS_ITEM_IDS_LIST = [
+    "dice_celestial_sigmarite", "dice_death_bone", "dice_aos_stormcast", "dice_aos_khorne", "dice_aos_gloomspite",
+    "dice_aos_soulblight", "dice_aos_sylvaneth", "dice_aos_skaven", "dice_aos_bonereapers", "dice_aos_seraphon",
+    "dice_aos_maggotkin", "dice_aos_ironjawz", "dice_aos_slavestodarkness", "dice_aos_nighthaunt", "dice_aos_daughtersofkhaine",
+    "dice_aos_citiesofsigmar", "dice_aos_kharadron", "dice_aos_fyreslayers", "dice_aos_idoneth", "dice_aos_lumineth",
+    "dice_aos_flesheater", "frame_realm_chamon", "frame_ghur_feral", "frame_shyish_obsidian", "frame_hysh_celestial",
+    "finish_aos_astral_holofoil", "finish_aos_stormcast_eternals", "finish_aos_blades_of_khorne", "finish_aos_gloomspite_gitz",
+    "finish_aos_soulblight_gravelords", "finish_aos_sylvaneth", "finish_aos_beasts_of_chaos", "finish_aos_cities_of_sigmar",
+    "finish_aos_daughters_of_khaine", "finish_aos_disciples_of_tzeentch", "finish_aos_flesh_eater_courts", "finish_aos_fyreslayers",
+    "finish_aos_hedonites_of_slaanesh", "finish_aos_idoneth_deepkin", "finish_aos_kharadron_overlords", "finish_aos_lumineth_realm_lords",
+    "finish_aos_maggotkin_of_nurgle", "finish_aos_nighthaunt", "finish_aos_ogor_mawtribes", "finish_aos_orruk_warclans",
+    "finish_aos_ossiarch_bonereapers", "finish_aos_seraphon", "finish_aos_skaven", "finish_aos_slaves_to_darkness",
+    "finish_aos_sons_of_behemat", "avatar_stormcast_eternals", "avatar_khorne_bloodbound", "avatar_gloomspite_gitz",
+    "avatar_soulblight_gravelords", "avatar_sylvaneth", "avatar_beasts_of_chaos", "avatar_cities_of_sigmar",
+    "avatar_daughters_of_khaine", "avatar_disciples_of_tzeentch", "avatar_flesh_eater_courts", "avatar_fyreslayers",
+    "avatar_hedonites_of_slaanesh", "avatar_idoneth_deepkin", "avatar_kharadron_overlords", "avatar_lumineth_realm_lords",
+    "avatar_maggotkin_of_nurgle", "avatar_nighthaunt", "avatar_ogor_mawtribes", "avatar_orruk_warclans",
+    "avatar_ossiarch_bonereapers", "avatar_seraphon", "avatar_skaven", "avatar_slaves_to_darkness", "avatar_sons_of_behemat",
+    "title_lord_celestant", "title_everchosen_herald", "title_ghoul_king", "title_bad_moon_chosen", "title_anointed_of_khaine",
+    "title_arkanaut_admiral", "title_slann_starmaster", "title_clawlord_of_blight", "poke_sigmar_bolt", "poke_squig_nibble",
+    "poke_khorne_roar", "poke_nighthaunt_shriek", "poke_khorne_blood_tithe", "poke_bad_moon_looming", "poke_sigmar_comet_strike",
+    "poke_tzeentch_twist", "poke_nurgle_rot_bell"
+  ];
+  var AOS_ITEM_ID_MAP = {};
+  AOS_ITEM_IDS_LIST.forEach(function(id) { AOS_ITEM_ID_MAP[id] = true; });
+
+  function createEmptySystemEquipped() {
+    return {
+      active_dice: null,
+      active_card_frame: null,
+      active_card_finish: null,
+      active_title: null,
+      active_avatar: null
+    };
+  }
+
+  function detectActiveGameSystem() {
+    if (typeof window !== 'undefined' && (window.currentGameSystem === '40k' || window.currentGameSystem === 'aos')) {
+      return window.currentGameSystem;
+    }
+    try {
+      var path = (window.location && window.location.pathname || '').toLowerCase();
+      var hash = (window.location && window.location.hash || '').toLowerCase();
+      if (path.indexOf('/aos') === 0 || path.indexOf('/11th/tracker/aos') === 0 || hash.indexOf('#/aos') === 0 || hash.indexOf('/aos/') !== -1) {
+        return 'aos';
+      }
+      var stored = (localStorage.getItem('omni_game_system') || '').toLowerCase();
+      if (stored === 'aos' || stored === '40k') return stored;
+    } catch (e) {}
+    return '40k';
+  }
+
+  var currentGameSystem = detectActiveGameSystem();
   var currentCatalog = null;
-  var currentVault = { inventory: {}, equipped: { active_dice: null, active_card_frame: null, active_title: null, active_avatar: null } };
+  var catalogBySystem = { '40k': null, 'aos': null };
+  var currentVault = { inventory: {}, equipped: { '40k': createEmptySystemEquipped(), 'aos': createEmptySystemEquipped() } };
   var currentGlory = { total_earned: 0, glory_spent: 0, spendable_glory: 0, crest_tier: 1 };
   var activeWingFilter = 'all';
   var currentArmoryMode = 'vault'; // 'vault' (Command Home) or 'store' (Requisition Depot)
   var activeVaultTab = 'backpack'; // 'backpack' or 'ledger'
   var isPurchasing = false;
+
+  function findCatalogItemById(itemId) {
+    if (!itemId) return null;
+    var sources = [currentCatalog, catalogBySystem['40k'], catalogBySystem['aos']];
+    for (var s = 0; s < sources.length; s++) {
+      var cat = sources[s];
+      if (cat && Array.isArray(cat.items)) {
+        for (var i = 0; i < cat.items.length; i++) {
+          if (cat.items[i].id === itemId) return cat.items[i];
+        }
+      }
+    }
+    return null;
+  }
+
+  function getItemGameSystem(itemId) {
+    if (!itemId || typeof itemId !== 'string') return null;
+    var found = findCatalogItemById(itemId);
+    if (found && found.game_system) {
+      return String(found.game_system).toLowerCase();
+    }
+    if (AOS_ITEM_ID_MAP[itemId] || itemId.indexOf('_aos_') !== -1 || itemId.indexOf('aos_') === 0) {
+      return 'aos';
+    }
+    return '40k';
+  }
+
+  function normalizeEquippedObject(rawEq) {
+    var src = (rawEq && typeof rawEq === 'object') ? rawEq : {};
+    var eq40k = createEmptySystemEquipped();
+    var eqAos = createEmptySystemEquipped();
+    var had40k = !!(src['40k'] && typeof src['40k'] === 'object');
+    var hadAos = !!(src['aos'] && typeof src['aos'] === 'object');
+
+    if (had40k) {
+      VALID_ARMORY_SLOTS.forEach(function(slot) {
+        var val = src['40k'][slot];
+        if (typeof val === 'string' && val.trim()) {
+          val = val.trim();
+          if (getItemGameSystem(val) === 'aos') {
+            if (!eqAos[slot]) eqAos[slot] = val;
+          } else {
+            eq40k[slot] = val;
+          }
+        }
+      });
+    }
+    if (hadAos) {
+      VALID_ARMORY_SLOTS.forEach(function(slot) {
+        var val = src['aos'][slot];
+        if (typeof val === 'string' && val.trim()) {
+          val = val.trim();
+          if (getItemGameSystem(val) === '40k') {
+            if (!eq40k[slot]) eq40k[slot] = val;
+          } else {
+            eqAos[slot] = val;
+          }
+        }
+      });
+    }
+    VALID_ARMORY_SLOTS.forEach(function(slot) {
+      var val = src[slot];
+      if (typeof val === 'string' && val.trim()) {
+        val = val.trim();
+        var itemSys = getItemGameSystem(val);
+        if (itemSys === 'aos') {
+          if (!hadAos && !eqAos[slot]) eqAos[slot] = val;
+        } else {
+          if (!had40k && !eq40k[slot]) eq40k[slot] = val;
+        }
+      }
+    });
+    return { '40k': eq40k, 'aos': eqAos };
+  }
+
+  function getEquippedForSystem(allEq, system) {
+    var sys = String(system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
+    if (sys !== '40k' && sys !== 'aos') sys = '40k';
+    var normalized = normalizeEquippedObject(allEq || (currentVault && currentVault.equipped) || {});
+    return normalized[sys] || createEmptySystemEquipped();
+  }
+  window.getEquippedForSystem = getEquippedForSystem;
+
+  function syncCachedUserVault() {
+    if (!currentVault || !currentVault.equipped) return;
+    currentVault.equipped = normalizeEquippedObject(currentVault.equipped);
+    if (typeof window !== 'undefined') {
+      if (window.myHubData && typeof window.myHubData === 'object') {
+        window.myHubData.equipped = currentVault.equipped;
+        if (window.myHubData.armory_vault && typeof window.myHubData.armory_vault === 'object') {
+          window.myHubData.armory_vault.equipped = currentVault.equipped;
+        }
+      }
+      if (window.currentUser && typeof window.currentUser === 'object') {
+        window.currentUser.equipped = currentVault.equipped;
+        if (window.currentUser.armory_vault && typeof window.currentUser.armory_vault === 'object') {
+          window.currentUser.armory_vault.equipped = currentVault.equipped;
+        }
+      }
+    }
+  }
 
   function escapeHtml(str) {
     if (str == null) return '';
@@ -26,7 +182,21 @@
   }
 
   /**
-   * Switch active game system (40k vs aos)
+   * Synchronize Armory when the global app game system switches (navbar 40K <-> AoS)
+   */
+  async function syncGlobalGameSystem(sys) {
+    var nextSys = (sys === 'aos') ? 'aos' : '40k';
+    currentGameSystem = nextSys;
+    applyEquippedDecorations(nextSys);
+    await loadArmoryData(nextSys);
+    applyEquippedDecorations(nextSys);
+    if (document.getElementById('retribution-armory-modal')) {
+      renderArmoryModalShell();
+    }
+  }
+
+  /**
+   * Switch active game system inside Armory modal (40k vs aos)
    */
   async function switchGameSystem(sys) {
     if (sys !== '40k' && sys !== 'aos') sys = '40k';
@@ -52,7 +222,8 @@
    */
   async function loadArmoryData(gameSys) {
     try {
-      var sys = gameSys || currentGameSystem || '40k';
+      var sys = (gameSys || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
+      if (sys !== '40k' && sys !== 'aos') sys = '40k';
       var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
       var headers = token ? { 'Authorization': 'Bearer ' + token } : {};
 
@@ -82,28 +253,26 @@
       if (catRes.ok) {
         var data = await catRes.json();
         currentCatalog = data;
+        catalogBySystem[sys] = data;
         if (data.user_glory) currentGlory = data.user_glory;
         if (data.user_vault) currentVault = data.user_vault;
       }
 
-      // Self-healing synchronization:
-      // Ensure currentVault.equipped is initialized and populated for the current game system
+      // Strict per-system normalization: never write flat top-level slot keys
       if (!currentVault) currentVault = { inventory: {}, equipped: {} };
-      if (!currentVault.equipped) currentVault.equipped = {};
-      if (!currentVault.equipped[sys] || typeof currentVault.equipped[sys] !== 'object') {
-        currentVault.equipped[sys] = { active_dice: null, active_card_frame: null, active_title: null, active_avatar: null };
-      }
+      currentVault.equipped = normalizeEquippedObject(currentVault.equipped);
 
-      // If catalog items have is_equipped === true, reflect them into currentVault.equipped
+      // If catalog items for `sys` have is_equipped === true, reflect them into currentVault.equipped[sys] ONLY
       if (currentCatalog && Array.isArray(currentCatalog.items)) {
         currentCatalog.items.forEach(function(item) {
-          if (item.is_equipped && item.slot) {
+          var itemSys = (item.game_system || sys).toLowerCase();
+          if (itemSys === sys && item.is_equipped && item.slot) {
             currentVault.equipped[sys][item.slot] = item.id;
-            currentVault.equipped[item.slot] = item.id;
           }
         });
       }
 
+      syncCachedUserVault();
       updateArmoryHeaderBalance();
       return currentCatalog;
     } catch (e) {
@@ -147,20 +316,25 @@
       showArmoryNotification('🎉 ' + data.message, 'success');
 
       // Update local state
-      if (data.vault) currentVault = data.vault;
+      if (data.vault) {
+        currentVault = data.vault;
+        currentVault.equipped = normalizeEquippedObject(currentVault.equipped);
+        syncCachedUserVault();
+      }
       if (data.glory) currentGlory = data.glory;
 
       // Automatically equip if permanent cosmetic
       if (data.item && !data.item.is_consumable && data.item.slot) {
-        await equipItem(data.item.slot, data.item.id, true);
+        var itemSys = (data.item.game_system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
+        await equipItem(data.item.slot, data.item.id, true, itemSys);
       } else {
         await loadArmoryData();
         renderArmoryGrid();
       }
 
       updateArmoryHeaderBalance();
-      // Update global UI decoration
-      applyEquippedDecorations();
+      // Update global UI decoration for the active page system
+      applyEquippedDecorations(detectActiveGameSystem());
 
     } catch (err) {
       showArmoryNotification('❌ ' + err.message, 'error');
@@ -177,9 +351,9 @@
    * Toggle equip/unequip for an item
    */
   async function toggleEquip(slot, itemId, system) {
-    var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
-    var allEq = currentVault.equipped || {};
-    var eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
+    var itemSys = getItemGameSystem(itemId);
+    var sys = (system || itemSys || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
+    var eq = getEquippedForSystem(currentVault.equipped, sys);
     var currentlyEquipped = eq[slot];
 
     if (currentlyEquipped === itemId) {
@@ -193,23 +367,25 @@
    * Equip an owned item into an active slot
    */
   async function equipItem(slot, itemId, silent, system) {
-    var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
+    var itemSys = getItemGameSystem(itemId);
+    var sys = (itemSys || system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
+    if (sys !== '40k' && sys !== 'aos') sys = '40k';
 
-    // 1. Instant optimistic in-memory update
-    if (!currentVault.equipped) currentVault.equipped = {};
-    if (!currentVault.equipped[sys] || typeof currentVault.equipped[sys] !== 'object') {
-      currentVault.equipped[sys] = { active_dice: null, active_card_frame: null, active_title: null, active_avatar: null };
-    }
+    // 1. Instant optimistic in-memory update (strictly scoped to `sys`)
+    currentVault.equipped = normalizeEquippedObject(currentVault.equipped);
     currentVault.equipped[sys][slot] = itemId;
-    currentVault.equipped[slot] = itemId;
+    syncCachedUserVault();
 
     if (slot === 'active_dice') {
-      try { localStorage.setItem('omnitactica_active_dice', itemId); } catch(e) {}
+      try {
+        localStorage.setItem('omnitactica_active_dice_' + sys, itemId);
+        if (sys === '40k') localStorage.setItem('omnitactica_active_dice', itemId);
+      } catch(e) {}
     }
 
     if (currentCatalog && currentCatalog.items) {
       currentCatalog.items.forEach(function(i) {
-        if (i.slot === slot) {
+        if (i.slot === slot && (i.game_system || sys).toLowerCase() === sys) {
           i.is_equipped = (i.id === itemId);
         }
       });
@@ -217,7 +393,7 @@
 
     // Immediately reflect on Armory modal grid, header, and profile card!
     renderArmoryGrid();
-    applyEquippedDecorations(sys);
+    applyEquippedDecorations(detectActiveGameSystem());
     updateArmoryHeaderBalance();
 
     try {
@@ -235,19 +411,22 @@
       var data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to equip item');
 
-      if (data.equipped) currentVault.equipped = data.equipped;
+      if (data.equipped) {
+        currentVault.equipped = normalizeEquippedObject(data.equipped);
+        syncCachedUserVault();
+      }
       if (!silent) showArmoryNotification('⚔️ ' + data.message, 'success');
 
-      await loadArmoryData(sys);
+      await loadArmoryData(currentGameSystem);
       renderArmoryGrid();
-      applyEquippedDecorations(sys);
+      applyEquippedDecorations(detectActiveGameSystem());
       updateArmoryHeaderBalance();
 
     } catch (err) {
       showArmoryNotification('❌ ' + err.message, 'error');
-      await loadArmoryData(sys);
+      await loadArmoryData(currentGameSystem);
       renderArmoryGrid();
-      applyEquippedDecorations(sys);
+      applyEquippedDecorations(detectActiveGameSystem());
     }
   }
 
@@ -255,29 +434,31 @@
    * Unequip an item slot back to default
    */
   async function unequipSlot(slot, silent, system) {
-    var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
+    var sys = (system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
+    if (sys !== '40k' && sys !== 'aos') sys = '40k';
 
-    // 1. Instant optimistic in-memory update
-    if (!currentVault.equipped) currentVault.equipped = {};
-    if (currentVault.equipped[sys] && typeof currentVault.equipped[sys] === 'object') {
-      currentVault.equipped[sys][slot] = null;
-    }
-    currentVault.equipped[slot] = null;
+    // 1. Instant optimistic in-memory update (strictly scoped to `sys`)
+    currentVault.equipped = normalizeEquippedObject(currentVault.equipped);
+    currentVault.equipped[sys][slot] = null;
+    syncCachedUserVault();
 
     if (slot === 'active_dice') {
-      try { localStorage.removeItem('omnitactica_active_dice'); } catch(e) {}
+      try {
+        localStorage.removeItem('omnitactica_active_dice_' + sys);
+        if (sys === '40k') localStorage.removeItem('omnitactica_active_dice');
+      } catch(e) {}
     }
 
     if (currentCatalog && currentCatalog.items) {
       currentCatalog.items.forEach(function(i) {
-        if (i.slot === slot) {
+        if (i.slot === slot && (i.game_system || sys).toLowerCase() === sys) {
           i.is_equipped = false;
         }
       });
     }
 
     renderArmoryGrid();
-    applyEquippedDecorations(sys);
+    applyEquippedDecorations(detectActiveGameSystem());
     updateArmoryHeaderBalance();
 
     try {
@@ -295,18 +476,21 @@
       var data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to unequip slot');
 
-      if (data.equipped) currentVault.equipped = data.equipped;
+      if (data.equipped) {
+        currentVault.equipped = normalizeEquippedObject(data.equipped);
+        syncCachedUserVault();
+      }
       if (!silent) showArmoryNotification('🛡️ ' + data.message, 'info');
 
-      await loadArmoryData(sys);
+      await loadArmoryData(currentGameSystem);
       renderArmoryGrid();
-      applyEquippedDecorations(sys);
+      applyEquippedDecorations(detectActiveGameSystem());
 
     } catch (err) {
       showArmoryNotification('❌ ' + err.message, 'error');
-      await loadArmoryData(sys);
+      await loadArmoryData(currentGameSystem);
       renderArmoryGrid();
-      applyEquippedDecorations(sys);
+      applyEquippedDecorations(detectActiveGameSystem());
     }
   }
 
@@ -693,10 +877,11 @@
    * Effect Dispatcher: Applies active decorations only to player profile / My Hub hero cards (never Team View)
    */
   function applyEquippedDecorations(system, overrideEquipped, scopeRoot) {
-    var rawSys = (typeof system === 'string' && system) ? system : ((typeof currentGameSystem !== 'undefined' && typeof currentGameSystem === 'string' && currentGameSystem) ? currentGameSystem : ((typeof window !== 'undefined' && typeof window.currentGameSystem === 'string' && window.currentGameSystem) ? window.currentGameSystem : '40k'));
+    var rawSys = (typeof system === 'string' && (system === '40k' || system === 'aos'))
+      ? system
+      : detectActiveGameSystem();
     var sys = String(rawSys).toLowerCase();
-    var allEq = overrideEquipped || currentVault.equipped || {};
-    var eq = (allEq[sys] && typeof allEq[sys] === 'object') ? allEq[sys] : allEq;
+    var eq = getEquippedForSystem(overrideEquipped || (currentVault && currentVault.equipped) || {}, sys);
 
     // Always ensure Team View cards are clean of any personal Armory frame/finish classes
     var teamCards = document.querySelectorAll('#team-profile-container .profile-hero-card, .team-hero-card');
@@ -754,7 +939,7 @@
           el.innerHTML = '';
           el.style.display = 'none';
         } else {
-          var tItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === titleId; }) : null;
+          var tItem = findCatalogItemById(titleId);
           var tText = tItem && tItem.payload ? tItem.payload.title_text : (tItem ? tItem.name : titleId.replace(/^title_/, '').replace(/_/g, ' '));
           var tClass = tItem && tItem.payload ? tItem.payload.css_class : (titleId.includes('warp') ? 'title-badge-warp' : (titleId.includes('forge') ? 'title-badge-forge' : (titleId.includes('strategist') ? 'title-badge-strategist' : 'title-badge-unbroken')));
           el.innerHTML = '<span class="armory-title-chip ' + escapeHtml(tClass) + '"><span class="title-chip-icon">🏷️</span> ' + escapeHtml(tText.toUpperCase()) + '</span>';
@@ -790,7 +975,7 @@
           crest.style.boxShadow = '';
         } else {
           var svgCode = typeof window.getArmoryAvatarSvg === 'function' ? window.getArmoryAvatarSvg(avatarId) : '';
-          var aItem = currentCatalog && currentCatalog.items ? currentCatalog.items.find(function(i) { return i.id === avatarId; }) : null;
+          var aItem = findCatalogItemById(avatarId);
           var aColor = (aItem && aItem.payload && aItem.payload.badge_color) ? aItem.payload.badge_color : '#38bdf8';
 
           if (defIcon) {
@@ -811,24 +996,25 @@
       });
     });
 
-    // 4. Sync localStorage active_dice for real-time dice tray integration (only for current user)
+    // 4. Sync game-system-scoped localStorage active_dice for real-time dice tray integration (only for current user)
     if (!overrideEquipped) {
       if (eq && eq.active_dice) {
-        try { localStorage.setItem('omnitactica_active_dice', eq.active_dice); } catch(e) {}
-      } else if (eq && !eq.active_dice) {
-        var savedDice = null;
-        try { savedDice = localStorage.getItem('omnitactica_active_dice'); } catch(e) {}
-        if (savedDice) {
-          eq.active_dice = savedDice;
-          allEq.active_dice = savedDice;
-        }
+        try {
+          localStorage.setItem('omnitactica_active_dice_' + sys, eq.active_dice);
+          if (sys === '40k') localStorage.setItem('omnitactica_active_dice', eq.active_dice);
+        } catch(e) {}
+      } else {
+        try {
+          localStorage.removeItem('omnitactica_active_dice_' + sys);
+          if (sys === '40k') localStorage.removeItem('omnitactica_active_dice');
+        } catch(e) {}
       }
     }
 
     // 5. Dispatch Event for Live Tracker Dice Tray
     if (window.dispatchEvent) {
       window.dispatchEvent(new CustomEvent('omnitactica:armory-loadout-changed', {
-        detail: { equipped: eq, vault: currentVault }
+        detail: { game_system: sys, equipped: eq, vault: currentVault }
       }));
     }
   }
@@ -1153,8 +1339,7 @@
     var backpackHeaderHtml = '';
     var storeBannerHtml = '';
     if (currentArmoryMode === 'vault') {
-      var allEq = currentVault.equipped || {};
-      var eq = (allEq[currentGameSystem] && typeof allEq[currentGameSystem] === 'object') ? allEq[currentGameSystem] : allEq;
+      var eq = getEquippedForSystem(currentVault.equipped, currentGameSystem);
       var activeDiceItem = currentCatalog.items.find(function(i) {
         return (eq && i.id === eq.active_dice) || (i.slot === 'active_dice' && i.is_equipped && (i.game_system === currentGameSystem || !i.game_system));
       });
@@ -1170,12 +1355,6 @@
       var activeTitleItem = currentCatalog.items.find(function(i) {
         return (eq && i.id === eq.active_title) || (i.slot === 'active_title' && i.is_equipped && (i.game_system === currentGameSystem || !i.game_system));
       });
-
-      if (activeDiceItem && eq) eq.active_dice = activeDiceItem.id;
-      if (activeFrameItem && eq) eq.active_card_frame = activeFrameItem.id;
-      if (activeFinishItem && eq) eq.active_card_finish = activeFinishItem.id;
-      if (activeAvatarItem && eq) eq.active_avatar = activeAvatarItem.id;
-      if (activeTitleItem && eq) eq.active_title = activeTitleItem.id;
 
       backpackHeaderHtml = [
         '<div class="armory-backpack-summary">',
@@ -1349,17 +1528,17 @@
   }
 
   function openStore(wing, system) {
-    if (system) currentGameSystem = system;
+    currentGameSystem = (system === '40k' || system === 'aos') ? system : detectActiveGameSystem();
     if (wing) activeWingFilter = wing;
     currentArmoryMode = 'store';
-    openArmoryModal('store', system);
+    openArmoryModal('store', currentGameSystem);
   }
 
   function openVault(tab, system) {
-    if (system) currentGameSystem = system;
+    currentGameSystem = (system === '40k' || system === 'aos') ? system : detectActiveGameSystem();
     if (tab) activeVaultTab = tab;
     currentArmoryMode = 'vault';
-    openArmoryModal(tab || 'backpack', system);
+    openArmoryModal(tab || 'backpack', currentGameSystem);
   }
 
   /**
@@ -1394,7 +1573,7 @@
    * Opens the full Retribution Armory Modal
    */
   async function openArmoryModal(initialWing, system) {
-    if (system) currentGameSystem = system;
+    currentGameSystem = (system === '40k' || system === 'aos') ? system : detectActiveGameSystem();
 
     if (initialWing === 'store') {
       currentArmoryMode = 'store';
@@ -1920,7 +2099,11 @@
   window.Armory = {
     loadArmoryData: loadArmoryData,
     switchGameSystem: switchGameSystem,
+    syncGlobalGameSystem: syncGlobalGameSystem,
     getGameSystem: function() { return currentGameSystem; },
+    getEquippedForSystem: getEquippedForSystem,
+    normalizeEquippedObject: normalizeEquippedObject,
+    getItemGameSystem: getItemGameSystem,
     openArmoryModal: openArmoryModal,
     closeArmoryModal: closeArmoryModal,
     setArmoryMode: setArmoryMode,
@@ -1946,21 +2129,19 @@
     getActiveHexes: getActiveHexes,
     applyEquippedDecorations: applyEquippedDecorations,
     getEquipped: function(slot, system) {
-      var sys = (system || currentGameSystem || window.currentGameSystem || '40k').toLowerCase();
-      var allEq = currentVault.equipped || {};
-      if (allEq[sys] && typeof allEq[sys] === 'object' && allEq[sys][slot] !== undefined && allEq[sys][slot] !== null) {
-        return allEq[sys][slot];
-      }
-      if (allEq[slot] !== undefined && allEq[slot] !== null) {
-        return allEq[slot];
+      var sys = (system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
+      if (sys !== '40k' && sys !== 'aos') sys = '40k';
+      var eq = getEquippedForSystem(currentVault.equipped, sys);
+      if (eq && eq[slot] !== undefined && eq[slot] !== null) {
+        return eq[slot];
       }
       if (slot === 'active_dice') {
         try {
-          var savedDice = localStorage.getItem('omnitactica_active_dice');
-          if (savedDice) return savedDice;
+          var savedDice = localStorage.getItem('omnitactica_active_dice_' + sys);
+          if (savedDice && getItemGameSystem(savedDice) === sys) return savedDice;
         } catch(e) {}
       }
-      if (currentCatalog && currentCatalog.items) {
+      if (currentCatalog && currentCatalog.items && (currentCatalog.game_system || currentGameSystem) === sys) {
         var found = currentCatalog.items.find(function(it) {
           return it.is_equipped && it.slot === slot && (it.game_system === sys || !it.game_system);
         });
@@ -1969,19 +2150,21 @@
       return null;
     },
     getEquippedItem: function(slotOrId, system) {
-      var id = window.Armory.getEquipped(slotOrId, system);
+      var sys = (system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
+      if (sys !== '40k' && sys !== 'aos') sys = '40k';
+      var id = window.Armory.getEquipped(slotOrId, sys);
       if (!id && typeof slotOrId === 'string' && slotOrId.startsWith('dice_')) {
-        id = slotOrId;
+        if (getItemGameSystem(slotOrId) === sys) id = slotOrId;
       }
       if (!id && slotOrId === 'active_dice') {
-        try { id = localStorage.getItem('omnitactica_active_dice'); } catch(e) {}
+        try {
+          var saved = localStorage.getItem('omnitactica_active_dice_' + sys);
+          if (saved && getItemGameSystem(saved) === sys) id = saved;
+        } catch(e) {}
       }
       if (!id) return null;
-      if (currentCatalog && currentCatalog.items) {
-        for (var i = 0; i < currentCatalog.items.length; i++) {
-          if (currentCatalog.items[i].id === id) return currentCatalog.items[i];
-        }
-      }
+      var catItem = findCatalogItemById(id);
+      if (catItem) return catItem;
       if (typeof getFallbackDiceMetadata === 'function') {
         return getFallbackDiceMetadata(id);
       }
@@ -1995,18 +2178,20 @@
   };
 
   // Auto-init decorations & poke effects when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function() {
-      loadArmoryData().then(applyEquippedDecorations).then(function() {
-        checkAndTriggerSignInPokeEffect();
-        renderActiveRivalHexBanner();
-      });
-    });
-  } else {
-    loadArmoryData().then(applyEquippedDecorations).then(function() {
+  function bootArmory() {
+    var initSys = detectActiveGameSystem();
+    currentGameSystem = initSys;
+    loadArmoryData(initSys).then(function() {
+      applyEquippedDecorations(detectActiveGameSystem());
       checkAndTriggerSignInPokeEffect();
       renderActiveRivalHexBanner();
     });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootArmory);
+  } else {
+    bootArmory();
   }
 
 })(window);
