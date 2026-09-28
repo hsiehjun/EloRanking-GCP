@@ -180,68 +180,22 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     pointer-events: none !important;
   }
 
-  /* 2. Keep Navigation Bar at Top on BOTH Desktop & Mobile; Hide Bottom Bar & Non-List Icons */
+  /* 2. Hide NewRecruit's Top/Bottom Menu Bar — Controls live in OmniTactica's own header */
+  header,
   .menu.mainMenu {
-    position: fixed !important;
-    top: 0 !important;
-    bottom: auto !important;
-    left: 0 !important;
-    right: 0 !important;
-    height: 50px !important;
-    background: #161b26 !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-    display: flex !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    padding: 0 10px !important;
-    z-index: 999 !important;
-    box-sizing: border-box !important;
-  }
-  .menu.mainMenu .left {
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    min-width: 0 !important;
-    flex: 1 1 auto !important;
+    display: none !important;
+    height: 0 !important;
+    max-height: 0 !important;
     overflow: hidden !important;
-  }
-  .menu.mainMenu .left a[href="/app/MyLists"],
-  .menu.mainMenu .left a.hideOnSmallScreen,
-  .menu.mainMenu .left button.navBarItem {
-    display: inline-flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-    flex-shrink: 0 !important;
-  }
-  .menu.mainMenu .left select {
-    max-width: min(230px, 50vw) !important;
-    text-overflow: ellipsis !important;
-  }
-  .menu.mainMenu .right.menuIcons {
-    position: static !important;
-    bottom: auto !important;
-    left: auto !important;
-    right: auto !important;
-    width: auto !important;
-    height: auto !important;
-    border-top: none !important;
-    background: transparent !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: flex-end !important;
-    flex-shrink: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
+    pointer-events: none !important;
   }
   html body {
-    padding-top: 52px !important;
+    padding-top: 0 !important;
     padding-bottom: 0 !important;
   }
   #mainContent,
   .mainContent {
-    top: 52px !important;
+    top: 0 !important;
     bottom: 0 !important;
   }
   .main-view {
@@ -250,47 +204,36 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     margin-top: 0 !important;
   }
 
-  /* Hide Games, Lists (duplicate icon), Models, Tourny, Profile, Play, Support, Build from right/bottom menu — keep ONLY Login/User */
-  .menu.mainMenu .right.menuIcons a.priority-3,
-  .menu.mainMenu .right.menuIcons a.priority-4,
-  .menu.mainMenu .right.menuIcons a.priority-5,
-  .menu.mainMenu .right.menuIcons a.priority-6,
-  .menu.mainMenu .right.menuIcons a.priority-7,
-  .menu.mainMenu .right.menuIcons a.priority-8,
-  .menu.mainMenu .right.menuIcons a.priority-9,
-  .menu.mainMenu .right.menuIcons a.hideOnBigScreen,
-  .menu.mainMenu .right.menuIcons a[href="/app/MySystems"],
-  .menu.mainMenu .right.menuIcons a[href="/app/tourny"],
-  .menu.mainMenu .right.menuIcons a[href="/app/MyModels"],
-  .menu.mainMenu .right.menuIcons a[href="/app/Profile"],
-  .menu.mainMenu .right.menuIcons a[href="/app/game"],
-  .menu.mainMenu .right.menuIcons a[href="/app/supporters"],
-  .menu.mainMenu .right.menuIcons a[href="/app/Lists"],
-  .menu.mainMenu .right.menuIcons a:has(.nr-miniature),
-  .menu.mainMenu .right.menuIcons a:has(.tourny),
-  .menu.mainMenu .right.menuIcons a:has(.nr-games) {
-    display: none !important;
-  }
-
-  /* 3. Hide "Import file", "Text Import", "Sync Lists", and "Delete X Lists" buttons in MyLists */
+  /* 3. MyLists (/app/MyLists): Hide all controls above the actual list table (Create List, Any, Search, Group/Sort checkboxes, Import/Sync/Delete buttons) */
+  .box.noaccount,
+  [data-v-b9210782] > div > .boutons.mobilePadding,
+  [data-v-b9210782] .boutons.mobilePadding,
+  button.createToolbarBtn,
+  button.createFab,
+  .listsView[data-v-7711fa10] > .mobilePadding:not(.listsList),
+  .listsView[data-v-7711fa10] .listViewHeader,
+  .listsView[data-v-7711fa10] .checkboxes,
   [data-v-2b034e2c],
   .importButtons,
   .importRow,
-  .boutons.mobilePadding > [data-v-2b034e2c],
-  [data-v-b9210782] .boutons.mobilePadding > button.bouton:not(.createToolbarBtn),
   .folder[data-v-7711fa10] > .boutons,
   [data-v-7711fa10] > .boutons > button.bouton,
   .omnitactica-hidden-nr-btn {
     display: none !important;
   }
+  .listsView[data-v-7711fa10] .listsList.mobilePadding {
+    padding-top: 8px !important;
+  }
 
-  /* 4. Direct-List Loading Screen (prevents flashing /app/MyLists when opening a specific list) */
+  /* 4. Direct-List Loading Screen & Embedded Play Mode Viewer Cleanup */
+  .errorWindow,
   html.omnitactica-nr-embedded-viewer header,
-  html.omnitactica-nr-embedded-viewer .menu.mainMenu {
+  html.omnitactica-nr-embedded-viewer .menu.mainMenu,
+  html.omnitactica-nr-embedded-viewer .errorWindow {
     display: none !important;
   }
   html.omnitactica-nr-embedded-viewer .main-view {
-    padding-top: 4px !important;
+    padding-top: 0 !important;
     margin-top: 0 !important;
   }
   html.omnitactica-nr-direct-list-loading,
@@ -630,6 +573,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     var listsStore = s.lists || s.list || (pMap ? pMap.get('lists') : null);
     var optionsStore = s.options || s.option || (pMap ? pMap.get('optionsStore') : null);
     var listsPageStore = s.listsPage || (pMap ? pMap.get('listsPage') : null);
+    var mainStore = s.main || (pMap ? pMap.get('mainStore') : null);
     if (!listsStore) return null;
     s.list = listsStore;
     s.lists = listsStore;
@@ -639,6 +583,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
     if (listsPageStore) {
       s.listsPage = listsPageStore;
+    }
+    if (mainStore) {
+      s.main = mainStore;
     }
     if (!Object.getOwnPropertyDescriptor(listsStore, 'selectedList')) {
       try {
@@ -654,7 +601,8 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       list: listsStore,
       lists: listsStore,
       options: optionsStore,
-      listsPage: listsPageStore
+      listsPage: listsPageStore,
+      main: mainStore
     };
   }
 
@@ -861,10 +809,13 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
 
-  async function syncDeleteKey(listKey) {
+  async function syncDeleteKey(listKey, listName) {
     if (isHydrating || !listKey) return;
     delete knownListsMap[listKey];
-    await postSyncAction('delete', { list_key: String(listKey) });
+    await postSyncAction('delete', {
+      list_key: String(listKey),
+      list_name: listName ? String(listName) : ''
+    });
   }
 
   // 2. Hook IDBObjectStore.prototype.put / add / delete & IDBCursor.prototype.delete
@@ -953,11 +904,22 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       }
       if (indexedDB.databases) {
         var dbs = await indexedDB.databases();
-        var nrExists = dbs && dbs.some(function(d) { return d.name === 'nr' && d.version >= 200; });
+        var nrExists = dbs && dbs.some(function(d) { return d && d.name === 'nr'; });
         if (!nrExists) return null;
       }
       return await new Promise(function(resolve) {
+        var settled = false;
+        var done = function(val) {
+          if (settled) return;
+          settled = true;
+          resolve(val);
+        };
+        setTimeout(function() { done(null); }, 1000);
         var req = indexedDB.open('nr');
+        req.onupgradeneeded = function(ev) {
+          try { ev.target.transaction.abort(); } catch (e) {}
+          done(null);
+        };
         req.onsuccess = function() {
           var db = req.result;
           if (db && db.objectStoreNames && db.objectStoreNames.contains('lists')) {
@@ -966,12 +928,13 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               cachedNrDb = null;
             };
             cachedNrDb = db;
-            resolve(db);
+            done(db);
           } else {
-            resolve(null);
+            done(null);
           }
         };
-        req.onerror = function() { resolve(null); };
+        req.onerror = function() { done(null); };
+        req.onblocked = function() { done(null); };
       });
     } catch (e) {
       return null;
@@ -1046,7 +1009,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       if (stores.list.currentList && stores.list.currentList.row) {
         var cr = stores.list.currentList.row;
         var ck = String(cr.list_key || cr._id || '');
-        if (ck && isActiveNrListRow(cr, stores)) {
+        if (ck && mergedMap[ck] && isActiveNrListRow(cr, stores)) {
           cr.list_key = ck;
           if (stores.list.currentList.army && typeof stores.list.currentList.army.toJson === 'function') {
             try {
@@ -1054,12 +1017,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               cr.totalCost = stores.list.currentList.army.getPointsCost() || cr.totalCost || 0;
             } catch (e) {}
           }
-          if (!mergedMap[ck]) {
-            mergedMap[ck] = cr;
-            mergedList.push(cr);
-          } else {
-            mergedMap[ck] = Object.assign(mergedMap[ck], cr);
-          }
+          mergedMap[ck] = Object.assign(mergedMap[ck], cr);
         }
       }
     }
@@ -1289,7 +1247,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     });
   }
 
-  // Compile synthetic/text-imported row into a real NewRecruit BattleScribe catalogue army using ukVEh7Py.js
+  // Compile synthetic/text-imported row into a real NewRecruit BattleScribe catalogue army using the live Nuxt entry module's system parser
   async function compileSyntheticRowIfNeeded(row, systemStore, listStore, forceCompile) {
     if (!row || !row.list_key || !row._synthetic_text) return row;
     if (row._compiled_by_nr && !forceCompile) return row;
@@ -1317,26 +1275,61 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         var fallbackBook = booksArr.find(function(b) {
           return b && (b.id == row.id_book || b.bsid == row.bsid_book);
         }) || booksArr.find(function(b) { return b && b.playable; }) || null;
-        var mod = await import('/_nuxt/ukVEh7Py.js');
-        var importTextFn = mod && mod.i;
-        if (typeof importTextFn !== 'function') return row;
-        var res = await importTextFn(sys, row._synthetic_text, {
-          fallbackBook: fallbackBook,
-          maxCost: Number(row.totalCost) || 2000
-        });
-        if (res && res.list && res.list.army) {
+        if (!fallbackBook) return row;
+
+        var entryScriptEl = document.querySelector('script[type="module"][src*="/_nuxt/"]');
+        var entrySrc = entryScriptEl ? entryScriptEl.getAttribute('src') : null;
+        if (!entrySrc) return row;
+        var entryMod = await import(entrySrc);
+        var adapter = null;
+        if (entryMod && typeof entryMod.w === 'function') {
+          try {
+            var cand = entryMod.w(sys);
+            if (cand && typeof cand.parseTextList === 'function') adapter = cand;
+          } catch (e) {}
+        }
+        if (!adapter && entryMod) {
+          var modVals = Object.values(entryMod);
+          for (var mIdx = 0; mIdx < modVals.length; mIdx++) {
+            var fn = modVals[mIdx];
+            if (typeof fn === 'function' && fn.length === 1) {
+              try {
+                var probe = fn(sys);
+                if (probe && typeof probe.parseTextList === 'function' && typeof probe.parseTextListHeader === 'function') {
+                  adapter = probe;
+                  break;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+        if (!adapter || typeof sys.getBook !== 'function') return row;
+        var bookInst = await sys.getBook(fallbackBook.id);
+        if (!bookInst) return row;
+        var rawLines = String(row._synthetic_text || '').match(/[^\r\n]+/g) || [];
+        if (rawLines.length === 0) return row;
+        var hdr = (typeof adapter.parseTextListHeader === 'function')
+          ? await adapter.parseTextListHeader(rawLines)
+          : { start: 0 };
+        var startIdx = (hdr && typeof hdr.start === 'number') ? hdr.start : 0;
+        var maxCost = (hdr && hdr.maxCost) || Number(row.totalCost) || 2000;
+        var parsed = await adapter.parseTextList(bookInst, rawLines, maxCost, startIdx);
+        if (parsed && parsed.army) {
           row.id_system = sys.id;
           row.bsid_system = sys.bsid || row.bsid_system;
-          if (res.list.row) {
-            row.id_book = res.list.row.id_book || row.id_book;
-            row.bsid_book = res.list.row.bsid_book || row.bsid_book;
-            row.nrversion = res.list.row.nrversion || 1;
-          }
+          row.id_book = fallbackBook.id || row.id_book;
+          row.bsid_book = fallbackBook.bsid || row.bsid_book;
+          row.nrversion = fallbackBook.nrversion || row.nrversion || 1;
           delete row.booksDate;
-          row.army = res.list.army.toJson();
-          row.totalCost = res.list.army.getPointsCost() || row.totalCost || 2000;
-          if (typeof res.list.army.calcTotalCosts === 'function') {
-            row.totalCosts = res.list.army.calcTotalCosts();
+          if (parsed.leaders && typeof adapter.migrateLegacyLeaders === 'function') {
+            row.metadata = row.metadata || {};
+            row.metadata.leaders = parsed.leaders;
+            try { adapter.migrateLegacyLeaders(row, parsed.army); } catch (e) {}
+          }
+          row.army = parsed.army.toJson();
+          row.totalCost = parsed.army.getPointsCost() || row.totalCost || 2000;
+          if (typeof parsed.army.calcTotalCosts === 'function') {
+            row.totalCosts = parsed.army.calcTotalCosts();
           }
           row._compiled_by_nr = true;
           if (listStore && Array.isArray(listStore.listData)) {
@@ -1347,8 +1340,8 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           }
           await listStore.saveListLocally({
             row: row,
-            army: res.list.army,
-            book: res.list.book
+            army: parsed.army,
+            book: bookInst
           });
         }
       } catch (err) {
@@ -1396,52 +1389,119 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       stores.user.isSupporter = function() { return true; };
     } catch (e) {}
 
-    // Auto-select the game system of the user's active lists ONLY when not opening a specific list URL
-    // and ONLY if no system is selected or if the currently selected system has 0 matching lists while another system has lists
-    if (!requestedListKeyFromUrl && !stores.system.__omniDefaultSysChecked && stores.list.listsInitiated) {
+    // Auto-select the game system of the user's active lists once hydration is complete
+    // so /app/MyLists always displays the user's lists without needing the hidden system dropdown
+    if (!requestedListKeyFromUrl && initialHydrationDone && stores.list.listsInitiated) {
       var sysArr = (stores.system.library && Array.isArray(stores.system.library.array) && stores.system.library.array.length)
         ? stores.system.library.array
         : (Array.isArray(stores.system.installedSystems) ? stores.system.installedSystems : []);
       if (sysArr.length > 0) {
-        stores.system.__omniDefaultSysChecked = true;
         try {
           var activeRows = Array.isArray(stores.list.listData)
             ? stores.list.listData.filter(function(r) { return isActiveNrListRow(r, stores); })
             : [];
+          if (stores.options && typeof stores.options.addInstalledSystemVue === 'function') {
+            var instSys = (stores.options.options && Array.isArray(stores.options.options.installed_systems))
+              ? stores.options.options.installed_systems
+              : [];
+            activeRows.forEach(function(r) {
+              if (r && r.id_system && instSys.indexOf(r.id_system) === -1) {
+                try { stores.options.addInstalledSystemVue(r.id_system); } catch (e) {}
+              }
+            });
+          }
           var curSel = stores.system.selectedSystem;
           var curSelHasLists = Boolean(curSel && activeRows.some(function(r) {
             return r.id_system == curSel.id || (curSel.bsid != null && (r.id_system == curSel.bsid || r.bsid_system == curSel.bsid));
           }));
-          if (!curSel || (activeRows.length > 0 && !curSelHasLists)) {
-            // Prefer 11th Edition (827374861) if the user has lists in 11th Edition, else most recent list's system
-            var row11e = activeRows.find(function(r) { return r.id_system == 827374861 || r.bsid_system === 'sys-352e-adc2-7639-d610'; });
-            var preferredSysId = row11e ? row11e.id_system : (activeRows.length > 0 ? activeRows[0].id_system : null);
-            var targetSys = (preferredSysId && sysArr.find(function(s) { return s && s.id == preferredSysId; })) ||
-              sysArr.find(function(s) { return s && s.id == 827374861; }) ||
-              sysArr.find(function(s) { return s && s.id == 2821148162; }) ||
-              sysArr.find(function(s) { return s && String(s.name || '').indexOf('Warhammer 40,000') !== -1; });
-            if (targetSys && (!curSel || curSel.id !== targetSys.id)) {
-              await stores.system.selectSystem(targetSys.id);
+          if (!curSel || (activeRows.length > 0 && !curSelHasLists) || !stores.system.__omniDefaultSysChecked) {
+            stores.system.__omniDefaultSysChecked = true;
+            if (!curSel || (activeRows.length > 0 && !curSelHasLists)) {
+              var row11e = activeRows.find(function(r) { return r.id_system == 827374861 || r.bsid_system === 'sys-352e-adc2-7639-d610'; });
+              var preferredSysId = row11e ? row11e.id_system : (activeRows.length > 0 ? activeRows[0].id_system : null);
+              var targetSys = (preferredSysId && sysArr.find(function(s) { return s && s.id == preferredSysId; })) ||
+                sysArr.find(function(s) { return s && s.id == 827374861; }) ||
+                sysArr.find(function(s) { return s && s.id == 2821148162; }) ||
+                sysArr.find(function(s) { return s && String(s.name || '').indexOf('Warhammer 40,000') !== -1; });
+              if (targetSys) {
+                if (stores.options && typeof stores.options.addInstalledSystemVue === 'function') {
+                  try { stores.options.addInstalledSystemVue(targetSys.id); } catch (e) {}
+                }
+                if (!curSel || curSel.id !== targetSys.id) {
+                  await stores.system.selectSystem(targetSys.id);
+                }
+                if (typeof stores.list.rebuildTreeData === 'function') {
+                  try { stores.list.rebuildTreeData(); } catch (e) {}
+                }
+              }
             }
           }
         } catch (e) {}
       }
     }
 
-    // Rename top-right "Menu" button to "Login" (when logged out) or the user's username (when logged in)
+    // Suppress transient "Downloaded list: ..." / "lists were synced" info banners so Play Mode & MyLists stay clean
     try {
-      var curLogin = (stores.user && stores.user.user && stores.user.user.login) ? String(stores.user.user.login) : '';
-      var loginBtnSpan = document.querySelector('.menu.mainMenu a[href="/app/Login"] .textBelowImg');
-      if (loginBtnSpan) {
-        var targetLabel = curLogin ? curLogin : 'Login';
-        if (loginBtnSpan.textContent !== targetLabel) {
-          loginBtnSpan.textContent = targetLabel;
+      if (stores.main && stores.main.errorManager) {
+        var em = stores.main.errorManager;
+        if (!em.__omniPatchedShowMessages && typeof em.showMessages === 'function') {
+          em.__omniPatchedShowMessages = true;
+          var origShowMsgs = em.showMessages.bind(em);
+          em.showMessages = function(msgs) {
+            if (Array.isArray(msgs)) {
+              msgs = msgs.filter(function(m) {
+                var txt = String((m && m.msg) || m || '');
+                if (/^Downloaded list:/i.test(txt) || /lists were synced/i.test(txt)) {
+                  return false;
+                }
+                return true;
+              });
+              if (msgs.length === 0) return;
+            }
+            return origShowMsgs(msgs);
+          };
+        }
+        if (Array.isArray(em.errors) && em.errors.length > 0) {
+          for (var eIdx = em.errors.length - 1; eIdx >= 0; eIdx--) {
+            var eItem = em.errors[eIdx];
+            var eTxt = String((eItem && eItem.msg) || eItem || '');
+            if (/^Downloaded list:/i.test(eTxt) || /lists were synced/i.test(eTxt)) {
+              em.errors.splice(eIdx, 1);
+            }
+          }
         }
       }
-      if (stores.user.__omniLastLoginNotified !== curLogin && stores.list.listsInitiated) {
+    } catch (e) {}
+
+    // Notify parent of live auth state and current route path
+    try {
+      var curLogin = (stores.user && stores.user.user && stores.user.user.login) ? String(stores.user.user.login) : '';
+      var curRoutePath = window.location.pathname || '';
+      var prevLogin = stores.user.__omniLastLoginNotified;
+      if (prevLogin !== curLogin && stores.list.listsInitiated) {
         stores.user.__omniLastLoginNotified = curLogin;
         notifyParent({
           action: 'auth_status',
+          logged_in: Boolean(curLogin),
+          login: curLogin,
+          path: curRoutePath
+        });
+        // If user just signed in while on /app/Login, return to /app/MyLists and sync
+        if (!prevLogin && curLogin && curRoutePath.indexOf('/Login') !== -1) {
+          var rtrAfterLogin = stores.list.$router || (window.$nuxt && window.$nuxt.$router);
+          if (rtrAfterLogin) {
+            setTimeout(function() {
+              try { rtrAfterLogin.push('/app/MyLists'); } catch (e) {}
+              forceFullSync();
+            }, 250);
+          }
+        }
+      }
+      if (stores.user.__omniLastRouteNotified !== curRoutePath && stores.list.listsInitiated) {
+        stores.user.__omniLastRouteNotified = curRoutePath;
+        notifyParent({
+          action: 'route_status',
+          path: curRoutePath,
           logged_in: Boolean(curLogin),
           login: curLogin
         });
@@ -1532,11 +1592,21 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         var origRemoveList = stores.list.removeList.bind(stores.list);
         stores.list.removeList = async function(rowObj) {
           var keyToDelete = rowObj && (rowObj.list_key || rowObj._id);
+          var nameToDelete = rowObj && rowObj.name ? String(rowObj.name) : '';
+          try {
+            if (keyToDelete && this.currentList && this.currentList.row && this.currentList.row.list_key === keyToDelete) {
+              this.currentList = null;
+            }
+            if (keyToDelete && stores.listsPage && stores.listsPage.editedList && stores.listsPage.editedList.row && stores.listsPage.editedList.row.list_key === keyToDelete) {
+              stores.listsPage.editedList = null;
+            }
+          } catch (e) {}
           var res = await origRemoveList(rowObj);
           try {
             if (keyToDelete) {
+              delete knownListsMap[String(keyToDelete)];
               setTimeout(function() {
-                syncDeleteKey(String(keyToDelete));
+                syncDeleteKey(String(keyToDelete), nameToDelete);
               }, 20);
             }
           } catch (e) {}
@@ -1698,15 +1768,25 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       if (!stores.system.selectedSystem || stores.system.selectedSystem.id != targetRow.id_system) {
         await stores.system.selectSystem(targetRow.id_system);
       }
-      await compileSyntheticRowIfNeeded(targetRow, stores.system, stores.list);
+      var rowArmyIdBefore = (targetRow && targetRow.army) ? String(targetRow.army.id || '') : '';
+      var needsCompile = Boolean(
+        targetRow && targetRow._synthetic_text && (
+          !targetRow._compiled_by_nr ||
+          !targetRow.army ||
+          !targetRow.nrversion ||
+          rowArmyIdBefore.indexOf('army-') === 0 ||
+          rowArmyIdBefore.indexOf('root-') === 0 ||
+          rowArmyIdBefore.indexOf('cat-') === 0
+        )
+      );
+      if (needsCompile) {
+        await compileSyntheticRowIfNeeded(targetRow, stores.system, stores.list, true);
+      }
 
       targetRow.metadata = targetRow.metadata || {};
       targetRow.metadata.play_mode = Boolean(wantPlay);
 
-      var loadedListObj = stores.list.currentList;
-      if (!loadedListObj || !loadedListObj.row || loadedListObj.row.list_key !== targetKey) {
-        loadedListObj = await stores.list.selectList(targetRow);
-      }
+      var loadedListObj = await stores.list.selectList(targetRow);
       if (loadedListObj && loadedListObj.row) {
         loadedListObj.row.metadata = loadedListObj.row.metadata || {};
         loadedListObj.row.metadata.play_mode = Boolean(wantPlay);
@@ -1717,7 +1797,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         freshStores.listsPage.editedList = loadedListObj;
       }
 
-      var router = stores.list.$router || (window.$nuxt && window.$nuxt.$router);
+      var router = getNrRouter(stores);
       var nowPath = window.location.pathname || '';
       if (router) {
         if (nowPath.indexOf('/Lists/' + targetKey) === -1) {
@@ -1743,6 +1823,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       }
       playModeActivatedForKey = modeToken;
       setTimeout(function() {
+        var sAfter = getNrStores();
+        if (sAfter && sAfter.listsPage && loadedListObj) {
+          sAfter.listsPage.editedList = loadedListObj;
+        }
         hideDirectListLoader();
         readyNotified = true;
         notifyParent({ action: 'ready' });
@@ -1753,6 +1837,18 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     } finally {
       activatingPlayMode = false;
     }
+  }
+
+  function getNrRouter(stores) {
+    try {
+      if (stores && stores.list && stores.list.$router) return stores.list.$router;
+      if (window.$nuxt && window.$nuxt.$router) return window.$nuxt.$router;
+      var nuxtRoot = document.getElementById('__nuxt');
+      if (nuxtRoot && nuxtRoot.__vue_app__ && nuxtRoot.__vue_app__.config && nuxtRoot.__vue_app__.config.globalProperties) {
+        return nuxtRoot.__vue_app__.config.globalProperties.$router || null;
+      }
+    } catch (e) {}
+    return null;
   }
 
   // 5. Snapshot diff watcher to catch any edits, imports, or deletions across Pinia listData & IndexedDB
@@ -1800,7 +1896,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     var rows = await readAllNrLists();
     if (!rows) return null;
     var cleaned = rows.filter(function(r) { return r && !r._ephemeral_view; }).map(function(r) { return cloneCleanRow(r); }).filter(Boolean);
-    if (cleaned.length === 0) {
+    if (cleaned.length === 0 && !(st && st.list && st.list.listsInitiated)) {
       return null;
     }
     knownListsMap = {};
@@ -1829,40 +1925,104 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       await forceFullSync();
     } else if (msg.command === 'delete_list' && msg.list_key) {
       var delKey = String(msg.list_key);
+      var delNameLow = msg.list_name ? String(msg.list_name).trim().toLowerCase() : '';
       delete knownListsMap[delKey];
-      if (pendingNrRowFromParent && pendingNrRowFromParent.list_key === delKey) {
+      if (pendingNrRowFromParent && (pendingNrRowFromParent.list_key === delKey || (delNameLow && String(pendingNrRowFromParent.name || '').trim().toLowerCase() === delNameLow))) {
         pendingNrRowFromParent = null;
       }
       var stDel = getNrStores();
+      var keysToPurge = [delKey];
       if (stDel && stDel.list && Array.isArray(stDel.list.listData)) {
-        var dIdx = stDel.list.listData.findIndex(function(x) { return x && x.list_key === delKey; });
-        if (dIdx !== -1) {
-          stDel.list.listData.splice(dIdx, 1);
-          try { if (typeof stDel.list.rebuildTreeData === 'function') stDel.list.rebuildTreeData(); } catch (e) {}
+        var matchingRows = stDel.list.listData.filter(function(x) {
+          if (!x) return false;
+          if (x.list_key === delKey) return true;
+          if (delNameLow && String(x.name || '').trim().toLowerCase() === delNameLow) return true;
+          return false;
+        });
+        for (var mIdx = 0; mIdx < matchingRows.length; mIdx++) {
+          var rowToDel = matchingRows[mIdx];
+          if (rowToDel.list_key && keysToPurge.indexOf(rowToDel.list_key) === -1) {
+            keysToPurge.push(rowToDel.list_key);
+          }
+          delete knownListsMap[rowToDel.list_key];
+          try {
+            if (stDel.list.currentList && stDel.list.currentList.row && stDel.list.currentList.row.list_key === rowToDel.list_key) {
+              stDel.list.currentList = null;
+            }
+            if (stDel.listsPage && stDel.listsPage.editedList && stDel.listsPage.editedList.row && stDel.listsPage.editedList.row.list_key === rowToDel.list_key) {
+              stDel.listsPage.editedList = null;
+            }
+          } catch (e) {}
+          var prevH1 = isHydrating;
+          isHydrating = true;
+          try {
+            if (typeof stDel.list.removeList === 'function') {
+              try { await stDel.list.removeList(rowToDel); } catch (e) {}
+            }
+            var dIdx = stDel.list.listData.findIndex(function(x) { return x && x.list_key === rowToDel.list_key; });
+            while (dIdx !== -1) {
+              stDel.list.listData.splice(dIdx, 1);
+              dIdx = stDel.list.listData.findIndex(function(x) { return x && x.list_key === rowToDel.list_key; });
+            }
+            if (stDel.user && stDel.user.user && typeof stDel.list.deleteListFromServer === 'function') {
+              try { stDel.list.deleteListFromServer(rowToDel); } catch (e) {}
+            }
+          } catch (e) {} finally {
+            isHydrating = prevH1;
+          }
         }
+        try { if (typeof stDel.list.rebuildTreeData === 'function') stDel.list.rebuildTreeData(); } catch (e) {}
       }
       var db = await openExistingNrDb();
       if (db) {
         var prevH = isHydrating;
         isHydrating = true;
         await new Promise(function(resolve) {
+          var done = false;
+          var finish = function() {
+            if (done) return;
+            done = true;
+            isHydrating = prevH;
+            resolve();
+          };
+          setTimeout(finish, 800);
           try {
             var tx = db.transaction('lists', 'readwrite');
             var store = tx.objectStore('lists');
-            try { store.delete(delKey); } catch (e) {}
-            tx.oncomplete = function() { isHydrating = prevH; resolve(); };
-            tx.onerror = function() { isHydrating = prevH; resolve(); };
-          } catch (e) { isHydrating = prevH; resolve(); }
+            var curReq = store.openCursor();
+            curReq.onsuccess = function(evCur) {
+              var cursor = evCur.target.result;
+              if (cursor) {
+                var rVal = cursor.value;
+                if (rVal && (keysToPurge.indexOf(String(rVal.list_key || '')) !== -1 || (delNameLow && String(rVal.name || '').trim().toLowerCase() === delNameLow))) {
+                  try { cursor.delete(); } catch (e) {}
+                }
+                cursor.continue();
+              }
+            };
+            tx.oncomplete = finish;
+            tx.onerror = finish;
+          } catch (e) { finish(); }
         });
       }
     } else if (msg.command === 'open_play_mode' && msg.list_key) {
-      requestedListKeyFromUrl = String(msg.list_key);
+      var nextKey = String(msg.list_key);
+      var nextPlay = msg.play !== false;
+      var nextToken = nextKey + ':' + (nextPlay ? 'play' : 'edit');
+      var stOpen = getNrStores();
+      if (playModeActivatedForKey === nextToken && stOpen && stOpen.list && stOpen.list.currentList && stOpen.list.currentList.row && stOpen.list.currentList.row.list_key === nextKey) {
+        return;
+      }
+      if (activatingPlayMode && requestedListKeyFromUrl === nextKey && wantPlayModeFromUrl === nextPlay) {
+        return;
+      }
+      requestedListKeyFromUrl = nextKey;
       if (msg.list_name) {
         requestedListNameFromUrl = String(msg.list_name).trim();
       } else if (msg.nr_row && msg.nr_row.name) {
         requestedListNameFromUrl = String(msg.nr_row.name).trim();
       }
-      wantPlayModeFromUrl = msg.play !== false;
+      wantPlayModeFromUrl = nextPlay;
       playModeActivatedForKey = null;
       directListLookupRetries = 0;
       showDirectListLoader(wantPlayModeFromUrl ? 'Loading Play Mode Datasheets...' : 'Opening Army Roster...');
@@ -1878,10 +2038,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           }
         });
         var cur = existingMap[msg.nr_row.list_key] || (requestedListNameFromUrl ? existingByName[requestedListNameFromUrl.toLowerCase()] : null);
-        if (!cur || (!cur._compiled_by_nr && msg.nr_row._synthetic_text && cur._synthetic_text)) {
+        if (!cur) {
           var rowToWrite = Object.assign({}, msg.nr_row);
           rowToWrite.metadata = Object.assign({}, rowToWrite.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
           await upsertSingleRowToIdb(rowToWrite);
+        } else if (!cur._synthetic_text && msg.nr_row._synthetic_text) {
+          cur._synthetic_text = msg.nr_row._synthetic_text;
         }
       }
       await ensurePlayModeAndStoreHooks();
@@ -1914,12 +2076,101 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
         requestedListKeyFromUrl = null;
         hideDirectListLoader();
+        var curNavPath = (window.location.pathname || '').replace(/^\/nr\/app/, '/app');
+        if (curNavPath === cleanTarget) {
+          return;
+        }
         var storesNav = getNrStores();
-        var rtrNav = storesNav && storesNav.list && (storesNav.list.$router || (window.$nuxt && window.$nuxt.$router));
+        var rtrNav = getNrRouter(storesNav);
         if (rtrNav) {
           await rtrNav.push(cleanTarget);
         } else {
           window.location.href = '/nr' + cleanTarget;
+        }
+      } catch (e) {}
+    } else if (msg.command === 'create_list') {
+      try {
+        requestedListKeyFromUrl = null;
+        hideDirectListLoader();
+        var stCreate = getNrStores();
+        if (stCreate && stCreate.system) {
+          var sysList = (stCreate.system.library && Array.isArray(stCreate.system.library.array))
+            ? stCreate.system.library.array
+            : [];
+          var curSys = stCreate.system.selectedSystem;
+          var is40k = curSys && (curSys.id == 827374861 || curSys.id == 2821148162 || String(curSys.name || '').indexOf('Warhammer 40,000') !== -1);
+          if (!curSys || !is40k) {
+            var defSys = sysList.find(function(s) { return s && s.id == 827374861; }) ||
+                         sysList.find(function(s) { return s && s.id == 2821148162; }) ||
+                         sysList[0];
+            if (defSys) {
+              if (stCreate.options && typeof stCreate.options.addInstalledSystemVue === 'function') {
+                try { stCreate.options.addInstalledSystemVue(defSys.id); } catch (e) {}
+              }
+              await stCreate.system.selectSystem(defSys.id);
+            }
+          }
+        }
+        var curP = window.location.pathname || '';
+        if (curP.indexOf('/MyLists') === -1) {
+          var rtrCreate = getNrRouter(stCreate);
+          if (rtrCreate) {
+            await rtrCreate.push('/app/MyLists');
+            await new Promise(function(r) { setTimeout(r, 180); });
+          }
+        }
+        var triggerCreateBtn = function() {
+          var btn = document.querySelector('button.createToolbarBtn') ||
+                    document.querySelector('button.createFab') ||
+                    document.querySelector('.menu.mainMenu a.hideOnSmallScreen[href="#"]');
+          if (btn) {
+            btn.click();
+            return true;
+          }
+          return false;
+        };
+        if (!triggerCreateBtn()) {
+          setTimeout(triggerCreateBtn, 220);
+        }
+      } catch (e) {}
+    } else if (msg.command === 'toggle_auth') {
+      try {
+        requestedListKeyFromUrl = null;
+        hideDirectListLoader();
+        var stAuth = getNrStores();
+        var rtrAuth = getNrRouter(stAuth);
+        var isLoggedNow = Boolean(stAuth && stAuth.user && stAuth.user.user && stAuth.user.user.login);
+        if (isLoggedNow || msg.force_logout) {
+          if (stAuth && stAuth.user && typeof stAuth.user.logout === 'function') {
+            try { await stAuth.user.logout(); } catch (e) {}
+          }
+          if (stAuth && stAuth.user) {
+            stAuth.user.user = null;
+            stAuth.user.__omniLastLoginNotified = '';
+          }
+          try {
+            localStorage.removeItem('access');
+            localStorage.removeItem('refresh');
+          } catch (e) {}
+          notifyParent({
+            action: 'auth_status',
+            logged_in: false,
+            login: '',
+            path: '/app/Login'
+          });
+          if (rtrAuth) {
+            await rtrAuth.push('/app/Login');
+          } else {
+            window.location.href = '/nr/app/Login';
+          }
+        } else {
+          var nowAuthPath = window.location.pathname || '';
+          var nextAuthPath = (nowAuthPath.indexOf('/Login') !== -1 && !msg.force_login) ? '/app/MyLists' : '/app/Login';
+          if (rtrAuth) {
+            await rtrAuth.push(nextAuthPath);
+          } else {
+            window.location.href = '/nr' + nextAuthPath;
+          }
         }
       } catch (e) {}
     }
@@ -2262,14 +2513,28 @@ def process_nr_sync_payload(
 
     if action == "delete":
         list_key = str(body.get("list_key") or body.get("id") or "").strip()
-        if not list_key:
+        list_name = str(body.get("list_name") or "").strip().lower()
+        if not list_key and not list_name:
             return {"success": False, "error": "Missing list_key for delete"}
-        delete_fn(list_key)
-        delete_fn(f"nr_{list_key}")
+        raw_k = re.sub(r"^(nr_|list_)", "", list_key)
+        if list_key:
+            delete_fn(list_key)
+            delete_fn(raw_k)
+            delete_fn(f"nr_{raw_k}")
+            delete_fn(f"list_{raw_k}")
+        for item in list(list_fn() or []):
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get("id") or "")
+            item_lkey = str(item.get("list_key") or "")
+            item_name = str(item.get("name") or "").strip().lower()
+            if (raw_k and (item_lkey in (list_key, raw_k) or item_id in (list_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}"))) or (list_name and item_name == list_name):
+                if item_id:
+                    delete_fn(item_id)
         return {
             "success": True,
             "action": "delete",
-            "deleted_id": f"nr_{list_key}" if not list_key.startswith("nr_") else list_key,
+            "deleted_id": f"nr_{raw_k}" if raw_k else list_key,
             "army_lists": list_fn(),
         }
 

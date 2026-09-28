@@ -12243,15 +12243,17 @@ table.desktop-only,
 
 /* Mobile & Tablet Responsiveness for Army List Modals */
 @media (max-width: 768px) {
-  #event-army-list-modal.modal-backdrop,
-  #hub-view-armylist-modal {
+  #event-army-list-modal.modal-backdrop {
     align-items: flex-end !important;
     padding: 0 !important;
   }
+
+  #hub-view-armylist-modal {
+    align-items: center !important;
+    padding: 3px !important;
+  }
   
-  #event-army-list-modal .modal-window,
-  #hub-view-armylist-modal .modal-window,
-  .hub-armylist-modal-window {
+  #event-army-list-modal .modal-window {
     width: 100% !important;
     max-width: 100% !important;
     max-height: 92dvh !important;
@@ -12260,10 +12262,19 @@ table.desktop-only,
     border-bottom: none !important;
     box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.8) !important;
   }
+
+  #hub-view-armylist-modal .modal-window,
+  .hub-armylist-modal-window {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 96dvh !important;
+    max-height: 96dvh !important;
+    margin: 0 auto !important;
+    border-radius: 10px !important;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85) !important;
+  }
   
-  #event-army-list-modal .modal-window::before,
-  #hub-view-armylist-modal .modal-window::before,
-  .hub-armylist-modal-window::before {
+  #event-army-list-modal .modal-window::before {
     content: "" !important;
     display: block !important;
     width: 42px !important;
@@ -12271,6 +12282,11 @@ table.desktop-only,
     border-radius: 9999px !important;
     background: rgba(148, 163, 184, 0.4) !important;
     margin: 8px auto 4px auto !important;
+  }
+
+  #hub-view-armylist-modal .modal-window::before,
+  .hub-armylist-modal-window::before {
+    display: none !important;
   }
   
   .roster-viewer-body {
@@ -12343,31 +12359,26 @@ table.desktop-only,
   }
 
   .hub-armylist-modal-header {
-    padding: 10px 14px !important;
+    padding: 4px 8px !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    min-height: 36px !important;
   }
 
   .hub-armylist-controls-row {
-    flex-direction: column !important;
-    align-items: stretch !important;
-    gap: 8px !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 4px !important;
+    width: auto !important;
   }
 
   .hub-armylist-controls-row > div {
-    width: 100% !important;
+    width: auto !important;
     min-width: 0 !important;
   }
 
-  .hub-armylist-actions {
-    display: flex !important;
-    width: 100% !important;
-    gap: 6px !important;
-  }
-
-  .hub-armylist-actions button {
-    flex: 1 !important;
-    text-align: center !important;
-    justify-content: center !important;
-    padding: 0.55rem 0.65rem !important;
+  .hub-btn-lbl-mob-hide {
+    display: none !important;
   }
 }
 

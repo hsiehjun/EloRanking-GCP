@@ -7577,15 +7577,41 @@ class PostgresDatabase:
                 return item
 
     def delete_user_army_list(self, list_id: str, user_id: Optional[str] = None) -> bool:
-        """Deletes an army list by ID from user_army_lists table."""
+        """Deletes an army list by ID or list_key from user_army_lists table."""
         clean_key = str(list_id or "").strip()
         raw_k = re.sub(r"^(nr_|list_)", "", clean_key)
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    "DELETE FROM user_army_lists WHERE id IN (%s, %s, %s, %s);",
-                    (clean_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}"),
+                    """
+                    SELECT name FROM user_army_lists
+                    WHERE id IN (%s, %s, %s, %s)
+                       OR list_data->>'list_key' IN (%s, %s)
+                    LIMIT 1;
+                    """,
+                    (clean_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}", clean_key, raw_k),
                 )
+                row = cursor.fetchone()
+                target_name = str(row[0]).strip() if (row and row[0]) else ""
+                cursor.execute(
+                    """
+                    DELETE FROM user_army_lists
+                    WHERE id IN (%s, %s, %s, %s)
+                       OR list_data->>'list_key' IN (%s, %s);
+                    """,
+                    (clean_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}", clean_key, raw_k),
+                )
+                if target_name:
+                    if user_id:
+                        cursor.execute(
+                            "DELETE FROM user_army_lists WHERE LOWER(TRIM(name)) = LOWER(TRIM(%s)) AND (user_id = %s OR user_id IS NULL);",
+                            (target_name, user_id),
+                        )
+                    else:
+                        cursor.execute(
+                            "DELETE FROM user_army_lists WHERE LOWER(TRIM(name)) = LOWER(TRIM(%s));",
+                            (target_name,),
+                        )
             conn.commit()
         return True
 

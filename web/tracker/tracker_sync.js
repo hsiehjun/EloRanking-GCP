@@ -3715,7 +3715,7 @@
       modal.id = 'gt-army-list-modal';
       document.body.appendChild(modal);
     }
-    modal.style.cssText = 'position:fixed; inset:0; z-index:100005; background:rgba(2,6,23,0.88); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; padding:8px;';
+    modal.style.cssText = 'position:fixed; inset:0; z-index:100005; background:rgba(2,6,23,0.92); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; padding:3px; box-sizing:border-box;';
     renderArmyListModal();
   };
 
@@ -3947,46 +3947,26 @@
     const faction = list.faction || 'Warhammer 40,000';
     const detachment = list.detachment || 'Core Detachment';
     const points = list.points || 2000;
-    const warlord = list.warlord || '';
     const listKey = resolveTrackerNrListKey(list);
 
-    // Top Header with NewRecruit Play Mode Switcher
-    const headerHtml = `
-      <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; flex-shrink:0;">
-        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0;">
-          <span id="gt-active-roster-title" style="font-size:14.5px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(name)}</span>
-          <span id="gt-active-roster-meta" style="font-size:12px; color:#38bdf8; font-weight:700;">${escapeHtml(faction)} • ${escapeHtml(detachment)} • ${points} PTS</span>
-          ${warlord ? `<span style="font-size:12px; color:#facc15; font-weight:700;">👑 ${escapeHtml(warlord)}</span>` : ''}
-          <span style="font-size:10.5px; font-weight:800; padding:2px 7px; border-radius:999px; background:rgba(16,185,129,0.16); color:#34d399; border:1px solid rgba(16,185,129,0.35);">
-            ${activeMode === 'edit' ? '🛠️ NewRecruit Builder' : '🎮 NewRecruit Play Mode'}
-          </span>
-        </div>
-        <div style="display:flex; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:3px; gap:4px; flex-wrap:wrap;">
-          <button onclick="window.gtToggleRosterViewMode('play')" style="background:${activeMode==='play'?'#0284c7':'transparent'}; color:${activeMode==='play'?'#fff':'#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
-            🎮 Play Mode (Datasheets & Stratagems)
-          </button>
-          <button onclick="window.gtToggleRosterViewMode('edit')" style="background:${activeMode==='edit'?'#7c3aed':'transparent'}; color:${activeMode==='edit'?'#fff':'#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
-            🛠️ Edit in NewRecruit
-          </button>
-          <button onclick="window.gtToggleRosterViewMode('text')" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
-            📄 Raw Text
-          </button>
-        </div>
-      </div>
+    // Preserve DOM hooks for live SSE updates without consuming vertical space in Play/Edit mode
+    const hiddenMetaHooks = `
+      <span id="gt-active-roster-title" style="display:none;">${escapeHtml(name)}</span>
+      <span id="gt-active-roster-meta" style="display:none;">${escapeHtml(faction)} • ${escapeHtml(detachment)} • ${points} PTS</span>
     `;
 
     if (activeMode === 'text') {
       const rawText = generateTrackerRawRosterText(list);
       return `
-        ${headerHtml}
-        <div style="display:flex; flex-direction:column; padding:16px; background:#070b14; flex:1; overflow:hidden;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <span style="font-size:12px; font-weight:700; color:#38bdf8;">📄 Monospaced Roster View</span>
-            <button onclick="window.gtCopyTrackerRawText()" style="background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:800; font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:5px;">
+        ${hiddenMetaHooks}
+        <div style="display:flex; flex-direction:column; padding:12px; background:#070b14; flex:1; overflow:hidden;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px; flex-wrap:wrap;">
+            <span style="font-size:12px; font-weight:800; color:#38bdf8;">${escapeHtml(name)} • ${escapeHtml(faction)} (${points} pts)</span>
+            <button onclick="window.gtCopyTrackerRawText()" style="background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:5px;">
               📋 Copy Raw Text
             </button>
           </div>
-          <pre style="flex:1; margin:0; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#e2e8f0; line-height:1.55; white-space:pre-wrap; overflow-y:auto; word-break:break-word; max-height:72vh;">${escapeHtml(rawText)}</pre>
+          <pre style="flex:1; margin:0; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:12px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#e2e8f0; line-height:1.55; white-space:pre-wrap; overflow-y:auto; word-break:break-word;">${escapeHtml(rawText)}</pre>
         </div>
       `;
     }
@@ -3998,8 +3978,8 @@
       : `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=tracker${nameParam}${cbParam}`;
 
     return `
-      ${headerHtml}
-      <div style="flex:1; position:relative; background:#090d16; display:flex; flex-direction:column; min-height:520px; height:100%; overflow:hidden;">
+      ${hiddenMetaHooks}
+      <div style="flex:1; position:relative; background:#090d16; display:flex; flex-direction:column; min-height:0; height:100%; overflow:hidden;">
         <iframe
           id="gt-nr-play-mode-iframe"
           data-list-key="${escapeHtml(listKey)}"
@@ -4027,6 +4007,9 @@
 
     const tab = clientState.activeListTab;
     const hasActiveRoster = (tab === 'opponent' || tab === 'my') && activeList && (activeList.list_key || activeList.nr_row || activeList.source_url || activeList.raw_text || (activeList.units && activeList.units.length > 0));
+    const activeMode = (clientState.rosterViewMode === 'text' || clientState.rosterViewMode === 'edit')
+      ? clientState.rosterViewMode
+      : 'play';
 
     let contentHtml = '';
 
@@ -4116,24 +4099,39 @@ Space Marines - Gladius Task Force (2000 pts)
     }
 
     modal.innerHTML = `
-      <div class="gt-modal-dialog" style="max-width:${hasActiveRoster ? '1360px' : '960px'}; width:${hasActiveRoster ? '96vw' : '100%'}; height:${hasActiveRoster ? '90vh' : 'auto'}; max-height:92vh;">
-        <div class="gt-modal-header" style="padding:12px 16px; flex-shrink:0;">
-          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <button onclick="window.gtSetListTab('opponent')" class="gt-tab-btn ${tab === 'opponent' ? 'active' : ''}">
-              📜 Opponent's List ${oppList ? '🟢' : ''}
+      <div class="gt-modal-dialog" style="max-width:${hasActiveRoster ? '1440px' : '960px'}; width:${hasActiveRoster ? '99vw' : '100%'}; height:${hasActiveRoster ? '96dvh' : 'auto'}; max-height:96dvh; border-radius:12px;">
+        <div class="gt-modal-header" style="padding:4px 6px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:4px; flex-wrap:nowrap; min-height:36px;">
+          <div style="display:flex; align-items:center; gap:3px; flex-wrap:nowrap; flex-shrink:0;">
+            <button onclick="window.gtSetListTab('opponent')" class="gt-tab-btn ${tab === 'opponent' ? 'active' : ''}" style="padding:3px 6px; font-size:10.5px; white-space:nowrap;">
+              📜 Opp${oppList ? ' 🟢' : ''}
             </button>
-            <button onclick="window.gtSetListTab('my')" class="gt-tab-btn ${tab === 'my' ? 'active' : ''}">
-              📋 My List ${myList ? '🟢' : ''}
+            <button onclick="window.gtSetListTab('my')" class="gt-tab-btn ${tab === 'my' ? 'active' : ''}" style="padding:3px 6px; font-size:10.5px; white-space:nowrap;">
+              📋 Mine${myList ? ' 🟢' : ''}
             </button>
-            <button onclick="window.gtSetListTab('attach')" class="gt-tab-btn ${tab === 'attach' ? 'active' : ''}">
-              ➕ Attach / Switch List
+            <button onclick="window.gtSetListTab('attach')" class="gt-tab-btn ${tab === 'attach' ? 'active' : ''}" style="padding:3px 6px; font-size:10.5px; white-space:nowrap;">
+              ➕ Switch
             </button>
           </div>
-          <button onclick="window.gtCloseArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer; padding:4px 8px; line-height:1;">
-            ✕
-          </button>
+          <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+            ${hasActiveRoster ? `
+              <div style="display:flex; background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:1.5px; gap:1.5px;">
+                <button onclick="window.gtToggleRosterViewMode('play')" title="NewRecruit Play Mode" style="background:${activeMode==='play'?'#0284c7':'transparent'}; color:${activeMode==='play'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
+                  🎮 Play
+                </button>
+                <button onclick="window.gtToggleRosterViewMode('edit')" title="Edit in NewRecruit" style="background:${activeMode==='edit'?'#7c3aed':'transparent'}; color:${activeMode==='edit'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
+                  🛠️ Edit
+                </button>
+                <button onclick="window.gtToggleRosterViewMode('text')" title="Raw Roster Text" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
+                  📄 Text
+                </button>
+              </div>
+            ` : ''}
+            <button onclick="window.gtCloseArmyListModal()" title="Close" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#cbd5e1; font-size:14px; font-weight:800; width:25px; height:25px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; line-height:1;">
+              ✕
+            </button>
+          </div>
         </div>
-        <div class="gt-modal-body" style="padding:${hasActiveRoster ? '0' : '20px'}; display:flex; flex-direction:column; flex:1; overflow:${hasActiveRoster ? 'hidden' : 'auto'};">
+        <div class="gt-modal-body" style="padding:${hasActiveRoster ? '0' : '16px'}; display:flex; flex-direction:column; flex:1; overflow:${hasActiveRoster ? 'hidden' : 'auto'};">
           ${contentHtml}
         </div>
       </div>

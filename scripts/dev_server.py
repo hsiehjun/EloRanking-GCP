@@ -6,6 +6,7 @@ Uses only Python standard library (no external dependencies required).
 
 import http.server
 import os
+import re
 import sys
 import time
 import json
@@ -667,13 +668,22 @@ def dev_delete_army_list(list_id: str) -> bool:
     clean_key = str(list_id or "").strip()
     if not clean_key:
         return False
-    raw_key = clean_key[3:] if clean_key.startswith("nr_") else clean_key
+    raw_key = re.sub(r"^(nr_|list_)", "", clean_key)
     nr_key = f"nr_{raw_key}"
+    list_key_pref = f"list_{raw_key}"
+    target_names = {
+        str(item.get("name") or "").strip().lower()
+        for item in DEV_ARMY_LISTS
+        if str(item.get("id") or "") in (clean_key, raw_key, nr_key, list_key_pref)
+        or str(item.get("list_key") or "") in (clean_key, raw_key)
+    }
+    target_names.discard("")
     before_len = len(DEV_ARMY_LISTS)
     DEV_ARMY_LISTS[:] = [
         item for item in DEV_ARMY_LISTS
-        if str(item.get("id") or "") not in (clean_key, raw_key, nr_key)
+        if str(item.get("id") or "") not in (clean_key, raw_key, nr_key, list_key_pref)
         and str(item.get("list_key") or "") not in (clean_key, raw_key)
+        and str(item.get("name") or "").strip().lower() not in target_names
     ]
     for room_data in list(ROOMS_DB.values()):
         if isinstance(room_data, dict):
@@ -682,7 +692,8 @@ def dev_delete_army_list(list_id: str) -> bool:
                 if isinstance(cur_slot, dict):
                     c_id = str(cur_slot.get("id") or "")
                     c_key = str(cur_slot.get("list_key") or "")
-                    if c_id in (clean_key, raw_key, nr_key) or c_key in (clean_key, raw_key):
+                    c_name = str(cur_slot.get("name") or "").strip().lower()
+                    if c_id in (clean_key, raw_key, nr_key, list_key_pref) or c_key in (clean_key, raw_key) or (c_name and c_name in target_names):
                         room_data[slot_key] = None
     return len(DEV_ARMY_LISTS) < before_len
 
@@ -722,10 +733,12 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             parts = clean_path.split("/", 2)
             list_id = urllib.parse.unquote(parts[2]) if len(parts) > 2 else ""
             deleted = dev_delete_army_list(list_id)
+            payload = json.dumps({"success": True, "deleted": deleted, "deleted_id": list_id, "army_lists": dev_get_army_lists()}, default=str).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
-            self.wfile.write(json.dumps({"success": True, "deleted": deleted, "deleted_id": list_id, "army_lists": dev_get_army_lists()}, default=str).encode("utf-8"))
+            self.wfile.write(payload)
             return
         if clean_path.startswith("api/league/") and "/announcements/" in clean_path:
             import leagues_hub_service
@@ -735,15 +748,19 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             ann_id = urllib.parse.unquote(parts[4]) if len(parts) > 4 else ""
             try:
                 result = l_svc.delete_league_announcement(l_id, ann_id)
+                payload = json.dumps(result).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
-                self.wfile.write(json.dumps(result).encode("utf-8"))
+                self.wfile.write(payload)
             except Exception as e:
+                payload = json.dumps({"success": False, "error": str(e)}).encode("utf-8")
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
-                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+                self.wfile.write(payload)
             return
         if (clean_path.startswith("api/events/") or clean_path.startswith("api/eventstudio/event/")) and "/livestreams/" in clean_path:
             parts = clean_path.split("/")
@@ -751,12 +768,15 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             stream_id = parts[4] if clean_path.startswith("api/events/") else parts[5]
             if ev_id in EVENT_LIVESTREAMS_DB:
                 EVENT_LIVESTREAMS_DB[ev_id] = [s for s in EVENT_LIVESTREAMS_DB[ev_id] if s.get("id") != stream_id]
+            payload = json.dumps({"success": True, "event_id": ev_id, "deleted_id": stream_id, "livestreams": EVENT_LIVESTREAMS_DB.get(ev_id, [])}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
-            self.wfile.write(json.dumps({"success": True, "event_id": ev_id, "deleted_id": stream_id, "livestreams": EVENT_LIVESTREAMS_DB.get(ev_id, [])}).encode("utf-8"))
+            self.wfile.write(payload)
             return
         self.send_response(404)
+        self.send_header("Content-Length", "0")
         self.end_headers()
 
     def do_POST(self):

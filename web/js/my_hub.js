@@ -3325,6 +3325,7 @@ async function loadHubArmyLists() {
     ]);
     const lists = (res && res.army_lists) ? res.army_lists : [];
     hubSavedLists = lists;
+    window.hubSavedLists = lists;
     if (nrState && nrState.cloud_account) {
       hubNrCloudAccount = nrState.cloud_account;
       updateHubNrSyncPill();
@@ -3345,9 +3346,13 @@ function ensureBackgroundNrStudioWarmup() {
 function updateHubNrSyncPill() {
   const pill = document.getElementById('hub-nr-sync-pill');
   const cloudBtn = document.getElementById('hub-btn-nr-cloud-sync');
+  const studioAuthBtn = document.getElementById('hub-btn-nr-studio-auth');
+  const isConn = Boolean(hubNrCloudAccount && hubNrCloudAccount.connected);
+  const loginName = (hubNrCloudAccount && hubNrCloudAccount.login) || '';
+
   if (pill) {
-    if (hubNrCloudAccount && hubNrCloudAccount.connected) {
-      pill.innerHTML = `🟢 Cloud: ${escapeHtml(hubNrCloudAccount.login || 'Connected')}`;
+    if (isConn) {
+      pill.innerHTML = `🟢 Cloud: ${escapeHtml(loginName || 'Connected')}`;
       pill.style.background = 'rgba(16, 185, 129, 0.16)';
       pill.style.color = '#10b981';
       pill.style.borderColor = 'rgba(16, 185, 129, 0.35)';
@@ -3358,10 +3363,68 @@ function updateHubNrSyncPill() {
       pill.style.borderColor = 'rgba(56, 189, 248, 0.3)';
     }
   }
-  if (cloudBtn && hubNrCloudAccount && hubNrCloudAccount.connected) {
+  if (cloudBtn && isConn) {
     cloudBtn.innerHTML = `🔄 Cloud Sync`;
   }
+  if (studioAuthBtn) {
+    if (isConn) {
+      studioAuthBtn.innerHTML = `🚪 Logout${loginName ? ` (${escapeHtml(loginName)})` : ''}`;
+      studioAuthBtn.style.background = 'rgba(239, 68, 68, 0.16)';
+      studioAuthBtn.style.color = '#f87171';
+      studioAuthBtn.style.borderColor = 'rgba(239, 68, 68, 0.35)';
+    } else {
+      studioAuthBtn.innerHTML = `🔑 Login`;
+      studioAuthBtn.style.background = 'rgba(56, 189, 248, 0.16)';
+      studioAuthBtn.style.color = '#38bdf8';
+      studioAuthBtn.style.borderColor = 'rgba(56, 189, 248, 0.35)';
+    }
+  }
 }
+
+function triggerNewRecruitStudioCreateList() {
+  const iframe = document.getElementById('hub-nr-studio-iframe');
+  if (!iframe || !iframe.contentWindow) return;
+  try {
+    iframe.contentWindow.postMessage({
+      type: 'OMNITACTICA_NR_COMMAND',
+      command: 'create_list'
+    }, '*');
+  } catch (e) {}
+}
+window.triggerNewRecruitStudioCreateList = triggerNewRecruitStudioCreateList;
+
+async function triggerNewRecruitStudioAuth() {
+  const iframe = document.getElementById('hub-nr-studio-iframe');
+  const isConn = Boolean(hubNrCloudAccount && hubNrCloudAccount.connected);
+  if (isConn) {
+    try {
+      if (window.api && typeof window.api.connectNewRecruitCloud === 'function') {
+        await window.api.connectNewRecruitCloud({ action: 'disconnect' }).catch(() => {});
+      }
+    } catch (e) {}
+    hubNrCloudAccount = { connected: false, login: '', last_sync: null };
+    updateHubNrSyncPill();
+    if (iframe && iframe.contentWindow) {
+      try {
+        iframe.contentWindow.postMessage({
+          type: 'OMNITACTICA_NR_COMMAND',
+          command: 'toggle_auth',
+          force_logout: true
+        }, '*');
+      } catch (e) {}
+    }
+    return;
+  }
+  if (iframe && iframe.contentWindow) {
+    try {
+      iframe.contentWindow.postMessage({
+        type: 'OMNITACTICA_NR_COMMAND',
+        command: 'toggle_auth'
+      }, '*');
+    } catch (e) {}
+  }
+}
+window.triggerNewRecruitStudioAuth = triggerNewRecruitStudioAuth;
 
 function renderHubArmyLists(lists) {
   const container = document.getElementById('hub-armylists-list-container');
@@ -3537,7 +3600,7 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
   const isDirectListTarget = /\/Lists\/[^\/\?\#]+/i.test(safePath);
   const subtitle = listTitle
     ? `Editing "${listTitle}" • All changes & deletions sync to My Hub automatically`
-    : 'Build, view, or sign in inside NewRecruit • Changes persist on this device & sync to My Hub automatically';
+    : 'All lists below sync automatically with My Hub';
 
   // If the Studio iframe is already mounted & warm, reuse it without reloading from scratch!
   const existingIframe = document.getElementById('hub-nr-studio-iframe');
@@ -3550,6 +3613,7 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
       closeBtn.disabled = false;
       closeBtn.innerHTML = '✕';
     }
+    updateHubNrSyncPill();
     modal.style.visibility = 'visible';
     modal.style.opacity = '1';
     modal.style.pointerEvents = 'auto';
@@ -3566,30 +3630,43 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
   }
 
   const iframeSrc = safePath + (safePath.includes('?') ? `&_cb=${Date.now()}` : `?_cb=${Date.now()}`);
+  const isConnected = Boolean(hubNrCloudAccount && hubNrCloudAccount.connected);
+  const loginName = (hubNrCloudAccount && hubNrCloudAccount.login) ? String(hubNrCloudAccount.login) : '';
 
   modal.innerHTML = `
-    <div class="hub-nr-studio-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:min(1460px, 100%); height:min(92vh, 960px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 30px 90px rgba(0,0,0,0.92); font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+    <div class="hub-nr-studio-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.35); border-radius:14px; width:min(1460px, 100%); height:min(94dvh, 980px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 30px 90px rgba(0,0,0,0.92); font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
       <!-- Studio Top Toolbar -->
-      <div style="padding:10px 16px; background:linear-gradient(90deg, #0f172a 0%, #172554 100%); border-bottom:1px solid rgba(56,189,248,0.25); display:flex; justify-content:space-between; align-items:center; flex-wrap:nowrap; gap:10px;">
-        <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
-          <span style="font-size:20px; flex-shrink:0;">⚔️</span>
+      <div style="padding:8px 14px; background:linear-gradient(90deg, #0f172a 0%, #172554 100%); border-bottom:1px solid rgba(56,189,248,0.25); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+          <span onclick="navigateNewRecruitStudio('/nr/app/Lists')" title="Return to My Lists" style="font-size:18px; flex-shrink:0; cursor:pointer;">⚔️</span>
           <div style="min-width:0;">
-            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-              <h3 style="font-size:15px; font-weight:900; color:#fff; margin:0; letter-spacing:0.01em;">NewRecruit Army Studio</h3>
-              <span id="hub-nr-studio-live-status" style="font-size:11px; font-weight:800; padding:2px 8px; border-radius:999px; background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.35); display:inline-flex; align-items:center; gap:4px;">
+            <div style="display:flex; align-items:center; gap:7px; flex-wrap:wrap;">
+              <h3 onclick="navigateNewRecruitStudio('/nr/app/Lists')" title="Return to My Lists" style="font-size:14.5px; font-weight:900; color:#fff; margin:0; letter-spacing:0.01em; cursor:pointer;">NewRecruit Army Studio</h3>
+              <span id="hub-nr-studio-live-status" style="font-size:10.5px; font-weight:800; padding:2px 7px; border-radius:999px; background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.35); display:inline-flex; align-items:center; gap:4px;">
                 🟢 Live Auto-Sync Active
               </span>
             </div>
-            <div id="hub-nr-studio-subtitle" style="font-size:11px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px;">
+            <div id="hub-nr-studio-subtitle" style="font-size:10.5px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px;">
               ${escapeHtml(subtitle)}
             </div>
           </div>
         </div>
 
-        <!-- Single Close ('✕') Control -->
-        <button id="hub-btn-close-nr-studio" onclick="closeNewRecruitStudioDrawer()" title="Close NewRecruit Studio" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:#cbd5e1; font-size:18px; font-weight:800; width:34px; height:34px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all 0.15s ease;">
-          ✕
-        </button>
+        <!-- Studio Header Controls: Back to Lists (when in builder/login), Create List, Login/Logout, Close -->
+        <div style="display:flex; align-items:center; gap:7px; flex-shrink:0; flex-wrap:wrap;">
+          <button id="hub-btn-nr-studio-mylists" onclick="navigateNewRecruitStudio('/nr/app/Lists')" title="Back to My Lists" style="display:${isDirectListTarget ? 'inline-flex' : 'none'}; align-items:center; gap:5px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); border-radius:8px; font-size:12px; font-weight:800; padding:6px 11px; cursor:pointer; transition:all 0.15s ease;">
+            📋 Lists
+          </button>
+          <button id="hub-btn-nr-studio-create" onclick="triggerNewRecruitStudioCreateList()" title="Create a new Army List in NewRecruit" style="display:inline-flex; align-items:center; gap:5px; background:#10b981; color:#052e16; border:1px solid #34d399; border-radius:8px; font-size:12px; font-weight:900; padding:6px 12px; cursor:pointer; transition:all 0.15s ease; box-shadow:0 2px 8px rgba(16,185,129,0.25);">
+            ➕ Create List
+          </button>
+          <button id="hub-btn-nr-studio-auth" onclick="triggerNewRecruitStudioAuth()" title="${isConnected ? `Signed in as ${escapeHtml(loginName || 'NewRecruit')} • Click to log out` : 'Sign in to your NewRecruit account'}" style="display:inline-flex; align-items:center; gap:5px; background:${isConnected ? 'rgba(239,68,68,0.16)' : 'rgba(56,189,248,0.18)'}; color:${isConnected ? '#fca5a5' : '#38bdf8'}; border:1px solid ${isConnected ? 'rgba(239,68,68,0.38)' : 'rgba(56,189,248,0.4)'}; border-radius:8px; font-size:12px; font-weight:800; padding:6px 12px; cursor:pointer; transition:all 0.15s ease;">
+            ${isConnected ? `🚪 Logout${loginName ? ` (${escapeHtml(loginName)})` : ''}` : '🔑 Login'}
+          </button>
+          <button id="hub-btn-close-nr-studio" onclick="closeNewRecruitStudioDrawer()" title="Close NewRecruit Studio" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:#cbd5e1; font-size:16px; font-weight:800; width:32px; height:32px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all 0.15s ease;">
+            ✕
+          </button>
+        </div>
       </div>
 
       <!-- Embedded Same-Origin NewRecruit App Iframe + Loading Screen Overlay -->
@@ -3613,6 +3690,8 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
       </div>
     </div>
   `;
+
+  updateHubNrSyncPill();
 
   if (silentWarmup) {
     modal.style.display = 'flex';
@@ -3701,13 +3780,22 @@ if (!window.__omnitacticaNrParentListenerBound) {
     if (msg.action === 'ready') {
       return;
     }
-    if (msg.action === 'auth_status') {
-      hubNrCloudAccount = {
-        connected: Boolean(msg.logged_in),
-        login: msg.login || '',
-        last_sync: new Date().toISOString()
-      };
-      updateHubNrSyncPill();
+    if (msg.action === 'auth_status' || msg.action === 'route_status') {
+      if (typeof msg.logged_in !== 'undefined') {
+        hubNrCloudAccount = {
+          connected: Boolean(msg.logged_in),
+          login: msg.login || '',
+          last_sync: new Date().toISOString()
+        };
+        updateHubNrSyncPill();
+      }
+      if (msg.path) {
+        const myListsBtn = document.getElementById('hub-btn-nr-studio-mylists');
+        if (myListsBtn) {
+          const onMyLists = /\/MyLists$/i.test(String(msg.path).split('?')[0]);
+          myListsBtn.style.display = onMyLists ? 'none' : 'inline-flex';
+        }
+      }
       return;
     }
 
@@ -4156,56 +4244,47 @@ async function openViewArmyListModal(listId, mode = null) {
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'hub-view-armylist-modal';
-    modal.style.cssText = 'position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.88); backdrop-filter:blur(8px); padding:10px;';
     document.body.appendChild(modal);
   }
+  modal.style.cssText = 'position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.92); backdrop-filter:blur(8px); padding:4px; box-sizing:border-box;';
 
-  const rawWarlord = String(list.warlord || '').trim();
-  const warlord = /^(character|characters|infantry|battleline|vehicle|monster|unit)$/i.test(rawWarlord) ? '' : rawWarlord;
   const bodyHtml = renderNativeRosterViewer(list, { mode: activeMode });
 
   modal.innerHTML = `
-    <div class="modal-window hub-armylist-modal-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:min(1400px, 100%); height:91vh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc; box-shadow:0 30px 80px rgba(0,0,0,0.9);">
-      <!-- Header -->
-      <div class="modal-header hub-armylist-modal-header" style="padding:12px 18px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; flex-direction:column; gap:10px; flex-shrink:0;">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; width:100%; gap:10px;">
-          <div style="min-width:0; flex:1;">
-            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-              <div style="font-size:16px; font-weight:900; color:#fff; font-family:var(--font-mono); line-height:1.3; overflow-wrap:break-word; word-break:break-word;">${escapeHtml(list.name || 'Army Roster')}</div>
-              <span style="font-size:11px; font-weight:800; padding:2px 8px; border-radius:999px; background:rgba(16,185,129,0.16); color:#34d399; border:1px solid rgba(16,185,129,0.35);">
-                🎮 NewRecruit Play Mode
-              </span>
-            </div>
-            <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-top:2px; line-height:1.35; overflow-wrap:break-word; word-break:break-word;">
-              ${escapeHtml(list.faction || '40k')} • <span style="color:#a855f7;">${escapeHtml(list.detachment || 'Core Detachment')}</span> • <span style="color:#f59e0b;">${list.points || 2000} PTS</span>
-              ${warlord ? ` • <span style="color:#facc15;">👑 ${escapeHtml(warlord)}</span>` : ''}
-            </div>
+    <div class="modal-window hub-armylist-modal-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:12px; width:min(1440px, 100%); height:96dvh; max-height:96dvh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc; box-shadow:0 30px 80px rgba(0,0,0,0.9);">
+      <!-- Ultra-Compact Single-Row Play Mode Toolbar -->
+      <div class="modal-header hub-armylist-modal-header" style="padding:5px 10px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; gap:6px; flex-shrink:0; flex-wrap:nowrap; min-height:38px;">
+        <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
+          <div style="font-size:13.5px; font-weight:900; color:#fff; font-family:var(--font-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(list.name || 'Army Roster')} (${escapeHtml(list.faction || '40k')} • ${escapeHtml(list.detachment || 'Core')})">
+            ${escapeHtml(list.name || 'Army Roster')}
           </div>
-          <button onclick="closeViewArmyListModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:#94a3b8; font-size:18px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all 0.15s ease;">✕</button>
+          <span class="hub-btn-lbl-mob-hide" style="font-size:10.5px; font-weight:800; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); padding:1px 6px; border-radius:6px; flex-shrink:0;">
+            ${list.points || 2000} pts
+          </span>
         </div>
 
-        <div class="hub-armylist-controls-row" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; width:100%;">
-          <!-- Mode Toggle Segmented Control -->
-          <div style="display:flex; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:3px; gap:4px; flex:1; min-width:240px; box-sizing:border-box;">
-            <button onclick="setHubRosterViewMode('play', '${list.id}')" style="flex:1; background:${activeMode==='play'?'#0284c7':'transparent'}; color:${activeMode==='play'?'#fff':'#94a3b8'}; border:none; padding:6px 12px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; text-align:center;">
-              🎮 Play Mode (Datasheets & Stratagems)
+        <div class="hub-armylist-controls-row" style="display:flex; align-items:center; gap:5px; flex-shrink:0;">
+          <div style="display:flex; background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:2px; gap:2px;">
+            <button onclick="setHubRosterViewMode('play', '${list.id}')" title="Interactive NewRecruit Play Mode (Datasheets & Stratagems)" style="background:${activeMode==='play'?'#0284c7':'transparent'}; color:${activeMode==='play'?'#fff':'#94a3b8'}; border:none; padding:4px 8px; border-radius:4px; font-weight:800; font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:3px; white-space:nowrap;">
+              🎮 Play
             </button>
-            <button onclick="setHubRosterViewMode('text', '${list.id}')" style="flex:1; background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:6px 12px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; text-align:center;">
-              📄 Raw Roster Text
+            <button onclick="setHubRosterViewMode('text', '${list.id}')" title="Raw Roster Text" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:4px 8px; border-radius:4px; font-weight:800; font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:3px; white-space:nowrap;">
+              📄 Text
             </button>
           </div>
 
-          <div class="hub-armylist-actions" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <button onclick="launchTrackerWithList('${list.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:6px 14px; border-radius:6px; cursor:pointer;">
-              ⚔️ Play in Tracker
-            </button>
-            <button onclick="closeViewArmyListModal(); openNewRecruitStudioForList('${list.id}')" style="background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.38); font-weight:800; font-size:12px; padding:6px 13px; border-radius:6px; cursor:pointer;">
-              🛠️ Manage in NewRecruit
-            </button>
-            <button onclick="deleteHubArmyList('${list.id}', true)" style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.35); font-weight:800; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;" title="Delete Army List">
-              🗑️ Delete
-            </button>
-          </div>
+          <button onclick="launchTrackerWithList('${list.id}')" title="Play in Live Game Tracker" style="background:#10b981; color:#052e16; font-weight:800; font-size:11px; border:none; padding:5px 8px; border-radius:6px; cursor:pointer; white-space:nowrap;">
+            ⚔️<span class="hub-btn-lbl-mob-hide"> Tracker</span>
+          </button>
+          <button onclick="closeViewArmyListModal(); openNewRecruitStudioForList('${list.id}')" title="Edit Roster in NewRecruit Studio" style="background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.38); font-weight:800; font-size:11px; padding:4px 8px; border-radius:6px; cursor:pointer; white-space:nowrap;">
+            🛠️<span class="hub-btn-lbl-mob-hide"> Edit</span>
+          </button>
+          <button onclick="deleteHubArmyList('${list.id}', true)" style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.35); font-weight:800; font-size:11px; padding:4px 7px; border-radius:6px; cursor:pointer;" title="Delete Army List">
+            🗑️
+          </button>
+          <button onclick="closeViewArmyListModal()" title="Close" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#cbd5e1; font-size:15px; font-weight:800; width:28px; height:28px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;">
+            ✕
+          </button>
         </div>
       </div>
 
@@ -4269,7 +4348,10 @@ async function openViewArmyListModal(listId, mode = null) {
 
 function closeViewArmyListModal() {
   const modal = document.getElementById('hub-view-armylist-modal');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.style.display = 'none';
+    modal.innerHTML = '';
+  }
 }
 
 function exportArmyListToBcp(listId) {
@@ -4307,34 +4389,53 @@ function exportArmyListToBcp(listId) {
   });
 }
 
-async function removeNrListKeyFromSameOriginIdb(listKey) {
-  if (!listKey) return;
-  let handledByIframe = false;
+async function removeNrListKeyFromSameOriginIdb(listKey, listName = '') {
+  if (!listKey && !listName) return;
+  const cleanNameLow = String(listName || '').trim().toLowerCase();
+  let delegatedToIframe = false;
   try {
     document.querySelectorAll('iframe[src*="/nr/"], iframe[src*="/newrecruit/"]').forEach(ifr => {
       if (ifr && ifr.contentWindow) {
-        ifr.contentWindow.postMessage({ type: 'OMNITACTICA_NR_COMMAND', command: 'delete_list', list_key: listKey }, '*');
-        handledByIframe = true;
+        ifr.contentWindow.postMessage({
+          type: 'OMNITACTICA_NR_COMMAND',
+          command: 'delete_list',
+          list_key: listKey || '',
+          list_name: listName || ''
+        }, '*');
+        if (ifr.id === 'hub-nr-studio-iframe') {
+          delegatedToIframe = true;
+        }
       }
     });
   } catch (e) {}
-  if (handledByIframe) return;
   try {
     if (typeof indexedDB.databases === 'function') {
       const dbs = await indexedDB.databases();
       const nrMeta = (dbs || []).find(d => d && d.name === 'nr');
-      if (!nrMeta || (nrMeta.version && nrMeta.version < 200)) return;
+      if (!nrMeta) return;
     }
     await new Promise(resolve => {
+      let settled = false;
+      let dbRef = null;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        if (dbRef) {
+          try { dbRef.close(); } catch (e) {}
+        }
+        resolve();
+      };
+      setTimeout(done, 600);
       const req = indexedDB.open('nr');
       req.onupgradeneeded = (ev) => {
         try { ev.target.transaction.abort(); } catch (e) {}
-        resolve();
+        done();
       };
       req.onsuccess = () => {
         const db = req.result;
+        dbRef = db;
         if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('lists')) {
-          resolve();
+          done();
           return;
         }
         try {
@@ -4345,21 +4446,25 @@ async function removeNrListKeyFromSameOriginIdb(listKey) {
             const cursor = ev.target.result;
             if (cursor) {
               const row = cursor.value;
-              if (row && row.list_key === listKey) {
+              if (row && ((listKey && row.list_key === listKey) || (cleanNameLow && String(row.name || '').trim().toLowerCase() === cleanNameLow))) {
                 try { cursor.delete(); } catch (e) {}
               }
               cursor.continue();
             }
           };
-          tx.oncomplete = () => { resolve(); };
-          tx.onerror = () => { resolve(); };
+          tx.oncomplete = done;
+          tx.onerror = done;
         } catch (e) {
-          resolve();
+          done();
         }
       };
-      req.onerror = () => resolve();
+      req.onerror = done;
+      req.onblocked = done;
     });
   } catch (e) {}
+  if (delegatedToIframe) {
+    await new Promise(r => setTimeout(r, 120));
+  }
 }
 
 async function deleteHubArmyList(listId, fromModal = false) {
@@ -4371,25 +4476,33 @@ async function deleteHubArmyList(listId, fromModal = false) {
 
   const targetItem = (hubSavedLists || []).find(l => l.id === listId || l.list_key === listId);
   const listKey = targetItem ? resolveHubNrListKey(targetItem) : (String(listId || '').startsWith('nr_') ? String(listId).slice(3) : String(listId || ''));
+  const listName = targetItem && targetItem.name ? String(targetItem.name) : '';
 
   // 1. Instant 0ms Optimistic UI Removal
   const prevLists = [...(hubSavedLists || [])];
-  hubSavedLists = (hubSavedLists || []).filter(l => l.id !== listId && l.list_key !== listId);
+  hubSavedLists = (hubSavedLists || []).filter(l =>
+    l.id !== listId &&
+    l.list_key !== listId &&
+    (!listName || String(l.name || '').trim().toLowerCase() !== listName.trim().toLowerCase())
+  );
+  window.hubSavedLists = hubSavedLists;
   renderHubArmyLists(hubSavedLists);
 
-  // 2. Perform async deletion in background + purge from same-origin NewRecruit IndexedDB
+  // 2. Perform async deletion in background + purge from same-origin NewRecruit IndexedDB & Studio
   try {
-    await removeNrListKeyFromSameOriginIdb(listKey);
+    await removeNrListKeyFromSameOriginIdb(listKey, listName);
     const res = await window.api.deleteArmyList(listId);
     if (res && res.error) {
       console.warn('Delete army list warning:', res.error);
       hubSavedLists = prevLists;
+      window.hubSavedLists = hubSavedLists;
       renderHubArmyLists(hubSavedLists);
       alert('Error deleting list: ' + res.error);
     }
   } catch(e) {
     console.error('Delete error:', e);
     hubSavedLists = prevLists;
+    window.hubSavedLists = hubSavedLists;
     renderHubArmyLists(hubSavedLists);
     alert('Error deleting list: ' + e.message);
   }
