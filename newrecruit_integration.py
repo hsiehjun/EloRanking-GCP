@@ -452,6 +452,85 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   } catch (e) {}
 
+  // 0b. Inline NewRecruit UI SVG icons & cache-bust /assets/*, /icons/*, /settings/* <img> src
+  // so stale 404 entries in the browser HTTP disk cache can never cause broken image icons.
+  var NR_INLINE_SVG_ICONS = {
+    '/assets/icons/eye.svg': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNS4yIiBoZWlnaHQ9IjE3IiB2aWV3Qm94PSI4LjUgMCA5NS4wIDY0Ij48cGF0aCBkPSJNMTIuMCwzMi4wIFE1Ni4wLC0xNi4wIDEwMC4wLDMyLjAgUTU2LjAsODAuMCAxMi4wLDMyLjAgWiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjQuNSIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxjaXJjbGUgY3g9IjU2IiBjeT0iMzIiIHI9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMwMDAiIHN0cm9rZS13aWR0aD0iNC41Ii8+PHBhdGggdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNTYsMzIpIHNjYWxlKDAuNTYzMSkgcm90YXRlKC00NSkgdHJhbnNsYXRlKC02MS40NCwtNDMuNDgpIiBkPSJNNjAuNzksMjIuMTdsNC4wOCwwLjM5Yy0xLjQ1LDIuMTgtMi4zMSw0LjgyLTIuMzEsNy42N2MwLDcuNDgsNS44NiwxMy41NCwxMy4xLDEzLjU0YzIuMzIsMCw0LjUtMC42Miw2LjM5LTEuNzJjMC4wMywwLjQ3LDAuMDUsMC45NCwwLjA1LDEuNDJjMCwxMS43Ny05LjU0LDIxLjMxLTIxLjMxLDIxLjMxYy0xMS43NywwLTIxLjMxLTkuNTQtMjEuMzEtMjEuMzFDMzkuNDgsMzEuNzEsNDkuMDIsMjIuMTcsNjAuNzksMjIuMTdMNjAuNzksMjIuMTdMNjAuNzksMjIuMTd6Ii8+PC9zdmc+',
+    '/assets/icons/compare-list.svg': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIxNi43IiB2aWV3Qm94PSIwIDAgMjQgMjAiPgogIDxyZWN0IHg9IjEuNiIgeT0iMS42IiB3aWR0aD0iMjAuOCIgaGVpZ2h0PSIxNi44IiByeD0iMi42IiBmaWxsPSJub25lIiBzdHJva2U9IiMwMDAiIHN0cm9rZS13aWR0aD0iMS43Ii8+CiAgPHJlY3QgeD0iNiIgeT0iNiIgd2lkdGg9IjEyIiBoZWlnaHQ9IjIuNiIgcng9IjEuMyIgZmlsbD0iIzAwMCIvPgogIDxyZWN0IHg9IjYiIHk9IjExLjQiIHdpZHRoPSIxMiIgaGVpZ2h0PSIyLjYiIHJ4PSIxLjMiIGZpbGw9IiMwMDAiLz4KPC9zdmc+Cg==',
+    '/assets/icons/i.svg': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2Ij4KICA8bWFzayBpZD0iaUJhZGdlIj4KICAgIDxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgZmlsbD0iI2ZmZiIvPgogICAgPGNpcmNsZSBjeD0iMTIiIGN5PSI3LjMiIHI9IjEuNSIgZmlsbD0iIzAwMCIvPgogICAgPHJlY3QgeD0iMTAuNiIgeT0iMTAuNSIgd2lkdGg9IjIuOCIgaGVpZ2h0PSI3IiByeD0iMS40IiBmaWxsPSIjMDAwIi8+CiAgPC9tYXNrPgogIDxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjExIiBmaWxsPSIjNTU1NTU1IiBtYXNrPSJ1cmwoI2lCYWRnZSkiLz4KPC9zdmc+Cg==',
+    '/assets/icons/right1.svg': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgdmlld0JveD0iMCAwIDIwIDIwIiBmaWxsPSJub25lIiBzdHJva2U9IiMyRjlBRDIiIHN0cm9rZS13aWR0aD0iMy44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDwhLS0gc2hhZnQgLS0+CiAgPHBhdGggZD0iTTEuNiAxMCBIMTMuNSIgLz4KICA8IS0tIGFycm93aGVhZCAtLT4KICA8cGF0aCBkPSJNMTAuNiAzIEwxOCAxMCBMMTAuNiAxNyIgLz4KPC9zdmc+Cg==',
+    '/assets/icons/right2.svg': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgdmlld0JveD0iMCAwIDIwIDIwIj4KICA8cGF0aCBkPSJNNC4zIDEuOSBMMTUuOCAxMCBMNC4zIDE4LjEgWiIgZmlsbD0iIzAwMDAwMCIgc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2Utd2lkdGg9IjAuNiIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgo8L3N2Zz4K',
+    '/assets/icons/right3.svg': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgdmlld0JveD0iMCAwIDIwIDIwIj4KICA8cGF0aCBkPSJNMCAyIEw1IDIgTDExIDEwIEw1IDE4IEwwIDE4IEw2IDEwIFoiIGZpbGw9IiMwMDIyM0YiLz4KICA8cGF0aCBkPSJNOCAyIEwxMyAyIEwxOSAxMCBMMTMgMTggTDggMTggTDE0IDEwIFoiIGZpbGw9IiMwMEE4RTMiLz4KPC9zdmc+Cg==',
+    '/assets/icons/iconeplus.svg': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMiIgaGVpZ2h0PSIyMiIgdmlld0JveD0iMCAwIDI0IDI0Ij4KICA8cGF0aCBkPSJNOCAyLjJIMTZWOEgyMS44VjE2SDE2VjIxLjhIOFYxNkgyLjJWOEg4WiIKICAgICAgICBmaWxsPSIjOTZkMzQxIiBzdHJva2U9IiM2NmFjMWMiIHN0cm9rZS13aWR0aD0iMS42IiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPgo=',
+    '/assets/icons/force2.svg': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNSIgaGVpZ2h0PSIyNSIgdmlld0JveD0iMCAwIDI1IDI1IiBmaWxsPSIjMDAwMDAwIj4KICA8IS0tIGZpbmlhbCAtLT4KICA8Y2lyY2xlIGN4PSI1LjUiIGN5PSIyLjkiIHI9IjEuNiIvPgogIDwhLS0gcG9sZSAtLT4KICA8cmVjdCB4PSI0LjU1IiB5PSIzLjYiIHdpZHRoPSIxLjkiIGhlaWdodD0iMTkiIHJ4PSIwLjk1Ii8+CiAgPCEtLSBiYW5uZXIgd2l0aCBzd2FsbG93dGFpbCBlbmQgLS0+CiAgPHBhdGggZD0iTTYuNCw0LjYgTDIwLjYsNC42IEwxNi45LDkuMiBMMjAuNiwxMy44IEw2LjQsMTMuOCBaIi8+Cjwvc3ZnPgo=',
+    '/assets/icons/helmet.svg': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNSAyNSIgd2lkdGg9IjI1IiBoZWlnaHQ9IjI1Ij4KICA8IS0tIHZlY3RvciB0cmFjZSBvZiB0aGUgY2xhc3NpYyBoZWxtZXQucG5nIHVuaXQgaWNvbiAoZnJvbnQtZmFjaW5nIGNvcmludGhpYW4gaGVsbWV0KSAtLT4KICA8ZyBmaWxsPSJjdXJyZW50Q29sb3IiPgogICAgPHBhdGggZD0iTTEyLjUgMCBDNy42IDAgMy45IDEuOSAyLjcgNC42IEMyLjQgNS4zIDMgNS45IDMuNyA1LjcgQzYuMyA1IDkuMyA0LjYgMTIuNSA0LjYgQzE1LjcgNC42IDE4LjcgNSAyMS4zIDUuNyBDMjIgNS45IDIyLjYgNS4zIDIyLjMgNC42IEMyMS4xIDEuOSAxNy40IDAgMTIuNSAwIFoiLz4KICAgIDxwYXRoIGQ9Ik0xMi41IDYuNSBDOS4xIDYuNSA2LjYgOC43IDYuMSAxMi4yIEM2IDEzIDUuOSAxMy43IDUuODUgMTQuNCBMMTkuMTUgMTQuNCBDMTkuMSAxMy43IDE5IDEzIDE4LjkgMTIuMiBDMTguNCA4LjcgMTUuOSA2LjUgMTIuNSA2LjUgWiIvPgogICAgPHBhdGggZD0iTTUuODUgMTMuNSBMNi42IDEzLjUgQzcuMiAxNC4yIDcuNyAxNC45IDguMiAxNS42IEM5LjIgMTcgOS43NSAxOC42IDkuNzUgMjAuNCBMOS43NSAyMy42IEM5Ljc1IDI0LjUgOSAyNS4xIDguMSAyNSBDNy4xIDI0LjggNi4xIDI0LjQgNS4zIDIzLjggQzQuNTUgMjMuMyA0LjE1IDIyLjUgNC4xNSAyMS42IEM0LjE1IDIwLjcgNC42NSAxOS44IDUuNDUgMTkuMyBDNS41IDE3LjUgNS43IDE1LjMgNS44NSAxMy41IFoiLz4KICAgIDxwYXRoIGQ9Ik0xOS4xNSAxMy41IEwxOC40IDEzLjUgQzE3LjggMTQuMiAxNy4zIDE0LjkgMTYuOCAxNS42IEMxNS44IDE3IDE1LjI1IDE4LjYgMTUuMjUgMjAuNCBMMTUuMjUgMjMuNiBDMTUuMjUgMjQuNSAxNiAyNS4xIDE2LjkgMjUgQzE3LjkgMjQuOCAxOC45IDI0LjQgMTkuNyAyMy44IEMyMC40NSAyMy4zIDIwLjg1IDIyLjUgMjAuODUgMjEuNiBDMjAuODUgMjAuNyAyMC4zNSAxOS44IDE5LjU1IDE5LjMgQzE5LjUgMTcuNSAxOS4zIDE1LjMgMTkuMTUgMTMuNSBaIi8+CiAgICA8cGF0aCBkPSJNMTEuNyAxMy44IEwxMy4zIDEzLjggQzEzLjYgMTMuOCAxMy44IDE0IDEzLjggMTQuMyBMMTMuNiAxOSBDMTMuNiAxOS42IDEzLjEgMjAgMTIuNSAyMCBDMTEuOSAyMCAxMS40IDE5LjYgMTEuNCAxOSBMMTEuMiAxNC4zIEMxMS4yIDE0IDExLjQgMTMuOCAxMS43IDEzLjggWiIvPgogIDwvZz4KPC9zdmc+Cg==',
+    '/assets/icons/discord.svg': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDMwIDMwIj4KICA8Y2lyY2xlIGN4PSIxNSIgY3k9IjE1IiByPSIxNSIgZmlsbD0iIzU4NjVGMiIvPgogIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDUuNCw1LjMpIHNjYWxlKDAuOCkiPgogICAgPHBhdGggZmlsbD0iI2ZmZmZmZiIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNMjAuMzE3IDQuMzY5OGExOS43OTEzIDE5Ljc5MTMgMCAwMC00Ljg4NTEtMS41MTUyLjA3NDEuMDc0MSAwIDAwLS4wNzg1LjAzNzFjLS4yMTEuMzc1My0uNDQ0Ny44NjQ4LS42MDgzIDEuMjQ5NS0xLjg0NDctLjI3NjItMy42OC0uMjc2Mi01LjQ4NjggMC0uMTYzNi0uMzkzMy0uNDA1OC0uODc0Mi0uNjE3Ny0xLjI0OTVhLjA3Ny4wNzcgMCAwMC0uMDc4NS0uMDM3IDE5LjczNjMgMTkuNzM2MyAwIDAwLTQuODg1MiAxLjUxNS4wNjk5LjA2OTkgMCAwMC0uMDMyMS4wMjc3Qy41MzM0IDkuMDQ1OC0uMzE5IDEzLjU3OTkuMDk5MiAxOC4wNTc4YS4wODI0LjA4MjQgMCAwMC4wMzEyLjA1NjFjMi4wNTI4IDEuNTA3NiA0LjA0MTMgMi40MjI4IDUuOTkyOSAzLjAyOTRhLjA3NzcuMDc3NyAwIDAwLjA4NDItLjAyNzZjLjQ2MTYtLjYzMDQuODczMS0xLjI5NTIgMS4yMjYtMS45OTQyYS4wNzYuMDc2IDAgMDAtLjA0MTYtLjEwNTdjLS42NTI4LS4yNDc2LTEuMjc0My0uNTQ5NS0xLjg3MjItLjg5MjNhLjA3Ny4wNzcgMCAwMS0uMDA3Ni0uMTI3N2MuMTI1OC0uMDk0My4yNTE3LS4xOTIzLjM3MTgtLjI5MTRhLjA3NDMuMDc0MyAwIDAxLjA3NzYtLjAxMDVjMy45Mjc4IDEuNzkzMyA4LjE4IDEuNzkzMyAxMi4wNjE0IDBhLjA3MzkuMDczOSAwIDAxLjA3ODUuMDA5NWMuMTIwMi4wOTkuMjQ2LjE5ODEuMzcyOC4yOTI0YS4wNzcuMDc3IDAgMDEtLjAwNjYuMTI3NiAxMi4yOTg2IDEyLjI5ODYgMCAwMS0xLjg3My44OTE0LjA3NjYuMDc2NiAwIDAwLS4wNDA3LjEwNjdjLjM2MDQuNjk4Ljc3MTkgMS4zNjI4IDEuMjI1IDEuOTkzMmEuMDc2LjA3NiAwIDAwLjA4NDIuMDI4NmMxLjk2MS0uNjA2NyAzLjk0OTUtMS41MjE5IDYuMDAyMy0zLjAyOTRhLjA3Ny4wNzcgMCAwMC4wMzEzLS4wNTUyYy41MDA0LTUuMTc3LS44MzgyLTkuNjczOS0zLjU0ODUtMTMuNjYwNGEuMDYxLjA2MSAwIDAwLS4wMzEyLS4wMjg2ek04LjAyIDE1LjMzMTJjLTEuMTgyNSAwLTIuMTU2OS0xLjA4NTctMi4xNTY5LTIuNDE5IDAtMS4zMzMyLjk1NTUtMi40MTg5IDIuMTU3LTIuNDE4OSAxLjIxMDggMCAyLjE3NTcgMS4wOTUyIDIuMTU2OCAyLjQxOSAwIDEuMzMzMi0uOTU1NSAyLjQxODktMi4xNTY5IDIuNDE4OXptNy45NzQ4IDBjLTEuMTgyNSAwLTIuMTU2OS0xLjA4NTctMi4xNTY5LTIuNDE5IDAtMS4zMzMyLjk1NTQtMi40MTg5IDIuMTU2OS0yLjQxODkgMS4yMTA4IDAgMi4xNzU3IDEuMDk1MiAyLjE1NjggMi40MTkgMCAxLjMzMzItLjk0NiAyLjQxODktMi4xNTY4IDIuNDE4OVoiLz4KICA8L2c+Cjwvc3ZnPgo='
+  };
+
+  function resolveNrIconSrc(rawSrc) {
+    if (!rawSrc || typeof rawSrc !== 'string') return rawSrc;
+    if (rawSrc.indexOf('data:') === 0 || rawSrc.indexOf('blob:') === 0) return rawSrc;
+    var cleanPath = rawSrc;
+    try {
+      if (rawSrc.indexOf('http://') === 0 || rawSrc.indexOf('https://') === 0) {
+        var u = new URL(rawSrc, window.location.origin);
+        if (u.origin === window.location.origin) {
+          cleanPath = u.pathname;
+        }
+      } else {
+        cleanPath = rawSrc.split('?')[0].split('#')[0];
+      }
+    } catch (e) {}
+    if (cleanPath.indexOf('/nr/assets/') === 0) cleanPath = cleanPath.slice(3);
+    else if (cleanPath.indexOf('/api/nr/assets/') === 0) cleanPath = cleanPath.slice(7);
+    else if (cleanPath.indexOf('assets/') === 0) cleanPath = '/' + cleanPath;
+    if (NR_INLINE_SVG_ICONS[cleanPath]) {
+      return NR_INLINE_SVG_ICONS[cleanPath];
+    }
+    if (
+      (cleanPath.indexOf('/assets/') === 0 || cleanPath.indexOf('/icons/') === 0 || cleanPath.indexOf('/settings/') === 0) &&
+      rawSrc.indexOf('v=nr3') === -1
+    ) {
+      return cleanPath + (rawSrc.indexOf('?') !== -1 ? '&v=nr3' : '?v=nr3');
+    }
+    return rawSrc;
+  }
+
+  try {
+    var origSetAttribute = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function(name, value) {
+      if (this && this.tagName === 'IMG' && (name === 'src' || name === 'SRC') && typeof value === 'string') {
+        value = resolveNrIconSrc(value);
+      }
+      return origSetAttribute.call(this, name, value);
+    };
+    var imgSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+    if (imgSrcDesc && imgSrcDesc.set && imgSrcDesc.get) {
+      Object.defineProperty(HTMLImageElement.prototype, 'src', {
+        configurable: true,
+        enumerable: true,
+        get: function() { return imgSrcDesc.get.call(this); },
+        set: function(val) {
+          imgSrcDesc.set.call(this, typeof val === 'string' ? resolveNrIconSrc(val) : val);
+        }
+      });
+    }
+    window.addEventListener('error', function(ev) {
+      var t = ev && ev.target;
+      if (t && t.tagName === 'IMG') {
+        var raw = t.getAttribute('src') || '';
+        var fixed = resolveNrIconSrc(raw);
+        if (fixed && fixed !== raw) {
+          origSetAttribute.call(t, 'src', fixed);
+        } else if (raw && raw.indexOf('data:') !== 0 && !t.dataset.omniRetried) {
+          t.dataset.omniRetried = '1';
+          var retryUrl = raw.split('?')[0] + '?v=nr3_' + Date.now();
+          origSetAttribute.call(t, 'src', retryUrl);
+        }
+      }
+    }, true);
+  } catch (e) {}
+
   var initialSearch = window.location.search || '';
   var initialPath = window.location.pathname || '';
   var isEmbeddedViewer = (
@@ -2682,6 +2761,15 @@ def proxy_nr_request(
     Returns (status_code, content_bytes, content_type).
     """
     clean_path = path_with_query if path_with_query.startswith("/") else f"/{path_with_query}"
+    if clean_path.startswith("/api/nr/"):
+        clean_path = clean_path[7:]
+    elif clean_path.startswith("/nr/"):
+        clean_path = clean_path[3:]
+    if (
+        clean_path.startswith(("/assets/", "/icons/", "/settings/", "/fonts/"))
+        and "v=nr3" in clean_path
+    ):
+        clean_path = clean_path.split("?")[0]
     method_up = method.upper()
 
     # Short-circuit client error telemetry RPCs so they never hit upstream

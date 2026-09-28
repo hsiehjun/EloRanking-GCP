@@ -130,9 +130,13 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
     elif path.startswith("/assets/"):
-        response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
-        if "Pragma" in response.headers:
-            del response.headers["Pragma"]
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+            if "Pragma" in response.headers:
+                del response.headers["Pragma"]
+        else:
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
     elif (
         path.startswith("/css") or
         path.startswith("/js") or
