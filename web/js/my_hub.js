@@ -3314,6 +3314,101 @@ window.executeHubEventsSearch = executeHubEventsSearch;
 let hubSavedLists = [];
 let hubNrCloudAccount = { connected: false, login: '', last_sync: null };
 
+function getHubDeletedNrTombstones() {
+  try {
+    const raw = localStorage.getItem('omni_deleted_nr_lists');
+    if (!raw) return { keys: {}, names: {} };
+    const parsed = JSON.parse(raw);
+    return {
+      keys: (parsed && typeof parsed.keys === 'object' && parsed.keys) ? parsed.keys : {},
+      names: (parsed && typeof parsed.names === 'object' && parsed.names) ? parsed.names : {}
+    };
+  } catch (e) {
+    return { keys: {}, names: {} };
+  }
+}
+
+function markHubListDeletedTombstone(listKey, listName, extraKeys = []) {
+  try {
+    const tomb = getHubDeletedNrTombstones();
+    const now = Date.now();
+    const allKeys = [];
+    if (listKey) {
+      const cleanK = String(listKey).replace(/^(nr_|list_)/, '').trim();
+      if (cleanK) {
+        tomb.keys[cleanK] = now;
+        allKeys.push(cleanK);
+      }
+    }
+    if (Array.isArray(extraKeys)) {
+      for (const k of extraKeys) {
+        const cleanEk = String(k || '').replace(/^(nr_|list_)/, '').trim();
+        if (cleanEk) {
+          tomb.keys[cleanEk] = now;
+          if (!allKeys.includes(cleanEk)) allKeys.push(cleanEk);
+        }
+      }
+    }
+    if (listName) {
+      const cleanN = String(listName).trim().toLowerCase();
+      if (cleanN) tomb.names[cleanN] = now;
+    }
+    localStorage.setItem('omni_deleted_nr_lists', JSON.stringify(tomb));
+    if (allKeys.length > 0) {
+      try {
+        const remRaw = localStorage.getItem('remote-lists-state');
+        if (remRaw) {
+          const remObj = JSON.parse(remRaw);
+          if (remObj && typeof remObj === 'object') {
+            let changed = false;
+            for (const k of allKeys) {
+              if (k in remObj) {
+                delete remObj[k];
+                changed = true;
+              }
+            }
+            if (changed) localStorage.setItem('remote-lists-state', JSON.stringify(remObj));
+          }
+        }
+      } catch (e2) {}
+    }
+  } catch (e) {}
+}
+
+function clearHubListDeletedTombstone(listKey, listName) {
+  try {
+    const tomb = getHubDeletedNrTombstones();
+    let changed = false;
+    if (listKey) {
+      const cleanK = String(listKey).replace(/^(nr_|list_)/, '').trim();
+      if (cleanK && tomb.keys[cleanK]) {
+        delete tomb.keys[cleanK];
+        changed = true;
+      }
+    }
+    if (listName) {
+      const cleanN = String(listName).trim().toLowerCase();
+      if (cleanN && tomb.names[cleanN]) {
+        delete tomb.names[cleanN];
+        changed = true;
+      }
+    }
+    if (changed) {
+      localStorage.setItem('omni_deleted_nr_lists', JSON.stringify(tomb));
+    }
+  } catch (e) {}
+}
+
+function isHubListTombstoned(item) {
+  if (!item) return false;
+  const tomb = getHubDeletedNrTombstones();
+  const rawId = String(item.list_key || item.id || '').replace(/^(nr_|list_)/, '').trim();
+  if (rawId && tomb.keys[rawId]) return true;
+  const cleanName = String(item.name || '').trim().toLowerCase();
+  if (cleanName && tomb.names[cleanName]) return true;
+  return false;
+}
+
 async function loadHubArmyLists() {
   const container = document.getElementById('hub-armylists-list-container');
   if (!container) return;
@@ -3323,7 +3418,22 @@ async function loadHubArmyLists() {
       window.api.getArmyLists('all'),
       window.api.getNewRecruitState ? window.api.getNewRecruitState().catch(() => null) : Promise.resolve(null)
     ]);
-    const lists = (res && res.army_lists) ? res.army_lists : [];
+    const rawLists = (res && res.army_lists) ? res.army_lists : [];
+    const lists = [];
+    for (const item of rawLists) {
+      if (isHubListTombstoned(item)) {
+        // Reconcile any lingering tombstoned list in the background so it stays permanently deleted
+        try {
+          const lKey = resolveHubNrListKey(item);
+          removeNrListKeyFromSameOriginIdb(lKey, item.name || '').catch(() => {});
+          if (item.id && window.api && typeof window.api.deleteArmyList === 'function') {
+            window.api.deleteArmyList(item.id).catch(() => {});
+          }
+        } catch (e) {}
+        continue;
+      }
+      lists.push(item);
+    }
     hubSavedLists = lists;
     window.hubSavedLists = lists;
     if (nrState && nrState.cloud_account) {
@@ -3818,8 +3928,14 @@ if (!window.__omnitacticaNrParentListenerBound) {
       }, 2600);
     }
 
+    if (msg.action === 'upsert' && msg.army_list) {
+      clearHubListDeletedTombstone(msg.army_list.list_key || msg.army_list.id, msg.army_list.name);
+    } else if (msg.action === 'delete' && msg.list_key) {
+      markHubListDeletedTombstone(msg.list_key, '');
+    }
+
     if (Array.isArray(msg.army_lists)) {
-      hubSavedLists = msg.army_lists;
+      hubSavedLists = msg.army_lists.filter(l => !isHubListTombstoned(l));
       window.hubSavedLists = hubSavedLists;
       renderHubArmyLists(hubSavedLists);
     } else {
@@ -4391,7 +4507,88 @@ function exportArmyListToBcp(listId) {
 
 async function removeNrListKeyFromSameOriginIdb(listKey, listName = '') {
   if (!listKey && !listName) return;
+  const cleanKey = String(listKey || '').replace(/^(nr_|list_)/, '').trim();
   const cleanNameLow = String(listName || '').trim().toLowerCase();
+  const keysToPurge = new Set();
+  if (cleanKey) keysToPurge.add(cleanKey);
+
+  // Immediately persist deleted tombstone in localStorage (0ms synchronous)
+  markHubListDeletedTombstone(cleanKey, cleanNameLow);
+
+  try {
+    let hasNrDb = true;
+    if (typeof indexedDB.databases === 'function') {
+      const dbs = await indexedDB.databases();
+      const nrMeta = (dbs || []).find(d => d && d.name === 'nr');
+      if (!nrMeta) hasNrDb = false;
+    }
+    if (hasNrDb) {
+      await new Promise(resolve => {
+        let settled = false;
+        let dbRef = null;
+        const done = () => {
+          if (settled) return;
+          settled = true;
+          if (dbRef) {
+            try { dbRef.close(); } catch (e) {}
+          }
+          resolve();
+        };
+        setTimeout(done, 800);
+        const req = indexedDB.open('nr');
+        req.onupgradeneeded = (ev) => {
+          try { ev.target.transaction.abort(); } catch (e) {}
+          done();
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          dbRef = db;
+          if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('lists')) {
+            done();
+            return;
+          }
+          try {
+            const tx = db.transaction('lists', 'readwrite');
+            const store = tx.objectStore('lists');
+            const curReq = store.openCursor();
+            curReq.onsuccess = (ev) => {
+              const cursor = ev.target.result;
+              if (cursor) {
+                const row = cursor.value;
+                if (row) {
+                  const rKey = String(row.list_key || '').trim();
+                  const rNameLow = String(row.name || '').trim().toLowerCase();
+                  const rMigTo = (row.metadata && row.metadata.migrated_to) ? String(row.metadata.migrated_to).trim() : '';
+                  const isMatch = (
+                    (cleanKey && rKey === cleanKey) ||
+                    (rKey && keysToPurge.has(rKey)) ||
+                    (rMigTo && (rMigTo === cleanKey || keysToPurge.has(rMigTo))) ||
+                    (cleanNameLow && rNameLow === cleanNameLow)
+                  );
+                  if (isMatch) {
+                    if (rKey) keysToPurge.add(rKey);
+                    if (rMigTo) keysToPurge.add(rMigTo);
+                    try { cursor.delete(); } catch (e) {}
+                  }
+                }
+                cursor.continue();
+              }
+            };
+            tx.oncomplete = done;
+            tx.onerror = done;
+          } catch (e) {
+            done();
+          }
+        };
+        req.onerror = done;
+        req.onblocked = done;
+      });
+    }
+  } catch (e) {}
+
+  const allPurgeKeys = Array.from(keysToPurge);
+  markHubListDeletedTombstone(cleanKey, cleanNameLow, allPurgeKeys);
+
   let delegatedToIframe = false;
   try {
     document.querySelectorAll('iframe[src*="/nr/"], iframe[src*="/newrecruit/"]').forEach(ifr => {
@@ -4399,8 +4596,9 @@ async function removeNrListKeyFromSameOriginIdb(listKey, listName = '') {
         ifr.contentWindow.postMessage({
           type: 'OMNITACTICA_NR_COMMAND',
           command: 'delete_list',
-          list_key: listKey || '',
-          list_name: listName || ''
+          list_key: cleanKey || '',
+          list_name: listName || '',
+          keys_to_purge: allPurgeKeys
         }, '*');
         if (ifr.id === 'hub-nr-studio-iframe') {
           delegatedToIframe = true;
@@ -4408,62 +4606,27 @@ async function removeNrListKeyFromSameOriginIdb(listKey, listName = '') {
       }
     });
   } catch (e) {}
+
+  // Directly delete all matched keys from NewRecruit Cloud if signed in
   try {
-    if (typeof indexedDB.databases === 'function') {
-      const dbs = await indexedDB.databases();
-      const nrMeta = (dbs || []).find(d => d && d.name === 'nr');
-      if (!nrMeta) return;
+    const nrAccess = localStorage.getItem('access');
+    if (nrAccess && allPurgeKeys.length > 0) {
+      await Promise.all(allPurgeKeys.map(k =>
+        fetch('/api/rpc?m=deleteList', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+            'Content-Type': 'application/json',
+            'Authorization': nrAccess
+          },
+          body: JSON.stringify({ method: 'deleteList', params: [k] })
+        }).catch(() => {})
+      ));
     }
-    await new Promise(resolve => {
-      let settled = false;
-      let dbRef = null;
-      const done = () => {
-        if (settled) return;
-        settled = true;
-        if (dbRef) {
-          try { dbRef.close(); } catch (e) {}
-        }
-        resolve();
-      };
-      setTimeout(done, 600);
-      const req = indexedDB.open('nr');
-      req.onupgradeneeded = (ev) => {
-        try { ev.target.transaction.abort(); } catch (e) {}
-        done();
-      };
-      req.onsuccess = () => {
-        const db = req.result;
-        dbRef = db;
-        if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('lists')) {
-          done();
-          return;
-        }
-        try {
-          const tx = db.transaction('lists', 'readwrite');
-          const store = tx.objectStore('lists');
-          const curReq = store.openCursor();
-          curReq.onsuccess = (ev) => {
-            const cursor = ev.target.result;
-            if (cursor) {
-              const row = cursor.value;
-              if (row && ((listKey && row.list_key === listKey) || (cleanNameLow && String(row.name || '').trim().toLowerCase() === cleanNameLow))) {
-                try { cursor.delete(); } catch (e) {}
-              }
-              cursor.continue();
-            }
-          };
-          tx.oncomplete = done;
-          tx.onerror = done;
-        } catch (e) {
-          done();
-        }
-      };
-      req.onerror = done;
-      req.onblocked = done;
-    });
   } catch (e) {}
+
   if (delegatedToIframe) {
-    await new Promise(r => setTimeout(r, 120));
+    await new Promise(r => setTimeout(r, 150));
   }
 }
 
@@ -4478,6 +4641,9 @@ async function deleteHubArmyList(listId, fromModal = false) {
   const listKey = targetItem ? resolveHubNrListKey(targetItem) : (String(listId || '').startsWith('nr_') ? String(listId).slice(3) : String(listId || ''));
   const listName = targetItem && targetItem.name ? String(targetItem.name) : '';
 
+  // 0. Record synchronous tombstone in localStorage immediately so even an instant F5 refresh never resurrects the list
+  markHubListDeletedTombstone(listKey, listName);
+
   // 1. Instant 0ms Optimistic UI Removal
   const prevLists = [...(hubSavedLists || [])];
   hubSavedLists = (hubSavedLists || []).filter(l =>
@@ -4488,17 +4654,12 @@ async function deleteHubArmyList(listId, fromModal = false) {
   window.hubSavedLists = hubSavedLists;
   renderHubArmyLists(hubSavedLists);
 
-  // 2. Perform async deletion in background + purge from same-origin NewRecruit IndexedDB & Studio
+  // 2. Perform async deletion in background + purge from same-origin NewRecruit IndexedDB, Studio & Cloud
   try {
-    await removeNrListKeyFromSameOriginIdb(listKey, listName);
-    const res = await window.api.deleteArmyList(listId);
-    if (res && res.error) {
-      console.warn('Delete army list warning:', res.error);
-      hubSavedLists = prevLists;
-      window.hubSavedLists = hubSavedLists;
-      renderHubArmyLists(hubSavedLists);
-      alert('Error deleting list: ' + res.error);
-    }
+    await Promise.all([
+      removeNrListKeyFromSameOriginIdb(listKey, listName),
+      window.api.deleteArmyList(listId)
+    ]);
   } catch(e) {
     console.error('Delete error:', e);
     hubSavedLists = prevLists;

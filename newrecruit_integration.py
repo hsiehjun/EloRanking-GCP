@@ -791,8 +791,174 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
 
+  var TOMBSTONE_STORAGE_KEY = 'omni_deleted_nr_lists';
+
+  function getNrDeletedTombstones() {
+    try {
+      var raw = localStorage.getItem(TOMBSTONE_STORAGE_KEY);
+      if (!raw) return { keys: {}, names: {} };
+      var parsed = JSON.parse(raw);
+      return {
+        keys: (parsed && typeof parsed.keys === 'object' && parsed.keys) ? parsed.keys : {},
+        names: (parsed && typeof parsed.names === 'object' && parsed.names) ? parsed.names : {}
+      };
+    } catch (e) {
+      return { keys: {}, names: {} };
+    }
+  }
+
+  function addNrDeletedTombstone(listKey, listName, extraKeys) {
+    try {
+      var tomb = getNrDeletedTombstones();
+      var now = Date.now();
+      var allKeys = [];
+      if (listKey) {
+        var cleanK = String(listKey).replace(/^(nr_|list_)/, '').trim();
+        if (cleanK) {
+          tomb.keys[cleanK] = now;
+          allKeys.push(cleanK);
+        }
+      }
+      if (Array.isArray(extraKeys)) {
+        for (var i = 0; i < extraKeys.length; i++) {
+          var ek = String(extraKeys[i] || '').replace(/^(nr_|list_)/, '').trim();
+          if (ek) {
+            tomb.keys[ek] = now;
+            if (allKeys.indexOf(ek) === -1) allKeys.push(ek);
+          }
+        }
+      }
+      if (listName) {
+        var cleanN = String(listName).trim().toLowerCase();
+        if (cleanN) tomb.names[cleanN] = now;
+      }
+      localStorage.setItem(TOMBSTONE_STORAGE_KEY, JSON.stringify(tomb));
+      if (allKeys.length > 0) {
+        try {
+          var remRaw = localStorage.getItem('remote-lists-state');
+          if (remRaw) {
+            var remObj = JSON.parse(remRaw);
+            if (remObj && typeof remObj === 'object') {
+              var changed = false;
+              for (var kIdx = 0; kIdx < allKeys.length; kIdx++) {
+                if (allKeys[kIdx] in remObj) {
+                  delete remObj[allKeys[kIdx]];
+                  changed = true;
+                }
+              }
+              if (changed) localStorage.setItem('remote-lists-state', JSON.stringify(remObj));
+            }
+          }
+        } catch (e2) {}
+      }
+    } catch (e) {}
+  }
+
+  function clearNrDeletedTombstone(listKey, listName) {
+    try {
+      var tomb = getNrDeletedTombstones();
+      var changed = false;
+      if (listKey) {
+        var cleanK = String(listKey).replace(/^(nr_|list_)/, '').trim();
+        if (cleanK && tomb.keys[cleanK]) {
+          delete tomb.keys[cleanK];
+          changed = true;
+        }
+      }
+      if (listName) {
+        var cleanN = String(listName).trim().toLowerCase();
+        if (cleanN && tomb.names[cleanN]) {
+          delete tomb.names[cleanN];
+          changed = true;
+        }
+      }
+      if (changed) {
+        localStorage.setItem(TOMBSTONE_STORAGE_KEY, JSON.stringify(tomb));
+      }
+    } catch (e) {}
+  }
+
+  function isTombstonedNrRow(r) {
+    if (!r) return false;
+    var tomb = getNrDeletedTombstones();
+    var rk = String(r.list_key || r._id || '').replace(/^(nr_|list_)/, '').trim();
+    if (rk && tomb.keys[rk]) return true;
+    var migTo = (r.metadata && r.metadata.migrated_to) ? String(r.metadata.migrated_to).trim() : '';
+    if (migTo && tomb.keys[migTo]) return true;
+    var rn = String(r.name || '').trim().toLowerCase();
+    if (rn && tomb.names[rn]) return true;
+    return false;
+  }
+
+  async function deleteKeyFromNrServerRpc(listKey) {
+    if (!listKey) return;
+    var cleanK = String(listKey).replace(/^(nr_|list_)/, '').trim();
+    if (!cleanK) return;
+    var nrAccess = '';
+    try { nrAccess = localStorage.getItem('access') || ''; } catch (e) {}
+    if (!nrAccess) return;
+    try {
+      await fetch('/api/rpc?m=deleteList', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json, text/plain, */*',
+          'Content-Type': 'application/json',
+          'Authorization': nrAccess
+        },
+        body: JSON.stringify({ method: 'deleteList', params: [cleanK] })
+      });
+    } catch (e) {}
+  }
+
+  var purgingTombstones = false;
+  async function purgeTombstonedRowsFromPiniaAndCloud(stores) {
+    if (purgingTombstones || !stores || !stores.list || !Array.isArray(stores.list.listData)) return;
+    var victimRows = stores.list.listData.filter(function(r) { return r && isTombstonedNrRow(r); });
+    if (victimRows.length === 0) return;
+    purgingTombstones = true;
+    var prevHyd = isHydrating;
+    isHydrating = true;
+    try {
+      for (var i = 0; i < victimRows.length; i++) {
+        var vr = victimRows[i];
+        var vk = String(vr.list_key || vr._id || '');
+        var vn = vr.name ? String(vr.name) : '';
+        var vExtra = (vr.metadata && vr.metadata.migrated_to) ? [String(vr.metadata.migrated_to)] : [];
+        addNrDeletedTombstone(vk, vn, vExtra);
+        delete knownListsMap[vk];
+        try {
+          if (typeof stores.list.removeList === 'function') {
+            await stores.list.removeList(vr);
+          }
+        } catch (e) {}
+        var idx = stores.list.listData.findIndex(function(x) { return x && x.list_key === vk; });
+        while (idx !== -1) {
+          stores.list.listData.splice(idx, 1);
+          idx = stores.list.listData.findIndex(function(x) { return x && x.list_key === vk; });
+        }
+        try {
+          if (stores.user && stores.user.user && typeof stores.list.deleteListFromServer === 'function') {
+            await stores.list.deleteListFromServer(vr);
+          } else {
+            await deleteKeyFromNrServerRpc(vk);
+          }
+        } catch (e) {
+          await deleteKeyFromNrServerRpc(vk);
+        }
+      }
+      try {
+        if (typeof stores.list.rebuildTreeData === 'function') {
+          stores.list.rebuildTreeData();
+        }
+      } catch (e) {}
+    } finally {
+      isHydrating = prevHyd;
+      purgingTombstones = false;
+    }
+  }
+
   async function syncUpsertRow(row, explicitArmy, explicitBook) {
-    if (isHydrating || !row || row._ephemeral_view) return;
+    if (isHydrating || !row || row._ephemeral_view || isTombstonedNrRow(row)) return;
     var clean = cloneCleanRow(row, explicitArmy, explicitBook);
     if (!clean || !clean.list_key) return;
     var sig = computeSignature(clean);
@@ -811,6 +977,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
   async function syncDeleteKey(listKey, listName) {
     if (isHydrating || !listKey) return;
+    addNrDeletedTombstone(listKey, listName);
     delete knownListsMap[listKey];
     await postSyncAction('delete', {
       list_key: String(listKey),
@@ -943,7 +1110,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
   // Check whether a list row is active & visible in NewRecruit's MyLists view (not deleted book, not hidden folder)
   function isActiveNrListRow(r, stores) {
-    if (!r || !(r.list_key || r._id) || r._ephemeral_view || r.deleted || r.trashed) {
+    if (!r || !(r.list_key || r._id) || r._ephemeral_view || r.deleted || r.trashed || isTombstonedNrRow(r)) {
       return false;
     }
     if (!stores) return true;
@@ -994,6 +1161,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     var stores = getNrStores();
     var piniaInitiated = Boolean(stores && stores.list && stores.list.listsInitiated);
     if (stores && stores.list) {
+      await purgeTombstonedRowsFromPiniaAndCloud(stores);
       if (Array.isArray(stores.list.listData)) {
         for (var i = 0; i < stores.list.listData.length; i++) {
           var r = stores.list.listData[i];
@@ -1097,6 +1265,8 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
       } catch (e) {}
 
+      await purgeTombstonedRowsFromPiniaAndCloud(stores);
+
       var res = await fetch('/api/armylists/nr_state', {
         headers: getAuthHeaders(),
         credentials: 'same-origin'
@@ -1145,7 +1315,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       // - The user is NOT logged into NewRecruit AND Pinia has no lists at all yet.
       var allowSeedFromOmniServer = (!isNrLoggedIn && currentListData.length === 0);
       serverRows.forEach(function(sRow) {
-        if (!sRow || !sRow.list_key) return;
+        if (!sRow || !sRow.list_key || isTombstonedNrRow(sRow)) return;
         var sNameLow = String(sRow.name || '').trim().toLowerCase();
         var isTargetUrlRow = Boolean(
           (requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key) ||
@@ -1389,6 +1559,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       stores.user.isSupporter = function() { return true; };
     } catch (e) {}
 
+    if (stores.list.listsInitiated) {
+      await purgeTombstonedRowsFromPiniaAndCloud(stores);
+    }
+
     // Auto-select the game system of the user's active lists once hydration is complete
     // so /app/MyLists always displays the user's lists without needing the hidden system dropdown
     if (!requestedListKeyFromUrl && initialHydrationDone && stores.list.listsInitiated) {
@@ -1563,7 +1737,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         stores.list.doSaveList = async function(listObj, localOnly) {
           var res = await origDoSaveList(listObj, localOnly);
           try {
-            if (listObj && listObj.row) {
+            if (listObj && listObj.row && !isTombstonedNrRow(listObj.row)) {
               setTimeout(function() {
                 syncUpsertRow(listObj.row, listObj.army, listObj.book);
               }, 20);
@@ -1576,9 +1750,14 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       if (typeof stores.list.addList === 'function') {
         var origAddList = stores.list.addList.bind(stores.list);
         stores.list.addList = async function(listObj, selectIt) {
+          try {
+            if (listObj && listObj.row && !this.legacyMigration) {
+              clearNrDeletedTombstone(listObj.row.list_key, listObj.row.name);
+            }
+          } catch (e) {}
           var res = await origAddList(listObj, selectIt);
           try {
-            if (listObj && listObj.row) {
+            if (listObj && listObj.row && !isTombstonedNrRow(listObj.row)) {
               setTimeout(function() {
                 syncUpsertRow(listObj.row, listObj.army, listObj.book);
               }, 20);
@@ -1593,6 +1772,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         stores.list.removeList = async function(rowObj) {
           var keyToDelete = rowObj && (rowObj.list_key || rowObj._id);
           var nameToDelete = rowObj && rowObj.name ? String(rowObj.name) : '';
+          var extraKeys = (rowObj && rowObj.metadata && rowObj.metadata.migrated_to) ? [String(rowObj.metadata.migrated_to)] : [];
+          if (keyToDelete || nameToDelete) {
+            addNrDeletedTombstone(keyToDelete, nameToDelete, extraKeys);
+          }
           try {
             if (keyToDelete && this.currentList && this.currentList.row && this.currentList.row.list_key === keyToDelete) {
               this.currentList = null;
@@ -1644,6 +1827,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         var origSyncAll = stores.list.syncAllLists.bind(stores.list);
         stores.list.syncAllLists = async function() {
           var res = await origSyncAll.apply(this, arguments);
+          await purgeTombstonedRowsFromPiniaAndCloud(stores);
           setTimeout(function() {
             pollListsDiff();
             if (!isEmbeddedViewer) {
@@ -1893,9 +2077,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         ]);
       }
     } catch (e) {}
+    if (st) {
+      await purgeTombstonedRowsFromPiniaAndCloud(st);
+    }
     var rows = await readAllNrLists();
     if (!rows) return null;
-    var cleaned = rows.filter(function(r) { return r && !r._ephemeral_view; }).map(function(r) { return cloneCleanRow(r); }).filter(Boolean);
+    var cleaned = rows.filter(function(r) { return r && !r._ephemeral_view && !isTombstonedNrRow(r); }).map(function(r) { return cloneCleanRow(r); }).filter(Boolean);
     if (cleaned.length === 0 && !(st && st.list && st.list.listsInitiated)) {
       return null;
     }
@@ -1923,19 +2110,27 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     if (!msg || msg.type !== 'OMNITACTICA_NR_COMMAND') return;
     if (msg.command === 'force_sync') {
       await forceFullSync();
-    } else if (msg.command === 'delete_list' && msg.list_key) {
-      var delKey = String(msg.list_key);
+    } else if (msg.command === 'delete_list' && (msg.list_key || msg.list_name)) {
+      var delKey = String(msg.list_key || '').replace(/^(nr_|list_)/, '').trim();
       var delNameLow = msg.list_name ? String(msg.list_name).trim().toLowerCase() : '';
-      delete knownListsMap[delKey];
+      var extraPurge = Array.isArray(msg.keys_to_purge) ? msg.keys_to_purge : [];
+      addNrDeletedTombstone(delKey, delNameLow, extraPurge);
+      if (delKey) delete knownListsMap[delKey];
       if (pendingNrRowFromParent && (pendingNrRowFromParent.list_key === delKey || (delNameLow && String(pendingNrRowFromParent.name || '').trim().toLowerCase() === delNameLow))) {
         pendingNrRowFromParent = null;
       }
       var stDel = getNrStores();
-      var keysToPurge = [delKey];
+      var keysToPurge = delKey ? [delKey] : [];
+      for (var epIdx = 0; epIdx < extraPurge.length; epIdx++) {
+        var epKey = String(extraPurge[epIdx] || '').replace(/^(nr_|list_)/, '').trim();
+        if (epKey && keysToPurge.indexOf(epKey) === -1) keysToPurge.push(epKey);
+      }
       if (stDel && stDel.list && Array.isArray(stDel.list.listData)) {
         var matchingRows = stDel.list.listData.filter(function(x) {
           if (!x) return false;
-          if (x.list_key === delKey) return true;
+          if (delKey && x.list_key === delKey) return true;
+          if (x.list_key && keysToPurge.indexOf(x.list_key) !== -1) return true;
+          if (x.metadata && x.metadata.migrated_to && (x.metadata.migrated_to === delKey || keysToPurge.indexOf(x.metadata.migrated_to) !== -1)) return true;
           if (delNameLow && String(x.name || '').trim().toLowerCase() === delNameLow) return true;
           return false;
         });
@@ -1943,6 +2138,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           var rowToDel = matchingRows[mIdx];
           if (rowToDel.list_key && keysToPurge.indexOf(rowToDel.list_key) === -1) {
             keysToPurge.push(rowToDel.list_key);
+          }
+          if (rowToDel.metadata && rowToDel.metadata.migrated_to && keysToPurge.indexOf(rowToDel.metadata.migrated_to) === -1) {
+            keysToPurge.push(rowToDel.metadata.migrated_to);
           }
           delete knownListsMap[rowToDel.list_key];
           try {
@@ -1965,13 +2163,19 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               dIdx = stDel.list.listData.findIndex(function(x) { return x && x.list_key === rowToDel.list_key; });
             }
             if (stDel.user && stDel.user.user && typeof stDel.list.deleteListFromServer === 'function') {
-              try { stDel.list.deleteListFromServer(rowToDel); } catch (e) {}
+              try { await stDel.list.deleteListFromServer(rowToDel); } catch (e) { await deleteKeyFromNrServerRpc(rowToDel.list_key); }
+            } else {
+              await deleteKeyFromNrServerRpc(rowToDel.list_key);
             }
           } catch (e) {} finally {
             isHydrating = prevH1;
           }
         }
         try { if (typeof stDel.list.rebuildTreeData === 'function') stDel.list.rebuildTreeData(); } catch (e) {}
+      }
+      addNrDeletedTombstone(delKey, delNameLow, keysToPurge);
+      for (var kpIdx = 0; kpIdx < keysToPurge.length; kpIdx++) {
+        await deleteKeyFromNrServerRpc(keysToPurge[kpIdx]);
       }
       var db = await openExistingNrDb();
       if (db) {

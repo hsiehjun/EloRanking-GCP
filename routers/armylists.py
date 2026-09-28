@@ -344,11 +344,12 @@ async def api_wahapedia_warscroll(name: str = Query(...), faction: Optional[str]
 
 @router.delete("/api/armylists/{list_id}", summary="Delete an army list")
 async def api_delete_armylist(list_id: str, request: Request):
+    from newrecruit_integration import _NR_CLOUD_ACCOUNTS, _nr_rpc_call
     user_id = _resolve_user_id(request)
     db = get_database()
     success = db.delete_user_army_list(list_id, user_id=user_id)
     clean_key = str(list_id or "").strip()
-    raw_key = clean_key[3:] if clean_key.startswith("nr_") else clean_key
+    raw_key = re.sub(r"^(nr_|list_)", "", clean_key)
     nr_key = f"nr_{raw_key}"
     for room_data in list(TRACKER_ROOMS.values()):
         if isinstance(room_data, dict):
@@ -359,6 +360,13 @@ async def api_delete_armylist(list_id: str, request: Request):
                     c_key = str(cur_slot.get("list_key") or "")
                     if c_id in (clean_key, raw_key, nr_key) or c_key in (clean_key, raw_key):
                         room_data[slot_key] = None
+    try:
+        acct = _NR_CLOUD_ACCOUNTS.get(user_id or "default") or _NR_CLOUD_ACCOUNTS.get("default") or {}
+        nr_access = request.headers.get("X-NR-Access") or acct.get("access")
+        if nr_access and raw_key:
+            await asyncio.to_thread(_nr_rpc_call, "deleteList", [raw_key], nr_access)
+    except Exception:
+        pass
     return {"success": success, "deleted_id": list_id}
 
 @router.get("/nr/app", include_in_schema=False)
