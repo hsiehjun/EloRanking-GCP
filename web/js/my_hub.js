@@ -3316,7 +3316,8 @@ let hubNrCloudAccount = { connected: false, login: '', last_sync: null };
 
 function getHubDeletedNrTombstones() {
   try {
-    const raw = localStorage.getItem('omni_deleted_nr_lists');
+    localStorage.removeItem('omni_deleted_nr_lists');
+    const raw = localStorage.getItem('omni_deleted_nr_lists_v2');
     if (!raw) return { keys: {}, names: {} };
     const parsed = JSON.parse(raw);
     return {
@@ -3353,7 +3354,7 @@ function markHubListDeletedTombstone(listKey, listName, extraKeys = []) {
       const cleanN = String(listName).trim().toLowerCase();
       if (cleanN) tomb.names[cleanN] = now;
     }
-    localStorage.setItem('omni_deleted_nr_lists', JSON.stringify(tomb));
+    localStorage.setItem('omni_deleted_nr_lists_v2', JSON.stringify(tomb));
     if (allKeys.length > 0) {
       try {
         const remRaw = localStorage.getItem('remote-lists-state');
@@ -3394,7 +3395,7 @@ function clearHubListDeletedTombstone(listKey, listName) {
       }
     }
     if (changed) {
-      localStorage.setItem('omni_deleted_nr_lists', JSON.stringify(tomb));
+      localStorage.setItem('omni_deleted_nr_lists_v2', JSON.stringify(tomb));
     }
   } catch (e) {}
 }

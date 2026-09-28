@@ -791,7 +791,8 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
 
-  var TOMBSTONE_STORAGE_KEY = 'omni_deleted_nr_lists';
+  var TOMBSTONE_STORAGE_KEY = 'omni_deleted_nr_lists_v2';
+  try { localStorage.removeItem('omni_deleted_nr_lists'); } catch (e) {}
 
   function getNrDeletedTombstones() {
     try {
@@ -918,6 +919,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     purgingTombstones = true;
     var prevHyd = isHydrating;
     isHydrating = true;
+    var keysToPurgeIdb = [];
     try {
       for (var i = 0; i < victimRows.length; i++) {
         var vr = victimRows[i];
@@ -925,12 +927,14 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         var vn = vr.name ? String(vr.name) : '';
         var vExtra = (vr.metadata && vr.metadata.migrated_to) ? [String(vr.metadata.migrated_to)] : [];
         addNrDeletedTombstone(vk, vn, vExtra);
+        if (vk && keysToPurgeIdb.indexOf(vk) === -1) keysToPurgeIdb.push(vk);
+        for (var exIdx = 0; exIdx < vExtra.length; exIdx++) {
+          if (vExtra[exIdx] && keysToPurgeIdb.indexOf(vExtra[exIdx]) === -1) keysToPurgeIdb.push(vExtra[exIdx]);
+        }
         delete knownListsMap[vk];
-        try {
-          if (typeof stores.list.removeList === 'function') {
-            await stores.list.removeList(vr);
-          }
-        } catch (e) {}
+        // IMPORTANT: Never call stores.list.removeList(vr) here because NewRecruit's native removeList
+        // runs `this.listData.splice(findIndex, 1)` without checking `findIndex !== -1`, which deletes
+        // the last element of listData if `vr` was already removed!
         var idx = stores.list.listData.findIndex(function(x) { return x && x.list_key === vk; });
         while (idx !== -1) {
           stores.list.listData.splice(idx, 1);
@@ -944,6 +948,25 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           }
         } catch (e) {
           await deleteKeyFromNrServerRpc(vk);
+        }
+      }
+      if (keysToPurgeIdb.length > 0) {
+        var db = await openExistingNrDb();
+        if (db) {
+          await new Promise(function(resolve) {
+            var done = false;
+            var finish = function() { if (!done) { done = true; resolve(); } };
+            setTimeout(finish, 600);
+            try {
+              var tx = db.transaction('lists', 'readwrite');
+              var stObj = tx.objectStore('lists');
+              for (var kIdx = 0; kIdx < keysToPurgeIdb.length; kIdx++) {
+                try { stObj.delete(keysToPurgeIdb[kIdx]); } catch (e) {}
+              }
+              tx.oncomplete = finish;
+              tx.onerror = finish;
+            } catch (e) { finish(); }
+          });
         }
       }
       try {
@@ -985,7 +1008,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     });
   }
 
-  // 2. Hook IDBObjectStore.prototype.put / add / delete & IDBCursor.prototype.delete
+  // 2. Hook IDBObjectStore.prototype.put / add for live upsert sync
   try {
     var origPut = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function(value, key) {
@@ -1009,40 +1032,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           var captured = value;
           req.addEventListener('success', function() {
             setTimeout(function() { syncUpsertRow(captured); }, 40);
-          });
-        }
-      } catch (e) {}
-      return req;
-    };
-
-    var origDelete = IDBObjectStore.prototype.delete;
-    IDBObjectStore.prototype.delete = function(key) {
-      var req = origDelete.apply(this, arguments);
-      try {
-        if (!isHydrating && this.name === 'lists' && key) {
-          var capturedKey = key;
-          req.addEventListener('success', function() {
-            if (typeof capturedKey === 'string') {
-              setTimeout(function() { syncDeleteKey(capturedKey); }, 40);
-            }
-          });
-        }
-      } catch (e) {}
-      return req;
-    };
-
-    var origCursorDelete = IDBCursor.prototype.delete;
-    IDBCursor.prototype.delete = function() {
-      var req = origCursorDelete.apply(this, arguments);
-      try {
-        var storeName = this.source ? (this.source.name || (this.source.objectStore && this.source.objectStore.name)) : '';
-        if (!isHydrating && storeName === 'lists') {
-          var val = this.value;
-          var pKey = (val && val.list_key) || this.primaryKey;
-          req.addEventListener('success', function() {
-            if (pKey && typeof pKey === 'string') {
-              setTimeout(function() { syncDeleteKey(pKey); }, 40);
-            }
           });
         }
       } catch (e) {}
@@ -1108,13 +1097,31 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
 
-  // Check whether a list row is active & visible in NewRecruit's MyLists view (not deleted book, not hidden folder)
+  // Check whether a list row is active & visible in NewRecruit's MyLists view (not deleted book, not hidden folder, not superseded 10e pre-migration duplicate)
   function isActiveNrListRow(r, stores) {
     if (!r || !(r.list_key || r._id) || r._ephemeral_view || r.deleted || r.trashed || isTombstonedNrRow(r)) {
       return false;
     }
     if (!stores) return true;
     try {
+      // 0. If this is a 10th-Ed row that was already migrated to an active 11th-Ed row, skip the legacy 10th-Ed copy
+      if (stores.list && Array.isArray(stores.list.listData)) {
+        if (r.metadata && r.metadata.migrated_to) {
+          var migTargetKey = String(r.metadata.migrated_to);
+          var hasMigTarget = stores.list.listData.some(function(x) {
+            return x && x.list_key === migTargetKey && !isTombstonedNrRow(x);
+          });
+          if (hasMigTarget) return false;
+        }
+        if (r.id_system == 2821148162 && r.name) {
+          var rNameClean = String(r.name).trim().toLowerCase();
+          var has11eSameName = stores.list.listData.some(function(x) {
+            return x && x !== r && (x.id_system == 827374861 || x.bsid_system === 'sys-352e-adc2-7639-d610') &&
+              String(x.name || '').trim().toLowerCase() === rNameClean && !isTombstonedNrRow(x);
+          });
+          if (has11eSameName) return false;
+        }
+      }
       // 1. Check hidden folder in optionsStore
       if (stores.options && typeof stores.options.getSystemOption === 'function' && r.id_system) {
         var folderName = (r.metadata && r.metadata.folder) ? String(r.metadata.folder) : 'Default';
@@ -1154,7 +1161,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     return true;
   }
 
-  // Read active lists from Pinia stores.list.listData (authoritative live UI state) matching the active game system
+  // Read active lists from Pinia stores.list.listData (authoritative live UI state)
   async function readAllNrLists() {
     var mergedMap = {};
     var mergedList = [];
@@ -1217,20 +1224,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             mergedList.push(ir);
           }
         }
-      }
-    }
-
-    // Filter to the currently selected game system (matching NewRecruit's filteredListsSystem) when lists exist for that system
-    if (stores && stores.system && stores.system.selectedSystem && mergedList.length > 0) {
-      var selSys = stores.system.selectedSystem;
-      var sysFiltered = mergedList.filter(function(e) {
-        return e && (
-          e.id_system == selSys.id ||
-          (selSys.bsid != null && (e.id_system == selSys.bsid || e.bsid_system == selSys.bsid))
-        );
-      });
-      if (sysFiltered.length > 0) {
-        return sysFiltered;
       }
     }
 
@@ -1784,7 +1777,16 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               stores.listsPage.editedList = null;
             }
           } catch (e) {}
-          var res = await origRemoveList(rowObj);
+          // Guard against NewRecruit's unguarded `this.listData.splice(findIndex, 1)` when `findIndex === -1`
+          var existsInList = Boolean(
+            keyToDelete &&
+            Array.isArray(this.listData) &&
+            this.listData.some(function(r) { return r && r.list_key == keyToDelete; })
+          );
+          var res = null;
+          if (existsInList) {
+            res = await origRemoveList(rowObj);
+          }
           try {
             if (keyToDelete) {
               delete knownListsMap[String(keyToDelete)];
@@ -2035,30 +2037,21 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     return null;
   }
 
-  // 5. Snapshot diff watcher to catch any edits, imports, or deletions across Pinia listData & IndexedDB
+  // 5. Snapshot diff watcher to catch any edits or imports across Pinia listData & IndexedDB
+  // Note: Deletions are handled explicitly by stores.list.removeList and deleteHubArmyList, never by polling diff!
   async function pollListsDiff() {
     await ensurePlayModeAndStoreHooks();
     if (!initialHydrationDone || isHydrating || isEmbeddedViewer) return;
     var rows = await readAllNrLists();
     if (!rows) return;
 
-    var currentKeys = {};
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       if (!r || !r.list_key) continue;
-      currentKeys[r.list_key] = true;
       var clean = cloneCleanRow(r);
       var sig = computeSignature(clean || r);
       if (knownListsMap[r.list_key] !== sig) {
         await syncUpsertRow(clean || r);
-      }
-    }
-
-    var prevKeys = Object.keys(knownListsMap);
-    for (var j = 0; j < prevKeys.length; j++) {
-      var pk = prevKeys[j];
-      if (!currentKeys[pk]) {
-        await syncDeleteKey(pk);
       }
     }
   }
@@ -2154,9 +2147,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           var prevH1 = isHydrating;
           isHydrating = true;
           try {
-            if (typeof stDel.list.removeList === 'function') {
-              try { await stDel.list.removeList(rowToDel); } catch (e) {}
-            }
+            // Safely splice only matching indices (where dIdx !== -1) — never call stDel.list.removeList here!
             var dIdx = stDel.list.listData.findIndex(function(x) { return x && x.list_key === rowToDel.list_key; });
             while (dIdx !== -1) {
               stDel.list.listData.splice(dIdx, 1);
