@@ -522,10 +522,13 @@ def build_roster_text_for_nr_compiler(roster: Dict[str, Any], book_name: str) ->
         for wg in (u.get("wargear") or []):
             wg_s = str(wg).strip()
             if wg_s and wg_s.lower() not in ("warlord",):
+                has_cnt_prefix = bool(re.match(r"^\d+x\s+", wg_s, re.I))
                 if u_models > 1:
-                    lines.append(f"     ◦ {wg_s if re.match(r'^\\d+x\\s+', wg_s, re.I) else f'{u_models}x {wg_s}'}")
+                    wg_item = wg_s if has_cnt_prefix else f"{u_models}x {wg_s}"
+                    lines.append(f"     ◦ {wg_item}")
                 else:
-                    lines.append(f"  • {wg_s if re.match(r'^\\d+x\\s+', wg_s, re.I) else f'1x {wg_s}'}")
+                    wg_item = wg_s if has_cnt_prefix else f"1x {wg_s}"
+                    lines.append(f"  • {wg_item}")
         if u.get("enhancement"):
             lines.append(f"  • Enhancements: {u['enhancement']}")
         lines.append("")
