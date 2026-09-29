@@ -4500,6 +4500,167 @@ async function handleNewRecruitShareUrlSync() {
   }
 }
 
+function parseUnitsFromGwTextJS(gwText) {
+  const txt = String(gwText || '').trim();
+  if (!txt) return [];
+  const rawLines = txt.split(/\r?\n/);
+  const headerRoles = {
+    'CHARACTERS': 'Character',
+    'BATTLELINE': 'Battleline',
+    'DEDICATED TRANSPORTS': 'Dedicated Transport',
+    'OTHER DATASHEETS': 'Other Datasheets',
+    'ALLIED UNITS': 'Allied Units',
+    'ATTACHED UNITS': 'Character',
+    'UNATTACHED UNITS': 'Other Datasheets'
+  };
+  let startedBody = false;
+  let currentRole = 'Other Datasheets';
+  let currentUnit = null;
+  let currentAttachedGroup = null;
+  const attachedGroups = [];
+  const parsedUnits = [];
+
+  const isModelBullet = (modelLabel, unitName) => {
+    const mLow = String(modelLabel || '').toLowerCase().trim();
+    const uLow = String(unitName || '').toLowerCase().trim();
+    if (!mLow || !uLow) return false;
+    if (mLow === uLow || uLow.includes(mLow) || uLow.startsWith(mLow) || mLow.replace(/s$/, '') === uLow.replace(/s$/, '')) {
+      return true;
+    }
+    return /(sergeant|master|champion|captain|lieutenant|leader|justiciar|destroyer|praetorian|warrior|immortal|warden|guard)$/i.test(mLow);
+  };
+
+  for (const rawLine of rawLines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    const upper = trimmed.toUpperCase();
+    if (/^(EXPORTED WITH|CREATED WITH|DATA VERSION:)/i.test(trimmed)) continue;
+
+    if (headerRoles[upper]) {
+      startedBody = true;
+      currentRole = headerRoles[upper];
+      currentUnit = null;
+      if (upper === 'ATTACHED UNITS') {
+        currentAttachedGroup = [];
+        attachedGroups.push(currentAttachedGroup);
+      } else {
+        currentAttachedGroup = null;
+      }
+      continue;
+    }
+    if (/^ATTACHED\s+UNIT(\s+\d+)?$/i.test(trimmed)) {
+      startedBody = true;
+      currentRole = 'Character';
+      currentUnit = null;
+      currentAttachedGroup = [];
+      attachedGroups.push(currentAttachedGroup);
+      continue;
+    }
+    if (!startedBody) continue;
+
+    const enhMatch = trimmed.match(/^[•◦‣\-*\s]*Enhancements?:\s*(.+?)(?:\s*\((?:Upgrade|\+?([\d,]+)\s*(?:pts?|points?))\))?$/i);
+    if (enhMatch && currentUnit) {
+      currentUnit.enhancement = enhMatch[1].trim();
+      if (enhMatch[2]) currentUnit.enhancement_pts = parseInt(enhMatch[2].replace(/,/g, ''), 10) || 0;
+      continue;
+    }
+
+    const isBullet = /^[•◦‣\-*]/.test(trimmed) || /^\s{2,}/.test(rawLine);
+    if (!isBullet) {
+      const uMatch = trimmed.match(/^([^\(\[]+?)\s*\((?:([\d,]+)\s*pts?|([\d,]+)\s*points?)\)$/i);
+      if (uMatch) {
+        const uName = uMatch[1].trim();
+        const uPts = parseInt((uMatch[2] || uMatch[3] || '0').replace(/,/g, ''), 10) || 0;
+        currentUnit = {
+          name: uName,
+          role: currentRole,
+          points: uPts,
+          model_count: 1,
+           _countedModels: false,
+          is_warlord: false,
+          enhancement: null,
+          wargear: []
+        };
+        parsedUnits.push(currentUnit);
+        if (currentAttachedGroup) currentAttachedGroup.push(currentUnit);
+        continue;
+      }
+    }
+
+    if (currentUnit && isBullet) {
+      const isSubBullet = /^[◦‣]/.test(trimmed) || /^\s{4,}/.test(rawLine);
+      const cleanItem = trimmed.replace(/^[•◦‣\-*\s]+/, '').trim();
+      if (!cleanItem) continue;
+      if (/^warlord$/i.test(cleanItem)) {
+        currentUnit.is_warlord = true;
+        continue;
+      }
+      if (/^attached as:\s*/i.test(cleanItem)) {
+        const attRole = cleanItem.replace(/^attached as:\s*/i, '').trim().toLowerCase();
+        if (attRole.includes('leader') || attRole.includes('char') || attRole.includes('support')) {
+          currentUnit.role = 'Character';
+          currentUnit._attachedRole = 'leader';
+        } else if (attRole.includes('bodyguard')) {
+          if (currentUnit.role === 'Character') currentUnit.role = 'Other Datasheets';
+          currentUnit._attachedRole = 'bodyguard';
+        }
+        continue;
+      }
+      const cntMatch = cleanItem.match(/^(\d+)x\s+(.+)$/i);
+      if (!isSubBullet && cntMatch) {
+        const cnt = parseInt(cntMatch[1], 10) || 1;
+        const itemLabel = cntMatch[2].trim();
+        if (isModelBullet(itemLabel, currentUnit.name)) {
+          if (!currentUnit._countedModels) {
+            currentUnit.model_count = cnt;
+            currentUnit._countedModels = true;
+          } else {
+            currentUnit.model_count += cnt;
+          }
+          continue;
+        }
+      }
+      if (!currentUnit.wargear.includes(cleanItem)) {
+        currentUnit.wargear.push(cleanItem);
+      }
+    }
+  }
+
+  for (const grp of attachedGroups) {
+    if (grp.length >= 2) {
+      const bodyguards = grp.filter(u => u._attachedRole === 'bodyguard');
+      const leaders = grp.filter(u => u._attachedRole !== 'bodyguard');
+      const targetBg = bodyguards.length ? bodyguards[bodyguards.length - 1] : grp[grp.length - 1];
+      for (const ldr of (leaders.length ? leaders : grp.slice(0, -1))) {
+        if (ldr !== targetBg) {
+          ldr.leading = targetBg.name;
+          targetBg.attached_to = ldr.name;
+        }
+      }
+    }
+  }
+  return parsedUnits;
+}
+
+function resolveHubRosterList(listId) {
+  const cleanKey = String(listId || '').replace(/^(nr_|list_)/, '').trim();
+  const active = window._activeViewedRosterList;
+  if (active && typeof active === 'object') {
+    const activeId = String(active.id || '').trim();
+    const activeKey = String(active.list_key || active.nr_list_key || '').replace(/^(nr_|list_)/, '').trim();
+    if (!cleanKey || activeId === listId || activeKey === cleanKey || activeId.replace(/^(nr_|list_)/, '') === cleanKey) {
+      return active;
+    }
+  }
+  const found = (hubSavedLists || []).find(l => {
+    if (!l) return false;
+    const lid = String(l.id || '').trim();
+    const lkey = String(l.list_key || l.nr_list_key || '').replace(/^(nr_|list_)/, '').trim();
+    return lid === listId || l.list_key === listId || (cleanKey && (lkey === cleanKey || lid.replace(/^(nr_|list_)/, '') === cleanKey));
+  });
+  return found || active || null;
+}
+
 function generateRawRosterText(list, format = null) {
   if (!list || typeof list !== 'object') return '';
   const fmt = String(format || window.hubCurrentRosterTextFormat || 'gw').toLowerCase() === 'nr' ? 'nr' : 'gw';
@@ -4507,59 +4668,135 @@ function generateRawRosterText(list, format = null) {
 
   if (fmt === 'nr') {
     const existingNr = String(list.nr_text || row._omnitactica_nr_text || '').trim();
-    if (existingNr.length > 10) return existingNr;
+    if (existingNr.length > 10 && (existingNr.startsWith('++++') || existingNr.includes('+ FACTION KEYWORD:') || existingNr.includes('++ '))) {
+      return existingNr;
+    }
     const rawCandidate = String(list.raw_text || '').trim();
     if (rawCandidate.startsWith('++++') || rawCandidate.includes('+ FACTION KEYWORD:')) {
       return rawCandidate;
     }
     const pts = Number(list.points || 2000) || 2000;
+    const name = String(list.name || 'Army Roster').trim();
     const faction = String(list.faction || 'Warhammer 40,000').trim();
     const det = String(list.detachment || 'Core Detachment').trim();
-    const units = Array.isArray(list.units) ? list.units : [];
-    const warlordUnit = units.find(u => u && u.is_warlord);
-    const lines = [
-      '+++++++++++++++++++++++++++++++++++++++++++++++',
-      `+ FACTION KEYWORD: ${faction}`,
-      `+ DETACHMENT: ${det} (${pts} pts)`,
-      `+ TOTAL ARMY POINTS: ${pts}pts`,
-      '',
-      `+ WARLORD: ${warlordUnit && warlordUnit.name ? warlordUnit.name : 'Warlord'}`,
-      `+ ENHANCEMENT: `,
-      `+ NUMBER OF UNITS: ${units.length}`,
-      `+ SECONDARY: - Bring It Down: (0x2) - Assassination: 1 Characters`,
-      '+++++++++++++++++++++++++++++++++++++++++++++++'
-    ];
-    const groups = { CHARACTER: [], BATTLELINE: [], 'DEDICATED TRANSPORT': [], 'OTHER DATASHEETS': [] };
-    for (const u of units) {
-      if (!u) continue;
-      const r = String(u.role || 'Other Datasheets').toUpperCase();
-      if (r.includes('CHARACTER') || r.includes('HERO') || r.includes('EPIC')) groups.CHARACTER.push(u);
-      else if (r.includes('BATTLELINE')) groups.BATTLELINE.push(u);
-      else if (r.includes('TRANSPORT')) groups['DEDICATED TRANSPORT'].push(u);
-      else groups['OTHER DATASHEETS'].push(u);
-    }
-    let charIdx = 1;
-    for (const [sec, uList] of Object.entries(groups)) {
-      if (!uList.length) continue;
-      lines.push('', sec, '');
-      for (const u of uList) {
-        const cnt = Number(u.model_count || u.models || 1) || 1;
-        const prefix = sec === 'CHARACTER' ? `Char${charIdx++}: ` : '';
-        const wg = Array.isArray(u.wargear) && u.wargear.length ? `: ${u.wargear.join(', ')}` : '';
-        lines.push(`${prefix}${cnt}x ${u.name || 'Unit'} (${u.points || 0} pts)${wg}`);
-        if (u.enhancement) lines.push(`Enhancement: ${u.enhancement} (+0 pts)`);
-        if (u.is_warlord) lines.push('Warlord');
-        if (u.leading) lines.push(`Leading ${u.leading}`);
-        if (u.attached_to) lines.push(`Attached to ${u.attached_to}`);
-        lines.push('');
+    let units = Array.isArray(list.units) ? list.units.filter(Boolean) : [];
+    const hasWargear = units.some(u => Array.isArray(u.wargear) && u.wargear.length > 0);
+    if (!units.length || !hasWargear) {
+      const gwSource = String(list.gw_text || row._omnitactica_gw_text || list.raw_text || '').trim();
+      const parsedFromGw = parseUnitsFromGwTextJS(gwSource);
+      if (parsedFromGw.length > 0) {
+        units = parsedFromGw;
       }
     }
+
+    const chars = [];
+    const others = [];
+    for (const u of units) {
+      if (!u) continue;
+      const r = String(u.role || '').toUpperCase();
+      if (r.includes('CHAR') || r.includes('HERO') || r.includes('LEADER') || r.includes('EPIC') || u.is_warlord || u.enhancement) {
+        chars.push(u);
+      } else {
+        others.push(u);
+      }
+    }
+
+    let warlordHeader = '';
+    const enhHeaders = [];
+    chars.forEach((cUnit, idx) => {
+      const cName = String(cUnit.name || 'Unit').replace(/^\d+x\s+/i, '').trim();
+      if (cUnit.is_warlord && !warlordHeader) {
+        warlordHeader = `Char${idx + 1}: ${cName}`;
+      }
+      if (cUnit.enhancement) {
+        enhHeaders.push(`${cUnit.enhancement} (on Char${idx + 1}: ${cName})`);
+      }
+    });
+    if (!warlordHeader && list.warlord) {
+      warlordHeader = String(list.warlord).trim();
+    }
+
+    const lines = [
+      '+++++++++++++++++++++++++++++++++++++++++++++++',
+      `+ ARMY NAME: ${name}`,
+      `+ FACTION KEYWORD: ${faction}`
+    ];
+    if (det && det !== 'Core Detachment' && det !== 'Unknown Detachment') {
+      lines.push(`+ DETACHMENT: ${det}`);
+    }
+    lines.push(`+ TOTAL ARMY POINTS: ${pts}pts`, '+');
+    if (warlordHeader) lines.push(`+ WARLORD: ${warlordHeader}`);
+    if (enhHeaders.length > 0) {
+      lines.push(`+ ENHANCEMENT: ${enhHeaders[0]}`);
+      for (let i = 1; i < enhHeaders.length; i++) {
+        lines.push(`& ${enhHeaders[i]}`);
+      }
+    }
+    lines.push(`+ NUMBER OF UNITS: ${units.length}`, '+++++++++++++++++++++++++++++++++++++++++++++++', '');
+
+    chars.forEach((cUnit, idx) => {
+      const cName = String(cUnit.name || 'Unit').replace(/^\d+x\s+/i, '').trim();
+      const cPts = Number(cUnit.points || 0) || 0;
+      const cModels = Math.max(1, Number(cUnit.model_count || cUnit.models || 1) || 1);
+      const wgParts = [];
+      if (cUnit.is_warlord) wgParts.push('Warlord');
+      for (const wg of (Array.isArray(cUnit.wargear) ? cUnit.wargear : [])) {
+        const wgClean = String(wg || '').replace(/^1x\s+/i, '').trim();
+        if (wgClean && wgClean.toLowerCase() !== 'warlord') wgParts.push(wgClean);
+      }
+      const wgSuffix = wgParts.length ? `: ${wgParts.join(', ')}` : '';
+      lines.push(`Char${idx + 1}: ${cModels}x ${cName} (${cPts} pts)${wgSuffix}`);
+      if (cUnit.enhancement) {
+        const enhPts = cUnit.enhancement_pts ? ` (+${cUnit.enhancement_pts} pts)` : '';
+        lines.push(`Enhancement: ${cUnit.enhancement}${enhPts}`);
+      }
+      if (cUnit.leading) {
+        lines.push(`Leading ${String(cUnit.leading).replace(/^Leading\s+/i, '').trim()}`);
+      }
+      lines.push('');
+    });
+
+    for (const oUnit of others) {
+      const oName = String(oUnit.name || 'Unit').replace(/^\d+x\s+/i, '').trim();
+      const oPts = Number(oUnit.points || 0) || 0;
+      const oModels = Math.max(1, Number(oUnit.model_count || oUnit.models || 1) || 1);
+      const wgList = (Array.isArray(oUnit.wargear) ? oUnit.wargear : [])
+        .map(w => String(w || '').replace(/^1x\s+/i, '').trim())
+        .filter(w => w && w.toLowerCase() !== 'warlord');
+      let wgSuffix = '';
+      if (oModels > 1 && wgList.length) {
+        const tokenWg = [];
+        const modelWg = [];
+        for (const w of wgList) {
+          const mCnt = w.match(/^(\d+)x\s+(.*)$/i);
+          if (mCnt && parseInt(mCnt[1], 10) !== oModels) {
+            tokenWg.push(w);
+          } else if (mCnt) {
+            modelWg.push(mCnt[2].trim());
+          } else {
+            modelWg.push(w.replace(/^\d+\s+with\s+/i, '').trim());
+          }
+        }
+        const parts = [...tokenWg];
+        if (modelWg.length) parts.push(`${oModels} with ${modelWg.join(', ')}`);
+        if (parts.length) wgSuffix = `: ${parts.join(', ')}`;
+      } else if (wgList.length) {
+        wgSuffix = `: ${wgList.join(', ')}`;
+      }
+      lines.push(`${oModels}x ${oName} (${oPts} pts)${wgSuffix}`);
+      if (oUnit.attached_to) {
+        lines.push(`  Attached to ${String(oUnit.attached_to).replace(/^Attached\s+to\s+/i, '').trim()}`);
+      }
+    }
+    lines.push('', 'Created with newrecruit.eu v36.27');
     return lines.join('\n').trim();
   }
 
   // Default: GW Format
   const existingGw = String(list.gw_text || row._omnitactica_gw_text || '').trim();
-  if (existingGw.length > 10) return existingGw;
+  if (existingGw.length > 10 && !existingGw.startsWith('++++') && !existingGw.includes('+ FACTION KEYWORD:')) {
+    return existingGw;
+  }
   const rawCandidate = String(list.raw_text || '').trim();
   if (rawCandidate.length > 10 && !rawCandidate.startsWith('++++') && !rawCandidate.includes('+ FACTION KEYWORD:')) {
     return rawCandidate;
@@ -4623,33 +4860,42 @@ function generateRawRosterText(list, format = null) {
 
 window.generateRawRosterText = generateRawRosterText;
 
-window.setHubRosterTextFormat = function(fmt, listId) {
+window.setHubRosterTextFormat = function(fmt, listId, btnEl = null) {
   const cleanFmt = String(fmt || 'gw').toLowerCase() === 'nr' ? 'nr' : 'gw';
   window.hubCurrentRosterTextFormat = cleanFmt;
-  const list = (hubSavedLists || []).find(l => l && (l.id === listId || l.list_key === listId)) || window._activeViewedRosterList;
-  const preEl = document.getElementById('hub-raw-roster-content');
-  if (preEl && list) {
-    preEl.textContent = generateRawRosterText(list, cleanFmt);
-  }
-  const gwBtn = document.getElementById('hub-btn-text-fmt-gw');
-  const nrBtn = document.getElementById('hub-btn-text-fmt-nr');
-  const copyBtn = document.getElementById('hub-btn-copy-raw-text');
-  if (gwBtn) {
-    gwBtn.style.background = cleanFmt === 'gw' ? '#0284c7' : 'transparent';
-    gwBtn.style.color = cleanFmt === 'gw' ? '#fff' : '#94a3b8';
-  }
-  if (nrBtn) {
-    nrBtn.style.background = cleanFmt === 'nr' ? '#0284c7' : 'transparent';
-    nrBtn.style.color = cleanFmt === 'nr' ? '#fff' : '#94a3b8';
-  }
-  if (copyBtn) {
-    copyBtn.setAttribute('data-format', cleanFmt);
-    copyBtn.innerHTML = cleanFmt === 'nr' ? '📋 Copy NewRecruit Text' : '📋 Copy GW Text';
+  const list = resolveHubRosterList(listId);
+  const newText = list ? generateRawRosterText(list, cleanFmt) : '';
+
+  const localRoot = (btnEl && typeof btnEl.closest === 'function')
+    ? btnEl.closest('.hub-roster-text-viewer-root')
+    : null;
+  const scopes = localRoot ? [localRoot, document] : [document];
+
+  for (const scope of scopes) {
+    const preEls = scope.querySelectorAll('#hub-raw-roster-content, .hub-raw-roster-content');
+    preEls.forEach(preEl => {
+      if (list) preEl.textContent = newText;
+    });
+    const gwBtns = scope.querySelectorAll('#hub-btn-text-fmt-gw, .hub-btn-text-fmt-gw');
+    gwBtns.forEach(gwBtn => {
+      gwBtn.style.background = cleanFmt === 'gw' ? '#0284c7' : 'transparent';
+      gwBtn.style.color = cleanFmt === 'gw' ? '#fff' : '#94a3b8';
+    });
+    const nrBtns = scope.querySelectorAll('#hub-btn-text-fmt-nr, .hub-btn-text-fmt-nr');
+    nrBtns.forEach(nrBtn => {
+      nrBtn.style.background = cleanFmt === 'nr' ? '#0284c7' : 'transparent';
+      nrBtn.style.color = cleanFmt === 'nr' ? '#fff' : '#94a3b8';
+    });
+    const copyBtns = scope.querySelectorAll('#hub-btn-copy-raw-text, .hub-btn-copy-raw-text');
+    copyBtns.forEach(copyBtn => {
+      copyBtn.setAttribute('data-format', cleanFmt);
+      copyBtn.innerHTML = cleanFmt === 'nr' ? '📋 Copy NewRecruit Text' : '📋 Copy GW Text';
+    });
   }
 };
 
 window.copyHubRawText = function(listId, format = null) {
-  const list = (hubSavedLists || []).find(l => l && (l.id === listId || l.list_key === listId)) || window._activeViewedRosterList;
+  const list = resolveHubRosterList(listId);
   if (!list) return;
   const activeFmt = format || window.hubCurrentRosterTextFormat || 'gw';
   const rawText = generateRawRosterText(list, activeFmt);
@@ -4757,28 +5003,28 @@ function renderNativeRosterViewer(list, options = {}) {
     const activeFmt = String(options.textFormat || window.hubCurrentRosterTextFormat || 'gw').toLowerCase() === 'nr' ? 'nr' : 'gw';
     window.hubCurrentRosterTextFormat = activeFmt;
     const rawText = generateRawRosterText(list, activeFmt);
-    const listIdSafe = escapeHtml((list && list.id) || '');
+    const listIdSafe = escapeHtml((list && (list.id || list.list_key)) || '');
     return `
-      <div style="display:flex; flex-direction:column; padding:20px; flex:1; overflow:hidden; background:#070b14;">
+      <div class="hub-roster-text-viewer-root" style="display:flex; flex-direction:column; padding:20px; flex:1; overflow:hidden; background:#070b14;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <div style="font-size:13px; font-weight:800; color:#38bdf8; display:flex; align-items:center; gap:6px;">
               <span>📄</span> Roster Text Format:
             </div>
             <div style="display:inline-flex; background:rgba(15,23,42,0.9); border:1px solid rgba(56,189,248,0.3); border-radius:8px; padding:2px; gap:2px;">
-              <button id="hub-btn-text-fmt-gw" onclick="setHubRosterTextFormat('gw', '${listIdSafe}')" style="background:${activeFmt === 'gw' ? '#0284c7' : 'transparent'}; color:${activeFmt === 'gw' ? '#fff' : '#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11.5px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+              <button id="hub-btn-text-fmt-gw" class="hub-btn-text-fmt-gw" type="button" onclick="setHubRosterTextFormat('gw', '${listIdSafe}', this)" style="background:${activeFmt === 'gw' ? '#0284c7' : 'transparent'}; color:${activeFmt === 'gw' ? '#fff' : '#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11.5px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
                 🏛️ GW Format
               </button>
-              <button id="hub-btn-text-fmt-nr" onclick="setHubRosterTextFormat('nr', '${listIdSafe}')" style="background:${activeFmt === 'nr' ? '#0284c7' : 'transparent'}; color:${activeFmt === 'nr' ? '#fff' : '#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11.5px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+              <button id="hub-btn-text-fmt-nr" class="hub-btn-text-fmt-nr" type="button" onclick="setHubRosterTextFormat('nr', '${listIdSafe}', this)" style="background:${activeFmt === 'nr' ? '#0284c7' : 'transparent'}; color:${activeFmt === 'nr' ? '#fff' : '#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11.5px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
                 ⚔️ NewRecruit Format
               </button>
             </div>
           </div>
-          <button id="hub-btn-copy-raw-text" data-format="${activeFmt}" onclick="copyHubRawText('${listIdSafe}', this.getAttribute('data-format'))" style="background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:800; font-size:12px; padding:7px 16px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+          <button id="hub-btn-copy-raw-text" class="hub-btn-copy-raw-text" type="button" data-format="${activeFmt}" onclick="copyHubRawText('${listIdSafe}', this.getAttribute('data-format'))" style="background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:800; font-size:12px; padding:7px 16px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;">
             ${activeFmt === 'nr' ? '📋 Copy NewRecruit Text' : '📋 Copy GW Text'}
           </button>
         </div>
-        <pre id="hub-raw-roster-content" style="flex:1; margin:0; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:18px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#e2e8f0; line-height:1.6; white-space:pre-wrap; overflow-y:auto; word-break:break-word;">${escapeHtml(rawText)}</pre>
+        <pre id="hub-raw-roster-content" class="hub-raw-roster-content" style="flex:1; margin:0; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:18px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#e2e8f0; line-height:1.6; white-space:pre-wrap; overflow-y:auto; word-break:break-word;">${escapeHtml(rawText)}</pre>
       </div>
     `;
   }

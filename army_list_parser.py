@@ -335,9 +335,37 @@ class ArmyListParser:
         if not isinstance(roster, dict):
             return self._create_empty_roster()
         units = roster.get("units") or []
-        has_nr_row = bool(isinstance(roster.get("nr_row"), dict) and roster["nr_row"].get("list_key"))
+        nr_row = roster.get("nr_row") if isinstance(roster.get("nr_row"), dict) else {}
+        has_nr_row = bool(nr_row and nr_row.get("list_key"))
         src_fmt = str(roster.get("source_format") or "").strip()
         raw_txt = str(roster.get("raw_text") or "").strip()
+        gw_cand = str(roster.get("gw_text") or nr_row.get("_omnitactica_gw_text") or "").strip()
+        nr_cand = str(roster.get("nr_text") or nr_row.get("_omnitactica_nr_text") or "").strip()
+
+        has_wargear = any(isinstance(u, dict) and u.get("wargear") for u in units)
+        if (not units or not has_wargear) and (gw_cand or nr_cand or raw_txt):
+            parse_src = gw_cand or raw_txt or nr_cand
+            if parse_src and not parse_src.startswith(("{", "<")):
+                try:
+                    if parse_src.startswith("++++") or "+ FACTION KEYWORD:" in parse_src.upper():
+                        parsed_sub = self._parse_newrecruit_text(parse_src)
+                    else:
+                        parsed_sub = self._parse_warhammer_app_text(parse_src)
+                    sub_units = parsed_sub.get("units") or []
+                    if sub_units:
+                        if not units:
+                            units = sub_units
+                            roster["units"] = units
+                        elif not has_wargear:
+                            roster["units"] = sub_units
+                            units = sub_units
+                        if not roster.get("warlord") and parsed_sub.get("warlord"):
+                            roster["warlord"] = parsed_sub["warlord"]
+                        if (not roster.get("detachment") or roster.get("detachment") in ("Core Detachment", "Unknown Detachment")) and parsed_sub.get("detachment") not in ("", "Core Detachment", "Unknown Detachment"):
+                            roster["detachment"] = parsed_sub["detachment"]
+                except Exception:
+                    pass
+
         is_nr_export = bool(
             has_nr_row
             or src_fmt in ("NewRecruit", "NewRecruit Sync", "NewRecruit Studio", "NewRecruit Link", "NewRecruit Cloud")
@@ -367,8 +395,10 @@ class ArmyListParser:
                 and not raw_txt.startswith(("{", "<"))
                 and any(h in raw_txt.upper() for h in ("CHARACTERS", "BATTLELINE", "OTHER DATASHEETS", "ATTACHED UNITS", "STRIKE FORCE", "INCURSION"))
             )
-            roster["gw_text"] = raw_txt if is_input_gw else (roster.get("gw_text") or self.format_roster_gw_text(roster))
-            roster["nr_text"] = raw_txt if is_input_nr else (roster.get("nr_text") or self.format_roster_nr_text(roster))
+            valid_gw_cand = gw_cand if (gw_cand and not gw_cand.startswith("++++") and "+ FACTION KEYWORD:" not in gw_cand.upper()) else ""
+            valid_nr_cand = nr_cand if (nr_cand and (nr_cand.startswith("++++") or "+ FACTION KEYWORD:" in nr_cand.upper() or "++ " in nr_cand)) else ""
+            roster["gw_text"] = valid_gw_cand or (raw_txt if is_input_gw else self.format_roster_gw_text(roster))
+            roster["nr_text"] = valid_nr_cand or (raw_txt if is_input_nr else self.format_roster_nr_text(roster))
             roster["raw_text"] = roster["gw_text"]
         return roster
 

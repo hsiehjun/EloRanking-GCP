@@ -104,8 +104,13 @@ def _resolve_user_id(request: Request) -> Optional[str]:
 async def api_get_armylists(request: Request, game_system: Optional[str] = Query(None)):
     user_id = _resolve_user_id(request)
     db = get_database()
-    lists = db.get_user_army_lists(user_id=user_id, game_system=game_system)
-    return {"success": True, "army_lists": lists}
+    lists = db.get_user_army_lists(user_id=user_id, game_system=game_system) or []
+    parser = get_army_parser()
+    enriched = [
+        parser._finalize_roster_compatibility(dict(item)) if isinstance(item, dict) else item
+        for item in lists
+    ]
+    return {"success": True, "army_lists": enriched}
 
 @router.post("/api/armylists", summary="Save or create user army list")
 async def api_save_armylist(request: Request):
@@ -206,6 +211,8 @@ async def api_get_armylist(list_id: str, request: Request):
     item = db.get_user_army_list(list_id, user_id=user_id)
     if not item:
         raise HTTPException(status_code=404, detail="Army list not found")
+    if isinstance(item, dict):
+        item = get_army_parser()._finalize_roster_compatibility(dict(item))
     return {"success": True, "army_list": item}
 
 @router.get("/api/bcp/armylist/{list_id}", summary="Fetch official army list text from Best Coast Pairings")

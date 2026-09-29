@@ -5063,6 +5063,8 @@ function setEventArmyListViewMode(mode) {
 }
 
 function closeEventArmyListModal() {
+  const contentEl = document.getElementById('event-army-list-modal-content');
+  if (contentEl) contentEl.innerHTML = '';
   if (typeof closeModal === 'function') {
     closeModal('event-army-list-modal');
   } else {
