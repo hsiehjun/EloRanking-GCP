@@ -160,7 +160,7 @@ async function loadMyHubDashboard() {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && (!parsed.player_id || parsed.player_id !== 'p_innes')) {
-          if (parsed.badge_count !== undefined && parsed.rank) {
+          if (parsed.player && typeof parsed.player === 'object') {
             cachedData = parsed;
           } else {
             localStorage.removeItem(cacheStorageKey);
@@ -174,9 +174,23 @@ async function loadMyHubDashboard() {
     } catch (e) {}
   }
 
+  if (!Array.isArray(hubSavedLists) || hubSavedLists.length === 0) {
+    try {
+      const cachedListsRaw = localStorage.getItem('my_hub_armylists_cache');
+      if (cachedListsRaw) {
+        const parsedLists = JSON.parse(cachedListsRaw);
+        if (Array.isArray(parsedLists)) {
+          hubSavedLists = parsedLists.filter(l => !isHubListTombstoned(l));
+          window.hubSavedLists = hubSavedLists;
+        }
+      }
+    } catch (e) {}
+  }
+
   // Ensure local active and completed tracker matches are instantly reflected in optimistic render
   const localInitial = getLocalTrackerSessions(gs);
   const alreadyMounted = Boolean(document.getElementById('my-hub-container'));
+  const bootSplashActive = Boolean(document.getElementById('app-boot-splash'));
   if (cachedData) {
     if (Array.isArray(cachedData.active_sessions) && cachedData.active_sessions.length > 1) {
       const serverActiveItems = cachedData.active_sessions.filter(m => {
@@ -208,7 +222,7 @@ async function loadMyHubDashboard() {
     if (!alreadyMounted) {
       renderMyHub(cachedData);
     }
-  } else if (currentUser) {
+  } else if (currentUser && !bootSplashActive) {
     const shell = buildMyHubShellData(currentUser);
     shell.active_sessions = localInitial.active;
     shell.primary_active = localInitial.active[0] || null;
@@ -218,7 +232,7 @@ async function loadMyHubDashboard() {
     if (!alreadyMounted) {
       renderMyHub(shell);
     }
-  } else {
+  } else if (!bootSplashActive) {
     container.innerHTML = `
       <div class="empty-state" style="padding: 3rem 1rem;">
         <div class="spinner"></div>
@@ -333,7 +347,7 @@ async function loadMyHubDashboard() {
 
     if (mySeq !== _myHubLoadSeq) return;
 
-    renderMyHub(data);
+    await renderMyHub(data);
     if (window.Armory && typeof window.Armory.renderActiveRivalHexBanner === 'function') {
       window.Armory.renderActiveRivalHexBanner('my-hub-content');
     }
@@ -2126,7 +2140,10 @@ function renderMyHub(data) {
 
   // Render SVG Trajectory & Load Army Lists
   renderHubTrajectory(history);
-  loadHubArmyLists();
+  if (Array.isArray(hubSavedLists) && hubSavedLists.length > 0) {
+    renderHubArmyLists(hubSavedLists);
+  }
+  const armyListsPromise = loadHubArmyLists();
 
   // If trophies subtab is active, render Trophy Room immediately
   if (currentHubSubtab === 'trophies' && window.BadgesUI) {
@@ -2141,6 +2158,8 @@ function renderMyHub(data) {
     var celebrantId = (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.id || currentUser.player_id) : 'guest';
     window.BadgesUI.checkFirstTimeCelebration(data, celebrantId);
   }
+
+  return armyListsPromise;
 }
 
 function renderHubTrajectory(history) {
@@ -3470,6 +3489,9 @@ async function loadHubArmyLists() {
     }
     hubSavedLists = lists;
     window.hubSavedLists = lists;
+    try {
+      localStorage.setItem('my_hub_armylists_cache', JSON.stringify(lists));
+    } catch (e) {}
     const localAuthFallback = getLocalNrCloudAccountFallback();
     if (nrState && nrState.cloud_account && nrState.cloud_account.connected) {
       hubNrCloudAccount = nrState.cloud_account;
@@ -4733,11 +4755,26 @@ function requestNativeExportsFromNrEngine(list) {
   }
   _nrNativeExportRequestedAt[listKey] = now;
 
+  const isSavedInHub = Array.isArray(hubSavedLists) && hubSavedLists.some(l => {
+    if (!l) return false;
+    const lk = resolveHubNrListKey(l);
+    return (list.id && l.id === list.id) || (lk && lk === listKey);
+  });
+  const isEphemeralList = Boolean(
+    list._ephemeral_view ||
+    (row && row._ephemeral_view) ||
+    !isSavedInHub
+  );
+  const rowPayload = row
+    ? (isEphemeralList ? Object.assign({}, row, { _ephemeral_view: true }) : row)
+    : null;
+
   const cmdPayload = {
     type: 'OMNITACTICA_NR_COMMAND',
     command: 'export_list_texts',
     list_key: listKey,
-    nr_row: row
+    ephemeral: isEphemeralList,
+    nr_row: rowPayload
   };
 
   const playIframe = document.getElementById('hub-nr-play-mode-iframe');
@@ -5135,6 +5172,12 @@ window.renderNonNewRecruitFallbackView = renderNonNewRecruitFallbackView;
 
 function renderNativeRosterViewer(list, options = {}) {
   const viewMode = (options.mode || window.hubCurrentViewMode) === 'text' ? 'text' : 'play';
+  if (list && options.ephemeral) {
+    list._ephemeral_view = true;
+    if (list.nr_row && typeof list.nr_row === 'object') {
+      list.nr_row._ephemeral_view = true;
+    }
+  }
   window._activeViewedRosterList = list;
 
   if (viewMode === 'text') {
@@ -5190,14 +5233,17 @@ function renderNativeRosterViewer(list, options = {}) {
   }
 
   const listKey = resolveHubNrListKey(list);
+  const isEphemeralView = Boolean(options.ephemeral || list._ephemeral_view || (list.nr_row && list.nr_row._ephemeral_view));
   try {
     if (list.nr_row && window.sessionStorage) {
-      window.sessionStorage.setItem('omni_pending_nr_row_' + listKey, JSON.stringify(list.nr_row));
+      const rowToStore = isEphemeralView ? Object.assign({}, list.nr_row, { _ephemeral_view: true }) : list.nr_row;
+      window.sessionStorage.setItem('omni_pending_nr_row_' + listKey, JSON.stringify(rowToStore));
     }
   } catch (e) {}
 
+  const ephParam = isEphemeralView ? '&ephemeral=1' : '';
   const nameParam = list.name ? `&name=${encodeURIComponent(list.name)}` : '';
-  const iframeUrl = `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=hub${nameParam}&_cb=${Date.now()}`;
+  const iframeUrl = `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=hub${ephParam}${nameParam}&_cb=${Date.now()}`;
 
   return `
     <div id="hub-nr-play-mode-wrapper" style="flex:1; width:100%; height:100%; min-height:560px; position:relative; background:#090d16; display:flex; flex-direction:column; overflow:hidden;">
@@ -5225,6 +5271,7 @@ function attachHubPlayModeIframeLifecycle(list, containerEl = null, options = {}
   if (!iframe || !list) return;
 
   const listKey = resolveHubNrListKey(list);
+  const isEphemeralView = Boolean(options.ephemeral || list._ephemeral_view || (list.nr_row && list.nr_row._ephemeral_view));
   let settled = false;
 
   const hidePlayLoading = () => {
@@ -5285,13 +5332,17 @@ function attachHubPlayModeIframeLifecycle(list, containerEl = null, options = {}
     if (settled) return;
     try {
       if (iframe.contentWindow) {
+        const nrRowPayload = list.nr_row
+          ? (isEphemeralView ? Object.assign({}, list.nr_row, { _ephemeral_view: true }) : list.nr_row)
+          : null;
         iframe.contentWindow.postMessage({
           type: 'OMNITACTICA_NR_COMMAND',
           command: 'open_play_mode',
           list_key: listKey,
           list_name: list.name || '',
           play: true,
-          nr_row: list.nr_row || null
+          ephemeral: isEphemeralView,
+          nr_row: nrRowPayload
         }, '*');
       }
     } catch (e) {}

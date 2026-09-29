@@ -3971,11 +3971,13 @@
       `;
     }
 
+    const isOppTab = clientState.activeListTab === 'opponent';
+    const ephParam = (isOppTab || list._ephemeral_view || (list.nr_row && list.nr_row._ephemeral_view)) ? '&ephemeral=1' : '';
     const nameParam = list.name ? `&name=${encodeURIComponent(list.name)}` : '';
     const cbParam = `&_cb=${Date.now()}`;
-    const iframeUrl = activeMode === 'edit'
+    const iframeUrl = (activeMode === 'edit' && !isOppTab)
       ? `/nr/app/Lists/${encodeURIComponent(listKey)}?embed=tracker${nameParam}${cbParam}`
-      : `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=tracker${nameParam}${cbParam}`;
+      : `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=tracker${ephParam}${nameParam}${cbParam}`;
 
     return `
       ${hiddenMetaHooks}
@@ -4007,7 +4009,10 @@
 
     const tab = clientState.activeListTab;
     const hasActiveRoster = (tab === 'opponent' || tab === 'my') && activeList && (activeList.list_key || activeList.nr_row || activeList.source_url || activeList.raw_text || (activeList.units && activeList.units.length > 0));
-    const activeMode = (clientState.rosterViewMode === 'text' || clientState.rosterViewMode === 'edit')
+    if (tab === 'opponent' && clientState.rosterViewMode === 'edit') {
+      clientState.rosterViewMode = 'play';
+    }
+    const activeMode = (clientState.rosterViewMode === 'text' || (clientState.rosterViewMode === 'edit' && tab !== 'opponent'))
       ? clientState.rosterViewMode
       : 'play';
 
@@ -4118,9 +4123,11 @@ Space Marines - Gladius Task Force (2000 pts)
                 <button onclick="window.gtToggleRosterViewMode('play')" title="NewRecruit Play Mode" style="background:${activeMode==='play'?'#0284c7':'transparent'}; color:${activeMode==='play'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
                   🎮 Play
                 </button>
+                ${tab !== 'opponent' ? `
                 <button onclick="window.gtToggleRosterViewMode('edit')" title="Edit in NewRecruit" style="background:${activeMode==='edit'?'#7c3aed':'transparent'}; color:${activeMode==='edit'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
                   🛠️ Edit
                 </button>
+                ` : ''}
                 <button onclick="window.gtToggleRosterViewMode('text')" title="Raw Roster Text" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
                   📄 Text
                 </button>
@@ -4142,7 +4149,11 @@ Space Marines - Gladius Task Force (2000 pts)
       const iframe = document.getElementById('gt-nr-play-mode-iframe');
       if (iframe) {
         const listKey = resolveTrackerNrListKey(activeList);
-        const isPlayMode = (clientState.rosterViewMode || 'play') !== 'edit';
+        const isPlayMode = (clientState.rosterViewMode || 'play') !== 'edit' || tab === 'opponent';
+        const isEphemeralOpp = tab === 'opponent' || Boolean(activeList._ephemeral_view || (activeList.nr_row && activeList.nr_row._ephemeral_view));
+        const nrRowPayload = activeList.nr_row
+          ? (isEphemeralOpp ? Object.assign({}, activeList.nr_row, { _ephemeral_view: true }) : activeList.nr_row)
+          : null;
         const sendPlayCmd = () => {
           try {
             if (iframe.contentWindow) {
@@ -4152,7 +4163,8 @@ Space Marines - Gladius Task Force (2000 pts)
                 list_key: listKey,
                 list_name: activeList.name || '',
                 play: isPlayMode,
-                nr_row: activeList.nr_row || null
+                ephemeral: isEphemeralOpp,
+                nr_row: nrRowPayload
               }, '*');
             }
           } catch (e) {}

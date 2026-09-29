@@ -260,8 +260,11 @@ function switchTab(tabName) {
     celebModal.remove();
   }
 
-  if (typeof handleAppRoute === 'function' && handleAppRoute(tabName)) {
-    return;
+  if (typeof handleAppRoute === 'function') {
+    const routeHandled = handleAppRoute(tabName);
+    if (routeHandled) {
+      return routeHandled;
+    }
   }
   // Normalize alias names & target subtabs for Community Hub & Chat
   let communitySubtab = null;
@@ -365,27 +368,27 @@ function switchTab(tabName) {
   if (tabName === 'leaderboard') {
     const teamsBtn = document.getElementById('lead-subtab-teams');
     if (teamsBtn && teamsBtn.classList.contains('active')) {
-      if (typeof loadLeaderboardTeams === 'function') loadLeaderboardTeams();
+      if (typeof loadLeaderboardTeams === 'function') return loadLeaderboardTeams();
     } else {
-      if (typeof loadLeaderboard === 'function') loadLeaderboard();
+      if (typeof loadLeaderboard === 'function') return loadLeaderboard();
     }
   } else if (tabName === 'meta-intel') {
     if (typeof switchMetaSubtab === 'function') {
-      switchMetaSubtab(metaSubtab || 'factions');
+      return switchMetaSubtab(metaSubtab || 'factions');
     } else if (typeof loadFactionMeta === 'function') {
-      loadFactionMeta();
+      return loadFactionMeta();
     }
   } else if (tabName === 'search') {
-    switchSearchSubtab('players');
+    return switchSearchSubtab('players');
   } else if (tabName === 'community') {
     if (!currentUser) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#community');
       return;
     }
     if (typeof initCommunityHub === 'function') {
-      initCommunityHub(communitySubtab);
+      return initCommunityHub(communitySubtab);
     } else if (typeof initConnectTab === 'function') {
-      initConnectTab();
+      return initConnectTab();
     }
   } else if (tabName === 'event-studio') {
     if (!currentUser) {
@@ -397,18 +400,21 @@ function switchTab(tabName) {
       return userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || Boolean(currentUser && (currentUser.is_admin || currentUser.can_access_to));
     })();
     if (!canAccessTO) {
-      switchTab('community');
-      return;
+      return switchTab('community');
     }
     if (typeof initStudio === 'function') {
-      initStudio();
+      return initStudio();
     } else {
-      const s = document.createElement('script');
-      s.src = `/js/eventstudio.js?v=${window.APP_VERSION || Date.now()}`;
-      s.onload = () => {
-        if (typeof initStudio === 'function') initStudio();
-      };
-      document.head.appendChild(s);
+      return new Promise((resolve) => {
+        const s = document.createElement('script');
+        s.src = `/js/eventstudio.js?v=${window.APP_VERSION || Date.now()}`;
+        s.onload = () => {
+          if (typeof initStudio === 'function') Promise.resolve(initStudio()).then(resolve).catch(resolve);
+          else resolve();
+        };
+        s.onerror = () => resolve();
+        document.head.appendChild(s);
+      });
     }
   } else if (tabName === 'my-hub') {
     if (!currentUser) {
@@ -418,10 +424,10 @@ function switchTab(tabName) {
     if (typeof resetMyHubToProfile === 'function') {
       resetMyHubToProfile();
     }
-    if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
+    if (typeof loadMyHubDashboard === 'function') return loadMyHubDashboard();
   } else if (tabName === 'teams' || tabName === 'team') {
     if (typeof navigateToUserTeam === 'function') {
-      navigateToUserTeam();
+      return navigateToUserTeam();
     } else {
       const container = document.getElementById('teams-view-container');
       if (container && typeof renderUnaffiliatedTeamHub === 'function') {
@@ -516,8 +522,7 @@ function handleAppRoute(routeStr) {
     const routeSys = playerMatch[1] ? playerMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     const pid = decodeURIComponent(playerMatch[2]);
     if (typeof openPlayerProfilePage === 'function') {
-      openPlayerProfilePage(pid, routeSys, { replaceUrl: true });
-      return true;
+      return openPlayerProfilePage(pid, routeSys, { replaceUrl: true }) || true;
     }
   }
 
@@ -532,8 +537,7 @@ function handleAppRoute(routeStr) {
       subtab = subtab || sp.get('subtab') || sp.get('tab');
     } catch (e) {}
     if (typeof openEventHubPage === 'function') {
-      openEventHubPage(eid, routeSys, { replaceUrl: true, initialTab: subtab || undefined });
-      return true;
+      return openEventHubPage(eid, routeSys, { replaceUrl: true, initialTab: subtab || undefined }) || true;
     }
   }
 
@@ -545,13 +549,11 @@ function handleAppRoute(routeStr) {
     const tname = rawName ? decodeURIComponent(rawName).trim() : '';
     if (tname) {
       if (typeof openTeamProfilePage === 'function') {
-        openTeamProfilePage(tname, routeSys, { replaceUrl: true });
-        return true;
+        return openTeamProfilePage(tname, routeSys, { replaceUrl: true }) || true;
       }
     } else {
       if (typeof navigateToUserTeam === 'function') {
-        navigateToUserTeam(routeSys);
-        return true;
+        return navigateToUserTeam(routeSys) || true;
       }
     }
   }
@@ -573,8 +575,7 @@ function handleAppRoute(routeStr) {
       sub = 'pods';
     }
     if (typeof openLeagueHubPage === 'function') {
-      openLeagueHubPage(lid, routeSys, { replaceUrl: true, initialSubtab: sub || undefined, pod: podNum || undefined });
-      return true;
+      return openLeagueHubPage(lid, routeSys, { replaceUrl: true, initialSubtab: sub || undefined, pod: podNum || undefined }) || true;
     }
   }
   return false;
@@ -1006,8 +1007,8 @@ function dismissBootSplash() {
   }
 }
 window.dismissBootSplash = dismissBootSplash;
-// Safety fallback so splash never blocks user under slow network
-setTimeout(dismissBootSplash, 3500);
+// Safety fallback so splash never blocks user indefinitely under broken network
+setTimeout(dismissBootSplash, 10000);
 
 document.addEventListener('DOMContentLoaded', async () => {
   const updateBootStatus = (msg) => {
@@ -1081,10 +1082,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     attachUserSyncSnapshot();
   }
 
+  const awaitWithBootTimeout = async (promiseOrVal, maxMs = 7000) => {
+    if (!promiseOrVal || typeof promiseOrVal.then !== 'function') return;
+    try {
+      await Promise.race([
+        promiseOrVal,
+        new Promise((resolve) => setTimeout(resolve, maxMs))
+      ]);
+    } catch (e) {}
+  };
+
+  const finishBootSplash = () => {
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => dismissBootSplash());
+      });
+    } else {
+      setTimeout(dismissBootSplash, 50);
+    }
+  };
+
   const hashVal = window.location.hash ? window.location.hash.trim() : null;
-  if (hashVal && typeof handleAppRoute === 'function' && handleAppRoute(hashVal)) {
-    setTimeout(dismissBootSplash, 150);
-    return;
+  if (hashVal && typeof handleAppRoute === 'function') {
+    const routeResult = handleAppRoute(hashVal);
+    if (routeResult) {
+      await awaitWithBootTimeout(routeResult);
+      finishBootSplash();
+      return;
+    }
   }
   const params = new URLSearchParams(window.location.search);
   let targetTab = hashVal ? hashVal.replace(/^[#/]+/, '') : params.get('tab');
@@ -1104,17 +1129,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       targetTab = 'community';
     }
   }
-  if (targetTab) {
-    switchTab(targetTab);
-  } else {
-    switchTab('my-hub');
-  }
+  const tabPromise = targetTab ? switchTab(targetTab) : switchTab('my-hub');
   if (shouldOpenChat) {
     if (typeof toggleFloatingChat === 'function') {
       toggleFloatingChat(true);
     }
   }
-  setTimeout(dismissBootSplash, 150);
+  await awaitWithBootTimeout(tabPromise);
+  finishBootSplash();
 });
 
 function openMobileMoreSheet() {

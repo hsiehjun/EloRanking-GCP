@@ -41,7 +41,11 @@ async def api_parse_armylist(req: Request):
     source_format = body.get("format")
     parser = get_army_parser()
     parsed = parser.parse(raw_text, source_hint=source_format, enrich=bool(body.get("enrich")))
+    if not body.get("save"):
+        parsed["_ephemeral_view"] = True
     nr_row = build_synthetic_nr_row(parsed)
+    if not body.get("save"):
+        nr_row["_ephemeral_view"] = True
     parsed["list_key"] = nr_row.get("list_key")
     parsed["nr_row"] = nr_row
     return {"success": True, "army_list": parsed}
@@ -131,20 +135,7 @@ async def api_get_nr_state(request: Request):
 
     db = get_database()
     saved_lists = list(db.get_user_army_lists(user_id=user_id) or [])
-    saved_ids = {str(x.get("id") or "") for x in saved_lists if isinstance(x, dict)}
-    saved_keys = {str(x.get("list_key") or "") for x in saved_lists if isinstance(x, dict) and x.get("list_key")}
-    lists = list(saved_lists)
-    # Also include any active Game Tracker room lists (Player 1 & Player 2) as ephemeral so Opponent's List opens in Play Mode
-    for room_data in list(TRACKER_ROOMS.values()):
-        if isinstance(room_data, dict):
-            for k in ("p1_army_list", "p2_army_list"):
-                r_list = room_data.get(k)
-                if isinstance(r_list, dict):
-                    rl_id = str(r_list.get("id") or "")
-                    rl_key = str(r_list.get("list_key") or "")
-                    if rl_id not in saved_ids and (not rl_key or rl_key not in saved_keys):
-                        lists.append(dict(r_list, _ephemeral_view=True))
-    return get_nr_state_payload(lists, user_key=user_id or "default")
+    return get_nr_state_payload(saved_lists, user_key=user_id or "default")
 
 
 @router.post("/api/armylists/nr_sync", summary="Sync army list creation, modification, or deletion from embedded NewRecruit Studio")

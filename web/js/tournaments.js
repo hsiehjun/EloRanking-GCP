@@ -4966,10 +4966,13 @@ function _renderEventCompetitorPlayMode(contentEl, parsedRoster, fallbackText) {
       });
     }
   }
-  if (parsedRoster && parsedRoster.nr_row && !matchedSaved) {
-    parsedRoster.nr_row = Object.assign({}, parsedRoster.nr_row, { _ephemeral_view: true });
+  if (parsedRoster && !matchedSaved) {
+    parsedRoster._ephemeral_view = true;
+    if (parsedRoster.nr_row) {
+      parsedRoster.nr_row = Object.assign({}, parsedRoster.nr_row, { _ephemeral_view: true });
+    }
   }
-  const viewOpts = { mode: 'play', onViewRawText: "setEventArmyListViewMode('text')" };
+  const viewOpts = { mode: 'play', ephemeral: !matchedSaved, onViewRawText: "setEventArmyListViewMode('text')" };
   const renderer = window.renderNativeRosterViewer || (typeof renderNativeRosterViewer === 'function' ? renderNativeRosterViewer : null);
   if (renderer && parsedRoster) {
     contentEl.innerHTML = renderer(parsedRoster, viewOpts);
@@ -5014,6 +5017,8 @@ function setEventArmyListViewMode(mode) {
       window.api.parseArmyList(currentEventArmyListText)
         .then(res => {
           if (res && res.success && res.army_list) {
+            res.army_list._ephemeral_view = true;
+            if (res.army_list.nr_row) res.army_list.nr_row._ephemeral_view = true;
             currentEventParsedRoster = res.army_list;
             if (currentArmyListModalPlayer) {
               currentArmyListModalPlayer._parsed_roster = res.army_list;
@@ -5036,7 +5041,9 @@ function setEventArmyListViewMode(mode) {
     // Raw Text mode (GW Format default + NewRecruit Format toggle)
     const renderer = window.renderNativeRosterViewer || (typeof renderNativeRosterViewer === 'function' ? renderNativeRosterViewer : null);
     if (renderer && currentEventParsedRoster) {
-      contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'text' });
+      currentEventParsedRoster._ephemeral_view = true;
+      if (currentEventParsedRoster.nr_row) currentEventParsedRoster.nr_row._ephemeral_view = true;
+      contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'text', ephemeral: true });
       return;
     }
     contentEl.innerHTML = `
@@ -5052,9 +5059,11 @@ function setEventArmyListViewMode(mode) {
     if (renderer && currentEventArmyListText && window.api && typeof window.api.parseArmyList === 'function') {
       window.api.parseArmyList(currentEventArmyListText).then(res => {
         if (res && res.success && res.army_list) {
+          res.army_list._ephemeral_view = true;
+          if (res.army_list.nr_row) res.army_list.nr_row._ephemeral_view = true;
           currentEventParsedRoster = res.army_list;
           if (currentEventArmyListViewMode === 'text' && document.getElementById('event-army-list-modal-content') === contentEl) {
-            contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'text' });
+            contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'text', ephemeral: true });
           }
         }
       }).catch(() => {});

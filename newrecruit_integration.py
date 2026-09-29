@@ -1156,6 +1156,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     initialSearch.indexOf('play=1') !== -1 ||
     initialSearch.indexOf('mode=play') !== -1
   );
+  var isEphemeralViewer = (initialSearch.indexOf('ephemeral=1') !== -1);
   var preferredStudioSystemId = null;
   var mIdSysQuery = initialSearch.match(/[?&]id_system=(\d+)/i);
   var mSysQuery = initialSearch.match(/[?&]sys=([a-z0-9_-]+)/i);
@@ -1275,6 +1276,11 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       var savedPendingRow = window.sessionStorage.getItem('omni_pending_nr_row_' + requestedListKeyFromUrl);
       if (savedPendingRow) {
         pendingNrRowFromParent = JSON.parse(savedPendingRow);
+        if (pendingNrRowFromParent && pendingNrRowFromParent._ephemeral_view) {
+          isEphemeralViewer = true;
+        } else if (isEphemeralViewer && pendingNrRowFromParent) {
+          pendingNrRowFromParent._ephemeral_view = true;
+        }
       }
     }
   } catch (e) {}
@@ -1716,12 +1722,28 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   async function purgeTombstonedRowsFromPiniaAndCloud(stores) {
     if (purgingTombstones || !stores || !stores.list || !Array.isArray(stores.list.listData)) return;
     var victimRows = stores.list.listData.filter(function(r) { return r && isTombstonedNrRow(r); });
-    if (victimRows.length === 0) return;
+    var leakedEphemeralRows = stores.list.listData.filter(function(r) {
+      if (!r || !r._ephemeral_view) return false;
+      if (isEphemeralViewer && requestedListKeyFromUrl && r.list_key === requestedListKeyFromUrl) return false;
+      return true;
+    });
+    if (victimRows.length === 0 && leakedEphemeralRows.length === 0) return;
     purgingTombstones = true;
     var prevHyd = isHydrating;
     isHydrating = true;
     var keysToPurgeIdb = [];
     try {
+      for (var eIdx = 0; eIdx < leakedEphemeralRows.length; eIdx++) {
+        var er = leakedEphemeralRows[eIdx];
+        var ek = String(er.list_key || er._id || '');
+        if (ek && keysToPurgeIdb.indexOf(ek) === -1) keysToPurgeIdb.push(ek);
+        delete knownListsMap[ek];
+        var epIdx = stores.list.listData.findIndex(function(x) { return x && x.list_key === ek; });
+        while (epIdx !== -1) {
+          stores.list.listData.splice(epIdx, 1);
+          epIdx = stores.list.listData.findIndex(function(x) { return x && x.list_key === ek; });
+        }
+      }
       for (var i = 0; i < victimRows.length; i++) {
         var vr = victimRows[i];
         var vk = String(vr.list_key || vr._id || '');
@@ -1751,24 +1773,33 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           await deleteKeyFromNrServerRpc(vk);
         }
       }
-      if (keysToPurgeIdb.length > 0) {
-        var db = await openExistingNrDb();
-        if (db) {
-          await new Promise(function(resolve) {
-            var done = false;
-            var finish = function() { if (!done) { done = true; resolve(); } };
-            setTimeout(finish, 600);
-            try {
-              var tx = db.transaction('lists', 'readwrite');
-              var stObj = tx.objectStore('lists');
-              for (var kIdx = 0; kIdx < keysToPurgeIdb.length; kIdx++) {
-                try { stObj.delete(keysToPurgeIdb[kIdx]); } catch (e) {}
+      var db = await openExistingNrDb();
+      if (db) {
+        await new Promise(function(resolve) {
+          var done = false;
+          var finish = function() { if (!done) { done = true; resolve(); } };
+          setTimeout(finish, 600);
+          try {
+            var tx = db.transaction('lists', 'readwrite');
+            var stObj = tx.objectStore('lists');
+            for (var kIdx = 0; kIdx < keysToPurgeIdb.length; kIdx++) {
+              try { stObj.delete(keysToPurgeIdb[kIdx]); } catch (e) {}
+            }
+            var curReq = stObj.openCursor();
+            curReq.onsuccess = function(evCur) {
+              var cursor = evCur.target.result;
+              if (cursor) {
+                var rVal = cursor.value;
+                if (rVal && rVal._ephemeral_view) {
+                  try { cursor.delete(); } catch (e) {}
+                }
+                cursor.continue();
               }
-              tx.oncomplete = finish;
-              tx.onerror = finish;
-            } catch (e) { finish(); }
-          });
-        }
+            };
+            tx.oncomplete = finish;
+            tx.onerror = finish;
+          } catch (e) { finish(); }
+        });
       }
       try {
         if (typeof stores.list.rebuildTreeData === 'function') {
@@ -1902,9 +1933,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
 
   async function syncUpsertRow(row, explicitArmy, explicitBook) {
-    if (isHydrating || !row || row._ephemeral_view || isTombstonedNrRow(row)) return;
+    if (isHydrating || isEphemeralViewer || !row || row._ephemeral_view || isTombstonedNrRow(row)) return;
     var clean = cloneCleanRow(row, explicitArmy, explicitBook);
-    if (!clean || !clean.list_key) return;
+    if (!clean || !clean.list_key || clean._ephemeral_view) return;
     await attachNativeArmyExports(clean, explicitArmy);
     if (clean._omnitactica_gw_text || clean._omnitactica_nr_text) {
       row._omnitactica_gw_text = clean._omnitactica_gw_text || row._omnitactica_gw_text;
@@ -1940,7 +1971,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     IDBObjectStore.prototype.put = function(value, key) {
       var req = origPut.apply(this, arguments);
       try {
-        if (!isHydrating && this.name === 'lists' && value && (value.list_key || value._id)) {
+        if (!isHydrating && !isEphemeralViewer && this.name === 'lists' && value && !value._ephemeral_view && (value.list_key || value._id)) {
           var captured = value;
           req.addEventListener('success', function() {
             setTimeout(function() { syncUpsertRow(captured); }, 40);
@@ -1954,7 +1985,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     IDBObjectStore.prototype.add = function(value, key) {
       var req = origAdd.apply(this, arguments);
       try {
-        if (!isHydrating && this.name === 'lists' && value && (value.list_key || value._id)) {
+        if (!isHydrating && !isEphemeralViewer && this.name === 'lists' && value && !value._ephemeral_view && (value.list_key || value._id)) {
           var captured = value;
           req.addEventListener('success', function() {
             setTimeout(function() { syncUpsertRow(captured); }, 40);
@@ -2232,7 +2263,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       // Only seed serverRows into Pinia if:
       // - It is the explicitly requested list from URL (and no real list with that key/name is already in Pinia), OR
       // - The user is NOT logged into NewRecruit AND Pinia has no lists at all yet.
-      var allowSeedFromOmniServer = (!isNrLoggedIn && currentListData.length === 0);
+      var allowSeedFromOmniServer = (!isNrLoggedIn && currentListData.length === 0 && !isEphemeralViewer);
       serverRows.forEach(function(sRow) {
         if (!sRow || !sRow.list_key || isTombstonedNrRow(sRow)) return;
         var sNameLow = String(sRow.name || '').trim().toLowerCase();
@@ -2240,10 +2271,14 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           (requestedListKeyFromUrl && requestedListKeyFromUrl === sRow.list_key) ||
           (requestedListNameFromUrl && sNameLow && sNameLow === requestedListNameFromUrl.toLowerCase())
         );
+        if (sRow._ephemeral_view && !isTargetUrlRow) return;
         if (!isTargetUrlRow && !allowSeedFromOmniServer) return;
+        if (isEphemeralViewer && isTargetUrlRow) {
+          sRow._ephemeral_view = true;
+        }
 
         // If Pinia already has a real list with the same name (e.g. migrated to 11th Ed), don't seed a duplicate synthetic row
-        if (isTargetUrlRow && piniaNameMap[sNameLow] && !piniaKeyMap[sRow.list_key]) {
+        if (isTargetUrlRow && !sRow._ephemeral_view && !isEphemeralViewer && piniaNameMap[sNameLow] && !piniaKeyMap[sRow.list_key]) {
           var realMatch = piniaNameMap[sNameLow];
           realMatch.metadata = Object.assign({}, realMatch.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
           requestedListKeyFromUrl = realMatch.list_key;
@@ -2261,10 +2296,14 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         if (!existingPinia) {
           stores.list.listData.push(sRow);
           piniaKeyMap[sRow.list_key] = sRow;
-          knownListsMap[sRow.list_key] = computeSignature(sRow);
+          if (!sRow._ephemeral_view && !isEphemeralViewer) {
+            knownListsMap[sRow.list_key] = computeSignature(sRow);
+          }
         } else if (isTargetUrlRow) {
           existingPinia.metadata = Object.assign({}, existingPinia.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
-          knownListsMap[sRow.list_key] = computeSignature(existingPinia);
+          if (!existingPinia._ephemeral_view && !isEphemeralViewer) {
+            knownListsMap[sRow.list_key] = computeSignature(existingPinia);
+          }
         }
       });
 
@@ -2283,7 +2322,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         readyNotified = true;
         notifyParent({ action: 'ready' });
       }
-      if (!isEmbeddedViewer && !requestedListKeyFromUrl) {
+      if (!isEmbeddedViewer && !requestedListKeyFromUrl && !isEphemeralViewer) {
         await forceFullSync();
       }
     }
@@ -2291,6 +2330,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
   async function upsertSingleRowToIdb(row) {
     if (!row || !row.list_key) return false;
+    var isEphemeralRow = Boolean(row._ephemeral_view || isEphemeralViewer);
+    if (isEphemeralRow) {
+      row._ephemeral_view = true;
+    }
     var stores = getNrStores();
     if (stores && stores.list && Array.isArray(stores.list.listData)) {
       row.metadata = Object.assign(
@@ -2308,6 +2351,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           stores.list.rebuildTreeData();
         }
       } catch (e) {}
+    }
+    // IMPORTANT: Never persist ephemeral competitor/opponent viewer rows into IndexedDB 'lists'!
+    if (isEphemeralRow) {
+      return true;
     }
     var db = await openExistingNrDb();
     if (!db) return true;
@@ -2474,7 +2521,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               var bn = String(b.name).trim().toLowerCase();
               var shortBn = bn.indexOf(' - ') !== -1 ? bn.split(' - ').pop().trim() : bn;
               return shortBn === shortWn || bn.indexOf(shortWn) !== -1;
-            }) || null;
+            });
           }
         }
         if (!fallbackBook) {
@@ -2553,11 +2600,13 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               Object.assign(listStore.listData[existingIdx], row);
             }
           }
-          await listStore.saveListLocally({
-            row: row,
-            army: bestParsed.army,
-            book: bookInst
-          });
+          if (!row._ephemeral_view && !isEphemeralViewer) {
+            await listStore.saveListLocally({
+              row: row,
+              army: bestParsed.army,
+              book: bookInst
+            });
+          }
         } else {
           row._nr_compile_failed = true;
           row._compiled_unit_count = 0;
@@ -2841,9 +2890,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       if (typeof stores.list.doSaveList === 'function') {
         var origDoSaveList = stores.list.doSaveList.bind(stores.list);
         stores.list.doSaveList = async function(listObj, localOnly) {
+          if ((listObj && listObj.row && listObj.row._ephemeral_view) || isEphemeralViewer) {
+            return listObj;
+          }
           var res = await origDoSaveList(listObj, localOnly);
           try {
-            if (listObj && listObj.row && !isTombstonedNrRow(listObj.row)) {
+            if (listObj && listObj.row && !listObj.row._ephemeral_view && !isTombstonedNrRow(listObj.row)) {
               setTimeout(function() {
                 syncUpsertRow(listObj.row, listObj.army, listObj.book);
               }, 20);
@@ -2856,6 +2908,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       if (typeof stores.list.addList === 'function') {
         var origAddList = stores.list.addList.bind(stores.list);
         stores.list.addList = async function(listObj, selectIt) {
+          if ((listObj && listObj.row && listObj.row._ephemeral_view) || isEphemeralViewer) {
+            return listObj;
+          }
           try {
             if (listObj && listObj.row && !this.legacyMigration) {
               clearNrDeletedTombstone(listObj.row.list_key, listObj.row.name);
@@ -2863,7 +2918,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           } catch (e) {}
           var res = await origAddList(listObj, selectIt);
           try {
-            if (listObj && listObj.row && !isTombstonedNrRow(listObj.row)) {
+            if (listObj && listObj.row && !listObj.row._ephemeral_view && !isTombstonedNrRow(listObj.row)) {
               setTimeout(function() {
                 syncUpsertRow(listObj.row, listObj.army, listObj.book);
               }, 20);
@@ -3133,9 +3188,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               gw_text: targetRow._omnitactica_gw_text || '',
               nr_text: targetRow._omnitactica_nr_text || ''
             });
-            if (!targetRow._ephemeral_view) {
+            if (!targetRow._ephemeral_view && !isEphemeralViewer) {
               var cleanWithExp = cloneCleanRow(targetRow, loadedListObj.army, loadedListObj.book);
-              if (cleanWithExp) {
+              if (cleanWithExp && !cleanWithExp._ephemeral_view) {
                 cleanWithExp._omnitactica_gw_text = targetRow._omnitactica_gw_text || '';
                 cleanWithExp._omnitactica_nr_text = targetRow._omnitactica_nr_text || '';
                 postSyncAction('upsert', { list: cleanWithExp });
@@ -3214,13 +3269,13 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   // Note: Deletions are handled explicitly by stores.list.removeList and deleteHubArmyList, never by polling diff!
   async function pollListsDiff() {
     await ensurePlayModeAndStoreHooks();
-    if (!initialHydrationDone || isHydrating || isEmbeddedViewer) return;
+    if (!initialHydrationDone || isHydrating || isEmbeddedViewer || isEphemeralViewer) return;
     var rows = await readAllNrLists();
     if (!rows) return;
 
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
-      if (!r || !r.list_key) continue;
+      if (!r || !r.list_key || r._ephemeral_view) continue;
       var clean = cloneCleanRow(r);
       var sig = computeSignature(clean || r);
       if (knownListsMap[r.list_key] !== sig) {
@@ -3230,7 +3285,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
 
   async function forceFullSync() {
-    if (isEmbeddedViewer) return null;
+    if (isEmbeddedViewer || isEphemeralViewer) return null;
     if (!initialHydrationDone) {
       await hydrateFromOmniTactica();
     }
@@ -3284,14 +3339,26 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       var expKey = String(msg.list_key || '').replace(/^(nr_|list_)/, '').trim();
       var stExp = getNrStores();
       var expRow = null;
+      var isSavedInPinia = false;
       if (stExp && stExp.list && Array.isArray(stExp.list.listData)) {
-        expRow = stExp.list.listData.find(function(r) { return r && r.list_key === expKey; }) || null;
+        expRow = stExp.list.listData.find(function(r) { return r && r.list_key === expKey && !r._ephemeral_view; }) || null;
+        if (expRow) isSavedInPinia = true;
       }
       if (!expRow && msg.nr_row && typeof msg.nr_row === 'object') {
         expRow = Object.assign({}, msg.nr_row);
         if (!expRow.list_key && expKey) expRow.list_key = expKey;
       }
+      var isEphemeralExport = Boolean(
+        msg.ephemeral ||
+        isEphemeralViewer ||
+        (msg.nr_row && msg.nr_row._ephemeral_view) ||
+        (expRow && expRow._ephemeral_view) ||
+        !isSavedInPinia
+      );
       if (expRow) {
+        if (isEphemeralExport) {
+          expRow._ephemeral_view = true;
+        }
         var cleanExp = cloneCleanRow(expRow) || expRow;
         await attachNativeArmyExports(cleanExp);
         if (cleanExp._omnitactica_gw_text || cleanExp._omnitactica_nr_text) {
@@ -3303,7 +3370,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             gw_text: cleanExp._omnitactica_gw_text || '',
             nr_text: cleanExp._omnitactica_nr_text || ''
           });
-          if (!expRow._ephemeral_view) {
+          if (!isEphemeralExport && !expRow._ephemeral_view && !cleanExp._ephemeral_view) {
             postSyncAction('upsert', { list: cleanExp });
           }
         }
@@ -3409,6 +3476,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       var nextKey = String(msg.list_key);
       var nextPlay = msg.play !== false;
       var nextToken = nextKey + ':' + (nextPlay ? 'play' : 'edit');
+      if (msg.ephemeral || (msg.nr_row && msg.nr_row._ephemeral_view)) {
+        isEphemeralViewer = true;
+        if (msg.nr_row) msg.nr_row._ephemeral_view = true;
+      } else if (isEphemeralViewer && msg.nr_row) {
+        msg.nr_row._ephemeral_view = true;
+      }
       var stOpen = getNrStores();
       if (window.__omniCompileFailedForKey === nextKey) {
         hideDirectListLoader();
@@ -3439,18 +3512,19 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       showDirectListLoader(wantPlayModeFromUrl ? 'Loading Play Mode Datasheets...' : 'Opening Army Roster...');
       if (msg.nr_row && msg.nr_row.list_key) {
         pendingNrRowFromParent = Object.assign({}, msg.nr_row);
+        if (isEphemeralViewer) pendingNrRowFromParent._ephemeral_view = true;
         var cur = null;
         if (stOpen && stOpen.list && Array.isArray(stOpen.list.listData)) {
           cur = stOpen.list.listData.find(function(er) {
             return er && er.list_key === msg.nr_row.list_key;
           }) || null;
-          if (!cur && requestedListNameFromUrl) {
+          if (!cur && !isEphemeralViewer && requestedListNameFromUrl) {
             cur = stOpen.list.listData.find(function(er) {
               return er && !er._ephemeral_view && String(er.name || '').trim().toLowerCase() === requestedListNameFromUrl.toLowerCase();
             }) || null;
           }
         }
-        if (!cur) {
+        if (!cur && !isEphemeralViewer) {
           var existingRows = await readAllNrLists();
           var existingMap = {};
           var existingByName = {};
@@ -3464,6 +3538,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
         if (!cur) {
           var rowToWrite = Object.assign({}, msg.nr_row);
+          if (isEphemeralViewer) rowToWrite._ephemeral_view = true;
           rowToWrite.metadata = Object.assign({}, rowToWrite.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
           await upsertSingleRowToIdb(rowToWrite);
         } else {
@@ -4263,18 +4338,13 @@ def get_nr_state_payload(
     nr_rows = []
     seen_keys = set()
     for item in current_lists:
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or item.get("_ephemeral_view"):
             continue
         row = build_synthetic_nr_row(item)
         lkey = row.get("list_key")
         if lkey and lkey not in seen_keys:
             seen_keys.add(lkey)
             nr_rows.append(row)
-
-    for ekey, erow in list(_EPHEMERAL_NR_ROWS.items()):
-        if ekey and ekey not in seen_keys and isinstance(erow, dict):
-            seen_keys.add(ekey)
-            nr_rows.append(erow)
 
     acct = _NR_CLOUD_ACCOUNTS.get(user_key) or _NR_CLOUD_ACCOUNTS.get("default") or {}
     return {
@@ -4362,9 +4432,11 @@ def process_nr_sync_payload(
 
         incoming_keys = set()
         for row in incoming_lists:
-            if not isinstance(row, dict) or not row.get("list_key"):
+            if not isinstance(row, dict) or not row.get("list_key") or row.get("_ephemeral_view"):
                 continue
             lkey = str(row["list_key"]).strip()
+            if lkey in _EPHEMERAL_NR_ROWS and lkey not in existing_by_key:
+                continue
             incoming_keys.add(lkey)
             _merge_existing_native_texts(row, lkey)
             parsed = parser.parse_newrecruit_dict(row, default_id=f"nr_{lkey}", enrich=False)
@@ -4391,9 +4463,21 @@ def process_nr_sync_payload(
     row = body.get("list") or body
     if not isinstance(row, dict):
         return {"success": False, "error": "Invalid list payload"}
+    if row.get("_ephemeral_view") or body.get("ephemeral"):
+        return {
+            "success": True,
+            "action": "ephemeral_ignored",
+            "army_lists": list_fn(),
+        }
     lkey = str(row.get("list_key") or row.get("id") or uuid.uuid4().hex[:6]).strip()
     if lkey.startswith("nr_"):
         lkey = lkey[3:]
+    if lkey in _EPHEMERAL_NR_ROWS and lkey not in existing_by_key:
+        return {
+            "success": True,
+            "action": "ephemeral_ignored",
+            "army_lists": list_fn(),
+        }
     row["list_key"] = lkey
     _merge_existing_native_texts(row, lkey)
 
