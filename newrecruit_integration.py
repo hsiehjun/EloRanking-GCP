@@ -8,14 +8,18 @@ Seamless NewRecruit Integration (Option 3 Hybrid Architecture + Native Play Mode
 import hashlib
 import json
 import logging
+import mimetypes
+import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from army_list_parser import get_parser
 
@@ -181,13 +185,176 @@ _NR_STATIC_CACHE: Dict[str, Tuple[float, bytes, str]] = {}
 _NR_HTML_SHELL_CACHE: Optional[Tuple[float, str]] = None
 _NR_CACHE_TTL_SECONDS = 86400  # 24 hours
 
+# Local offline bundle (data/nr_offline_bundle.zip) containing NewRecruit SPA shell, /_nuxt/*, /settings/*,
+# /assets/*, get_library, and all 40K/AoS catalogue books so Cloud Run never depends on outbound TCP to www.newrecruit.eu
+_NR_OFFLINE_BUNDLE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "nr_offline_bundle.zip"
+)
+_NR_OFFLINE_LOCK = threading.Lock()
+_NR_OFFLINE_ZIP: Optional[zipfile.ZipFile] = None
+_NR_OFFLINE_NAMES: Set[str] = set()
+_NR_OFFLINE_BOOK_BY_ID: Dict[str, str] = {}
+_NR_OFFLINE_CT_MAP: Dict[str, str] = {}
+
+
+def _ensure_nr_offline_bundle() -> Optional[zipfile.ZipFile]:
+    """Lazily opens and indexes data/nr_offline_bundle.zip in a thread-safe manner."""
+    global _NR_OFFLINE_ZIP, _NR_OFFLINE_NAMES, _NR_OFFLINE_BOOK_BY_ID, _NR_OFFLINE_CT_MAP
+    if _NR_OFFLINE_ZIP is not None:
+        return _NR_OFFLINE_ZIP
+    with _NR_OFFLINE_LOCK:
+        if _NR_OFFLINE_ZIP is not None:
+            return _NR_OFFLINE_ZIP
+        if not os.path.exists(_NR_OFFLINE_BUNDLE_PATH):
+            return None
+        try:
+            zf = zipfile.ZipFile(_NR_OFFLINE_BUNDLE_PATH, "r")
+            names = set(zf.namelist())
+            book_by_id: Dict[str, str] = {}
+            for name in names:
+                if name.startswith("books/") and name.endswith(".json"):
+                    base = name[6:-5]  # "{sys_id}_{book_id}"
+                    parts = base.split("_", 1)
+                    if len(parts) == 2:
+                        book_by_id[parts[1]] = name
+            ct_map: Dict[str, str] = {}
+            for mf_name in ("manifest.json", "manifest_extra.json"):
+                if mf_name in names:
+                    try:
+                        mf_data = json.loads(zf.read(mf_name).decode("utf-8", errors="ignore"))
+                        if isinstance(mf_data, dict):
+                            for k, v in mf_data.items():
+                                if isinstance(v, str):
+                                    ct_map[k] = v
+                    except Exception:
+                        pass
+            _NR_OFFLINE_NAMES = names
+            _NR_OFFLINE_BOOK_BY_ID = book_by_id
+            _NR_OFFLINE_CT_MAP = ct_map
+            _NR_OFFLINE_ZIP = zf
+            return zf
+        except Exception as e:
+            logger.warning("Failed to open nr_offline_bundle.zip: %s", e)
+            return None
+
+
+def _read_nr_offline_entry(arcname: str) -> Optional[bytes]:
+    """Reads an entry from data/nr_offline_bundle.zip in a thread-safe manner."""
+    zf = _ensure_nr_offline_bundle()
+    if zf is None or arcname not in _NR_OFFLINE_NAMES:
+        return None
+    with _NR_OFFLINE_LOCK:
+        try:
+            return zf.read(arcname)
+        except Exception as e:
+            logger.warning("Error reading %s from nr_offline_bundle.zip: %s", arcname, e)
+            return None
+
+
+def _guess_nr_content_type(clean_path: str) -> str:
+    """Determines MIME Content-Type for a static NewRecruit asset path."""
+    if clean_path in _NR_OFFLINE_CT_MAP:
+        return _NR_OFFLINE_CT_MAP[clean_path]
+    low = clean_path.lower()
+    if low.endswith(".js") or low.endswith(".mjs"):
+        return "application/javascript; charset=utf-8"
+    if low.endswith(".css"):
+        return "text/css; charset=utf-8"
+    if low.endswith(".json"):
+        return "application/json; charset=utf-8"
+    if low.endswith(".svg"):
+        return "image/svg+xml"
+    if low.endswith(".png"):
+        return "image/png"
+    if low.endswith(".webp"):
+        return "image/webp"
+    if low.endswith(".jpg") or low.endswith(".jpeg"):
+        return "image/jpeg"
+    if low.endswith(".ico"):
+        return "image/x-icon"
+    if low.endswith(".ttf"):
+        return "font/ttf"
+    if low.endswith(".woff2"):
+        return "font/woff2"
+    if low.endswith(".woff"):
+        return "font/woff"
+    guessed, _ = mimetypes.guess_type(clean_path)
+    return guessed or "application/octet-stream"
+
+
+def _lookup_nr_offline_static(clean_path: str) -> Optional[Tuple[bytes, str]]:
+    """Looks up a static asset (/_nuxt/*, /settings/*, /assets/*, /icons/*) in data/nr_offline_bundle.zip."""
+    path_no_q = clean_path.split("?")[0]
+    if not path_no_q.startswith("/"):
+        path_no_q = "/" + path_no_q
+    arcname = f"static{path_no_q}"
+    data = _read_nr_offline_entry(arcname)
+    if data is not None:
+        return data, _guess_nr_content_type(path_no_q)
+    return None
+
+
+def _lookup_nr_offline_rpc(body: Optional[bytes]) -> Optional[Tuple[bytes, str]]:
+    """Serves read-only NewRecruit RPCs (get_library, books_get_book_row, etc.) directly from data/nr_offline_bundle.zip."""
+    if not body:
+        return None
+    try:
+        payload = json.loads(body.decode("utf-8", errors="ignore"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    rpc_method = str(payload.get("method") or "")
+    params = payload.get("params")
+
+    if rpc_method in ("get_library", "get_countries", "get_timezones"):
+        data = _read_nr_offline_entry(f"rpc/{rpc_method}.json")
+        if data is not None:
+            return data, "application/json"
+
+    if rpc_method == "books_get_book_row" and isinstance(params, list) and len(params) >= 1:
+        _ensure_nr_offline_bundle()
+        if len(params) >= 2:
+            arcname = f"books/{params[0]}_{params[1]}.json"
+            data = _read_nr_offline_entry(arcname)
+            if data is not None:
+                return data, "application/json"
+            fallback_arc = _NR_OFFLINE_BOOK_BY_ID.get(str(params[1]))
+            if fallback_arc:
+                data = _read_nr_offline_entry(fallback_arc)
+                if data is not None:
+                    return data, "application/json"
+        else:
+            fallback_arc = _NR_OFFLINE_BOOK_BY_ID.get(str(params[0]))
+            if fallback_arc:
+                data = _read_nr_offline_entry(fallback_arc)
+                if data is not None:
+                    return data, "application/json"
+
+    if rpc_method in (
+        "get_games",
+        "get_websocket_port",
+        "restore_purchases_check",
+        "get_products_twa",
+        "trackEvent",
+        "report_client_error",
+        "error_snapshot_save",
+    ):
+        return b"{}", "application/json"
+
+    return None
+
+
 # Bounded cache of ephemeral parsed competitor rows so /nr/app/Lists/{list_key}?view=play always has immediate access
 _EPHEMERAL_NR_ROWS: Dict[str, Dict[str, Any]] = {}
 _EPHEMERAL_NR_ROWS_MAX = 200
 
 try:
     import urllib3
-    _NR_HTTP_POOL: Optional[Any] = urllib3.PoolManager(maxsize=16, retries=urllib3.Retry(total=2, backoff_factor=0.1))
+    _NR_HTTP_POOL: Optional[Any] = urllib3.PoolManager(
+        maxsize=16,
+        retries=urllib3.Retry(total=1, connect=1, read=1, backoff_factor=0.1),
+    )
 except Exception:
     _NR_HTTP_POOL = None
 
@@ -701,8 +868,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           origSetAttribute.call(t, 'src', fixed);
         } else if (raw && raw.indexOf('data:') !== 0 && !t.dataset.omniRetried) {
           t.dataset.omniRetried = '1';
-          var retryUrl = raw.split('?')[0] + '?v=nr3_' + Date.now();
-          origSetAttribute.call(t, 'src', retryUrl);
+          var cleanImgPath = raw.split('?')[0];
+          if (cleanImgPath.indexOf('http') !== 0) {
+            origSetAttribute.call(t, 'src', 'https://www.newrecruit.eu' + (cleanImgPath.charAt(0) === '/' ? '' : '/') + cleanImgPath);
+          } else {
+            origSetAttribute.call(t, 'src', cleanImgPath + '?v=nr3_' + Date.now());
+          }
         }
       }
     }, true);
@@ -3056,11 +3227,19 @@ def inject_nr_bridge_into_html(html: str) -> str:
 
 
 def fetch_nr_html_shell() -> str:
-    """Fetches and caches NewRecruit's SPA HTML shell and injects the OmniTactica bridge."""
+    """Fetches and caches NewRecruit's SPA HTML shell from data/nr_offline_bundle.zip (or upstream fallback) and injects the OmniTactica bridge."""
     global _NR_HTML_SHELL_CACHE
     now = time.time()
     if _NR_HTML_SHELL_CACHE and (now - _NR_HTML_SHELL_CACHE[0] < _NR_CACHE_TTL_SECONDS):
         return _NR_HTML_SHELL_CACHE[1]
+
+    # Primary source: local offline bundle (zero latency, zero dependency on Cloud Run outbound TCP to www.newrecruit.eu)
+    bundled_shell = _read_nr_offline_entry("shell.html")
+    if bundled_shell:
+        raw_html = bundled_shell.decode("utf-8", errors="ignore")
+        injected = inject_nr_bridge_into_html(raw_html)
+        _NR_HTML_SHELL_CACHE = (now, injected)
+        return injected
 
     try:
         req = urllib.request.Request(
@@ -3070,7 +3249,7 @@ def fetch_nr_html_shell() -> str:
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             },
         )
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
             raw_html = resp.read().decode("utf-8", errors="ignore")
 
         injected = inject_nr_bridge_into_html(raw_html)
@@ -3090,8 +3269,9 @@ def proxy_nr_request(
     req_headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[int, bytes, str]:
     """
-    Proxies static assets (/_nuxt/*, /settings/*, /assets/*) and API calls (/api/rpc, /api/book/*, /api/token)
-    to https://www.newrecruit.eu with in-memory caching for static assets and read-only library RPCs.
+    Serves static assets (/_nuxt/*, /settings/*, /assets/*, /icons/*), library RPCs (get_library, get_countries, get_timezones),
+    and all 40K/AoS catalogue books (books_get_book_row) directly from data/nr_offline_bundle.zip + in-memory cache,
+    falling back to https://www.newrecruit.eu only for unbundled or user-specific RPCs.
     Returns (status_code, content_bytes, content_type).
     """
     clean_path = path_with_query if path_with_query.startswith("/") else f"/{path_with_query}"
@@ -3128,7 +3308,10 @@ def proxy_nr_request(
         method_up == "POST"
         and not has_auth
         and clean_path.startswith("/api/rpc")
-        and any(m_name in body_str for m_name in ('"get_library"', '"get_countries"', '"get_timezones"', '"get_games"'))
+        and any(
+            m_name in body_str
+            for m_name in ('"get_library"', '"get_countries"', '"get_timezones"', '"get_games"', '"books_get_book_row"')
+        )
     )
 
     cache_key = f"POST:{clean_path}:{body_str}" if is_cacheable_rpc else clean_path
@@ -3138,6 +3321,22 @@ def proxy_nr_request(
         ttl = 3600 if is_cacheable_rpc else _NR_CACHE_TTL_SECONDS
         if now - ts < ttl:
             return 200, cached_bytes, cached_ct
+
+    # Primary source: serve static assets, library RPCs, and 40K/AoS books from local data/nr_offline_bundle.zip
+    if method_up == "GET":
+        bundled_static = _lookup_nr_offline_static(clean_path)
+        if bundled_static is not None:
+            b_data, b_ct = bundled_static
+            if is_cacheable_get:
+                _NR_STATIC_CACHE[cache_key] = (now, b_data, b_ct)
+            return 200, b_data, b_ct
+    elif method_up == "POST" and clean_path.startswith("/api/rpc"):
+        bundled_rpc = _lookup_nr_offline_rpc(body)
+        if bundled_rpc is not None:
+            b_data, b_ct = bundled_rpc
+            if is_cacheable_rpc:
+                _NR_STATIC_CACHE[cache_key] = (now, b_data, b_ct)
+            return 200, b_data, b_ct
 
     target_url = f"{NR_BASE_URL}{clean_path}"
     headers: Dict[str, str] = {
@@ -3158,14 +3357,14 @@ def proxy_nr_request(
                 target_url,
                 body=body if method_up != "GET" else None,
                 headers=headers,
-                timeout=15.0,
+                timeout=urllib3.Timeout(connect=3.0, read=6.0),
             )
             status = int(resp.status)
             data = bytes(resp.data or b"")
             content_type = resp.headers.get("Content-Type", "application/octet-stream")
         else:
             req = urllib.request.Request(target_url, data=body if method_up != "GET" else None, headers=headers, method=method_up)
-            with urllib.request.urlopen(req, timeout=15.0) as uresp:
+            with urllib.request.urlopen(req, timeout=5.0) as uresp:
                 status = uresp.status
                 data = uresp.read()
                 content_type = uresp.headers.get("Content-Type", "application/octet-stream")

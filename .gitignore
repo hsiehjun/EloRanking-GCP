@@ -4,6 +4,7 @@ __pycache__/
 .env
 data/*
 !data/wahapedia/
+!data/nr_offline_bundle.zip
 scratch/
 *.sql
 *.tar.gz
