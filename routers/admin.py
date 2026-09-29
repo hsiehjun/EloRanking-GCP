@@ -68,14 +68,26 @@ async def api_submit_feedback(payload: FeedbackPayload, request: Request):
 def _is_admin_feedback_request(request: Request, token: Optional[str] = None) -> bool:
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
-    session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
+    session_token = (
+        token
+        or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        or request.cookies.get("session_token")
+        or request.cookies.get("elo_auth_token")
+        or request.cookies.get("native_session_token")
+    )
     if not session_token:
         return False
     session = auth_mgr.get_session(session_token)
     if not session:
         return False
+    user_email = (session.get("email") or "").strip().lower()
     user_role = (session.get("role") or "player").strip().lower()
-    return user_role in ("admin", "superuser", "developer", "owner", "to", "referee")
+    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+    return bool(
+        session.get("is_admin") is True
+        or user_role in ("admin", "superuser", "developer", "owner")
+        or (bool(superadmin_email) and user_email == superadmin_email)
+    )
 
 @router.get("/api/feedback", summary="Get recent user feedbacks (Admin)")
 async def api_get_feedbacks(request: Request, limit: int = Query(50), token: Optional[str] = Query(None)):

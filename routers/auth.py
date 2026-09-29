@@ -561,58 +561,69 @@ async def api_user_registered_tournaments(
         if not t.get("game_system"):
             t["game_system"] = "aos" if (gs_id in (AOS_GAME_SYSTEM_ID, "OY8FCPBf6O", "23qDprPABN")) else "40k"
 
-    # Enrich active BCP tournaments with live currentPlayer endpoint (purely in-memory, ZERO DB WRITES)
+    # Enrich active BCP tournaments with live currentPlayer endpoint concurrently (purely in-memory, ZERO DB WRITES)
     if combined_tournaments:
         try:
             from bcp_adapter import bcp_adapter
+            from concurrent.futures import ThreadPoolExecutor
+
+            to_enrich = []
             for t in combined_tournaments:
                 t_eid = str(t.get("bcp_event_id") or t.get("id") or "").strip()
                 if not t_eid or t_eid.startswith("ES-"):
                     continue
-                # If force_sync or missing essential details, fetch live /currentPlayer
                 if force_sync or not t.get("faction") or not t.get("army_list") or not t.get("player_id"):
-                    succ_cp, _, cp = bcp_adapter.fetch_event_current_player(t_eid, user_id=user_id, explicit_token=x_bcp_token)
-                    if succ_cp and cp and cp.get("id"):
-                        fac_name = ""
-                        if isinstance(cp.get("faction"), dict):
-                            fac_name = cp["faction"].get("name") or ""
-                        elif isinstance(cp.get("faction"), str):
-                            fac_name = cp["faction"]
-                        if not fac_name:
-                            fac_name = cp.get("army") or cp.get("armyName") or ""
+                    to_enrich.append((t_eid, t))
 
-                        fac_id = cp.get("factionId") or cp.get("armyId") or ""
-                        if not fac_id and isinstance(cp.get("faction"), dict):
-                            fac_id = cp["faction"].get("id") or ""
+            def _enrich_single_tournament(pair):
+                t_eid, t_obj = pair
+                succ_cp, _, cp = bcp_adapter.fetch_event_current_player(t_eid, user_id=user_id, explicit_token=x_bcp_token)
+                return t_obj, succ_cp, cp
 
-                        det_name = ""
-                        if isinstance(cp.get("subFaction"), dict):
-                            det_name = cp["subFaction"].get("name") or ""
-                        elif isinstance(cp.get("subFaction"), str):
-                            det_name = cp["subFaction"]
-                        if not det_name:
-                            det_name = cp.get("detachment") or ""
+            if to_enrich:
+                with ThreadPoolExecutor(max_workers=min(5, len(to_enrich))) as pool:
+                    for t, succ_cp, cp in pool.map(_enrich_single_tournament, to_enrich):
+                        if succ_cp and cp and cp.get("id"):
+                            fac_name = ""
+                            if isinstance(cp.get("faction"), dict):
+                                fac_name = cp["faction"].get("name") or ""
+                            elif isinstance(cp.get("faction"), str):
+                                fac_name = cp["faction"]
+                            if not fac_name:
+                                fac_name = cp.get("army") or cp.get("armyName") or ""
 
-                        sub_id = cp.get("subFactionId") or cp.get("sub_faction_id") or ""
-                        if not sub_id and isinstance(cp.get("subFaction"), dict):
-                            sub_id = cp["subFaction"].get("id") or ""
+                            fac_id = cp.get("factionId") or cp.get("armyId") or ""
+                            if not fac_id and isinstance(cp.get("faction"), dict):
+                                fac_id = cp["faction"].get("id") or ""
 
-                        cp_list_text = cp.get("armyListText") or cp.get("listText") or cp.get("armyList") or ""
+                            det_name = ""
+                            if isinstance(cp.get("subFaction"), dict):
+                                det_name = cp["subFaction"].get("name") or ""
+                            elif isinstance(cp.get("subFaction"), str):
+                                det_name = cp["subFaction"]
+                            if not det_name:
+                                det_name = cp.get("detachment") or ""
 
-                        t["player_id"] = str(cp.get("id"))
-                        t["bcp_player_id"] = str(cp.get("id"))
-                        t["checked_in"] = bool(cp.get("checkedIn") or False)
-                        t["dropped"] = bool(cp.get("dropped") or False)
-                        t["has_list_submitted"] = bool(cp.get("listId") or cp_list_text)
-                        t["army_list"] = cp_list_text
-                        if fac_name:
-                            t["faction"] = fac_name
-                        if fac_id:
-                            t["army_id"] = fac_id
-                        if det_name:
-                            t["detachment"] = det_name
-                        if sub_id:
-                            t["sub_faction_id"] = sub_id
+                            sub_id = cp.get("subFactionId") or cp.get("sub_faction_id") or ""
+                            if not sub_id and isinstance(cp.get("subFaction"), dict):
+                                sub_id = cp["subFaction"].get("id") or ""
+
+                            cp_list_text = cp.get("armyListText") or cp.get("listText") or cp.get("armyList") or ""
+
+                            t["player_id"] = str(cp.get("id"))
+                            t["bcp_player_id"] = str(cp.get("id"))
+                            t["checked_in"] = bool(cp.get("checkedIn") or False)
+                            t["dropped"] = bool(cp.get("dropped") or False)
+                            t["has_list_submitted"] = bool(cp.get("listId") or cp_list_text)
+                            t["army_list"] = cp_list_text
+                            if fac_name:
+                                t["faction"] = fac_name
+                            if fac_id:
+                                t["army_id"] = fac_id
+                            if det_name:
+                                t["detachment"] = det_name
+                            if sub_id:
+                                t["sub_faction_id"] = sub_id
         except Exception as enrich_err:
             logger.debug(f"Notice during in-memory tournament enrichment: {enrich_err}")
 

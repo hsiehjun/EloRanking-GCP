@@ -69,12 +69,47 @@ except ImportError:
 # In-Memory Rate Limiting for Auth & Sensitive Endpoints
 _AUTH_RATE_LIMITS = {
     "/api/auth/login": (20, 60),               # 20 requests per 60s
+    "/api/auth/verify-login-2fa": (10, 60),    # 10 requests per 60s (2FA brute-force guard)
+    "/api/auth/resend-login-2fa": (6, 60),     # 6 requests per 60s
     "/api/auth/verify-registration": (15, 60), # 15 requests per 60s
+    "/api/auth/resend-verification": (6, 60),  # 6 requests per 60s
     "/api/auth/register": (10, 60),            # 10 requests per 60s
     "/api/auth/forgot-password": (8, 60),      # 8 requests per 60s
     "/api/auth/reset-password": (8, 60),       # 8 requests per 60s
+    "/api/auth/invite/validate": (15, 60),     # 15 requests per 60s
+    "/api/armylists/parse": (30, 60),          # 30 requests per 60s
 }
 _rate_limits_state: Dict[str, List[float]] = {}
+
+def _resolve_safe_web_path(base_dir: Path, rel_path: str) -> Optional[Path]:
+    """Safely resolves a relative path inside base_dir, blocking path traversal (.. or null bytes)."""
+    if not rel_path or "\x00" in rel_path:
+        return None
+    decoded = urllib.parse.unquote(rel_path).replace("\\", "/")
+    if ".." in decoded.split("/"):
+        return None
+    clean_rel = decoded.lstrip("/")
+    if not clean_rel:
+        return None
+    try:
+        base_resolved = base_dir.resolve()
+        candidate = (base_resolved / clean_rel).resolve()
+        if candidate == base_resolved or not candidate.is_relative_to(base_resolved):
+            return None
+        return candidate
+    except Exception:
+        return None
+
+def _sanitize_redirect_target(target: Optional[str], default: str = "/app") -> str:
+    """Ensures redirect targets are strictly relative internal paths starting with a single '/'."""
+    if not target or not isinstance(target, str):
+        return default
+    cleaned = target.strip()
+    if not cleaned.startswith("/") or cleaned.startswith("//") or cleaned.startswith("/\\"):
+        return default
+    if any(ord(ch) < 32 for ch in cleaned):
+        return default
+    return cleaned
 
 # HTTP Caching, Security Headers, and Rate Limiting Middleware
 @app.middleware("http")
@@ -113,6 +148,19 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(self)"
 
     # 3. HTTP Caching & Edge Rules
+    has_version_tag = bool(request.query_params.get("v"))
+    is_versioned_static_bundle = (
+        has_version_tag
+        and response.status_code == 200
+        and (
+            path.startswith("/css/")
+            or path.startswith("/js/")
+            or path.startswith("/tracker/")
+            or path.startswith("/11th/tracker/")
+        )
+        and path.endswith((".js", ".css"))
+        and path not in ("/worker.js", "/nr/worker.js", "/sw.js", "/service-worker.js")
+    )
     if (
         path.startswith("/api/auth") or
         path.startswith("/api/user") or
@@ -129,6 +177,11 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
         # Never cache authentication, admin, studio, session, user, connect, chat, live tracker, health, or version endpoints
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
+    elif is_versioned_static_bundle:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        for h in ("Pragma", "Expires"):
+            if h in response.headers:
+                del response.headers[h]
     elif path.startswith("/assets/"):
         if response.status_code == 200:
             response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
@@ -199,6 +252,21 @@ async def _periodic_firestore_cleanup():
             logger.warning(f"Notice during periodic Firestore cleanup: {e}")
         await asyncio.sleep(12 * 3600)  # Run every 12 hours
 
+async def _prewarm_meta_intel_cache():
+    """Pre-warms the 90-day Meta Intel cache for 40k and AoS shortly after server startup."""
+    try:
+        await asyncio.sleep(3)
+        now = datetime.now(timezone.utc)
+        d90 = now - timedelta(days=90)
+        start_str = d90.strftime("%Y-%m-%d")
+        end_str = now.strftime("%Y-%m-%d")
+        db = await asyncio.to_thread(get_database)
+        await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k")
+        await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos")
+        logger.info(f"🔥 Meta Intel 90-day cache pre-warmed for 40k and AoS ({start_str} to {end_str})")
+    except Exception as me:
+        logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
+
 @app.on_event("startup")
 async def on_server_startup():
     logger.info("Warhammer 40,000 Elo Backend online and ready.")
@@ -214,18 +282,7 @@ async def on_server_startup():
         except Exception as se:
             logger.warning(f"Notice during stats cache pre-warming: {se}")
 
-        try:
-            await asyncio.sleep(3)
-            now = datetime.now(timezone.utc)
-            d90 = now - timedelta(days=90)
-            start_str = d90.strftime("%Y-%m-%d")
-            end_str = now.strftime("%Y-%m-%d")
-            db = await asyncio.to_thread(get_database)
-            await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k")
-            await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos")
-            logger.info(f"🔥 Meta Intel 90-day cache pre-warmed for 40k and AoS ({start_str} to {end_str})")
-        except Exception as me:
-            logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
+        await _prewarm_meta_intel_cache()
 
     asyncio.create_task(_deferred_startup_tasks())
 
@@ -246,11 +303,16 @@ app.include_router(leagues.router)
 # =========================================================================
 async def serve_tracker_asset(rel_path: str) -> Response:
     """Serves static CSS, fonts, and media images from local disk, falling back to NewRecruit proxy for /assets/* and /icons/*."""
-    cache_key = rel_path.lstrip("/")
+    if not rel_path or "\x00" in rel_path:
+        raise HTTPException(status_code=400, detail="Invalid asset path")
+    decoded_rel = urllib.parse.unquote(rel_path).replace("\\", "/")
+    if ".." in decoded_rel.split("/"):
+        raise HTTPException(status_code=400, detail="Invalid asset path")
+    cache_key = decoded_rel.lstrip("/")
 
     # 1. Check local tracker static directory web/tracker/static/
-    local_tracker_file = web_dir / "tracker" / "static" / cache_key
-    if local_tracker_file.is_file():
+    local_tracker_file = _resolve_safe_web_path(web_dir / "tracker" / "static", cache_key)
+    if local_tracker_file is not None and local_tracker_file.is_file():
         c_type = "application/javascript" if cache_key.endswith(".js") else ("text/css" if cache_key.endswith(".css") else None)
         hdrs = {
             "Cache-Control": "public, max-age=31536000, immutable" if "/_next/static/" in cache_key else "public, max-age=3600",
@@ -259,8 +321,8 @@ async def serve_tracker_asset(rel_path: str) -> Response:
         return FileResponse(str(local_tracker_file), media_type=c_type, headers=hdrs)
 
     # 2. Check general web directory (includes web/assets/*)
-    local_web_file = web_dir / cache_key
-    if local_web_file.is_file():
+    local_web_file = _resolve_safe_web_path(web_dir, cache_key)
+    if local_web_file is not None and local_web_file.is_file():
         return FileResponse(str(local_web_file))
 
     # 3. Fallback to NewRecruit static asset proxy for /assets/* and /icons/*
@@ -293,6 +355,7 @@ async def serve_tracker_html(path: str, request: Request) -> Response:
             redirect_target = f"/{path}"
             if request.url.query:
                 redirect_target += f"?{request.url.query}"
+            redirect_target = _sanitize_redirect_target(redirect_target, default="/11th/tracker")
             return _clear_stale_auth_cookies(
                 RedirectResponse(url=f"/login?redirect={urllib.parse.quote(redirect_target)}", status_code=303)
             )
@@ -413,7 +476,7 @@ async def api_version():
 async def serve_app(request: Request, token: Optional[str] = Query(None)):
     user = _get_request_user(request, token)
     if not user:
-        target_path = request.url.path or "/app"
+        target_path = _sanitize_redirect_target(request.url.path or "/app", default="/app")
         return _clear_stale_auth_cookies(
             RedirectResponse(url=f"/login?redirect={urllib.parse.quote(target_path)}", status_code=307)
         )
@@ -531,6 +594,7 @@ async def serve_tracker_alias(request: Request, token: Optional[str] = Query(Non
         query_str = f"?{request.url.query}" if request.url.query else ""
         target = f"/11th/tracker{query_str}"
 
+    target = _sanitize_redirect_target(target, default="/11th/tracker")
     if not user:
         return _clear_stale_auth_cookies(RedirectResponse(url=f"/login?redirect={urllib.parse.quote_plus(target)}", status_code=303))
     return RedirectResponse(url=target, status_code=303)
@@ -550,9 +614,12 @@ async def serve_tracker_play_alias(request: Request):
 @app.get("/_next/image", include_in_schema=False)
 async def serve_next_image_optimizer(request: Request):
     raw_url = request.query_params.get("url")
-    if not raw_url:
-        raise HTTPException(status_code=400, detail="Missing url parameter")
-    clean_path = raw_url.lstrip("/")
+    if not raw_url or "\x00" in raw_url:
+        raise HTTPException(status_code=400, detail="Missing or invalid url parameter")
+    decoded_url = urllib.parse.unquote(raw_url).replace("\\", "/")
+    if ".." in decoded_url.split("/") or decoded_url.startswith(("http://", "https://", "//")):
+        raise HTTPException(status_code=400, detail="Invalid url parameter")
+    clean_path = decoded_url.lstrip("/")
     return await serve_tracker_asset(clean_path)
 
 @app.get("/_next/{path:path}", include_in_schema=False)
@@ -727,8 +794,8 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={
             "status": "error",
-            "detail": str(exc),
-            "error_type": type(exc).__name__,
+            "detail": "An internal server error occurred.",
+            "error_type": "InternalServerError",
             "path": str(request.url.path)
         }
     )

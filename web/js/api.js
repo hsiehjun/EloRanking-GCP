@@ -19,6 +19,7 @@ window.api = {
     '/api/armory': 90000,
     '/api/community': 45000,
     '/api/badges': 120000,
+    '/api/user/dashboard': 15000,
   },
 
   clearCache(pattern) {
@@ -43,7 +44,6 @@ window.api = {
       '/api/chat',
       '/api/connect',
       '/api/feedback',
-      '/api/user/dashboard',
       '/health',
       '/api/health',
       '/api/version',

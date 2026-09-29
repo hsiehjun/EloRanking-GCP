@@ -585,6 +585,25 @@ body:has(#gt-sync-hud) {
   display: none !important;
 }
 
+/* Tablet (769px - 1180px): Wrap top HUD cleanly so action buttons are never clipped off-screen */
+@media (min-width: 769px) and (max-width: 1180px) {
+  body:has(#gt-sync-hud),
+  body:has(#aos-sync-hud) {
+    padding-top: max(76px, calc(76px + env(safe-area-inset-top, 0px))) !important;
+  }
+  #gt-sync-hud,
+  #aos-sync-hud {
+    flex-wrap: wrap !important;
+    white-space: normal !important;
+    overflow-x: visible !important;
+    row-gap: 4px !important;
+    justify-content: space-between !important;
+  }
+  #aos-sync-hud .gt-desktop-actions {
+    flex-wrap: wrap !important;
+  }
+}
+
 /* Wahapedia Keyword Badges */
 .kwb, .kwb-badge {
   display: inline-block;
@@ -912,6 +931,7 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
     box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.7) !important;
     padding: 2px 5px calc(2px + env(safe-area-inset-bottom, 0px)) 5px !important;
     box-sizing: border-box !important;
+    height: 44px;
     height: 36px !important;
     height: calc(36px + env(safe-area-inset-bottom, 0px)) !important;
   }

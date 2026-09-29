@@ -250,7 +250,7 @@ async function loadMyHubDashboard() {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       }).then(r => r.ok ? r.json() : null).catch(() => null),
       (window.api && typeof window.api.getUserRegisteredTournaments === 'function')
-        ? window.api.getUserRegisteredTournaments(true)
+        ? window.api.getUserRegisteredTournaments(false)
         : Promise.resolve(null)
     ]);
 

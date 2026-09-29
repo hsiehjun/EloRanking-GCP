@@ -516,8 +516,9 @@ async def api_events_recommended(
     if not hasattr(api_events_recommended, "_roster_cache"):
         api_events_recommended._roster_cache = {}
 
-    # For nearby upcoming events with enrolled players not yet in DB, fetch live roster from BCP
+    # For nearby upcoming events with enrolled players not yet in DB, fetch live roster from BCP concurrently
     headers = DEFAULT_HEADERS.copy()
+    uncached_eids = []
     for ev in bcp_events[:20]:
         eid = str(ev.get("id") or ev.get("objectId") or "")
         enrolled_cnt = int(ev.get("totalPlayers") or ev.get("total_players") or ev.get("enrolled_count") or 0)
@@ -531,60 +532,95 @@ async def api_events_recommended(
             continue
 
         if eid not in field_stats or not field_stats[eid].get("avg_field_elo"):
+            uncached_eids.append(eid)
+
+    if uncached_eids:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _fetch_single_bcp_roster(target_eid: str):
             try:
-                p_url = f"{BCP_API_BASE}/events/{eid}/players"
+                p_url = f"{BCP_API_BASE}/events/{target_eid}/players"
                 p_req = urllib.request.Request(p_url, headers=headers)
                 with urllib.request.urlopen(p_req, timeout=1.8) as p_resp:
                     p_data = json.loads(p_resp.read().decode())
-                    active_p = p_data.get("active", [])
-                    if active_p:
-                        p_ids = []
-                        p_names = []
-                        for p in active_p:
-                            u = p.get("user") or {}
-                            fn = u.get("firstName") or p.get("firstName") or ""
-                            ln = u.get("lastName") or p.get("lastName") or ""
-                            nm = f"{fn} {ln}".strip() or p.get("name")
-                            pid = u.get("id") or p.get("userId") or p.get("id")
-                            if pid: p_ids.append(pid)
-                            if nm: p_names.append(nm.lower())
-
-                        # Query ratings from PostgreSQL for these enrolled players
-                        with db.get_connection() as conn:
-                            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cur:
-                                cur.execute("""
-                                    SELECT player_id, LOWER(player_name) as player_name, current_elo
-                                    FROM player_ratings
-                                    WHERE player_id = ANY(%s) OR LOWER(player_name) = ANY(%s);
-                                """, (p_ids, p_names))
-                                rated_rows = cur.fetchall()
-                                found_ratings = {r["player_id"]: float(r["current_elo"]) for r in rated_rows if r.get("player_id")}
-                                name_ratings = {r["player_name"]: float(r["current_elo"]) for r in rated_rows if r.get("player_name")}
-
-                        elos = []
-                        for p in active_p:
-                            u = p.get("user") or {}
-                            fn = u.get("firstName") or p.get("firstName") or ""
-                            ln = u.get("lastName") or p.get("lastName") or ""
-                            nm = f"{fn} {ln}".strip().lower()
-                            pid = u.get("id") or p.get("userId") or p.get("id")
-                            p_elo = found_ratings.get(pid) or name_ratings.get(nm)
-                            elos.append(p_elo if p_elo else 1500.0)
-
-                        if elos:
-                            calculated_stats = {
-                                "avg_field_elo": round(sum(elos) / len(elos), 1),
-                                "top_seed_elo": round(max(elos), 1),
-                                "total_enrolled": len(active_p),
-                                "rated_players_count": sum(1 for e in elos if e != 1500.0)
-                            }
-                            field_stats[eid] = calculated_stats
-                            api_events_recommended._roster_cache[eid] = {
-                                "timestamp": now_ts,
-                                "stats": calculated_stats
-                            }
+                    return target_eid, (p_data.get("active") or [])
             except Exception as pe:
-                logger.debug(f"Live roster fetch notice for {eid}: {pe}")
+                logger.debug(f"Live roster fetch notice for {target_eid}: {pe}")
+                return target_eid, None
+
+        fetched_rosters = {}
+        all_p_ids = set()
+        all_p_names = set()
+        with ThreadPoolExecutor(max_workers=min(6, len(uncached_eids))) as pool:
+            for eid_res, active_p in pool.map(_fetch_single_bcp_roster, uncached_eids):
+                if active_p is None:
+                    continue
+                fetched_rosters[eid_res] = active_p
+                for p in active_p:
+                    u = p.get("user") or {}
+                    fn = u.get("firstName") or p.get("firstName") or ""
+                    ln = u.get("lastName") or p.get("lastName") or ""
+                    nm = f"{fn} {ln}".strip() or p.get("name")
+                    pid = u.get("id") or p.get("userId") or p.get("id")
+                    if pid:
+                        all_p_ids.add(str(pid))
+                    if nm:
+                        all_p_names.add(str(nm).lower())
+
+        found_ratings = {}
+        name_ratings = {}
+        if all_p_ids or all_p_names:
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cur:
+                        cur.execute("""
+                            SELECT player_id, LOWER(player_name) as player_name, current_elo
+                            FROM player_ratings
+                            WHERE player_id = ANY(%s) OR LOWER(player_name) = ANY(%s);
+                        """, (list(all_p_ids), list(all_p_names)))
+                        rated_rows = cur.fetchall()
+                        found_ratings = {str(r["player_id"]): float(r["current_elo"]) for r in rated_rows if r.get("player_id")}
+                        name_ratings = {str(r["player_name"]): float(r["current_elo"]) for r in rated_rows if r.get("player_name")}
+            except Exception as dbe:
+                logger.debug(f"Batch roster rating lookup notice: {dbe}")
+
+        for eid_res, active_p in fetched_rosters.items():
+            if not active_p:
+                empty_stats = {
+                    "avg_field_elo": 1500.0,
+                    "top_seed_elo": 1500.0,
+                    "total_enrolled": 0,
+                    "rated_players_count": 0
+                }
+                field_stats[eid_res] = empty_stats
+                api_events_recommended._roster_cache[eid_res] = {
+                    "timestamp": now_ts,
+                    "stats": empty_stats
+                }
+                continue
+
+            elos = []
+            for p in active_p:
+                u = p.get("user") or {}
+                fn = u.get("firstName") or p.get("firstName") or ""
+                ln = u.get("lastName") or p.get("lastName") or ""
+                nm = f"{fn} {ln}".strip().lower()
+                pid = str(u.get("id") or p.get("userId") or p.get("id") or "")
+                p_elo = found_ratings.get(pid) or name_ratings.get(nm)
+                elos.append(p_elo if p_elo else 1500.0)
+
+            if elos:
+                calculated_stats = {
+                    "avg_field_elo": round(sum(elos) / len(elos), 1),
+                    "top_seed_elo": round(max(elos), 1),
+                    "total_enrolled": len(active_p),
+                    "rated_players_count": sum(1 for e in elos if e != 1500.0)
+                }
+                field_stats[eid_res] = calculated_stats
+                api_events_recommended._roster_cache[eid_res] = {
+                    "timestamp": now_ts,
+                    "stats": calculated_stats
+                }
 
     for ev in bcp_events:
         ev_id = ev.get("id") or ev.get("objectId")
@@ -1652,8 +1688,18 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 except Exception as tge:
                     logger.debug(f"Notice fetching tracker games map for {event_id_str}: {tge}")
 
-                for r in range(1, probe_max_r + 1):
-                    raw_pairings = scraper.fetch_event_pairings_for_round(event_id_str, r)
+                round_nums = list(range(1, probe_max_r + 1))
+                pairings_by_round = {}
+                if len(round_nums) == 1:
+                    pairings_by_round[1] = scraper.fetch_event_pairings_for_round(event_id_str, 1)
+                elif round_nums:
+                    from concurrent.futures import ThreadPoolExecutor
+                    with ThreadPoolExecutor(max_workers=min(6, len(round_nums))) as pool:
+                        for r_idx, rp in zip(round_nums, pool.map(lambda rn: scraper.fetch_event_pairings_for_round(event_id_str, rn), round_nums)):
+                            pairings_by_round[r_idx] = rp
+
+                for r in round_nums:
+                    raw_pairings = pairings_by_round.get(r)
                     if raw_pairings:
                         for idx, p in enumerate(raw_pairings):
                             if not isinstance(p, dict):
@@ -1893,6 +1939,10 @@ async def api_sync_event_roster_payload(event_id: str, request: Request):
     return {"success": True, "notice": "Roster is fetched live via BCP API"}
 
 
+import threading
+_cron_sync_lock = threading.Lock()
+
+
 # API: Cloud Scheduler Cron Sync
 @router.post("/api/cron/sync-tournaments", summary="Cloud Scheduler cron to scrape latest tournaments and update Elo")
 @router.get("/api/cron/sync-tournaments", summary="Manual trigger to scrape latest tournaments and update Elo")
@@ -1902,7 +1952,45 @@ async def api_cron_sync_tournaments(
     game_system: Optional[str] = Query("all", description="Game system to sync: '40k', 'aos', or 'all'")
 ):
     """Scrapes newly concluded BCP tournaments and recalculates Elo ratings for 40k and AoS."""
+    cron_secret = os.environ.get("CRON_SECRET", "").strip()
+    req_secret = (
+        request.headers.get("X-Cron-Secret")
+        or request.headers.get("Authorization", "").replace("Bearer ", "")
+        or request.query_params.get("cron_secret")
+        or ""
+    ).strip()
+    is_cloud_scheduler = (
+        request.headers.get("X-CloudScheduler", "").lower() == "true"
+        or request.headers.get("X-Appengine-Cron", "").lower() == "true"
+        or "Google-Cloud-Scheduler" in (request.headers.get("User-Agent") or "")
+    )
+    has_valid_secret = bool(cron_secret and secrets.compare_digest(cron_secret, req_secret))
+
+    is_authorized_admin = False
+    if not is_cloud_scheduler and not has_valid_secret:
+        try:
+            _get_to_session_or_403(request)
+            is_authorized_admin = True
+        except Exception:
+            is_authorized_admin = False
+
+    if not (is_cloud_scheduler or has_valid_secret or is_authorized_admin):
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Cloud Scheduler header, valid CRON_SECRET, or Administrator/TO session required."
+        )
+
+    if _cron_sync_lock.locked():
+        return {
+            "success": True,
+            "already_running": True,
+            "game_system": game_system or "all",
+            "message": "Scheduled BCP tournament sync is already running in the background."
+        }
+
     def do_sync():
+        if not _cron_sync_lock.acquire(blocking=False):
+            return
         try:
             db = get_database()
             scraper = BestCoastPairingsScraper(db=db)
@@ -1934,6 +2022,8 @@ async def api_cron_sync_tournaments(
                     db.prewarm_faction_details_cache("aos", "1yr", 25)
         except Exception as err:
             logger.error(f"❌ [CRON SYNC] Error running scheduled tournament sync: {err}", exc_info=True)
+        finally:
+            _cron_sync_lock.release()
 
     background_tasks.add_task(do_sync)
     return {

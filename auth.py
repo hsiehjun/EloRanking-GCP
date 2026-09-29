@@ -1505,6 +1505,7 @@ class AuthManager:
                         return {"success": False, "error": "Failed to update settings."}
             conn.commit()
 
+        self.clear_user_hub_cache(user_id=user_id, player_id=(user_record or {}).get("player_id"))
         user_info = self.get_user_by_id(user_id)
         return {
             "success": True,
@@ -2159,6 +2160,7 @@ class AuthManager:
                 """, (target_display_name, pid, bcp_user_id, bcp_email.strip() if bcp_email else None, actual_acc, actual_id, ref_tok, user_id))
             conn.commit()
 
+        self.clear_user_hub_cache(user_id=user_id, player_id=pid)
         updated_user = self.get_user_by_id(user_id)
         return {
             "success": True,
@@ -2187,6 +2189,7 @@ class AuthManager:
                 WHERE id = %s;
                 """, (user_id,))
             conn.commit()
+        self.clear_user_hub_cache(user_id=user_id)
         return {"success": True}
 
     def get_valid_bcp_tokens(self, user_id: str, force_refresh: bool = False) -> Dict[str, Optional[str]]:
@@ -2269,11 +2272,36 @@ class AuthManager:
             return env_tok.strip()
         return None
 
+    _HUB_CACHE: Dict[Tuple[str, str, str], Tuple[float, Dict[str, Any]]] = {}
+    _TOTAL_RANKED_CACHE: Dict[str, Tuple[float, int]] = {}
+    _SYSTEM_GLORY_CACHE: Dict[Tuple[str, str], Tuple[float, int]] = {}
+
+    def clear_user_hub_cache(self, user_id: Optional[str] = None, player_id: Optional[str] = None) -> None:
+        """Invalidates short-TTL Competitor Hub and Glory caches for a specific user/player or globally."""
+        if not user_id and not player_id:
+            self._HUB_CACHE.clear()
+            self._SYSTEM_GLORY_CACHE.clear()
+            return
+        uid_str = str(user_id or "")
+        pid_str = str(player_id or "")
+        for k in list(self._HUB_CACHE.keys()):
+            if (uid_str and k[0] == uid_str) or (pid_str and k[1] == pid_str):
+                self._HUB_CACHE.pop(k, None)
+        if pid_str:
+            for gk in list(self._SYSTEM_GLORY_CACHE.keys()):
+                if gk[0] == pid_str:
+                    self._SYSTEM_GLORY_CACHE.pop(gk, None)
 
     def get_authentic_system_glory(self, target_pid: Optional[str], game_system: str = "40k") -> int:
         """Evaluates authentic earned glory balance for a player within a single game system from its actual matches."""
         if not target_pid:
             return 0
+        import time
+        cache_key = (str(target_pid), str(game_system or "40k").lower())
+        now_ts = time.time()
+        cached_g = self._SYSTEM_GLORY_CACHE.get(cache_key)
+        if cached_g and (now_ts - cached_g[0]) < 60.0:
+            return cached_g[1]
         try:
             from psycopg2 import extras
             with self.db.get_connection() as conn:
@@ -2323,13 +2351,17 @@ class AuthManager:
                 tournaments=events,
                 game_system=game_system
             )
-            return int(eval_res.get("glory_balance", eval_res.get("glory_score", 0)))
+            val = int(eval_res.get("glory_balance", eval_res.get("glory_score", 0)))
+            self._SYSTEM_GLORY_CACHE[cache_key] = (now_ts, val)
+            return val
         except Exception as e:
             logger.debug(f"Notice computing authentic glory for {game_system}: {e}")
             return 0
 
     def get_user_competitor_hub(self, player_id: Optional[str] = None, user_id: Optional[str] = None, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Generates comprehensive personalized Competitor Hub analytics."""
+        import time
+        import copy
         target_pid = player_id
         target_sys = (game_system or "40k").lower()
         user_info = None
@@ -2368,6 +2400,21 @@ class AuthManager:
                 "newly_unlocked_badges": []
             }
 
+        now_ts = time.time()
+        hub_cache_key = (str(user_id or ""), str(target_pid or ""), target_sys)
+        cached_hub = self._HUB_CACHE.get(hub_cache_key)
+        if cached_hub and (now_ts - cached_hub[0]) < 30.0:
+            res_copy = copy.copy(cached_hub[1])
+            if user_info:
+                res_copy["armory_vault"] = user_info.get("armory_vault") or {}
+                res_copy["equipped"] = (user_info.get("armory_vault") or {}).get("equipped", {})
+            return res_copy
+
+        total_ranked = 0
+        cached_tr = self._TOTAL_RANKED_CACHE.get(target_sys)
+        if cached_tr and (now_ts - cached_tr[0]) < 300.0:
+            total_ranked = cached_tr[1]
+
         from psycopg2 import extras
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -2402,6 +2449,13 @@ class AuthManager:
                 cur.execute("SELECT COUNT(*) + 1 as rank FROM player_ratings WHERE current_elo > %s AND matches_played >= 3 AND COALESCE(game_system, '40k') = %s;", (p_stat["current_elo"], target_sys))
                 g_row = cur.fetchone()
                 global_rank = g_row.get("rank", 1) if (g_row and isinstance(g_row, dict)) else 1
+
+                if not total_ranked:
+                    cur.execute("SELECT COUNT(*) as cnt FROM player_ratings WHERE matches_played >= 3 AND COALESCE(game_system, '40k') = %s;", (target_sys,))
+                    cnt_row = cur.fetchone()
+                    total_ranked = int(cnt_row.get("cnt", 0) if isinstance(cnt_row, dict) else (cnt_row[0] if cnt_row else 0))
+                    if total_ranked > 0:
+                        self._TOTAL_RANKED_CACHE[target_sys] = (now_ts, total_ranked)
 
                 faction_rank = None
                 if p_stat.get("top_faction"):
@@ -2483,14 +2537,7 @@ class AuthManager:
             except Exception as e:
                 logger.debug(f"Tracker history error: {e}")
 
-        total_ranked = 0
-        try:
-            with self.db.get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT COUNT(*) FROM player_ratings WHERE matches_played >= 3 AND COALESCE(game_system, '40k') = %s;", (target_sys,))
-                    cnt_row = cur.fetchone()
-                    total_ranked = cnt_row[0] if cnt_row else 0
-        except Exception:
+        if not total_ranked:
             total_ranked = 77322 if target_sys == "40k" else 15000
 
         import badges
@@ -2533,6 +2580,7 @@ class AuthManager:
 
         # Compute other game system authentic glory from that system's actual matches
         current_sys_glory = int(b_eval.get("glory_balance", b_eval.get("glory_score", 0)))
+        self._SYSTEM_GLORY_CACHE[(str(target_pid), target_sys)] = (now_ts, current_sys_glory)
         other_sys = "aos" if target_sys == "40k" else "40k"
         other_glory = self.get_authentic_system_glory(target_pid, other_sys)
         unified_glory = current_sys_glory + other_glory
@@ -2565,7 +2613,7 @@ class AuthManager:
             except Exception as e:
                 logger.warning(f"Notice syncing ledger balance in get_user_hub_data for {user_id}: {e}")
 
-        return {
+        hub_payload = {
             "player": p_stat,
             "rankings": {
                 "global_rank": global_rank,
@@ -2608,6 +2656,8 @@ class AuthManager:
             "badges": b_eval["badges"],
             "categories": b_eval["categories"]
         }
+        self._HUB_CACHE[hub_cache_key] = (now_ts, hub_payload)
+        return hub_payload
 
 
 # Global singleton

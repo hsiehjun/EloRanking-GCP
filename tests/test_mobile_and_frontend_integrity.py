@@ -864,7 +864,7 @@ def test_matchup_spotlights_integrity():
 
     # 3. Cache busting
     import re
-    css_v = re.search(r'styles\.css\?v=([0-9a-zA-Z._-]+)', app_content)
+    css_v = re.search(r'styles(?:\.min)?\.css\?v=([0-9a-zA-Z._-]+)', app_content)
     assert css_v, "styles.css cache-busting version parameter missing in app.html"
     v_str = css_v.group(1)
     if re.match(r'^[0-9.]+$', v_str):

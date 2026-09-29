@@ -700,6 +700,26 @@ def dev_get_army_lists() -> list:
     return list(DEV_ARMY_LISTS)
 
 
+_DEV_PLAYER_BADGE_CACHE = {}
+
+
+def _resolve_safe_web_path(base_dir: Path, rel_path: str):
+    """Safely resolves a relative path within base_dir, rejecting path traversal."""
+    if not rel_path or "\x00" in rel_path:
+        return None
+    unquoted = urllib.parse.unquote(rel_path)
+    if "\x00" in unquoted or ".." in unquoted.replace("\\", "/").split("/"):
+        return None
+    clean_rel = unquoted.lstrip("/\\")
+    try:
+        base_resolved = base_dir.resolve()
+        candidate = (base_resolved / clean_rel).resolve()
+        candidate.relative_to(base_resolved)
+        return candidate
+    except Exception:
+        return None
+
+
 class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(WEB_DIR), **kwargs)
@@ -712,7 +732,15 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)")
-        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        existing_headers = b"".join(getattr(self, "_headers_buffer", [])).lower()
+        if b"cache-control:" not in existing_headers:
+            req_path = getattr(self, "path", "") or ""
+            raw_p = req_path.split("?")[0].lower()
+            has_v = "v=" in req_path
+            if (raw_p.startswith("/_next/static/") or (has_v and raw_p.endswith((".js", ".css", ".png", ".svg", ".woff2", ".ico", ".webp")))):
+                self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+            else:
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         super().end_headers()
 
     def do_OPTIONS(self):
@@ -2670,15 +2698,19 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
             import badges
             req_game_sys = query_params.get("game_system", ["40k"])[0].lower() if "query_params" in locals() else "40k"
-            b_eval = badges.evaluate_player_badges(
-                player_data=res.get("player") or res,
-                history=res.get("history") or [],
-                tournaments=tournaments_list,
-                faction_mastery=res.get("faction_mastery") or [],
-                matchup_matrix=res.get("matchup_matrix") or [],
-                user_pinned_ids=None,
-                game_system=req_game_sys
-            )
+            badge_cache_key = (str((res.get("player") or {}).get("player_id") or pid), req_game_sys, len(tournaments_list), len(res.get("history") or []))
+            b_eval = _DEV_PLAYER_BADGE_CACHE.get(badge_cache_key)
+            if b_eval is None:
+                b_eval = badges.evaluate_player_badges(
+                    player_data=res.get("player") or res,
+                    history=res.get("history") or [],
+                    tournaments=tournaments_list,
+                    faction_mastery=res.get("faction_mastery") or [],
+                    matchup_matrix=res.get("matchup_matrix") or [],
+                    user_pinned_ids=None,
+                    game_system=req_game_sys
+                )
+                _DEV_PLAYER_BADGE_CACHE[badge_cache_key] = b_eval
             import armory_catalog
             if is_self:
                 norm_vault = armory_catalog.normalize_armory_vault(DEV_USER.get("armory_vault", {}))
@@ -4889,18 +4921,22 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             import badges
             req_game_sys = query_params.get("game_system", ["40k"])[0].lower() if "query_params" in locals() else "40k"
             user_pinned = DEV_USER.get("pinned_badges") if isinstance(DEV_USER, dict) else None
-            b_eval = badges.evaluate_player_badges(
-                player_data=res.get("player") or res,
-                history=res.get("history") or [],
-                tournaments=res.get("events_attended") or [],
-                faction_mastery=res.get("faction_mastery") or [],
-                matchup_matrix=res.get("matchup_matrix") or [],
-                user_pinned_ids=user_pinned,
-                game_system=req_game_sys,
-                tracker_sessions=res.get("tracker_history") or [],
-                registered_tournaments=res.get("registered_tournaments") or [],
-                armylists=res.get("army_lists") or []
-            )
+            dash_badge_key = ("dash", req_game_sys, tuple(user_pinned or []), len(res.get("tracker_history") or []), len(res.get("army_lists") or []))
+            b_eval = _DEV_PLAYER_BADGE_CACHE.get(dash_badge_key)
+            if b_eval is None:
+                b_eval = badges.evaluate_player_badges(
+                    player_data=res.get("player") or res,
+                    history=res.get("history") or [],
+                    tournaments=res.get("events_attended") or [],
+                    faction_mastery=res.get("faction_mastery") or [],
+                    matchup_matrix=res.get("matchup_matrix") or [],
+                    user_pinned_ids=user_pinned,
+                    game_system=req_game_sys,
+                    tracker_sessions=res.get("tracker_history") or [],
+                    registered_tournaments=res.get("registered_tournaments") or [],
+                    armylists=res.get("army_lists") or []
+                )
+                _DEV_PLAYER_BADGE_CACHE[dash_badge_key] = b_eval
             user_ack = DEV_USER.get("acknowledged_badge_ids") or []
             ack_set = set(user_ack)
             newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
@@ -5337,6 +5373,23 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(resp_bytes)
             return
 
+        if clean_path == "api/cron/sync-tournaments":
+            is_cloud_scheduler = (
+                self.headers.get("X-CloudScheduler", "").lower() == "true"
+                or self.headers.get("X-Appengine-Cron", "").lower() == "true"
+                or "Google-Cloud-Scheduler" in (self.headers.get("User-Agent") or "")
+            )
+            cron_secret = os.environ.get("CRON_SECRET", "").strip()
+            req_secret = (self.headers.get("X-Cron-Secret") or query_params.get("cron_secret", [""])[0] or "").strip()
+            has_secret = bool(cron_secret and secrets.compare_digest(cron_secret, req_secret))
+            if not (is_cloud_scheduler or has_secret):
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps({"detail": "Forbidden: Cloud Scheduler header or valid CRON_SECRET required."}).encode("utf-8"))
+                return
+
         if clean_path.startswith("api/"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -5444,31 +5497,54 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_file(TRACKER_DIR / "tracker_sync.css", "text/css; charset=utf-8", is_head)
             return
 
-        # 5. _next static assets
+        # 5. _next/image & _next static assets (with strict path traversal protection)
+        if clean_path == "_next/image":
+            img_url = (query_params.get("url") or [""])[0].strip()
+            if not img_url or "://" in img_url or img_url.startswith("//") or ".." in urllib.parse.unquote(img_url):
+                self.send_error(400, "Invalid image path")
+                return
+            for base_cand in (TRACKER_STATIC_DIR, WEB_DIR):
+                safe_img = _resolve_safe_web_path(base_cand, img_url)
+                if safe_img and safe_img.is_file():
+                    self._serve_file(safe_img, is_head=is_head)
+                    return
+            self.send_error(404, "Image not found")
+            return
+
         if clean_path.startswith("_next/"):
-            rel = clean_path.replace("_next/", "")
-            target = TRACKER_STATIC_DIR / "_next" / rel
-            if target.is_file():
-                self._serve_file(target, is_head=is_head)
+            rel = clean_path.replace("_next/", "", 1)
+            safe_target = _resolve_safe_web_path(TRACKER_STATIC_DIR / "_next", rel)
+            if safe_target is None:
+                self.send_error(400, "Invalid asset path")
                 return
-            fallback = REPO_ROOT.parent / "gdm-tracker-standalone" / "_next" / rel
-            if fallback.is_file():
-                self._serve_file(fallback, is_head=is_head)
+            if safe_target.is_file():
+                self._serve_file(safe_target, is_head=is_head)
                 return
+            fallback_base = REPO_ROOT.parent / "gdm-tracker-standalone" / "_next"
+            safe_fallback = _resolve_safe_web_path(fallback_base, rel)
+            if safe_fallback and safe_fallback.is_file():
+                self._serve_file(safe_fallback, is_head=is_head)
+                return
+            self.send_error(404, "Static asset not found")
+            return
 
         if clean_path in ("eventstudio", "eventstudio.html", "40k/eventstudio", "aos/eventstudio"):
             self._serve_html_with_auth(WEB_DIR / "eventstudio.html", is_head)
             return
 
+        if ".." in urllib.parse.unquote(self.path):
+            self.send_error(400, "Invalid path")
+            return
+
         # 6. Direct file resolution in WEB_DIR
-        local_web = WEB_DIR / clean_path
-        if local_web.is_file():
+        local_web = _resolve_safe_web_path(WEB_DIR, clean_path)
+        if local_web and local_web.is_file():
             self._serve_file(local_web, is_head=is_head)
             return
 
         # 7. Check in TRACKER_STATIC_DIR
-        local_static = TRACKER_STATIC_DIR / clean_path
-        if local_static.is_file():
+        local_static = _resolve_safe_web_path(TRACKER_STATIC_DIR, clean_path)
+        if local_static and local_static.is_file():
             self._serve_file(local_static, is_head=is_head)
             return
 

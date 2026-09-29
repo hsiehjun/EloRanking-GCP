@@ -241,20 +241,24 @@ async def api_respond_connect_request(request_id: str, payload: MatchRespondPayl
 async def api_get_connect_messages(request_id: str, request: Request):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
-    session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    session_token = (
+        request.cookies.get("session_token")
+        or request.cookies.get("elo_auth_token")
+        or request.cookies.get("native_session_token")
+        or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    )
     user = auth_mgr.get_session(session_token) if session_token else None
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
 
     clean_rid = str(request_id or "").strip()
     if clean_rid.lower().startswith("grp_league_") or clean_rid.lower().startswith("grp_pod_"):
         import leagues_hub_service
         svc = leagues_hub_service.get_leagues_hub_service()
-        res = svc.get_group_chat_messages(clean_rid, user_id=user["id"] if user else "")
+        res = svc.get_group_chat_messages(clean_rid, user_id=user["id"])
         if not res.get("success"):
             raise HTTPException(status_code=400, detail=res.get("error", "Failed to load group chat messages"))
         return res
-
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
 
     db = get_database()
     res = db.get_chat_messages(request_id, user["id"])

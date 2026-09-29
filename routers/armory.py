@@ -21,9 +21,13 @@ logger = logging.getLogger("ArmoryRouter")
 router = APIRouter(tags=["Retribution Armory"])
 
 
+_armory_db_ensured = False
+
+
 def _ensure_armory_db(auth_mgr):
     """Ensures armory_vault and glory_spent columns and armory_transactions table exist."""
-    if not auth_mgr or not hasattr(auth_mgr, "db") or not auth_mgr.db:
+    global _armory_db_ensured
+    if _armory_db_ensured or not auth_mgr or not hasattr(auth_mgr, "db") or not auth_mgr.db:
         return
     try:
         with auth_mgr.db.get_connection() as conn:
@@ -45,6 +49,7 @@ def _ensure_armory_db(auth_mgr):
                 CREATE INDEX IF NOT EXISTS idx_armory_trans_user ON armory_transactions(user_id);
                 """)
             conn.commit()
+        _armory_db_ensured = True
     except Exception as e:
         logger.debug(f"Notice ensuring armory schema in db: {e}")
 
@@ -345,6 +350,8 @@ async def purchase_item(request: Request):
     session["armory_vault"] = vault
     session["glory_spent"] = tx_wallet["glory_spent"]
     session["glory_balance"] = tx_wallet["glory_balance"]
+    if hasattr(auth_mgr, "clear_user_hub_cache"):
+        auth_mgr.clear_user_hub_cache(user_id=str(user_id))
 
     updated_glory = {
         **glory_state,
@@ -512,6 +519,8 @@ async def equip_item(request: Request):
     vault["equipped"][sys_key][slot] = item_id
     user_data["armory_vault"] = vault
     session["armory_vault"] = vault
+    if hasattr(auth_mgr, "clear_user_hub_cache"):
+        auth_mgr.clear_user_hub_cache(user_id=str(user_id))
 
     try:
         _ensure_armory_db(auth_mgr)
@@ -563,6 +572,8 @@ async def unequip_item(request: Request):
         vault["equipped"].pop(slot, None)
     user_data["armory_vault"] = vault
     session["armory_vault"] = vault
+    if hasattr(auth_mgr, "clear_user_hub_cache"):
+        auth_mgr.clear_user_hub_cache(user_id=str(user_id))
 
     try:
         with auth_mgr.db.get_connection() as conn:
