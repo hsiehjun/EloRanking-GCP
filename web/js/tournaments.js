@@ -5033,17 +5033,32 @@ function setEventArmyListViewMode(mode) {
         });
     }
   } else {
-    // Raw Text mode
+    // Raw Text mode (GW Format default + NewRecruit Format toggle)
+    const renderer = window.renderNativeRosterViewer || (typeof renderNativeRosterViewer === 'function' ? renderNativeRosterViewer : null);
+    if (renderer && currentEventParsedRoster) {
+      contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'text' });
+      return;
+    }
     contentEl.innerHTML = `
       <div style="padding:1.25rem; flex:1; display:flex; flex-direction:column; background:#070b14;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
           <div style="font-size:0.84rem; font-weight:800; color:#38bdf8; display:flex; align-items:center; gap:0.4rem;">
-            <span>📄</span> Raw Competitor Roster (Monospaced Format)
+            <span>📄</span> Roster Text (GW Format)
           </div>
         </div>
         <pre style="flex:1; margin:0; padding:1.15rem; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:10px; font-family:var(--font-mono, monospace); font-size:0.82rem; line-height:1.6; color:#e2e8f0; white-space:pre-wrap; word-break:break-word; max-height:520px; overflow-y:auto;">${escapeHtml(currentEventArmyListText)}</pre>
       </div>
     `;
+    if (renderer && currentEventArmyListText && window.api && typeof window.api.parseArmyList === 'function') {
+      window.api.parseArmyList(currentEventArmyListText).then(res => {
+        if (res && res.success && res.army_list) {
+          currentEventParsedRoster = res.army_list;
+          if (currentEventArmyListViewMode === 'text' && document.getElementById('event-army-list-modal-content') === contentEl) {
+            contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'text' });
+          }
+        }
+      }).catch(() => {});
+    }
   }
 }
 

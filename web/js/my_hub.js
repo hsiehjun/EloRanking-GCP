@@ -1871,9 +1871,6 @@ function renderMyHub(data) {
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                 <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📋 Army Lists & Rosters</h3>
-                <span id="hub-nr-sync-pill" style="font-size: 0.68rem; font-weight: 800; padding: 0.15rem 0.5rem; border-radius: 999px; background: rgba(16, 185, 129, 0.14); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); display: inline-flex; align-items: center; gap: 4px;">
-                  ⚡ NewRecruit Linked
-                </span>
               </div>
               <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
                 <button id="hub-btn-launch-nr-studio" class="bcp-login-btn" onclick="openNewRecruitStudioDrawer('/nr/app/Lists')" style="font-size: 0.75rem; padding: 0.32rem 0.8rem; background: var(--accent); color: #0f172a; font-weight: 800; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
@@ -3412,6 +3409,40 @@ function isHubListTombstoned(item) {
   return false;
 }
 
+function getLocalNrCloudAccountFallback() {
+  try {
+    let access = localStorage.getItem('access') || '';
+    let login = '';
+    const rawBackup = localStorage.getItem('omni_nr_auth_backup_v1');
+    if (rawBackup) {
+      const parsed = JSON.parse(rawBackup);
+      if (parsed && typeof parsed === 'object') {
+        if (!access && parsed.access) access = String(parsed.access);
+        if (parsed.user && typeof parsed.user === 'object') {
+          login = String(parsed.user.login || parsed.user.username || parsed.user.name || '');
+        }
+      }
+    }
+    if (!access) return null;
+    if (!login && access.includes('.')) {
+      try {
+        const b64 = access.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const payload = JSON.parse(atob(b64));
+        if (payload && typeof payload === 'object') {
+          login = String(payload.login || payload.username || payload.name || payload.sub || '');
+        }
+      } catch (e2) {}
+    }
+    return {
+      connected: true,
+      login: login || 'NewRecruit',
+      last_sync: new Date().toISOString()
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 async function loadHubArmyLists() {
   const container = document.getElementById('hub-armylists-list-container');
   if (!container) return;
@@ -3439,10 +3470,15 @@ async function loadHubArmyLists() {
     }
     hubSavedLists = lists;
     window.hubSavedLists = lists;
-    if (nrState && nrState.cloud_account) {
+    const localAuthFallback = getLocalNrCloudAccountFallback();
+    if (nrState && nrState.cloud_account && nrState.cloud_account.connected) {
       hubNrCloudAccount = nrState.cloud_account;
-      updateHubNrSyncPill();
+    } else if (localAuthFallback && localAuthFallback.connected) {
+      hubNrCloudAccount = localAuthFallback;
+    } else if (nrState && nrState.cloud_account && (!hubNrCloudAccount || !hubNrCloudAccount.connected)) {
+      hubNrCloudAccount = nrState.cloud_account;
     }
+    updateHubNrSyncPill();
     renderHubArmyLists(lists);
     setTimeout(ensureBackgroundNrStudioWarmup, 250);
   } catch(e) {
@@ -3457,25 +3493,15 @@ function ensureBackgroundNrStudioWarmup() {
 }
 
 function updateHubNrSyncPill() {
-  const pill = document.getElementById('hub-nr-sync-pill');
   const cloudBtn = document.getElementById('hub-btn-nr-cloud-sync');
   const studioAuthBtn = document.getElementById('hub-btn-nr-studio-auth');
-  const isConn = Boolean(hubNrCloudAccount && hubNrCloudAccount.connected);
-  const loginName = (hubNrCloudAccount && hubNrCloudAccount.login) || '';
+  const localAuthFallback = getLocalNrCloudAccountFallback();
+  const effectiveAccount = (hubNrCloudAccount && hubNrCloudAccount.connected)
+    ? hubNrCloudAccount
+    : (localAuthFallback || hubNrCloudAccount);
+  const isConn = Boolean(effectiveAccount && effectiveAccount.connected);
+  const loginName = (effectiveAccount && effectiveAccount.login) || '';
 
-  if (pill) {
-    if (isConn) {
-      pill.innerHTML = `🟢 Cloud: ${escapeHtml(loginName || 'Connected')}`;
-      pill.style.background = 'rgba(16, 185, 129, 0.16)';
-      pill.style.color = '#10b981';
-      pill.style.borderColor = 'rgba(16, 185, 129, 0.35)';
-    } else {
-      pill.innerHTML = `⚡ Studio Auto-Sync`;
-      pill.style.background = 'rgba(56, 189, 248, 0.14)';
-      pill.style.color = '#38bdf8';
-      pill.style.borderColor = 'rgba(56, 189, 248, 0.3)';
-    }
-  }
   if (cloudBtn && isConn) {
     cloudBtn.innerHTML = `🔄 Cloud Sync`;
   }
@@ -3609,8 +3635,13 @@ window.triggerNewRecruitStudioCreateList = triggerNewRecruitStudioCreateList;
 
 async function triggerNewRecruitStudioAuth() {
   const iframe = document.getElementById('hub-nr-studio-iframe');
-  const isConn = Boolean(hubNrCloudAccount && hubNrCloudAccount.connected);
+  const localAuthFallback = getLocalNrCloudAccountFallback();
+  const isConn = Boolean((hubNrCloudAccount && hubNrCloudAccount.connected) || (localAuthFallback && localAuthFallback.connected));
   if (isConn) {
+    try {
+      localStorage.removeItem('omni_nr_auth_backup_v1');
+      localStorage.removeItem('access');
+    } catch (e) {}
     try {
       if (window.api && typeof window.api.connectNewRecruitCloud === 'function') {
         await window.api.connectNewRecruitCloud({ action: 'disconnect' }).catch(() => {});
@@ -4421,6 +4452,10 @@ async function triggerNewRecruitCloudSync() {
 
 async function disconnectNewRecruitCloud() {
   try {
+    try {
+      localStorage.removeItem('omni_nr_auth_backup_v1');
+      localStorage.removeItem('access');
+    } catch (e2) {}
     await window.api.connectNewRecruitCloud({ action: 'disconnect' });
     hubNrCloudAccount = { connected: false, login: '', last_sync: null };
     updateHubNrSyncPill();
@@ -4465,47 +4500,164 @@ async function handleNewRecruitShareUrlSync() {
   }
 }
 
-function generateRawRosterText(list) {
-  if (list.raw_text && list.raw_text.trim().length > 10) {
-    return list.raw_text.trim();
-  }
-  let out = `${list.faction || 'Warhammer 40,000'} - ${list.detachment || 'Core Detachment'} (${list.points || 2000} pts)\n\n`;
-  const units = list.units || [];
-  const groups = {};
-  for (const u of units) {
-    const role = (u.role || 'Other Datasheets').toUpperCase();
-    if (!groups[role]) groups[role] = [];
-    groups[role].push(u);
-  }
-  for (const [role, uList] of Object.entries(groups)) {
-    out += `+ ${role} +\n`;
-    for (const u of uList) {
-      const cnt = u.model_count && u.model_count > 1 ? `${u.model_count}x ` : '';
-      out += `${cnt}${u.name} [${u.points || 0} pts]`;
-      const tags = [];
-      if (u.is_warlord) tags.push('Warlord');
-      if (u.enhancement) tags.push(`Enhancement: ${u.enhancement}`);
-      if (tags.length > 0) out += `: ${tags.join(', ')}`;
-      out += '\n';
-      if (u.wargear && u.wargear.length > 0) {
-        out += `  • Wargear: ${u.wargear.join(', ')}\n`;
+function generateRawRosterText(list, format = null) {
+  if (!list || typeof list !== 'object') return '';
+  const fmt = String(format || window.hubCurrentRosterTextFormat || 'gw').toLowerCase() === 'nr' ? 'nr' : 'gw';
+  const row = (list.nr_row && typeof list.nr_row === 'object') ? list.nr_row : {};
+
+  if (fmt === 'nr') {
+    const existingNr = String(list.nr_text || row._omnitactica_nr_text || '').trim();
+    if (existingNr.length > 10) return existingNr;
+    const rawCandidate = String(list.raw_text || '').trim();
+    if (rawCandidate.startsWith('++++') || rawCandidate.includes('+ FACTION KEYWORD:')) {
+      return rawCandidate;
+    }
+    const pts = Number(list.points || 2000) || 2000;
+    const faction = String(list.faction || 'Warhammer 40,000').trim();
+    const det = String(list.detachment || 'Core Detachment').trim();
+    const units = Array.isArray(list.units) ? list.units : [];
+    const warlordUnit = units.find(u => u && u.is_warlord);
+    const lines = [
+      '+++++++++++++++++++++++++++++++++++++++++++++++',
+      `+ FACTION KEYWORD: ${faction}`,
+      `+ DETACHMENT: ${det} (${pts} pts)`,
+      `+ TOTAL ARMY POINTS: ${pts}pts`,
+      '',
+      `+ WARLORD: ${warlordUnit && warlordUnit.name ? warlordUnit.name : 'Warlord'}`,
+      `+ ENHANCEMENT: `,
+      `+ NUMBER OF UNITS: ${units.length}`,
+      `+ SECONDARY: - Bring It Down: (0x2) - Assassination: 1 Characters`,
+      '+++++++++++++++++++++++++++++++++++++++++++++++'
+    ];
+    const groups = { CHARACTER: [], BATTLELINE: [], 'DEDICATED TRANSPORT': [], 'OTHER DATASHEETS': [] };
+    for (const u of units) {
+      if (!u) continue;
+      const r = String(u.role || 'Other Datasheets').toUpperCase();
+      if (r.includes('CHARACTER') || r.includes('HERO') || r.includes('EPIC')) groups.CHARACTER.push(u);
+      else if (r.includes('BATTLELINE')) groups.BATTLELINE.push(u);
+      else if (r.includes('TRANSPORT')) groups['DEDICATED TRANSPORT'].push(u);
+      else groups['OTHER DATASHEETS'].push(u);
+    }
+    let charIdx = 1;
+    for (const [sec, uList] of Object.entries(groups)) {
+      if (!uList.length) continue;
+      lines.push('', sec, '');
+      for (const u of uList) {
+        const cnt = Number(u.model_count || u.models || 1) || 1;
+        const prefix = sec === 'CHARACTER' ? `Char${charIdx++}: ` : '';
+        const wg = Array.isArray(u.wargear) && u.wargear.length ? `: ${u.wargear.join(', ')}` : '';
+        lines.push(`${prefix}${cnt}x ${u.name || 'Unit'} (${u.points || 0} pts)${wg}`);
+        if (u.enhancement) lines.push(`Enhancement: ${u.enhancement} (+0 pts)`);
+        if (u.is_warlord) lines.push('Warlord');
+        if (u.leading) lines.push(`Leading ${u.leading}`);
+        if (u.attached_to) lines.push(`Attached to ${u.attached_to}`);
+        lines.push('');
       }
     }
-    out += '\n';
+    return lines.join('\n').trim();
   }
-  return out.trim();
+
+  // Default: GW Format
+  const existingGw = String(list.gw_text || row._omnitactica_gw_text || '').trim();
+  if (existingGw.length > 10) return existingGw;
+  const rawCandidate = String(list.raw_text || '').trim();
+  if (rawCandidate.length > 10 && !rawCandidate.startsWith('++++') && !rawCandidate.includes('+ FACTION KEYWORD:')) {
+    return rawCandidate;
+  }
+
+  const pts = Number(list.points || 2000) || 2000;
+  const ptsComma = pts.toLocaleString('en-US');
+  const name = String(list.name || 'Army Roster').trim();
+  const factionRaw = String(list.faction || 'Warhammer 40,000').trim();
+  let superfaction = '';
+  let subfaction = factionRaw;
+  if (factionRaw.includes(' - ')) {
+    const parts = factionRaw.split(' - ', 2);
+    superfaction = parts[0].trim();
+    subfaction = parts[1].trim();
+  }
+  const det = String(list.detachment || 'Core Detachment').trim();
+  const sizeLabel = pts <= 1000 ? `Incursion (${ptsComma} Points)` : (pts <= 2000 ? `Strike Force (${ptsComma} Points)` : `Onslaught (${ptsComma} Points)`);
+
+  const lines = [`${name} (${ptsComma} Points)`, ''];
+  if (superfaction && superfaction.toLowerCase() !== subfaction.toLowerCase()) {
+    lines.push(superfaction);
+  }
+  lines.push(subfaction, det, sizeLabel);
+
+  const units = Array.isArray(list.units) ? list.units : [];
+  const groups = {
+    CHARACTERS: [],
+    BATTLELINE: [],
+    'DEDICATED TRANSPORTS': [],
+    'OTHER DATASHEETS': [],
+    'ALLIED UNITS': []
+  };
+  for (const u of units) {
+    if (!u) continue;
+    const r = String(u.role || 'Other Datasheets').toUpperCase();
+    if (r.includes('CHARACTER') || r.includes('HERO') || r.includes('EPIC')) groups.CHARACTERS.push(u);
+    else if (r.includes('BATTLELINE')) groups.BATTLELINE.push(u);
+    else if (r.includes('TRANSPORT')) groups['DEDICATED TRANSPORTS'].push(u);
+    else if (r.includes('ALLIED') || r.includes('ALLY')) groups['ALLIED UNITS'].push(u);
+    else groups['OTHER DATASHEETS'].push(u);
+  }
+
+  for (const [sec, uList] of Object.entries(groups)) {
+    if (!uList.length) continue;
+    lines.push('', sec);
+    for (const u of uList) {
+      lines.push('', `${u.name || 'Unit'} (${u.points || 0} Points)`);
+      if (u.is_warlord) lines.push('  • Warlord');
+      if (Array.isArray(u.wargear)) {
+        for (const w of u.wargear) {
+          if (w) lines.push(`  • ${w}`);
+        }
+      }
+      if (u.enhancement) lines.push(`  • Enhancements: ${u.enhancement}`);
+    }
+  }
+  lines.push('', 'Exported with New Recruit, https://www.newrecruit.eu');
+  return lines.join('\n').trim();
 }
 
 window.generateRawRosterText = generateRawRosterText;
 
-window.copyHubRawText = function(listId) {
-  const list = (hubSavedLists || []).find(l => l.id === listId);
+window.setHubRosterTextFormat = function(fmt, listId) {
+  const cleanFmt = String(fmt || 'gw').toLowerCase() === 'nr' ? 'nr' : 'gw';
+  window.hubCurrentRosterTextFormat = cleanFmt;
+  const list = (hubSavedLists || []).find(l => l && (l.id === listId || l.list_key === listId)) || window._activeViewedRosterList;
+  const preEl = document.getElementById('hub-raw-roster-content');
+  if (preEl && list) {
+    preEl.textContent = generateRawRosterText(list, cleanFmt);
+  }
+  const gwBtn = document.getElementById('hub-btn-text-fmt-gw');
+  const nrBtn = document.getElementById('hub-btn-text-fmt-nr');
+  const copyBtn = document.getElementById('hub-btn-copy-raw-text');
+  if (gwBtn) {
+    gwBtn.style.background = cleanFmt === 'gw' ? '#0284c7' : 'transparent';
+    gwBtn.style.color = cleanFmt === 'gw' ? '#fff' : '#94a3b8';
+  }
+  if (nrBtn) {
+    nrBtn.style.background = cleanFmt === 'nr' ? '#0284c7' : 'transparent';
+    nrBtn.style.color = cleanFmt === 'nr' ? '#fff' : '#94a3b8';
+  }
+  if (copyBtn) {
+    copyBtn.setAttribute('data-format', cleanFmt);
+    copyBtn.innerHTML = cleanFmt === 'nr' ? '📋 Copy NewRecruit Text' : '📋 Copy GW Text';
+  }
+};
+
+window.copyHubRawText = function(listId, format = null) {
+  const list = (hubSavedLists || []).find(l => l && (l.id === listId || l.list_key === listId)) || window._activeViewedRosterList;
   if (!list) return;
-  const rawText = generateRawRosterText(list);
+  const activeFmt = format || window.hubCurrentRosterTextFormat || 'gw';
+  const rawText = generateRawRosterText(list, activeFmt);
+  const label = String(activeFmt).toLowerCase() === 'nr' ? 'NewRecruit' : 'GW';
   navigator.clipboard.writeText(rawText).then(() => {
-    alert('📋 Raw roster text copied to clipboard!');
+    alert(`📋 ${label} Format roster text copied to clipboard!`);
   }).catch(() => {
-    prompt('Copy your roster text below:', rawText);
+    prompt(`Copy your ${label} Format roster text below:`, rawText);
   });
 };
 
@@ -4528,7 +4680,7 @@ function resolveHubNrListKey(list) {
 
 function renderNonNewRecruitFallbackView(list, options = {}) {
   const units = (list && Array.isArray(list.units)) ? list.units : [];
-  const rawText = generateRawRosterText(list || {});
+  const rawText = generateRawRosterText(list || {}, 'gw');
   const switchRawJs = options.onViewRawText || `setHubRosterViewMode('text', '${escapeHtml(list && list.id ? list.id : '')}')`;
   const sourceFmt = (list && list.source_format) ? String(list.source_format) : 'Plain Text';
 
@@ -4599,17 +4751,31 @@ window.renderNonNewRecruitFallbackView = renderNonNewRecruitFallbackView;
 
 function renderNativeRosterViewer(list, options = {}) {
   const viewMode = (options.mode || window.hubCurrentViewMode) === 'text' ? 'text' : 'play';
+  window._activeViewedRosterList = list;
 
   if (viewMode === 'text') {
-    const rawText = generateRawRosterText(list);
+    const activeFmt = String(options.textFormat || window.hubCurrentRosterTextFormat || 'gw').toLowerCase() === 'nr' ? 'nr' : 'gw';
+    window.hubCurrentRosterTextFormat = activeFmt;
+    const rawText = generateRawRosterText(list, activeFmt);
+    const listIdSafe = escapeHtml((list && list.id) || '');
     return `
       <div style="display:flex; flex-direction:column; padding:20px; flex:1; overflow:hidden; background:#070b14;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
-          <div style="font-size:13px; font-weight:800; color:#38bdf8; display:flex; align-items:center; gap:6px;">
-            <span>📄</span> Raw Roster Text (Monospaced / Copy-Friendly)
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <div style="font-size:13px; font-weight:800; color:#38bdf8; display:flex; align-items:center; gap:6px;">
+              <span>📄</span> Roster Text Format:
+            </div>
+            <div style="display:inline-flex; background:rgba(15,23,42,0.9); border:1px solid rgba(56,189,248,0.3); border-radius:8px; padding:2px; gap:2px;">
+              <button id="hub-btn-text-fmt-gw" onclick="setHubRosterTextFormat('gw', '${listIdSafe}')" style="background:${activeFmt === 'gw' ? '#0284c7' : 'transparent'}; color:${activeFmt === 'gw' ? '#fff' : '#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11.5px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+                🏛️ GW Format
+              </button>
+              <button id="hub-btn-text-fmt-nr" onclick="setHubRosterTextFormat('nr', '${listIdSafe}')" style="background:${activeFmt === 'nr' ? '#0284c7' : 'transparent'}; color:${activeFmt === 'nr' ? '#fff' : '#94a3b8'}; border:none; padding:5px 11px; border-radius:6px; font-weight:800; font-size:11.5px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+                ⚔️ NewRecruit Format
+              </button>
+            </div>
           </div>
-          <button onclick="copyHubRawText('${list.id}')" style="background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:800; font-size:12px; padding:7px 16px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;">
-            📋 Copy Raw Text
+          <button id="hub-btn-copy-raw-text" data-format="${activeFmt}" onclick="copyHubRawText('${listIdSafe}', this.getAttribute('data-format'))" style="background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:800; font-size:12px; padding:7px 16px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+            ${activeFmt === 'nr' ? '📋 Copy NewRecruit Text' : '📋 Copy GW Text'}
           </button>
         </div>
         <pre id="hub-raw-roster-content" style="flex:1; margin:0; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:18px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#e2e8f0; line-height:1.6; white-space:pre-wrap; overflow-y:auto; word-break:break-word;">${escapeHtml(rawText)}</pre>

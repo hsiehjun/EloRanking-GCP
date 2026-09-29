@@ -454,6 +454,42 @@ def resolve_nr_book(faction: str, game_system: str = "40k") -> Tuple[int, str, s
 def build_roster_text_for_nr_compiler(roster: Dict[str, Any], book_name: str) -> str:
     """Builds a normalized Warhammer 40,000 or Age of Sigmar text export from parsed units for NewRecruit's native text compiler."""
     raw_text = str(roster.get("raw_text") or "").strip()
+    raw_up = raw_text.upper()
+
+    # Preserve native NewRecruit WTC-Compact or GW / Warhammer App text directly if already valid
+    if raw_text and not raw_text.startswith(("{", "<")):
+        if "FACTION KEYWORD:" in raw_up and ("CHAR1:" in raw_up or " WITH " in raw_up or "CREATED WITH NEWRECRUIT" in raw_up):
+            return raw_text
+        if any(
+            hdr in raw_up
+            for hdr in ("CHARACTERS", "BATTLELINE", "OTHER DATASHEETS", "ATTACHED UNITS", "DEDICATED TRANSPORTS")
+        ):
+            return raw_text
+
+    gw_txt = str(roster.get("gw_text") or roster.get("_omnitactica_gw_text") or "").strip()
+    if gw_txt and len(gw_txt) > 20:
+        return gw_txt
+
+    nr_txt = str(roster.get("nr_text") or roster.get("_omnitactica_nr_text") or "").strip()
+    if nr_txt and len(nr_txt) > 20:
+        return nr_txt
+
+    units = [u for u in (roster.get("units") or []) if isinstance(u, dict) and u.get("name")]
+    if not units and raw_text and not raw_text.startswith("{"):
+        return raw_text
+
+    try:
+        from army_list_parser import ArmyListParser
+        parser = ArmyListParser()
+        roster_copy = dict(roster)
+        if book_name and (not roster_copy.get("faction") or roster_copy.get("faction") == "Warhammer 40,000"):
+            roster_copy["faction"] = book_name.split(" - ")[-1].strip() if " - " in book_name else book_name
+        formatted_gw = parser.format_roster_gw_text(roster_copy)
+        if formatted_gw:
+            return formatted_gw
+    except Exception:
+        pass
+
     gs, _ = detect_nr_game_system_and_edition(roster)
     default_det = "Sentinels of the Bleak Citadels" if gs == "aos" else "Gladius Task Force"
     detachment = str(roster.get("detachment") or default_det).strip()
@@ -461,39 +497,37 @@ def build_roster_text_for_nr_compiler(roster: Dict[str, Any], book_name: str) ->
         detachment = ""
     pts = int(roster.get("points") or 2000)
 
-    # If raw_text already has explicit NewRecruit "+ FACTION KEYWORD:" header, preserve it directly
-    if raw_text and "FACTION KEYWORD:" in raw_text.upper() and not raw_text.startswith("{"):
-        return raw_text
-
-    units = [u for u in (roster.get("units") or []) if isinstance(u, dict) and u.get("name")]
-    if not units and raw_text and not raw_text.startswith("{"):
-        return raw_text
-
     lines = [
-        "+++++++++++++++++++++++++++++++++++++++++++++++",
-        f"+ FACTION KEYWORD: {book_name}",
+        f"{roster.get('name') or 'Army Roster'} ({pts:,} Points)",
+        "",
+        book_name.split(" - ")[-1].strip() if " - " in book_name else book_name,
     ]
     if detachment:
-        lines.append(f"+ DETACHMENT: {detachment}")
-    lines.append(f"+ TOTAL ARMY POINTS: {pts}pts")
-    lines.append("+++++++++++++++++++++++++++++++++++++++++++++++")
+        lines.append(detachment)
+    lines.append(f"Strike Force ({pts:,} Points)")
+    lines.append("")
+    lines.append("OTHER DATASHEETS")
     lines.append("")
 
     for u in units:
-        u_name = str(u.get("name") or "Unit").strip()
+        u_name = re.sub(r"^\d+x\s+", "", str(u.get("name") or "Unit").strip(), flags=re.I)
         u_pts = int(u.get("points") or 0)
-        u_models = int(u.get("model_count") or 1)
-        prefix = f"{u_models}x " if u_models > 1 and not re.match(r"^\d+x\s+", u_name, re.I) else ""
-        pts_str = f" [{u_pts} pts]" if u_pts > 0 else ""
-        lines.append(f"{prefix}{u_name}{pts_str}")
+        u_models = max(1, int(u.get("model_count") or 1))
+        lines.append(f"{u_name} ({u_pts} Points)")
         if u.get("is_warlord"):
-            lines.append("• Warlord")
-        if u.get("enhancement"):
-            lines.append(f"• Enhancement: {u['enhancement']}")
+            lines.append("  • Warlord")
+        if u_models > 1:
+            singular = u_name[:-1] if (u_name.endswith("s") and not u_name.endswith("ss") and len(u_name) > 4) else u_name
+            lines.append(f"  • {u_models}x {singular}")
         for wg in (u.get("wargear") or []):
             wg_s = str(wg).strip()
             if wg_s and wg_s.lower() not in ("warlord",):
-                lines.append(f"• {wg_s}")
+                if u_models > 1:
+                    lines.append(f"     ◦ {wg_s if re.match(r'^\\d+x\\s+', wg_s, re.I) else f'{u_models}x {wg_s}'}")
+                else:
+                    lines.append(f"  • {wg_s if re.match(r'^\\d+x\\s+', wg_s, re.I) else f'1x {wg_s}'}")
+        if u.get("enhancement"):
+            lines.append(f"  • Enhancements: {u['enhancement']}")
         lines.append("")
 
     return "\n".join(lines).strip()
@@ -662,15 +696,17 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     width: 92% !important;
     height: auto !important;
     min-height: 0 !important;
-    max-height: none !important;
-    margin: 48px auto !important;
-    padding: 28px 32px !important;
+    max-height: calc(100dvh - 24px) !important;
+    margin: 24px auto !important;
+    padding: 24px 28px !important;
     background: #1d2740 !important;
     color: #e5eaf3 !important;
     border: 1px solid #33405c !important;
     border-radius: 14px !important;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45) !important;
-    overflow: hidden !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
     box-sizing: border-box !important;
   }
   .connectForm #loginform {
@@ -681,6 +717,23 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     display: flex !important;
     flex-direction: column !important;
     align-items: center !important;
+  }
+  /* Ensure 16px font size on login inputs so mobile iOS/Android browsers never auto-zoom/reflow or dismiss the virtual keyboard */
+  .connectForm #loginform input[type="text"],
+  .connectForm #loginform input[type="password"],
+  .connectForm #loginform input#login,
+  .connectForm #loginform input#password {
+    font-size: 16px !important;
+    line-height: 1.35 !important;
+    padding: 10px 12px !important;
+    border-radius: 8px !important;
+    background-color: #243049 !important;
+    color: #f8fafc !important;
+    border: 1px solid #475569 !important;
+    width: 100% !important;
+    max-width: 280px !important;
+    box-sizing: border-box !important;
+    touch-action: manipulation !important;
   }
 </style>
 <script id="omnitactica-nr-bridge">
@@ -749,14 +802,15 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       }
     } catch (e) {}
     if (optStore) {
+      if (optStore.__omniDarkThemeApplied) return;
       try {
+        optStore.__omniDarkThemeApplied = true;
         if (optStore.options) {
           optStore.options.themePopup = false;
           optStore.options.appearence = Object.assign({}, optStore.options.appearence || {}, OMNI_NR_DARK_THEME);
         }
         optStore.themeEnabled = true;
-        if (!optStore.__omniDarkThemeApplied && typeof optStore.setThemeOverride === 'function') {
-          optStore.__omniDarkThemeApplied = true;
+        if (typeof optStore.setThemeOverride === 'function') {
           optStore.setThemeOverride(OMNI_NR_DARK_THEME);
         } else if (typeof optStore.updateAppearance === 'function') {
           optStore.themeOverride = OMNI_NR_DARK_THEME;
@@ -766,6 +820,117 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
   applyOmniNrDarkTheme(null);
+
+  // 0. Persist & restore NewRecruit JWT auth tokens across Cloud Run deploys/reloads
+  // and stabilize /app/Login inputs so autofill or field switching never minimizes the mobile keyboard.
+  var AUTH_BACKUP_KEY = 'omni_nr_auth_backup_v1';
+
+  function decodeNrJwtPayload(tokenStr) {
+    if (!tokenStr || typeof tokenStr !== 'string') return null;
+    try {
+      var cleanTok = tokenStr.replace(/^JWT\s+/i, '').replace(/^Bearer\s+/i, '').trim();
+      var parts = cleanTok.split('.');
+      if (parts.length < 2) return null;
+      var b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4 !== 0) b64 += '=';
+      var jsonStr = decodeURIComponent(escape(window.atob(b64)));
+      var payload = JSON.parse(jsonStr);
+      return (payload && typeof payload === 'object') ? payload : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function backupOrRestoreNrAuth(userStore) {
+    try {
+      if (window.__omniExplicitLogout) return;
+      var curAccess = localStorage.getItem('access') || '';
+      var curRefresh = localStorage.getItem('refresh') || '';
+      var rawBackup = localStorage.getItem(AUTH_BACKUP_KEY);
+      var backup = rawBackup ? JSON.parse(rawBackup) : null;
+
+      if (curAccess) {
+        var jwtUser = decodeNrJwtPayload(curAccess);
+        var userObj = (userStore && userStore.user && userStore.user.login)
+          ? {
+              id: userStore.user.id || (jwtUser && jwtUser.id) || 1,
+              login: userStore.user.login,
+              email: userStore.user.email || (jwtUser && jwtUser.email) || '',
+              patreon_tier: userStore.user.patreon_tier || 3
+            }
+          : ((backup && backup.user && backup.user.login) ? backup.user : (jwtUser && jwtUser.login ? {
+              id: jwtUser.id || 1,
+              login: jwtUser.login,
+              email: jwtUser.email || '',
+              patreon_tier: jwtUser.patreon_tier || 3
+            } : null));
+        var nextBackup = {
+          access: curAccess,
+          refresh: curRefresh || (backup && backup.refresh) || '',
+          user: userObj,
+          updated_at: Date.now()
+        };
+        localStorage.setItem(AUTH_BACKUP_KEY, JSON.stringify(nextBackup));
+        if (userStore && !userStore.user && userObj && userObj.login) {
+          userStore.user = userObj;
+        }
+      } else if (backup && backup.access) {
+        localStorage.setItem('access', backup.access);
+        if (backup.refresh && !curRefresh) {
+          localStorage.setItem('refresh', backup.refresh);
+        }
+        if (userStore && !userStore.user && backup.user && backup.user.login) {
+          userStore.user = backup.user;
+        }
+      }
+    } catch (e) {}
+  }
+  backupOrRestoreNrAuth(null);
+
+  function stabilizeLoginFormInputs() {
+    try {
+      var form = document.getElementById('loginform');
+      if (!form) return;
+      if (!form.__omniLoginStabilized) {
+        form.__omniLoginStabilized = true;
+        form.setAttribute('novalidate', 'novalidate');
+        // Prevent @focusout="validateField" from calling reportValidity() when tapping between fields or using password manager autofill
+        form.addEventListener('focusout', function(ev) {
+          var t = ev && ev.target;
+          if (t && (t.id === 'login' || t.id === 'password' || t.tagName === 'INPUT')) {
+            ev.stopImmediatePropagation();
+          }
+        }, true);
+      }
+      var loginInput = document.getElementById('login');
+      if (loginInput && !loginInput.__omniInputStabilized) {
+        loginInput.__omniInputStabilized = true;
+        loginInput.setAttribute('autocomplete', 'username');
+        loginInput.setAttribute('autocapitalize', 'none');
+        loginInput.setAttribute('autocorrect', 'off');
+        loginInput.setAttribute('spellcheck', 'false');
+        loginInput.removeAttribute('required');
+        loginInput.removeAttribute('min');
+        loginInput.removeAttribute('max');
+        loginInput.reportValidity = function() { return true; };
+      }
+      var passInput = document.getElementById('password');
+      if (passInput && !passInput.__omniInputStabilized) {
+        passInput.__omniInputStabilized = true;
+        passInput.setAttribute('autocomplete', 'current-password');
+        passInput.removeAttribute('required');
+        passInput.removeAttribute('min');
+        passInput.removeAttribute('max');
+        passInput.reportValidity = function() { return true; };
+      }
+    } catch (e) {}
+  }
+  document.addEventListener('focusin', function(ev) {
+    var t = ev && ev.target;
+    if (t && (t.id === 'login' || t.id === 'password' || (t.closest && t.closest('#loginform')))) {
+      stabilizeLoginFormInputs();
+    }
+  }, true);
 
   // 0a. Prevent NewRecruit from registering /worker.js as a root Service Worker on OmniTactica's origin,
   // and immediately unregister any legacy Service Worker & 'newrecruit' CacheStorage bucket.
@@ -1611,10 +1776,35 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
 
+  async function attachNativeArmyExports(cleanRow, explicitArmy) {
+    if (!cleanRow || !cleanRow.list_key) return;
+    try {
+      var stores = getNrStores();
+      var armyInst = explicitArmy || null;
+      if (!armyInst && stores && stores.list && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === cleanRow.list_key) {
+        armyInst = stores.list.currentList.army || null;
+      }
+      if (!armyInst || typeof armyInst.exportArmy !== 'function') return;
+      try {
+        var gwOut = await armyInst.exportArmy({ format: 'GW', asText: true, includeHeader: true, includeConstants: true });
+        if (typeof gwOut === 'string' && gwOut.trim().length > 20) {
+          cleanRow._omnitactica_gw_text = gwOut.trim();
+        }
+      } catch (e) {}
+      try {
+        var nrOut = await armyInst.exportArmy({ format: 'WTC-Compact', asText: true, includeHeader: true, includeConstants: true });
+        if (typeof nrOut === 'string' && nrOut.trim().length > 20) {
+          cleanRow._omnitactica_nr_text = nrOut.trim();
+        }
+      } catch (e) {}
+    } catch (e) {}
+  }
+
   async function syncUpsertRow(row, explicitArmy, explicitBook) {
     if (isHydrating || !row || row._ephemeral_view || isTombstonedNrRow(row)) return;
     var clean = cloneCleanRow(row, explicitArmy, explicitBook);
     if (!clean || !clean.list_key) return;
+    await attachNativeArmyExports(clean, explicitArmy);
     var sig = computeSignature(clean);
     if (knownListsMap[clean.list_key] === sig) {
       return;
@@ -2131,17 +2321,23 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         if (!adapter || typeof sys.getBook !== 'function') return row;
 
         var candidateTexts = [];
-        if (row._raw_text && String(row._raw_text).trim()) {
+        if (row._omnitactica_gw_text && String(row._omnitactica_gw_text).trim()) {
+          candidateTexts.push(String(row._omnitactica_gw_text));
+        }
+        if (row._omnitactica_nr_text && String(row._omnitactica_nr_text).trim() && candidateTexts.indexOf(String(row._omnitactica_nr_text)) === -1) {
+          candidateTexts.push(String(row._omnitactica_nr_text));
+        }
+        if (row._raw_text && String(row._raw_text).trim() && candidateTexts.indexOf(String(row._raw_text)) === -1) {
           candidateTexts.push(String(row._raw_text));
         }
-        if (row._synthetic_text && String(row._synthetic_text).trim() && String(row._synthetic_text) !== String(row._raw_text || '')) {
+        if (row._synthetic_text && String(row._synthetic_text).trim() && candidateTexts.indexOf(String(row._synthetic_text)) === -1) {
           candidateTexts.push(String(row._synthetic_text));
         }
         if (candidateTexts.length === 0) return row;
 
         var firstLines = candidateTexts[0].match(/[^\r\n]+/g) || [];
         var firstHdr = (firstLines.length > 0 && typeof adapter.parseTextListHeader === 'function')
-          ? await adapter.parseTextListHeader(firstLines)
+          ? await adapter.parseTextListHeader(firstLines.slice())
           : { start: 0 };
 
         var booksArr = (sys.books && Array.isArray(sys.books.array)) ? sys.books.array : [];
@@ -2186,25 +2382,30 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
         var bestParsed = null;
         var bestUnitCount = 0;
+        var bestErrorCount = 999999;
         var lastErrors = [];
 
         for (var cIdx = 0; cIdx < candidateTexts.length; cIdx++) {
           var rawLines = candidateTexts[cIdx].match(/[^\r\n]+/g) || [];
           if (rawLines.length === 0) continue;
           var hdr = (typeof adapter.parseTextListHeader === 'function')
-            ? await adapter.parseTextListHeader(rawLines)
+            ? await adapter.parseTextListHeader(rawLines.slice())
             : { start: 0 };
           var startIdx = (hdr && typeof hdr.start === 'number') ? hdr.start : 0;
           var maxCost = (hdr && hdr.maxCost) || Number(row.totalCost) || 2000;
           var parsed = await adapter.parseTextList(bookInst, rawLines, maxCost, startIdx);
-          if (parsed && Array.isArray(parsed.errors) && parsed.errors.length > 0) {
-            lastErrors = parsed.errors;
+          var pErrors = (parsed && Array.isArray(parsed.errors)) ? parsed.errors : [];
+          if (pErrors.length > 0) {
+            lastErrors = pErrors;
           }
           var uCount = (parsed && parsed.army) ? countCompiledUnitsInArmy(parsed.army) : 0;
-          if (uCount > bestUnitCount) {
+          if (uCount > bestUnitCount || (uCount === bestUnitCount && uCount > 0 && pErrors.length < bestErrorCount)) {
             bestParsed = parsed;
             bestUnitCount = uCount;
-            break;
+            bestErrorCount = pErrors.length;
+            if (uCount > 0 && pErrors.length === 0) {
+              break;
+            }
           }
           if (!bestParsed && parsed && parsed.army) {
             bestParsed = parsed;
@@ -2303,12 +2504,48 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   // 4. Hook NewRecruit Pinia stores to unlock Play Mode, hook list mutations, and auto-open requested list
   async function ensurePlayModeAndStoreHooks() {
     cleanUpMyListsButtons();
+    stabilizeLoginFormInputs();
     var stores = getNrStores();
     if (!stores || !stores.user || !stores.list || !stores.system) return;
 
     try {
       stores.user.isSupporter = function() { return true; };
       if (stores.options) applyOmniNrDarkTheme(stores.options);
+      backupOrRestoreNrAuth(stores.user);
+      if (!stores.user.__omniPatchedUserAuth) {
+        stores.user.__omniPatchedUserAuth = true;
+        if (typeof stores.user.initLoggedUser === 'function') {
+          var origInitLoggedUser = stores.user.initLoggedUser.bind(stores.user);
+          stores.user.initLoggedUser = function(u) {
+            if (u && u.login) {
+              window.__omniExplicitLogout = false;
+              var res = origInitLoggedUser(u);
+              backupOrRestoreNrAuth(stores.user);
+              return res;
+            }
+            if (!window.__omniExplicitLogout) {
+              var hasToken = Boolean(localStorage.getItem('access') || localStorage.getItem(AUTH_BACKUP_KEY));
+              if (hasToken) {
+                backupOrRestoreNrAuth(stores.user);
+                return;
+              }
+            }
+            return origInitLoggedUser(u);
+          };
+        }
+        if (typeof stores.user.logout === 'function') {
+          var origUserLogout = stores.user.logout.bind(stores.user);
+          stores.user.logout = async function() {
+            window.__omniExplicitLogout = true;
+            try {
+              localStorage.removeItem(AUTH_BACKUP_KEY);
+              localStorage.removeItem('access');
+              localStorage.removeItem('refresh');
+            } catch (e) {}
+            return await origUserLogout.apply(this, arguments);
+          };
+        }
+      }
     } catch (e) {}
 
     if (stores.list.listsInitiated) {
@@ -3240,6 +3477,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         var rtrAuth = getNrRouter(stAuth);
         var isLoggedNow = Boolean(stAuth && stAuth.user && stAuth.user.user && stAuth.user.user.login);
         if (isLoggedNow || msg.force_logout) {
+          window.__omniExplicitLogout = true;
+          try {
+            localStorage.removeItem(AUTH_BACKUP_KEY);
+            localStorage.removeItem('access');
+            localStorage.removeItem('refresh');
+          } catch (e) {}
           if (stAuth && stAuth.user && typeof stAuth.user.logout === 'function') {
             try { await stAuth.user.logout(); } catch (e) {}
           }
@@ -3247,10 +3490,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             stAuth.user.user = null;
             stAuth.user.__omniLastLoginNotified = '';
           }
-          try {
-            localStorage.removeItem('access');
-            localStorage.removeItem('refresh');
-          } catch (e) {}
           notifyParent({
             action: 'auth_status',
             logged_in: false,
@@ -3263,6 +3502,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             window.location.href = '/nr/app/Login';
           }
         } else {
+          window.__omniExplicitLogout = false;
           var nowAuthPath = window.location.pathname || '';
           var nextAuthPath = (nowAuthPath.indexOf('/Login') !== -1 && !msg.force_login) ? '/app/MyLists' : '/app/Login';
           if (rtrAuth) {
@@ -3283,6 +3523,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     if (s && s.user) {
       try { s.user.isSupporter = function() { return true; }; } catch (e) {}
       if (s.options) applyOmniNrDarkTheme(s.options);
+      backupOrRestoreNrAuth(s.user);
       if (s.list && s.list.listsInitiated) {
         ensurePlayModeAndStoreHooks();
         clearInterval(earlyHookTimer);
@@ -3500,6 +3741,31 @@ def _forward_via_nr_relay(
     return None
 
 
+def _decode_jwt_user_fallback(auth_header: Optional[str]) -> Optional[bytes]:
+    """Decodes a NewRecruit JWT token payload as a fallback for getUser RPC so transient upstream errors never log the user out."""
+    if not auth_header:
+        return None
+    try:
+        import base64
+        clean_tok = re.sub(r"^(?:JWT|Bearer)\s+", "", str(auth_header).strip(), flags=re.I)
+        parts = clean_tok.split(".")
+        if len(parts) < 2:
+            return None
+        b64 = parts[1].replace("-", "+").replace("_", "/")
+        b64 += "=" * ((4 - len(b64) % 4) % 4)
+        payload = json.loads(base64.b64decode(b64).decode("utf-8", errors="ignore"))
+        if isinstance(payload, dict) and payload.get("login"):
+            return json.dumps({
+                "id": payload.get("id") or 1,
+                "login": payload["login"],
+                "email": payload.get("email") or "",
+                "patreon_tier": payload.get("patreon_tier") or 3,
+            }).encode("utf-8")
+    except Exception:
+        pass
+    return None
+
+
 def proxy_nr_request(
     path_with_query: str,
     method: str = "GET",
@@ -3598,6 +3864,8 @@ def proxy_nr_request(
                 if auth_key in req_headers and req_headers[auth_key]:
                     headers["Authorization"] = req_headers[auth_key]
 
+    is_get_user_rpc = ("m=getUser" in clean_path) or ('"getUser"' in body_str)
+
     # If direct connection from this region was recently blocked by www.newrecruit.eu, route straight to relay
     if not is_relay_hop and now < _NR_DIRECT_BLOCKED_UNTIL:
         relayed = _forward_via_nr_relay(clean_path, method_up, body, headers)
@@ -3605,16 +3873,43 @@ def proxy_nr_request(
             r_status, r_data, r_ct = relayed
             if (is_cacheable_get or is_cacheable_rpc) and r_status == 200:
                 _NR_STATIC_CACHE[cache_key] = (now, r_data, r_ct)
+            if is_get_user_rpc and (r_status != 200 or not r_data or r_data.strip() in (b"", b"null", b"{}")):
+                jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
+                if jwt_fb:
+                    return 200, jwt_fb, "application/json"
             return r_status, r_data, r_ct
 
     try:
         status, data, content_type = _exec_http_request(
             method_up, target_url, body, headers, connect_timeout=2.5, read_timeout=6.0
         )
+        if status in (401, 403, 429, 500, 502, 503, 504) and not is_relay_hop:
+            _NR_DIRECT_BLOCKED_UNTIL = time.time() + 600.0
+            relayed = _forward_via_nr_relay(clean_path, method_up, body, headers)
+            if relayed is not None:
+                status, data, content_type = relayed
         if (is_cacheable_get or is_cacheable_rpc) and status == 200:
             _NR_STATIC_CACHE[cache_key] = (now, data, content_type)
+        if is_get_user_rpc and (status != 200 or not data or data.strip() in (b"", b"null", b"{}")):
+            jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
+            if jwt_fb:
+                return 200, jwt_fb, "application/json"
         return status, data, content_type
     except urllib.error.HTTPError as he:
+        if not is_relay_hop and he.code in (401, 403, 429, 500, 502, 503, 504):
+            _NR_DIRECT_BLOCKED_UNTIL = time.time() + 600.0
+            relayed = _forward_via_nr_relay(clean_path, method_up, body, headers)
+            if relayed is not None:
+                r_status, r_data, r_ct = relayed
+                if is_get_user_rpc and (r_status != 200 or not r_data or r_data.strip() in (b"", b"null", b"{}")):
+                    jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
+                    if jwt_fb:
+                        return 200, jwt_fb, "application/json"
+                return r_status, r_data, r_ct
+        if is_get_user_rpc:
+            jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
+            if jwt_fb:
+                return 200, jwt_fb, "application/json"
         err_body = he.read() if hasattr(he, "read") else b""
         ct = he.headers.get("Content-Type", "application/json") if he.headers else "application/json"
         return he.code, err_body, ct
@@ -3627,7 +3922,15 @@ def proxy_nr_request(
                 r_status, r_data, r_ct = relayed
                 if (is_cacheable_get or is_cacheable_rpc) and r_status == 200:
                     _NR_STATIC_CACHE[cache_key] = (now, r_data, r_ct)
+                if is_get_user_rpc and (r_status != 200 or not r_data or r_data.strip() in (b"", b"null", b"{}")):
+                    jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
+                    if jwt_fb:
+                        return 200, jwt_fb, "application/json"
                 return r_status, r_data, r_ct
+        if is_get_user_rpc:
+            jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
+            if jwt_fb:
+                return 200, jwt_fb, "application/json"
         err_payload = json.dumps({"error": str(e)}).encode("utf-8")
         # Return 500 instead of 502 so NewRecruit's client XN() does not enter a 60-second retry loop
         return 500, err_payload, "application/json"
@@ -3652,6 +3955,10 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
             row["totalCost"] = int(roster.get("points") or 0)
         if roster.get("_ephemeral_view"):
             row["_ephemeral_view"] = True
+        if roster.get("gw_text") and not row.get("_omnitactica_gw_text"):
+            row["_omnitactica_gw_text"] = roster["gw_text"]
+        if roster.get("nr_text") and not row.get("_omnitactica_nr_text"):
+            row["_omnitactica_nr_text"] = roster["nr_text"]
         if not row.get("_synthetic_text"):
             row["_synthetic_text"] = build_roster_text_for_nr_compiler(roster, book_name)
         army_obj = row.get("army") if isinstance(row.get("army"), dict) else {}
@@ -3764,6 +4071,8 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
         "metadata": {"play_mode": True},
         "_raw_text": raw_text_val,
         "_synthetic_text": synthetic_text,
+        "_omnitactica_gw_text": str(roster.get("gw_text") or ""),
+        "_omnitactica_nr_text": str(roster.get("nr_text") or ""),
         "_omnitactica_book_name": book_name,
         "_is_nr_compatible": bool(roster.get("is_newrecruit_compatible", True)),
         "_created_by_nr": bool(roster.get("created_by_newrecruit", False)),
