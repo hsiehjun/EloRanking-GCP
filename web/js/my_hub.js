@@ -4193,6 +4193,38 @@ if (!window.__omnitacticaNrParentListenerBound) {
       }
       return;
     }
+    if (msg.action === 'native_exports' && msg.list_key) {
+      const cleanK = String(msg.list_key || '').replace(/^(nr_|list_)/, '').trim();
+      const applyExportsToList = (target) => {
+        if (!target || typeof target !== 'object') return false;
+        const tk = String(target.list_key || target.nr_list_key || target.id || '').replace(/^(nr_|list_)/, '').trim();
+        if (!tk || tk !== cleanK) return false;
+        if (msg.gw_text) {
+          target.gw_text = msg.gw_text;
+          target.raw_text = msg.gw_text;
+          if (target.nr_row && typeof target.nr_row === 'object') {
+            target.nr_row._omnitactica_gw_text = msg.gw_text;
+          }
+        }
+        if (msg.nr_text) {
+          target.nr_text = msg.nr_text;
+          if (target.nr_row && typeof target.nr_row === 'object') {
+            target.nr_row._omnitactica_nr_text = msg.nr_text;
+          }
+        }
+        return true;
+      };
+      (hubSavedLists || []).forEach(applyExportsToList);
+      const updatedActive = applyExportsToList(window._activeViewedRosterList);
+      if (updatedActive && window._activeViewedRosterList) {
+        const curFmt = String(window.hubCurrentRosterTextFormat || 'gw').toLowerCase() === 'nr' ? 'nr' : 'gw';
+        const freshText = generateRawRosterText(window._activeViewedRosterList, curFmt);
+        document.querySelectorAll('#hub-raw-roster-content, .hub-raw-roster-content').forEach(preEl => {
+          preEl.textContent = freshText;
+        });
+      }
+      return;
+    }
     if (msg.action === 'compile_failed') {
       if (window.__activeHubPlayModeController && typeof window.__activeHubPlayModeController.showCompileFailedFallback === 'function') {
         window.__activeHubPlayModeController.showCompileFailedFallback(msg.errors || []);
@@ -4661,19 +4693,114 @@ function resolveHubRosterList(listId) {
   return found || active || null;
 }
 
+function hasPlaceholderZeroPointsText(txt) {
+  const s = String(txt || '').trim();
+  if (s.length < 20) return true;
+  return /\(\s*0\s+(?:Points|pts)\s*\)/i.test(s);
+}
+
+const _nrNativeExportRequestedAt = {};
+
+function requestNativeExportsFromNrEngine(list) {
+  if (!list || typeof list !== 'object') return;
+  const row = (list.nr_row && typeof list.nr_row === 'object') ? list.nr_row : null;
+  const hasNrBacking = Boolean(
+    row ||
+    list.nr_list_key ||
+    list.list_key ||
+    String(list.id || '').startsWith('nr_') ||
+    list.source === 'newrecruit' ||
+    list.source === 'newrecruit_link'
+  );
+  if (!hasNrBacking) return;
+
+  const rowGw = String((row && row._omnitactica_gw_text) || '').trim();
+  const rowNr = String((row && row._omnitactica_nr_text) || '').trim();
+  const gwCandidate = String(rowGw || list.gw_text || '').trim();
+  const nrCandidate = String(rowNr || list.nr_text || '').trim();
+  const hasRealNativeExports = row
+    ? (!hasPlaceholderZeroPointsText(rowGw) && !hasPlaceholderZeroPointsText(rowNr))
+    : (!hasPlaceholderZeroPointsText(gwCandidate) && !hasPlaceholderZeroPointsText(nrCandidate));
+  if (hasRealNativeExports) {
+    return;
+  }
+
+  const listKey = resolveHubNrListKey(list);
+  if (!listKey) return;
+  const now = Date.now();
+  if (_nrNativeExportRequestedAt[listKey] && (now - _nrNativeExportRequestedAt[listKey] < 4000)) {
+    return;
+  }
+  _nrNativeExportRequestedAt[listKey] = now;
+
+  const cmdPayload = {
+    type: 'OMNITACTICA_NR_COMMAND',
+    command: 'export_list_texts',
+    list_key: listKey,
+    nr_row: row
+  };
+
+  const playIframe = document.getElementById('hub-nr-play-mode-iframe');
+  const studioIframe = document.getElementById('hub-nr-studio-iframe');
+  let sentToActive = false;
+
+  if (playIframe && playIframe.contentWindow) {
+    try {
+      playIframe.contentWindow.postMessage(cmdPayload, '*');
+      sentToActive = true;
+    } catch (e) {}
+  }
+  if (studioIframe && studioIframe.contentWindow) {
+    try {
+      studioIframe.contentWindow.postMessage(cmdPayload, '*');
+      sentToActive = true;
+    } catch (e) {}
+  }
+
+  if (!sentToActive) {
+    let headlessIframe = document.getElementById('omni-nr-headless-export-iframe');
+    if (!headlessIframe) {
+      headlessIframe = document.createElement('iframe');
+      headlessIframe.id = 'omni-nr-headless-export-iframe';
+      headlessIframe.src = '/nr/app/MyLists?embed=hub';
+      headlessIframe.style.cssText = 'position:fixed;width:1px;height:1px;left:-9999px;top:-9999px;opacity:0;pointer-events:none;border:none;';
+      document.body.appendChild(headlessIframe);
+    }
+    const postToHeadless = () => {
+      try {
+        if (headlessIframe && headlessIframe.contentWindow) {
+          headlessIframe.contentWindow.postMessage(cmdPayload, '*');
+        }
+      } catch (e) {}
+    };
+    setTimeout(postToHeadless, 400);
+    setTimeout(postToHeadless, 1600);
+    setTimeout(postToHeadless, 3200);
+  }
+}
+
 function generateRawRosterText(list, format = null) {
   if (!list || typeof list !== 'object') return '';
   const fmt = String(format || window.hubCurrentRosterTextFormat || 'gw').toLowerCase() === 'nr' ? 'nr' : 'gw';
   const row = (list.nr_row && typeof list.nr_row === 'object') ? list.nr_row : {};
+  requestNativeExportsFromNrEngine(list);
 
   if (fmt === 'nr') {
-    const existingNr = String(list.nr_text || row._omnitactica_nr_text || '').trim();
-    if (existingNr.length > 10 && (existingNr.startsWith('++++') || existingNr.includes('+ FACTION KEYWORD:') || existingNr.includes('++ '))) {
+    const rowNr = String(row._omnitactica_nr_text || '').trim();
+    if (rowNr.length > 10 && !hasPlaceholderZeroPointsText(rowNr)) {
+      return rowNr;
+    }
+    const existingNr = String(list.nr_text || rowNr || '').trim();
+    if (existingNr.length > 10 && !hasPlaceholderZeroPointsText(existingNr) && (existingNr.startsWith('++++') || existingNr.includes('+ FACTION KEYWORD:') || existingNr.includes('++ '))) {
       return existingNr;
     }
     const rawCandidate = String(list.raw_text || '').trim();
-    if (rawCandidate.startsWith('++++') || rawCandidate.includes('+ FACTION KEYWORD:')) {
+    if (!hasPlaceholderZeroPointsText(rawCandidate) && (rawCandidate.startsWith('++++') || rawCandidate.includes('+ FACTION KEYWORD:'))) {
       return rawCandidate;
+    }
+    if (existingNr.length > 10 && (existingNr.startsWith('++++') || existingNr.includes('+ FACTION KEYWORD:') || existingNr.includes('++ '))) {
+      requestNativeExportsFromNrEngine(list);
+      return existingNr;
     }
     const pts = Number(list.points || 2000) || 2000;
     const name = String(list.name || 'Army Roster').trim();
@@ -4789,17 +4916,26 @@ function generateRawRosterText(list, format = null) {
       }
     }
     lines.push('', 'Created with newrecruit.eu v36.27');
+    requestNativeExportsFromNrEngine(list);
     return lines.join('\n').trim();
   }
 
   // Default: GW Format
-  const existingGw = String(list.gw_text || row._omnitactica_gw_text || '').trim();
-  if (existingGw.length > 10 && !existingGw.startsWith('++++') && !existingGw.includes('+ FACTION KEYWORD:')) {
+  const rowGw = String(row._omnitactica_gw_text || '').trim();
+  if (rowGw.length > 10 && !hasPlaceholderZeroPointsText(rowGw) && !rowGw.startsWith('++++') && !rowGw.includes('+ FACTION KEYWORD:')) {
+    return rowGw;
+  }
+  const existingGw = String(list.gw_text || rowGw || '').trim();
+  if (existingGw.length > 10 && !hasPlaceholderZeroPointsText(existingGw) && !existingGw.startsWith('++++') && !existingGw.includes('+ FACTION KEYWORD:')) {
     return existingGw;
   }
   const rawCandidate = String(list.raw_text || '').trim();
-  if (rawCandidate.length > 10 && !rawCandidate.startsWith('++++') && !rawCandidate.includes('+ FACTION KEYWORD:')) {
+  if (rawCandidate.length > 10 && !hasPlaceholderZeroPointsText(rawCandidate) && !rawCandidate.startsWith('++++') && !rawCandidate.includes('+ FACTION KEYWORD:')) {
     return rawCandidate;
+  }
+  if (existingGw.length > 10 && !existingGw.startsWith('++++') && !existingGw.includes('+ FACTION KEYWORD:')) {
+    requestNativeExportsFromNrEngine(list);
+    return existingGw;
   }
 
   const pts = Number(list.points || 2000) || 2000;
@@ -4855,6 +4991,7 @@ function generateRawRosterText(list, format = null) {
     }
   }
   lines.push('', 'Exported with New Recruit, https://www.newrecruit.eu');
+  requestNativeExportsFromNrEngine(list);
   return lines.join('\n').trim();
 }
 
@@ -4864,6 +5001,7 @@ window.setHubRosterTextFormat = function(fmt, listId, btnEl = null) {
   const cleanFmt = String(fmt || 'gw').toLowerCase() === 'nr' ? 'nr' : 'gw';
   window.hubCurrentRosterTextFormat = cleanFmt;
   const list = resolveHubRosterList(listId);
+  if (list) requestNativeExportsFromNrEngine(list);
   const newText = list ? generateRawRosterText(list, cleanFmt) : '';
 
   const localRoot = (btnEl && typeof btnEl.closest === 'function')

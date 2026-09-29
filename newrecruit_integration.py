@@ -1323,7 +1323,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       row._omnitactica_detachment || '',
       row.version || 0,
       armyStr.length,
-      enrichedStr
+      enrichedStr,
+      (row._omnitactica_gw_text || '').length,
+      (row._omnitactica_nr_text || '').length
     ].join('|');
   }
 
@@ -1779,27 +1781,123 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
 
+  var nativeExportsCache = {};
+
   async function attachNativeArmyExports(cleanRow, explicitArmy) {
     if (!cleanRow || !cleanRow.list_key) return;
+    var cacheKey = String(cleanRow.list_key) + ':' + String(cleanRow.date_mod || '') + ':' + String(cleanRow.totalCost || '');
+    var cachedExp = nativeExportsCache[cacheKey];
+    if (cachedExp && cachedExp.gw && cachedExp.nr && !explicitArmy) {
+      cleanRow._omnitactica_gw_text = cachedExp.gw;
+      cleanRow._omnitactica_nr_text = cachedExp.nr;
+      if (cachedExp.units && cachedExp.units.length > 0 && (!cleanRow._omnitactica_enriched_units || cleanRow._omnitactica_enriched_units.length === 0)) {
+        cleanRow._omnitactica_enriched_units = cachedExp.units;
+      }
+      if (cachedExp.detachment && !cleanRow._omnitactica_detachment) {
+        cleanRow._omnitactica_detachment = cachedExp.detachment;
+      }
+      if (cachedExp.bookName && !cleanRow._omnitactica_book_name) {
+        cleanRow._omnitactica_book_name = cachedExp.bookName;
+      }
+      return;
+    }
     try {
       var stores = getNrStores();
       var armyInst = explicitArmy || null;
+      var bookInst = null;
       if (!armyInst && stores && stores.list && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === cleanRow.list_key) {
         armyInst = stores.list.currentList.army || null;
+        bookInst = stores.list.currentList.book || null;
+      }
+      if (!armyInst && stores && stores.system && cleanRow.army && (cleanRow.id_system || cleanRow.bsid_system)) {
+        var sysId = cleanRow.id_system || cleanRow.bsid_system;
+        var sys = (stores.system.library && stores.system.library.index && stores.system.library.index[sysId]) ||
+                  (stores.system.selectedSystem && (stores.system.selectedSystem.id == sysId || stores.system.selectedSystem.bsid == sysId) ? stores.system.selectedSystem : null);
+        if (!sys && Array.isArray(stores.system.library && stores.system.library.array)) {
+          sys = stores.system.library.array.find(function(s) {
+            return s && (s.id == sysId || s.bsid == sysId || s.bsid == cleanRow.bsid_system);
+          }) || null;
+        }
+        if (!sys && typeof stores.system.getSystem === 'function') {
+          try { sys = await stores.system.getSystem(sysId); } catch (e) {}
+        }
+        if (sys && typeof sys.loadList === 'function') {
+          if (stores.list && typeof stores.list.loadTranslations === 'function') {
+            try { await stores.list.loadTranslations(sys); } catch (e) {}
+          }
+          var rowForLoad = Object.assign({}, cleanRow);
+          var loaded = await sys.loadList(rowForLoad);
+          if ((!loaded || !loaded.army) && rowForLoad.booksDate) {
+            delete rowForLoad.booksDate;
+            loaded = await sys.loadList(rowForLoad);
+          }
+          if (loaded && loaded.army) {
+            armyInst = loaded.army;
+            bookInst = loaded.book || null;
+          }
+        }
       }
       if (!armyInst || typeof armyInst.exportArmy !== 'function') return;
+
       try {
-        var gwOut = await armyInst.exportArmy({ format: 'GW', asText: true, includeHeader: true, includeConstants: true });
+        var meta = extractLiveArmyMetadata(cleanRow.list_key, armyInst, bookInst);
+        if (meta.units && meta.units.length > 0) {
+          cleanRow._omnitactica_enriched_units = meta.units;
+        }
+        if (meta.detachment) {
+          cleanRow._omnitactica_detachment = meta.detachment;
+        }
+        if (meta.bookName) {
+          cleanRow._omnitactica_book_name = meta.bookName;
+        }
+        if (typeof armyInst.getPointsCost === 'function') {
+          var livePts = armyInst.getPointsCost();
+          if (livePts > 0) cleanRow.totalCost = livePts;
+        }
+      } catch (e) {}
+
+      try {
+        var gwOut = await armyInst.exportArmy({
+          format: 'GW',
+          asText: true,
+          includeHeader: true,
+          includeConstants: true,
+          rosterName: cleanRow.name || ''
+        });
         if (typeof gwOut === 'string' && gwOut.trim().length > 20) {
-          cleanRow._omnitactica_gw_text = gwOut.trim();
+          var gwTrim = gwOut.trim();
+          if (!/(Created|Exported) with [^\n]*$/i.test(gwTrim)) {
+            gwTrim += '\n\nCreated with newrecruit.eu v36.27';
+          }
+          cleanRow._omnitactica_gw_text = gwTrim;
         }
       } catch (e) {}
       try {
-        var nrOut = await armyInst.exportArmy({ format: 'WTC-Compact', asText: true, includeHeader: true, includeConstants: true });
+        var nrOut = await armyInst.exportArmy({
+          format: 'WTC-Compact',
+          asText: true,
+          includeHeader: true,
+          includeConstants: true,
+          rosterName: cleanRow.name || ''
+        });
         if (typeof nrOut === 'string' && nrOut.trim().length > 20) {
-          cleanRow._omnitactica_nr_text = nrOut.trim();
+          var nrTrim = nrOut.trim();
+          if (!/(Created|Exported) with [^\n]*$/i.test(nrTrim)) {
+            nrTrim += '\n\nCreated with newrecruit.eu v36.27';
+          }
+          cleanRow._omnitactica_nr_text = nrTrim;
         }
       } catch (e) {}
+
+      if (cleanRow._omnitactica_gw_text && cleanRow._omnitactica_nr_text) {
+        nativeExportsCache[cacheKey] = {
+          gw: cleanRow._omnitactica_gw_text,
+          nr: cleanRow._omnitactica_nr_text,
+          units: cleanRow._omnitactica_enriched_units || null,
+          detachment: cleanRow._omnitactica_detachment || '',
+          bookName: cleanRow._omnitactica_book_name || ''
+        };
+      }
     } catch (e) {}
   }
 
@@ -1808,6 +1906,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     var clean = cloneCleanRow(row, explicitArmy, explicitBook);
     if (!clean || !clean.list_key) return;
     await attachNativeArmyExports(clean, explicitArmy);
+    if (clean._omnitactica_gw_text || clean._omnitactica_nr_text) {
+      row._omnitactica_gw_text = clean._omnitactica_gw_text || row._omnitactica_gw_text;
+      row._omnitactica_nr_text = clean._omnitactica_nr_text || row._omnitactica_nr_text;
+    }
     var sig = computeSignature(clean);
     if (knownListsMap[clean.list_key] === sig) {
       return;
@@ -3021,6 +3123,27 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       if (loadedListObj && loadedListObj.row) {
         loadedListObj.row.metadata = Object.assign({}, loadedListObj.row.metadata || {}, { play_mode: Boolean(wantPlay) });
       }
+      if (loadedListObj && loadedListObj.army) {
+        try {
+          await attachNativeArmyExports(targetRow, loadedListObj.army);
+          if (targetRow._omnitactica_gw_text || targetRow._omnitactica_nr_text) {
+            notifyParent({
+              action: 'native_exports',
+              list_key: targetKey,
+              gw_text: targetRow._omnitactica_gw_text || '',
+              nr_text: targetRow._omnitactica_nr_text || ''
+            });
+            if (!targetRow._ephemeral_view) {
+              var cleanWithExp = cloneCleanRow(targetRow, loadedListObj.army, loadedListObj.book);
+              if (cleanWithExp) {
+                cleanWithExp._omnitactica_gw_text = targetRow._omnitactica_gw_text || '';
+                cleanWithExp._omnitactica_nr_text = targetRow._omnitactica_nr_text || '';
+                postSyncAction('upsert', { list: cleanWithExp });
+              }
+            }
+          }
+        } catch (e) {}
+      }
       stores.list.lastSelectedListKey = targetKey;
       var freshStores = getNrStores();
       if (freshStores && freshStores.listsPage && loadedListObj) {
@@ -3129,6 +3252,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     if (cleaned.length === 0 && !(st && st.list && st.list.listsInitiated)) {
       return null;
     }
+    for (var cIdx = 0; cIdx < cleaned.length; cIdx++) {
+      await attachNativeArmyExports(cleaned[cIdx]);
+    }
     knownListsMap = {};
     cleaned.forEach(function(r) {
       knownListsMap[r.list_key] = computeSignature(r);
@@ -3145,7 +3271,8 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     hydrateFromOmniTactica: hydrateFromOmniTactica,
     ensurePlayModeAndStoreHooks: ensurePlayModeAndStoreHooks,
     getNrStores: getNrStores,
-    readAllNrLists: readAllNrLists
+    readAllNrLists: readAllNrLists,
+    attachNativeArmyExports: attachNativeArmyExports
   };
 
   window.addEventListener('message', async function(ev) {
@@ -3153,6 +3280,34 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     if (!msg || msg.type !== 'OMNITACTICA_NR_COMMAND') return;
     if (msg.command === 'force_sync') {
       await forceFullSync();
+    } else if (msg.command === 'export_list_texts') {
+      var expKey = String(msg.list_key || '').replace(/^(nr_|list_)/, '').trim();
+      var stExp = getNrStores();
+      var expRow = null;
+      if (stExp && stExp.list && Array.isArray(stExp.list.listData)) {
+        expRow = stExp.list.listData.find(function(r) { return r && r.list_key === expKey; }) || null;
+      }
+      if (!expRow && msg.nr_row && typeof msg.nr_row === 'object') {
+        expRow = Object.assign({}, msg.nr_row);
+        if (!expRow.list_key && expKey) expRow.list_key = expKey;
+      }
+      if (expRow) {
+        var cleanExp = cloneCleanRow(expRow) || expRow;
+        await attachNativeArmyExports(cleanExp);
+        if (cleanExp._omnitactica_gw_text || cleanExp._omnitactica_nr_text) {
+          expRow._omnitactica_gw_text = cleanExp._omnitactica_gw_text || '';
+          expRow._omnitactica_nr_text = cleanExp._omnitactica_nr_text || '';
+          notifyParent({
+            action: 'native_exports',
+            list_key: cleanExp.list_key || expKey,
+            gw_text: cleanExp._omnitactica_gw_text || '',
+            nr_text: cleanExp._omnitactica_nr_text || ''
+          });
+          if (!expRow._ephemeral_view) {
+            postSyncAction('upsert', { list: cleanExp });
+          }
+        }
+      }
     } else if (msg.command === 'delete_list' && (msg.list_key || msg.list_name)) {
       var delKey = String(msg.list_key || '').replace(/^(nr_|list_)/, '').trim();
       var delNameLow = msg.list_name ? String(msg.list_name).trim().toLowerCase() : '';
@@ -4176,6 +4331,30 @@ def process_nr_sync_payload(
             "army_lists": list_fn(),
         }
 
+    existing_by_key: Dict[str, Dict[str, Any]] = {}
+    for item in list(list_fn() or []):
+        if isinstance(item, dict):
+            ik = str(item.get("list_key") or "").strip()
+            iid = str(item.get("id") or "").strip()
+            if ik:
+                existing_by_key[ik] = item
+            if iid.startswith("nr_"):
+                existing_by_key[iid[3:]] = item
+
+    def _merge_existing_native_texts(row_obj: Dict[str, Any], lkey_str: str) -> None:
+        ex = existing_by_key.get(lkey_str)
+        if not isinstance(ex, dict):
+            return
+        ex_nr_row = ex.get("nr_row") if isinstance(ex.get("nr_row"), dict) else {}
+        if not row_obj.get("_omnitactica_gw_text"):
+            ex_gw = str(ex_nr_row.get("_omnitactica_gw_text") or "").strip()
+            if ex_gw and "(0 Points)" not in ex_gw and "(0 pts)" not in ex_gw:
+                row_obj["_omnitactica_gw_text"] = ex_gw
+        if not row_obj.get("_omnitactica_nr_text"):
+            ex_nr = str(ex_nr_row.get("_omnitactica_nr_text") or "").strip()
+            if ex_nr and "(0 Points)" not in ex_nr and "(0 pts)" not in ex_nr:
+                row_obj["_omnitactica_nr_text"] = ex_nr
+
     if action == "bulk_sync":
         incoming_lists = body.get("lists")
         if not isinstance(incoming_lists, list):
@@ -4187,6 +4366,7 @@ def process_nr_sync_payload(
                 continue
             lkey = str(row["list_key"]).strip()
             incoming_keys.add(lkey)
+            _merge_existing_native_texts(row, lkey)
             parsed = parser.parse_newrecruit_dict(row, default_id=f"nr_{lkey}", enrich=False)
             parsed["source_format"] = "NewRecruit Studio"
             save_fn(parsed)
@@ -4215,6 +4395,7 @@ def process_nr_sync_payload(
     if lkey.startswith("nr_"):
         lkey = lkey[3:]
     row["list_key"] = lkey
+    _merge_existing_native_texts(row, lkey)
 
     parsed = parser.parse_newrecruit_dict(row, default_id=f"nr_{lkey}", enrich=False)
     parsed["source_format"] = row.get("source_format") or "NewRecruit Studio"

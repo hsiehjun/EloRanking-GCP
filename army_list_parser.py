@@ -339,12 +339,21 @@ class ArmyListParser:
         has_nr_row = bool(nr_row and nr_row.get("list_key"))
         src_fmt = str(roster.get("source_format") or "").strip()
         raw_txt = str(roster.get("raw_text") or "").strip()
-        gw_cand = str(roster.get("gw_text") or nr_row.get("_omnitactica_gw_text") or "").strip()
-        nr_cand = str(roster.get("nr_text") or nr_row.get("_omnitactica_nr_text") or "").strip()
+        native_gw = str(nr_row.get("_omnitactica_gw_text") or "").strip()
+        native_nr = str(nr_row.get("_omnitactica_nr_text") or "").strip()
+        gw_cand = native_gw or str(roster.get("gw_text") or "").strip()
+        nr_cand = native_nr or str(roster.get("nr_text") or "").strip()
 
         has_wargear = any(isinstance(u, dict) and u.get("wargear") for u in units)
-        if (not units or not has_wargear) and (gw_cand or nr_cand or raw_txt):
-            parse_src = gw_cand or raw_txt or nr_cand
+        has_unit_pts = any(isinstance(u, dict) and int(u.get("points") or 0) > 0 for u in units)
+        if (not units or not has_wargear or not has_unit_pts) and (gw_cand or nr_cand or raw_txt):
+            parse_src = ""
+            for cand_txt in (native_gw, native_nr, gw_cand, raw_txt, nr_cand):
+                if cand_txt and not cand_txt.startswith(("{", "<")) and "(0 Points)" not in cand_txt and "(0 pts)" not in cand_txt:
+                    parse_src = cand_txt
+                    break
+            if not parse_src:
+                parse_src = gw_cand or raw_txt or nr_cand
             if parse_src and not parse_src.startswith(("{", "<")):
                 try:
                     if parse_src.startswith("++++") or "+ FACTION KEYWORD:" in parse_src.upper():
@@ -353,12 +362,10 @@ class ArmyListParser:
                         parsed_sub = self._parse_warhammer_app_text(parse_src)
                     sub_units = parsed_sub.get("units") or []
                     if sub_units:
-                        if not units:
+                        sub_has_pts = any(int(su.get("points") or 0) > 0 for su in sub_units if isinstance(su, dict))
+                        if not units or not has_wargear or (not has_unit_pts and sub_has_pts):
                             units = sub_units
                             roster["units"] = units
-                        elif not has_wargear:
-                            roster["units"] = sub_units
-                            units = sub_units
                         if not roster.get("warlord") and parsed_sub.get("warlord"):
                             roster["warlord"] = parsed_sub["warlord"]
                         if (not roster.get("detachment") or roster.get("detachment") in ("Core Detachment", "Unknown Detachment")) and parsed_sub.get("detachment") not in ("", "Core Detachment", "Unknown Detachment"):
@@ -387,7 +394,7 @@ class ArmyListParser:
         )
         roster["is_newrecruit_compatible"] = bool(has_nr_row or has_valid_units)
         roster["created_by_newrecruit"] = bool(is_nr_export and (has_nr_row or len(units) > 0))
-        if len(units) > 0:
+        if len(units) > 0 or native_gw or native_nr:
             is_input_nr = bool(raw_txt.startswith("++++") or "+ FACTION KEYWORD:" in raw_txt.upper())
             is_input_gw = bool(
                 not is_input_nr
