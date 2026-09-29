@@ -25,7 +25,8 @@ from army_list_parser import get_parser
 
 logger = logging.getLogger("NewRecruitIntegration")
 
-NR_BASE_URL = "https://www.newrecruit.eu"
+NR_BASE_URL = os.environ.get("NR_BASE_URL", "https://www.newrecruit.eu").rstrip("/")
+NR_DEFAULT_RELAY_URL = "https://elo-nr-relay-911555823374.us-west1.run.app"
 NR_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -573,9 +574,11 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   .listsView[data-v-7711fa10] .listsList.mobilePadding {
     padding-top: 8px !important;
   }
+  .main-view > [data-v-b9210782] {
+    display: block !important;
+  }
 
   /* 4. Direct-List Loading Screen & Embedded Play Mode Viewer Cleanup */
-  .errorWindow,
   html.omnitactica-nr-embedded-viewer header,
   html.omnitactica-nr-embedded-viewer .menu.mainMenu,
   html.omnitactica-nr-embedded-viewer .errorWindow {
@@ -643,6 +646,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
 
   .connectForm {
+    display: block !important;
     max-width: 380px !important;
     width: 92% !important;
     height: fit-content !important;
@@ -3262,6 +3266,147 @@ def fetch_nr_html_shell() -> str:
         return inject_nr_bridge_into_html("<!DOCTYPE html><html><head><meta charset='utf-8'><title>NewRecruit Studio</title></head><body><div id='__nuxt'></div></body></html>")
 
 
+_NR_DIRECT_BLOCKED_UNTIL: float = 0.0
+_NR_RELAY_ID_TOKEN_CACHE: Dict[str, Tuple[float, str]] = {}
+
+
+def _get_gcp_relay_id_token(audience: str) -> Optional[str]:
+    """Fetches a Google Cloud OIDC identity token from the metadata server for Cloud Run service-to-service calls."""
+    now = time.time()
+    cached = _NR_RELAY_ID_TOKEN_CACHE.get(audience)
+    if cached and now - cached[0] < 2400:
+        return cached[1]
+    meta_url = (
+        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience="
+        + urllib.parse.quote(audience, safe="")
+    )
+    try:
+        req = urllib.request.Request(meta_url, headers={"Metadata-Flavor": "Google"})
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            tok = resp.read().decode("utf-8", errors="ignore").strip()
+            if tok:
+                _NR_RELAY_ID_TOKEN_CACHE[audience] = (now, tok)
+                return tok
+    except Exception:
+        pass
+    return None
+
+
+def _exec_http_request(
+    method_up: str,
+    url: str,
+    body: Optional[bytes],
+    headers: Dict[str, str],
+    connect_timeout: float = 2.5,
+    read_timeout: float = 6.0,
+) -> Tuple[int, bytes, str]:
+    """Executes an outbound HTTP request via urllib3 pool or urllib.request."""
+    if _NR_HTTP_POOL is not None:
+        resp = _NR_HTTP_POOL.request(
+            method_up,
+            url,
+            body=body if method_up != "GET" else None,
+            headers=headers,
+            timeout=urllib3.Timeout(connect=connect_timeout, read=read_timeout),
+        )
+        return (
+            int(resp.status),
+            bytes(resp.data or b""),
+            resp.headers.get("Content-Type", "application/octet-stream"),
+        )
+    req = urllib.request.Request(url, data=body if method_up != "GET" else None, headers=headers, method=method_up)
+    with urllib.request.urlopen(req, timeout=connect_timeout + read_timeout) as uresp:
+        return (
+            int(uresp.status),
+            uresp.read(),
+            uresp.headers.get("Content-Type", "application/octet-stream"),
+        )
+
+
+def _forward_via_nr_relay(
+    clean_path: str,
+    method_up: str,
+    body: Optional[bytes],
+    upstream_headers: Dict[str, str],
+) -> Optional[Tuple[int, bytes, str]]:
+    """
+    Forwards live NewRecruit RPC/token requests via the secondary region Cloud Run relay (us-west1)
+    or public GET RPC fallback when the primary region's outbound IP is blocked by www.newrecruit.eu.
+    """
+    relay_base = (os.environ.get("NR_RELAY_URL") or NR_DEFAULT_RELAY_URL).strip().rstrip("/")
+    if relay_base:
+        relay_target = f"{relay_base}{clean_path}"
+        relay_headers: Dict[str, str] = {
+            "User-Agent": NR_USER_AGENT,
+            "X-Omni-Relay": "1",
+        }
+        for k in ("Content-Type", "Accept"):
+            if k in upstream_headers and upstream_headers[k]:
+                relay_headers[k] = upstream_headers[k]
+        if upstream_headers.get("Authorization"):
+            relay_headers["X-NR-Authorization"] = upstream_headers["Authorization"]
+
+        try:
+            status, data, ct = _exec_http_request(
+                method_up, relay_target, body, relay_headers, connect_timeout=3.0, read_timeout=8.0
+            )
+            if status in (401, 403):
+                id_tok = _get_gcp_relay_id_token(relay_base)
+                if id_tok:
+                    relay_headers["Authorization"] = f"Bearer {id_tok}"
+                    status, data, ct = _exec_http_request(
+                        method_up, relay_target, body, relay_headers, connect_timeout=3.0, read_timeout=8.0
+                    )
+            if status < 500 and status != 404:
+                if clean_path.startswith("/api/rpc") and status == 200:
+                    ct = "application/json"
+                return status, data, ct
+        except urllib.error.HTTPError as he:
+            if he.code in (401, 403):
+                id_tok = _get_gcp_relay_id_token(relay_base)
+                if id_tok:
+                    try:
+                        relay_headers["Authorization"] = f"Bearer {id_tok}"
+                        status, data, ct = _exec_http_request(
+                            method_up, relay_target, body, relay_headers, connect_timeout=3.0, read_timeout=8.0
+                        )
+                        if status < 500 and status != 404:
+                            if clean_path.startswith("/api/rpc") and status == 200:
+                                ct = "application/json"
+                            return status, data, ct
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.warning("NR regional relay (%s) error for %s: %s", relay_base, clean_path, e)
+
+    # Secondary fallback for unauthenticated GET-compatible NewRecruit RPCs (login, login_from_email, getUser, resetPassword)
+    if method_up == "POST" and clean_path.startswith("/api/rpc") and body and not upstream_headers.get("Authorization"):
+        try:
+            rpc_obj = json.loads(body.decode("utf-8", errors="ignore"))
+            rpc_m = str(rpc_obj.get("method") or "") if isinstance(rpc_obj, dict) else ""
+            rpc_params = rpc_obj.get("params") if isinstance(rpc_obj, dict) else None
+            if rpc_m in ("login", "login_from_email", "getUser", "resetPassword") and isinstance(rpc_params, list):
+                q_parts = [f"p0={urllib.parse.quote(rpc_m, safe='')}"]
+                for idx, p_val in enumerate(rpc_params, start=1):
+                    q_parts.append(f"p{idx}={urllib.parse.quote(str(p_val), safe='')}")
+                nr_get_url = f"https://www.newrecruit.eu/api/rpc?{'&'.join(q_parts)}"
+                ao_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(nr_get_url, safe='')}"
+                ao_status, ao_data, _ = _exec_http_request(
+                    "GET",
+                    ao_url,
+                    None,
+                    {"User-Agent": NR_USER_AGENT, "Accept": "application/json"},
+                    connect_timeout=3.5,
+                    read_timeout=7.0,
+                )
+                if ao_status == 200 and ao_data is not None:
+                    return 200, ao_data, "application/json"
+        except Exception as e:
+            logger.warning("NR GET RPC fallback error for %s: %s", clean_path, e)
+
+    return None
+
+
 def proxy_nr_request(
     path_with_query: str,
     method: str = "GET",
@@ -3271,9 +3416,10 @@ def proxy_nr_request(
     """
     Serves static assets (/_nuxt/*, /settings/*, /assets/*, /icons/*), library RPCs (get_library, get_countries, get_timezones),
     and all 40K/AoS catalogue books (books_get_book_row) directly from data/nr_offline_bundle.zip + in-memory cache,
-    falling back to https://www.newrecruit.eu only for unbundled or user-specific RPCs.
+    falling back to https://www.newrecruit.eu (or us-west1 relay) only for unbundled or user-specific RPCs.
     Returns (status_code, content_bytes, content_type).
     """
+    global _NR_DIRECT_BLOCKED_UNTIL
     clean_path = path_with_query if path_with_query.startswith("/") else f"/{path_with_query}"
     if clean_path.startswith("/api/nr/"):
         clean_path = clean_path[7:]
@@ -3302,11 +3448,9 @@ def proxy_nr_request(
             or clean_path in ("/assets.json", "/favicon.ico", "/favicon-32x32.png", "/Tahoma.ttf", "/TahomaBold.ttf")
         )
     )
-    has_auth = bool(req_headers and (req_headers.get("Authorization") or req_headers.get("authorization")))
     body_str = body.decode("utf-8", errors="ignore") if (body and method_up == "POST" and len(body) < 512) else ""
     is_cacheable_rpc = (
         method_up == "POST"
-        and not has_auth
         and clean_path.startswith("/api/rpc")
         and any(
             m_name in body_str
@@ -3338,37 +3482,42 @@ def proxy_nr_request(
                 _NR_STATIC_CACHE[cache_key] = (now, b_data, b_ct)
             return 200, b_data, b_ct
 
+    is_relay_hop = bool(
+        req_headers and (req_headers.get("X-Omni-Relay") or req_headers.get("x-omni-relay"))
+    )
     target_url = f"{NR_BASE_URL}{clean_path}"
     headers: Dict[str, str] = {
         "User-Agent": NR_USER_AGENT,
-        "Origin": NR_BASE_URL,
-        "Referer": f"{NR_BASE_URL}/app/Lists",
+        "Origin": "https://www.newrecruit.eu",
+        "Referer": "https://www.newrecruit.eu/app/Lists",
     }
     if req_headers:
-        for hdr_key in ("Content-Type", "content-type", "Authorization", "authorization", "Accept", "accept"):
+        for hdr_key in ("Content-Type", "content-type", "Accept", "accept"):
             if hdr_key in req_headers and req_headers[hdr_key]:
                 canonical = hdr_key.title() if hdr_key.islower() else hdr_key
                 headers[canonical] = req_headers[hdr_key]
+        if is_relay_hop:
+            for nr_auth_key in ("X-NR-Authorization", "x-nr-authorization", "X-Nr-Authorization"):
+                if nr_auth_key in req_headers and req_headers[nr_auth_key]:
+                    headers["Authorization"] = req_headers[nr_auth_key]
+        else:
+            for auth_key in ("Authorization", "authorization", "X-NR-Authorization", "x-nr-authorization"):
+                if auth_key in req_headers and req_headers[auth_key]:
+                    headers["Authorization"] = req_headers[auth_key]
+
+    # If direct connection from this region was recently blocked by www.newrecruit.eu, route straight to relay
+    if not is_relay_hop and now < _NR_DIRECT_BLOCKED_UNTIL:
+        relayed = _forward_via_nr_relay(clean_path, method_up, body, headers)
+        if relayed is not None:
+            r_status, r_data, r_ct = relayed
+            if (is_cacheable_get or is_cacheable_rpc) and r_status == 200:
+                _NR_STATIC_CACHE[cache_key] = (now, r_data, r_ct)
+            return r_status, r_data, r_ct
 
     try:
-        if _NR_HTTP_POOL is not None:
-            resp = _NR_HTTP_POOL.request(
-                method_up,
-                target_url,
-                body=body if method_up != "GET" else None,
-                headers=headers,
-                timeout=urllib3.Timeout(connect=3.0, read=6.0),
-            )
-            status = int(resp.status)
-            data = bytes(resp.data or b"")
-            content_type = resp.headers.get("Content-Type", "application/octet-stream")
-        else:
-            req = urllib.request.Request(target_url, data=body if method_up != "GET" else None, headers=headers, method=method_up)
-            with urllib.request.urlopen(req, timeout=5.0) as uresp:
-                status = uresp.status
-                data = uresp.read()
-                content_type = uresp.headers.get("Content-Type", "application/octet-stream")
-
+        status, data, content_type = _exec_http_request(
+            method_up, target_url, body, headers, connect_timeout=2.5, read_timeout=6.0
+        )
         if (is_cacheable_get or is_cacheable_rpc) and status == 200:
             _NR_STATIC_CACHE[cache_key] = (now, data, content_type)
         return status, data, content_type
@@ -3377,9 +3526,18 @@ def proxy_nr_request(
         ct = he.headers.get("Content-Type", "application/json") if he.headers else "application/json"
         return he.code, err_body, ct
     except Exception as e:
-        logger.warning("NewRecruit upstream proxy error for %s: %s", clean_path, e)
+        logger.warning("NewRecruit direct upstream error for %s: %s", clean_path, e)
+        if not is_relay_hop:
+            _NR_DIRECT_BLOCKED_UNTIL = time.time() + 600.0
+            relayed = _forward_via_nr_relay(clean_path, method_up, body, headers)
+            if relayed is not None:
+                r_status, r_data, r_ct = relayed
+                if (is_cacheable_get or is_cacheable_rpc) and r_status == 200:
+                    _NR_STATIC_CACHE[cache_key] = (now, r_data, r_ct)
+                return r_status, r_data, r_ct
         err_payload = json.dumps({"error": str(e)}).encode("utf-8")
-        return 502, err_payload, "application/json"
+        # Return 500 instead of 502 so NewRecruit's client XN() does not enter a 60-second retry loop
+        return 500, err_payload, "application/json"
 
 
 def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
@@ -3665,23 +3823,21 @@ def process_nr_sync_payload(
 
 
 def _nr_rpc_call(method: str, params: List[Any], access_token: Optional[str] = None) -> Any:
-    """Calls https://www.newrecruit.eu/api/rpc?m=<method> and returns parsed JSON."""
-    url = f"{NR_BASE_URL}/api/rpc?m={urllib.parse.quote(method)}"
+    """Calls https://www.newrecruit.eu/api/rpc?m=<method> (with multi-region relay fallback) and returns parsed JSON."""
+    path = f"/api/rpc?m={urllib.parse.quote(method)}"
     payload = json.dumps({"method": method, "params": params}).encode("utf-8")
-    headers = {
+    headers: Dict[str, str] = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/plain, */*",
-        "User-Agent": NR_USER_AGENT,
-        "Origin": NR_BASE_URL,
-        "Referer": f"{NR_BASE_URL}/app/Lists",
     }
     if access_token:
         headers["Authorization"] = access_token
 
-    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=12.0) as resp:
-        raw = resp.read().decode("utf-8", errors="ignore")
-        return json.loads(raw) if raw else {}
+    status, data, _ = proxy_nr_request(path, "POST", payload, headers)
+    if status >= 400:
+        raise RuntimeError(f"NewRecruit RPC {method} returned HTTP {status}: {data.decode('utf-8', errors='ignore')[:200]}")
+    raw = data.decode("utf-8", errors="ignore")
+    return json.loads(raw) if raw else {}
 
 
 def hash_newrecruit_password(login: str, password: str) -> str:
