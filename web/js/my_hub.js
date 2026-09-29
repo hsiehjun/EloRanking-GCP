@@ -3877,12 +3877,122 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
   const loginName = (hubNrCloudAccount && hubNrCloudAccount.login) ? String(hubNrCloudAccount.login) : '';
 
   modal.innerHTML = `
+    <style id="hub-nr-studio-responsive-styles">
+      .hub-nr-studio-toolbar {
+        padding: 8px 14px;
+        background: linear-gradient(90deg, #0f172a 0%, #172554 100%);
+        border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        box-sizing: border-box;
+        width: 100%;
+      }
+      .hub-nr-studio-brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        flex: 1 1 240px;
+      }
+      .hub-nr-studio-controls {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        flex-wrap: wrap;
+        min-width: 0;
+        max-width: 100%;
+      }
+      .hub-nr-studio-game-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(56, 189, 248, 0.4);
+        border-radius: 8px;
+        padding: 3px 8px;
+        font-size: 11.5px;
+        font-weight: 800;
+        color: #e2e8f0;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+      .hub-nr-studio-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: nowrap;
+        min-width: 0;
+        max-width: 100%;
+      }
+      @media screen and (max-width: 820px) {
+        #hub-newrecruit-studio-modal {
+          padding: 4px !important;
+        }
+        .hub-nr-studio-window {
+          width: 100% !important;
+          height: 96dvh !important;
+          border-radius: 10px !important;
+        }
+        .hub-nr-studio-toolbar {
+          padding: 7px 9px !important;
+          flex-direction: column !important;
+          align-items: stretch !important;
+          gap: 6px !important;
+        }
+        .hub-nr-studio-brand {
+          flex: 0 0 auto !important;
+          width: 100% !important;
+        }
+        #hub-nr-studio-subtitle {
+          display: none !important;
+        }
+        .hub-nr-studio-controls {
+          flex-direction: column-reverse !important;
+          align-items: stretch !important;
+          width: 100% !important;
+          gap: 6px !important;
+        }
+        .hub-nr-studio-actions {
+          width: 100% !important;
+          justify-content: space-between !important;
+          gap: 5px !important;
+        }
+        .hub-nr-studio-actions > button:not(#hub-btn-close-nr-studio) {
+          padding: 6px 8px !important;
+          font-size: 11.5px !important;
+          white-space: nowrap !important;
+        }
+        #hub-btn-nr-studio-auth {
+          flex: 1 1 auto !important;
+          min-width: 0 !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          justify-content: center !important;
+        }
+        .hub-nr-studio-game-label {
+          width: 100% !important;
+          display: flex !important;
+          padding: 4px 8px !important;
+        }
+        #hub-nr-studio-system-select {
+          flex: 1 1 auto !important;
+          width: 100% !important;
+          min-width: 0 !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+        }
+      }
+    </style>
     <div class="hub-nr-studio-window" style="background:#0b1120; border:1px solid rgba(56,189,248,0.35); border-radius:14px; width:min(1460px, 100%); height:min(94dvh, 980px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 30px 90px rgba(0,0,0,0.92); font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
       <!-- Studio Top Toolbar -->
-      <div style="padding:8px 14px; background:linear-gradient(90deg, #0f172a 0%, #172554 100%); border-bottom:1px solid rgba(56,189,248,0.25); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-        <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+      <div class="hub-nr-studio-toolbar">
+        <div class="hub-nr-studio-brand">
           <span onclick="navigateNewRecruitStudio('/nr/app/Lists')" title="Return to My Lists" style="font-size:18px; flex-shrink:0; cursor:pointer;">⚔️</span>
-          <div style="min-width:0;">
+          <div style="min-width:0; flex:1;">
             <div style="display:flex; align-items:center; gap:7px; flex-wrap:wrap;">
               <h3 onclick="navigateNewRecruitStudio('/nr/app/Lists')" title="Return to My Lists" style="font-size:14.5px; font-weight:900; color:#fff; margin:0; letter-spacing:0.01em; cursor:pointer;">NewRecruit Army Studio</h3>
               <span id="hub-nr-studio-live-status" style="font-size:10.5px; font-weight:800; padding:2px 7px; border-radius:999px; background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.35); display:inline-flex; align-items:center; gap:4px;">
@@ -3896,28 +4006,30 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
         </div>
 
         <!-- Studio Header Controls: Game System & Edition Switcher, Back to Lists, Create List, Login/Logout, Close -->
-        <div style="display:flex; align-items:center; gap:7px; flex-shrink:0; flex-wrap:wrap;">
-          <label for="hub-nr-studio-system-select" style="display:inline-flex; align-items:center; gap:5px; background:rgba(15,23,42,0.85); border:1px solid rgba(56,189,248,0.4); border-radius:8px; padding:3px 8px; font-size:11.5px; font-weight:800; color:#e2e8f0;" title="Switch Game System &amp; Edition in NewRecruit Army Studio">
-            <span style="color:#38bdf8; font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em;">Game:</span>
-            <select id="hub-nr-studio-system-select" onchange="changeNewRecruitStudioSystem(this.value)" style="background:transparent; border:none; color:#fff; font-size:11.5px; font-weight:800; outline:none; cursor:pointer; padding:2px 2px;">
+        <div class="hub-nr-studio-controls">
+          <label for="hub-nr-studio-system-select" class="hub-nr-studio-game-label" title="Switch Game System &amp; Edition in NewRecruit Army Studio">
+            <span style="color:#38bdf8; font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; flex-shrink:0;">Game:</span>
+            <select id="hub-nr-studio-system-select" onchange="changeNewRecruitStudioSystem(this.value)" style="background:transparent; border:none; color:#fff; font-size:11.5px; font-weight:800; outline:none; cursor:pointer; padding:2px 2px; min-width:0;">
               <option value="827374861" ${defaultSysId === 827374861 ? 'selected' : ''} style="background:#0f172a; color:#fff;">⚔️ Warhammer 40K — 11th Ed (Latest)</option>
               <option value="4255553472" ${defaultSysId === 4255553472 ? 'selected' : ''} style="background:#0f172a; color:#fff;">⚡ Age of Sigmar — 4.0 (Latest)</option>
               <option value="2821148162" ${defaultSysId === 2821148162 ? 'selected' : ''} style="background:#0f172a; color:#fff;">🛡️ Warhammer 40K — 10th Ed</option>
               <option value="4194757354" ${defaultSysId === 4194757354 ? 'selected' : ''} style="background:#0f172a; color:#fff;">🔨 Age of Sigmar — 3.0</option>
             </select>
           </label>
-          <button id="hub-btn-nr-studio-mylists" onclick="navigateNewRecruitStudio('/nr/app/Lists')" title="Back to My Lists" style="display:${isDirectListTarget ? 'inline-flex' : 'none'}; align-items:center; gap:5px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); border-radius:8px; font-size:12px; font-weight:800; padding:6px 11px; cursor:pointer; transition:all 0.15s ease;">
-            📋 Lists
-          </button>
-          <button id="hub-btn-nr-studio-create" onclick="triggerNewRecruitStudioCreateList()" title="Create a new Army List in the selected Game System &amp; Edition" style="display:inline-flex; align-items:center; gap:5px; background:#10b981; color:#052e16; border:1px solid #34d399; border-radius:8px; font-size:12px; font-weight:900; padding:6px 12px; cursor:pointer; transition:all 0.15s ease; box-shadow:0 2px 8px rgba(16,185,129,0.25);">
-            ➕ Create List
-          </button>
-          <button id="hub-btn-nr-studio-auth" onclick="triggerNewRecruitStudioAuth()" title="${isConnected ? `Signed in as ${escapeHtml(loginName || 'NewRecruit')} • Click to log out` : 'Sign in to your NewRecruit account'}" style="display:inline-flex; align-items:center; gap:5px; background:${isConnected ? 'rgba(239,68,68,0.16)' : 'rgba(56,189,248,0.18)'}; color:${isConnected ? '#fca5a5' : '#38bdf8'}; border:1px solid ${isConnected ? 'rgba(239,68,68,0.38)' : 'rgba(56,189,248,0.4)'}; border-radius:8px; font-size:12px; font-weight:800; padding:6px 12px; cursor:pointer; transition:all 0.15s ease;">
-            ${isConnected ? `🚪 Logout${loginName ? ` (${escapeHtml(loginName)})` : ''}` : '🔑 Login'}
-          </button>
-          <button id="hub-btn-close-nr-studio" onclick="closeNewRecruitStudioDrawer()" title="Close NewRecruit Studio" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:#cbd5e1; font-size:16px; font-weight:800; width:32px; height:32px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all 0.15s ease;">
-            ✕
-          </button>
+          <div class="hub-nr-studio-actions">
+            <button id="hub-btn-nr-studio-mylists" onclick="navigateNewRecruitStudio('/nr/app/Lists')" title="View My Army Lists" style="display:inline-flex; align-items:center; gap:5px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); border-radius:8px; font-size:12px; font-weight:800; padding:6px 11px; cursor:pointer; transition:all 0.15s ease; flex-shrink:0;">
+              📋 Lists
+            </button>
+            <button id="hub-btn-nr-studio-create" onclick="triggerNewRecruitStudioCreateList()" title="Create a new Army List in the selected Game System &amp; Edition" style="display:inline-flex; align-items:center; gap:5px; background:#10b981; color:#052e16; border:1px solid #34d399; border-radius:8px; font-size:12px; font-weight:900; padding:6px 12px; cursor:pointer; transition:all 0.15s ease; box-shadow:0 2px 8px rgba(16,185,129,0.25); flex-shrink:0;">
+              ➕ Create List
+            </button>
+            <button id="hub-btn-nr-studio-auth" onclick="triggerNewRecruitStudioAuth()" title="${isConnected ? `Signed in as ${escapeHtml(loginName || 'NewRecruit')} • Click to log out` : 'Sign in to your NewRecruit account'}" style="display:inline-flex; align-items:center; gap:5px; background:${isConnected ? 'rgba(239,68,68,0.16)' : 'rgba(56,189,248,0.18)'}; color:${isConnected ? '#fca5a5' : '#38bdf8'}; border:1px solid ${isConnected ? 'rgba(239,68,68,0.38)' : 'rgba(56,189,248,0.4)'}; border-radius:8px; font-size:12px; font-weight:800; padding:6px 12px; cursor:pointer; transition:all 0.15s ease;">
+              ${isConnected ? `🚪 Logout${loginName ? ` (${escapeHtml(loginName)})` : ''}` : '🔑 Login'}
+            </button>
+            <button id="hub-btn-close-nr-studio" onclick="closeNewRecruitStudioDrawer()" title="Close NewRecruit Studio" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:#cbd5e1; font-size:16px; font-weight:800; width:32px; height:32px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all 0.15s ease;">
+              ✕
+            </button>
+          </div>
         </div>
       </div>
 
@@ -3965,6 +4077,16 @@ function navigateNewRecruitStudio(targetPath, listName = '', nrRow = null, sysId
   const iframe = document.getElementById('hub-nr-studio-iframe');
   if (!iframe) return;
   const effectiveSysId = Number(sysId) || window._activeNrStudioSystemId || getDefaultNrStudioSystemIdForGameSystem();
+  const isReturningToLists = !targetPath || /\/(Lists|MyLists)$/i.test(String(targetPath).split('?')[0]);
+  const subEl = document.getElementById('hub-nr-studio-subtitle');
+  if (subEl) {
+    if (listName) {
+      subEl.textContent = `Editing "${listName}" • All changes & deletions sync to My Hub automatically`;
+    } else if (isReturningToLists) {
+      const sysMeta = NR_STUDIO_SYSTEMS[effectiveSysId] || NR_STUDIO_SYSTEMS[827374861];
+      subEl.textContent = `Active System: ${sysMeta.label.replace(/^[^\w]+/, '')} • All lists sync automatically with My Hub`;
+    }
+  }
   try {
     if (iframe.contentWindow) {
       iframe.contentWindow.postMessage({
@@ -4074,10 +4196,21 @@ if (!window.__omnitacticaNrParentListenerBound) {
         updateHubNrSyncPill();
       }
       if (msg.path) {
+        const cleanRoutePath = String(msg.path).split('?')[0];
+        const onMyLists = /\/MyLists$/i.test(cleanRoutePath);
         const myListsBtn = document.getElementById('hub-btn-nr-studio-mylists');
         if (myListsBtn) {
-          const onMyLists = /\/MyLists$/i.test(String(msg.path).split('?')[0]);
-          myListsBtn.style.display = onMyLists ? 'none' : 'inline-flex';
+          myListsBtn.style.display = 'inline-flex';
+          myListsBtn.style.background = onMyLists ? 'rgba(56,189,248,0.26)' : 'rgba(56,189,248,0.14)';
+          myListsBtn.style.borderColor = onMyLists ? 'rgba(56,189,248,0.65)' : 'rgba(56,189,248,0.35)';
+        }
+        if (onMyLists) {
+          const subEl = document.getElementById('hub-nr-studio-subtitle');
+          const curSysId = window._activeNrStudioSystemId || getDefaultNrStudioSystemIdForGameSystem();
+          const sysMeta = NR_STUDIO_SYSTEMS[curSysId] || NR_STUDIO_SYSTEMS[827374861];
+          if (subEl) {
+            subEl.textContent = `Active System: ${sysMeta.label.replace(/^[^\w]+/, '')} • All lists sync automatically with My Hub`;
+          }
         }
       }
       return;

@@ -540,6 +540,8 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     padding-top: 0 !important;
     padding-bottom: 0 !important;
     margin: 0 !important;
+    background-color: #0f1524 !important;
+    color: #e5eaf3 !important;
   }
   #mainContent,
   .mainContent {
@@ -552,6 +554,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     padding-top: 0 !important;
     padding-bottom: 0 !important;
     margin-top: 0 !important;
+    background-color: #0f1524 !important;
   }
 
   /* 3. MyLists (/app/MyLists): Hide all controls above the actual list table (Create List, Any, Search, Group/Sort checkboxes, Import/Sync/Delete buttons) */
@@ -574,7 +577,8 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   .listsView[data-v-7711fa10] .listsList.mobilePadding {
     padding-top: 8px !important;
   }
-  .main-view > [data-v-b9210782] {
+  .main-view > [data-v-b9210782],
+  .main-view > [data-v-ecdec291] {
     display: block !important;
   }
 
@@ -629,6 +633,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
   /* 5. Login / Account Page (/app/Login): Keep ONLY the Login Form / Welcome + Logout button */
   .connectForm .nrversion,
+  .connectForm .section,
   .connectForm .section.boutons,
   .connectForm a[href="/app/Options"],
   .connectForm a[href="/app/MySystems"],
@@ -645,21 +650,28 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     display: none !important;
   }
 
+  #mainContent.connectForm,
   .connectForm {
+    position: relative !important;
+    top: auto !important;
+    bottom: auto !important;
+    left: auto !important;
+    right: auto !important;
     display: block !important;
     max-width: 380px !important;
     width: 92% !important;
-    height: fit-content !important;
+    height: auto !important;
     min-height: 0 !important;
-    max-height: fit-content !important;
+    max-height: none !important;
     margin: 48px auto !important;
     padding: 28px 32px !important;
-    background: #f8fafc !important;
-    color: #0f172a !important;
-    border: 1px solid #cbd5e1 !important;
+    background: #1d2740 !important;
+    color: #e5eaf3 !important;
+    border: 1px solid #33405c !important;
     border-radius: 14px !important;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12) !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45) !important;
     overflow: hidden !important;
+    box-sizing: border-box !important;
   }
   .connectForm #loginform {
     height: auto !important;
@@ -675,6 +687,85 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 (function() {
   if (window.__omnitacticaNrBridgeInstalled) return;
   window.__omnitacticaNrBridgeInstalled = true;
+
+  // Unified OmniTactica Dark Slate Theme (matches NewRecruit's built-in "Dark" preset_dark & OmniTactica #0f1524 UI)
+  var OMNI_NR_DARK_THEME = {
+    background: { colors: ['#0f1524', '#0f1524'], alpha: 100 },
+    hue: 0,
+    title: { colors: ['#1d2740', '#1d2740'], alpha: 100 },
+    forcesBackground: { colors: ['#1d2740', '#1d2740'], alpha: 100 },
+    unitsBackground: { colors: ['#ffffff'], alpha: 7 },
+    costsBackground: { colors: ['#ffffff'], alpha: 10 },
+    dropdownStyle: 2,
+    inputRadius: 8,
+    inputHighlights: '#818cf8',
+    fontHeaderSize: 18,
+    borderColor: '#33405c',
+    colorGray: '#9aa7bd',
+    colorBlue: '#60a5fa',
+    hoverColor: { colors: ['#ffffff'], alpha: 9 },
+    backgroundRepeat: 'no-repeat',
+    lightblue: '#67e8f9',
+    italic: 'italic',
+    backgroundTexture: 'url(/assets/images/no.jpg)',
+    highlight: '#fffef1',
+    inputBackground: '#243049',
+    categoryIcons: true,
+    costsLeft: false,
+    invertColors: false,
+    invertImages: false,
+    invertImagesBrightness: '75',
+    font: 'sans-serif',
+    fontSize: 16,
+    fontHeader: 'sans-serif',
+    headerTransform: 'none',
+    fontButton: 'sans-serif',
+    fontButtonSize: 16,
+    fontColor: '#e5eaf3',
+    fontColorUnits: '#e5eaf3',
+    fontColorForces: '#e5eaf3',
+    fontColorTitle: '#eef1f8',
+    colorRed: '#f87171',
+    colorGreen: '#4ade80',
+    colorLightblue: '#67e8f9',
+    costColor: '#a5b4fc',
+    dark: true,
+    fitBackground: false,
+    titleBarColor: 'red',
+    backgroundSize: '',
+    bga: 100,
+    hoverTransparency: 15
+  };
+
+  function applyOmniNrDarkTheme(optStore) {
+    try {
+      var rawOpt = localStorage.getItem('options');
+      var parsedOpt = rawOpt ? JSON.parse(rawOpt) : {};
+      if (!parsedOpt || typeof parsedOpt !== 'object') parsedOpt = {};
+      if (!parsedOpt.appearence || !parsedOpt.appearence.dark || parsedOpt.themePopup !== false) {
+        parsedOpt.appearence = Object.assign({}, parsedOpt.appearence || {}, OMNI_NR_DARK_THEME);
+        parsedOpt.themePopup = false;
+        localStorage.setItem('options', JSON.stringify(parsedOpt));
+      }
+    } catch (e) {}
+    if (optStore) {
+      try {
+        if (optStore.options) {
+          optStore.options.themePopup = false;
+          optStore.options.appearence = Object.assign({}, optStore.options.appearence || {}, OMNI_NR_DARK_THEME);
+        }
+        optStore.themeEnabled = true;
+        if (!optStore.__omniDarkThemeApplied && typeof optStore.setThemeOverride === 'function') {
+          optStore.__omniDarkThemeApplied = true;
+          optStore.setThemeOverride(OMNI_NR_DARK_THEME);
+        } else if (typeof optStore.updateAppearance === 'function') {
+          optStore.themeOverride = OMNI_NR_DARK_THEME;
+          optStore.updateAppearance();
+        }
+      } catch (e) {}
+    }
+  }
+  applyOmniNrDarkTheme(null);
 
   // 0a. Prevent NewRecruit from registering /worker.js as a root Service Worker on OmniTactica's origin,
   // and immediately unregister any legacy Service Worker & 'newrecruit' CacheStorage bucket.
@@ -2217,6 +2308,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
     try {
       stores.user.isSupporter = function() { return true; };
+      if (stores.options) applyOmniNrDarkTheme(stores.options);
     } catch (e) {}
 
     if (stores.list.listsInitiated) {
@@ -3190,6 +3282,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     var s = getNrStores();
     if (s && s.user) {
       try { s.user.isSupporter = function() { return true; }; } catch (e) {}
+      if (s.options) applyOmniNrDarkTheme(s.options);
       if (s.list && s.list.listsInitiated) {
         ensurePlayModeAndStoreHooks();
         clearInterval(earlyHookTimer);
