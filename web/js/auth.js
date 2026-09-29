@@ -312,6 +312,9 @@ if (typeof document !== 'undefined') {
 }
 
 function syncAppAuthView() {
+  if (typeof window !== 'undefined' && window.__omniUpdatingReloadInProgress) {
+    return;
+  }
   const landingView = document.getElementById('landing-page-view');
   const appShell = document.getElementById('app-shell');
   const appHeader = document.getElementById('app-header');
@@ -369,11 +372,14 @@ function syncAppAuthView() {
 async function initAuth() {
   const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
 
-  // If a session token exists, ALWAYS authenticate against the backend to load the real user profile!
+  // If a session token exists, authenticate against the backend to load the real user profile
   if (token) {
     try {
       const res = await window.api.getAuthMe(token);
-      if (res && res.authenticated && res.user) {
+      if (typeof window !== 'undefined' && window.__omniUpdatingReloadInProgress) {
+        return;
+      }
+      if (res && res.authenticated === true && res.user) {
         currentUser = res.user;
         if (typeof window !== 'undefined') window.currentUser = currentUser;
         localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
@@ -383,7 +389,15 @@ async function initAuth() {
         syncAppAuthView();
         if (typeof syncPersonaButtons === 'function') syncPersonaButtons();
         return;
-      } else {
+      }
+      const isExplicitlyUnauthenticated = Boolean(
+        res &&
+        res.authenticated === false &&
+        !res.error &&
+        !res.aborted &&
+        !res.transient_error
+      );
+      if (isExplicitlyUnauthenticated) {
         currentUser = null;
         if (typeof window !== 'undefined') window.currentUser = null;
         localStorage.removeItem('native_session_token');
@@ -393,9 +407,30 @@ async function initAuth() {
           document.cookie = `${c}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
         });
         if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
+        syncAppAuthView();
+        return;
       }
+      // Transient network error, server restart, or reload abort: preserve session & cached profile!
+      if (!currentUser) {
+        try {
+          const cached = localStorage.getItem('native_user_profile') || localStorage.getItem('bcp_user_profile');
+          if (cached) {
+            currentUser = JSON.parse(cached);
+            if (typeof window !== 'undefined') window.currentUser = currentUser;
+          }
+        } catch (e) {}
+      }
+      if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
+      if (currentUser) {
+        syncAppAuthView();
+      }
+      return;
     } catch (e) {
-      console.warn('Session verification error:', e);
+      console.warn('Session verification error (preserving cached session):', e);
+      if (currentUser) {
+        syncAppAuthView();
+      }
+      return;
     }
   }
 
@@ -409,35 +444,7 @@ async function initAuth() {
     return;
   }
 
-  if (!token) {
-    currentUser = null;
-    syncAppAuthView();
-    return;
-  }
-
-  try {
-    const res = await window.api.getAuthMe(token);
-    if (res && res.authenticated && res.user) {
-      currentUser = res.user;
-      if (typeof window !== 'undefined') window.currentUser = currentUser;
-      localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
-      localStorage.setItem('native_session_token', token);
-      localStorage.setItem('elo_auth_token', token);
-      if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
-    } else {
-      currentUser = null;
-      if (typeof window !== 'undefined') window.currentUser = null;
-      localStorage.removeItem('native_session_token');
-      localStorage.removeItem('elo_auth_token');
-      localStorage.removeItem('native_user_profile');
-      ['session_token', 'elo_auth_token', 'native_session_token'].forEach(c => {
-        document.cookie = `${c}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
-      });
-      if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
-    }
-  } catch (e) {
-    console.warn('Session verification error:', e);
-  }
+  currentUser = null;
   syncAppAuthView();
 }
 

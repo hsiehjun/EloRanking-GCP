@@ -937,6 +937,7 @@ function dismissAppUpdateBanner() {
 }
 
 async function applyAppUpdateNow(targetVersion = null) {
+  window.__omniUpdatingReloadInProgress = true;
   const updateBtn = document.getElementById('btn-pwa-apply-update');
   if (updateBtn) {
     updateBtn.textContent = 'Updating...';
@@ -1020,6 +1021,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   if (typeof initAuth === 'function') {
     await initAuth();
+  }
+  if (window.__omniUpdatingReloadInProgress) {
+    return;
   }
   updateBootStatus('SYNCHRONIZING TACTICAL DOSSIER...');
   if (typeof syncAppAuthView === 'function') {

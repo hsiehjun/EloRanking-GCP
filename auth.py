@@ -1201,7 +1201,7 @@ class AuthManager:
             conn.commit()
         return session_token
 
-    def get_session(self, session_token: str) -> Optional[Dict[str, Any]]:
+    def get_session(self, session_token: str, raise_on_db_error: bool = False) -> Optional[Dict[str, Any]]:
         """Retrieves user profile and BCP link status for active session token."""
         if not session_token:
             return None
@@ -1209,7 +1209,7 @@ class AuthManager:
         from psycopg2 import extras
         import psycopg2.errors
 
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 with self.db.get_connection() as conn:
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -1232,10 +1232,10 @@ class AuthManager:
                             conn.rollback()
                             cur.execute("""
                             SELECT u.id, u.email, u.display_name, u.role, u.player_id,
-                                   u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
-                                   COALESCE(p.player_name, pl.full_name) as competitor_name,
-                                   p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
-                                   p.top_faction, COALESCE(p.team, pl.team) as team
+                                    u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
+                                    COALESCE(p.player_name, pl.full_name) as competitor_name,
+                                    p.current_elo, p.peak_elo, p.matches_played, p.wins, p.losses, p.win_rate,
+                                    p.top_faction, COALESCE(p.team, pl.team) as team
                             FROM user_sessions s
                             JOIN users u ON s.user_id = u.id
                             LEFT JOIN player_ratings p ON u.player_id = p.player_id
@@ -1276,13 +1276,17 @@ class AuthManager:
                             return data
                 return None
             except (psycopg2.errors.DeadlockDetected, psycopg2.OperationalError) as exc:
-                if attempt == 0:
-                    time.sleep(0.06)
+                if attempt < 2:
+                    time.sleep(0.08 * (attempt + 1))
                     continue
                 logger.warning(f"get_session transient DB error after retry: {exc}")
+                if raise_on_db_error:
+                    raise
                 return None
             except Exception as e:
                 logger.error(f"get_session unexpected error: {e}")
+                if raise_on_db_error:
+                    raise
                 return None
 
     def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:

@@ -285,13 +285,24 @@ async def api_auth_me(request: Request, response: Response, token: Optional[str]
     ]
     auth_mgr = get_auth_manager()
     is_sec = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
+    had_db_error = False
     for cand in candidates:
         if not cand or cand == "dev-auth-token-123":
             continue
-        session = auth_mgr.get_session(cand)
+        try:
+            session = auth_mgr.get_session(cand, raise_on_db_error=True)
+        except Exception as e:
+            logger.warning(f"api_auth_me transient DB error checking token: {e}")
+            had_db_error = True
+            continue
         if session:
             response.set_cookie(key="session_token", value=cand, max_age=2592000, path="/", httponly=False, samesite="lax", secure=is_sec)
             return {"authenticated": True, "user": session}
+    if had_db_error:
+        return JSONResponse(
+            status_code=503,
+            content={"authenticated": None, "transient_error": True, "error": "Database temporarily unavailable"},
+        )
     response.delete_cookie(key="session_token", path="/", samesite="lax")
     response.delete_cookie(key="elo_auth_token", path="/", samesite="lax")
     response.delete_cookie(key="native_session_token", path="/", samesite="lax")
