@@ -3995,9 +3995,6 @@ function openNewRecruitStudioDrawer(initialPath = '/nr/app/Lists', listTitle = '
           <div style="min-width:0; flex:1;">
             <div style="display:flex; align-items:center; gap:7px; flex-wrap:wrap;">
               <h3 onclick="navigateNewRecruitStudio('/nr/app/Lists')" title="Return to My Lists" style="font-size:14.5px; font-weight:900; color:#fff; margin:0; letter-spacing:0.01em; cursor:pointer;">NewRecruit Army Studio</h3>
-              <span id="hub-nr-studio-live-status" style="font-size:10.5px; font-weight:800; padding:2px 7px; border-radius:999px; background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.35); display:inline-flex; align-items:center; gap:4px;">
-                🟢 Live Auto-Sync Active
-              </span>
             </div>
             <div id="hub-nr-studio-subtitle" style="font-size:10.5px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px;">
               ${escapeHtml(subtitle)}
@@ -4214,25 +4211,6 @@ if (!window.__omnitacticaNrParentListenerBound) {
         }
       }
       return;
-    }
-
-    const statusBadge = document.getElementById('hub-nr-studio-live-status');
-    if (statusBadge) {
-      if (msg.action === 'delete') {
-        statusBadge.innerHTML = `🗑️ Removed list from My Hub`;
-        statusBadge.style.color = '#f87171';
-      } else {
-        const listName = (msg.army_list && msg.army_list.name) ? msg.army_list.name : 'Roster';
-        statusBadge.innerHTML = `⚡ Synced "${escapeHtml(listName)}" to My Hub!`;
-        statusBadge.style.color = '#38bdf8';
-      }
-      setTimeout(() => {
-        const el = document.getElementById('hub-nr-studio-live-status');
-        if (el) {
-          el.innerHTML = `🟢 Live Auto-Sync Active`;
-          el.style.color = '#34d399';
-        }
-      }, 2600);
     }
 
     if (msg.action === 'upsert' && msg.army_list) {
