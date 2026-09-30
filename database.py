@@ -7156,6 +7156,12 @@ class PostgresDatabase:
         source_format = str(list_data.get("source_format") or "Custom")
         raw_text = str(list_data.get("raw_text") or "")
         game_system = str(list_data.get("game_system") or "40k").strip().lower()
+        if isinstance(list_data.get("nr_row"), dict):
+            list_data["nr_row"]["name"] = name
+            if list_data.get("points") is not None:
+                list_data["nr_row"]["totalCost"] = points
+                if isinstance(list_data["nr_row"].get("totalCosts"), dict):
+                    list_data["nr_row"]["totalCosts"]["pts"] = points
         list_json = json.dumps(list_data, default=str)
 
         with self.get_connection() as conn:
@@ -7289,41 +7295,21 @@ class PostgresDatabase:
                 return item
 
     def delete_user_army_list(self, list_id: str, user_id: Optional[str] = None) -> bool:
-        """Deletes an army list by ID or list_key from user_army_lists table."""
+        """Deletes an army list by ID, list_key, or explicit migration link from user_army_lists table."""
         clean_key = str(list_id or "").strip()
         raw_k = re.sub(r"^(nr_|list_)", "", clean_key)
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT name FROM user_army_lists
-                    WHERE id IN (%s, %s, %s, %s)
-                       OR list_data->>'list_key' IN (%s, %s)
-                    LIMIT 1;
-                    """,
-                    (clean_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}", clean_key, raw_k),
-                )
-                row = cursor.fetchone()
-                target_name = str(row[0]).strip() if (row and row[0]) else ""
-                cursor.execute(
-                    """
                     DELETE FROM user_army_lists
                     WHERE id IN (%s, %s, %s, %s)
-                       OR list_data->>'list_key' IN (%s, %s);
+                       OR list_data->>'list_key' IN (%s, %s)
+                       OR list_data->'nr_row'->>'list_key' IN (%s, %s)
+                       OR list_data->'nr_row'->'metadata'->>'migrated_to' IN (%s, %s);
                     """,
-                    (clean_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}", clean_key, raw_k),
+                    (clean_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}", clean_key, raw_k, clean_key, raw_k, clean_key, raw_k),
                 )
-                if target_name:
-                    if user_id:
-                        cursor.execute(
-                            "DELETE FROM user_army_lists WHERE LOWER(TRIM(name)) = LOWER(TRIM(%s)) AND (user_id = %s OR user_id IS NULL);",
-                            (target_name, user_id),
-                        )
-                    else:
-                        cursor.execute(
-                            "DELETE FROM user_army_lists WHERE LOWER(TRIM(name)) = LOWER(TRIM(%s));",
-                            (target_name,),
-                        )
             conn.commit()
         return True
 

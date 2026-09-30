@@ -116,6 +116,56 @@ async def api_get_armylists(request: Request, game_system: Optional[str] = Query
     ]
     return {"success": True, "army_lists": enriched}
 
+def _propagate_saved_list_to_tracker_rooms(saved: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(saved, dict):
+        return saved
+    try:
+        from newrecruit_integration import build_synthetic_nr_row
+        nr_row = build_synthetic_nr_row(saved)
+        saved["list_key"] = nr_row.get("list_key")
+        saved["nr_row"] = nr_row
+    except Exception:
+        pass
+    s_id = str(saved.get("id") or "")
+    s_key = str(saved.get("list_key") or (s_id[3:] if s_id.startswith("nr_") else ""))
+    for match_id, room_data in list(TRACKER_ROOMS.items()):
+        if not isinstance(room_data, dict):
+            continue
+        for slot_key, role_name in (("p1_army_list", "player1"), ("p2_army_list", "player2")):
+            cur_slot = room_data.get(slot_key)
+            if isinstance(cur_slot, dict):
+                c_id = str(cur_slot.get("id") or "")
+                c_key = str(
+                    cur_slot.get("list_key")
+                    or (cur_slot.get("nr_row") or {}).get("list_key")
+                    or (c_id[3:] if c_id.startswith("nr_") else "")
+                )
+                if (s_id and c_id == s_id) or (s_key and c_key == s_key):
+                    room_data[slot_key] = saved
+                    try:
+                        fs_engine = get_firestore_engine()
+                        fs_engine.update_room(match_id, {
+                            slot_key: saved,
+                            f"rosters.{role_name}": saved,
+                        })
+                    except Exception:
+                        pass
+                    listeners = TRACKER_LISTENERS.get(match_id, [])
+                    msg = {
+                        "type": "army_list_updated",
+                        "match_id": match_id,
+                        "role": role_name,
+                        "army_list": saved,
+                        "sender": role_name,
+                    }
+                    for q in list(listeners):
+                        try:
+                            q.put_nowait(msg)
+                        except Exception:
+                            pass
+    return saved
+
+
 @router.post("/api/armylists", summary="Save or create user army list")
 async def api_save_armylist(request: Request):
     try:
@@ -126,6 +176,7 @@ async def api_save_armylist(request: Request):
     user_id = _resolve_user_id(request)
     db = get_database()
     saved = db.save_user_army_list(user_id=user_id, list_data=body)
+    saved = _propagate_saved_list_to_tracker_rooms(saved)
     return {"success": True, "army_list": saved}
 
 @router.get("/api/armylists/nr_state", summary="Get NewRecruit IndexedDB hydration state and cloud connection status")
@@ -151,20 +202,7 @@ async def api_post_nr_sync(request: Request):
 
     def _save_and_propagate(item: Dict[str, Any]) -> Dict[str, Any]:
         saved = db.save_user_army_list(user_id=user_id, list_data=item)
-        if isinstance(saved, dict):
-            s_id = str(saved.get("id") or "")
-            s_key = str(saved.get("list_key") or (s_id[3:] if s_id.startswith("nr_") else ""))
-            for room_data in list(TRACKER_ROOMS.values()):
-                if not isinstance(room_data, dict):
-                    continue
-                for slot_key in ("p1_army_list", "p2_army_list"):
-                    cur_slot = room_data.get(slot_key)
-                    if isinstance(cur_slot, dict):
-                        c_id = str(cur_slot.get("id") or "")
-                        c_key = str(cur_slot.get("list_key") or (c_id[3:] if c_id.startswith("nr_") else ""))
-                        if (s_id and c_id == s_id) or (s_key and c_key == s_key):
-                            room_data[slot_key] = saved
-        return saved
+        return _propagate_saved_list_to_tracker_rooms(saved)
 
     return await asyncio.to_thread(
         process_nr_sync_payload,

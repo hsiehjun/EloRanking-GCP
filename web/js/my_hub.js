@@ -3332,15 +3332,34 @@ window.executeHubEventsSearch = executeHubEventsSearch;
 let hubSavedLists = [];
 let hubNrCloudAccount = { connected: false, login: '', last_sync: null };
 
+const HUB_TOMBSTONE_STORAGE_KEY = 'omni_deleted_nr_lists_v3';
+const HUB_TOMBSTONE_TTL_MS = 5 * 60 * 1000;
+
 function getHubDeletedNrTombstones() {
   try {
     localStorage.removeItem('omni_deleted_nr_lists');
-    const raw = localStorage.getItem('omni_deleted_nr_lists_v2');
+    localStorage.removeItem('omni_deleted_nr_lists_v2');
+    const raw = localStorage.getItem(HUB_TOMBSTONE_STORAGE_KEY);
     if (!raw) return { keys: {}, names: {} };
     const parsed = JSON.parse(raw);
+    const rawKeys = (parsed && typeof parsed.keys === 'object' && parsed.keys) ? parsed.keys : {};
+    const validKeys = {};
+    const now = Date.now();
+    let changed = false;
+    for (const [k, tsVal] of Object.entries(rawKeys)) {
+      const ts = Number(tsVal) || 0;
+      if (ts && (now - ts) < HUB_TOMBSTONE_TTL_MS) {
+        validKeys[k] = ts;
+      } else {
+        changed = true;
+      }
+    }
+    if (changed) {
+      localStorage.setItem(HUB_TOMBSTONE_STORAGE_KEY, JSON.stringify({ keys: validKeys, names: {} }));
+    }
     return {
-      keys: (parsed && typeof parsed.keys === 'object' && parsed.keys) ? parsed.keys : {},
-      names: (parsed && typeof parsed.names === 'object' && parsed.names) ? parsed.names : {}
+      keys: validKeys,
+      names: {}
     };
   } catch (e) {
     return { keys: {}, names: {} };
@@ -3368,11 +3387,7 @@ function markHubListDeletedTombstone(listKey, listName, extraKeys = []) {
         }
       }
     }
-    if (listName) {
-      const cleanN = String(listName).trim().toLowerCase();
-      if (cleanN) tomb.names[cleanN] = now;
-    }
-    localStorage.setItem('omni_deleted_nr_lists_v2', JSON.stringify(tomb));
+    localStorage.setItem(HUB_TOMBSTONE_STORAGE_KEY, JSON.stringify(tomb));
     if (allKeys.length > 0) {
       try {
         const remRaw = localStorage.getItem('remote-lists-state');
@@ -3405,15 +3420,8 @@ function clearHubListDeletedTombstone(listKey, listName) {
         changed = true;
       }
     }
-    if (listName) {
-      const cleanN = String(listName).trim().toLowerCase();
-      if (cleanN && tomb.names[cleanN]) {
-        delete tomb.names[cleanN];
-        changed = true;
-      }
-    }
     if (changed) {
-      localStorage.setItem('omni_deleted_nr_lists_v2', JSON.stringify(tomb));
+      localStorage.setItem(HUB_TOMBSTONE_STORAGE_KEY, JSON.stringify(tomb));
     }
   } catch (e) {}
 }
@@ -3421,11 +3429,17 @@ function clearHubListDeletedTombstone(listKey, listName) {
 function isHubListTombstoned(item) {
   if (!item) return false;
   const tomb = getHubDeletedNrTombstones();
-  const rawId = String(item.list_key || item.id || '').replace(/^(nr_|list_)/, '').trim();
-  if (rawId && tomb.keys[rawId]) return true;
-  const cleanName = String(item.name || '').trim().toLowerCase();
-  if (cleanName && tomb.names[cleanName]) return true;
-  return false;
+  const rawId = String(item.list_key || item.nr_list_key || item.id || '').replace(/^(nr_|list_)/, '').trim();
+  const ts = (rawId && tomb.keys[rawId]) ? Number(tomb.keys[rawId]) : 0;
+  if (!ts) return false;
+  const modStr = item.updated_at || (item.nr_row && item.nr_row.date_mod) || '';
+  if (modStr) {
+    const modMs = new Date(modStr).getTime();
+    if (!isNaN(modMs) && modMs > ts + 2000) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function getLocalNrCloudAccountFallback() {
@@ -3743,8 +3757,8 @@ function renderHubArmyLists(lists) {
           <div class="hub-rec-card" data-list-id="${escapeHtml(l.id)}" data-list-key="${escapeHtml(listKey)}" data-game-system="${escapeHtml(sysMeta.gameSystem)}" data-system-edition="${escapeHtml(editionLabel)}" style="flex-direction: column; align-items: stretch; gap: 0.65rem; padding: 0.85rem 1rem; background: rgba(19, 29, 51, 0.75); border: 1px solid rgba(56, 189, 248, 0.16); border-radius: 10px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
               <div style="min-width: 0; flex: 1;">
-                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: nowrap; min-width: 0;">
-                  <div style="font-size: 0.98rem; font-weight: 800; color: #fff; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;">${escapeHtml(l.name || 'NewRecruit Roster')}</div>
+                <div style="display: flex; align-items: center; gap: 0.35rem 0.45rem; flex-wrap: wrap; min-width: 0;">
+                  <div style="font-size: 0.98rem; font-weight: 800; color: #fff; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; min-width: 0; flex: 0 1 auto;">${escapeHtml(l.name || 'NewRecruit Roster')}</div>
                   <span style="font-size: 0.65rem; font-weight: 800; padding: 0.1rem 0.42rem; border-radius: 999px; background: rgba(56, 189, 248, 0.14); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.32); flex-shrink: 0; white-space: nowrap;">
                     ${escapeHtml(editionLabel)}
                   </span>
@@ -5537,7 +5551,7 @@ async function removeNrListKeyFromSameOriginIdb(listKey, listName = '') {
                     (cleanKey && rKey === cleanKey) ||
                     (rKey && keysToPurge.has(rKey)) ||
                     (rMigTo && (rMigTo === cleanKey || keysToPurge.has(rMigTo))) ||
-                    (cleanNameLow && rNameLow === cleanNameLow)
+                    (!cleanKey && cleanNameLow && rNameLow === cleanNameLow)
                   );
                   if (isMatch) {
                     if (rKey) keysToPurge.add(rKey);
@@ -5623,7 +5637,7 @@ async function deleteHubArmyList(listId, fromModal = false) {
   hubSavedLists = (hubSavedLists || []).filter(l =>
     l.id !== listId &&
     l.list_key !== listId &&
-    (!listName || String(l.name || '').trim().toLowerCase() !== listName.trim().toLowerCase())
+    (!listKey || resolveHubNrListKey(l) !== listKey)
   );
   window.hubSavedLists = hubSavedLists;
   renderHubArmyLists(hubSavedLists);

@@ -3323,7 +3323,21 @@
             injectMultiplayerHUD();
             const modal = document.getElementById('gt-army-list-modal');
             if (modal && modal.style.display !== 'none') {
-              renderArmyListModal();
+              const myRole = clientState.role === 'player2' ? 'player2' : 'player1';
+              const isEditingOwnList = (
+                clientState.rosterViewMode === 'edit' &&
+                clientState.activeListTab === 'my' &&
+                msg.role === myRole &&
+                !!document.getElementById('gt-nr-play-mode-iframe')
+              );
+              if (isEditingOwnList && msg.army_list) {
+                const titleEl = document.getElementById('gt-active-roster-title');
+                const metaEl = document.getElementById('gt-active-roster-meta');
+                if (titleEl) titleEl.textContent = msg.army_list.name || 'Army Roster';
+                if (metaEl) metaEl.textContent = `${msg.army_list.faction || 'Warhammer 40,000'} • ${msg.army_list.detachment || 'Core Detachment'} • ${msg.army_list.points || 2000} PTS`;
+              } else {
+                renderArmyListModal();
+              }
             }
           }
         } catch (e) {}
@@ -3817,7 +3831,7 @@
   }
 
   window.gtCopyTrackerRawText = function() {
-    const isP1 = clientState.role === 'player1';
+    const isP1 = clientState.role !== 'player2';
     const myList = isP1 ? clientState.p1ArmyList : clientState.p2ArmyList;
     const oppList = isP1 ? clientState.p2ArmyList : clientState.p1ArmyList;
     const activeList = clientState.activeListTab === 'opponent' ? oppList : myList;
@@ -3831,7 +3845,51 @@
   };
 
   window.gtToggleRosterViewMode = function(mode) {
+    const prevMode = clientState.rosterViewMode || 'play';
     clientState.rosterViewMode = mode;
+    const isP1 = clientState.role !== 'player2';
+    const activeList = clientState.activeListTab === 'opponent'
+      ? (isP1 ? clientState.p2ArmyList : clientState.p1ArmyList)
+      : (isP1 ? clientState.p1ArmyList : clientState.p2ArmyList);
+    const iframe = document.getElementById('gt-nr-play-mode-iframe');
+    if (
+      iframe &&
+      activeList &&
+      (mode === 'play' || mode === 'edit') &&
+      (prevMode === 'play' || prevMode === 'edit') &&
+      clientState.activeListTab !== 'opponent'
+    ) {
+      const listKey = resolveTrackerNrListKey(activeList);
+      if (iframe.getAttribute('data-list-key') === listKey && iframe.contentWindow) {
+        iframe.setAttribute('data-play-mode', mode === 'play' ? '1' : '0');
+        const playBtn = document.getElementById('gt-mode-btn-play');
+        const editBtn = document.getElementById('gt-mode-btn-edit');
+        const textBtn = document.getElementById('gt-mode-btn-text');
+        if (playBtn) {
+          playBtn.style.background = mode === 'play' ? '#0284c7' : 'transparent';
+          playBtn.style.color = mode === 'play' ? '#fff' : '#94a3b8';
+        }
+        if (editBtn) {
+          editBtn.style.background = mode === 'edit' ? '#7c3aed' : 'transparent';
+          editBtn.style.color = mode === 'edit' ? '#fff' : '#94a3b8';
+        }
+        if (textBtn) {
+          textBtn.style.background = 'transparent';
+          textBtn.style.color = '#94a3b8';
+        }
+        try {
+          iframe.contentWindow.postMessage({
+            type: 'OMNITACTICA_NR_COMMAND',
+            command: 'open_play_mode',
+            list_key: listKey,
+            list_name: activeList.name || '',
+            play: mode === 'play',
+            ephemeral: false
+          }, '*');
+        } catch (e) {}
+        return;
+      }
+    }
     renderArmyListModal();
   };
 
@@ -3924,15 +3982,20 @@
         if (matchSlot(clientState.p2ArmyList)) {
           clientState.p2ArmyList = updated;
         }
+        injectMultiplayerHUD();
         const titleEl = document.getElementById('gt-active-roster-title');
         const metaEl = document.getElementById('gt-active-roster-meta');
-        const isP1 = clientState.role === 'player1';
+        const iframeEl = document.getElementById('gt-nr-play-mode-iframe');
+        const isP1 = clientState.role !== 'player2';
         const curActive = clientState.activeListTab === 'opponent'
           ? (isP1 ? clientState.p2ArmyList : clientState.p1ArmyList)
           : (isP1 ? clientState.p1ArmyList : clientState.p2ArmyList);
-        if (curActive && matchSlot(curActive)) {
-          if (titleEl) titleEl.textContent = curActive.name || 'Army Roster';
-          if (metaEl) metaEl.textContent = `${curActive.faction || 'Warhammer 40,000'} • ${curActive.detachment || 'Core Detachment'} • ${curActive.points || 2000} PTS`;
+        const targetList = (curActive && matchSlot(curActive))
+          ? curActive
+          : (iframeEl && iframeEl.getAttribute('data-list-key') === uKey ? updated : null);
+        if (targetList) {
+          if (titleEl) titleEl.textContent = targetList.name || 'Army Roster';
+          if (metaEl) metaEl.textContent = `${targetList.faction || 'Warhammer 40,000'} • ${targetList.detachment || 'Core Detachment'} • ${targetList.points || 2000} PTS`;
         }
       }
     });
@@ -3999,7 +4062,7 @@
     const modal = document.getElementById('gt-army-list-modal');
     if (!modal) return;
 
-    const isP1 = clientState.role === 'player1';
+    const isP1 = clientState.role !== 'player2';
     const myList = isP1 ? clientState.p1ArmyList : clientState.p2ArmyList;
     const oppList = isP1 ? clientState.p2ArmyList : clientState.p1ArmyList;
 
@@ -4120,15 +4183,15 @@ Space Marines - Gladius Task Force (2000 pts)
           <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
             ${hasActiveRoster ? `
               <div style="display:flex; background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:1.5px; gap:1.5px;">
-                <button onclick="window.gtToggleRosterViewMode('play')" title="NewRecruit Play Mode" style="background:${activeMode==='play'?'#0284c7':'transparent'}; color:${activeMode==='play'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
+                <button id="gt-mode-btn-play" onclick="window.gtToggleRosterViewMode('play')" title="NewRecruit Play Mode" style="background:${activeMode==='play'?'#0284c7':'transparent'}; color:${activeMode==='play'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
                   🎮 Play
                 </button>
                 ${tab !== 'opponent' ? `
-                <button onclick="window.gtToggleRosterViewMode('edit')" title="Edit in NewRecruit" style="background:${activeMode==='edit'?'#7c3aed':'transparent'}; color:${activeMode==='edit'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
+                <button id="gt-mode-btn-edit" onclick="window.gtToggleRosterViewMode('edit')" title="Edit in NewRecruit" style="background:${activeMode==='edit'?'#7c3aed':'transparent'}; color:${activeMode==='edit'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
                   🛠️ Edit
                 </button>
                 ` : ''}
-                <button onclick="window.gtToggleRosterViewMode('text')" title="Raw Roster Text" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
+                <button id="gt-mode-btn-text" onclick="window.gtToggleRosterViewMode('text')" title="Raw Roster Text" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
                   📄 Text
                 </button>
               </div>

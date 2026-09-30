@@ -4948,31 +4948,30 @@ function openEventPlayerListModal(playerIdentifier, directPlayerObj = null) {
 function _renderEventCompetitorPlayMode(contentEl, parsedRoster, fallbackText) {
   if (!contentEl) return;
   let matchedSaved = false;
-  // If parsedRoster does not have nr_row yet, check if it matches a saved NewRecruit list in hubSavedLists
+  // If parsedRoster does not have nr_row yet, check if it matches a saved NewRecruit list by exact ID or identical raw_text
   if (parsedRoster && typeof hubSavedLists !== 'undefined' && Array.isArray(hubSavedLists)) {
     const matchSaved = hubSavedLists.find(l => l.nr_row && (
-      (parsedRoster.id && l.id === parsedRoster.id) ||
-      (parsedRoster.name && l.name === parsedRoster.name) ||
-      (fallbackText && l.raw_text && l.raw_text.trim() === fallbackText.trim())
+      (parsedRoster.id && l.id === parsedRoster.id && !String(parsedRoster.id).startsWith('ephemeral')) ||
+      (fallbackText && l.raw_text && l.raw_text.trim().length > 20 && l.raw_text.trim() === fallbackText.trim())
     ));
     if (matchSaved) {
       matchedSaved = true;
       parsedRoster = Object.assign({}, parsedRoster, {
         id: matchSaved.id,
         nr_list_key: matchSaved.nr_list_key || matchSaved.list_key,
-        nr_row: matchSaved.nr_row,
+        nr_row: Object.assign({}, matchSaved.nr_row, { _ephemeral_view: true }),
         source: matchSaved.source || 'newrecruit',
         is_newrecruit_compatible: true
       });
     }
   }
-  if (parsedRoster && !matchedSaved) {
+  if (parsedRoster) {
     parsedRoster._ephemeral_view = true;
     if (parsedRoster.nr_row) {
       parsedRoster.nr_row = Object.assign({}, parsedRoster.nr_row, { _ephemeral_view: true });
     }
   }
-  const viewOpts = { mode: 'play', ephemeral: !matchedSaved, onViewRawText: "setEventArmyListViewMode('text')" };
+  const viewOpts = { mode: 'play', ephemeral: true, onViewRawText: "setEventArmyListViewMode('text')" };
   const renderer = window.renderNativeRosterViewer || (typeof renderNativeRosterViewer === 'function' ? renderNativeRosterViewer : null);
   if (renderer && parsedRoster) {
     contentEl.innerHTML = renderer(parsedRoster, viewOpts);

@@ -26,7 +26,6 @@ from army_list_parser import get_parser
 logger = logging.getLogger("NewRecruitIntegration")
 
 NR_BASE_URL = os.environ.get("NR_BASE_URL", "https://www.newrecruit.eu").rstrip("/")
-NR_DEFAULT_RELAY_URL = "https://elo-nr-relay-911555823374.us-west1.run.app"
 NR_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -295,8 +294,8 @@ def _lookup_nr_offline_static(clean_path: str) -> Optional[Tuple[bytes, str]]:
     return None
 
 
-def _lookup_nr_offline_rpc(body: Optional[bytes]) -> Optional[Tuple[bytes, str]]:
-    """Serves read-only NewRecruit RPCs (get_library, books_get_book_row, etc.) directly from data/nr_offline_bundle.zip."""
+def _lookup_nr_fast_stub_rpc(body: Optional[bytes]) -> Optional[Tuple[bytes, str]]:
+    """Serves static non-catalogue RPCs (get_countries, get_timezones) and telemetry no-ops locally."""
     if not body:
         return None
     try:
@@ -306,10 +305,44 @@ def _lookup_nr_offline_rpc(body: Optional[bytes]) -> Optional[Tuple[bytes, str]]
     if not isinstance(payload, dict):
         return None
     rpc_method = str(payload.get("method") or "")
+
+    if rpc_method in ("get_countries", "get_timezones"):
+        data = _read_nr_offline_entry(f"rpc/{rpc_method}.json")
+        if data is not None:
+            return data, "application/json"
+
+    if rpc_method in (
+        "get_games",
+        "get_websocket_port",
+        "restore_purchases_check",
+        "get_products_twa",
+        "trackEvent",
+        "report_client_error",
+        "error_snapshot_save",
+    ):
+        return b"{}", "application/json"
+
+    return None
+
+
+def _lookup_nr_offline_rpc(body: Optional[bytes]) -> Optional[Tuple[bytes, str]]:
+    """Fallback-only lookup for get_library and books_get_book_row from data/nr_offline_bundle.zip when live upstream is unreachable."""
+    if not body:
+        return None
+    stmt = _lookup_nr_fast_stub_rpc(body)
+    if stmt is not None:
+        return stmt
+    try:
+        payload = json.loads(body.decode("utf-8", errors="ignore"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    rpc_method = str(payload.get("method") or "")
     params = payload.get("params")
 
-    if rpc_method in ("get_library", "get_countries", "get_timezones"):
-        data = _read_nr_offline_entry(f"rpc/{rpc_method}.json")
+    if rpc_method == "get_library":
+        data = _read_nr_offline_entry("rpc/get_library.json")
         if data is not None:
             return data, "application/json"
 
@@ -331,17 +364,6 @@ def _lookup_nr_offline_rpc(body: Optional[bytes]) -> Optional[Tuple[bytes, str]]
                 data = _read_nr_offline_entry(fallback_arc)
                 if data is not None:
                     return data, "application/json"
-
-    if rpc_method in (
-        "get_games",
-        "get_websocket_port",
-        "restore_purchases_check",
-        "get_products_twa",
-        "trackEvent",
-        "report_client_error",
-        "error_snapshot_save",
-    ):
-        return b"{}", "application/json"
 
     return None
 
@@ -598,19 +620,26 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   .box.noaccount,
   [data-v-b9210782] > div > .boutons.mobilePadding,
   [data-v-b9210782] .boutons.mobilePadding,
+  .main-view > div > div > .boutons.mobilePadding,
   button.createToolbarBtn,
   button.createFab,
+  .listsView > .mobilePadding:not(.listsList),
+  .listsView .listViewHeader,
+  .listsView .checkboxes,
   .listsView[data-v-7711fa10] > .mobilePadding:not(.listsList),
   .listsView[data-v-7711fa10] .listViewHeader,
   .listsView[data-v-7711fa10] .checkboxes,
   [data-v-2b034e2c],
   .importButtons,
   .importRow,
+  .folder > .boutons,
   .folder[data-v-7711fa10] > .boutons,
+  .listsView > .boutons > button.bouton,
   [data-v-7711fa10] > .boutons > button.bouton,
   .omnitactica-hidden-nr-btn {
     display: none !important;
   }
+  .listsView .listsList.mobilePadding,
   .listsView[data-v-7711fa10] .listsList.mobilePadding {
     padding-top: 8px !important;
   }
@@ -1268,6 +1297,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   var compilingKeys = {};
   var knownListsMap = {}; // list_key -> signature string
   var syncInFlight = {};
+  var lastLocalWriteAt = {}; // list_key -> timestamp ms of last local Pinia/IDB edit
+  var navGeneration = 0;
+  var isCompilingSave = false;
   var pendingNrRowFromParent = null;
   var cachedNrDb = null;
 
@@ -1328,7 +1360,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       row._omnitactica_book_name || '',
       row._omnitactica_detachment || '',
       row.version || 0,
-      armyStr.length,
+      armyStr,
       enrichedStr,
       (row._omnitactica_gw_text || '').length,
       (row._omnitactica_nr_text || '').length
@@ -1513,16 +1545,16 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       if (explicitArmy && typeof explicitArmy.toJson === 'function') {
         try {
           copy.army = explicitArmy.toJson();
-          if (typeof explicitArmy.getPointsCost === 'function') {
+          if (typeof explicitArmy.getPointsCost === 'function' && (!copy._synthetic_text || !copy.totalCost)) {
             copy.totalCost = explicitArmy.getPointsCost() || copy.totalCost || 0;
           }
         } catch (e) {}
-      } else if (stores && stores.list && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === copy.list_key) {
+      } else if (!copy.army && stores && stores.list && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === copy.list_key && (window.location.pathname || '').indexOf('/Lists/') !== -1) {
         var curArmy = stores.list.currentList.army;
         if (curArmy && typeof curArmy.toJson === 'function') {
           try {
             copy.army = curArmy.toJson();
-            if (typeof curArmy.getPointsCost === 'function') {
+            if (!copy.totalCost && typeof curArmy.getPointsCost === 'function') {
               copy.totalCost = curArmy.getPointsCost() || copy.totalCost || 0;
             }
           } catch (e) {}
@@ -1598,17 +1630,34 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
 
-  var TOMBSTONE_STORAGE_KEY = 'omni_deleted_nr_lists_v2';
-  try { localStorage.removeItem('omni_deleted_nr_lists'); } catch (e) {}
+  var TOMBSTONE_STORAGE_KEY = 'omni_deleted_nr_lists_v3';
+  var TOMBSTONE_TTL_MS = 300000; // 5 minutes
+  try {
+    localStorage.removeItem('omni_deleted_nr_lists');
+    localStorage.removeItem('omni_deleted_nr_lists_v2');
+  } catch (e) {}
 
   function getNrDeletedTombstones() {
     try {
       var raw = localStorage.getItem(TOMBSTONE_STORAGE_KEY);
       if (!raw) return { keys: {}, names: {} };
       var parsed = JSON.parse(raw);
+      var keysObj = (parsed && typeof parsed.keys === 'object' && parsed.keys) ? parsed.keys : {};
+      var now = Date.now();
+      var pruned = false;
+      Object.keys(keysObj).forEach(function(k) {
+        var ts = Number(keysObj[k]) || 0;
+        if (!ts || (now - ts) > TOMBSTONE_TTL_MS) {
+          delete keysObj[k];
+          pruned = true;
+        }
+      });
+      if (pruned) {
+        try { localStorage.setItem(TOMBSTONE_STORAGE_KEY, JSON.stringify({ keys: keysObj, names: {} })); } catch (e2) {}
+      }
       return {
-        keys: (parsed && typeof parsed.keys === 'object' && parsed.keys) ? parsed.keys : {},
-        names: (parsed && typeof parsed.names === 'object' && parsed.names) ? parsed.names : {}
+        keys: keysObj,
+        names: {}
       };
     } catch (e) {
       return { keys: {}, names: {} };
@@ -1635,10 +1684,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             if (allKeys.indexOf(ek) === -1) allKeys.push(ek);
           }
         }
-      }
-      if (listName) {
-        var cleanN = String(listName).trim().toLowerCase();
-        if (cleanN) tomb.names[cleanN] = now;
       }
       localStorage.setItem(TOMBSTONE_STORAGE_KEY, JSON.stringify(tomb));
       if (allKeys.length > 0) {
@@ -1673,13 +1718,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           changed = true;
         }
       }
-      if (listName) {
-        var cleanN = String(listName).trim().toLowerCase();
-        if (cleanN && tomb.names[cleanN]) {
-          delete tomb.names[cleanN];
-          changed = true;
-        }
-      }
       if (changed) {
         localStorage.setItem(TOMBSTONE_STORAGE_KEY, JSON.stringify(tomb));
       }
@@ -1690,12 +1728,19 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     if (!r) return false;
     var tomb = getNrDeletedTombstones();
     var rk = String(r.list_key || r._id || '').replace(/^(nr_|list_)/, '').trim();
-    if (rk && tomb.keys[rk]) return true;
-    var migTo = (r.metadata && r.metadata.migrated_to) ? String(r.metadata.migrated_to).trim() : '';
-    if (migTo && tomb.keys[migTo]) return true;
-    var rn = String(r.name || '').trim().toLowerCase();
-    if (rn && tomb.names[rn]) return true;
-    return false;
+    var ts = (rk && tomb.keys[rk]) ? Number(tomb.keys[rk]) : 0;
+    if (!ts) {
+      var migTo = (r.metadata && r.metadata.migrated_to) ? String(r.metadata.migrated_to).trim() : '';
+      if (migTo && tomb.keys[migTo]) ts = Number(tomb.keys[migTo]) || 0;
+    }
+    if (!ts) return false;
+    if (r.date_mod) {
+      var modMs = new Date(r.date_mod).getTime();
+      if (!isNaN(modMs) && modMs > ts + 2000) {
+        return false;
+      }
+    }
+    return true;
   }
 
   async function deleteKeyFromNrServerRpc(listKey) {
@@ -1836,7 +1881,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       var stores = getNrStores();
       var armyInst = explicitArmy || null;
       var bookInst = null;
-      if (!armyInst && stores && stores.list && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === cleanRow.list_key) {
+      if (!armyInst && stores && stores.list && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === cleanRow.list_key && (window.location.pathname || '').indexOf('/Lists/') !== -1) {
         armyInst = stores.list.currentList.army || null;
         bookInst = stores.list.currentList.book || null;
       }
@@ -1883,7 +1928,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
         if (typeof armyInst.getPointsCost === 'function') {
           var livePts = armyInst.getPointsCost();
-          if (livePts > 0) cleanRow.totalCost = livePts;
+          if (livePts > 0 && (!cleanRow.totalCost || (explicitArmy && !cleanRow._synthetic_text))) {
+            cleanRow.totalCost = livePts;
+          }
         }
       } catch (e) {}
 
@@ -1932,26 +1979,81 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     } catch (e) {}
   }
 
+  var pendingSyncRow = {};
+
+  function mirrorRowIntoPiniaListData(row) {
+    try {
+      if (!row || row._ephemeral_view || isTombstonedNrRow(row)) return;
+      var k = String(row.list_key || row._id || '');
+      if (!k) return;
+      row.list_key = k;
+      if (!isHydrating && !isCompilingSave) {
+        lastLocalWriteAt[k] = Date.now();
+        if (pendingNrRowFromParent && pendingNrRowFromParent.list_key === k) {
+          pendingNrRowFromParent = null;
+        }
+      }
+      var st = getNrStores();
+      if (!st || !st.list || !Array.isArray(st.list.listData)) return;
+      var idx = st.list.listData.findIndex(function(x) { return x && x.list_key === k; });
+      if (idx === -1) {
+        st.list.listData.push(row);
+      } else if (st.list.listData[idx] !== row) {
+        Object.assign(st.list.listData[idx], row);
+      }
+      if (st.list.currentList && st.list.currentList.row && st.list.currentList.row.list_key === k) {
+        if (st.list.currentList.row !== row) {
+          var prevCompiledSum = st.list.currentList.row._compiled_pts_sum;
+          Object.assign(st.list.currentList.row, row);
+          if (prevCompiledSum && !st.list.currentList.row._compiled_pts_sum) {
+            st.list.currentList.row._compiled_pts_sum = prevCompiledSum;
+          }
+          if (!isCompilingSave && (window.location.pathname || '').indexOf('/Lists/') === -1) {
+            st.list.currentList = null;
+          }
+        }
+      }
+      if (typeof st.list.rebuildTreeData === 'function') {
+        st.list.rebuildTreeData();
+      }
+    } catch (e) {}
+  }
+
   async function syncUpsertRow(row, explicitArmy, explicitBook) {
     if (isHydrating || isEphemeralViewer || !row || row._ephemeral_view || isTombstonedNrRow(row)) return;
-    var clean = cloneCleanRow(row, explicitArmy, explicitBook);
-    if (!clean || !clean.list_key || clean._ephemeral_view) return;
-    await attachNativeArmyExports(clean, explicitArmy);
-    if (clean._omnitactica_gw_text || clean._omnitactica_nr_text) {
-      row._omnitactica_gw_text = clean._omnitactica_gw_text || row._omnitactica_gw_text;
-      row._omnitactica_nr_text = clean._omnitactica_nr_text || row._omnitactica_nr_text;
-    }
-    var sig = computeSignature(clean);
-    if (knownListsMap[clean.list_key] === sig) {
+    var rKey = String(row.list_key || row._id || '');
+    if (rKey && syncInFlight[rKey]) {
+      pendingSyncRow[rKey] = { row: row, explicitArmy: explicitArmy, explicitBook: explicitBook };
       return;
     }
-    if (syncInFlight[clean.list_key]) return;
-    knownListsMap[clean.list_key] = sig;
+    var clean = cloneCleanRow(row, explicitArmy, explicitBook);
+    if (!clean || !clean.list_key || clean._ephemeral_view) return;
+    if (syncInFlight[clean.list_key]) {
+      pendingSyncRow[clean.list_key] = { row: row, explicitArmy: explicitArmy, explicitBook: explicitBook };
+      return;
+    }
     syncInFlight[clean.list_key] = true;
     try {
+      await attachNativeArmyExports(clean, explicitArmy);
+      if (clean._omnitactica_gw_text || clean._omnitactica_nr_text) {
+        row._omnitactica_gw_text = clean._omnitactica_gw_text || row._omnitactica_gw_text;
+        row._omnitactica_nr_text = clean._omnitactica_nr_text || row._omnitactica_nr_text;
+      }
+      var sig = computeSignature(clean);
+      if (knownListsMap[clean.list_key] === sig) {
+        return;
+      }
+      knownListsMap[clean.list_key] = sig;
       await postSyncAction('upsert', { list: clean });
     } finally {
       syncInFlight[clean.list_key] = false;
+      var nextPending = pendingSyncRow[clean.list_key];
+      if (nextPending) {
+        delete pendingSyncRow[clean.list_key];
+        setTimeout(function() {
+          syncUpsertRow(nextPending.row, nextPending.explicitArmy, nextPending.explicitBook);
+        }, 15);
+      }
     }
   }
 
@@ -1974,6 +2076,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         if (!isHydrating && !isEphemeralViewer && this.name === 'lists' && value && !value._ephemeral_view && (value.list_key || value._id)) {
           var captured = value;
           req.addEventListener('success', function() {
+            mirrorRowIntoPiniaListData(captured);
             setTimeout(function() { syncUpsertRow(captured); }, 40);
           });
         }
@@ -1988,6 +2091,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         if (!isHydrating && !isEphemeralViewer && this.name === 'lists' && value && !value._ephemeral_view && (value.list_key || value._id)) {
           var captured = value;
           req.addEventListener('success', function() {
+            mirrorRowIntoPiniaListData(captured);
             setTimeout(function() { syncUpsertRow(captured); }, 40);
           });
         }
@@ -2070,7 +2174,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           });
           if (hasMigTarget) return false;
         }
-        if (r.id_system == 2821148162 && r.name) {
+        if (r.id_system == 2821148162 && r.name && String((r.army && r.army.id) || '').indexOf('army-') === 0) {
           var rNameClean = String(r.name).trim().toLowerCase();
           var has11eSameName = stores.list.listData.some(function(x) {
             return x && x !== r && (x.id_system == 827374861 || x.bsid_system === 'sys-352e-adc2-7639-d610') &&
@@ -2138,7 +2242,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           }
         }
       }
-      if (stores.list.currentList && stores.list.currentList.row) {
+      if (stores.list.currentList && stores.list.currentList.row && (window.location.pathname || '').indexOf('/Lists/') !== -1) {
         var cr = stores.list.currentList.row;
         var ck = String(cr.list_key || cr._id || '');
         if (ck && mergedMap[ck] && isActiveNrListRow(cr, stores)) {
@@ -2146,7 +2250,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           if (stores.list.currentList.army && typeof stores.list.currentList.army.toJson === 'function') {
             try {
               cr.army = stores.list.currentList.army.toJson();
-              cr.totalCost = stores.list.currentList.army.getPointsCost() || cr.totalCost || 0;
+              if (!cr._synthetic_text || !cr.totalCost) {
+                cr.totalCost = stores.list.currentList.army.getPointsCost() || cr.totalCost || 0;
+              }
             } catch (e) {}
           }
           mergedMap[ck] = Object.assign(mergedMap[ck], cr);
@@ -2191,8 +2297,8 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
 
   // 3. Hydrate NewRecruit from OmniTactica backend on startup AND reconcile active NewRecruit lists back to OmniTactica
-  async function hydrateFromOmniTactica() {
-    if (initialHydrationDone) return;
+  async function hydrateFromOmniTactica(force) {
+    if (initialHydrationDone && !force) return;
     try {
       var stores = null;
       for (var attempt = 0; attempt < 80; attempt++) {
@@ -2205,18 +2311,50 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         return;
       }
 
-      // Wait for NewRecruit cloud sync if running
+      // Ensure live game library (MFM points, detachments, book nrversions) is refreshed from www.newrecruit.eu
+      // even if this browser's IndexedDB previously cached an older offline library snapshot.
       try {
-        if (typeof stores.list.whenSynced === 'function') {
-          await Promise.race([
-            stores.list.whenSynced(),
-            new Promise(function(r) { setTimeout(r, 2500); })
-          ]);
+        if (stores.system && !stores.system.__omniLiveLibRefreshed) {
+          stores.system.__omniLiveLibRefreshed = true;
+          if (typeof stores.system.updateLibrary === 'function') {
+            await Promise.race([
+              stores.system.updateLibrary(),
+              new Promise(function(r) { setTimeout(r, 3500); })
+            ]);
+          } else if (stores.system.libraryUpdatePending && typeof stores.system.applyPendingLibrary === 'function') {
+            await stores.system.applyPendingLibrary();
+          }
         }
       } catch (e) {}
 
       await purgeTombstonedRowsFromPiniaAndCloud(stores);
 
+      var isNrLoggedInPre = Boolean(
+        (stores.user && stores.user.user && stores.user.user.login) ||
+        localStorage.getItem('access')
+      );
+
+      // Actively sync with NewRecruit Cloud if logged in BEFORE fetching nr_state so nr_state is never stale while waiting on cloud sync
+      try {
+        if (isNrLoggedInPre && !isEmbeddedViewer && !isEphemeralViewer) {
+          if (stores.user) stores.user.sessionExpired = false;
+          if (typeof stores.list.syncAllLists === 'function') {
+            await Promise.race([
+              stores.list.syncAllLists(true),
+              new Promise(function(r) { setTimeout(r, 3500); })
+            ]);
+          } else if (typeof stores.list.whenSynced === 'function') {
+            await Promise.race([
+              stores.list.whenSynced(),
+              new Promise(function(r) { setTimeout(r, 2500); })
+            ]);
+          }
+        }
+      } catch (e) {}
+
+      await purgeTombstonedRowsFromPiniaAndCloud(stores);
+
+      var fetchStartedAt = Date.now();
       var res = await fetch('/api/armylists/nr_state', {
         headers: getAuthHeaders(),
         credentials: 'same-origin'
@@ -2227,11 +2365,23 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       }
       var state = await res.json();
       if (state && state.cloud_account && state.cloud_account.connected) {
+        var restoredCloudTokens = false;
         if (state.cloud_account.access && !localStorage.getItem('access')) {
           localStorage.setItem('access', state.cloud_account.access);
+          restoredCloudTokens = true;
         }
         if (state.cloud_account.refresh && !localStorage.getItem('refresh')) {
           localStorage.setItem('refresh', state.cloud_account.refresh);
+          restoredCloudTokens = true;
+        }
+        backupOrRestoreNrAuth(stores.user);
+        if (restoredCloudTokens && !isNrLoggedInPre && !isEmbeddedViewer && !isEphemeralViewer && typeof stores.list.syncAllLists === 'function') {
+          try {
+            await Promise.race([
+              stores.list.syncAllLists(true),
+              new Promise(function(r) { setTimeout(r, 3500); })
+            ]);
+          } catch (e) {}
         }
       }
 
@@ -2260,10 +2410,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
       }
 
-      // Only seed serverRows into Pinia if:
-      // - It is the explicitly requested list from URL (and no real list with that key/name is already in Pinia), OR
-      // - The user is NOT logged into NewRecruit AND Pinia has no lists at all yet.
-      var allowSeedFromOmniServer = (!isNrLoggedIn && currentListData.length === 0 && !isEphemeralViewer);
+      // Merge any missing serverRows (e.g. lists created on Mobile or synced via OmniTactica backend) into Pinia & IndexedDB
+      var allowSeedFromOmniServer = !isEphemeralViewer;
+      var seededRowsForIdb = [];
       serverRows.forEach(function(sRow) {
         if (!sRow || !sRow.list_key || isTombstonedNrRow(sRow)) return;
         var sNameLow = String(sRow.name || '').trim().toLowerCase();
@@ -2277,12 +2426,25 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           sRow._ephemeral_view = true;
         }
 
-        // If Pinia already has a real list with the same name (e.g. migrated to 11th Ed), don't seed a duplicate synthetic row
-        if (isTargetUrlRow && !sRow._ephemeral_view && !isEphemeralViewer && piniaNameMap[sNameLow] && !piniaKeyMap[sRow.list_key]) {
-          var realMatch = piniaNameMap[sNameLow];
-          realMatch.metadata = Object.assign({}, realMatch.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
-          requestedListKeyFromUrl = realMatch.list_key;
-          return;
+        // Only deduplicate by name when one row is an explicit migration partner or an uncompiled synthetic fallback of the same system
+        if (!sRow._ephemeral_view && !isEphemeralViewer && sNameLow && piniaNameMap[sNameLow] && !piniaKeyMap[sRow.list_key]) {
+          var existingByName = piniaNameMap[sNameLow];
+          var isExplicitMigration = Boolean(
+            (existingByName.metadata && existingByName.metadata.migrated_to === sRow.list_key) ||
+            (sRow.metadata && sRow.metadata.migrated_to === existingByName.list_key)
+          );
+          var isSyntheticDup = Boolean(
+            existingByName.id_system == sRow.id_system &&
+            String((sRow.army && sRow.army.id) || '').indexOf('army-') === 0 &&
+            String((existingByName.army && existingByName.army.id) || '').indexOf('army-') !== 0
+          );
+          if (isExplicitMigration || isSyntheticDup) {
+            if (isTargetUrlRow) {
+              existingByName.metadata = Object.assign({}, existingByName.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
+              requestedListKeyFromUrl = existingByName.list_key;
+            }
+            return;
+          }
         }
 
         sRow.metadata = Object.assign(
@@ -2294,18 +2456,105 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
         var existingPinia = piniaKeyMap[sRow.list_key];
         if (!existingPinia) {
+          if (isNrLoggedIn && !sRow._ephemeral_view) {
+            sRow.synced = false;
+          }
           stores.list.listData.push(sRow);
           piniaKeyMap[sRow.list_key] = sRow;
+          if (sNameLow) piniaNameMap[sNameLow] = sRow;
           if (!sRow._ephemeral_view && !isEphemeralViewer) {
-            knownListsMap[sRow.list_key] = computeSignature(sRow);
+            knownListsMap[sRow.list_key] = computeSignature(cloneCleanRow(sRow) || sRow);
+            seededRowsForIdb.push(sRow);
           }
-        } else if (isTargetUrlRow) {
-          existingPinia.metadata = Object.assign({}, existingPinia.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
-          if (!existingPinia._ephemeral_view && !isEphemeralViewer) {
-            knownListsMap[sRow.list_key] = computeSignature(existingPinia);
+        } else {
+          if (isTargetUrlRow) {
+            existingPinia.metadata = Object.assign({}, existingPinia.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
+          }
+          var sSig = computeSignature(cloneCleanRow(sRow) || sRow);
+          var exSig = computeSignature(cloneCleanRow(existingPinia) || existingPinia);
+          var hasUnsavedLocalEdit = Boolean(knownListsMap[sRow.list_key] && knownListsMap[sRow.list_key] !== exSig);
+          var hasRecentLocalWrite = Boolean(
+            syncInFlight[sRow.list_key] ||
+            pendingSyncRow[sRow.list_key] ||
+            (lastLocalWriteAt[sRow.list_key] && (lastLocalWriteAt[sRow.list_key] >= fetchStartedAt - 500 || (Date.now() - lastLocalWriteAt[sRow.list_key]) < 2500))
+          );
+          var isCurrentlyEditingThisList = Boolean(
+            (window.location.pathname || '').indexOf('/Lists/' + sRow.list_key) !== -1 &&
+            !wantPlayModeFromUrl
+          );
+          var sArmyId = String((sRow.army && sRow.army.id) || '');
+          var exArmyId = String((existingPinia.army && existingPinia.army.id) || '');
+          var serverHasCompiledArmy = Boolean(sArmyId && sArmyId.indexOf('army-') !== 0 && sArmyId.indexOf('root-') !== 0 && sArmyId.indexOf('cat-') !== 0);
+          var localHasCompiledArmy = Boolean(exArmyId && exArmyId.indexOf('army-') !== 0 && exArmyId.indexOf('root-') !== 0 && exArmyId.indexOf('cat-') !== 0);
+          if (sSig !== exSig && !isCurrentlyEditingThisList && !hasUnsavedLocalEdit && !hasRecentLocalWrite) {
+            var keepMeta = Object.assign({}, existingPinia.metadata || {}, sRow.metadata || {});
+            if (isTargetUrlRow) {
+              keepMeta.play_mode = Boolean(wantPlayModeFromUrl);
+            }
+            if (serverHasCompiledArmy || !localHasCompiledArmy || sRow._synthetic_text !== existingPinia._synthetic_text) {
+              Object.assign(existingPinia, sRow, { metadata: keepMeta });
+            } else {
+              existingPinia.name = sRow.name || existingPinia.name;
+              existingPinia.totalCost = sRow.totalCost != null ? sRow.totalCost : existingPinia.totalCost;
+              existingPinia.metadata = keepMeta;
+            }
+            if (sNameLow) piniaNameMap[sNameLow] = existingPinia;
+            if (!existingPinia._ephemeral_view && !isEphemeralViewer) {
+              knownListsMap[sRow.list_key] = computeSignature(cloneCleanRow(existingPinia) || existingPinia);
+              seededRowsForIdb.push(existingPinia);
+            }
+            if (
+              stores.list.currentList &&
+              stores.list.currentList.row &&
+              stores.list.currentList.row.list_key === sRow.list_key &&
+              (window.location.pathname || '').indexOf('/Lists/') === -1
+            ) {
+              stores.list.currentList = null;
+            }
+            if (
+              stores.listsPage &&
+              stores.listsPage.editedList &&
+              stores.listsPage.editedList.row &&
+              stores.listsPage.editedList.row.list_key === sRow.list_key &&
+              (window.location.pathname || '').indexOf('/Lists/') === -1
+            ) {
+              stores.listsPage.editedList = null;
+            }
+          } else if (!existingPinia._ephemeral_view && !isEphemeralViewer && !hasUnsavedLocalEdit) {
+            knownListsMap[sRow.list_key] = exSig;
           }
         }
       });
+
+      if (seededRowsForIdb.length > 0) {
+        var dbSeed = await openExistingNrDb();
+        if (dbSeed) {
+          var prevHydSeed = isHydrating;
+          isHydrating = true;
+          await new Promise(function(resolve) {
+            var done = false;
+            var finish = function() {
+              if (!done) {
+                done = true;
+                isHydrating = prevHydSeed;
+                resolve();
+              }
+            };
+            setTimeout(finish, 800);
+            try {
+              var tx = dbSeed.transaction('lists', 'readwrite');
+              var stObj = tx.objectStore('lists');
+              for (var sIdx = 0; sIdx < seededRowsForIdb.length; sIdx++) {
+                var toPut = Object.assign({}, seededRowsForIdb[sIdx]);
+                delete toPut._id;
+                try { stObj.put(toPut); } catch (e) {}
+              }
+              tx.oncomplete = finish;
+              tx.onerror = finish;
+            } catch (e) { finish(); }
+          });
+        }
+      }
 
       try {
         if (typeof stores.list.rebuildTreeData === 'function') {
@@ -2323,7 +2572,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         notifyParent({ action: 'ready' });
       }
       if (!isEmbeddedViewer && !requestedListKeyFromUrl && !isEphemeralViewer) {
-        await forceFullSync();
+        await forceFullSync(false);
       }
     }
   }
@@ -2434,6 +2683,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     if (compilingKeys[row.list_key]) {
       return await compilingKeys[row.list_key];
     }
+    var compileStartAt = Date.now();
     var compilePromise = (async function() {
       try {
         var targetSysId = Number(row.id_system) || getDefaultSystemIdForOmniGameSystem();
@@ -2564,6 +2814,14 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           }
         }
 
+        // If a newer local edit wrote to this list_key while compilation was running, do not clobber it!
+        if (lastLocalWriteAt[row.list_key] && lastLocalWriteAt[row.list_key] > compileStartAt) {
+          var newerRow = (listStore && Array.isArray(listStore.listData))
+            ? listStore.listData.find(function(r) { return r && r.list_key === row.list_key; })
+            : null;
+          return newerRow || row;
+        }
+
         if (bestParsed && bestParsed.army && bestUnitCount > 0) {
           row.id_system = sys.id;
           row.bsid_system = sys.bsid || row.bsid_system;
@@ -2587,25 +2845,45 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             { play_mode: wantPlayCompile }
           );
           row.army = bestParsed.army.toJson();
-          row.totalCost = bestParsed.army.getPointsCost() || row.totalCost || 2000;
+          var compiledUnitPts = (typeof bestParsed.army.getPointsCost === 'function' ? bestParsed.army.getPointsCost() : 0) || 0;
+          row._compiled_pts_sum = compiledUnitPts;
+          var explicitTotalCost = Number(row.totalCost) || 0;
+          if (!explicitTotalCost) {
+            row.totalCost = compiledUnitPts || 2000;
+          }
           if (typeof bestParsed.army.calcTotalCosts === 'function') {
             row.totalCosts = bestParsed.army.calcTotalCosts();
+            if (explicitTotalCost > 0 && row.totalCosts && typeof row.totalCosts === 'object') {
+              row.totalCosts.pts = explicitTotalCost;
+            }
           }
           row._compiled_by_nr = true;
           row._compiled_unit_count = bestUnitCount;
           row._nr_compile_failed = false;
+          if (!row._ephemeral_view && !isEphemeralViewer) {
+            var prevCompSave = isCompilingSave;
+            isCompilingSave = true;
+            try {
+              await listStore.saveListLocally({
+                row: row,
+                army: bestParsed.army,
+                book: bookInst
+              });
+            } finally {
+              isCompilingSave = prevCompSave;
+            }
+          }
+          if (explicitTotalCost > 0) {
+            row.totalCost = explicitTotalCost;
+          }
           if (listStore && Array.isArray(listStore.listData)) {
             var existingIdx = listStore.listData.findIndex(function(r) { return r && r.list_key === row.list_key; });
             if (existingIdx !== -1) {
               Object.assign(listStore.listData[existingIdx], row);
+              if (explicitTotalCost > 0) {
+                listStore.listData[existingIdx].totalCost = explicitTotalCost;
+              }
             }
-          }
-          if (!row._ephemeral_view && !isEphemeralViewer) {
-            await listStore.saveListLocally({
-              row: row,
-              army: bestParsed.army,
-              book: bookInst
-            });
           }
         } else {
           row._nr_compile_failed = true;
@@ -2641,7 +2919,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         if (
           txt === 'Import file' ||
           txt === 'Text Import' ||
-          txt === 'Sync Lists' ||
           /^Delete\s+\d+\s+Lists?$/i.test(txt)
         ) {
           b.classList.add('omnitactica-hidden-nr-btn');
@@ -2661,6 +2938,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     stabilizeLoginFormInputs();
     var stores = getNrStores();
     if (!stores || !stores.user || !stores.list || !stores.system) return;
+
+    try {
+      if (stores.system.libraryUpdatePending && typeof stores.system.applyPendingLibrary === 'function') {
+        await stores.system.applyPendingLibrary();
+      }
+    } catch (e) {}
 
     try {
       stores.user.isSupporter = function() { return true; };
@@ -2893,9 +3176,46 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           if ((listObj && listObj.row && listObj.row._ephemeral_view) || isEphemeralViewer) {
             return listObj;
           }
-          var res = await origDoSaveList(listObj, localOnly);
+          if (!isCompilingSave && listObj && listObj.row && listObj.row.list_key) {
+            lastLocalWriteAt[String(listObj.row.list_key)] = Date.now();
+          }
+          var origGetPts = null;
+          var preserveCost = 0;
           try {
-            if (listObj && listObj.row && !listObj.row._ephemeral_view && !isTombstonedNrRow(listObj.row)) {
+            if (
+              listObj &&
+              listObj.row &&
+              listObj.row._synthetic_text &&
+              Number(listObj.row.totalCost) > 0 &&
+              listObj.army &&
+              typeof listObj.army.getPointsCost === 'function'
+            ) {
+              var curArmyPts = listObj.army.getPointsCost() || 0;
+              if (!listObj.row._compiled_pts_sum || curArmyPts === listObj.row._compiled_pts_sum) {
+                preserveCost = Number(listObj.row.totalCost);
+                origGetPts = listObj.army.getPointsCost;
+                listObj.army.getPointsCost = function() { return preserveCost; };
+              } else {
+                listObj.row._compiled_pts_sum = curArmyPts;
+              }
+            }
+          } catch (e) {}
+          var res;
+          try {
+            res = await origDoSaveList(listObj, localOnly);
+          } finally {
+            if (origGetPts && listObj && listObj.army) {
+              listObj.army.getPointsCost = origGetPts;
+            }
+            if (preserveCost > 0 && listObj && listObj.row) {
+              listObj.row.totalCost = preserveCost;
+              if (listObj.row.totalCosts && typeof listObj.row.totalCosts === 'object') {
+                listObj.row.totalCosts.pts = preserveCost;
+              }
+            }
+          }
+          try {
+            if (!isCompilingSave && listObj && listObj.row && !listObj.row._ephemeral_view && !isTombstonedNrRow(listObj.row)) {
               setTimeout(function() {
                 syncUpsertRow(listObj.row, listObj.army, listObj.book);
               }, 20);
@@ -2914,6 +3234,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           try {
             if (listObj && listObj.row && !this.legacyMigration) {
               clearNrDeletedTombstone(listObj.row.list_key, listObj.row.name);
+              if (listObj.row.list_key) {
+                lastLocalWriteAt[String(listObj.row.list_key)] = Date.now();
+              }
             }
           } catch (e) {}
           var res = await origAddList(listObj, selectIt);
@@ -2971,7 +3294,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         var origSelectList = stores.list.selectList.bind(stores.list);
         stores.list.selectList = async function(rowOrKey, opts) {
           var rowObj = (typeof rowOrKey === 'string') ? this.findListByKey(rowOrKey) : rowOrKey;
-          var wantPlayNow = Boolean(wantPlayModeFromUrl || (window.location.search || '').indexOf('view=play') !== -1);
+          var wantPlayNow = requestedListKeyFromUrl
+            ? Boolean(wantPlayModeFromUrl)
+            : Boolean((window.location.search || '').indexOf('view=play') !== -1);
           if (rowObj) {
             if (requestedListKeyFromUrl) {
               rowObj.metadata = Object.assign({}, rowObj.metadata || {}, { play_mode: wantPlayNow });
@@ -3031,7 +3356,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     var curSearch = window.location.search || '';
     var mPathKey = curPath.match(/\/Lists\/([^\/\?\#]+)/i);
     var targetKey = requestedListKeyFromUrl || ((mPathKey && mPathKey[1]) ? decodeURIComponent(mPathKey[1]) : null);
-    var wantPlay = Boolean(wantPlayModeFromUrl || curSearch.indexOf('view=play') !== -1 || curSearch.indexOf('play=1') !== -1);
+    var wantPlay = requestedListKeyFromUrl
+      ? Boolean(wantPlayModeFromUrl)
+      : Boolean(curSearch.indexOf('view=play') !== -1 || curSearch.indexOf('play=1') !== -1);
     var modeToken = targetKey ? (targetKey + ':' + (wantPlay ? 'play' : 'edit')) : null;
 
     if (!targetKey) {
@@ -3066,12 +3393,60 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       return;
     }
 
+    var myNavGen = navGeneration;
+    var hookStartAt = Date.now();
+    function isStaleActivation() {
+      if (myNavGen !== navGeneration) return true;
+      if (requestedListKeyFromUrl && requestedListKeyFromUrl !== targetKey) return true;
+      if (!requestedListKeyFromUrl && (window.location.pathname || '').indexOf('/Lists/' + targetKey) === -1) return true;
+      if (lastLocalWriteAt[targetKey] && lastLocalWriteAt[targetKey] > hookStartAt) return true;
+      return false;
+    }
+
     activatingPlayMode = true;
     try {
       var listArr = Array.isArray(stores.list.listData) ? stores.list.listData : [];
       var targetRow = listArr.find(function(r) { return r && r.list_key === targetKey; }) || null;
 
-      // Fallback: match by list name (e.g. if the list was migrated to 11th Edition with a new list_key)
+      // 1. Seed from pendingNrRowFromParent if targetRow is missing or if viewing an ephemeral roster
+      if (
+        pendingNrRowFromParent &&
+        (pendingNrRowFromParent.list_key === targetKey || (!targetRow && (!pendingNrRowFromParent.list_key || listArr.length === 0)))
+      ) {
+        var capturedPending = pendingNrRowFromParent;
+        pendingNrRowFromParent = null;
+        var hasRecentLocalEditOnTarget = Boolean(lastLocalWriteAt[targetKey]);
+        var shouldUpsertPending = Boolean(
+          !hasRecentLocalEditOnTarget && (
+            !targetRow ||
+            isEphemeralViewer ||
+            capturedPending._ephemeral_view
+          )
+        );
+        if (shouldUpsertPending) {
+          var rowToSeed = Object.assign({}, capturedPending);
+          if (!rowToSeed.list_key) rowToSeed.list_key = targetKey;
+          if (isEphemeralViewer || rowToSeed._ephemeral_view) {
+            rowToSeed._ephemeral_view = true;
+          }
+          rowToSeed.metadata = Object.assign({}, rowToSeed.metadata || {}, { play_mode: Boolean(wantPlay) });
+          await upsertSingleRowToIdb(rowToSeed);
+          if (isStaleActivation()) {
+            hideDirectListLoader();
+            return;
+          }
+          targetRow = Array.isArray(stores.list.listData)
+            ? stores.list.listData.find(function(r) { return r && r.list_key === rowToSeed.list_key; })
+            : null;
+          if (targetRow) {
+            targetKey = targetRow.list_key;
+            requestedListKeyFromUrl = targetKey;
+            modeToken = targetKey + ':' + (wantPlay ? 'play' : 'edit');
+          }
+        }
+      }
+
+      // 2. Fallback: match by list name ONLY for non-ephemeral lists when targetRow was not found by exact key (or was explicitly migrated)
       var searchName = (
         requestedListNameFromUrl ||
         (targetRow && targetRow.name) ||
@@ -3079,7 +3454,14 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         ''
       ).trim().toLowerCase();
 
-      if (searchName && listArr.length > 0) {
+      var allowFallbackNameSearch = Boolean(
+        !isEphemeralViewer &&
+        !(targetRow && targetRow._ephemeral_view) &&
+        !(pendingNrRowFromParent && pendingNrRowFromParent._ephemeral_view) &&
+        (!targetRow || (targetRow.metadata && targetRow.metadata.migrated_to))
+      );
+
+      if (allowFallbackNameSearch && searchName && listArr.length > 0) {
         var nameMatches = listArr.filter(function(r) {
           return r && !r._ephemeral_view && String(r.name || '').trim().toLowerCase() === searchName;
         });
@@ -3093,27 +3475,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             if (a11e !== b11e) return b11e - a11e;
             return String(b.date_mod || '').localeCompare(String(a.date_mod || ''));
           });
-          if (!targetRow || (targetRow._synthetic_text && !nameMatches[0]._synthetic_text)) {
+          if (!targetRow || (targetRow.metadata && targetRow.metadata.migrated_to === nameMatches[0].list_key)) {
             targetRow = nameMatches[0];
             targetKey = targetRow.list_key;
             requestedListKeyFromUrl = targetKey;
             modeToken = targetKey + ':' + (wantPlay ? 'play' : 'edit');
           }
-        }
-      }
-
-      if (!targetRow && pendingNrRowFromParent && (pendingNrRowFromParent.list_key === targetKey || !pendingNrRowFromParent.list_key || listArr.length === 0)) {
-        var rowToSeed = Object.assign({}, pendingNrRowFromParent);
-        if (!rowToSeed.list_key) rowToSeed.list_key = targetKey;
-        rowToSeed.metadata = Object.assign({}, rowToSeed.metadata || {}, { play_mode: Boolean(wantPlay) });
-        await upsertSingleRowToIdb(rowToSeed);
-        targetRow = Array.isArray(stores.list.listData)
-          ? stores.list.listData.find(function(r) { return r && r.list_key === rowToSeed.list_key; })
-          : null;
-        if (targetRow) {
-          targetKey = targetRow.list_key;
-          requestedListKeyFromUrl = targetKey;
-          modeToken = targetKey + ':' + (wantPlay ? 'play' : 'edit');
         }
       }
 
@@ -3134,6 +3501,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       }
       if (!stores.system.selectedSystem || stores.system.selectedSystem.id != targetRow.id_system) {
         await stores.system.selectSystem(targetRow.id_system);
+        if (isStaleActivation()) {
+          hideDirectListLoader();
+          return;
+        }
       }
       var rowArmyIdBefore = (targetRow && targetRow.army) ? String(targetRow.army.id || '') : '';
       if (targetRow && targetRow._nr_compile_failed) {
@@ -3159,6 +3530,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       );
       if (needsCompile) {
         await compileSyntheticRowIfNeeded(targetRow, stores.system, stores.list, true);
+        if (isStaleActivation()) {
+          hideDirectListLoader();
+          return;
+        }
         if (targetRow._nr_compile_failed) {
           hideDirectListLoader();
           playModeActivatedForKey = modeToken;
@@ -3175,12 +3550,23 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       targetRow.metadata = Object.assign({}, targetRow.metadata || {}, { play_mode: Boolean(wantPlay) });
 
       var loadedListObj = (await stores.list.selectList(targetRow)) || stores.list.currentList;
+      if (isStaleActivation()) {
+        if (!requestedListKeyFromUrl && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === targetKey) {
+          stores.list.currentList = null;
+        }
+        hideDirectListLoader();
+        return;
+      }
       if (loadedListObj && loadedListObj.row) {
         loadedListObj.row.metadata = Object.assign({}, loadedListObj.row.metadata || {}, { play_mode: Boolean(wantPlay) });
       }
       if (loadedListObj && loadedListObj.army) {
         try {
           await attachNativeArmyExports(targetRow, loadedListObj.army);
+          if (isStaleActivation()) {
+            hideDirectListLoader();
+            return;
+          }
           if (targetRow._omnitactica_gw_text || targetRow._omnitactica_nr_text) {
             notifyParent({
               action: 'native_exports',
@@ -3193,11 +3579,16 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               if (cleanWithExp && !cleanWithExp._ephemeral_view) {
                 cleanWithExp._omnitactica_gw_text = targetRow._omnitactica_gw_text || '';
                 cleanWithExp._omnitactica_nr_text = targetRow._omnitactica_nr_text || '';
+                knownListsMap[targetKey] = computeSignature(cleanWithExp);
                 postSyncAction('upsert', { list: cleanWithExp });
               }
             }
           }
         } catch (e) {}
+      }
+      if (isStaleActivation()) {
+        hideDirectListLoader();
+        return;
       }
       stores.list.lastSelectedListKey = targetKey;
       var freshStores = getNrStores();
@@ -3207,7 +3598,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
       var router = getNrRouter(stores);
       var nowPath = window.location.pathname || '';
-      if (router) {
+      if (router && !isStaleActivation()) {
         if (nowPath.indexOf('/Lists/' + targetKey) === -1) {
           await router.replace({
             path: '/app/Lists/' + targetKey,
@@ -3225,6 +3616,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           });
         }
       }
+      if (isStaleActivation()) {
+        hideDirectListLoader();
+        return;
+      }
       var postNavStores = getNrStores();
       if (postNavStores && postNavStores.listsPage && loadedListObj) {
         if (loadedListObj.row) {
@@ -3234,6 +3629,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       }
       playModeActivatedForKey = modeToken;
       setTimeout(function() {
+        if (isStaleActivation()) return;
         var sAfter = getNrStores();
         if (sAfter && sAfter.listsPage && loadedListObj) {
           if (loadedListObj.row) {
@@ -3269,13 +3665,14 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   // Note: Deletions are handled explicitly by stores.list.removeList and deleteHubArmyList, never by polling diff!
   async function pollListsDiff() {
     await ensurePlayModeAndStoreHooks();
-    if (!initialHydrationDone || isHydrating || isEmbeddedViewer || isEphemeralViewer) return;
+    if (!initialHydrationDone || isHydrating || isEphemeralViewer) return;
     var rows = await readAllNrLists();
     if (!rows) return;
 
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       if (!r || !r.list_key || r._ephemeral_view) continue;
+      if (isEmbeddedViewer && requestedListKeyFromUrl && r.list_key !== requestedListKeyFromUrl) continue;
       var clean = cloneCleanRow(r);
       var sig = computeSignature(clean || r);
       if (knownListsMap[r.list_key] !== sig) {
@@ -3284,14 +3681,18 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
 
-  async function forceFullSync() {
+  async function forceFullSync(reconcileDeletions) {
     if (isEmbeddedViewer || isEphemeralViewer) return null;
     if (!initialHydrationDone) {
       await hydrateFromOmniTactica();
     }
     var st = getNrStores();
     try {
-      if (st && st.list && typeof st.list.whenSynced === 'function') {
+      var isNrCloudLogged = Boolean(
+        (st && st.user && st.user.user && st.user.user.login) ||
+        localStorage.getItem('access')
+      );
+      if (isNrCloudLogged && st && st.list && typeof st.list.whenSynced === 'function') {
         await Promise.race([
           st.list.whenSynced(),
           new Promise(function(r) { setTimeout(r, 2500); })
@@ -3316,7 +3717,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     });
     return await postSyncAction('bulk_sync', {
       lists: cleaned,
-      reconcile_deletions: true
+      reconcile_deletions: Boolean(reconcileDeletions)
     });
   }
 
@@ -3334,7 +3735,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     var msg = ev && ev.data;
     if (!msg || msg.type !== 'OMNITACTICA_NR_COMMAND') return;
     if (msg.command === 'force_sync') {
-      await forceFullSync();
+      await forceFullSync(msg.reconcile_deletions);
     } else if (msg.command === 'export_list_texts') {
       var expKey = String(msg.list_key || '').replace(/^(nr_|list_)/, '').trim();
       var stExp = getNrStores();
@@ -3381,7 +3782,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       var extraPurge = Array.isArray(msg.keys_to_purge) ? msg.keys_to_purge : [];
       addNrDeletedTombstone(delKey, delNameLow, extraPurge);
       if (delKey) delete knownListsMap[delKey];
-      if (pendingNrRowFromParent && (pendingNrRowFromParent.list_key === delKey || (delNameLow && String(pendingNrRowFromParent.name || '').trim().toLowerCase() === delNameLow))) {
+      if (pendingNrRowFromParent && (pendingNrRowFromParent.list_key === delKey || (!delKey && delNameLow && String(pendingNrRowFromParent.name || '').trim().toLowerCase() === delNameLow))) {
         pendingNrRowFromParent = null;
       }
       var stDel = getNrStores();
@@ -3396,7 +3797,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           if (delKey && x.list_key === delKey) return true;
           if (x.list_key && keysToPurge.indexOf(x.list_key) !== -1) return true;
           if (x.metadata && x.metadata.migrated_to && (x.metadata.migrated_to === delKey || keysToPurge.indexOf(x.metadata.migrated_to) !== -1)) return true;
-          if (delNameLow && String(x.name || '').trim().toLowerCase() === delNameLow) return true;
+          if (!delKey && delNameLow && String(x.name || '').trim().toLowerCase() === delNameLow) return true;
           return false;
         });
         for (var mIdx = 0; mIdx < matchingRows.length; mIdx++) {
@@ -3461,7 +3862,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               var cursor = evCur.target.result;
               if (cursor) {
                 var rVal = cursor.value;
-                if (rVal && (keysToPurge.indexOf(String(rVal.list_key || '')) !== -1 || (delNameLow && String(rVal.name || '').trim().toLowerCase() === delNameLow))) {
+                if (rVal && (keysToPurge.indexOf(String(rVal.list_key || '')) !== -1 || (!delKey && delNameLow && String(rVal.name || '').trim().toLowerCase() === delNameLow))) {
                   try { cursor.delete(); } catch (e) {}
                 }
                 cursor.continue();
@@ -3473,6 +3874,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         });
       }
     } else if (msg.command === 'open_play_mode' && msg.list_key) {
+      navGeneration++;
       var nextKey = String(msg.list_key);
       var nextPlay = msg.play !== false;
       var nextToken = nextKey + ':' + (nextPlay ? 'play' : 'edit');
@@ -3511,8 +3913,6 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       directListLookupRetries = 0;
       showDirectListLoader(wantPlayModeFromUrl ? 'Loading Play Mode Datasheets...' : 'Opening Army Roster...');
       if (msg.nr_row && msg.nr_row.list_key) {
-        pendingNrRowFromParent = Object.assign({}, msg.nr_row);
-        if (isEphemeralViewer) pendingNrRowFromParent._ephemeral_view = true;
         var cur = null;
         if (stOpen && stOpen.list && Array.isArray(stOpen.list.listData)) {
           cur = stOpen.list.listData.find(function(er) {
@@ -3536,6 +3936,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           });
           cur = existingMap[msg.nr_row.list_key] || (requestedListNameFromUrl ? existingByName[requestedListNameFromUrl.toLowerCase()] : null);
         }
+        if (!cur || isEphemeralViewer || msg.nr_row._ephemeral_view) {
+          pendingNrRowFromParent = Object.assign({}, msg.nr_row);
+          if (isEphemeralViewer) pendingNrRowFromParent._ephemeral_view = true;
+        }
         if (!cur) {
           var rowToWrite = Object.assign({}, msg.nr_row);
           if (isEphemeralViewer) rowToWrite._ephemeral_view = true;
@@ -3556,10 +3960,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       await ensurePlayModeAndStoreHooks();
     } else if (msg.command === 'select_system' && msg.id_system) {
       try {
+        navGeneration++;
         var nextSysId = Number(msg.id_system);
         if (!nextSysId) return;
         preferredStudioSystemId = nextSysId;
         requestedListKeyFromUrl = null;
+        playModeActivatedForKey = null;
         hideDirectListLoader();
         var stSys = getNrStores();
         var addListPopupWasOpen = Boolean(document.querySelector('[data-v-9ccd5431], .addListPopup, .popup_bg .createList'));
@@ -3594,6 +4000,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       } catch (e) {}
     } else if (msg.command === 'navigate' && msg.path) {
       try {
+        navGeneration++;
         var cleanTarget = String(msg.path).replace(/^\/nr\/app/, '/app');
         if (msg.id_system) {
           preferredStudioSystemId = Number(msg.id_system) || preferredStudioSystemId;
@@ -3623,12 +4030,30 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           await ensurePlayModeAndStoreHooks();
           return;
         }
-        if (/^\/app\/Lists(?:\?.*)?$/i.test(cleanTarget) || /^\/app\/MyLists(?:\?.*)?$/i.test(cleanTarget)) {
-          cleanTarget = '/app/MyLists';
-        }
         requestedListKeyFromUrl = null;
+        playModeActivatedForKey = null;
         hideDirectListLoader();
         var storesNav = getNrStores();
+        var isMyListsTarget = /^\/app\/Lists(?:\?.*)?$/i.test(cleanTarget) || /^\/app\/MyLists(?:\?.*)?$/i.test(cleanTarget);
+        if (isMyListsTarget) {
+          cleanTarget = '/app/MyLists';
+          if (storesNav && storesNav.list) {
+            storesNav.list.currentList = null;
+          }
+          if (storesNav && storesNav.listsPage) {
+            storesNav.listsPage.editedList = null;
+          }
+        }
+        var curNavPath = (window.location.pathname || '').replace(/^\/nr\/app/, '/app');
+        if (curNavPath !== cleanTarget) {
+          var rtrNav = getNrRouter(storesNav);
+          if (rtrNav) {
+            await rtrNav.push(cleanTarget);
+          } else {
+            window.location.href = '/nr' + cleanTarget;
+            return;
+          }
+        }
         if (preferredStudioSystemId && storesNav && storesNav.system) {
           if (storesNav.options && typeof storesNav.options.addInstalledSystemVue === 'function') {
             try { storesNav.options.addInstalledSystemVue(preferredStudioSystemId); } catch (e) {}
@@ -3640,20 +4065,15 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             }
           }
         }
-        var curNavPath = (window.location.pathname || '').replace(/^\/nr\/app/, '/app');
-        if (curNavPath === cleanTarget) {
-          return;
-        }
-        var rtrNav = getNrRouter(storesNav);
-        if (rtrNav) {
-          await rtrNav.push(cleanTarget);
-        } else {
-          window.location.href = '/nr' + cleanTarget;
+        if (isMyListsTarget) {
+          hydrateFromOmniTactica(true).catch(function() {});
         }
       } catch (e) {}
     } else if (msg.command === 'create_list') {
       try {
+        navGeneration++;
         requestedListKeyFromUrl = null;
+        playModeActivatedForKey = null;
         hideDirectListLoader();
         if (msg.id_system) {
           preferredStudioSystemId = Number(msg.id_system) || preferredStudioSystemId;
@@ -3834,29 +4254,6 @@ def fetch_nr_html_shell() -> str:
 
 
 _NR_DIRECT_BLOCKED_UNTIL: float = 0.0
-_NR_RELAY_ID_TOKEN_CACHE: Dict[str, Tuple[float, str]] = {}
-
-
-def _get_gcp_relay_id_token(audience: str) -> Optional[str]:
-    """Fetches a Google Cloud OIDC identity token from the metadata server for Cloud Run service-to-service calls."""
-    now = time.time()
-    cached = _NR_RELAY_ID_TOKEN_CACHE.get(audience)
-    if cached and now - cached[0] < 2400:
-        return cached[1]
-    meta_url = (
-        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience="
-        + urllib.parse.quote(audience, safe="")
-    )
-    try:
-        req = urllib.request.Request(meta_url, headers={"Metadata-Flavor": "Google"})
-        with urllib.request.urlopen(req, timeout=2.0) as resp:
-            tok = resp.read().decode("utf-8", errors="ignore").strip()
-            if tok:
-                _NR_RELAY_ID_TOKEN_CACHE[audience] = (now, tok)
-                return tok
-    except Exception:
-        pass
-    return None
 
 
 def _exec_http_request(
@@ -3874,7 +4271,7 @@ def _exec_http_request(
             url,
             body=body if method_up != "GET" else None,
             headers=headers,
-            timeout=urllib3.Timeout(connect=connect_timeout, read=read_timeout),
+            timeout=urllib3.Timeout(connect_timeout, read=read_timeout),
         )
         return (
             int(resp.status),
@@ -3897,56 +4294,9 @@ def _forward_via_nr_relay(
     upstream_headers: Dict[str, str],
 ) -> Optional[Tuple[int, bytes, str]]:
     """
-    Forwards live NewRecruit RPC/token requests via the secondary region Cloud Run relay (us-west1)
-    or public GET RPC fallback when the primary region's outbound IP is blocked by www.newrecruit.eu.
+    Fallback for unauthenticated GET-compatible NewRecruit RPCs (login, login_from_email, getUser, resetPassword)
+    when direct outbound requests are rate-limited by www.newrecruit.eu.
     """
-    relay_base = (os.environ.get("NR_RELAY_URL") or NR_DEFAULT_RELAY_URL).strip().rstrip("/")
-    if relay_base:
-        relay_target = f"{relay_base}{clean_path}"
-        relay_headers: Dict[str, str] = {
-            "User-Agent": NR_USER_AGENT,
-            "X-Omni-Relay": "1",
-        }
-        for k in ("Content-Type", "Accept"):
-            if k in upstream_headers and upstream_headers[k]:
-                relay_headers[k] = upstream_headers[k]
-        if upstream_headers.get("Authorization"):
-            relay_headers["X-NR-Authorization"] = upstream_headers["Authorization"]
-
-        try:
-            status, data, ct = _exec_http_request(
-                method_up, relay_target, body, relay_headers, connect_timeout=3.0, read_timeout=8.0
-            )
-            if status in (401, 403):
-                id_tok = _get_gcp_relay_id_token(relay_base)
-                if id_tok:
-                    relay_headers["Authorization"] = f"Bearer {id_tok}"
-                    status, data, ct = _exec_http_request(
-                        method_up, relay_target, body, relay_headers, connect_timeout=3.0, read_timeout=8.0
-                    )
-            if status < 500 and status != 404:
-                if clean_path.startswith("/api/rpc") and status == 200:
-                    ct = "application/json"
-                return status, data, ct
-        except urllib.error.HTTPError as he:
-            if he.code in (401, 403):
-                id_tok = _get_gcp_relay_id_token(relay_base)
-                if id_tok:
-                    try:
-                        relay_headers["Authorization"] = f"Bearer {id_tok}"
-                        status, data, ct = _exec_http_request(
-                            method_up, relay_target, body, relay_headers, connect_timeout=3.0, read_timeout=8.0
-                        )
-                        if status < 500 and status != 404:
-                            if clean_path.startswith("/api/rpc") and status == 200:
-                                ct = "application/json"
-                            return status, data, ct
-                    except Exception:
-                        pass
-        except Exception as e:
-            logger.warning("NR regional relay (%s) error for %s: %s", relay_base, clean_path, e)
-
-    # Secondary fallback for unauthenticated GET-compatible NewRecruit RPCs (login, login_from_email, getUser, resetPassword)
     if method_up == "POST" and clean_path.startswith("/api/rpc") and body and not upstream_headers.get("Authorization"):
         try:
             rpc_obj = json.loads(body.decode("utf-8", errors="ignore"))
@@ -4008,7 +4358,7 @@ def proxy_nr_request(
     """
     Serves static assets (/_nuxt/*, /settings/*, /assets/*, /icons/*), library RPCs (get_library, get_countries, get_timezones),
     and all 40K/AoS catalogue books (books_get_book_row) directly from data/nr_offline_bundle.zip + in-memory cache,
-    falling back to https://www.newrecruit.eu (or us-west1 relay) only for unbundled or user-specific RPCs.
+    fetching live updates from https://www.newrecruit.eu.
     Returns (status_code, content_bytes, content_type).
     """
     global _NR_DIRECT_BLOCKED_UNTIL
@@ -4054,11 +4404,16 @@ def proxy_nr_request(
     now = time.time()
     if (is_cacheable_get or is_cacheable_rpc) and cache_key in _NR_STATIC_CACHE:
         ts, cached_bytes, cached_ct = _NR_STATIC_CACHE[cache_key]
-        ttl = 3600 if is_cacheable_rpc else _NR_CACHE_TTL_SECONDS
+        if is_cacheable_rpc:
+            ttl = 1800 if '"get_library"' in body_str else 21600
+        else:
+            ttl = _NR_CACHE_TTL_SECONDS
         if now - ts < ttl:
             return 200, cached_bytes, cached_ct
 
-    # Primary source: serve static assets, library RPCs, and 40K/AoS books from local data/nr_offline_bundle.zip
+    # Static UI bundle assets (/_nuxt/*, /settings/*, /assets/*, /icons/*) match shell.html in data/nr_offline_bundle.zip,
+    # whereas catalogue & library RPCs (get_library, books_get_book_row) MUST be fetched live from www.newrecruit.eu first
+    # so MFM / Balance Dataslate updates are reflected automatically without manual maintenance.
     if method_up == "GET":
         bundled_static = _lookup_nr_offline_static(clean_path)
         if bundled_static is not None:
@@ -4067,78 +4422,95 @@ def proxy_nr_request(
                 _NR_STATIC_CACHE[cache_key] = (now, b_data, b_ct)
             return 200, b_data, b_ct
     elif method_up == "POST" and clean_path.startswith("/api/rpc"):
-        bundled_rpc = _lookup_nr_offline_rpc(body)
-        if bundled_rpc is not None:
-            b_data, b_ct = bundled_rpc
+        fast_stub = _lookup_nr_fast_stub_rpc(body)
+        if fast_stub is not None:
+            b_data, b_ct = fast_stub
             if is_cacheable_rpc:
                 _NR_STATIC_CACHE[cache_key] = (now, b_data, b_ct)
             return 200, b_data, b_ct
 
-    is_relay_hop = bool(
-        req_headers and (req_headers.get("X-Omni-Relay") or req_headers.get("x-omni-relay"))
-    )
     target_url = f"{NR_BASE_URL}{clean_path}"
     headers: Dict[str, str] = {
         "User-Agent": NR_USER_AGENT,
         "Origin": "https://www.newrecruit.eu",
         "Referer": "https://www.newrecruit.eu/app/Lists",
     }
+    if method_up == "POST":
+        headers["Content-Type"] = "application/json"
     if req_headers:
         for hdr_key in ("Content-Type", "content-type", "Accept", "accept"):
             if hdr_key in req_headers and req_headers[hdr_key]:
                 canonical = hdr_key.title() if hdr_key.islower() else hdr_key
                 headers[canonical] = req_headers[hdr_key]
-        if is_relay_hop:
-            for nr_auth_key in ("X-NR-Authorization", "x-nr-authorization", "X-Nr-Authorization"):
-                if nr_auth_key in req_headers and req_headers[nr_auth_key]:
-                    headers["Authorization"] = req_headers[nr_auth_key]
-        else:
-            for auth_key in ("Authorization", "authorization", "X-NR-Authorization", "x-nr-authorization"):
-                if auth_key in req_headers and req_headers[auth_key]:
-                    headers["Authorization"] = req_headers[auth_key]
+        for auth_key in ("Authorization", "authorization", "X-NR-Authorization", "x-nr-authorization"):
+            if auth_key in req_headers and req_headers[auth_key]:
+                headers["Authorization"] = req_headers[auth_key]
 
+    has_auth_hdr = bool(headers.get("Authorization"))
     is_get_user_rpc = ("m=getUser" in clean_path) or ('"getUser"' in body_str)
 
-    # If direct connection from this region was recently blocked by www.newrecruit.eu, route straight to relay
-    if not is_relay_hop and now < _NR_DIRECT_BLOCKED_UNTIL:
+    if now < _NR_DIRECT_BLOCKED_UNTIL:
         relayed = _forward_via_nr_relay(clean_path, method_up, body, headers)
         if relayed is not None:
             r_status, r_data, r_ct = relayed
-            if (is_cacheable_get or is_cacheable_rpc) and r_status == 200:
+            if (is_cacheable_get or is_cacheable_rpc) and r_status == 200 and r_data:
                 _NR_STATIC_CACHE[cache_key] = (now, r_data, r_ct)
             if is_get_user_rpc and (r_status != 200 or not r_data or r_data.strip() in (b"", b"null", b"{}")):
                 jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
                 if jwt_fb:
                     return 200, jwt_fb, "application/json"
+            if r_status != 200 and method_up == "POST" and clean_path.startswith("/api/rpc"):
+                if cache_key in _NR_STATIC_CACHE:
+                    return 200, _NR_STATIC_CACHE[cache_key][1], _NR_STATIC_CACHE[cache_key][2]
+                offline_fb = _lookup_nr_offline_rpc(body)
+                if offline_fb is not None:
+                    return 200, offline_fb[0], offline_fb[1]
             return r_status, r_data, r_ct
 
     try:
         status, data, content_type = _exec_http_request(
             method_up, target_url, body, headers, connect_timeout=2.5, read_timeout=6.0
         )
-        if status in (401, 403, 429, 500, 502, 503, 504) and not is_relay_hop:
+        is_upstream_block = status in (429, 500, 502, 503, 504) or (status in (401, 403) and not has_auth_hdr)
+        if is_upstream_block:
             _NR_DIRECT_BLOCKED_UNTIL = time.time() + 600.0
             relayed = _forward_via_nr_relay(clean_path, method_up, body, headers)
             if relayed is not None:
                 status, data, content_type = relayed
-        if (is_cacheable_get or is_cacheable_rpc) and status == 200:
+        if (is_cacheable_get or is_cacheable_rpc) and status == 200 and data:
             _NR_STATIC_CACHE[cache_key] = (now, data, content_type)
         if is_get_user_rpc and (status != 200 or not data or data.strip() in (b"", b"null", b"{}")):
             jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
             if jwt_fb:
                 return 200, jwt_fb, "application/json"
+        if status != 200 and method_up == "POST" and clean_path.startswith("/api/rpc"):
+            if cache_key in _NR_STATIC_CACHE:
+                return 200, _NR_STATIC_CACHE[cache_key][1], _NR_STATIC_CACHE[cache_key][2]
+            offline_fb = _lookup_nr_offline_rpc(body)
+            if offline_fb is not None:
+                return 200, offline_fb[0], offline_fb[1]
         return status, data, content_type
     except urllib.error.HTTPError as he:
-        if not is_relay_hop and he.code in (401, 403, 429, 500, 502, 503, 504):
+        is_upstream_block = he.code in (429, 500, 502, 503, 504) or (he.code in (401, 403) and not has_auth_hdr)
+        if is_upstream_block:
             _NR_DIRECT_BLOCKED_UNTIL = time.time() + 600.0
             relayed = _forward_via_nr_relay(clean_path, method_up, body, headers)
             if relayed is not None:
                 r_status, r_data, r_ct = relayed
+                if (is_cacheable_get or is_cacheable_rpc) and r_status == 200 and r_data:
+                    _NR_STATIC_CACHE[cache_key] = (now, r_data, r_ct)
                 if is_get_user_rpc and (r_status != 200 or not r_data or r_data.strip() in (b"", b"null", b"{}")):
                     jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
                     if jwt_fb:
                         return 200, jwt_fb, "application/json"
-                return r_status, r_data, r_ct
+                if r_status == 200:
+                    return r_status, r_data, r_ct
+        if method_up == "POST" and clean_path.startswith("/api/rpc"):
+            if cache_key in _NR_STATIC_CACHE:
+                return 200, _NR_STATIC_CACHE[cache_key][1], _NR_STATIC_CACHE[cache_key][2]
+            offline_fb = _lookup_nr_offline_rpc(body)
+            if offline_fb is not None:
+                return 200, offline_fb[0], offline_fb[1]
         if is_get_user_rpc:
             jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
             if jwt_fb:
@@ -4148,18 +4520,24 @@ def proxy_nr_request(
         return he.code, err_body, ct
     except Exception as e:
         logger.warning("NewRecruit direct upstream error for %s: %s", clean_path, e)
-        if not is_relay_hop:
-            _NR_DIRECT_BLOCKED_UNTIL = time.time() + 600.0
-            relayed = _forward_via_nr_relay(clean_path, method_up, body, headers)
-            if relayed is not None:
-                r_status, r_data, r_ct = relayed
-                if (is_cacheable_get or is_cacheable_rpc) and r_status == 200:
-                    _NR_STATIC_CACHE[cache_key] = (now, r_data, r_ct)
-                if is_get_user_rpc and (r_status != 200 or not r_data or r_data.strip() in (b"", b"null", b"{}")):
-                    jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
-                    if jwt_fb:
-                        return 200, jwt_fb, "application/json"
+        _NR_DIRECT_BLOCKED_UNTIL = time.time() + 600.0
+        relayed = _forward_via_nr_relay(clean_path, method_up, body, headers)
+        if relayed is not None:
+            r_status, r_data, r_ct = relayed
+            if (is_cacheable_get or is_cacheable_rpc) and r_status == 200 and r_data:
+                _NR_STATIC_CACHE[cache_key] = (now, r_data, r_ct)
+            if is_get_user_rpc and (r_status != 200 or not r_data or r_data.strip() in (b"", b"null", b"{}")):
+                jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
+                if jwt_fb:
+                    return 200, jwt_fb, "application/json"
+            if r_status == 200:
                 return r_status, r_data, r_ct
+        if method_up == "POST" and clean_path.startswith("/api/rpc"):
+            if cache_key in _NR_STATIC_CACHE:
+                return 200, _NR_STATIC_CACHE[cache_key][1], _NR_STATIC_CACHE[cache_key][2]
+            offline_fb = _lookup_nr_offline_rpc(body)
+            if offline_fb is not None:
+                return 200, offline_fb[0], offline_fb[1]
         if is_get_user_rpc:
             jwt_fb = _decode_jwt_user_fallback(headers.get("Authorization"))
             if jwt_fb:
@@ -4391,7 +4769,17 @@ def process_nr_sync_payload(
             item_id = str(item.get("id") or "")
             item_lkey = str(item.get("list_key") or "")
             item_name = str(item.get("name") or "").strip().lower()
-            if (raw_k and (item_lkey in (list_key, raw_k) or item_id in (list_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}"))) or (list_name and item_name == list_name):
+            nr_meta = ((item.get("nr_row") or {}).get("metadata") or {}) if isinstance(item.get("nr_row"), dict) else {}
+            mig_to = str(nr_meta.get("migrated_to") or "").strip() if isinstance(nr_meta, dict) else ""
+            is_key_match = bool(
+                raw_k and (
+                    item_lkey in (list_key, raw_k)
+                    or item_id in (list_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}")
+                    or (mig_to and mig_to in (list_key, raw_k))
+                )
+            )
+            is_name_only_match = bool(not raw_k and list_name and item_name == list_name)
+            if is_key_match or is_name_only_match:
                 if item_id:
                     delete_fn(item_id)
         return {

@@ -624,6 +624,19 @@ def dev_save_army_list(list_data: dict) -> dict:
     from datetime import datetime, timezone
     from newrecruit_integration import build_synthetic_nr_row
     item = dict(list_data)
+    if isinstance(item.get("nr_row"), dict):
+        nr_copy = dict(item["nr_row"])
+        if item.get("name"):
+            nr_copy["name"] = str(item["name"])
+        if item.get("points") is not None:
+            try:
+                pts_int = int(item["points"])
+                nr_copy["totalCost"] = pts_int
+                if isinstance(nr_copy.get("totalCosts"), dict):
+                    nr_copy["totalCosts"] = dict(nr_copy["totalCosts"], pts=pts_int)
+            except Exception:
+                pass
+        item["nr_row"] = nr_copy
     nr_row = build_synthetic_nr_row(item)
     lkey = str(item.get("list_key") or nr_row.get("list_key") or "").strip()
     lid = str(item.get("id") or (f"nr_{lkey}" if lkey else f"list_{uuid.uuid4().hex[:8]}")).strip()
@@ -669,19 +682,11 @@ def dev_delete_army_list(list_id: str) -> bool:
     raw_key = re.sub(r"^(nr_|list_)", "", clean_key)
     nr_key = f"nr_{raw_key}"
     list_key_pref = f"list_{raw_key}"
-    target_names = {
-        str(item.get("name") or "").strip().lower()
-        for item in DEV_ARMY_LISTS
-        if str(item.get("id") or "") in (clean_key, raw_key, nr_key, list_key_pref)
-        or str(item.get("list_key") or "") in (clean_key, raw_key)
-    }
-    target_names.discard("")
     before_len = len(DEV_ARMY_LISTS)
     DEV_ARMY_LISTS[:] = [
         item for item in DEV_ARMY_LISTS
         if str(item.get("id") or "") not in (clean_key, raw_key, nr_key, list_key_pref)
         and str(item.get("list_key") or "") not in (clean_key, raw_key)
-        and str(item.get("name") or "").strip().lower() not in target_names
     ]
     for room_data in list(ROOMS_DB.values()):
         if isinstance(room_data, dict):
@@ -690,8 +695,7 @@ def dev_delete_army_list(list_id: str) -> bool:
                 if isinstance(cur_slot, dict):
                     c_id = str(cur_slot.get("id") or "")
                     c_key = str(cur_slot.get("list_key") or "")
-                    c_name = str(cur_slot.get("name") or "").strip().lower()
-                    if c_id in (clean_key, raw_key, nr_key, list_key_pref) or c_key in (clean_key, raw_key) or (c_name and c_name in target_names):
+                    if c_id in (clean_key, raw_key, nr_key, list_key_pref) or c_key in (clean_key, raw_key):
                         room_data[slot_key] = None
     return len(DEV_ARMY_LISTS) < before_len
 
