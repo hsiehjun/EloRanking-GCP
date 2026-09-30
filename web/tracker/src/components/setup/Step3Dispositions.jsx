@@ -22,7 +22,11 @@ export function Step3Dispositions() {
     const granted = new Set();
     for (const dName of detachments) {
       const info = getDetachmentInfo(faction, dName);
-      if (info?.disposition) {
+      if (Array.isArray(info?.dispositions)) {
+        for (const d of info.dispositions) {
+          if (d) granted.add(d);
+        }
+      } else if (info?.disposition) {
         granted.add(info.disposition);
       }
     }
@@ -72,6 +76,8 @@ export function Step3Dispositions() {
                         isSelected ? "gtk-on" : ""
                       }`}
                       style={{
+                        minHeight: "46px",
+                        padding: "8px 12px",
                         borderColor: isSelected ? color : isGranted ? color : "var(--gtk-line)",
                         background: isSelected
                           ? `${color}28`
@@ -80,19 +86,22 @@ export function Step3Dispositions() {
                           : "var(--gtk-tile)"
                       }}
                     >
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
                         <span
-                          className="gtk-ic flex h-5 w-5 items-center justify-center"
+                          className="gtk-ic flex h-5 w-5 flex-none items-center justify-center"
                           style={{ color: isSelected ? color : "var(--gtk-text)" }}
                         >
                           {DISPOSITION_ICONS[dispo.key]}
                         </span>
-                        <span className="gtk-nm font-display text-[15px] font-bold uppercase leading-none">
+                        <span
+                          className="gtk-nm font-display font-bold uppercase leading-none"
+                          style={{ fontSize: "16px", whiteSpace: "nowrap" }}
+                        >
                           {dispo.name}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-none">
                         {isGranted && !isSelected && (
                           <span
                             className="gtk-mono rounded-full px-2 py-0.5 text-[8px] font-bold uppercase tracking-[0.1em] text-white"

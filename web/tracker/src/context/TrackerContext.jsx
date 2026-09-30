@@ -76,6 +76,18 @@ function sanitizeLoadedState(raw) {
     started: raw.started === true
   };
 
+  // Ensure detachments are valid for the selected faction
+  if (state.game.p1Faction && Array.isArray(state.game.p1Detachments)) {
+    state.game.p1Detachments = state.game.p1Detachments.filter(
+      dName => !!getDetachmentInfo(state.game.p1Faction, dName)
+    );
+  }
+  if (state.game.p2Faction && Array.isArray(state.game.p2Detachments)) {
+    state.game.p2Detachments = state.game.p2Detachments.filter(
+      dName => !!getDetachmentInfo(state.game.p2Faction, dName)
+    );
+  }
+
   // Ensure primaries are populated if dispositions exist
   const d1 = state.game.p1Disposition;
   const d2 = state.game.p2Disposition;
@@ -236,16 +248,29 @@ export function TrackerProvider({ children }) {
         };
       }
 
+      const newInfo = getDetachmentInfo(faction, detachmentName);
+      if (!newInfo) return prev;
+
       // Check detachment point budget limit
       const currentPoints = currentList.reduce((sum, dName) => {
         const info = getDetachmentInfo(faction, dName);
         return sum + (info?.dp || 0);
       }, 0);
-      const newInfo = getDetachmentInfo(faction, detachmentName);
-      const newPoints = newInfo?.dp || 0;
+      const newPoints = newInfo.dp || 0;
 
       if (currentPoints + newPoints > MAX_DETACHMENT_POINTS) {
         return prev;
+      }
+
+      // Check UNIQUE keyword exclusivity limit
+      if (newInfo.unique) {
+        const hasDuplicateUnique = currentList.some(dName => {
+          const info = getDetachmentInfo(faction, dName);
+          return info?.unique && info.unique === newInfo.unique;
+        });
+        if (hasDuplicateUnique) {
+          return prev;
+        }
       }
 
       return {

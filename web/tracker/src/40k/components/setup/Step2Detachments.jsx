@@ -17,8 +17,8 @@ export function Step2Detachments() {
         className="gtk-mono text-center text-[11px] leading-snug"
         style={{ color: "var(--gtk-muted)" }}
       >
-        Optional. Spend up to {MAX_DETACHMENT_POINTS} Detachment Points. Each detachment grants a
-        force disposition.
+        Optional. Spend up to {MAX_DETACHMENT_POINTS} Detachment Points. Each detachment grants 1–2
+        force dispositions.
       </p>
 
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
@@ -52,7 +52,12 @@ export function Step2Detachments() {
                   {detachments.map(dName => {
                     const info = getDetachmentInfo(faction, dName);
                     if (!info) return null;
-                    const dispoColor = DISPOSITION_COLORS[info.disposition];
+                    const dispoKeys =
+                      Array.isArray(info.dispositions) && info.dispositions.length > 0
+                        ? info.dispositions
+                        : [info.disposition];
+                    const dispoColor = DISPOSITION_COLORS[dispoKeys[0]] || "var(--gtk-muted)";
+                    const secondDispoColor = dispoKeys[1] ? DISPOSITION_COLORS[dispoKeys[1]] : null;
                     return (
                       <span
                         key={dName}
@@ -62,6 +67,18 @@ export function Step2Detachments() {
                           border: `1px solid ${dispoColor}`
                         }}
                       >
+                        {secondDispoColor && (
+                          <span className="inline-flex items-center gap-0.5">
+                            <span
+                              className="h-2 w-2 rounded-full"
+                              style={{ background: dispoColor }}
+                            />
+                            <span
+                              className="h-2 w-2 rounded-full"
+                              style={{ background: secondDispoColor }}
+                            />
+                          </span>
+                        )}
                         <span
                           className="gtk-display text-[12.5px] font-bold leading-none"
                           style={{ color: "var(--gtk-text)" }}
