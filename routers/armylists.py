@@ -335,7 +335,7 @@ async def api_get_bcp_armylist(list_id: str, request: Request, bcp_token: Option
 
 @router.delete("/api/armylists/{list_id}", summary="Delete an army list")
 async def api_delete_armylist(list_id: str, request: Request):
-    from newrecruit_integration import _NR_CLOUD_ACCOUNTS, _nr_rpc_call
+    from newrecruit_integration import _resolve_nr_cloud_account, _nr_rpc_call
     user_id = _resolve_user_id(request)
     db = get_database()
     success = db.delete_user_army_list(list_id, user_id=user_id)
@@ -352,7 +352,7 @@ async def api_delete_armylist(list_id: str, request: Request):
                     if c_id in (clean_key, raw_key, nr_key) or c_key in (clean_key, raw_key):
                         room_data[slot_key] = None
     try:
-        acct = _NR_CLOUD_ACCOUNTS.get(user_id or "default") or _NR_CLOUD_ACCOUNTS.get("default") or {}
+        acct = _resolve_nr_cloud_account(user_id or "default") or {}
         nr_access = request.headers.get("X-NR-Access") or acct.get("access")
         if nr_access and raw_key:
             await asyncio.to_thread(_nr_rpc_call, "deleteList", [raw_key], nr_access)

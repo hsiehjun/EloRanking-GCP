@@ -7160,8 +7160,13 @@ class PostgresDatabase:
             list_data["nr_row"]["name"] = name
             if list_data.get("points") is not None:
                 list_data["nr_row"]["totalCost"] = points
-                if isinstance(list_data["nr_row"].get("totalCosts"), dict):
-                    list_data["nr_row"]["totalCosts"]["pts"] = points
+                t_costs = list_data["nr_row"].get("totalCosts")
+                if isinstance(t_costs, dict):
+                    t_costs["pts"] = points
+                elif isinstance(t_costs, list):
+                    for tc_item in t_costs:
+                        if isinstance(tc_item, dict) and (tc_item.get("typeId") == "pts" or tc_item.get("name") == "pts"):
+                            tc_item["value"] = points
         list_json = json.dumps(list_data, default=str)
 
         with self.get_connection() as conn:

@@ -167,12 +167,12 @@ class AuthManager:
                         cur.execute("""
                         SELECT COUNT(*) FROM information_schema.columns 
                         WHERE table_schema = 'public' AND (
-                            (table_name = 'users' AND column_name IN ('pinned_badges', 'badges_celebrated', 'acknowledged_badge_ids', 'role', 'bcp_id_token', 'invited_by_user_id', 'invite_code_used'))
+                            (table_name = 'users' AND column_name IN ('pinned_badges', 'badges_celebrated', 'acknowledged_badge_ids', 'role', 'bcp_id_token', 'invited_by_user_id', 'invite_code_used', 'nr_access_token'))
                             OR (table_name = 'user_sessions' AND column_name = 'device_id')
                         );
                         """)
                         col_cnt = cur.fetchone()
-                        if col_cnt and col_cnt[0] >= 8:
+                        if col_cnt and col_cnt[0] >= 9:
                             cur.execute("SELECT value FROM system_settings WHERE key = 'auth_schema_ready';")
                             setting = cur.fetchone()
                             if setting and setting[0] == 'true':
@@ -214,6 +214,12 @@ class AuthManager:
                             bcp_refresh_token TEXT,
                             bcp_token_expires_at TIMESTAMPTZ,
                             bcp_linked_at TIMESTAMPTZ,
+                            nr_login TEXT,
+                            nr_access_token TEXT,
+                            nr_refresh_token TEXT,
+                            nr_client_key VARCHAR(64),
+                            nr_linked_at TIMESTAMPTZ,
+                            nr_disconnected_at TIMESTAMPTZ,
                             created_at TIMESTAMPTZ DEFAULT NOW(),
                             updated_at TIMESTAMPTZ DEFAULT NOW()
                         );
@@ -228,6 +234,12 @@ class AuthManager:
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_spent INTEGER DEFAULT 0;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS total_glory INTEGER DEFAULT 0;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_balance INTEGER DEFAULT 0;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_login TEXT;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_access_token TEXT;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_refresh_token TEXT;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_client_key VARCHAR(64);
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_linked_at TIMESTAMPTZ;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_disconnected_at TIMESTAMPTZ;
                         CREATE TABLE IF NOT EXISTS armory_transactions (
                             id SERIAL PRIMARY KEY,
                             user_id VARCHAR(64) NOT NULL,
@@ -431,6 +443,12 @@ class AuthManager:
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_spent INTEGER DEFAULT 0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS total_glory INTEGER DEFAULT 0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS glory_balance INTEGER DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_login TEXT;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_access_token TEXT;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_refresh_token TEXT;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_client_key VARCHAR(64);
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_linked_at TIMESTAMPTZ;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS nr_disconnected_at TIMESTAMPTZ;
                     CREATE TABLE IF NOT EXISTS armory_transactions (
                         id SERIAL PRIMARY KEY,
                         user_id VARCHAR(64) NOT NULL,
@@ -446,6 +464,140 @@ class AuthManager:
                 logger.info("Successfully ensured modern user columns in users table.")
         except Exception as e:
             logger.warning(f"Notice ensuring user columns: {e}")
+
+    def get_nr_credentials(self, user_id: Optional[str]) -> Dict[str, Any]:
+        """Retrieves persisted NewRecruit Cloud credentials for a specific user from PostgreSQL."""
+        uid = str(user_id or "").strip()
+        if not uid or uid == "default":
+            return {}
+        from psycopg2 import extras
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    cur.execute(
+                        """
+                        SELECT nr_login, nr_access_token, nr_refresh_token, nr_client_key,
+                               nr_linked_at, nr_disconnected_at
+                        FROM users
+                        WHERE id = %s;
+                        """,
+                        (uid,),
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        return {}
+                    access = str(row.get("nr_access_token") or "").strip()
+                    refresh = str(row.get("nr_refresh_token") or "").strip()
+                    login = str(row.get("nr_login") or "").strip()
+                    client_key = str(row.get("nr_client_key") or "").strip()
+                    linked_at = row.get("nr_linked_at")
+                    disc_at = row.get("nr_disconnected_at")
+                    return {
+                        "connected": bool(access),
+                        "login": login,
+                        "access": access,
+                        "refresh": refresh,
+                        "client_key": client_key,
+                        "last_sync": linked_at.isoformat() if hasattr(linked_at, "isoformat") else (str(linked_at) if linked_at else None),
+                        "disconnected_at": disc_at.isoformat() if hasattr(disc_at, "isoformat") else (str(disc_at) if disc_at else None),
+                    }
+        except Exception as e:
+            logger.debug(f"get_nr_credentials notice for {uid}: {e}")
+            return {}
+
+    def save_nr_credentials(
+        self,
+        user_id: Optional[str],
+        login: str,
+        access_token: str,
+        refresh_token: str = "",
+        client_key: str = "",
+    ) -> bool:
+        """Persists NewRecruit Cloud JWT credentials to the PostgreSQL users table for cross-device sync."""
+        uid = str(user_id or "").strip()
+        if not uid or uid == "default" or not access_token:
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE users
+                        SET nr_login = COALESCE(NULLIF(%s, ''), nr_login),
+                            nr_access_token = %s,
+                            nr_refresh_token = COALESCE(NULLIF(%s, ''), nr_refresh_token),
+                            nr_client_key = COALESCE(NULLIF(%s, ''), nr_client_key),
+                            nr_linked_at = NOW(),
+                            nr_disconnected_at = NULL,
+                            updated_at = NOW()
+                        WHERE id = %s;
+                        """,
+                        (
+                            str(login or "").strip(),
+                            str(access_token).strip(),
+                            str(refresh_token or "").strip(),
+                            str(client_key or "").strip(),
+                            uid,
+                        ),
+                    )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.debug(f"save_nr_credentials notice for {uid}: {e}")
+            try:
+                self._ensure_user_columns()
+                with self.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            UPDATE users
+                            SET nr_login = COALESCE(NULLIF(%s, ''), nr_login),
+                                nr_access_token = %s,
+                                nr_refresh_token = COALESCE(NULLIF(%s, ''), nr_refresh_token),
+                                nr_client_key = COALESCE(NULLIF(%s, ''), nr_client_key),
+                                nr_linked_at = NOW(),
+                                nr_disconnected_at = NULL,
+                                updated_at = NOW()
+                            WHERE id = %s;
+                            """,
+                            (
+                                str(login or "").strip(),
+                                str(access_token).strip(),
+                                str(refresh_token or "").strip(),
+                                str(client_key or "").strip(),
+                                uid,
+                            ),
+                        )
+                    conn.commit()
+                return True
+            except Exception:
+                return False
+
+    def clear_nr_credentials(self, user_id: Optional[str]) -> bool:
+        """Clears persisted NewRecruit Cloud credentials on explicit logout so all devices disconnect."""
+        uid = str(user_id or "").strip()
+        if not uid or uid == "default":
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE users
+                        SET nr_access_token = NULL,
+                            nr_refresh_token = NULL,
+                            nr_linked_at = NULL,
+                            nr_disconnected_at = NOW(),
+                            updated_at = NOW()
+                        WHERE id = %s;
+                        """,
+                        (uid,),
+                    )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.debug(f"clear_nr_credentials notice for {uid}: {e}")
+            return False
 
     def get_system_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
         from psycopg2 import extras

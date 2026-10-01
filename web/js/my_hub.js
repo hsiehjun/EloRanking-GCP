@@ -3506,13 +3506,33 @@ async function loadHubArmyLists() {
     try {
       localStorage.setItem('my_hub_armylists_cache', JSON.stringify(lists));
     } catch (e) {}
+    if (nrState && nrState.cloud_account) {
+      if (nrState.cloud_account.connected) {
+        hubNrCloudAccount = nrState.cloud_account;
+        try {
+          if (nrState.cloud_account.access && localStorage.getItem('access') !== nrState.cloud_account.access) {
+            localStorage.setItem('access', nrState.cloud_account.access);
+          }
+          if (nrState.cloud_account.refresh && localStorage.getItem('refresh') !== nrState.cloud_account.refresh) {
+            localStorage.setItem('refresh', nrState.cloud_account.refresh);
+          }
+        } catch (e) {}
+      } else if (nrState.cloud_account.disconnected_at) {
+        try {
+          const rawBak = localStorage.getItem('omni_nr_auth_backup_v1');
+          const parsedBak = rawBak ? JSON.parse(rawBak) : null;
+          if (!parsedBak || parsedBak.synced_to_server) {
+            localStorage.removeItem('omni_nr_auth_backup_v1');
+            localStorage.removeItem('access');
+            localStorage.removeItem('refresh');
+          }
+        } catch (e) {}
+        hubNrCloudAccount = nrState.cloud_account;
+      }
+    }
     const localAuthFallback = getLocalNrCloudAccountFallback();
-    if (nrState && nrState.cloud_account && nrState.cloud_account.connected) {
-      hubNrCloudAccount = nrState.cloud_account;
-    } else if (localAuthFallback && localAuthFallback.connected) {
+    if ((!hubNrCloudAccount || !hubNrCloudAccount.connected) && localAuthFallback && localAuthFallback.connected) {
       hubNrCloudAccount = localAuthFallback;
-    } else if (nrState && nrState.cloud_account && (!hubNrCloudAccount || !hubNrCloudAccount.connected)) {
-      hubNrCloudAccount = nrState.cloud_account;
     }
     updateHubNrSyncPill();
     renderHubArmyLists(lists);
@@ -3677,6 +3697,7 @@ async function triggerNewRecruitStudioAuth() {
     try {
       localStorage.removeItem('omni_nr_auth_backup_v1');
       localStorage.removeItem('access');
+      localStorage.removeItem('refresh');
     } catch (e) {}
     try {
       if (window.api && typeof window.api.connectNewRecruitCloud === 'function') {
@@ -3706,6 +3727,53 @@ async function triggerNewRecruitStudioAuth() {
   }
 }
 window.triggerNewRecruitStudioAuth = triggerNewRecruitStudioAuth;
+
+function extractNrRowTotalCostsPts(row) {
+  if (!row || typeof row !== 'object') return 0;
+  if (Array.isArray(row.totalCosts)) {
+    for (let i = 0; i < row.totalCosts.length; i++) {
+      const c = row.totalCosts[i];
+      if (c && (c.typeId === 'pts' || c.name === 'pts' || i === 0) && Number(c.value) > 0) {
+        return Number(c.value);
+      }
+    }
+  } else if (row.totalCosts && typeof row.totalCosts === 'object' && Number(row.totalCosts.pts) > 0) {
+    return Number(row.totalCosts.pts);
+  }
+  return 0;
+}
+
+function resolveHubEffectiveListPoints(l) {
+  if (!l || typeof l !== 'object') return 2000;
+  const rawId = String(l.list_key || l.nr_list_key || l.id || '');
+  const listKey = rawId.replace(/^(nr_|list_)/, '').trim();
+  try {
+    const studioIframe = document.getElementById('hub-nr-studio-iframe');
+    const win = studioIframe && studioIframe.contentWindow;
+    const st = win && (win.__nr_stores || (win.__omnitacticaNrBridge && win.__omnitacticaNrBridge.getStores && win.__omnitacticaNrBridge.getStores()));
+    if (st && st.list && Array.isArray(st.list.listData) && listKey) {
+      const liveRow = st.list.listData.find(r => r && String(r.list_key || '') === listKey);
+      if (liveRow) {
+        const arrPts = extractNrRowTotalCostsPts(liveRow);
+        if (arrPts > 0 && (!liveRow._compiled_by_nr || arrPts >= 1400)) {
+          return arrPts;
+        }
+        const liveTotalCost = Number(liveRow.totalCost) || 0;
+        if (liveTotalCost > 0 && (!liveRow._compiled_by_nr || liveTotalCost >= 1400)) {
+          return liveTotalCost;
+        }
+      }
+    }
+  } catch (e) {}
+  if (l.nr_row && typeof l.nr_row === 'object') {
+    const rowArrPts = extractNrRowTotalCostsPts(l.nr_row);
+    if (rowArrPts > 0 && (!l.nr_row._compiled_by_nr || rowArrPts >= 1400)) {
+      return rowArrPts;
+    }
+  }
+  return l.points !== undefined && l.points !== null ? l.points : 2000;
+}
+window.resolveHubEffectiveListPoints = resolveHubEffectiveListPoints;
 
 function renderHubArmyLists(lists) {
   const container = document.getElementById('hub-armylists-list-container');
@@ -3742,7 +3810,8 @@ function renderHubArmyLists(lists) {
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; gap: 0.75rem;">
       ${filteredLists.map(l => {
-        const pts = l.points !== undefined && l.points !== null ? l.points : 2000;
+        const pts = resolveHubEffectiveListPoints(l);
+        l.points = pts;
         const unitCount = Array.isArray(l.units) ? l.units.length : 0;
         const rawId = String(l.list_key || l.id || '');
         const listKey = rawId.startsWith('nr_') ? rawId.slice(3) : rawId;
@@ -4227,6 +4296,9 @@ if (!window.__omnitacticaNrParentListenerBound) {
       if (window.__activeHubPlayModeController && typeof window.__activeHubPlayModeController.hidePlayLoading === 'function') {
         window.__activeHubPlayModeController.hidePlayLoading();
       }
+      if (Array.isArray(hubSavedLists) && hubSavedLists.length > 0) {
+        renderHubArmyLists(hubSavedLists);
+      }
       return;
     }
     if (msg.action === 'native_exports' && msg.list_key) {
@@ -4306,6 +4378,9 @@ if (!window.__omnitacticaNrParentListenerBound) {
           const sysMeta = NR_STUDIO_SYSTEMS[curSysId] || NR_STUDIO_SYSTEMS[827374861];
           if (subEl) {
             subEl.textContent = `Active System: ${sysMeta.label.replace(/^[^\w]+/, '')} • All lists sync automatically with My Hub`;
+          }
+          if (Array.isArray(hubSavedLists) && hubSavedLists.length > 0) {
+            renderHubArmyLists(hubSavedLists);
           }
         }
       }
@@ -5410,7 +5485,7 @@ async function openViewArmyListModal(listId, mode = null) {
             ${escapeHtml(list.name || 'Army Roster')}
           </div>
           <span class="hub-btn-lbl-mob-hide" style="font-size:10.5px; font-weight:800; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); padding:1px 6px; border-radius:6px; flex-shrink:0;">
-            ${list.points || 2000} pts
+            ${resolveHubEffectiveListPoints(list)} pts
           </span>
         </div>
 

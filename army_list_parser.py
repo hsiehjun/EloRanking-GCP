@@ -337,6 +337,19 @@ class ArmyListParser:
         units = roster.get("units") or []
         nr_row = roster.get("nr_row") if isinstance(roster.get("nr_row"), dict) else {}
         has_nr_row = bool(nr_row and nr_row.get("list_key"))
+        if isinstance(nr_row, dict):
+            tc_raw = nr_row.get("totalCosts")
+            if isinstance(tc_raw, list):
+                for tc_item in tc_raw:
+                    if isinstance(tc_item, dict) and (tc_item.get("typeId") == "pts" or tc_item.get("name") == "pts"):
+                        try:
+                            tc_val = int(float(tc_item.get("value") or 0))
+                        except Exception:
+                            tc_val = 0
+                        if tc_val > 0 and (not nr_row.get("_compiled_by_nr") or tc_val >= 1400):
+                            roster["points"] = tc_val
+                            nr_row["totalCost"] = tc_val
+                            break
         src_fmt = str(roster.get("source_format") or "").strip()
         raw_txt = str(roster.get("raw_text") or "").strip()
         native_gw = str(nr_row.get("_omnitactica_gw_text") or "").strip()
@@ -671,8 +684,24 @@ class ArmyListParser:
             roster["list_key"] = list_key
         roster["name"] = (data.get("name") or roster["name"]).strip()
         total_cost = data.get("totalCost")
-        if total_cost is None and isinstance(data.get("totalCosts"), dict):
-            total_cost = data["totalCosts"].get("pts")
+        total_costs_raw = data.get("totalCosts")
+        tc_array_pts = None
+        if isinstance(total_costs_raw, list):
+            for tc_entry in total_costs_raw:
+                if isinstance(tc_entry, dict) and (tc_entry.get("typeId") == "pts" or tc_entry.get("name") == "pts"):
+                    if tc_entry.get("value") is not None:
+                        try:
+                            tc_array_pts = int(float(tc_entry["value"]))
+                            break
+                        except Exception:
+                            pass
+        if tc_array_pts and tc_array_pts > 0 and (not data.get("_compiled_by_nr") or tc_array_pts >= 1400):
+            total_cost = tc_array_pts
+            data["totalCost"] = tc_array_pts
+        elif total_cost is None and isinstance(total_costs_raw, dict):
+            total_cost = total_costs_raw.get("pts")
+        elif total_cost is None and tc_array_pts:
+            total_cost = tc_array_pts
         try:
             total_cost = int(float(total_cost)) if total_cost is not None else 0
         except Exception:

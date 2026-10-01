@@ -450,6 +450,428 @@ async def main():
                 json.dumps(necrons_studio_dp),
             )
 
+            # =====================================================================
+            # PART 3: CROSS-DEVICE NEWRECRUIT CREDENTIAL & SESSION SYNC (T1 - T5)
+            # =====================================================================
+            print("\n--- PART 3: Cross-Device NewRecruit Credential & Session Sync (T1 - T5) ---")
+            # Create a dummy JWT with login='hsiehjun' so JWT fallback & Pinia user store work cleanly
+            jwt_header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
+            jwt_payload = base64.urlsafe_b64encode(json.dumps({"id": 42, "login": "hsiehjun", "tier": 2, "supporter": 2}).encode()).decode().rstrip("=")
+            mock_access_jwt = f"{jwt_header}.{jwt_payload}.sig_hsiehjun"
+            mock_refresh_jwt = "refresh_tok_hsiehjun_v1"
+
+            # T1: Simulate logging into NewRecruit inside the Studio iframe on Device A (Desktop)
+            t1_desktop_login = await t.js(
+                f"""
+                (async () => {{
+                    const ifr = document.getElementById('hub-nr-studio-iframe');
+                    const win = ifr.contentWindow;
+                    const st = win.__omnitacticaNrBridge.getNrStores();
+
+                    // Clear any prior backup so backupOrRestoreNrAuth sees a fresh login
+                    win.localStorage.removeItem('omni_nr_auth_backup_v1');
+                    win.localStorage.setItem('access', {json.dumps(mock_access_jwt)});
+                    win.localStorage.setItem('refresh', {json.dumps(mock_refresh_jwt)});
+                    win.localStorage.setItem('client-key', 'ck_desk1');
+                    st.user.initLoggedUser({{ id: 42, login: 'hsiehjun', supporter: 2, tier: 2 }});
+
+                    // Wait briefly for pushNrAuthToOmniServer async POST to complete
+                    for (let i = 0; i < 20; i++) {{
+                        const bak = JSON.parse(win.localStorage.getItem('omni_nr_auth_backup_v1') || '{{}}');
+                        if (bak && bak.synced_to_server) break;
+                        await new Promise(r => setTimeout(r, 100));
+                    }}
+
+                    const nrStateRes = await (await fetch('/api/armylists/nr_state', {{
+                        headers: {{ 'Authorization': 'Bearer ' + (window.api.getAuthToken() || '') }}
+                    }})).json();
+                    const bakFinal = JSON.parse(win.localStorage.getItem('omni_nr_auth_backup_v1') || '{{}}');
+                    return {{
+                        syncedToServerFlag: Boolean(bakFinal && bakFinal.synced_to_server),
+                        cloudAccount: nrStateRes.cloud_account
+                    }};
+                }})()
+                """
+            )
+            record(
+                "T1: Logging into NewRecruit on Desktop automatically pushes tokens to /api/armylists/nr_cloud_connect and persists on server",
+                bool(
+                    t1_desktop_login
+                    and t1_desktop_login.get("syncedToServerFlag") is True
+                    and t1_desktop_login.get("cloudAccount", {}).get("connected") is True
+                    and t1_desktop_login.get("cloudAccount", {}).get("login") == "hsiehjun"
+                    and t1_desktop_login.get("cloudAccount", {}).get("access") == mock_access_jwt
+                ),
+                json.dumps(t1_desktop_login),
+            )
+
+            # T2: Simulate opening OmniTactica on Device B (Mobile) with empty localStorage (never logged into NR on Mobile)
+            await t.set_viewport(390, 844, scale=3, mobile=True)
+            t2_mobile_autologin = await t.js(
+                """
+                (async () => {
+                    const ifr = document.getElementById('hub-nr-studio-iframe');
+                    const win = ifr.contentWindow;
+                    const st = win.__omnitacticaNrBridge.getNrStores();
+
+                    // Wipe local NR tokens to simulate a brand new Mobile browser session
+                    localStorage.removeItem('omni_nr_auth_backup_v1');
+                    localStorage.removeItem('access');
+                    localStorage.removeItem('refresh');
+                    win.localStorage.removeItem('omni_nr_auth_backup_v1');
+                    win.localStorage.removeItem('access');
+                    win.localStorage.removeItem('refresh');
+                    st.user.user = null;
+
+                    // Hydrate Mobile from OmniTactica server
+                    await win.__omnitacticaNrBridge.hydrateFromOmniTactica(true);
+                    await loadHubArmyLists();
+
+                    const authBtn = document.getElementById('hub-btn-nr-studio-auth');
+                    return {
+                        mobileAccess: win.localStorage.getItem('access'),
+                        mobileRefresh: win.localStorage.getItem('refresh'),
+                        mobilePiniaLogin: st.user.user ? st.user.user.login : null,
+                        authBtnText: authBtn ? authBtn.textContent.trim() : ''
+                    };
+                })()
+                """
+            )
+            record(
+                "T2: Opening OmniTactica on Mobile automatically hydrates NewRecruit session ('hsiehjun') without prompting to log in again",
+                bool(
+                    t2_mobile_autologin
+                    and t2_mobile_autologin.get("mobileAccess") == mock_access_jwt
+                    and t2_mobile_autologin.get("mobileRefresh") == mock_refresh_jwt
+                    and t2_mobile_autologin.get("mobilePiniaLogin") == "hsiehjun"
+                    and "Logout (hsiehjun)" in t2_mobile_autologin.get("authBtnText", "")
+                ),
+                json.dumps(t2_mobile_autologin),
+            )
+
+            # T5: Multi-User Isolation — User B ('user_beta') must NOT receive User A's ('user_innes') NewRecruit credentials
+            t5_isolation = await t.js(
+                """
+                (async () => {
+                    const resBeta = await (await fetch('/api/armylists/nr_state', {
+                        headers: { 'X-Test-User': 'user_beta' }
+                    })).json();
+                    const resInnes = await (await fetch('/api/armylists/nr_state', {
+                        headers: { 'X-Test-User': 'user_innes' }
+                    })).json();
+                    return {
+                        betaCloud: resBeta.cloud_account,
+                        innesCloud: resInnes.cloud_account
+                    };
+                })()
+                """
+            )
+            record(
+                "T5: Multi-User Isolation — User B ('user_beta') does not receive User A's ('user_innes') NewRecruit credentials",
+                bool(
+                    t5_isolation
+                    and t5_isolation.get("betaCloud", {}).get("connected") is False
+                    and not t5_isolation.get("betaCloud", {}).get("access")
+                    and t5_isolation.get("innesCloud", {}).get("connected") is True
+                    and t5_isolation.get("innesCloud", {}).get("login") == "hsiehjun"
+                ),
+                json.dumps(t5_isolation),
+            )
+
+            # T3 & T4: Logout on Desktop and verify logout propagates to Mobile on next hydration
+            await t.set_viewport(1440, 900, scale=1, mobile=False)
+            t3_t4_logout_sync = await t.js(
+                f"""
+                (async () => {{
+                    const ifr = document.getElementById('hub-nr-studio-iframe');
+                    const win = ifr.contentWindow;
+                    const st = win.__omnitacticaNrBridge.getNrStores();
+
+                    // Device A (Desktop) clicks Logout via triggerNewRecruitStudioAuth()
+                    await triggerNewRecruitStudioAuth();
+                    await new Promise(r => setTimeout(r, 200));
+
+                    const nrStateAfterLogout = await (await fetch('/api/armylists/nr_state', {{
+                        headers: {{ 'Authorization': 'Bearer ' + (window.api.getAuthToken() || '') }}
+                    }})).json();
+
+                    // Now simulate Device B (Mobile) which still had the old synced_to_server backup in localStorage
+                    win.localStorage.setItem('access', {json.dumps(mock_access_jwt)});
+                    win.localStorage.setItem('refresh', {json.dumps(mock_refresh_jwt)});
+                    win.localStorage.setItem('omni_nr_auth_backup_v1', JSON.stringify({{
+                        access: {json.dumps(mock_access_jwt)},
+                        refresh: {json.dumps(mock_refresh_jwt)},
+                        user: {{ id: 42, login: 'hsiehjun', supporter: 2, tier: 2 }},
+                        synced_to_server: true
+                    }}));
+                    st.user.user = {{ id: 42, login: 'hsiehjun', supporter: 2, tier: 2 }};
+
+                    // When Device B hydrates from OmniTactica, it sees disconnected_at and clears its local session
+                    await win.__omnitacticaNrBridge.hydrateFromOmniTactica(true);
+                    await loadHubArmyLists();
+
+                    const authBtnAfter = document.getElementById('hub-btn-nr-studio-auth');
+                    return {{
+                        serverConnectedAfterLogout: nrStateAfterLogout.cloud_account.connected,
+                        serverDisconnectedAt: nrStateAfterLogout.cloud_account.disconnected_at,
+                        deviceBAccessAfterHydrate: win.localStorage.getItem('access'),
+                        deviceBUserAfterHydrate: st.user.user,
+                        authBtnTextAfter: authBtnAfter ? authBtnAfter.textContent.trim() : ''
+                    }};
+                }})()
+                """
+            )
+            record(
+                "T3 & T4: Logging out on Desktop clears server credentials and automatically logs out Mobile on next hydration",
+                bool(
+                    t3_t4_logout_sync
+                    and t3_t4_logout_sync.get("serverConnectedAfterLogout") is False
+                    and bool(t3_t4_logout_sync.get("serverDisconnectedAt"))
+                    and t3_t4_logout_sync.get("deviceBAccessAfterHydrate") is None
+                    and not (t3_t4_logout_sync.get("deviceBUserAfterHydrate") or {}).get("login")
+                    and "Login" in t3_t4_logout_sync.get("authBtnTextAfter", "")
+                ),
+                json.dumps(t3_t4_logout_sync),
+            )
+
+            # =====================================================================
+            # PART 4: LIVE MFM POINTS PROPAGATION (2000 -> 1980) ACROSS ALL 3 VIEWS (T6 - T7)
+            # =====================================================================
+            print("\n--- PART 4: Live MFM Points Propagation (2000 -> 1980) Across Edit Mode, /app/MyLists, & My Hub (T6 - T7) ---")
+            t6_t7_points_propagation = await t.js(
+                """
+                (async () => {
+                    const ifr = document.getElementById('hub-nr-studio-iframe');
+                    const win = ifr.contentWindow;
+                    const st = win.__omnitacticaNrBridge.getNrStores();
+                    const sys = (await st.system.selectSystem(827374861)) || st.system.selectedSystem;
+
+                    // Compile a real native Necrons catalogue army from GW text using NewRecruit's parser
+                    const sampleNecronsText = [
+                        'ShatterStar Voidlord (2000 Points)',
+                        'Necrons',
+                        'Canoptek Court',
+                        'Strike Force (2000 Points)',
+                        '',
+                        'CHARACTERS',
+                        '',
+                        'Overlord (85 Points)',
+                        '  • Warlord'
+                    ].join('\\n');
+
+                    const tempRow = {
+                        list_key: 'shatter1',
+                        name: 'ShatterStar Voidlord',
+                        id_system: 827374861,
+                        id_book: 1694145926,
+                        bsid_system: 'sys-352e-adc2-7639-d610',
+                        bsid_book: 'b97e-2284-3251-9b14',
+                        totalCost: 2000,
+                        _omnitactica_gw_text: sampleNecronsText,
+                        _synthetic_text: sampleNecronsText
+                    };
+                    await win.__omnitacticaNrBridge.compileSyntheticRowIfNeeded(tempRow, st.system, st.list, true);
+
+                    // Now convert tempRow into a genuine NATIVE NewRecruit list (no _compiled_by_nr, no _synthetic_text)
+                    // whose stored row.totalCost is stale (2000), while its live catalogue army costs 1980 pts!
+                    const nativeArmyJson = JSON.parse(JSON.stringify(tempRow.army));
+                    const nativeRow = {
+                        list_key: 'shatter1',
+                        name: 'ShatterStar Voidlord',
+                        id_system: 827374861,
+                        id_book: 1694145926,
+                        bsid_system: 'sys-352e-adc2-7639-d610',
+                        bsid_book: 'b97e-2284-3251-9b14',
+                        nrversion: tempRow.nrversion || 24,
+                        totalCost: 2000,
+                        totalCosts: { pts: 2000 },
+                        date_mod: '2026-10-01 00:10:00',
+                        version: 5,
+                        synced: 1,
+                        metadata: { play_mode: false },
+                        army: nativeArmyJson
+                    };
+
+                    // Also create a synthetic plain-text BCP list ('BCP Imported Roster') with explicit 1990 pts
+                    // whose compiled units only cost ~85 pts, to verify T7 (synthetic BCP list preserves 1990 pts)
+                    const bcpSynthRow = {
+                        list_key: 'bcp1990',
+                        name: 'BCP Imported Roster',
+                        id_system: 827374861,
+                        id_book: 1694145926,
+                        bsid_system: 'sys-352e-adc2-7639-d610',
+                        bsid_book: 'b97e-2284-3251-9b14',
+                        nrversion: tempRow.nrversion || 24,
+                        totalCost: 1990,
+                        totalCosts: { pts: 1990 },
+                        _compiled_by_nr: true,
+                        _compiled_pts_sum: tempRow._compiled_pts_sum || 85,
+                        _synthetic_text: sampleNecronsText,
+                        date_mod: '2026-10-01 00:10:00',
+                        version: 1,
+                        synced: 1,
+                        metadata: { play_mode: true },
+                        army: JSON.parse(JSON.stringify(tempRow.army))
+                    };
+
+                    // Patch sys.loadList so when 'shatter1' is loaded against the live MFM catalogue, its live army.getPointsCost() is 1980
+                    const origLoadList = sys.loadList.bind(sys);
+                    sys.loadList = async function(r, fb) {
+                        const loaded = await origLoadList(r, fb);
+                        if (loaded && loaded.army && r && r.list_key === 'shatter1') {
+                            loaded.army.getPointsCost = function() { return 1980; };
+                        }
+                        return loaded;
+                    };
+
+                    // Seed Pinia & IndexedDB with stale totalCost: 2000 for shatter1 and 1990 for bcp1990
+                    st.list.listData.splice(0, st.list.listData.length, nativeRow, bcpSynthRow);
+                    await win.__omnitacticaNrBridge.upsertSingleRowToIdb(nativeRow);
+                    await win.__omnitacticaNrBridge.upsertSingleRowToIdb(bcpSynthRow);
+
+                    // 1. Open 'shatter1' in NewRecruit Edit Mode via stores.list.selectList(nativeRow)
+                    await st.list.selectList(nativeRow);
+                    await win.__omnitacticaNrBridge.forceFullSync(false);
+                    await new Promise(r => setTimeout(r, 400));
+
+                    const editModePts = st.list.currentList && st.list.currentList.army
+                        ? st.list.currentList.army.getPointsCost()
+                        : null;
+                    const piniaRowAfterSelect = st.list.listData.find(r => r && r.list_key === 'shatter1');
+                    const piniaBcpRow = st.list.listData.find(r => r && r.list_key === 'bcp1990');
+
+                    // Wait for syncUpsertRow to finish updating OmniTactica backend & My Hub
+                    for (let i = 0; i < 20; i++) {
+                        await loadHubArmyLists();
+                        const hubShatter = (window.hubSavedLists || []).find(l => l.list_key === 'shatter1' || l.id === 'nr_shatter1');
+                        if (hubShatter && Number(hubShatter.points) === 1980) break;
+                        await new Promise(r => setTimeout(r, 150));
+                    }
+
+                    // Also verify nr_state does NOT stamp _synthetic_text onto nativeRow ('shatter1')
+                    const nrStatePayload = await (await fetch('/api/armylists/nr_state')).json();
+                    const stateShatter = (nrStatePayload.nr_rows || []).find(r => r && r.list_key === 'shatter1');
+                    const stateBcp = (nrStatePayload.nr_rows || []).find(r => r && r.list_key === 'bcp1990');
+
+                    const hubShatterFinal = (window.hubSavedLists || []).find(l => l.list_key === 'shatter1' || l.id === 'nr_shatter1');
+                    const hubBcpFinal = (window.hubSavedLists || []).find(l => l.list_key === 'bcp1990' || l.id === 'nr_bcp1990');
+
+                    const hubCardEl = document.querySelector('.hub-rec-card[data-list-key="shatter1"]');
+                    const hubCardText = hubCardEl ? hubCardEl.innerText : '';
+
+                    return {
+                        editModePts,
+                        piniaMyListsTotalCost: piniaRowAfterSelect ? piniaRowAfterSelect.totalCost : null,
+                        hubShatterPoints: hubShatterFinal ? hubShatterFinal.points : null,
+                        hubCardShows1980: hubCardText.includes('1980 PTS'),
+                        nativeRowHasSyntheticTextInNrState: Boolean(stateShatter && stateShatter._synthetic_text),
+                        bcpPiniaTotalCost: piniaBcpRow ? piniaBcpRow.totalCost : null,
+                        bcpStateTotalCost: stateBcp ? stateBcp.totalCost : null,
+                        bcpHubPoints: hubBcpFinal ? hubBcpFinal.points : null
+                    };
+                })()
+                """
+            )
+            record(
+                "T6: Native NewRecruit list ('ShatterStar Voidlord') with stale 2000 pts updates to 1980 pts across Edit Mode, /app/MyLists, and My Hub",
+                bool(
+                    t6_t7_points_propagation
+                    and t6_t7_points_propagation.get("editModePts") == 1980
+                    and t6_t7_points_propagation.get("piniaMyListsTotalCost") == 1980
+                    and t6_t7_points_propagation.get("hubShatterPoints") == 1980
+                    and t6_t7_points_propagation.get("hubCardShows1980") is True
+                    and t6_t7_points_propagation.get("nativeRowHasSyntheticTextInNrState") is False
+                ),
+                json.dumps(t6_t7_points_propagation),
+            )
+            record(
+                "T7: Synthetic BCP plain-text imported list preserves its explicit 1990 pts total across Pinia, nr_state, and My Hub",
+                bool(
+                    t6_t7_points_propagation
+                    and t6_t7_points_propagation.get("bcpPiniaTotalCost") == 1990
+                    and t6_t7_points_propagation.get("bcpStateTotalCost") == 1990
+                    and (t6_t7_points_propagation.get("bcpHubPoints") in (1990, None))
+                ),
+                json.dumps(t6_t7_points_propagation),
+            )
+
+            # =====================================================================
+            # PART 5: VERIFY /app/MyLists totalCosts ARRAY [{value: 1980}] + SINGLE SOURCE OF TRUTH
+            # =====================================================================
+            print("\n--- PART 5: Verify /app/MyLists totalCosts Array [{value: 1980}] & Single Source of Truth ---")
+            t8_array_total_costs = await t.js(
+                """
+                (async () => {
+                    const ifr = document.getElementById('hub-nr-studio-iframe');
+                    const win = ifr.contentWindow;
+                    const st = win.__nr_stores;
+
+                    // 1. Seed OmniTactica backend with a STALE 2000 pts version of 'shatter1'
+                    await fetch('/api/armylists/nr_sync', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + (window.api.getAuthToken() || '')
+                        },
+                        body: JSON.stringify({
+                            action: 'upsert',
+                            list: {
+                                list_key: 'shatter1',
+                                name: 'ShatterStar Voidlord',
+                                id_system: 827374861,
+                                id_book: 1694145926,
+                                bsid_system: 'sys-352e-adc2-7639-d610',
+                                bsid_book: 'b97e-2284-3251-9b14',
+                                totalCost: 2000,
+                                totalCosts: { pts: 2000 },
+                                _compiled_by_nr: true,
+                                _compiled_pts_sum: 2000,
+                                date_mod: '2026-10-01 00:05:00'
+                            }
+                        })
+                    });
+
+                    // 2. In NewRecruit Pinia (/app/MyLists), simulate the exact state after refreshAllListCosts():
+                    //    totalCost is still scalar 2000, while totalCosts is an Array [{ name: 'pts', typeId: 'pts', value: 1980 }]
+                    //    and _compiled_by_nr is true with _compiled_pts_sum = 1980.
+                    const piniaRow = st.list.listData.find(r => r && r.list_key === 'shatter1');
+                    if (piniaRow) {
+                        piniaRow.totalCost = 2000;
+                        piniaRow.totalCosts = [{ name: 'pts', typeId: 'pts', value: 1980 }];
+                        piniaRow._compiled_by_nr = true;
+                        piniaRow._compiled_pts_sum = 1980;
+                        delete piniaRow.army;
+                    }
+
+                    // 3. Force a full sync from NewRecruit to My Hub and reload My Hub lists
+                    await win.__omnitacticaNrBridge.forceFullSync(false);
+                    await new Promise(r => setTimeout(r, 350));
+                    await loadHubArmyLists();
+
+                    const hubShatter = (window.hubSavedLists || []).find(l => l.list_key === 'shatter1' || l.id === 'nr_shatter1');
+                    const hubCardEl = document.querySelector('.hub-rec-card[data-list-key="shatter1"]');
+                    const hubCardText = hubCardEl ? hubCardEl.innerText : '';
+
+                    return {
+                        piniaTotalCostAfterSync: piniaRow ? piniaRow.totalCost : null,
+                        hubPoints: hubShatter ? hubShatter.points : null,
+                        hubCardShows1980: hubCardText.includes('1980 PTS'),
+                        hubCardText
+                    };
+                })()
+                """
+            )
+            record(
+                "T8: Row with scalar totalCost: 2000 and array totalCosts: [{value: 1980}] syncs 1980 PTS to My Hub without being overwritten by stale backend 2000 PTS",
+                bool(
+                    t8_array_total_costs
+                    and t8_array_total_costs.get("piniaTotalCostAfterSync") == 1980
+                    and t8_array_total_costs.get("hubPoints") == 1980
+                    and t8_array_total_costs.get("hubCardShows1980") is True
+                ),
+                json.dumps(t8_array_total_costs),
+            )
+
             print("\n" + "=" * 88)
             print(f"🎉 ALL {len(checks)} / {len(checks)} LIVE MFM & CROSS-DEVICE SYNC CHECKS PASSED!")
             print("=" * 88)

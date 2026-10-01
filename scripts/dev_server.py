@@ -1086,7 +1086,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 p_load = json.loads(body.decode("utf-8")) if body else {}
             except Exception:
                 p_load = {}
-            res = handle_nr_cloud_connect(p_load, dev_save_army_list, dev_delete_army_list, dev_get_army_lists, "default")
+            nr_user_key = self.headers.get("X-Test-User") or str(p_load.get("user_id") or "") or DEV_USER.get("id", "user_innes")
+            res = handle_nr_cloud_connect(p_load, dev_save_army_list, dev_delete_army_list, dev_get_army_lists, nr_user_key)
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -5249,7 +5250,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             rl_key = str(rl.get("list_key") or "")
                             if rl_id not in saved_ids and (not rl_key or rl_key not in saved_keys):
                                 combined_lists.append(dict(rl, _ephemeral_view=True))
-            payload = get_nr_state_payload(combined_lists, "default")
+            nr_user_key = self.headers.get("X-Test-User") or DEV_USER.get("id", "user_innes")
+            payload = get_nr_state_payload(combined_lists, nr_user_key)
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()

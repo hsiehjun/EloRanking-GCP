@@ -853,9 +853,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
   applyOmniNrDarkTheme(null);
 
-  // 0. Persist & restore NewRecruit JWT auth tokens across Cloud Run deploys/reloads
+  // 0. Persist & restore NewRecruit JWT auth tokens across Cloud Run deploys/reloads & multiple devices
   // and stabilize /app/Login inputs so autofill or field switching never minimizes the mobile keyboard.
   var AUTH_BACKUP_KEY = 'omni_nr_auth_backup_v1';
+  var lastPushedNrAccess = '';
 
   function decodeNrJwtPayload(tokenStr) {
     if (!tokenStr || typeof tokenStr !== 'string') return null;
@@ -873,40 +874,120 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     }
   }
 
+  function pushNrAuthToOmniServer(loginStr, accessTok, refreshTok, clientKeyStr) {
+    try {
+      if (!accessTok || window.__omniExplicitLogout || isEphemeralViewer) return;
+      if (lastPushedNrAccess === accessTok) return;
+      lastPushedNrAccess = accessTok;
+      var hdrs = { 'Content-Type': 'application/json' };
+      try {
+        var sessTok = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || '';
+        if (!sessTok && document.cookie) {
+          var m = document.cookie.match(/(?:^|;\s*)(?:session_token|elo_auth_token|native_session_token)=([^;]+)/);
+          if (m && m[1]) sessTok = decodeURIComponent(m[1]);
+        }
+        if (sessTok) hdrs['Authorization'] = 'Bearer ' + sessTok;
+      } catch (e2) {}
+      fetch('/api/armylists/nr_cloud_connect', {
+        method: 'POST',
+        headers: hdrs,
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          action: 'save_tokens',
+          login: loginStr || '',
+          access_token: accessTok,
+          refresh_token: refreshTok || '',
+          client_key: clientKeyStr || ''
+        })
+      }).then(function(r) {
+        if (r && r.ok) {
+          try {
+            var rawB = localStorage.getItem(AUTH_BACKUP_KEY);
+            if (rawB) {
+              var bObj = JSON.parse(rawB);
+              if (bObj && typeof bObj === 'object') {
+                bObj.synced_to_server = true;
+                localStorage.setItem(AUTH_BACKUP_KEY, JSON.stringify(bObj));
+              }
+            }
+          } catch (e3) {}
+        }
+      }).catch(function() {});
+    } catch (e) {}
+  }
+
+  try {
+    var origLsSetItem = Storage.prototype.setItem;
+    var origLsRemoveItem = Storage.prototype.removeItem;
+    Storage.prototype.setItem = function(k, v) {
+      if (this === window.localStorage && (k === 'access' || k === 'refresh')) {
+        var strV = String(v);
+        if (!v || strV === 'null' || strV === 'undefined') {
+          if (!window.__omniExplicitLogout) {
+            return;
+          }
+          return origLsRemoveItem.call(this, k);
+        }
+      }
+      return origLsSetItem.apply(this, arguments);
+    };
+    Storage.prototype.removeItem = function(k) {
+      if (this === window.localStorage && (k === 'access' || k === 'refresh') && !window.__omniExplicitLogout) {
+        var hasBak = this.getItem(AUTH_BACKUP_KEY);
+        if (hasBak) return;
+      }
+      return origLsRemoveItem.apply(this, arguments);
+    };
+  } catch (e) {}
+
   function backupOrRestoreNrAuth(userStore) {
     try {
       if (window.__omniExplicitLogout) return;
       var curAccess = localStorage.getItem('access') || '';
+      if (curAccess === 'null' || curAccess === 'undefined') curAccess = '';
       var curRefresh = localStorage.getItem('refresh') || '';
+      if (curRefresh === 'null' || curRefresh === 'undefined') curRefresh = '';
       var rawBackup = localStorage.getItem(AUTH_BACKUP_KEY);
       var backup = rawBackup ? JSON.parse(rawBackup) : null;
 
       if (curAccess) {
         var jwtUser = decodeNrJwtPayload(curAccess);
-        var userObj = (userStore && userStore.user && userStore.user.login)
-          ? {
-              id: userStore.user.id || (jwtUser && jwtUser.id) || 1,
-              login: userStore.user.login,
-              email: userStore.user.email || (jwtUser && jwtUser.email) || '',
-              patreon_tier: userStore.user.patreon_tier || 3
-            }
-          : ((backup && backup.user && backup.user.login) ? backup.user : (jwtUser && jwtUser.login ? {
-              id: jwtUser.id || 1,
-              login: jwtUser.login,
-              email: jwtUser.email || '',
-              patreon_tier: jwtUser.patreon_tier || 3
-            } : null));
+        var resolvedLogin = (userStore && userStore.user && userStore.user.login) ||
+                            (backup && backup.user && backup.user.login) ||
+                            (jwtUser && (jwtUser.login || jwtUser.username || jwtUser.name)) || '';
+        var resolvedId = (userStore && userStore.user && (userStore.user._id || userStore.user.id)) ||
+                         (jwtUser && (jwtUser.user_id || jwtUser.id)) ||
+                         (backup && backup.user && (backup.user._id || backup.user.id)) || 1;
+        var userObj = resolvedLogin ? {
+          _id: resolvedId,
+          id: resolvedId,
+          login: resolvedLogin,
+          email: (userStore && userStore.user && userStore.user.email) || (jwtUser && jwtUser.email) || '',
+          permission: (userStore && userStore.user && userStore.user.permission) || (jwtUser && jwtUser.role) || 10,
+          patreon_tier: (userStore && userStore.user && userStore.user.patreon_tier) || 3,
+          sub: { expiration: (jwtUser && jwtUser.expiration) || undefined }
+        } : null;
+        var wasAlreadySynced = Boolean(backup && backup.access === curAccess && backup.synced_to_server);
         var nextBackup = {
           access: curAccess,
           refresh: curRefresh || (backup && backup.refresh) || '',
           user: userObj,
-          updated_at: Date.now()
+          synced_to_server: wasAlreadySynced,
+          updated_at: (backup && backup.access === curAccess && backup.updated_at) ? backup.updated_at : Date.now()
         };
         localStorage.setItem(AUTH_BACKUP_KEY, JSON.stringify(nextBackup));
         if (userStore && !userStore.user && userObj && userObj.login) {
           userStore.user = userObj;
         }
-      } else if (backup && backup.access) {
+        if (!wasAlreadySynced) {
+          pushNrAuthToOmniServer(
+            (userObj && userObj.login) || '',
+            curAccess,
+            nextBackup.refresh,
+            (userStore && userStore.client_key) || localStorage.getItem('client-key') || ''
+          );
+        }
+      } else if (backup && backup.access && backup.access !== 'null' && backup.access !== 'undefined') {
         localStorage.setItem('access', backup.access);
         if (backup.refresh && !curRefresh) {
           localStorage.setItem('refresh', backup.refresh);
@@ -1343,6 +1424,36 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     } catch (e) {}
   }
 
+  function getRowArrayTotalCostsPts(row) {
+    if (!row || !Array.isArray(row.totalCosts)) return 0;
+    for (var i = 0; i < row.totalCosts.length; i++) {
+      var c = row.totalCosts[i];
+      if (c && (c.typeId === 'pts' || c.name === 'pts' || i === 0) && Number(c.value) > 0) {
+        return Number(c.value);
+      }
+    }
+    return 0;
+  }
+
+  function setRowPointsEverywhere(row, pts) {
+    if (!row || !(pts > 0)) return;
+    row.totalCost = pts;
+    if (Array.isArray(row.totalCosts)) {
+      var foundPts = false;
+      for (var i = 0; i < row.totalCosts.length; i++) {
+        if (row.totalCosts[i] && (row.totalCosts[i].typeId === 'pts' || row.totalCosts[i].name === 'pts')) {
+          row.totalCosts[i].value = pts;
+          foundPts = true;
+        }
+      }
+      if (!foundPts && row.totalCosts.length > 0 && row.totalCosts[0]) {
+        row.totalCosts[0].value = pts;
+      }
+    } else if (row.totalCosts && typeof row.totalCosts === 'object') {
+      row.totalCosts.pts = pts;
+    }
+  }
+
   function computeSignature(row) {
     if (!row || !row.list_key) return '';
     var armyStr = '';
@@ -1353,10 +1464,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     } catch (e) {
       armyStr = String(row.date_mod || '');
     }
+    var arrPts = getRowArrayTotalCostsPts(row);
+    var effectivePts = (arrPts > 0 && !isSyntheticTextRow(row, arrPts)) ? arrPts : (row.totalCost || 0);
     return [
       row.list_key,
       row.name || '',
-      row.totalCost || 0,
+      effectivePts,
       row._omnitactica_book_name || '',
       row._omnitactica_detachment || '',
       row.version || 0,
@@ -1534,6 +1647,23 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     return out;
   }
 
+  function isSyntheticTextRow(row, livePts) {
+    if (!row || typeof row !== 'object') return false;
+    var aid = String((row.army && row.army.id) || '');
+    if (aid.indexOf('army-') === 0 || aid.indexOf('root-') === 0 || aid.indexOf('cat-') === 0) {
+      return true;
+    }
+    if (row._compiled_by_nr) {
+      var ptsSum = Number(livePts || row._compiled_pts_sum || getRowArrayTotalCostsPts(row) || 0);
+      var headerCost = Number(row.totalCost || 0);
+      if (ptsSum >= 1400 && headerCost > 0 && Math.abs(headerCost - ptsSum) <= 350) {
+        return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
   function cloneCleanRow(row, explicitArmy, explicitBook) {
     if (!row || typeof row !== 'object') return null;
     try {
@@ -1542,20 +1672,34 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         copy.list_key = String(copy._id);
       }
       var stores = getNrStores();
+      var arrPts = getRowArrayTotalCostsPts(copy);
+      var isSynth = isSyntheticTextRow(copy, arrPts);
+      if (!isSynth && arrPts > 0 && arrPts !== copy.totalCost) {
+        copy.totalCost = arrPts;
+        row.totalCost = arrPts;
+      }
       if (explicitArmy && typeof explicitArmy.toJson === 'function') {
         try {
           copy.army = explicitArmy.toJson();
-          if (typeof explicitArmy.getPointsCost === 'function' && (!copy._synthetic_text || !copy.totalCost)) {
-            copy.totalCost = explicitArmy.getPointsCost() || copy.totalCost || 0;
+          if (typeof explicitArmy.getPointsCost === 'function') {
+            var expPts = explicitArmy.getPointsCost();
+            if (expPts > 0 && (!isSyntheticTextRow(copy, expPts) || !copy.totalCost)) {
+              setRowPointsEverywhere(copy, expPts);
+              setRowPointsEverywhere(row, expPts);
+            }
           }
         } catch (e) {}
-      } else if (!copy.army && stores && stores.list && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === copy.list_key && (window.location.pathname || '').indexOf('/Lists/') !== -1) {
+      } else if (stores && stores.list && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === copy.list_key && /\/Lists(\/|$)/i.test(window.location.pathname || '')) {
         var curArmy = stores.list.currentList.army;
         if (curArmy && typeof curArmy.toJson === 'function') {
           try {
             copy.army = curArmy.toJson();
-            if (!copy.totalCost && typeof curArmy.getPointsCost === 'function') {
-              copy.totalCost = curArmy.getPointsCost() || copy.totalCost || 0;
+            if (typeof curArmy.getPointsCost === 'function') {
+              var curPts = curArmy.getPointsCost();
+              if (curPts > 0 && (!isSyntheticTextRow(copy, curPts) || !copy.totalCost)) {
+                setRowPointsEverywhere(copy, curPts);
+                setRowPointsEverywhere(row, curPts);
+              }
             }
           } catch (e) {}
         }
@@ -1859,13 +2003,117 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
   var nativeExportsCache = {};
 
+  function propagateLivePointsToPiniaAndIdb(listKey, livePts, armyJson) {
+    if (!listKey || !(livePts > 0)) return;
+    try {
+      var st = getNrStores();
+      var changedPinia = false;
+      if (st && st.list) {
+        if (Array.isArray(st.list.listData)) {
+          for (var i = 0; i < st.list.listData.length; i++) {
+            var pr = st.list.listData[i];
+            if (pr && pr.list_key === listKey && !isSyntheticTextRow(pr, livePts)) {
+              if (pr.totalCost !== livePts || getRowArrayTotalCostsPts(pr) !== livePts) {
+                setRowPointsEverywhere(pr, livePts);
+                changedPinia = true;
+              }
+              if (armyJson && !pr.army) {
+                pr.army = armyJson;
+              }
+            }
+          }
+        }
+        if (st.list.currentList && st.list.currentList.row && st.list.currentList.row.list_key === listKey && !isSyntheticTextRow(st.list.currentList.row, livePts)) {
+          if (st.list.currentList.row.totalCost !== livePts || getRowArrayTotalCostsPts(st.list.currentList.row) !== livePts) {
+            setRowPointsEverywhere(st.list.currentList.row, livePts);
+            changedPinia = true;
+          }
+        }
+        if (changedPinia && typeof st.list.rebuildTreeData === 'function') {
+          st.list.rebuildTreeData();
+        }
+      }
+      openExistingNrDb().then(function(db) {
+        if (!db) return;
+        try {
+          var prevHyd = isHydrating;
+          isHydrating = true;
+          var tx = db.transaction('lists', 'readwrite');
+          var objStore = tx.objectStore('lists');
+          var req = objStore.get(listKey);
+          req.onsuccess = function() {
+            var existing = req.result;
+            if (existing && !isSyntheticTextRow(existing, livePts) && (existing.totalCost !== livePts || getRowArrayTotalCostsPts(existing) !== livePts || (armyJson && !existing.army))) {
+              setRowPointsEverywhere(existing, livePts);
+              if (armyJson && !existing.army) existing.army = armyJson;
+              try { objStore.put(existing); } catch (e2) {}
+            }
+          };
+          tx.oncomplete = function() { isHydrating = prevHyd; };
+          tx.onerror = function() { isHydrating = prevHyd; };
+        } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
+  async function fetchFullNrRowFallback(listKeyOrRow) {
+    var listKey = (listKeyOrRow && typeof listKeyOrRow === 'object')
+      ? String(listKeyOrRow.list_key || listKeyOrRow._id || '')
+      : String(listKeyOrRow || '');
+    if (!listKey) return null;
+    try {
+      var db = await openExistingNrDb();
+      if (db) {
+        var idbMatch = await new Promise(function(resolve) {
+          try {
+            var tx = db.transaction('lists', 'readonly');
+            var req = tx.objectStore('lists').get(listKey);
+            req.onsuccess = function() { resolve(req.result || null); };
+            req.onerror = function() { resolve(null); };
+          } catch (e) { resolve(null); }
+        });
+        if (idbMatch && idbMatch.army) return idbMatch;
+      }
+    } catch (e) {}
+    try {
+      var nrAccess = localStorage.getItem('access') || '';
+      if (nrAccess) {
+        var rpcRes = await fetch('/api/rpc?m=user_get_list', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+            'Content-Type': 'application/json',
+            'Authorization': nrAccess
+          },
+          body: JSON.stringify({ list_key: listKey })
+        });
+        if (rpcRes.ok) {
+          var rpcData = await rpcRes.json();
+          if (rpcData && rpcData.army) return rpcData;
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
   async function attachNativeArmyExports(cleanRow, explicitArmy) {
     if (!cleanRow || !cleanRow.list_key) return;
-    var cacheKey = String(cleanRow.list_key) + ':' + String(cleanRow.date_mod || '') + ':' + String(cleanRow.totalCost || '');
+    var arrPtsPre = getRowArrayTotalCostsPts(cleanRow);
+    if (arrPtsPre > 0 && !isSyntheticTextRow(cleanRow, arrPtsPre)) {
+      cleanRow.totalCost = arrPtsPre;
+    }
+    var cacheKey = String(cleanRow.list_key) + ':' + String(cleanRow.date_mod || '');
     var cachedExp = nativeExportsCache[cacheKey];
     if (cachedExp && cachedExp.gw && cachedExp.nr && !explicitArmy) {
       cleanRow._omnitactica_gw_text = cachedExp.gw;
       cleanRow._omnitactica_nr_text = cachedExp.nr;
+      if (cachedExp.livePts > 0 && !isSyntheticTextRow(cleanRow, cachedExp.livePts)) {
+        setRowPointsEverywhere(cleanRow, cachedExp.livePts);
+        propagateLivePointsToPiniaAndIdb(cleanRow.list_key, cachedExp.livePts, cachedExp.armyJson);
+      }
+      if (cachedExp.armyJson && !cleanRow.army) {
+        cleanRow.army = cachedExp.armyJson;
+      }
       if (cachedExp.units && cachedExp.units.length > 0 && (!cleanRow._omnitactica_enriched_units || cleanRow._omnitactica_enriched_units.length === 0)) {
         cleanRow._omnitactica_enriched_units = cachedExp.units;
       }
@@ -1881,11 +2129,11 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       var stores = getNrStores();
       var armyInst = explicitArmy || null;
       var bookInst = null;
-      if (!armyInst && stores && stores.list && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === cleanRow.list_key && (window.location.pathname || '').indexOf('/Lists/') !== -1) {
+      if (!armyInst && stores && stores.list && stores.list.currentList && stores.list.currentList.row && stores.list.currentList.row.list_key === cleanRow.list_key) {
         armyInst = stores.list.currentList.army || null;
         bookInst = stores.list.currentList.book || null;
       }
-      if (!armyInst && stores && stores.system && cleanRow.army && (cleanRow.id_system || cleanRow.bsid_system)) {
+      if (!armyInst && stores && stores.system && (cleanRow.id_system || cleanRow.bsid_system)) {
         var sysId = cleanRow.id_system || cleanRow.bsid_system;
         var sys = (stores.system.library && stores.system.library.index && stores.system.library.index[sysId]) ||
                   (stores.system.selectedSystem && (stores.system.selectedSystem.id == sysId || stores.system.selectedSystem.bsid == sysId) ? stores.system.selectedSystem : null);
@@ -1894,27 +2142,44 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             return s && (s.id == sysId || s.bsid == sysId || s.bsid == cleanRow.bsid_system);
           }) || null;
         }
-        if (!sys && typeof stores.system.getSystem === 'function') {
+        if ((!sys || typeof sys.loadList !== 'function') && typeof stores.system.getSystem === 'function') {
           try { sys = await stores.system.getSystem(sysId); } catch (e) {}
+        }
+        if ((!sys || typeof sys.loadList !== 'function') && typeof stores.system.selectSystem === 'function') {
+          try {
+            await stores.system.selectSystem(sysId);
+            sys = stores.system.selectedSystem;
+          } catch (e) {}
         }
         if (sys && typeof sys.loadList === 'function') {
           if (stores.list && typeof stores.list.loadTranslations === 'function') {
             try { await stores.list.loadTranslations(sys); } catch (e) {}
           }
           var rowForLoad = Object.assign({}, cleanRow);
-          var loaded = await sys.loadList(rowForLoad);
+          if (!rowForLoad.army) {
+            var fullFb = await fetchFullNrRowFallback(cleanRow.list_key);
+            if (fullFb && fullFb.army) {
+              rowForLoad.army = fullFb.army;
+              cleanRow.army = fullFb.army;
+            }
+          }
+          var loaded = await sys.loadList(rowForLoad, fetchFullNrRowFallback);
           if ((!loaded || !loaded.army) && rowForLoad.booksDate) {
             delete rowForLoad.booksDate;
-            loaded = await sys.loadList(rowForLoad);
+            loaded = await sys.loadList(rowForLoad, fetchFullNrRowFallback);
           }
           if (loaded && loaded.army) {
             armyInst = loaded.army;
             bookInst = loaded.book || null;
+            if (!cleanRow.army && typeof armyInst.toJson === 'function') {
+              try { cleanRow.army = armyInst.toJson(); } catch (e) {}
+            }
           }
         }
       }
       if (!armyInst || typeof armyInst.exportArmy !== 'function') return;
 
+      var resolvedLivePts = 0;
       try {
         var meta = extractLiveArmyMetadata(cleanRow.list_key, armyInst, bookInst);
         if (meta.units && meta.units.length > 0) {
@@ -1928,8 +2193,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
         if (typeof armyInst.getPointsCost === 'function') {
           var livePts = armyInst.getPointsCost();
-          if (livePts > 0 && (!cleanRow.totalCost || (explicitArmy && !cleanRow._synthetic_text))) {
-            cleanRow.totalCost = livePts;
+          if (livePts > 0) {
+            resolvedLivePts = livePts;
+            if (!cleanRow.totalCost || !isSyntheticTextRow(cleanRow, livePts)) {
+              setRowPointsEverywhere(cleanRow, livePts);
+              propagateLivePointsToPiniaAndIdb(cleanRow.list_key, livePts, cleanRow.army);
+            }
           }
         }
       } catch (e) {}
@@ -1971,6 +2240,8 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         nativeExportsCache[cacheKey] = {
           gw: cleanRow._omnitactica_gw_text,
           nr: cleanRow._omnitactica_nr_text,
+          livePts: resolvedLivePts || 0,
+          armyJson: cleanRow.army || null,
           units: cleanRow._omnitactica_enriched_units || null,
           detachment: cleanRow._omnitactica_detachment || '',
           bookName: cleanRow._omnitactica_book_name || ''
@@ -2008,7 +2279,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           if (prevCompiledSum && !st.list.currentList.row._compiled_pts_sum) {
             st.list.currentList.row._compiled_pts_sum = prevCompiledSum;
           }
-          if (!isCompilingSave && (window.location.pathname || '').indexOf('/Lists/') === -1) {
+          if (!isCompilingSave && !/\/Lists(\/|$)/i.test(window.location.pathname || '')) {
             st.list.currentList = null;
           }
         }
@@ -2242,7 +2513,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           }
         }
       }
-      if (stores.list.currentList && stores.list.currentList.row && (window.location.pathname || '').indexOf('/Lists/') !== -1) {
+      if (stores.list.currentList && stores.list.currentList.row && /\/Lists(\/|$)/i.test(window.location.pathname || '')) {
         var cr = stores.list.currentList.row;
         var ck = String(cr.list_key || cr._id || '');
         if (ck && mergedMap[ck] && isActiveNrListRow(cr, stores)) {
@@ -2250,8 +2521,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           if (stores.list.currentList.army && typeof stores.list.currentList.army.toJson === 'function') {
             try {
               cr.army = stores.list.currentList.army.toJson();
-              if (!cr._synthetic_text || !cr.totalCost) {
-                cr.totalCost = stores.list.currentList.army.getPointsCost() || cr.totalCost || 0;
+              if (!isSyntheticTextRow(cr) || !cr.totalCost) {
+                var liveCurPts = stores.list.currentList.army.getPointsCost();
+                if (liveCurPts > 0) cr.totalCost = liveCurPts;
               }
             } catch (e) {}
           }
@@ -2364,24 +2636,63 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         return;
       }
       var state = await res.json();
-      if (state && state.cloud_account && state.cloud_account.connected) {
-        var restoredCloudTokens = false;
-        if (state.cloud_account.access && !localStorage.getItem('access')) {
-          localStorage.setItem('access', state.cloud_account.access);
-          restoredCloudTokens = true;
-        }
-        if (state.cloud_account.refresh && !localStorage.getItem('refresh')) {
-          localStorage.setItem('refresh', state.cloud_account.refresh);
-          restoredCloudTokens = true;
-        }
-        backupOrRestoreNrAuth(stores.user);
-        if (restoredCloudTokens && !isNrLoggedInPre && !isEmbeddedViewer && !isEphemeralViewer && typeof stores.list.syncAllLists === 'function') {
+      if (state && state.cloud_account) {
+        if (state.cloud_account.connected) {
+          var restoredCloudTokens = false;
+          if (state.cloud_account.access && localStorage.getItem('access') !== state.cloud_account.access) {
+            localStorage.setItem('access', state.cloud_account.access);
+            restoredCloudTokens = true;
+          }
+          if (state.cloud_account.refresh && localStorage.getItem('refresh') !== state.cloud_account.refresh) {
+            localStorage.setItem('refresh', state.cloud_account.refresh);
+            restoredCloudTokens = true;
+          }
+          if (state.cloud_account.client_key && !localStorage.getItem('client-key')) {
+            localStorage.setItem('client-key', state.cloud_account.client_key);
+          }
+          if (stores.user && (!stores.user.user || !stores.user.user.login)) {
+            var restoredLogin = state.cloud_account.login || 'NewRecruit Account';
+            stores.user.user = { id: 1, login: restoredLogin, supporter: 2, tier: 2 };
+            stores.user.sessionExpired = false;
+            restoredCloudTokens = true;
+          }
           try {
-            await Promise.race([
-              stores.list.syncAllLists(true),
-              new Promise(function(r) { setTimeout(r, 3500); })
-            ]);
+            var prevBak = JSON.parse(localStorage.getItem(AUTH_BACKUP_KEY) || '{}');
+            localStorage.setItem(AUTH_BACKUP_KEY, JSON.stringify({
+              access: localStorage.getItem('access') || state.cloud_account.access || '',
+              refresh: localStorage.getItem('refresh') || state.cloud_account.refresh || '',
+              clientKey: localStorage.getItem('client-key') || state.cloud_account.client_key || prevBak.clientKey || '',
+              user: (stores.user && stores.user.user) ? stores.user.user : { id: 1, login: state.cloud_account.login || 'NewRecruit Account', supporter: 2, tier: 2 },
+              synced_to_server: true
+            }));
           } catch (e) {}
+          backupOrRestoreNrAuth(stores.user);
+          if (restoredCloudTokens && !isNrLoggedInPre && !isEmbeddedViewer && !isEphemeralViewer && typeof stores.list.syncAllLists === 'function') {
+            try {
+              await Promise.race([
+                stores.list.syncAllLists(true),
+                new Promise(function(r) { setTimeout(r, 3500); })
+              ]);
+            } catch (e) {}
+            backupOrRestoreNrAuth(stores.user);
+          }
+        } else if (state.cloud_account.disconnected_at) {
+          // Cross-device logout propagation: if this device was previously synced to the server
+          // and another device explicitly logged out / disconnected, clear local tokens here too.
+          var localBak = null;
+          try { localBak = JSON.parse(localStorage.getItem(AUTH_BACKUP_KEY) || 'null'); } catch (e) {}
+          if (localBak && localBak.synced_to_server) {
+            try {
+              window.__omniExplicitLogout = true;
+              localStorage.removeItem(AUTH_BACKUP_KEY);
+              localStorage.removeItem('access');
+              localStorage.removeItem('refresh');
+              if (stores.user) {
+                stores.user.user = null;
+                stores.user.sessionExpired = false;
+              }
+            } catch (e) {}
+          }
         }
       }
 
@@ -2470,9 +2781,14 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           if (isTargetUrlRow) {
             existingPinia.metadata = Object.assign({}, existingPinia.metadata || {}, { play_mode: Boolean(wantPlayModeFromUrl) });
           }
+          var exArrPts = getRowArrayTotalCostsPts(existingPinia);
+          if (exArrPts > 0 && !isSyntheticTextRow(existingPinia, exArrPts)) {
+            existingPinia.totalCost = exArrPts;
+          }
+          var wasAlreadyKnown = Boolean(knownListsMap[sRow.list_key]);
           var sSig = computeSignature(cloneCleanRow(sRow) || sRow);
           var exSig = computeSignature(cloneCleanRow(existingPinia) || existingPinia);
-          var hasUnsavedLocalEdit = Boolean(knownListsMap[sRow.list_key] && knownListsMap[sRow.list_key] !== exSig);
+          var hasUnsavedLocalEdit = Boolean(wasAlreadyKnown && knownListsMap[sRow.list_key] !== exSig);
           var hasRecentLocalWrite = Boolean(
             syncInFlight[sRow.list_key] ||
             pendingSyncRow[sRow.list_key] ||
@@ -2486,7 +2802,20 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           var exArmyId = String((existingPinia.army && existingPinia.army.id) || '');
           var serverHasCompiledArmy = Boolean(sArmyId && sArmyId.indexOf('army-') !== 0 && sArmyId.indexOf('root-') !== 0 && sArmyId.indexOf('cat-') !== 0);
           var localHasCompiledArmy = Boolean(exArmyId && exArmyId.indexOf('army-') !== 0 && exArmyId.indexOf('root-') !== 0 && exArmyId.indexOf('cat-') !== 0);
-          if (sSig !== exSig && !isCurrentlyEditingThisList && !hasUnsavedLocalEdit && !hasRecentLocalWrite) {
+          if (!wasAlreadyKnown) {
+            // NewRecruit is the single source of truth on initial load: never clobber existing NewRecruit rows with cached OmniTactica backend rows.
+            if (!existingPinia.army && sRow.army && serverHasCompiledArmy) {
+              existingPinia.army = sRow.army;
+            }
+            if (!existingPinia._ephemeral_view && !isEphemeralViewer) {
+              knownListsMap[sRow.list_key] = computeSignature(cloneCleanRow(existingPinia) || existingPinia);
+              if (sSig !== exSig) {
+                setTimeout(function() {
+                  syncUpsertRow(existingPinia);
+                }, 60);
+              }
+            }
+          } else if (sSig !== exSig && !isCurrentlyEditingThisList && !hasUnsavedLocalEdit && !hasRecentLocalWrite) {
             var keepMeta = Object.assign({}, existingPinia.metadata || {}, sRow.metadata || {});
             if (isTargetUrlRow) {
               keepMeta.play_mode = Boolean(wantPlayModeFromUrl);
@@ -2848,14 +3177,16 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           var compiledUnitPts = (typeof bestParsed.army.getPointsCost === 'function' ? bestParsed.army.getPointsCost() : 0) || 0;
           row._compiled_pts_sum = compiledUnitPts;
           var explicitTotalCost = Number(row.totalCost) || 0;
-          if (!explicitTotalCost) {
-            row.totalCost = compiledUnitPts || 2000;
-          }
+          var keepSyntheticHeaderCost = Boolean(explicitTotalCost > 0 && isSyntheticTextRow(row, compiledUnitPts));
+          var resolvedCompiledCost = keepSyntheticHeaderCost ? explicitTotalCost : (compiledUnitPts || explicitTotalCost || 2000);
+          row.totalCost = resolvedCompiledCost;
           if (typeof bestParsed.army.calcTotalCosts === 'function') {
             row.totalCosts = bestParsed.army.calcTotalCosts();
-            if (explicitTotalCost > 0 && row.totalCosts && typeof row.totalCosts === 'object') {
-              row.totalCosts.pts = explicitTotalCost;
-            }
+          }
+          if (keepSyntheticHeaderCost) {
+            setRowPointsEverywhere(row, explicitTotalCost);
+          } else if (compiledUnitPts > 0) {
+            setRowPointsEverywhere(row, compiledUnitPts);
           }
           row._compiled_by_nr = true;
           row._compiled_unit_count = bestUnitCount;
@@ -2873,16 +3204,16 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               isCompilingSave = prevCompSave;
             }
           }
-          if (explicitTotalCost > 0) {
-            row.totalCost = explicitTotalCost;
+          if (keepSyntheticHeaderCost) {
+            setRowPointsEverywhere(row, explicitTotalCost);
+          } else if (compiledUnitPts > 0) {
+            setRowPointsEverywhere(row, compiledUnitPts);
           }
           if (listStore && Array.isArray(listStore.listData)) {
             var existingIdx = listStore.listData.findIndex(function(r) { return r && r.list_key === row.list_key; });
             if (existingIdx !== -1) {
               Object.assign(listStore.listData[existingIdx], row);
-              if (explicitTotalCost > 0) {
-                listStore.listData[existingIdx].totalCost = explicitTotalCost;
-              }
+              setRowPointsEverywhere(listStore.listData[existingIdx], resolvedCompiledCost);
             }
           }
         } else {
@@ -2978,6 +3309,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
               localStorage.removeItem(AUTH_BACKUP_KEY);
               localStorage.removeItem('access');
               localStorage.removeItem('refresh');
+              fetch('/api/armylists/nr_cloud_connect', {
+                method: 'POST',
+                headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+                credentials: 'same-origin',
+                body: JSON.stringify({ action: 'disconnect' })
+              }).catch(function() {});
             } catch (e) {}
             return await origUserLogout.apply(this, arguments);
           };
@@ -3185,7 +3522,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             if (
               listObj &&
               listObj.row &&
-              listObj.row._synthetic_text &&
+              isSyntheticTextRow(listObj.row) &&
               Number(listObj.row.totalCost) > 0 &&
               listObj.army &&
               typeof listObj.army.getPointsCost === 'function'
@@ -3324,6 +3661,48 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           if (activeList && activeList.row && requestedListKeyFromUrl) {
             activeList.row.metadata = Object.assign({}, activeList.row.metadata || {}, { play_mode: wantPlayNow });
           }
+          try {
+            var cl = this.currentList || activeList;
+            if (cl && cl.row && cl.army && !cl.row._ephemeral_view && !isEphemeralViewer) {
+              var liveArmyPts = typeof cl.army.getPointsCost === 'function' ? cl.army.getPointsCost() : 0;
+              if (liveArmyPts > 0 && !isSyntheticTextRow(cl.row, liveArmyPts)) {
+                var armyJsonObj = typeof cl.army.toJson === 'function' ? cl.army.toJson() : cl.row.army;
+                setRowPointsEverywhere(cl.row, liveArmyPts);
+                if (armyJsonObj) cl.row.army = armyJsonObj;
+                propagateLivePointsToPiniaAndIdb(cl.row.list_key, liveArmyPts, armyJsonObj);
+                setTimeout(function() {
+                  syncUpsertRow(cl.row, cl.army, cl.book);
+                }, 30);
+              }
+            }
+          } catch (e) {}
+          return res;
+        };
+      }
+
+      if (typeof stores.list.refreshAllListCosts === 'function') {
+        var origRefreshCosts = stores.list.refreshAllListCosts.bind(stores.list);
+        stores.list.refreshAllListCosts = async function() {
+          var res = await origRefreshCosts.apply(this, arguments);
+          try {
+            if (Array.isArray(this.listData)) {
+              for (var i = 0; i < this.listData.length; i++) {
+                var r = this.listData[i];
+                if (!r || r._ephemeral_view) continue;
+                var tcPts = getRowArrayTotalCostsPts(r);
+                if (tcPts > 0 && !isSyntheticTextRow(r, tcPts)) {
+                  setRowPointsEverywhere(r, tcPts);
+                  propagateLivePointsToPiniaAndIdb(r.list_key, tcPts, r.army);
+                }
+              }
+            }
+          } catch (e) {}
+          setTimeout(function() {
+            pollListsDiff();
+            if (!isEmbeddedViewer) {
+              forceFullSync();
+            }
+          }, 120);
           return res;
         };
       }
@@ -3728,7 +4107,10 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     ensurePlayModeAndStoreHooks: ensurePlayModeAndStoreHooks,
     getNrStores: getNrStores,
     readAllNrLists: readAllNrLists,
-    attachNativeArmyExports: attachNativeArmyExports
+    attachNativeArmyExports: attachNativeArmyExports,
+    compileSyntheticRowIfNeeded: compileSyntheticRowIfNeeded,
+    upsertSingleRowToIdb: upsertSingleRowToIdb,
+    propagateLivePointsToPiniaAndIdb: propagateLivePointsToPiniaAndIdb
   };
 
   window.addEventListener('message', async function(ev) {
@@ -4562,6 +4944,17 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(roster.get("nr_row"), dict) and roster["nr_row"].get("list_key"):
         row = dict(roster["nr_row"])
         row["name"] = roster.get("name") or row.get("name") or "Army Roster"
+        tc_raw = row.get("totalCosts")
+        if isinstance(tc_raw, list):
+            for tc_item in tc_raw:
+                if isinstance(tc_item, dict) and (tc_item.get("typeId") == "pts" or tc_item.get("name") == "pts"):
+                    try:
+                        tc_val = int(float(tc_item.get("value") or 0))
+                    except Exception:
+                        tc_val = 0
+                    if tc_val > 0 and (not row.get("_compiled_by_nr") or tc_val >= 1400):
+                        row["totalCost"] = tc_val
+                        break
         if row.get("totalCost") is None:
             row["totalCost"] = int(roster.get("points") or 0)
         if roster.get("_ephemeral_view"):
@@ -4570,14 +4963,17 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
             row["_omnitactica_gw_text"] = roster["gw_text"]
         if roster.get("nr_text") and not row.get("_omnitactica_nr_text"):
             row["_omnitactica_nr_text"] = roster["nr_text"]
-        if not row.get("_synthetic_text"):
-            row["_synthetic_text"] = build_roster_text_for_nr_compiler(roster, book_name)
         army_obj = row.get("army") if isinstance(row.get("army"), dict) else {}
         is_legacy_synthetic = (
             row.get("id_system") in (None, 1)
             or str(army_obj.get("id") or "").startswith("army-")
             or str(army_obj.get("id") or "").startswith("root-")
         )
+        if is_legacy_synthetic or row.get("_compiled_by_nr"):
+            if not row.get("_synthetic_text"):
+                row["_synthetic_text"] = build_roster_text_for_nr_compiler(roster, book_name)
+        else:
+            row.pop("_synthetic_text", None)
         if not is_legacy_synthetic:
             return row
 
@@ -4708,6 +5104,53 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
     return out_row
 
 
+def _resolve_nr_cloud_account(user_key: str = "default") -> Dict[str, Any]:
+    """Resolves the per-user NewRecruit Cloud account state from memory or PostgreSQL AuthManager."""
+    ukey = str(user_key or "default").strip() or "default"
+    mem_acct = _NR_CLOUD_ACCOUNTS.get(ukey)
+    if ukey != "default":
+        try:
+            from auth import get_auth_manager
+            db_creds = get_auth_manager().get_nr_credentials(ukey)
+            if isinstance(db_creds, dict) and (db_creds.get("connected") or db_creds.get("disconnected_at")):
+                merged = dict(mem_acct or {})
+                merged.update({
+                    "connected": bool(db_creds.get("connected")),
+                    "login": db_creds.get("login") or "",
+                    "access": db_creds.get("access") or "",
+                    "refresh": db_creds.get("refresh") or "",
+                    "client_key": db_creds.get("client_key") or merged.get("client_key") or "",
+                    "last_sync": db_creds.get("last_sync") or merged.get("last_sync"),
+                    "disconnected_at": db_creds.get("disconnected_at"),
+                })
+                _NR_CLOUD_ACCOUNTS[ukey] = merged
+                return merged
+        except Exception:
+            pass
+    return dict(mem_acct or {})
+
+
+def _persist_nr_cloud_account(user_key: str, acct: Dict[str, Any]) -> None:
+    """Persists the per-user NewRecruit Cloud account state to memory and PostgreSQL AuthManager."""
+    ukey = str(user_key or "default").strip() or "default"
+    _NR_CLOUD_ACCOUNTS[ukey] = dict(acct)
+    if ukey != "default":
+        try:
+            from auth import get_auth_manager
+            if acct.get("connected") and acct.get("access"):
+                get_auth_manager().save_nr_credentials(
+                    user_id=ukey,
+                    login=str(acct.get("login") or ""),
+                    access_token=str(acct.get("access") or ""),
+                    refresh_token=str(acct.get("refresh") or ""),
+                    client_key=str(acct.get("client_key") or ""),
+                )
+            elif not acct.get("connected"):
+                get_auth_manager().clear_nr_credentials(ukey)
+        except Exception:
+            pass
+
+
 def get_nr_state_payload(
     current_lists: List[Dict[str, Any]],
     user_key: str = "default",
@@ -4724,7 +5167,7 @@ def get_nr_state_payload(
             seen_keys.add(lkey)
             nr_rows.append(row)
 
-    acct = _NR_CLOUD_ACCOUNTS.get(user_key) or _NR_CLOUD_ACCOUNTS.get("default") or {}
+    acct = _resolve_nr_cloud_account(user_key)
     return {
         "success": True,
         "nr_rows": nr_rows,
@@ -4732,8 +5175,10 @@ def get_nr_state_payload(
             "connected": bool(acct.get("connected")),
             "login": acct.get("login") or "",
             "last_sync": acct.get("last_sync"),
+            "disconnected_at": acct.get("disconnected_at"),
             "access": acct.get("access") or "",
             "refresh": acct.get("refresh") or "",
+            "client_key": acct.get("client_key") or "",
         },
     }
 
@@ -4804,13 +5249,34 @@ def process_nr_sync_payload(
         if not isinstance(ex, dict):
             return
         ex_nr_row = ex.get("nr_row") if isinstance(ex.get("nr_row"), dict) else {}
+        eff_pts = 0
+        tc_raw = row_obj.get("totalCosts")
+        if isinstance(tc_raw, list):
+            for tc_item in tc_raw:
+                if isinstance(tc_item, dict) and (tc_item.get("typeId") == "pts" or tc_item.get("name") == "pts"):
+                    try:
+                        eff_pts = int(float(tc_item.get("value") or 0))
+                        if eff_pts > 0:
+                            break
+                    except Exception:
+                        pass
+        if not eff_pts:
+            try:
+                eff_pts = int(float(row_obj.get("totalCost") or 0))
+            except Exception:
+                eff_pts = 0
+        ex_pts = int(ex.get("points") or 0)
         if not row_obj.get("_omnitactica_gw_text"):
             ex_gw = str(ex_nr_row.get("_omnitactica_gw_text") or "").strip()
             if ex_gw and "(0 Points)" not in ex_gw and "(0 pts)" not in ex_gw:
+                if eff_pts > 0 and ex_pts > 0 and eff_pts != ex_pts:
+                    ex_gw = ex_gw.replace(f"({ex_pts} Points)", f"({eff_pts} Points)").replace(f"({ex_pts} pts)", f"({eff_pts} pts)")
                 row_obj["_omnitactica_gw_text"] = ex_gw
         if not row_obj.get("_omnitactica_nr_text"):
             ex_nr = str(ex_nr_row.get("_omnitactica_nr_text") or "").strip()
             if ex_nr and "(0 Points)" not in ex_nr and "(0 pts)" not in ex_nr:
+                if eff_pts > 0 and ex_pts > 0 and eff_pts != ex_pts:
+                    ex_nr = ex_nr.replace(f"[{ex_pts}pts]", f"[{eff_pts}pts]").replace(f"({ex_pts} pts)", f"({eff_pts} pts)")
                 row_obj["_omnitactica_nr_text"] = ex_nr
 
     if action == "bulk_sync":
@@ -4916,32 +5382,77 @@ def handle_nr_cloud_connect(
     user_key: str = "default",
 ) -> Dict[str, Any]:
     """
-    Handles Option 2: NewRecruit Cloud Account Connection & Bidirectional Cloud List Sync.
+    Handles NewRecruit Cloud Account Connection, Cross-Device Token Persistence, & Bidirectional Cloud List Sync.
     """
     action = str(body.get("action") or "connect").strip().lower()
     parser = get_parser()
+    ukey = str(user_key or "default").strip() or "default"
+    acct = _resolve_nr_cloud_account(ukey)
 
     if action == "status":
-        acct = _NR_CLOUD_ACCOUNTS.get(user_key) or _NR_CLOUD_ACCOUNTS.get("default") or {}
         return {
             "success": True,
             "connected": bool(acct.get("connected")),
             "login": acct.get("login") or "",
             "last_sync": acct.get("last_sync"),
+            "disconnected_at": acct.get("disconnected_at"),
             "synced_count": acct.get("synced_count", 0),
         }
 
     if action == "disconnect":
-        _NR_CLOUD_ACCOUNTS.pop(user_key, None)
-        _NR_CLOUD_ACCOUNTS.pop("default", None)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        disconnected_acct = {
+            "connected": False,
+            "login": "",
+            "access": "",
+            "refresh": "",
+            "client_key": "",
+            "last_sync": None,
+            "disconnected_at": now_iso,
+        }
+        _persist_nr_cloud_account(ukey, disconnected_acct)
         return {
             "success": True,
             "connected": False,
             "login": "",
+            "disconnected_at": now_iso,
             "army_lists": list_fn(),
         }
 
-    acct = dict(_NR_CLOUD_ACCOUNTS.get(user_key) or _NR_CLOUD_ACCOUNTS.get("default") or {})
+    if action == "save_tokens":
+        access_tok = str(body.get("access_token") or body.get("access") or "").strip()
+        refresh_tok = str(body.get("refresh_token") or body.get("refresh") or "").strip()
+        login_val = str(body.get("login") or acct.get("login") or "").strip()
+        client_key_val = str(body.get("client_key") or acct.get("client_key") or "").strip()
+        if not access_tok:
+            return {"success": False, "error": "Missing access_token"}
+        if not login_val:
+            try:
+                jwt_fb = _decode_jwt_user_fallback(access_tok)
+                if jwt_fb:
+                    jwt_obj = json.loads(jwt_fb.decode("utf-8", errors="ignore"))
+                    login_val = str(jwt_obj.get("login") or "NewRecruit Account")
+            except Exception:
+                login_val = "NewRecruit Account"
+        now_iso = datetime.now(timezone.utc).isoformat()
+        updated_acct = {
+            "connected": True,
+            "login": login_val or "NewRecruit Account",
+            "access": access_tok,
+            "refresh": refresh_tok,
+            "client_key": client_key_val,
+            "last_sync": now_iso,
+            "disconnected_at": None,
+            "synced_count": acct.get("synced_count", 0),
+        }
+        _persist_nr_cloud_account(ukey, updated_acct)
+        return {
+            "success": True,
+            "connected": True,
+            "login": updated_acct["login"],
+            "last_sync": now_iso,
+        }
+
     login_input = str(body.get("login") or body.get("username") or body.get("email") or acct.get("login") or "").strip()
     password_input = str(body.get("password") or "").strip()
     access_token = str(body.get("access_token") or acct.get("access") or "").strip()
@@ -4983,6 +5494,7 @@ def handle_nr_cloud_connect(
                     "access": access_token,
                     "refresh": refresh_token,
                     "client_key": client_key,
+                    "disconnected_at": None,
                 }
             else:
                 err_msg = (
@@ -5041,9 +5553,9 @@ def handle_nr_cloud_connect(
         now_iso = datetime.now(timezone.utc).isoformat()
         acct["connected"] = True
         acct["last_sync"] = now_iso
+        acct["disconnected_at"] = None
         acct["synced_count"] = len(synced_keys)
-        _NR_CLOUD_ACCOUNTS[user_key] = acct
-        _NR_CLOUD_ACCOUNTS["default"] = acct
+        _persist_nr_cloud_account(ukey, acct)
 
         return {
             "success": True,
