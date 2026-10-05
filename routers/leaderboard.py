@@ -1577,7 +1577,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 if pname:
                     player_by_name[pname] = pl
 
-            # Enrich existing DB matches in memory if any scores were missing (e.g. stored only in BCP games array)
+            # Enrich and reconcile existing DB matches in memory from players' official BCP games array
             for m in (event_details.get("matches") or []):
                 if not isinstance(m, dict):
                     continue
@@ -1585,36 +1585,60 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 p1_reg = player_by_id.get(str(m.get("player1_id") or "")) or player_by_name.get(str(m.get("player1_name") or "").strip().lower(), {})
                 p2_reg = player_by_id.get(str(m.get("player2_id") or "")) or player_by_name.get(str(m.get("player2_name") or "").strip().lower(), {})
 
-                if m.get("player1_score") is None and isinstance(p1_reg.get("games"), list):
+                if p1_reg.get("list_id") and not m.get("player1_list_id"):
+                    m["player1_list_id"] = p1_reg["list_id"]
+                if p2_reg.get("list_id") and not m.get("player2_list_id"):
+                    m["player2_list_id"] = p2_reg["list_id"]
+
+                p1_res = None
+                p2_res = None
+                if isinstance(p1_reg.get("games"), list):
                     for g in p1_reg["games"]:
                         if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == r_num:
                             if g.get("gamePoints") is not None:
                                 try: m["player1_score"] = int(g["gamePoints"])
                                 except Exception: pass
+                            if g.get("gameResult") is not None:
+                                try: p1_res = int(g["gameResult"])
+                                except Exception: pass
                             break
 
-                if m.get("player2_score") is None and isinstance(p2_reg.get("games"), list):
+                if isinstance(p2_reg.get("games"), list):
                     for g in p2_reg["games"]:
                         if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == r_num:
                             if g.get("gamePoints") is not None:
                                 try: m["player2_score"] = int(g["gamePoints"])
+                                except Exception: pass
+                            if g.get("gameResult") is not None:
+                                try: p2_res = int(g["gameResult"])
                                 except Exception: pass
                             break
 
                 s1 = m.get("player1_score")
                 s2 = m.get("player2_score")
                 has_sc = s1 is not None and s2 is not None
-                if has_sc and not m.get("winner_id") and not m.get("is_bye"):
-                    if s1 > s2:
+                if not m.get("is_bye"):
+                    if p1_res == 2 and p2_res == 0:
                         m["winner_id"] = m.get("player1_id")
                         m["loser_id"] = m.get("player2_id")
                         m["is_draw"] = False
-                    elif s2 > s1:
+                    elif p2_res == 2 and p1_res == 0:
                         m["winner_id"] = m.get("player2_id")
                         m["loser_id"] = m.get("player1_id")
                         m["is_draw"] = False
-                    elif s1 == s2:
-                        m["is_draw"] = bool(s1 > 0 or s2 > 0)
+                    elif has_sc:
+                        if s1 > s2:
+                            m["winner_id"] = m.get("player1_id")
+                            m["loser_id"] = m.get("player2_id")
+                            m["is_draw"] = False
+                        elif s2 > s1:
+                            m["winner_id"] = m.get("player2_id")
+                            m["loser_id"] = m.get("player1_id")
+                            m["is_draw"] = False
+                        elif s1 == s2:
+                            m["winner_id"] = None
+                            m["loser_id"] = None
+                            m["is_draw"] = bool(s1 > 0 or s2 > 0)
                 elif not has_sc and not m.get("winner_id"):
                     m["is_draw"] = False
 
@@ -1736,13 +1760,16 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                             p1_id = str(p1_reg.get("player_id") or u1.get("id") or p1.get("userId") or p1.get("id") or p.get("player1Id") or "")
                             p2_id = str(p2_reg.get("player_id") or u2.get("id") or p2.get("userId") or p2.get("id") or p.get("player2Id") or "")
 
-                            p1_name = p1_raw_name or p1_reg.get("full_name") or p1_reg.get("name") or "Player 1"
+                            p1_name = p1_raw_name or p1_reg.get("full_name") or p1_reg.get("name") or ("Player 1" if p1_id else "BYE")
                             p2_name = p2_raw_name or p2_reg.get("full_name") or p2_reg.get("name") or ("Player 2" if p2_id else "BYE")
 
                             p1_fac = p1.get("army") or p1.get("faction") or p1_reg.get("faction") or ""
                             if isinstance(p1_fac, dict): p1_fac = p1_fac.get("name") or ""
                             p2_fac = p2.get("army") or p2.get("faction") or p2_reg.get("faction") or ""
                             if isinstance(p2_fac, dict): p2_fac = p2_fac.get("name") or ""
+
+                            p1_list_id = str(p1.get("listId") or p1_reg.get("list_id") or "").strip()
+                            p2_list_id = str(p2.get("listId") or p2_reg.get("list_id") or "").strip()
 
                             table_num = int(p.get("table") or idx + 1)
                             r_key = (r, table_num)
@@ -1752,29 +1779,44 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                             p1_game = p.get("player1Game") or {}
                             p2_game = p.get("player2Game") or {}
                             meta_p = p.get("metaData") or {}
+
                             p1_score = p1_game.get("points") if p1_game.get("points") is not None else p.get("player1Score")
+                            p1_result = p1_game.get("result")
+                            if (p1_score is None or p1_result is None) and isinstance(p1_reg.get("games"), list):
+                                for g in p1_reg["games"]:
+                                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(r):
+                                        if p1_score is None and g.get("gamePoints") is not None:
+                                            try: p1_score = int(g["gamePoints"])
+                                            except Exception: pass
+                                        if p1_result is None and g.get("gameResult") is not None:
+                                            try: p1_result = int(g["gameResult"])
+                                            except Exception: pass
+                                        break
                             if p1_score is None and meta_p.get("p1-gamePoints") is not None:
                                 try: p1_score = int(meta_p.get("p1-gamePoints"))
                                 except Exception: pass
-                            if p1_score is None and isinstance(p1_reg.get("games"), list):
-                                for g in p1_reg["games"]:
-                                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(r):
-                                        if g.get("gamePoints") is not None:
-                                            try: p1_score = int(g["gamePoints"])
-                                            except Exception: pass
-                                        break
+                            if p1_result is None and meta_p.get("p1-gameResult") is not None:
+                                try: p1_result = int(meta_p.get("p1-gameResult"))
+                                except Exception: pass
 
                             p2_score = p2_game.get("points") if p2_game.get("points") is not None else p.get("player2Score")
+                            p2_result = p2_game.get("result")
+                            if (p2_score is None or p2_result is None) and isinstance(p2_reg.get("games"), list):
+                                for g in p2_reg["games"]:
+                                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(r):
+                                        if p2_score is None and g.get("gamePoints") is not None:
+                                            try: p2_score = int(g["gamePoints"])
+                                            except Exception: pass
+                                        if p2_result is None and g.get("gameResult") is not None:
+                                            try: p2_result = int(g["gameResult"])
+                                            except Exception: pass
+                                        break
                             if p2_score is None and meta_p.get("p2-gamePoints") is not None:
                                 try: p2_score = int(meta_p.get("p2-gamePoints"))
                                 except Exception: pass
-                            if p2_score is None and isinstance(p2_reg.get("games"), list):
-                                for g in p2_reg["games"]:
-                                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(r):
-                                        if g.get("gamePoints") is not None:
-                                            try: p2_score = int(g["gamePoints"])
-                                            except Exception: pass
-                                        break
+                            if p2_result is None and meta_p.get("p2-gameResult") is not None:
+                                try: p2_result = int(meta_p.get("p2-gameResult"))
+                                except Exception: pass
 
                             # Seamlessly merge scores from local match or tracker game if BCP hasn't synced points yet
                             if p1_score is None:
@@ -1789,14 +1831,20 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                                 elif local_tg and local_tg.get("p2_score") is not None:
                                     p2_score = local_tg.get("p2_score")
 
-                            is_bye = bool(p.get("isBye") or not p2_id or p2_name == "BYE")
+                            is_bye = bool(p.get("isBye") or not p2_id or p2_name == "BYE" or not p1_id or p1_name == "BYE")
                             has_tracker_game = bool((local_m and local_m.get("has_tracker_game")) or (local_tg and local_tg.get("has_tracker_game")))
                             tracker_is_done = bool((local_m and local_m.get("tracker_is_done")) or (local_tg and local_tg.get("tracker_is_done")))
                             tracker_started = bool((local_m and local_m.get("tracker_started")) or (local_tg and local_tg.get("tracker_started")))
 
                             winner_id = None
                             is_real_draw = False
-                            if p1_score is not None and p2_score is not None:
+                            if is_bye:
+                                winner_id = p2_id if (not p1_id or p1_name == "BYE") else p1_id
+                            elif p1_result == 2 and p2_result == 0:
+                                winner_id = p1_id
+                            elif p2_result == 2 and p1_result == 0:
+                                winner_id = p2_id
+                            elif p1_score is not None and p2_score is not None:
                                 try:
                                     s1 = float(p1_score)
                                     s2 = float(p2_score)
@@ -1808,8 +1856,6 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                                         is_real_draw = True
                                 except (ValueError, TypeError):
                                     pass
-                            elif is_bye:
-                                winner_id = p1_id
 
                             is_done = bool(is_bye or winner_id is not None or is_real_draw or tracker_is_done)
 
@@ -1822,10 +1868,12 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                                 "player1_id": p1_id,
                                 "player1_name": p1_name,
                                 "player1_faction": p1_fac,
+                                "player1_list_id": p1_list_id or None,
                                 "player1_score": p1_score,
                                 "player2_id": p2_id,
                                 "player2_name": p2_name,
                                 "player2_faction": p2_fac,
+                                "player2_list_id": p2_list_id or None,
                                 "player2_score": p2_score,
                                 "winner_id": winner_id,
                                 "loser_id": p2_id if winner_id == p1_id else (p1_id if winner_id == p2_id else None),

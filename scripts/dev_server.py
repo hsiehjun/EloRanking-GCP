@@ -2566,11 +2566,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "history": history_rows
                 }
             else:
-                # Default to Folger Pyles profile matching the user's test scenario
+                req_name_raw = (query_params.get("name", [None])[0] or "").strip()
+                fallback_name = req_name_raw if (req_name_raw and "folger" not in req_name_raw.lower() and "folger" not in pid.lower()) else "Folger Pyles"
+                fallback_pid = pid if (fallback_name != "Folger Pyles" and pid) else "p_folger_pyles"
                 res = {
                     "player": {
-                        "player_id": "p_folger_pyles",
-                        "player_name": "Folger Pyles",
+                        "player_id": fallback_pid,
+                        "player_name": fallback_name,
                         "team": "Art of War",
                         "teams_history": [
                             "Art of War",
@@ -3103,6 +3105,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 bcp_name = "Tournament"
                 event_date = "2026-09-16"
+                is_started = False
+                is_ended = False
                 try:
                     b_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{eid}"
                     b_req = urllib.request.Request(b_url, headers={"client-id": "web-app", "User-Agent": "Mozilla/5.0"})
@@ -3111,8 +3115,32 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             b_json = json.loads(b_resp.read().decode("utf-8"))
                             bcp_name = b_json.get("name") or bcp_name
                             event_date = (b_json.get("eventDate") or event_date)[:10]
+                            is_started = bool(b_json.get("started"))
+                            is_ended = bool(b_json.get("ended"))
                 except Exception:
                     pass
+                cookie_hdr = self.headers.get("Cookie", "")
+                persona_hdr = self.headers.get("X-Dev-Persona", "")
+                is_spectator = (
+                    "dev_persona=spectator" in cookie_hdr or "persona=spectator" in query_str or persona_hdr == "spectator"
+                )
+                is_reg_7oh = (eid == "7ohG0RuDqC1k" and not is_spectator)
+                preg_7oh = {
+                    "player_id": "MEV83VFANA",
+                    "bcp_player_id": "UBkAGGm53fBv",
+                    "first_name": "John",
+                    "last_name": "Hsieh",
+                    "full_name": "John Hsieh",
+                    "player_name": "John Hsieh",
+                    "team_name": "Team Zero Comp",
+                    "faction": "Necrons",
+                    "detachment": "Priority Assets",
+                    "checked_in": True,
+                    "dropped": False,
+                    "has_list_submitted": True,
+                    "list_id": "zaBKOExB4LCq",
+                    "army_list": ""
+                } if is_reg_7oh else None
                 res = {
                     "success": True,
                     "event_id": eid,
@@ -3121,17 +3149,18 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "tier": "free",
                     "ticket_price": 0.0,
                     "ticket_currency": "usd",
-                    "can_register_free": True,
+                    "can_register_free": not is_reg_7oh,
                     "can_buy_ticket": False,
                     "requires_external_ticket": False,
                     "is_closed": False,
                     "is_sold_out": False,
-                    "is_started": False,
-                    "is_ended": False,
-                    "is_ongoing": False,
-                    "status_label": "Registration Open",
-                    "is_registered": False,
-                    "player_registration": None,
+                    "is_started": is_started or is_reg_7oh,
+                    "is_ended": is_ended,
+                    "is_ongoing": bool((is_started or is_reg_7oh) and not is_ended),
+                    "status_label": "Event Live" if is_reg_7oh else "Registration Open",
+                    "is_registered": is_reg_7oh,
+                    "player_registration": preg_7oh,
+                    "player": preg_7oh,
                     "user_profile": {
                         "logged_in": True,
                         "name": "John Hsieh",
@@ -3139,7 +3168,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "last_name": "Hsieh",
                         "email": "hsiehjun@google.com",
                         "bcp_linked": True,
-                        "bcp_user_id": "9oEfu25ccjqE"
+                        "bcp_user_id": "MEV83VFANA"
                     },
                     "army_lists": []
                 }
@@ -3569,27 +3598,63 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                                 p2_reg = next((player_by_id[str(c)] for c in (u2.get("id"), p2.get("userId"), p2.get("id"), p.get("player2Id")) if c and str(c) in player_by_id), None) or player_by_name.get(p2_raw_name.lower(), {})
                                 p1_id = str(p1_reg.get("player_id") or u1.get("id") or p1.get("userId") or p1.get("id") or p.get("player1Id") or "")
                                 p2_id = str(p2_reg.get("player_id") or u2.get("id") or p2.get("userId") or p2.get("id") or p.get("player2Id") or "")
-                                p1_name = p1_raw_name or p1_reg.get("full_name") or "Player 1"
+                                p1_name = p1_raw_name or p1_reg.get("full_name") or ("Player 1" if p1_id else "BYE")
                                 p2_name = p2_raw_name or p2_reg.get("full_name") or ("Player 2" if p2_id else "BYE")
                                 p1_fac = p1.get("army") or p1.get("faction") or p1_reg.get("faction") or ""
                                 if isinstance(p1_fac, dict): p1_fac = p1_fac.get("name") or ""
                                 p2_fac = p2.get("army") or p2.get("faction") or p2_reg.get("faction") or ""
                                 if isinstance(p2_fac, dict): p2_fac = p2_fac.get("name") or ""
+                                p1_list_id = str(p1.get("listId") or p1_reg.get("list_id") or "").strip()
+                                p2_list_id = str(p2.get("listId") or p2_reg.get("list_id") or "").strip()
                                 p1_game = p.get("player1Game") or {}
                                 p2_game = p.get("player2Game") or {}
                                 meta_p = p.get("metaData") or {}
                                 p1_score = p1_game.get("points") if p1_game.get("points") is not None else p.get("player1Score")
+                                p1_result = p1_game.get("result")
+                                if (p1_score is None or p1_result is None) and isinstance(p1_reg.get("games"), list):
+                                    for g in p1_reg["games"]:
+                                        if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(r):
+                                            if p1_score is None and g.get("gamePoints") is not None:
+                                                try: p1_score = int(g["gamePoints"])
+                                                except Exception: pass
+                                            if p1_result is None and g.get("gameResult") is not None:
+                                                try: p1_result = int(g["gameResult"])
+                                                except Exception: pass
+                                            break
                                 if p1_score is None and meta_p.get("p1-gamePoints") is not None:
                                     try: p1_score = int(meta_p.get("p1-gamePoints"))
                                     except Exception: pass
+                                if p1_result is None and meta_p.get("p1-gameResult") is not None:
+                                    try: p1_result = int(meta_p.get("p1-gameResult"))
+                                    except Exception: pass
                                 p2_score = p2_game.get("points") if p2_game.get("points") is not None else p.get("player2Score")
+                                p2_result = p2_game.get("result")
+                                if (p2_score is None or p2_result is None) and isinstance(p2_reg.get("games"), list):
+                                    for g in p2_reg["games"]:
+                                        if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(r):
+                                            if p2_score is None and g.get("gamePoints") is not None:
+                                                try: p2_score = int(g["gamePoints"])
+                                                except Exception: pass
+                                            if p2_result is None and g.get("gameResult") is not None:
+                                                try: p2_result = int(g["gameResult"])
+                                                except Exception: pass
+                                            break
                                 if p2_score is None and meta_p.get("p2-gamePoints") is not None:
                                     try: p2_score = int(meta_p.get("p2-gamePoints"))
                                     except Exception: pass
-                                is_bye = bool(p.get("isBye") or not p2_id or p2_name == "BYE")
+                                if p2_result is None and meta_p.get("p2-gameResult") is not None:
+                                    try: p2_result = int(meta_p.get("p2-gameResult"))
+                                    except Exception: pass
+                                is_bye = bool(p.get("isBye") or not p2_id or p2_name == "BYE" or not p1_id or p1_name == "BYE")
                                 winner_id = None
                                 is_real_draw = False
-                                if p1_score is not None and p2_score is not None:
+                                if is_bye:
+                                    winner_id = p2_id if (not p1_id or p1_name == "BYE") else p1_id
+                                elif p1_result == 2 and p2_result == 0:
+                                    winner_id = p1_id
+                                elif p2_result == 2 and p1_result == 0:
+                                    winner_id = p2_id
+                                elif p1_score is not None and p2_score is not None:
                                     try:
                                         s1, s2 = float(p1_score), float(p2_score)
                                         if s1 > s2: winner_id = p1_id
@@ -3597,8 +3662,6 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                                         elif s1 == s2 and (s1 > 0 or s2 > 0): is_real_draw = True
                                     except Exception:
                                         pass
-                                elif is_bye:
-                                    winner_id = p1_id
                                 is_done = bool(is_bye or winner_id is not None or is_real_draw)
                                 table_num = int(p.get("table") or idx + 1)
                                 live_matches.append({
@@ -3610,10 +3673,12 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                                     "player1_id": p1_id,
                                     "player1_name": p1_name,
                                     "player1_faction": p1_fac,
+                                    "player1_list_id": p1_list_id or None,
                                     "player1_score": p1_score,
                                     "player2_id": p2_id,
                                     "player2_name": p2_name,
                                     "player2_faction": p2_fac,
+                                    "player2_list_id": p2_list_id or None,
                                     "player2_score": p2_score,
                                     "winner_id": winner_id,
                                     "loser_id": p2_id if winner_id == p1_id else (p1_id if winner_id == p2_id else None),
@@ -5104,7 +5169,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             auth_header = self.headers.get("Authorization", "")
             bcp_header = self.headers.get("X-BCP-Token", "")
             cookie_hdr = self.headers.get("Cookie", "")
-            has_bcp_auth = bool(bcp_header or "dev-auth-token" in auth_header or "Bearer " in auth_header or "session_token" in cookie_hdr)
+            has_bcp_auth = True
 
             if "sim_no_sub=1" in query_str or "no_sub=1" in query_str or self.headers.get("X-Sim-No-Sub") == "1" or "no_sub" in lid or "sub_req" in lid:
                 has_bcp_auth = False
@@ -5127,7 +5192,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "success": True,
                         "list_id": lid,
                         "name": "Best Coast Pairings Roster",
-                        "text": f"++ Official BCP Army Roster [{lid}] ++\n\nCompetitor roster fetched live from Best Coast Pairings API.\nDetachment: Tournament Standard (2,000 pts)\n\nCreated with Best Coast Pairings"
+                        "text": f"++ Army Roster ++ [{lid}] [2,000 pts]\n\nDetachment Choice: Tournament Strike Force\n\nCharacters:\nOverlord with Translocation Shroud [85 pts]: Overlord's blade, Resurrection orb (Warlord)\nTechnomancer [85 pts]: Staff of light\n\nBattleline:\n10x Immortals [150 pts]: Tesla carbine\n\nOther Datasheets:\n6x Canoptek Wraiths [250 pts]: Particle caster, Vicious claws\n2x Doomsday Ark [380 pts]: Doomsday cannon, 2x Gauss flayer array\nC'tan Shard of the Nightbringer [295 pts]: Scythe of the Nightbringer\n\nCreated with Best Coast Pairings"
                     })
                     self.wfile.write(json.dumps(ret).encode("utf-8"))
             return

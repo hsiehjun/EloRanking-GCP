@@ -250,6 +250,7 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
         currentEventData = fresh;
         eventMatchesCache = fresh.matches || [];
         eventPlayersCache = fresh.players || [];
+        invalidateEventSearchIndex();
 
         const elPlayers = document.getElementById('event-modal-players');
         const eventRounds = getEventNumRounds(fresh, eventMatchesCache);
@@ -538,6 +539,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (typeof computeEventPlayerEloStats === 'function') {
       computeEventPlayerEloStats(eventPlayersCache, eventMatchesCache);
     }
+    invalidateEventSearchIndex();
 
     const eventRounds = getEventNumRounds(ev, eventMatchesCache);
     const roundsPart = eventRounds > 0 ? ` • 🔄 ${eventRounds} Rounds` : '';
@@ -667,6 +669,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
           if (pReg.has_list_submitted !== undefined) {
             matchedCachePlayer.has_list_submitted = Boolean(pReg.has_list_submitted);
           }
+          invalidateEventSearchIndex();
         }
       }
     } else {
@@ -819,15 +822,217 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   }
 }
 
+var _eventSearchIndexState = {
+  eventId: null,
+  playersRef: null,
+  playersLen: -1,
+  matchesRef: null,
+  matchesLen: -1,
+  teamsRef: null,
+  teamsLen: -1,
+  playerLookupMap: new Map(),
+  placementsCount: 0,
+  distinctRounds: [],
+  roundCounts: new Map()
+};
+var _eventModalSearchDebounceTimer = null;
+var _lastRenderedEventModalSearchQuery = null;
+
+function invalidateEventSearchIndex() {
+  _eventSearchIndexState.eventId = null;
+  _eventSearchIndexState.playersRef = null;
+  _eventSearchIndexState.matchesRef = null;
+  _eventSearchIndexState.teamsRef = null;
+  if (typeof _lastResultsSortState !== 'undefined') {
+    _lastResultsSortState.playersRef = null;
+  }
+  if (typeof currentEventData !== 'undefined' && currentEventData) {
+    currentEventData._cachedKpiSummary = null;
+    currentEventData._quickSortedPlayers = null;
+  }
+}
+
+function ensureEventSearchIndex() {
+  const evId = currentOpenEventId || (currentEventData && currentEventData.id) || null;
+  const players = Array.isArray(eventPlayersCache) ? eventPlayersCache : [];
+  const matches = Array.isArray(eventMatchesCache) ? eventMatchesCache : [];
+  const teams = (currentEventData && Array.isArray(currentEventData.teams) && currentEventData.teams.length > 0)
+    ? currentEventData.teams
+    : ((currentEventData && Array.isArray(currentEventData.team_standings)) ? currentEventData.team_standings : []);
+
+  if (
+    _eventSearchIndexState.eventId === evId &&
+    _eventSearchIndexState.playersRef === players &&
+    _eventSearchIndexState.playersLen === players.length &&
+    _eventSearchIndexState.matchesRef === matches &&
+    _eventSearchIndexState.matchesLen === matches.length &&
+    _eventSearchIndexState.teamsRef === teams &&
+    _eventSearchIndexState.teamsLen === teams.length
+  ) {
+    return _eventSearchIndexState;
+  }
+
+  const pMap = new Map();
+  const addPlayerToMap = (item) => {
+    if (!item) return;
+    const ids = [item.player_id, item.id, item.bcp_event_player_id, item.user_id, item.bcp_player_id, item.userId];
+    for (let i = 0; i < ids.length; i++) {
+      const rawId = ids[i];
+      if (rawId) {
+        const k = 'id:' + String(rawId).trim().toLowerCase();
+        if (!pMap.has(k)) pMap.set(k, item);
+      }
+    }
+    const nm = String(item.full_name || item.name || item.player_name || (item.first_name ? `${item.first_name} ${item.last_name || ''}` : '') || '').trim().toLowerCase();
+    if (nm) {
+      const nk = 'name:' + nm;
+      if (!pMap.has(nk)) pMap.set(nk, item);
+      const ck = 'clean:' + nm.replace(/\s+/g, '');
+      if (!pMap.has(ck)) pMap.set(ck, item);
+    }
+  };
+
+  let placementsCount = 0;
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    if (!p) continue;
+    if (p.placement && p.placement > 0) placementsCount++;
+    addPlayerToMap(p);
+    const dispFac = formatEventPlayerFaction(p.faction || p.army_name);
+    p._displayFac = dispFac;
+    const nameLower = String(p.full_name || (p.first_name ? `${p.first_name} ${p.last_name || ''}` : '') || p.name || '').toLowerCase();
+    const facLower = `${p.faction || ''} ${p.army_name || ''} ${dispFac || ''}`.toLowerCase();
+    const teamLower = String(p.team || '').toLowerCase();
+    p._searchNameLower = nameLower;
+    p._searchFacLower = facLower;
+    p._searchTeamLower = teamLower;
+    p._formattedFactionLower = String(dispFac || '').toLowerCase();
+    p._searchText = `${nameLower}\n${facLower}\n${teamLower}`;
+  }
+
+  if (currentEventData) {
+    const extraLists = [currentEventData.players, currentEventData.standings, currentEventData.roster, currentEventData.unassigned];
+    for (let l = 0; l < extraLists.length; l++) {
+      const arr = extraLists[l];
+      if (Array.isArray(arr) && arr !== players) {
+        for (let i = 0; i < arr.length; i++) addPlayerToMap(arr[i]);
+      }
+    }
+  }
+
+  const lookupFastInternal = (pid, pname) => {
+    if (pid) {
+      const hit = pMap.get('id:' + String(pid).trim().toLowerCase());
+      if (hit) return hit;
+    }
+    if (pname) {
+      const nm = String(pname).trim().toLowerCase();
+      if (nm) {
+        const hit = pMap.get('name:' + nm) || pMap.get('clean:' + nm.replace(/\s+/g, ''));
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+
+  const rawTeams = (currentEventData && Array.isArray(currentEventData.teams)) ? currentEventData.teams : [];
+  for (let i = 0; i < rawTeams.length; i++) {
+    const t = rawTeams[i];
+    if (!t) continue;
+    const resolvedMembers = [];
+    const memberSearchParts = [];
+    if (Array.isArray(t.members)) {
+      for (let j = 0; j < t.members.length; j++) {
+        const rawM = t.members[j];
+        if (!rawM) continue;
+        const mPid = rawM.player_id || rawM.id || '';
+        const mPname = rawM.full_name || rawM.player_name || rawM.name || (rawM.first_name ? `${rawM.first_name} ${rawM.last_name || ''}` : '');
+        const cached = lookupFastInternal(mPid, mPname);
+        const merged = cached ? Object.assign({}, cached, rawM, {
+          current_elo: rawM.current_elo || cached.current_elo || cached.elo,
+          event_wins: rawM.event_wins !== undefined ? rawM.event_wins : cached.event_wins,
+          event_losses: rawM.event_losses !== undefined ? rawM.event_losses : cached.event_losses,
+          event_battle_points: rawM.event_battle_points !== undefined ? rawM.event_battle_points : cached.event_battle_points,
+          event_net_elo: rawM.event_net_elo !== undefined ? rawM.event_net_elo : cached.event_net_elo,
+          placement: rawM.placement || cached.placement
+        }) : rawM;
+        resolvedMembers.push(merged);
+        memberSearchParts.push(mPname || '', merged.faction || merged.army_name || '');
+      }
+    }
+    t._resolvedMembers = resolvedMembers;
+    t._searchText = `${t.name || ''}\n${t.captain_name || t.captain || ''}\n${memberSearchParts.join('\n')}`.toLowerCase();
+  }
+
+  const rawStandings = (currentEventData && Array.isArray(currentEventData.team_standings)) ? currentEventData.team_standings : [];
+  for (let i = 0; i < rawStandings.length; i++) {
+    const t = rawStandings[i];
+    if (!t) continue;
+    t._searchText = `${t.name || ''}\n${t.captain || t.captain_name || ''}`.toLowerCase();
+  }
+
+  const roundCounts = new Map();
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    if (!m) continue;
+    const r = Number(m.round || 1);
+    roundCounts.set(r, (roundCounts.get(r) || 0) + 1);
+    const p1Rec = lookupFastInternal(m.player1_id, m.player1_name);
+    const p2Rec = lookupFastInternal(m.player2_id, m.player2_name);
+    m._p1Record = p1Rec;
+    m._p2Record = p2Rec;
+    const p1Fac = m.player1_faction || p1Rec?.faction || p1Rec?.army_name || '';
+    const p2Fac = m.player2_faction || p2Rec?.faction || p2Rec?.army_name || '';
+    const p1Team = p1Rec?.team || '';
+    const p2Team = p2Rec?.team || '';
+    m._p1Faction = p1Fac;
+    m._p2Faction = p2Fac;
+    m._p1Team = p1Team;
+    m._p2Team = p2Team;
+    m._searchText = `${m.player1_name || ''}\n${m.player2_name || ''}\n${p1Fac}\n${p2Fac}\n${p1Team}\n${p2Team}`.toLowerCase();
+  }
+
+  _eventSearchIndexState.eventId = evId;
+  _eventSearchIndexState.playersRef = players;
+  _eventSearchIndexState.playersLen = players.length;
+  _eventSearchIndexState.matchesRef = matches;
+  _eventSearchIndexState.matchesLen = matches.length;
+  _eventSearchIndexState.teamsRef = teams;
+  _eventSearchIndexState.teamsLen = teams.length;
+  _eventSearchIndexState.playerLookupMap = pMap;
+  _eventSearchIndexState.placementsCount = placementsCount;
+  _eventSearchIndexState.distinctRounds = Array.from(roundCounts.keys()).sort((a, b) => a - b);
+  _eventSearchIndexState.roundCounts = roundCounts;
+  return _eventSearchIndexState;
+}
+
+function lookupEventPlayerFast(playerId, playerName) {
+  const idx = ensureEventSearchIndex();
+  const pMap = idx.playerLookupMap;
+  if (playerId) {
+    const hit = pMap.get('id:' + String(playerId).trim().toLowerCase());
+    if (hit) return hit;
+  }
+  if (playerName) {
+    const nm = String(playerName).trim().toLowerCase();
+    if (nm) {
+      const hit = pMap.get('name:' + nm) || pMap.get('clean:' + nm.replace(/\s+/g, ''));
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
 function updateEventModalTabCountsForSearch() {
   const tabTeamsCount = document.getElementById('event-tab-teams-count');
   const tabResultsCount = document.getElementById('event-tab-results-count');
   const tabEloCount = document.getElementById('event-tab-elo-count');
   const tabMatchesCount = document.getElementById('event-tab-matches-count');
 
+  const idx = ensureEventSearchIndex();
   const teams = (currentEventData && currentEventData.teams) || [];
   const standings = (currentEventData && currentEventData.team_standings) || [];
-  const placementsCount = eventPlayersCache ? eventPlayersCache.filter(p => p.placement && p.placement > 0).length : 0;
+  const placementsCount = idx.placementsCount;
   const totalPlayers = eventPlayersCache ? eventPlayersCache.length : 0;
   const totalMatches = eventMatchesCache ? eventMatchesCache.length : 0;
   const totalTeams = teams.length > 0 ? teams.length : standings.length;
@@ -842,53 +1047,35 @@ function updateEventModalTabCountsForSearch() {
 
   const q = eventModalSearchQuery;
   let filteredTeamsCount = 0;
-  if (teams.length > 0) {
-    filteredTeamsCount = teams.filter(t => {
-      const name = (t.name || '').toLowerCase();
-      const cap = (t.captain_name || '').toLowerCase();
-      if (name.includes(q) || cap.includes(q)) return true;
-      if (t.members && Array.isArray(t.members)) {
-        return t.members.some(m => {
-          const mName = (m.full_name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || '').toLowerCase();
-          const mFac = (m.faction || '').toLowerCase();
-          return mName.includes(q) || mFac.includes(q);
-        });
-      }
-      return false;
-    }).length;
-  } else {
-    filteredTeamsCount = standings.filter(t => {
-      const name = (t.name || '').toLowerCase();
-      const captain = (t.captain || '').toLowerCase();
-      return name.includes(q) || captain.includes(q);
-    }).length;
+  const activeTeamsSource = teams.length > 0 ? teams : standings;
+  for (let i = 0; i < activeTeamsSource.length; i++) {
+    const t = activeTeamsSource[i];
+    if (t && t._searchText && t._searchText.includes(q)) filteredTeamsCount++;
   }
 
-  const filteredPlayers = (eventPlayersCache || []).filter(p => {
-    const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
-    const fac = (p.faction || '').toLowerCase();
-    const team = (p.team || '').toLowerCase();
-    return name.includes(q) || fac.includes(q) || team.includes(q);
-  });
+  let filteredPlayersCount = 0;
+  const players = eventPlayersCache || [];
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    if (p && p._searchText && p._searchText.includes(q)) filteredPlayersCount++;
+  }
 
-  const filteredMatches = (eventMatchesCache || []).filter(m => {
-    const p1Name = (m.player1_name || '').toLowerCase();
-    const p2Name = (m.player2_name || '').toLowerCase();
-    const p1Fac = (m.player1_faction || (eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.faction) || '').toLowerCase();
-    const p2Fac = (m.player2_faction || (eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.faction) || '').toLowerCase();
-    const p1Team = ((eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.team) || '').toLowerCase();
-    const p2Team = ((eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.team) || '').toLowerCase();
-    return p1Name.includes(q) || p2Name.includes(q) || p1Fac.includes(q) || p2Fac.includes(q) || p1Team.includes(q) || p2Team.includes(q);
-  });
+  let filteredMatchesCount = 0;
+  const matches = eventMatchesCache || [];
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    if (m && m._searchText && m._searchText.includes(q)) filteredMatchesCount++;
+  }
 
   if (tabTeamsCount) tabTeamsCount.innerText = filteredTeamsCount;
-  if (tabResultsCount) tabResultsCount.innerText = filteredPlayers.length;
-  if (tabEloCount) tabEloCount.innerText = filteredPlayers.length;
-  if (tabMatchesCount) tabMatchesCount.innerText = filteredMatches.length;
+  if (tabResultsCount) tabResultsCount.innerText = filteredPlayersCount;
+  if (tabEloCount) tabEloCount.innerText = filteredPlayersCount;
+  if (tabMatchesCount) tabMatchesCount.innerText = filteredMatchesCount;
 }
 
 function getEventModalCrossTabSuggestions(currentTab) {
   if (!eventModalSearchQuery) return '';
+  ensureEventSearchIndex();
   const q = eventModalSearchQuery;
   const teams = (currentEventData && currentEventData.teams) || [];
   const standings = (currentEventData && currentEventData.team_standings) || [];
@@ -896,47 +1083,31 @@ function getEventModalCrossTabSuggestions(currentTab) {
   const isTeam = Boolean(currentEventData && (currentEventData.is_team_event || teams.length > 0));
 
   let teamsMatchCount = 0;
-  if (teams.length > 0) {
-    teamsMatchCount = teams.filter(t => {
-      const name = (t.name || '').toLowerCase();
-      const cap = (t.captain_name || '').toLowerCase();
-      if (name.includes(q) || cap.includes(q)) return true;
-      if (t.members && Array.isArray(t.members)) {
-        return t.members.some(m => {
-          const mName = (m.full_name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || '').toLowerCase();
-          const mFac = (m.faction || '').toLowerCase();
-          return mName.includes(q) || mFac.includes(q);
-        });
-      }
-      return false;
-    }).length;
-  } else {
-    teamsMatchCount = standings.filter(t => (t.name || '').toLowerCase().includes(q) || (t.captain || '').toLowerCase().includes(q)).length;
+  const activeTeamsSource = teams.length > 0 ? teams : standings;
+  for (let i = 0; i < activeTeamsSource.length; i++) {
+    const t = activeTeamsSource[i];
+    if (t && t._searchText && t._searchText.includes(q)) teamsMatchCount++;
+  }
+
+  let playersMatchCount = 0;
+  const players = eventPlayersCache || [];
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    if (p && p._searchText && p._searchText.includes(q)) playersMatchCount++;
+  }
+
+  let matchesMatchCount = 0;
+  const matches = eventMatchesCache || [];
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    if (m && m._searchText && m._searchText.includes(q)) matchesMatchCount++;
   }
 
   const counts = {
     teams: teamsMatchCount,
-    results: (eventPlayersCache || []).filter(p => {
-      const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
-      const fac = (p.faction || '').toLowerCase();
-      const team = (p.team || '').toLowerCase();
-      return name.includes(q) || fac.includes(q) || team.includes(q);
-    }).length,
-    elo: (eventPlayersCache || []).filter(p => {
-      const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
-      const fac = (p.faction || '').toLowerCase();
-      const team = (p.team || '').toLowerCase();
-      return name.includes(q) || fac.includes(q) || team.includes(q);
-    }).length,
-    matches: (eventMatchesCache || []).filter(m => {
-      const p1Name = (m.player1_name || '').toLowerCase();
-      const p2Name = (m.player2_name || '').toLowerCase();
-      const p1Fac = (m.player1_faction || (eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.faction) || '').toLowerCase();
-      const p2Fac = (m.player2_faction || (eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.faction) || '').toLowerCase();
-      const p1Team = ((eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.team) || '').toLowerCase();
-      const p2Team = ((eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.team) || '').toLowerCase();
-      return p1Name.includes(q) || p2Name.includes(q) || p1Fac.includes(q) || p2Fac.includes(q) || p1Team.includes(q) || p2Team.includes(q);
-    }).length
+    results: playersMatchCount,
+    elo: playersMatchCount,
+    matches: matchesMatchCount
   };
 
   const teamLabel = isDoubles ? 'Doubles Rosters' : (isTeam ? 'Team Rosters' : 'Team Standings');
@@ -971,11 +1142,8 @@ function getEventModalCrossTabSuggestions(currentTab) {
   return html;
 }
 
-function handleEventModalSearch(query) {
-  eventModalSearchQuery = (query || '').trim().toLowerCase();
-  const clearBtn = document.getElementById('event-modal-search-clear');
-  if (clearBtn) clearBtn.style.display = eventModalSearchQuery ? 'block' : 'none';
-
+function _executeEventModalSearchRender() {
+  _lastRenderedEventModalSearchQuery = eventModalSearchQuery;
   updateEventModalTabCountsForSearch();
 
   if (currentEventModalTab === 'teams') {
@@ -989,15 +1157,44 @@ function handleEventModalSearch(query) {
   }
 }
 
+function handleEventModalSearch(query, immediate = true) {
+  const nextQuery = (query || '').trim().toLowerCase();
+  const clearBtn = document.getElementById('event-modal-search-clear');
+  if (clearBtn) clearBtn.style.display = nextQuery ? 'block' : 'none';
+
+  eventModalSearchQuery = nextQuery;
+
+  if (_eventModalSearchDebounceTimer) {
+    clearTimeout(_eventModalSearchDebounceTimer);
+    _eventModalSearchDebounceTimer = null;
+  }
+
+  if (!immediate && nextQuery === _lastRenderedEventModalSearchQuery) {
+    return;
+  }
+
+  if (immediate || !nextQuery) {
+    _executeEventModalSearchRender();
+  } else {
+    _eventModalSearchDebounceTimer = setTimeout(() => {
+      _eventModalSearchDebounceTimer = null;
+      _executeEventModalSearchRender();
+    }, 50);
+  }
+}
+
 function clearEventModalSearch() {
   const input = document.getElementById('event-modal-search');
   if (input) input.value = '';
-  handleEventModalSearch('');
+  handleEventModalSearch('', true);
   if (input) input.focus();
 }
 
 window.handleEventModalSearch = handleEventModalSearch;
 window.clearEventModalSearch = clearEventModalSearch;
+window.invalidateEventSearchIndex = invalidateEventSearchIndex;
+window.ensureEventSearchIndex = ensureEventSearchIndex;
+window.lookupEventPlayerFast = lookupEventPlayerFast;
 
 function switchEventModalTab(tabKey) {
   if (tabKey === 'elo' || tabKey === 'standings') tabKey = 'results';
@@ -1090,6 +1287,7 @@ function renderEventTeamsRows() {
   const tableWrap = document.getElementById('event-teams-table-wrap');
   const tbody = document.getElementById('event-teams-body');
 
+  const idxState = ensureEventSearchIndex();
   const teams = (currentEventData && currentEventData.teams) || [];
   const standings = (currentEventData && currentEventData.team_standings) || [];
   const isDoubles = Boolean(currentEventData && currentEventData.is_doubles_event);
@@ -1124,19 +1322,7 @@ function renderEventTeamsRows() {
     let filtered = teams;
     if (eventModalSearchQuery) {
       const q = eventModalSearchQuery;
-      filtered = teams.filter(t => {
-        const name = (t.name || '').toLowerCase();
-        const captain = (t.captain_name || '').toLowerCase();
-        if (name.includes(q) || captain.includes(q)) return true;
-        if (t.members && Array.isArray(t.members)) {
-          return t.members.some(m => {
-            const mName = (m.full_name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || '').toLowerCase();
-            const mFac = (m.faction || '').toLowerCase();
-            return mName.includes(q) || mFac.includes(q);
-          });
-        }
-        return false;
-      });
+      filtered = teams.filter(t => t && t._searchText && t._searchText.includes(q));
     }
 
     const searchSummary = document.getElementById('event-modal-search-summary');
@@ -1166,15 +1352,13 @@ function renderEventTeamsRows() {
     }
 
     const hasMatches = eventMatchesCache && eventMatchesCache.length > 0;
-    const hasPlacings = eventPlayersCache && eventPlayersCache.some(p => p.placement && p.placement > 0);
+    const hasPlacings = idxState.placementsCount > 0;
     const isStarted = Boolean(hasPlacings || hasMatches);
 
     if (container) {
-      container.innerHTML = '';
-      filtered.forEach((t, idx) => {
-        const card = document.createElement('div');
-        card.className = 'team-roster-card';
-
+      const cardsHtml = [];
+      for (let idx = 0; idx < filtered.length; idx++) {
+        const t = filtered[idx];
         const hasTeamPlacings = Boolean(t.placing && t.placing > 0);
         let rankBadgeHtml = '';
         if (hasTeamPlacings) {
@@ -1184,14 +1368,6 @@ function renderEventTeamsRows() {
           rankBadgeHtml = `<div class="team-icon">${isDoubles ? '👥' : '🛡️'}</div>`;
         }
 
-        const placingBadge = hasTeamPlacings
-          ? `<span style="font-size:0.72rem; padding:2px 8px; border-radius:12px; background:rgba(234,179,8,0.16); color:#facc15; border:1px solid rgba(234,179,8,0.32); font-weight:700;">Rank #${t.placing}</span>`
-          : '';
-        const pointsBadge = (isStarted && t.points != null && Number(t.points) > 0)
-          ? `<span style="font-size:0.72rem; padding:2px 8px; border-radius:12px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:600;">${t.points} pts</span>`
-          : '';
-
-        // Standings stats pills
         const winsPill = (t.wins != null)
           ? `<span style="font-size:0.72rem; padding:1px 7px; border-radius:10px; background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.3); font-weight:700;">${t.wins}W</span>`
           : '';
@@ -1202,7 +1378,6 @@ function renderEventTeamsRows() {
           ? `<span style="font-size:0.72rem; padding:1px 7px; border-radius:10px; background:rgba(255,255,255,0.06); color:#f1f5f9; border:1px solid rgba(255,255,255,0.12); font-weight:700;">${t.battle_points} BP</span>`
           : '';
 
-        // Round by round scores (matching BCP Placings view)
         let roundScoresHtml = '';
         if (t.games && Array.isArray(t.games) && t.games.length > 0) {
           const pills = t.games.map(g => {
@@ -1225,23 +1400,7 @@ function renderEventTeamsRows() {
           ? `<span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; padding:3px 8px; border-radius:6px; background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3); font-weight:600;">✓ Checked In</span>`
           : `<span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; padding:3px 8px; border-radius:6px; background:rgba(148,163,184,0.1); color:#94a3b8; border:1px solid rgba(148,163,184,0.2); font-weight:500;">Awaiting Check-in</span>`;
 
-        const members = (t.members || []).map(rawM => {
-          const mPid = String(rawM.player_id || rawM.id || '').trim().toLowerCase();
-          const mPname = String(rawM.full_name || rawM.player_name || rawM.name || '').trim().toLowerCase();
-          const cached = (eventPlayersCache || []).find(cp => {
-            const cPid = String(cp.player_id || cp.id || '').trim().toLowerCase();
-            const cName = String(cp.full_name || cp.player_name || cp.name || '').trim().toLowerCase();
-            return (mPid && cPid === mPid) || (mPname && cName === mPname);
-          });
-          return cached ? Object.assign({}, cached, rawM, {
-            current_elo: rawM.current_elo || cached.current_elo || cached.elo,
-            event_wins: rawM.event_wins !== undefined ? rawM.event_wins : cached.event_wins,
-            event_losses: rawM.event_losses !== undefined ? rawM.event_losses : cached.event_losses,
-            event_battle_points: rawM.event_battle_points !== undefined ? rawM.event_battle_points : cached.event_battle_points,
-            event_net_elo: rawM.event_net_elo !== undefined ? rawM.event_net_elo : cached.event_net_elo,
-            placement: rawM.placement || cached.placement
-          }) : rawM;
-        });
+        const members = Array.isArray(t._resolvedMembers) ? t._resolvedMembers : (t.members || []);
 
         const memberElos = members.map(m => Number(m.current_elo || m.elo || 1500)).filter(e => !isNaN(e) && e > 0);
         const computedAvgElo = memberElos.length > 0 ? Math.round(memberElos.reduce((a, b) => a + b, 0) / memberElos.length) : 1500;
@@ -1264,7 +1423,7 @@ function renderEventTeamsRows() {
 
         const memberRowsHtml = members.map((m, mIdx) => {
           const mName = escapeHtml(m.full_name || m.player_name || m.name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || 'Competitor');
-          const mFac = escapeHtml(formatEventPlayerFaction(m.faction || m.army_name || 'Unknown'));
+          const mFac = escapeHtml(m._displayFac || formatEventPlayerFaction(m.faction || m.army_name || 'Unknown'));
           const mElo = Math.round(Number(m.current_elo || m.elo || 1500));
           const mBadge = getEloBadgeClass(mElo);
           const isCap = Boolean(m.is_captain || String(m.role || '').toLowerCase() === 'captain');
@@ -1321,7 +1480,7 @@ function renderEventTeamsRows() {
               <div class="team-member-col-name" style="display:flex; align-items:center; gap:0.45rem; min-width:0;">
                 <span style="font-size:0.85rem; width:16px; text-align:center; flex-shrink:0;">${isCap ? '👑' : '<span style="color:var(--text-muted, #64748b);">•</span>'}</span>
                 ${memberPlacingTag}
-                <a href="javascript:void(0)" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.player_id || '')}', '${escapeHtml(mName)}');" style="font-weight:600; font-size:0.88rem; color:#38bdf8; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+                <a href="javascript:void(0)" data-player-id="${escapeHtml(m.player_id || '')}" data-player-name="${mName}" onclick="event.stopPropagation(); openPlayerModal(this.getAttribute('data-player-id'), this.getAttribute('data-player-name'));" style="font-weight:600; font-size:0.88rem; color:#38bdf8; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
                   ${mName}
                 </a>
                 ${capTag}
@@ -1339,58 +1498,50 @@ function renderEventTeamsRows() {
           `;
         }).join('');
 
-        card.innerHTML = `
-          <!-- Card Header -->
-          <div class="team-roster-header" onclick="toggleTeamRosterCard('${idx}')">
-            <div class="team-header-main">
-              <span id="team-chevron-${idx}" class="team-chevron">▼</span>
-              ${rankBadgeHtml}
-              <div class="team-info">
-                <div class="team-title-row">
-                  <span class="team-name">${escapeHtml(t.name || 'Team')}</span>
-                  ${winsPill}
-                  ${matchPtsPill}
-                  ${battlePtsPill}
+        cardsHtml.push(`
+          <div class="team-roster-card">
+            <div class="team-roster-header" onclick="toggleTeamRosterCard('${idx}')">
+              <div class="team-header-main">
+                <span id="team-chevron-${idx}" class="team-chevron">▼</span>
+                ${rankBadgeHtml}
+                <div class="team-info">
+                  <div class="team-title-row">
+                    <span class="team-name">${escapeHtml(t.name || 'Team')}</span>
+                    ${winsPill}
+                    ${matchPtsPill}
+                    ${battlePtsPill}
+                  </div>
+                  <div class="team-meta-row">
+                    ${t.captain_name ? `<span>👑 Captain:&nbsp;<strong style="color:#f1f5f9;">${escapeHtml(t.captain_name)}</strong></span><span>•</span>` : ''}
+                    <span>${members.length} ${isDoubles ? 'Players (Duo)' : 'Competitors'}</span>
+                    ${t.game_wins != null ? `<span>•</span><span>🎮 <strong>${t.game_wins}</strong> Game Wins</span>` : ''}
+                  </div>
+                  ${roundScoresHtml}
                 </div>
-                <div class="team-meta-row">
-                  ${t.captain_name ? `<span>👑 Captain:&nbsp;<strong style="color:#f1f5f9;">${escapeHtml(t.captain_name)}</strong></span><span>•</span>` : ''}
-                  <span>${members.length} ${isDoubles ? 'Players (Duo)' : 'Competitors'}</span>
-                  ${t.game_wins != null ? `<span>•</span><span>🎮 <strong>${t.game_wins}</strong> Game Wins</span>` : ''}
-                </div>
-                ${roundScoresHtml}
+              </div>
+
+              <div class="team-header-badges">
+                ${avgEloBadge}
+                ${totalScoreBadge}
               </div>
             </div>
 
-            <div class="team-header-badges">
-              ${avgEloBadge}
-              ${totalScoreBadge}
+            <div id="team-members-${idx}" class="team-members-container" style="display:flex; flex-direction:column;">
+              <div class="team-member-header">
+                <div>Competitor</div>
+                <div>Faction</div>
+                <div style="text-align:right;">${isStarted ? 'Record / Pts' : 'Elo Rating'}</div>
+                <div class="team-col-checkin" style="text-align:right;">${isStarted ? 'Elo Rating' : 'Check-in'}</div>
+              </div>
+              ${memberRowsHtml || '<div style="padding:0.75rem 1rem; color:var(--text-muted); font-size:0.8rem;">No members listed for this team yet.</div>'}
             </div>
           </div>
-
-          <!-- Members Roster -->
-          <div id="team-members-${idx}" class="team-members-container" style="display:flex; flex-direction:column;">
-            <div class="team-member-header">
-              <div>Competitor</div>
-              <div>Faction</div>
-              <div style="text-align:right;">${isStarted ? 'Record / Pts' : 'Elo Rating'}</div>
-              <div class="team-col-checkin" style="text-align:right;">${isStarted ? 'Elo Rating' : 'Check-in'}</div>
-            </div>
-            ${memberRowsHtml || '<div style="padding:0.75rem 1rem; color:var(--text-muted); font-size:0.8rem;">No members listed for this team yet.</div>'}
-          </div>
-        `;
-
-        container.appendChild(card);
-      });
+        `);
+      }
 
       // Unassigned players if any
       const unassigned = currentEventData.unassigned_players || [];
       if (unassigned.length > 0 && !eventModalSearchQuery) {
-        const uCard = document.createElement('div');
-        uCard.className = 'team-roster-card unassigned-roster';
-        uCard.style.background = 'rgba(255,255,255,0.02)';
-        uCard.style.border = '1px dashed var(--border, #334155)';
-        uCard.style.marginTop = '0.5rem';
-
         const uRowsHtml = unassigned.map((m, mIdx) => {
           const mName = escapeHtml(m.full_name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || 'Competitor');
           const mFac = escapeHtml(formatEventPlayerFaction(m.faction || m.army_name || 'Unknown'));
@@ -1399,7 +1550,7 @@ function renderEventTeamsRows() {
             <div class="team-member-grid" style="border-bottom:${mIdx < unassigned.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none'};">
               <div style="display:flex; align-items:center; gap:0.5rem;">
                 <span style="color:var(--text-muted);">•</span>
-                <a href="javascript:void(0)" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.player_id || '')}')" style="font-weight:600; color:#38bdf8; text-decoration:none;">${mName}</a>
+                <a href="javascript:void(0)" data-player-id="${escapeHtml(m.player_id || '')}" onclick="event.stopPropagation(); openPlayerModal(this.getAttribute('data-player-id'))" style="font-weight:600; color:#38bdf8; text-decoration:none;">${mName}</a>
               </div>
               <div><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.72rem;">${mFac}</span></div>
               <div style="text-align:right;"><span class="elo-badge ${getEloBadgeClass(mElo)}" style="font-size:0.78rem;">${mElo}</span></div>
@@ -1408,16 +1559,19 @@ function renderEventTeamsRows() {
           `;
         }).join('');
 
-        uCard.innerHTML = `
-          <div style="padding:0.6rem 1rem; background:rgba(255,255,255,0.03); border-bottom:1px dashed var(--border, #334155); font-size:0.82rem; font-weight:700; color:var(--text-secondary);">
-            📋 Unassigned Competitors (${unassigned.length})
+        cardsHtml.push(`
+          <div class="team-roster-card unassigned-roster" style="background:rgba(255,255,255,0.02); border:1px dashed var(--border, #334155); margin-top:0.5rem;">
+            <div style="padding:0.6rem 1rem; background:rgba(255,255,255,0.03); border-bottom:1px dashed var(--border, #334155); font-size:0.82rem; font-weight:700; color:var(--text-secondary);">
+              📋 Unassigned Competitors (${unassigned.length})
+            </div>
+            <div style="display:flex; flex-direction:column;">
+              ${uRowsHtml}
+            </div>
           </div>
-          <div style="display:flex; flex-direction:column;">
-            ${uRowsHtml}
-          </div>
-        `;
-        container.appendChild(uCard);
+        `);
       }
+
+      container.innerHTML = cardsHtml.join('');
     }
     return;
   }
@@ -1428,11 +1582,8 @@ function renderEventTeamsRows() {
 
   let filtered = standings;
   if (eventModalSearchQuery) {
-    filtered = standings.filter(t => {
-      const name = (t.name || '').toLowerCase();
-      const captain = (t.captain || '').toLowerCase();
-      return name.includes(eventModalSearchQuery) || captain.includes(eventModalSearchQuery);
-    });
+    const q = eventModalSearchQuery;
+    filtered = standings.filter(t => t && t._searchText && t._searchText.includes(q));
   }
 
   const searchSummary = document.getElementById('event-modal-search-summary');
@@ -1463,19 +1614,16 @@ function renderEventTeamsRows() {
   }
 
   if (tbody) {
-    tbody.innerHTML = '';
-    filtered.forEach((t, idx) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
+    tbody.innerHTML = filtered.map((t, idx) => `
+      <tr>
         <td class="rank-cell">#${t.placing && t.placing > 0 ? t.placing : (idx + 1)}</td>
         <td style="font-weight:700; color:var(--text-primary);">${escapeHtml(t.name || 'Team')}</td>
         <td style="color:var(--text-muted);">${escapeHtml(t.captain || '-')}</td>
         <td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">${t.match_points != null ? t.match_points : '-'} pts</td>
         <td style="font-family:var(--font-mono); font-weight:600; color:var(--text-secondary);">${t.game_wins != null ? t.game_wins : '-'}</td>
         <td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">${t.battle_points != null ? t.battle_points : '-'} pts</td>
-      `;
-      tbody.appendChild(tr);
-    });
+      </tr>
+    `).join('');
   }
 }
 
@@ -1508,6 +1656,13 @@ function toggleAllTeamCards() {
   });
 }
 
+var _lastResultsSortState = {
+  playersRef: null,
+  playersLen: -1,
+  field: null,
+  asc: null
+};
+
 function renderEventResultsRows() {
   const tbody = document.getElementById('event-results-body');
   if (!tbody) return;
@@ -1517,46 +1672,56 @@ function renderEventResultsRows() {
     return;
   }
 
+  ensureEventSearchIndex();
+
   const eventHasAnyMatches = Boolean(
     (eventMatchesCache && eventMatchesCache.length > 0) ||
     (eventPlayersCache && eventPlayersCache.some(p => (p.event_matches_count && p.event_matches_count > 0) || (p.event_wins && p.event_wins > 0) || (p.event_losses && p.event_losses > 0)))
   );
   const isStarted = eventHasAnyMatches;
 
-  // Sorting
+  // Sorting (only re-sort when sort config or players array changes)
   const sortCfg = (typeof currentSort !== 'undefined' && currentSort['event-results']) || {
     field: isStarted ? 'placement' : 'current_elo',
     asc: isStarted ? true : false
   };
 
-  if (sortCfg.field === 'placement' || sortCfg.field === 'rank') {
-    eventPlayersCache.sort((a, b) => {
-      const plA = (a.placement && a.placement > 0) ? a.placement : 999999;
-      const plB = (b.placement && b.placement > 0) ? b.placement : 999999;
-      if (plA !== plB) return sortCfg.asc ? (plA - plB) : (plB - plA);
-      return (Number(b.current_elo || 1500) - Number(a.current_elo || 1500));
-    });
-  } else if (sortCfg.field === 'current_elo') {
-    eventPlayersCache.sort((a, b) => {
-      const eloA = Number(a.current_elo || 1500);
-      const eloB = Number(b.current_elo || 1500);
-      return sortCfg.asc ? (eloA - eloB) : (eloB - eloA);
-    });
-  } else if (typeof sortClientArray === 'function') {
-    eventPlayersCache = sortClientArray(eventPlayersCache, sortCfg.field, sortCfg.asc);
+  if (
+    _lastResultsSortState.playersRef !== eventPlayersCache ||
+    _lastResultsSortState.playersLen !== eventPlayersCache.length ||
+    _lastResultsSortState.field !== sortCfg.field ||
+    _lastResultsSortState.asc !== sortCfg.asc
+  ) {
+    if (sortCfg.field === 'placement' || sortCfg.field === 'rank') {
+      eventPlayersCache.sort((a, b) => {
+        const plA = (a.placement && a.placement > 0) ? a.placement : 999999;
+        const plB = (b.placement && b.placement > 0) ? b.placement : 999999;
+        if (plA !== plB) return sortCfg.asc ? (plA - plB) : (plB - plA);
+        return (Number(b.current_elo || 1500) - Number(a.current_elo || 1500));
+      });
+    } else if (sortCfg.field === 'current_elo') {
+      eventPlayersCache.sort((a, b) => {
+        const eloA = Number(a.current_elo || 1500);
+        const eloB = Number(b.current_elo || 1500);
+        return sortCfg.asc ? (eloA - eloB) : (eloB - eloA);
+      });
+    } else if (typeof sortClientArray === 'function') {
+      eventPlayersCache = sortClientArray(eventPlayersCache, sortCfg.field, sortCfg.asc);
+    }
+    _lastResultsSortState.playersRef = eventPlayersCache;
+    _lastResultsSortState.playersLen = eventPlayersCache.length;
+    _lastResultsSortState.field = sortCfg.field;
+    _lastResultsSortState.asc = sortCfg.asc;
   }
 
   let playersToRender = eventPlayersCache;
   if (typeof eventHubFactionFilter !== 'undefined' && eventHubFactionFilter && eventHubFactionFilter.toLowerCase() !== 'all') {
-    playersToRender = playersToRender.filter(p => formatEventPlayerFaction(p.faction || p.army_name).toLowerCase() === eventHubFactionFilter.toLowerCase());
+    const facFilterLower = eventHubFactionFilter.toLowerCase();
+    playersToRender = playersToRender.filter(p => (p._formattedFactionLower || formatEventPlayerFaction(p.faction || p.army_name).toLowerCase()) === facFilterLower);
   }
   if (eventModalSearchQuery) {
-    playersToRender = playersToRender.filter(p => {
-      const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
-      const fac = formatEventPlayerFaction(p.faction || p.army_name).toLowerCase();
-      const team = (p.team || '').toLowerCase();
-      return name.includes(eventModalSearchQuery) || fac.includes(eventModalSearchQuery) || team.includes(eventModalSearchQuery);
-    });
+    const q = eventModalSearchQuery;
+    playersToRender = playersToRender.filter(p => p && p._searchText && p._searchText.includes(q));
   }
 
   const searchSummary = document.getElementById('event-modal-search-summary');
@@ -1584,27 +1749,28 @@ function renderEventResultsRows() {
     return;
   }
 
-  tbody.innerHTML = '';
-  playersToRender.forEach((p, idx) => {
-    const tr = document.createElement('tr');
+  const resultContextKey = `${eventHasAnyMatches ? 1 : 0}:${isStarted ? 1 : 0}`;
+  const rowsHtml = new Array(playersToRender.length);
+  for (let idx = 0; idx < playersToRender.length; idx++) {
+    const p = playersToRender[idx];
+    const hasPlacement = Boolean(p.placement && p.placement > 0);
+    const hasMatchesPlayed = Boolean(eventHasAnyMatches && ((p.event_matches_count && p.event_matches_count > 0) || (p.event_wins && p.event_wins > 0) || (p.event_losses && p.event_losses > 0)));
+    const rankDisplay = (hasMatchesPlayed && hasPlacement)
+      ? `#${p.placement}`
+      : (hasMatchesPlayed && p.rank && p.rank > 0 ? `#${p.rank}` : `#${idx + 1}`);
+
+    if (p._cachedResultContextKey === resultContextKey && p._cachedResultCellsHtml && p._cachedRowOpenHtml) {
+      rowsHtml[idx] = `${p._cachedRowOpenHtml}<td class="rank-cell">${rankDisplay}</td>${p._cachedResultCellsHtml}`;
+      continue;
+    }
+
     const safePid = String(p.player_id || p.id || '').trim();
     const safeName = String(p.full_name || 'Player').trim();
-    tr.onclick = (e) => {
-      e.stopPropagation();
-      openPlayerModal(safePid, safeName);
-    };
 
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
     const avgScore = (p.event_battle_points / (p.event_matches_count || 1)).toFixed(1);
     const teamHtml = p.team ? `<span style="font-size:0.75rem; color:var(--text-muted); margin-left:6px; font-weight:400;">• ${escapeHtml(p.team)}</span>` : '';
     const drawStr = p.event_draws ? ` - ${p.event_draws}D` : '';
-
-    const hasPlacement = Boolean(p.placement && p.placement > 0);
-    const hasMatchesPlayed = Boolean(eventHasAnyMatches && ((p.event_matches_count && p.event_matches_count > 0) || (p.event_wins && p.event_wins > 0) || (p.event_losses && p.event_losses > 0)));
-
-    const rankDisplay = (hasMatchesPlayed && hasPlacement)
-      ? `#${p.placement}`
-      : (hasMatchesPlayed && p.rank && p.rank > 0 ? `#${p.rank}` : `#${idx + 1}`);
 
     const recordDisplay = hasMatchesPlayed
       ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">
@@ -1635,41 +1801,43 @@ function renderEventResultsRows() {
       ? `<span class="badge" style="font-family:var(--font-mono); font-size:0.72rem; padding:1px 6px; margin-left:6px; background:${netEloBg}; color:${netEloColor}; border:1px solid ${netEloBorder}; font-weight:700;" title="Tournament Net Elo Change">${netEloStr}</span>`
       : '';
 
-    const displayFac = formatEventPlayerFaction(p.faction || p.army_name);
+    const displayFac = p._formattedFaction || p._displayFac || formatEventPlayerFaction(p.faction || p.army_name);
 
-    tr.innerHTML = `
-      <td class="rank-cell">${rankDisplay}</td>
-      <td class="col-event-competitor">
-        <div class="player-name-cell">
-          <span class="player-link" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(p.full_name || 'Player')}">${escapeHtml(p.full_name || 'Player')}</span>
-          ${teamHtml}
-        </div>
-      </td>
-      <td class="col-event-faction">
-        ${displayFac && displayFac !== '-' ? `
-          <span class="badge" title="${escapeHtml(displayFac)}${p.detachment ? ` (${escapeHtml(p.detachment)})` : ''}" style="background:var(--bg-card); border:1px solid var(--border); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;">
-            ${escapeHtml(displayFac)}${p.detachment ? `<span style="color:var(--text-muted); font-weight:400;"> (${escapeHtml(p.detachment)})</span>` : ''}
-          </span>
-        ` : `<span style="color:var(--text-muted); font-size:0.85rem; font-weight:500;">-</span>`}
-      </td>
-      ${recordDisplay}
-      ${pointsDisplay}
-      <td>
-        <div style="display:inline-flex; align-items:center;">
-          <span class="elo-badge ${eloBadgeClass}">${Number(p.current_elo || 1500).toFixed(1)}</span>
-          ${netEloBadge}
-        </div>
-      </td>
-      <td style="text-align: right;">
-        ${hasPlayerSubmittedList(p) ? `
-          <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.74rem; padding:3px 9px; font-weight:600; cursor:pointer;" title="View competitor army roster">
-            📋 Roster
-          </button>
-        ` : `<span style="color:var(--text-muted); font-size:0.85rem; padding-right:0.45rem;">—</span>`}
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
+    p._cachedRowOpenHtml = `<tr style="cursor:pointer;" data-player-id="${escapeHtml(safePid)}" data-player-name="${escapeHtml(safeName)}" onclick="event.stopPropagation(); openPlayerModal(this.getAttribute('data-player-id'), this.getAttribute('data-player-name'));">`;
+    p._cachedResultCellsHtml = `
+        <td class="col-event-competitor">
+          <div class="player-name-cell">
+            <span class="player-link" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(safeName)}">${escapeHtml(safeName)}</span>
+            ${teamHtml}
+          </div>
+        </td>
+        <td class="col-event-faction">
+          ${displayFac && displayFac !== '-' ? `
+            <span class="badge" title="${escapeHtml(displayFac)}${p.detachment ? ` (${escapeHtml(p.detachment)})` : ''}" style="background:var(--bg-card); border:1px solid var(--border); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;">
+              ${escapeHtml(displayFac)}${p.detachment ? `<span style="color:var(--text-muted); font-weight:400;"> (${escapeHtml(p.detachment)})</span>` : ''}
+            </span>
+          ` : `<span style="color:var(--text-muted); font-size:0.85rem; font-weight:500;">-</span>`}
+        </td>
+        ${recordDisplay}
+        ${pointsDisplay}
+        <td>
+          <div style="display:inline-flex; align-items:center;">
+            <span class="elo-badge ${eloBadgeClass}">${Number(p.current_elo || 1500).toFixed(1)}</span>
+            ${netEloBadge}
+          </div>
+        </td>
+        <td style="text-align: right;">
+          ${hasPlayerSubmittedList(p) ? `
+            <button type="button" class="btn-sm btn-outline" data-list-target="${escapeHtml(safePid || safeName)}" onclick="event.stopPropagation(); openEventPlayerListModal(this.getAttribute('data-list-target'))" style="font-size:0.74rem; padding:3px 9px; font-weight:600; cursor:pointer;" title="View competitor army roster">
+              📋 Roster
+            </button>
+          ` : `<span style="color:var(--text-muted); font-size:0.85rem; padding-right:0.45rem;">—</span>`}
+        </td>
+      </tr>`;
+    p._cachedResultContextKey = resultContextKey;
+    rowsHtml[idx] = `${p._cachedRowOpenHtml}<td class="rank-cell">${rankDisplay}</td>${p._cachedResultCellsHtml}`;
+  }
+  tbody.innerHTML = rowsHtml.join('');
 }
 
 function renderEventEloRows() {
@@ -1681,17 +1849,15 @@ function renderEventEloRows() {
     return;
   }
 
+  ensureEventSearchIndex();
+
   // Sort players descending by current Elo
   const sorted = [...eventPlayersCache].sort((a, b) => (b.current_elo || 1500) - (a.current_elo || 1500));
 
   let playersToRender = sorted;
   if (eventModalSearchQuery) {
-    playersToRender = sorted.filter(p => {
-      const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
-      const fac = (p.faction || '').toLowerCase();
-      const team = (p.team || '').toLowerCase();
-      return name.includes(eventModalSearchQuery) || fac.includes(eventModalSearchQuery) || team.includes(eventModalSearchQuery);
-    });
+    const q = eventModalSearchQuery;
+    playersToRender = sorted.filter(p => p && p._searchText && p._searchText.includes(q));
   }
 
   const searchSummary = document.getElementById('event-modal-search-summary');
@@ -1719,31 +1885,30 @@ function renderEventEloRows() {
     return;
   }
 
-  tbody.innerHTML = '';
-  playersToRender.forEach((p, idx) => {
-    const tr = document.createElement('tr');
-    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id, p.full_name || ''); };
-
+  tbody.innerHTML = playersToRender.map((p, idx) => {
+    const safePid = String(p.player_id || p.id || '').trim();
+    const safeName = String(p.full_name || (p.first_name ? `${p.first_name} ${p.last_name || ''}` : '') || 'Player').trim();
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
     const teamHtml = p.team ? `<span style="font-size:0.75rem; color:var(--text-muted); margin-left:6px; font-weight:400;">• ${escapeHtml(p.team)}</span>` : '';
 
-    tr.innerHTML = `
-      <td class="rank-cell">#${idx + 1}</td>
-      <td>
-        <div class="player-name-cell">
-          <span class="player-link">${escapeHtml(p.full_name || (p.first_name + ' ' + p.last_name))}</span>
-          ${teamHtml}
-        </div>
-      </td>
-      <td>
-        <span class="badge" style="background:var(--bg-card); border:1px solid var(--border);">${escapeHtml(p.faction || 'Unknown')}${p.detachment ? `<span style="color:var(--text-muted); font-weight:400;"> (${escapeHtml(p.detachment)})</span>` : ''}</span>
-      </td>
-      <td class="elo-badge ${eloBadgeClass}">
-        ${Number(p.current_elo || 1500).toFixed(1)}
-      </td>
+    return `
+      <tr style="cursor:pointer;" data-player-id="${escapeHtml(safePid)}" data-player-name="${escapeHtml(safeName)}" onclick="event.stopPropagation(); openPlayerModal(this.getAttribute('data-player-id'), this.getAttribute('data-player-name'));">
+        <td class="rank-cell">#${idx + 1}</td>
+        <td>
+          <div class="player-name-cell">
+            <span class="player-link">${escapeHtml(safeName)}</span>
+            ${teamHtml}
+          </div>
+        </td>
+        <td>
+          <span class="badge" style="background:var(--bg-card); border:1px solid var(--border);">${escapeHtml(p.faction || 'Unknown')}${p.detachment ? `<span style="color:var(--text-muted); font-weight:400;"> (${escapeHtml(p.detachment)})</span>` : ''}</span>
+        </td>
+        <td class="elo-badge ${eloBadgeClass}">
+          ${Number(p.current_elo || 1500).toFixed(1)}
+        </td>
+      </tr>
     `;
-    tbody.appendChild(tr);
-  });
+  }).join('');
 }
 
 let selectedEventRound = 'all';
@@ -1759,7 +1924,10 @@ function renderEventPairingsRows() {
   if (!tbody) return;
 
   if (!eventMatchesCache || eventMatchesCache.length === 0) {
-    if (roundsContainer) roundsContainer.innerHTML = '';
+    if (roundsContainer) {
+      roundsContainer.innerHTML = '';
+      delete roundsContainer.dataset.renderedKey;
+    }
     tbody.innerHTML = `
       <tr>
         <td colspan="7" class="empty-state" style="padding:2.5rem 1rem;">
@@ -1772,26 +1940,33 @@ function renderEventPairingsRows() {
     return;
   }
 
-  // 1. Extract and render distinct round buttons (All, R1, R2, R3...)
-  const distinctRounds = [...new Set(eventMatchesCache.map(m => Number(m.round || 1)))].sort((a, b) => a - b);
+  const idxState = ensureEventSearchIndex();
+  const eventId = currentOpenEventId || (currentEventData && currentEventData.id) || '';
+
+  // 1. Extract and render distinct round buttons (All, R1, R2, R3...) using pre-indexed counts
+  const distinctRounds = idxState.distinctRounds;
   if (selectedEventRound !== 'all' && !distinctRounds.includes(Number(selectedEventRound))) {
     selectedEventRound = 'all';
   }
   if (roundsContainer) {
-    let pillsHtml = `
-      <button class="round-filter-btn ${selectedEventRound === 'all' ? 'active' : ''}" onclick="setEventRoundFilter('all')">
-        All Rounds (${eventMatchesCache.length})
-      </button>
-    `;
-    distinctRounds.forEach(r => {
-      const rCount = eventMatchesCache.filter(m => (m.round || 1) === r).length;
-      pillsHtml += `
-        <button class="round-filter-btn ${selectedEventRound === r ? 'active' : ''}" onclick="setEventRoundFilter(${r})">
-          Round ${r} (${rCount})
+    const roundsRenderKey = `${eventId}:${eventMatchesCache.length}:${selectedEventRound}`;
+    if (roundsContainer.dataset.renderedKey !== roundsRenderKey) {
+      let pillsHtml = `
+        <button class="round-filter-btn ${selectedEventRound === 'all' ? 'active' : ''}" onclick="setEventRoundFilter('all')">
+          All Rounds (${eventMatchesCache.length})
         </button>
       `;
-    });
-    roundsContainer.innerHTML = pillsHtml;
+      distinctRounds.forEach(r => {
+        const rCount = idxState.roundCounts.get(r) || 0;
+        pillsHtml += `
+          <button class="round-filter-btn ${selectedEventRound === r ? 'active' : ''}" onclick="setEventRoundFilter(${r})">
+            Round ${r} (${rCount})
+          </button>
+        `;
+      });
+      roundsContainer.innerHTML = pillsHtml;
+      roundsContainer.dataset.renderedKey = roundsRenderKey;
+    }
   }
 
   // 1.3 Resolve logged-in competitor identity for quick banner
@@ -1839,43 +2014,61 @@ function renderEventPairingsRows() {
     });
   }
 
-  // 1.4 Render Competitor Active Pairing Banner
+  // 1.4 Render Competitor Active Pairing Banner (cached by event & user identity)
   const compBanner = document.getElementById('event-matches-competitor-banner');
   if (compBanner) {
-    const myActive = (eventMatchesCache || []).find(m => {
-      const p1Id = String(m.player1_id || '').trim().toLowerCase();
-      const p2Id = String(m.player2_id || '').trim().toLowerCase();
-      const p1Name = String(m.player1_name || '').trim().toLowerCase();
-      const p2Name = String(m.player2_name || '').trim().toLowerCase();
-      const isMe = (uBannerIds.includes(p1Id) || uBannerIds.includes(p2Id) || uBannerNames.some(un => (p1Name && (un.includes(p1Name) || p1Name.includes(un))) || (p2Name && (un.includes(p2Name) || p2Name.includes(un)))));
-      return isMe && (m.player1_score === null || m.player2_score === null) && m.status !== 'finished';
-    });
+    const bannerKey = `${eventId}:${eventMatchesCache.length}:${uBannerIds.join(',')}:${uBannerNames.join(',')}`;
+    if (compBanner.dataset.renderedKey !== bannerKey) {
+      compBanner.dataset.renderedKey = bannerKey;
+      const myActive = (uBannerIds.length > 0 || uBannerNames.length > 0) ? (eventMatchesCache || []).find(m => {
+        const p1Id = String(m.player1_id || '').trim().toLowerCase();
+        const p2Id = String(m.player2_id || '').trim().toLowerCase();
+        const p1Name = String(m.player1_name || '').trim().toLowerCase();
+        const p2Name = String(m.player2_name || '').trim().toLowerCase();
+        const isMe = (uBannerIds.includes(p1Id) || uBannerIds.includes(p2Id) || uBannerNames.some(un => (p1Name && (un.includes(p1Name) || p1Name.includes(un))) || (p2Name && (un.includes(p2Name) || p2Name.includes(un)))));
+        return isMe && (m.player1_score === null || m.player2_score === null) && m.status !== 'finished';
+      }) : null;
 
-    if (myActive) {
-      const isP1 = uBannerIds.includes(String(myActive.player1_id || '').toLowerCase()) || uBannerNames.some(un => un.includes(String(myActive.player1_name || '').toLowerCase()));
-      const oppName = isP1 ? (myActive.player2_name || 'BYE') : (myActive.player1_name || 'Opponent');
-      const oppFac = isP1 ? (myActive.player2_faction || '') : (myActive.player1_faction || '');
-      const tNum = myActive.table_number || myActive.table || 1;
-      const rNum = myActive.round || 1;
-      compBanner.style.display = 'flex';
-      compBanner.innerHTML = `
-        <div style="display:flex; align-items:center; gap:0.65rem; flex-wrap:wrap;">
-          <span style="font-size:1.2rem;">⚡</span>
-          <div>
-            <div style="font-size:0.86rem; font-weight:800; color:#fff;">
-              Round ${rNum} • Table ${tNum}: You vs <span style="color:#38bdf8;">${escapeHtml(oppName)}</span> ${oppFac ? `<span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">(${escapeHtml(oppFac)})</span>` : ''}
-            </div>
-            <div style="font-size:0.74rem; color:#94a3b8;">
-              Your active match is ready to play. Track live scores or submit to BCP via your Player Station.
+      if (myActive) {
+        const isP1 = uBannerIds.includes(String(myActive.player1_id || '').toLowerCase()) || uBannerNames.some(un => un.includes(String(myActive.player1_name || '').toLowerCase()));
+        const oppName = isP1 ? (myActive.player2_name || 'BYE') : (myActive.player1_name || 'Opponent');
+        const oppId = isP1 ? (myActive.player2_id || '') : (myActive.player1_id || '');
+        const oppFac = isP1 ? (myActive.player2_faction || '') : (myActive.player1_faction || '');
+        const oppListId = isP1 ? (myActive.player2_list_id || '') : (myActive.player1_list_id || '');
+        const oppRec = lookupEventPlayerFast(oppId, oppName);
+        const safeOppId = String((oppRec && (oppRec.player_id || oppRec.id)) || oppId || '').replace(/'/g, "\\'");
+        const safeOppName = String((oppRec && (oppRec.full_name || oppRec.name)) || oppName || '').replace(/'/g, "\\'");
+        const safeOppListId = String(oppListId || (oppRec && (oppRec.list_id || oppRec.listId)) || '').replace(/'/g, "\\'");
+        const oppHasList = Boolean(oppName !== 'BYE' && ((oppRec && hasPlayerSubmittedList(oppRec)) || safeOppListId));
+        const tNum = myActive.table_number || myActive.table || 1;
+        const rNum = myActive.round || 1;
+        compBanner.style.display = 'flex';
+        compBanner.innerHTML = `
+          <div style="display:flex; align-items:center; gap:0.65rem; flex-wrap:wrap;">
+            <span style="font-size:1.2rem;">⚡</span>
+            <div>
+              <div style="font-size:0.86rem; font-weight:800; color:#fff;">
+                Round ${rNum} • Table ${tNum}: You vs ${oppName !== 'BYE' ? `<span class="player-link" style="color:#38bdf8; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(safeOppId)}', '${escapeHtml(safeOppName)}');" title="View ${escapeHtml(oppName)}'s Player Profile">${escapeHtml(oppName)}</span>` : `<span style="color:#38bdf8;">BYE</span>`} ${oppFac ? `<span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">(${escapeHtml(oppFac)})</span>` : ''}
+              </div>
+              <div style="font-size:0.74rem; color:#94a3b8;">
+                Your active match is ready to play. Track live scores or submit to BCP via your Player Station.
+              </div>
             </div>
           </div>
-        </div>
-        <button type="button" class="btn btn-primary" onclick="switchEventModalTab('player')" style="font-size:0.76rem; font-weight:800; padding:5px 12px; background:#38bdf8; border-color:#0284c7; color:#000; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; border-radius:6px;">
-          ⚔️ Open My Player Station ➔
-        </button>
-      `;
-    } else {
-      compBanner.style.display = 'none';
+          <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+            ${oppHasList ? `
+              <button type="button" class="btn btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safeOppId || safeOppName)}', '${escapeHtml(safeOppListId)}')" style="font-size:0.75rem; font-weight:700; padding:5px 10px; color:#38bdf8; border-color:rgba(56,189,248,0.45); background:rgba(56,189,248,0.1); cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem; border-radius:6px;">
+                📋 Opponent Roster
+              </button>
+            ` : ''}
+            <button type="button" class="btn btn-primary" onclick="switchEventModalTab('player')" style="font-size:0.76rem; font-weight:800; padding:5px 12px; background:#38bdf8; border-color:#0284c7; color:#000; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; border-radius:6px;">
+              ⚔️ Open My Player Station ➔
+            </button>
+          </div>
+        `;
+      } else {
+        compBanner.style.display = 'none';
+      }
     }
   }
 
@@ -1906,22 +2099,10 @@ function renderEventPairingsRows() {
     ? eventMatchesCache 
     : eventMatchesCache.filter(m => (m.round || 1) === Number(selectedEventRound));
 
-  // 3. Filter matches by search query (players, teams, factions)
+  // 3. Filter matches by search query (players, teams, factions) using O(1) pre-indexed _searchText
   if (eventModalSearchQuery) {
-    matchesToRender = matchesToRender.filter(m => {
-      const p1Name = (m.player1_name || '').toLowerCase();
-      const p2Name = (m.player2_name || '').toLowerCase();
-      const p1Fac = (m.player1_faction || eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.faction || '').toLowerCase();
-      const p2Fac = (m.player2_faction || eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.faction || '').toLowerCase();
-      const p1Team = (eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.team || '').toLowerCase();
-      const p2Team = (eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.team || '').toLowerCase();
-      return p1Name.includes(eventModalSearchQuery) ||
-             p2Name.includes(eventModalSearchQuery) ||
-             p1Fac.includes(eventModalSearchQuery) ||
-             p2Fac.includes(eventModalSearchQuery) ||
-             p1Team.includes(eventModalSearchQuery) ||
-             p2Team.includes(eventModalSearchQuery);
-    });
+    const q = eventModalSearchQuery;
+    matchesToRender = matchesToRender.filter(m => m && m._searchText && m._searchText.includes(q));
   }
 
   const searchSummary = document.getElementById('event-modal-search-summary');
@@ -1949,8 +2130,6 @@ function renderEventPairingsRows() {
     return;
   }
 
-  tbody.innerHTML = '';
-
   // Permission checks: Is current logged-in user Player 1, Player 2, or Staff (Admin/TO/Referee)?
   const u = (typeof authState !== 'undefined' && authState && authState.user) ||
             (typeof currentUser !== 'undefined' ? currentUser : null) ||
@@ -1962,64 +2141,15 @@ function renderEventPairingsRows() {
     ''
   ).trim().toLowerCase();
 
-  // Collect all candidate names for logged-in user
-  const userNames = [];
-  if (u) {
-    [
-      u.display_name,
-      u.competitor_name,
-      u.full_name,
-      u.name,
-      u.username,
-      (u.first_name || u.firstName) ? `${u.first_name || u.firstName} ${u.last_name || u.lastName || ''}` : '',
-      (u.lastName) ? `${u.firstName || ''} ${u.lastName}` : ''
-    ].forEach(n => {
-      if (n && typeof n === 'string' && n.trim()) {
-        userNames.push(n.trim().toLowerCase());
-      }
-    });
-  }
-  if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
-    const preg = currentEventRegistration.player_registration || {};
-    const uprof = currentEventRegistration.user_profile || {};
-    [
-      preg.full_name,
-      preg.name,
-      preg.first_name ? `${preg.first_name} ${preg.last_name || ''}` : '',
-      uprof.display_name,
-      uprof.first_name ? `${uprof.first_name} ${uprof.last_name || ''}` : ''
-    ].forEach(n => {
-      if (n && typeof n === 'string' && n.trim()) {
-        userNames.push(n.trim().toLowerCase());
-      }
-    });
-  }
-
-  // Collect all candidate IDs for logged-in user
-  const userIds = [];
-  if (u) {
-    [u.player_id, u.bcp_player_id, u.bcp_user_id, u.bcp_id, u.id, u.sub, u.userId].forEach(id => {
-      if (id && typeof id === 'string' && id.trim()) {
-        userIds.push(id.trim().toLowerCase());
-      }
-    });
-  }
-  if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
-    const preg = currentEventRegistration.player_registration || {};
-    const uprof = currentEventRegistration.user_profile || {};
-    [preg.player_id, preg.id, preg.userId, preg.user_id, uprof.bcp_user_id, uprof.id].forEach(id => {
-      if (id && typeof id === 'string' && id.trim()) {
-        userIds.push(id.trim().toLowerCase());
-      }
-    });
-  }
-
-  // Collect all candidate emails for logged-in user
-  const userEmails = [];
+  // Collect all candidate names, IDs, and emails for logged-in user
+  const userNames = uBannerNames;
+  const userIds = uBannerIds;
+  const userIdsSet = new Set(userIds);
+  const userEmailsSet = new Set();
   if (u) {
     [u.email, u.bcp_email].forEach(em => {
       if (em && typeof em === 'string' && em.trim()) {
-        userEmails.push(em.trim().toLowerCase());
+        userEmailsSet.add(em.trim().toLowerCase());
       }
     });
   }
@@ -2028,10 +2158,11 @@ function renderEventPairingsRows() {
     const uprof = currentEventRegistration.user_profile || {};
     [preg.email, uprof.email].forEach(em => {
       if (em && typeof em === 'string' && em.trim()) {
-        userEmails.push(em.trim().toLowerCase());
+        userEmailsSet.add(em.trim().toLowerCase());
       }
     });
   }
+  const hasLoggedUser = Boolean(u && (userIdsSet.size > 0 || userNames.length > 0 || userEmailsSet.size > 0));
 
   function checkNameMatch(candidate, target) {
     if (!candidate || !target) return false;
@@ -2042,19 +2173,15 @@ function renderEventPairingsRows() {
     return false;
   }
 
-  // Look up cached player records in roster
-  const allRosterPlayers = [
-    ...(Array.isArray(eventPlayersCache) ? eventPlayersCache : []),
-    ...((currentEventData && Array.isArray(currentEventData.players)) ? currentEventData.players : []),
-    ...((currentEventData && Array.isArray(currentEventData.roster)) ? currentEventData.roster : [])
-  ];
-
   function recordMatchesUser(rec) {
-    if (!rec) return false;
-    const recIds = [rec.player_id, rec.id, rec.user_id, rec.userId].filter(Boolean).map(x => String(x).trim().toLowerCase());
-    if (recIds.some(id => userIds.includes(id))) return true;
+    if (!rec || !hasLoggedUser) return false;
+    const recIds = [rec.player_id, rec.id, rec.user_id, rec.userId];
+    for (let i = 0; i < recIds.length; i++) {
+      const id = recIds[i];
+      if (id && userIdsSet.has(String(id).trim().toLowerCase())) return true;
+    }
     const recEmail = String(rec.email || '').trim().toLowerCase();
-    if (recEmail && userEmails.includes(recEmail)) return true;
+    if (recEmail && userEmailsSet.has(recEmail)) return true;
     const recName = String(rec.full_name || rec.name || rec.player_name || '').trim().toLowerCase();
     if (recName && userNames.some(un => checkNameMatch(un, recName))) return true;
     return false;
@@ -2077,13 +2204,33 @@ function renderEventPairingsRows() {
   ));
   const isStaff = Boolean(isGlobalAdmin || isEventOrganizer);
 
-  matchesToRender.forEach(m => {
+  // Pre-index live streams by table number
+  const streamByTableMap = new Map();
+  let defaultStream = null;
+  if (typeof eventLiveStreams !== 'undefined' && Array.isArray(eventLiveStreams) && eventLiveStreams.length > 0) {
+    for (let i = 0; i < eventLiveStreams.length; i++) {
+      const s = eventLiveStreams[i];
+      if (!s) continue;
+      const tNum = Number(s.tableNumber);
+      if (tNum === 0 && !defaultStream) defaultStream = s;
+      else if (!streamByTableMap.has(tNum)) streamByTableMap.set(tNum, s);
+    }
+  }
+
+  const safeEventId = String(eventId).replace(/'/g, "\\'");
+  const rowContextKey = `${safeEventId}:${isStaff ? 1 : 0}:${u ? (u.id || u.email || '') : ''}:${typeof eventLiveStreams !== 'undefined' && Array.isArray(eventLiveStreams) ? eventLiveStreams.length : 0}`;
+  const rowsHtml = [];
+
+  for (let i = 0; i < matchesToRender.length; i++) {
+    const m = matchesToRender[i];
+    if (m._cachedRowKey === rowContextKey && m._cachedRowHtml) {
+      rowsHtml.push(m._cachedRowHtml);
+      continue;
+    }
     try {
-      const tr = document.createElement('tr');
       const isP1Win = m.winner_id && m.winner_id === m.player1_id;
       const isP2Win = m.winner_id && m.winner_id === m.player2_id;
       const outcome = isP1Win ? 'Player 1 Win' : (isP2Win ? 'Player 2 Win' : (m.is_draw ? 'Draw' : (m.is_bye ? 'BYE' : 'Pending')));
-      const eventId = currentOpenEventId || (currentEventData && currentEventData.id) || '';
       const matchId = `BCP-${eventId}-R${m.round || 1}-T${m.table_number || 1}`;
 
       const isBye = Boolean(m.is_bye || m.player2_name === 'BYE' || !m.player2_id);
@@ -2091,57 +2238,38 @@ function renderEventPairingsRows() {
       const hasTrackerGame = Boolean(m.has_tracker_game);
       const isTrackerDone = Boolean(m.tracker_is_done || m.tracker_status === 'completed');
 
-      const p1Faction = m.player1_faction || eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.faction || '';
-      const p2Faction = m.player2_faction || eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.faction || '';
+      const p1Record = m._p1Record !== undefined ? m._p1Record : lookupEventPlayerFast(m.player1_id, m.player1_name);
+      const p2Record = m._p2Record !== undefined ? m._p2Record : lookupEventPlayerFast(m.player2_id, m.player2_name);
+      const p1Faction = m._p1Faction !== undefined ? m._p1Faction : (m.player1_faction || p1Record?.faction || '');
+      const p2Faction = m._p2Faction !== undefined ? m._p2Faction : (m.player2_faction || p2Record?.faction || '');
 
-      const p1NameClean = (m.player1_name || '').trim().toLowerCase();
-      const p2NameClean = (m.player2_name || '').trim().toLowerCase();
-      const p1IdClean = (m.player1_id || '').trim().toLowerCase();
-      const p2IdClean = (m.player2_id || '').trim().toLowerCase();
+      let isP1 = false;
+      let isP2 = false;
+      if (hasLoggedUser) {
+        const p1NameClean = (m.player1_name || '').trim().toLowerCase();
+        const p2NameClean = (m.player2_name || '').trim().toLowerCase();
+        const p1IdClean = (m.player1_id || '').trim().toLowerCase();
+        const p2IdClean = (m.player2_id || '').trim().toLowerCase();
 
-      const p1Record = allRosterPlayers.find(p => {
-        if (!p) return false;
-        const candidateIds = [p.player_id, p.id, p.bcp_event_player_id, p.user_id, p.userId].filter(Boolean).map(x => String(x).trim().toLowerCase());
-        if (p1IdClean && candidateIds.includes(p1IdClean)) return true;
-        const pname = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
-        if (p1NameClean && pname && checkNameMatch(pname, p1NameClean)) return true;
-        return false;
-      });
+        isP1 = Boolean(
+          (p1IdClean && userIdsSet.has(p1IdClean)) ||
+          (p1NameClean && userNames.some(un => checkNameMatch(un, p1NameClean))) ||
+          recordMatchesUser(p1Record)
+        );
+        isP2 = Boolean(
+          (p2IdClean && userIdsSet.has(p2IdClean)) ||
+          (p2NameClean && userNames.some(un => checkNameMatch(un, p2NameClean))) ||
+          recordMatchesUser(p2Record)
+        );
+      }
 
-      const p2Record = allRosterPlayers.find(p => {
-        if (!p) return false;
-        const candidateIds = [p.player_id, p.id, p.bcp_event_player_id, p.user_id, p.userId].filter(Boolean).map(x => String(x).trim().toLowerCase());
-        if (p2IdClean && candidateIds.includes(p2IdClean)) return true;
-        const pname = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
-        if (p2NameClean && pname && checkNameMatch(pname, p2NameClean)) return true;
-        return false;
-      });
-
-      const isP1 = Boolean(u && (
-        (p1IdClean && userIds.includes(p1IdClean)) ||
-        (p1NameClean && userNames.some(un => checkNameMatch(un, p1NameClean))) ||
-        recordMatchesUser(p1Record)
-      ));
-
-      const isP2 = Boolean(u && (
-        (p2IdClean && userIds.includes(p2IdClean)) ||
-        (p2NameClean && userNames.some(un => checkNameMatch(un, p2NameClean))) ||
-        recordMatchesUser(p2Record)
-      ));
-
-      // Paired competitors and the specific Tournament Organizer/Admin can launch and update the match tracker.
-      // Non-staff competitors and casual spectators spectate via the live scorecard.
       const canEdit = Boolean(isP1 || isP2 || isStaff);
 
       let actionBtn = '';
       if (!isBye) {
-        // 1. If game was actually completed with digital scorecard in tracker_games
         if (hasTrackerGame && (isTrackerDone || hasScore)) {
           actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="View turn-by-turn digital scorecard">📄 Scorecard</button>`;
-        } 
-        // 2. If match is ongoing/uncompleted and user has competitor/staff permissions to edit/track
-        else if (!hasScore && canEdit) {
-          const safeEventId = String(eventId).replace(/'/g, "\\'");
+        } else if (!hasScore && canEdit) {
           const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
           const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
           const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
@@ -2149,10 +2277,7 @@ function renderEventPairingsRows() {
           const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
           const btnLabel = hasTrackerGame ? '🎮 Resume' : '🎲 Track';
           actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || m.table || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="1-Click Launch Game Tracker for Table ${m.table_number || m.table || 1}">${btnLabel}</button>`;
-        } 
-        // 3. If match is ongoing/uncompleted and user is a spectator / other competitor
-        else if (!hasScore && !canEdit) {
-          const safeEventId = String(eventId).replace(/'/g, "\\'");
+        } else if (!hasScore && !canEdit) {
           const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
           const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
           const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
@@ -2167,6 +2292,16 @@ function renderEventPairingsRows() {
       const targetP1Name = String((p1Record && (p1Record.full_name || p1Record.name)) || m.player1_name || '').replace(/'/g, "\\'");
       const targetP2Id = String((p2Record && p2Record.player_id) || m.player2_id || '').replace(/'/g, "\\'");
       const targetP2Name = String((p2Record && (p2Record.full_name || p2Record.name)) || m.player2_name || '').replace(/'/g, "\\'");
+      const p1ListId = String(m.player1_list_id || (p1Record && (p1Record.list_id || p1Record.listId)) || '').replace(/'/g, "\\'");
+      const p2ListId = String(m.player2_list_id || (p2Record && (p2Record.list_id || p2Record.listId)) || '').replace(/'/g, "\\'");
+      const p1HasList = Boolean((p1Record && hasPlayerSubmittedList(p1Record)) || p1ListId);
+      const p2HasList = Boolean(!isBye && ((p2Record && hasPlayerSubmittedList(p2Record)) || p2ListId));
+      const p1RosterBtn = p1HasList
+        ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(targetP1Id || targetP1Name)}', '${escapeHtml(p1ListId)}')" style="font-size:0.68rem; padding:1px 6px; border-radius:4px; color:#38bdf8; border:1px solid rgba(56,189,248,0.38); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:3px; line-height:1.3;" title="View ${escapeHtml(m.player1_name || 'Player 1')}'s Army Roster">📋 Roster</button>`
+        : '';
+      const p2RosterBtn = p2HasList
+        ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(targetP2Id || targetP2Name)}', '${escapeHtml(p2ListId)}')" style="font-size:0.68rem; padding:1px 6px; border-radius:4px; color:#38bdf8; border:1px solid rgba(56,189,248,0.38); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:3px; line-height:1.3;" title="View ${escapeHtml(m.player2_name || 'Player 2')}'s Army Roster">📋 Roster</button>`
+        : '';
 
       const p1Prob = m._p1_win_prob !== undefined ? m._p1_win_prob : 50;
       const p2Prob = m._p2_win_prob !== undefined ? m._p2_win_prob : 50;
@@ -2174,9 +2309,7 @@ function renderEventPairingsRows() {
       const p2ProbPill = !isBye ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.28); font-size:0.68rem; font-family:var(--font-mono); margin-left:6px; padding:1px 5px;" title="Elo Win Probability">${p2Prob}%</span>` : '';
 
       const tableNumVal = Number(m.table_number || m.table || 1);
-      const matchStream = (typeof eventLiveStreams !== 'undefined' && eventLiveStreams)
-        ? (eventLiveStreams.find(s => Number(s.tableNumber) === tableNumVal) || eventLiveStreams.find(s => Number(s.tableNumber) === 0))
-        : null;
+      const matchStream = streamByTableMap.get(tableNumVal) || defaultStream;
 
       const streamBtn = matchStream ? `
         <button type="button" class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:rgba(239,68,68,0.18); border:1px solid #ef4444; color:#fca5a5; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;" onclick="event.stopPropagation(); openEventStreamModal(${matchStream.tableNumber})" title="Watch ${escapeHtml(matchStream.channel)} Live Stream ${Number(matchStream.tableNumber) === 0 ? '(Main Desk)' : `on Table ${matchStream.tableNumber}`}">
@@ -2185,62 +2318,64 @@ function renderEventPairingsRows() {
         </button>
       ` : '';
 
-      if (isP1 || isP2) {
-        tr.style.background = 'rgba(59, 130, 246, 0.12)';
-        tr.style.borderLeft = '3px solid #38bdf8';
-      }
+      const rowStyle = (isP1 || isP2) ? ' style="background:rgba(59, 130, 246, 0.12); border-left:3px solid #38bdf8;"' : '';
 
-      tr.innerHTML = `
-        <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>
-        <td style="font-family:var(--font-mono); color:${matchStream ? '#f87171' : 'var(--text-muted)'}; font-weight:${matchStream ? '800' : 'normal'};">
-          T${tableNumVal}${matchStream ? ' <span title="Live Stream Available - Click to Watch" style="font-size:0.72rem; cursor:pointer;" onclick="event.stopPropagation(); openEventStreamModal(' + tableNumVal + ')">🎥</span>' : ''}
-        </td>
-        <td>
-          <div class="player-name-cell">
-            <div style="display:flex; align-items:center; flex-wrap:wrap; gap:2px;">
-              <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP1Id}', '${escapeHtml(targetP1Name)}');">
-                ${escapeHtml(m.player1_name || 'Player 1')}
-              </span>
-              ${isP1 ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 5px; margin-left:4px; border:none;">YOU</span>' : ''}
-              ${p1ProbPill}
+      const rowHtml = `
+        <tr${rowStyle}>
+          <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>
+          <td style="font-family:var(--font-mono); color:${matchStream ? '#f87171' : 'var(--text-muted)'}; font-weight:${matchStream ? '800' : 'normal'};">
+            T${tableNumVal}${matchStream ? ' <span title="Live Stream Available - Click to Watch" style="font-size:0.72rem; cursor:pointer;" onclick="event.stopPropagation(); openEventStreamModal(' + tableNumVal + ')">🎥</span>' : ''}
+          </td>
+          <td>
+            <div class="player-name-cell">
+              <div style="display:flex; align-items:center; flex-wrap:wrap; gap:2px;">
+                <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP1Id}', '${escapeHtml(targetP1Name)}');">
+                  ${escapeHtml(m.player1_name || 'Player 1')}
+                </span>
+                ${isP1 ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 5px; margin-left:4px; border:none;">YOU</span>' : ''}
+                ${p1ProbPill}
+              </div>
+              ${(p1Faction || p1RosterBtn) ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:3px; display:flex; align-items:center; flex-wrap:wrap; gap:5px;">${p1Faction ? `<span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p1Faction)}</span>` : ''}${p1RosterBtn}</div>` : ''}
             </div>
-            ${p1Faction ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p1Faction)}</span></div>` : ''}
-          </div>
-        </td>
-        <td style="font-family:var(--font-mono); font-weight:700; color:${isP1Win ? 'var(--win)' : 'var(--text-secondary)'};">
-          ${m.player1_score !== null ? m.player1_score : '-'}
-        </td>
-        <td style="font-family:var(--font-mono); font-weight:700; color:${isP2Win ? 'var(--win)' : 'var(--text-secondary)'};">
-          ${m.player2_score !== null ? m.player2_score : '-'}
-        </td>
-        <td>
-          <div class="player-name-cell">
-            ${isBye
-              ? `<span style="color:var(--text-muted); font-weight:600;">BYE</span>`
-              : `<div style="display:flex; align-items:center; flex-wrap:wrap; gap:2px;">
-                   <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP2Id}', '${escapeHtml(targetP2Name)}');">
-                     ${escapeHtml(m.player2_name || 'Player 2')}
-                   </span>
-                   ${isP2 ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 5px; margin-left:4px; border:none;">YOU</span>' : ''}
-                   ${p2ProbPill}
-                 </div>`
-            }
-            ${(!isBye && p2Faction) ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p2Faction)}</span></div>` : ''}
-          </div>
-        </td>
-        <td>
-          <div style="display:flex; align-items:center; gap:0.4rem; justify-content:flex-end; flex-wrap:wrap;">
-            <span class="badge ${isP1Win || isP2Win ? 'badge-win' : (m.is_draw ? 'badge-draw' : 'badge-loss')}">${outcome}</span>
-            ${streamBtn}
-            ${actionBtn}
-          </div>
-        </td>
-      `;
-      tbody.appendChild(tr);
+          </td>
+          <td style="font-family:var(--font-mono); font-weight:700; color:${isP1Win ? 'var(--win)' : 'var(--text-secondary)'};">
+            ${m.player1_score !== null ? m.player1_score : '-'}
+          </td>
+          <td style="font-family:var(--font-mono); font-weight:700; color:${isP2Win ? 'var(--win)' : 'var(--text-secondary)'};">
+            ${m.player2_score !== null ? m.player2_score : '-'}
+          </td>
+          <td>
+            <div class="player-name-cell">
+              ${isBye
+                ? `<span style="color:var(--text-muted); font-weight:600;">BYE</span>`
+                : `<div style="display:flex; align-items:center; flex-wrap:wrap; gap:2px;">
+                     <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP2Id}', '${escapeHtml(targetP2Name)}');">
+                       ${escapeHtml(m.player2_name || 'Player 2')}
+                     </span>
+                     ${isP2 ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 5px; margin-left:4px; border:none;">YOU</span>' : ''}
+                     ${p2ProbPill}
+                   </div>`
+              }
+              ${(!isBye && (p2Faction || p2RosterBtn)) ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:3px; display:flex; align-items:center; flex-wrap:wrap; gap:5px;">${p2Faction ? `<span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p2Faction)}</span>` : ''}${p2RosterBtn}</div>` : ''}
+            </div>
+          </td>
+          <td>
+            <div style="display:flex; align-items:center; gap:0.4rem; justify-content:flex-end; flex-wrap:wrap;">
+              <span class="badge ${isP1Win || isP2Win ? 'badge-win' : (m.is_draw ? 'badge-draw' : 'badge-loss')}">${outcome}</span>
+              ${streamBtn}
+              ${actionBtn}
+            </div>
+          </td>
+        </tr>`;
+      m._cachedRowHtml = rowHtml;
+      m._cachedRowKey = rowContextKey;
+      rowsHtml.push(rowHtml);
     } catch (rowErr) {
       console.error('Error rendering pairing row:', rowErr, m);
     }
-  });
+  }
+
+  tbody.innerHTML = rowsHtml.join('');
 }
 
 async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id, pairingId = '') {
@@ -3337,13 +3472,18 @@ function computeEventPlayerEloStats(players, matches) {
     p._computed_net_elo = (p.net_elo !== undefined && p.net_elo !== null) ? Number(p.net_elo) :
                           (p.elo_delta !== undefined && p.elo_delta !== null) ? Number(p.elo_delta) : 0;
     p._has_explicit_delta = (p.net_elo !== undefined && p.net_elo !== null) || (p.elo_delta !== undefined && p.elo_delta !== null);
-    if (pid) pMap.set(pid, p);
-    if (pname) pMap.set(pname, p);
+    [p.player_id, p.id, p.bcp_event_player_id, p.user_id, p.bcp_player_id].forEach(cid => {
+      if (cid) pMap.set(String(cid).trim().toLowerCase(), p);
+    });
+    if (pname) {
+      pMap.set(pname, p);
+      pMap.set(pname.replace(/\s+/g, ''), p);
+    }
   });
 
   if (Array.isArray(matches) && matches.length > 0) {
     matches.forEach(m => {
-      const isBye = Boolean(m.is_bye || m.player2_name === 'BYE' || !m.player2_id);
+      const isBye = Boolean(m.is_bye || m.player2_name === 'BYE' || !m.player2_id || m.player1_name === 'BYE' || !m.player1_id);
       if (isBye) return;
 
       const p1Id = String(m.player1_id || '').trim().toLowerCase();
@@ -3351,8 +3491,51 @@ function computeEventPlayerEloStats(players, matches) {
       const p2Id = String(m.player2_id || '').trim().toLowerCase();
       const p2Name = String(m.player2_name || '').trim().toLowerCase();
 
-      const p1Rec = pMap.get(p1Id) || pMap.get(p1Name);
-      const p2Rec = pMap.get(p2Id) || pMap.get(p2Name);
+      const p1Rec = pMap.get(p1Id) || pMap.get(p1Name) || pMap.get(p1Name.replace(/\s+/g, ''));
+      const p2Rec = pMap.get(p2Id) || pMap.get(p2Name) || pMap.get(p2Name.replace(/\s+/g, ''));
+
+      if (p1Rec && p1Rec.list_id && !m.player1_list_id) m.player1_list_id = p1Rec.list_id;
+      if (p2Rec && p2Rec.list_id && !m.player2_list_id) m.player2_list_id = p2Rec.list_id;
+
+      const rNum = Number(m.round || 1);
+      const g1 = (p1Rec && Array.isArray(p1Rec.games))
+        ? p1Rec.games.find(g => g && Number(g.gameNum || g.gameNumber || g.round || 0) === rNum)
+        : null;
+      const g2 = (p2Rec && Array.isArray(p2Rec.games))
+        ? p2Rec.games.find(g => g && Number(g.gameNum || g.gameNumber || g.round || 0) === rNum)
+        : null;
+
+      if (g1 && g1.gamePoints !== undefined && g1.gamePoints !== null) {
+        m.player1_score = Number(g1.gamePoints);
+      }
+      if (g2 && g2.gamePoints !== undefined && g2.gamePoints !== null) {
+        m.player2_score = Number(g2.gamePoints);
+      }
+      if (g1 && g2) {
+        if (Number(g1.gameResult) === 2 && Number(g2.gameResult) === 0) {
+          m.winner_id = m.player1_id;
+          m.loser_id = m.player2_id;
+          m.is_draw = false;
+        } else if (Number(g2.gameResult) === 2 && Number(g1.gameResult) === 0) {
+          m.winner_id = m.player2_id;
+          m.loser_id = m.player1_id;
+          m.is_draw = false;
+        } else if (m.player1_score !== null && m.player2_score !== null) {
+          if (Number(m.player1_score) > Number(m.player2_score)) {
+            m.winner_id = m.player1_id;
+            m.loser_id = m.player2_id;
+            m.is_draw = false;
+          } else if (Number(m.player2_score) > Number(m.player1_score)) {
+            m.winner_id = m.player2_id;
+            m.loser_id = m.player1_id;
+            m.is_draw = false;
+          } else if (Number(m.player1_score) === Number(m.player2_score) && Number(m.player1_score) > 0) {
+            m.winner_id = null;
+            m.loser_id = null;
+            m.is_draw = true;
+          }
+        }
+      }
 
       const elo1 = Number(m.player1_elo || p1Rec?.current_elo || p1Rec?.elo || 1500);
       const elo2 = Number(m.player2_elo || p2Rec?.current_elo || p2Rec?.elo || 1500);
@@ -3369,12 +3552,12 @@ function computeEventPlayerEloStats(players, matches) {
       const isP1Win = Boolean(
         (m.winner_id && String(m.winner_id) === String(m.player1_id)) ||
         outcomeStr.includes('player 1 win') ||
-        (hasScores && Number(m.player1_score) > Number(m.player2_score))
+        (!m.winner_id && hasScores && Number(m.player1_score) > Number(m.player2_score))
       );
       const isP2Win = Boolean(
         (m.winner_id && String(m.winner_id) === String(m.player2_id)) ||
         outcomeStr.includes('player 2 win') ||
-        (hasScores && Number(m.player2_score) > Number(m.player1_score))
+        (!m.winner_id && hasScores && Number(m.player2_score) > Number(m.player1_score))
       );
       const isDraw = Boolean(m.is_draw || outcomeStr.includes('draw') || (!isP1Win && !isP2Win && hasScores && Number(m.player1_score) === Number(m.player2_score)));
       const hasResult = isP1Win || isP2Win || isDraw;
@@ -3412,6 +3595,14 @@ function computeEventPlayerEloStats(players, matches) {
 function getEventKpiSummary(ev) {
   const players = Array.isArray(ev?.players) ? ev.players : (Array.isArray(eventPlayersCache) ? eventPlayersCache : []);
   const matches = Array.isArray(ev?.matches) ? ev.matches : (Array.isArray(eventMatchesCache) ? eventMatchesCache : []);
+  if (
+    ev &&
+    ev._cachedKpiSummary &&
+    ev._cachedKpiPlayersLen === players.length &&
+    ev._cachedKpiMatchesLen === matches.length
+  ) {
+    return ev._cachedKpiSummary;
+  }
   const teams = (ev?.teams && ev.teams.length > 0) ? ev.teams : (ev?.team_standings || []);
   const isTeamEvent = Boolean(ev?.is_team_event || teams.length > 0);
   const isDoublesEvent = Boolean(ev?.is_doubles_event);
@@ -3478,7 +3669,7 @@ function getEventKpiSummary(ev) {
     }
   }
 
-  return {
+  const summary = {
     totalPlayers,
     totalTeams,
     isTeamEvent,
@@ -3495,6 +3686,12 @@ function getEventKpiSummary(ev) {
     players,
     matches
   };
+  if (ev) {
+    ev._cachedKpiSummary = summary;
+    ev._cachedKpiPlayersLen = players.length;
+    ev._cachedKpiMatchesLen = matches.length;
+  }
+  return summary;
 }
 
 function renderQuickEventModal(ev, userRegData) {
@@ -3502,6 +3699,8 @@ function renderQuickEventModal(ev, userRegData) {
   currentEventData = ev;
   if (Array.isArray(ev.players)) eventPlayersCache = ev.players;
   if (Array.isArray(ev.matches)) eventMatchesCache = ev.matches;
+  invalidateEventSearchIndex();
+  ensureEventSearchIndex();
 
   const kpi = getEventKpiSummary(ev);
   const nameEl = document.getElementById('modal-event-name');
@@ -3639,9 +3838,23 @@ function setQuickModalViewMode(mode, shouldRender = true) {
   if (shouldRender) renderQuickModalTable();
 }
 
-function handleQuickModalSearch(val) {
-  quickModalSearchQuery = (val || '').trim().toLowerCase();
-  renderQuickModalTable();
+var _quickModalSearchDebounceTimer = null;
+
+function handleQuickModalSearch(val, immediate = true) {
+  const nextQuery = (val || '').trim().toLowerCase();
+  quickModalSearchQuery = nextQuery;
+  if (_quickModalSearchDebounceTimer) {
+    clearTimeout(_quickModalSearchDebounceTimer);
+    _quickModalSearchDebounceTimer = null;
+  }
+  if (immediate || !nextQuery) {
+    renderQuickModalTable();
+  } else {
+    _quickModalSearchDebounceTimer = setTimeout(() => {
+      _quickModalSearchDebounceTimer = null;
+      renderQuickModalTable();
+    }, 50);
+  }
 }
 
 function renderQuickModalTable() {
@@ -3649,6 +3862,7 @@ function renderQuickModalTable() {
   const tbody = document.getElementById('modal-quick-tbody');
   if (!thead || !tbody) return;
 
+  ensureEventSearchIndex();
   const kpi = getEventKpiSummary(currentEventData);
 
   if (quickModalViewMode === 'teams' && kpi.teams.length > 0) {
@@ -3663,11 +3877,8 @@ function renderQuickModalTable() {
     `;
     let filteredTeams = kpi.teams;
     if (quickModalSearchQuery) {
-      filteredTeams = kpi.teams.filter(t => {
-        const name = (t.name || '').toLowerCase();
-        const cap = (t.captain_name || t.captain || '').toLowerCase();
-        return name.includes(quickModalSearchQuery) || cap.includes(quickModalSearchQuery);
-      });
+      const q = quickModalSearchQuery;
+      filteredTeams = kpi.teams.filter(t => t && (t._searchText ? t._searchText.includes(q) : ((t.name || '').toLowerCase().includes(q) || (t.captain_name || t.captain || '').toLowerCase().includes(q))));
     }
     if (filteredTeams.length === 0) {
       tbody.innerHTML = `<tr><td colspan="5" class="empty-state" style="padding:1.75rem;">No teams match "${escapeHtml(quickModalSearchQuery)}"</td></tr>`;
@@ -3702,25 +3913,30 @@ function renderQuickModalTable() {
     </tr>
   `;
 
-  let players = kpi.players.slice();
-  if (kpi.hasMatchesPlayed) {
-    players.sort((a, b) => {
-      const plA = (a.placement && a.placement > 0) ? a.placement : 9999;
-      const plB = (b.placement && b.placement > 0) ? b.placement : 9999;
-      if (plA !== plB) return plA - plB;
-      return Number(b.current_elo || 1500) - Number(a.current_elo || 1500);
-    });
+  let sortedPlayers;
+  if (currentEventData && Array.isArray(currentEventData._quickSortedPlayers) && currentEventData._quickSortedPlayers.length === kpi.players.length) {
+    sortedPlayers = currentEventData._quickSortedPlayers;
   } else {
-    players.sort((a, b) => Number(b.current_elo || 1500) - Number(a.current_elo || 1500));
+    sortedPlayers = kpi.players.slice();
+    if (kpi.hasMatchesPlayed) {
+      sortedPlayers.sort((a, b) => {
+        const plA = (a.placement && a.placement > 0) ? a.placement : 9999;
+        const plB = (b.placement && b.placement > 0) ? b.placement : 9999;
+        if (plA !== plB) return plA - plB;
+        return Number(b.current_elo || 1500) - Number(a.current_elo || 1500);
+      });
+    } else {
+      sortedPlayers.sort((a, b) => Number(b.current_elo || 1500) - Number(a.current_elo || 1500));
+    }
+    if (currentEventData) {
+      currentEventData._quickSortedPlayers = sortedPlayers;
+    }
   }
 
+  let players = sortedPlayers;
   if (quickModalSearchQuery) {
-    players = players.filter(p => {
-      const name = (p.full_name || '').toLowerCase();
-      const fac = formatEventPlayerFaction(p.faction || p.army_name).toLowerCase();
-      const team = (p.team || '').toLowerCase();
-      return name.includes(quickModalSearchQuery) || fac.includes(quickModalSearchQuery) || team.includes(quickModalSearchQuery);
-    });
+    const q = quickModalSearchQuery;
+    players = sortedPlayers.filter(p => p && (p._searchText ? p._searchText.includes(q) : ((p.full_name || '').toLowerCase().includes(q) || formatEventPlayerFaction(p.faction || p.army_name).toLowerCase().includes(q) || (p.team || '').toLowerCase().includes(q))));
   }
 
   if (players.length === 0) {
@@ -3731,7 +3947,7 @@ function renderQuickModalTable() {
   tbody.innerHTML = players.map((p, idx) => {
     const safePid = String(p.player_id || p.id || '').trim();
     const safeName = String(p.full_name || 'Player').trim();
-    const displayFac = formatEventPlayerFaction(p.faction || p.army_name);
+    const displayFac = p._formattedFaction || formatEventPlayerFaction(p.faction || p.army_name);
     const hasPlacement = Boolean(p.placement && p.placement > 0);
     const rankStr = (kpi.hasMatchesPlayed && hasPlacement) ? `#${p.placement}` : `#${idx + 1}`;
     const drawStr = p.event_draws ? `-${p.event_draws}D` : '';
@@ -3898,6 +4114,8 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     eventMatchesCache = ev.matches || [];
     eventPlayersCache = ev.players || [];
     computeEventPlayerEloStats(eventPlayersCache, eventMatchesCache);
+    invalidateEventSearchIndex();
+    ensureEventSearchIndex();
 
     if (typeof loadEventLivestreams === 'function') {
       await loadEventLivestreams(eventId);
@@ -4142,6 +4360,113 @@ function handleEventHubFactionFilter(val) {
   renderEventResultsRows();
 }
 
+function resolveEventCompetitorRecord(playerId, playerName, fallbackListId = '') {
+  const qId = String(playerId || '').trim().toLowerCase();
+  const qName = String(playerName || '').trim().toLowerCase();
+  const qNameClean = qName.replace(/\s+/g, '');
+
+  let found = lookupEventPlayerFast(playerId, playerName);
+
+  if (!found) {
+    const candidates = [
+      ...(Array.isArray(eventPlayersCache) ? eventPlayersCache : []),
+      ...((typeof currentEventData !== 'undefined' && currentEventData && Array.isArray(currentEventData.players)) ? currentEventData.players : []),
+      ...((typeof currentEventData !== 'undefined' && currentEventData && Array.isArray(currentEventData.standings)) ? currentEventData.standings : []),
+      ...((typeof currentEventData !== 'undefined' && currentEventData && Array.isArray(currentEventData.roster)) ? currentEventData.roster : []),
+      ...((typeof currentEventData !== 'undefined' && currentEventData && Array.isArray(currentEventData.unassigned)) ? currentEventData.unassigned : [])
+    ];
+
+    found = candidates.find(item => {
+      if (!item) return false;
+      const ids = [item.player_id, item.id, item.bcp_event_player_id, item.user_id, item.bcp_player_id]
+        .filter(Boolean)
+        .map(x => String(x).trim().toLowerCase());
+      if (qId && ids.includes(qId)) return true;
+      const nm = String(item.full_name || item.name || item.player_name || '').trim().toLowerCase();
+      if (qName && nm && (nm === qName || nm.replace(/\s+/g, '') === qNameClean)) return true;
+      return false;
+    });
+  }
+
+  if (!found && Array.isArray(eventMatchesCache)) {
+    for (const m of eventMatchesCache) {
+      if (!m) continue;
+      const p1Id = String(m.player1_id || '').trim().toLowerCase();
+      const p1Name = String(m.player1_name || '').trim().toLowerCase();
+      if ((qId && p1Id === qId) || (qName && p1Name && (p1Name === qName || p1Name.replace(/\s+/g, '') === qNameClean))) {
+        found = {
+          player_id: m.player1_id || playerId,
+          full_name: m.player1_name || playerName,
+          faction: m.player1_faction || '',
+          detachment: m.player1_detachment || '',
+          list_id: m.player1_list_id || fallbackListId || '',
+          has_list: Boolean(m.player1_list_id || fallbackListId)
+        };
+        break;
+      }
+      const p2Id = String(m.player2_id || '').trim().toLowerCase();
+      const p2Name = String(m.player2_name || '').trim().toLowerCase();
+      if ((qId && p2Id === qId) || (qName && p2Name && (p2Name === qName || p2Name.replace(/\s+/g, '') === qNameClean))) {
+        found = {
+          player_id: m.player2_id || playerId,
+          full_name: m.player2_name || playerName,
+          faction: m.player2_faction || '',
+          detachment: m.player2_detachment || '',
+          list_id: m.player2_list_id || fallbackListId || '',
+          has_list: Boolean(m.player2_list_id || fallbackListId)
+        };
+        break;
+      }
+    }
+  }
+
+  if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
+    const preg = currentEventRegistration.player_registration || currentEventRegistration.player || {};
+    const pregIds = [preg.player_id, preg.bcp_player_id, preg.id, preg.user_id]
+      .filter(Boolean)
+      .map(x => String(x).trim().toLowerCase());
+    const pregName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
+    const isMe = (qId && pregIds.includes(qId)) || (qName && pregName && (pregName === qName || pregName.replace(/\s+/g, '') === qNameClean));
+    if (isMe) {
+      found = Object.assign({}, preg, found || {}, {
+        player_id: (found && (found.player_id || found.id)) || preg.player_id || preg.bcp_player_id || playerId,
+        full_name: (found && (found.full_name || found.name)) || preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`.trim() || playerName,
+        army_list: (found && found.army_list) || preg.army_list || '',
+        list_id: (found && (found.list_id || found.listId)) || preg.list_id || preg.listId || fallbackListId || '',
+        has_list: Boolean((found && hasPlayerSubmittedList(found)) || hasPlayerSubmittedList(preg) || preg.has_list_submitted || fallbackListId)
+      });
+    }
+  }
+
+  let matchFallbackListId = fallbackListId;
+  if (!matchFallbackListId && found && !found.list_id && !found.listId && Array.isArray(eventMatchesCache)) {
+    const fId = String(found.player_id || found.id || '').trim().toLowerCase();
+    const fName = String(found.full_name || found.name || '').trim().toLowerCase();
+    for (const m of eventMatchesCache) {
+      if (!m) continue;
+      if ((fId && String(m.player1_id || '').trim().toLowerCase() === fId) || (fName && String(m.player1_name || '').trim().toLowerCase() === fName)) {
+        if (m.player1_list_id) { matchFallbackListId = m.player1_list_id; break; }
+      }
+      if ((fId && String(m.player2_id || '').trim().toLowerCase() === fId) || (fName && String(m.player2_name || '').trim().toLowerCase() === fName)) {
+        if (m.player2_list_id) { matchFallbackListId = m.player2_list_id; break; }
+      }
+    }
+  }
+
+  const record = found
+    ? (matchFallbackListId && !found.list_id && !found.listId ? Object.assign({}, found, { list_id: matchFallbackListId }) : found)
+    : {
+        player_id: String(playerId || '').trim(),
+        full_name: String(playerName || 'Competitor').trim(),
+        list_id: String(matchFallbackListId || '').trim()
+      };
+  const pid = String(record.player_id || record.id || playerId || '').trim().replace(/'/g, "\\'");
+  const name = String(record.full_name || record.name || playerName || 'Competitor').trim().replace(/'/g, "\\'");
+  const listId = String(matchFallbackListId || record.list_id || record.listId || '').trim().replace(/'/g, "\\'");
+  const hasList = Boolean(hasPlayerSubmittedList(record) || listId);
+  return { record, pid, name, listId, hasList };
+}
+
 function renderPersonalEventScorecard(ev, userRegData) {
   const container = document.getElementById('event-player-personal-scorecard');
   if (!container) return;
@@ -4154,6 +4479,11 @@ function renderPersonalEventScorecard(ev, userRegData) {
   const preg = userRegData.player_registration || userRegData.player || {};
   const myPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
   const myName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
+  const myInfo = resolveEventCompetitorRecord(
+    preg.player_id || preg.bcp_player_id || '',
+    preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`.trim(),
+    preg.list_id || preg.listId || ''
+  );
 
   const myMatches = (eventMatchesCache || []).filter(m => {
     const p1Id = String(m.player1_id || '').trim().toLowerCase();
@@ -4182,7 +4512,12 @@ function renderPersonalEventScorecard(ev, userRegData) {
     const p1Name = String(m.player1_name || '').trim().toLowerCase();
     const isP1 = (myPid && p1Id === myPid) || (myName && p1Name === myName);
     const oppName = isP1 ? (m.player2_name || 'BYE') : (m.player1_name || 'Opponent');
+    const oppIdRaw = isP1 ? (m.player2_id || '') : (m.player1_id || '');
+    const oppListIdRaw = isP1 ? (m.player2_list_id || '') : (m.player1_list_id || '');
     const oppFac = isP1 ? (m.player2_faction || '') : (m.player1_faction || '');
+    const isBye = Boolean(m.is_bye || oppName === 'BYE' || !oppIdRaw);
+    const oppInfo = !isBye ? resolveEventCompetitorRecord(oppIdRaw, oppName, oppListIdRaw) : null;
+
     const myScore = isP1 ? m.player1_score : m.player2_score;
     const oppScore = isP1 ? m.player2_score : m.player1_score;
     const hasScore = myScore !== null && myScore !== undefined && oppScore !== null && oppScore !== undefined;
@@ -4204,21 +4539,31 @@ function renderPersonalEventScorecard(ev, userRegData) {
     const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
     const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
     const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
-    const p1ScoreVal = m.player1_score !== null && m.player1_score !== undefined ? m.player1_score : "''";
-    const p2ScoreVal = m.player2_score !== null && m.player2_score !== undefined ? m.player2_score : "''";
 
     const actionBtns = [];
+    if (!isBye && oppInfo && oppInfo.hasList) {
+      actionBtns.push(`<button type="button" class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.55rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); font-weight:600;" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(oppInfo.pid || oppInfo.name)}', '${escapeHtml(oppInfo.listId)}')" title="View ${escapeHtml(oppName)}'s Army Roster">📋 Roster</button>`);
+    }
     if (!hasScore) {
       actionBtns.push(`<button type="button" class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="launchTournamentTracker('${safeEventId}', ${roundNum}, ${tableNum}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="Create / Open Live Game Tracker Room">🎲 Track / Room</button>`);
     } else {
       actionBtns.push(`<button type="button" class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer;" onclick="openScorecardModal('${matchId}')" title="View Turn-by-Turn Digital Scorecard">📄 Scorecard</button>`);
     }
 
+    const oppNameHtml = !isBye && oppInfo
+      ? `<span class="player-link" style="color:#38bdf8; font-weight:700; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(oppInfo.pid)}', '${escapeHtml(oppInfo.name)}');" title="View ${escapeHtml(oppName)}'s Player Quick Profile">${escapeHtml(oppName)}</span>`
+      : `<span style="color:var(--text-muted); font-weight:600;">${escapeHtml(oppName)}</span>`;
+
     return `
       <tr>
         <td style="font-family:var(--font-mono); font-weight:700;">R${roundNum}</td>
         <td style="font-family:var(--font-mono); color:var(--text-muted);">T${tableNum}</td>
-        <td style="font-weight:600; color:#fff;">${escapeHtml(oppName)} ${oppFac ? `<span class="badge" style="font-size:0.7rem; margin-left:4px;">${escapeHtml(oppFac)}</span>` : ''}</td>
+        <td style="font-weight:600; color:#fff;">
+          <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
+            ${oppNameHtml}
+            ${oppFac ? `<span class="badge" style="font-size:0.7rem;">${escapeHtml(oppFac)}</span>` : ''}
+          </div>
+        </td>
         <td style="font-family:var(--font-mono); font-weight:700;">${hasScore ? `${myScore} - ${oppScore}` : '-'}</td>
         <td>${resBadge}</td>
         <td style="font-family:var(--font-mono); font-weight:700; color:${deltaColor}; text-align:right;">${deltaStr}${hasScore ? ' Elo' : ''}</td>
@@ -4236,8 +4581,16 @@ function renderPersonalEventScorecard(ev, userRegData) {
 
   container.innerHTML = `
     <div class="card" style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 10px; padding: 1.15rem;">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 0.85rem;">
-        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">⚔️ Your Personal Event Scorecard</h4>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 0.85rem; flex-wrap:wrap; gap:0.5rem;">
+        <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap;">
+          <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">⚔️ Your Personal Event Scorecard</h4>
+          <span class="player-link" style="font-size:0.8rem; font-weight:700; color:#38bdf8; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(myInfo.pid)}', '${escapeHtml(myInfo.name)}');" title="View Your Player Quick Profile">👤 ${escapeHtml(myInfo.record.full_name || 'My Profile')}</span>
+          ${myInfo.hasList ? `
+            <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(myInfo.pid || myInfo.name)}', '${escapeHtml(myInfo.listId)}')" style="font-size:0.72rem; padding:2px 8px; border-radius:5px; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:4px;" title="View Your Submitted Army Roster">
+              📋 My Roster
+            </button>
+          ` : ''}
+        </div>
         <span class="badge" style="font-family:var(--font-mono); font-size:0.78rem; font-weight:700; color:${netColor}; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15);">Event Net Elo: ${netStr}</span>
       </div>
       <div class="table-container">
@@ -4329,6 +4682,11 @@ async function renderPlayerStation(ev, userRegData) {
   const preg = userRegData.player_registration || userRegData.player || {};
   const myPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
   const myName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
+  const myInfo = resolveEventCompetitorRecord(
+    preg.player_id || preg.bcp_player_id || '',
+    preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`.trim(),
+    preg.list_id || preg.listId || ''
+  );
 
   // Find all matches involving this competitor
   const myMatches = (eventMatchesCache || []).filter(m => {
@@ -4400,15 +4758,25 @@ async function renderPlayerStation(ev, userRegData) {
 
       concludedHero.innerHTML = `
         <div class="card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(16, 185, 129, 0.2)); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 12px; padding: 1.25rem;">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 0.75rem;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 0.75rem; flex-wrap:wrap; gap:0.5rem;">
             <div style="display:flex; align-items:center; gap:0.5rem;">
               <span style="font-size: 1.3rem;">🏆</span>
               <div>
                 <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #fff;">Tournament Concluded • Final Performance</h3>
-                <div style="font-size: 0.78rem; color: #94a3b8;">Official results recorded on Best Coast Pairings</div>
+                <div style="font-size: 0.78rem; color: #94a3b8;">
+                  <span class="player-link" style="color:#38bdf8; font-weight:700; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(myInfo.pid)}', '${escapeHtml(myInfo.name)}');" title="View Your Player Quick Profile">👤 ${escapeHtml(myInfo.record.full_name || 'Your Profile')}</span>
+                  • Official results recorded on Best Coast Pairings
+                </div>
               </div>
             </div>
-            <span class="badge" style="font-size: 0.82rem; font-weight: 800; background: #10b981; color: #000; padding: 3px 10px;">FINISHER</span>
+            <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+              ${myInfo.hasList ? `
+                <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(myInfo.pid || myInfo.name)}', '${escapeHtml(myInfo.listId)}')" style="font-size:0.75rem; font-weight:700; padding:4px 10px; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer;">
+                  📋 My Roster
+                </button>
+              ` : ''}
+              <span class="badge" style="font-size: 0.82rem; font-weight: 800; background: #10b981; color: #000; padding: 3px 10px;">FINISHER</span>
+            </div>
           </div>
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin-top: 1rem;">
             <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem; text-align: center;">
@@ -4447,6 +4815,11 @@ async function renderPlayerStation(ev, userRegData) {
       const isP1 = (myPid && String(activeMatch.player1_id).toLowerCase() === myPid) || (myName && String(activeMatch.player1_name).toLowerCase() === myName);
       const myNameClean = isP1 ? (activeMatch.player1_name || 'You') : (activeMatch.player2_name || 'You');
       const oppNameClean = isP1 ? (activeMatch.player2_name || 'Opponent') : (activeMatch.player1_name || 'Opponent');
+      const oppIdRaw = isP1 ? (activeMatch.player2_id || '') : (activeMatch.player1_id || '');
+      const oppListIdRaw = isP1 ? (activeMatch.player2_list_id || '') : (activeMatch.player1_list_id || '');
+      const isBye = Boolean(activeMatch.is_bye || oppNameClean === 'BYE' || !oppIdRaw);
+      const oppInfo = !isBye ? resolveEventCompetitorRecord(oppIdRaw, oppNameClean, oppListIdRaw) : null;
+
       const myFaction = isP1 ? (activeMatch.player1_faction || preg.faction || '') : (activeMatch.player2_faction || '');
       const oppFaction = isP1 ? (activeMatch.player2_faction || '') : (activeMatch.player1_faction || '');
       const myProb = isP1 ? (activeMatch._p1_win_prob || 50) : (activeMatch._p2_win_prob || 50);
@@ -4490,8 +4863,13 @@ async function renderPlayerStation(ev, userRegData) {
             <!-- My Side -->
             <div style="text-align:left;">
               <div style="font-size:0.72rem; color:#38bdf8; font-weight:700; text-transform:uppercase;">YOU</div>
-              <div style="font-size:1.1rem; font-weight:800; color:#fff; margin-top:2px;">${escapeHtml(myNameClean)}</div>
-              ${myFaction ? `<div style="font-size:0.76rem; color:var(--text-muted); margin-top:3px;"><span class="badge" style="background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); color:#7dd3fc; font-size:0.72rem;">${escapeHtml(myFaction)}</span></div>` : ''}
+              <div style="font-size:1.1rem; font-weight:800; color:#fff; margin-top:2px;">
+                <span class="player-link" style="color:#38bdf8; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(myInfo.pid)}', '${escapeHtml(myInfo.name)}');" title="View Your Player Quick Profile">${escapeHtml(myNameClean)}</span>
+              </div>
+              <div style="display:flex; align-items:center; flex-wrap:wrap; gap:5px; margin-top:4px;">
+                ${myFaction ? `<span class="badge" style="background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); color:#7dd3fc; font-size:0.72rem;">${escapeHtml(myFaction)}</span>` : ''}
+                ${myInfo.hasList ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(myInfo.pid || myInfo.name)}', '${escapeHtml(myInfo.listId)}')" style="font-size:0.7rem; padding:2px 7px; border-radius:4px; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600;" title="View Your Army Roster">📋 My Roster</button>` : ''}
+              </div>
               <div style="margin-top:5px; font-size:0.72rem; font-family:var(--font-mono); color:#38bdf8; font-weight:700;">${myProb}% Win Prob</div>
             </div>
 
@@ -4504,8 +4882,16 @@ async function renderPlayerStation(ev, userRegData) {
             <!-- Opponent Side -->
             <div style="text-align:right;">
               <div style="font-size:0.72rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">OPPONENT</div>
-              <div style="font-size:1.1rem; font-weight:800; color:#fff; margin-top:2px;">${escapeHtml(oppNameClean)}</div>
-              ${oppFaction ? `<div style="font-size:0.76rem; color:var(--text-muted); margin-top:3px;"><span class="badge" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; font-size:0.72rem;">${escapeHtml(oppFaction)}</span></div>` : ''}
+              <div style="font-size:1.1rem; font-weight:800; color:#fff; margin-top:2px;">
+                ${!isBye && oppInfo
+                  ? `<span class="player-link" style="color:#38bdf8; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(oppInfo.pid)}', '${escapeHtml(oppInfo.name)}');" title="View ${escapeHtml(oppNameClean)}'s Player Quick Profile">${escapeHtml(oppNameClean)}</span>`
+                  : `<span>${escapeHtml(oppNameClean)}</span>`
+                }
+              </div>
+              <div style="display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:5px; margin-top:4px;">
+                ${oppFaction ? `<span class="badge" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; font-size:0.72rem;">${escapeHtml(oppFaction)}</span>` : ''}
+                ${(!isBye && oppInfo && oppInfo.hasList) ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(oppInfo.pid || oppInfo.name)}', '${escapeHtml(oppInfo.listId)}')" style="font-size:0.7rem; padding:2px 7px; border-radius:4px; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600;" title="View ${escapeHtml(oppNameClean)}'s Army Roster">📋 Opponent Roster</button>` : ''}
+              </div>
               <div style="margin-top:5px; font-size:0.72rem; font-family:var(--font-mono); color:var(--text-muted); font-weight:700;">${oppProb}% Win Prob</div>
             </div>
           </div>
@@ -4515,6 +4901,11 @@ async function renderPlayerStation(ev, userRegData) {
             <button type="button" class="btn btn-primary" onclick="launchTournamentTracker('${safeEventId}', ${roundNum}, ${tableNum}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" style="flex:1; min-width:180px; font-size:0.88rem; font-weight:800; padding:0.65rem 1.25rem; background:linear-gradient(135deg, #0284c7, #2563eb); border:1px solid #38bdf8; box-shadow:0 0 15px rgba(56,189,248,0.3); color:#fff; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:0.45rem; border-radius:8px;">
               🎲 Track Live Game (Room)
             </button>
+            ${(!isBye && oppInfo && oppInfo.hasList) ? `
+              <button type="button" class="btn btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(oppInfo.pid || oppInfo.name)}', '${escapeHtml(oppInfo.listId)}')" style="font-size:0.82rem; font-weight:700; padding:0.65rem 1rem; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; border-radius:8px;">
+                📋 Opponent Roster
+              </button>
+            ` : ''}
             <a href="https://web.bestcoastpairings.com/event.php?eventId=${encodeURIComponent(eventId)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.82rem; font-weight:700; padding:0.65rem 1.1rem; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.08); text-decoration:none; display:inline-flex; align-items:center; gap:0.4rem; border-radius:8px;">
               📱 Submit on BCP ↗
             </a>
@@ -4542,7 +4933,15 @@ async function renderPlayerStation(ev, userRegData) {
       const myScore = isP1 ? lastMatch.player1_score : lastMatch.player2_score;
       const oppScore = isP1 ? lastMatch.player2_score : lastMatch.player1_score;
       const oppName = isP1 ? (lastMatch.player2_name || 'Opponent') : (lastMatch.player1_name || 'Opponent');
+      const oppIdRaw = isP1 ? (lastMatch.player2_id || '') : (lastMatch.player1_id || '');
+      const oppListIdRaw = isP1 ? (lastMatch.player2_list_id || '') : (lastMatch.player1_list_id || '');
+      const isBye = Boolean(lastMatch.is_bye || oppName === 'BYE' || !oppIdRaw);
+      const lastOppInfo = !isBye ? resolveEventCompetitorRecord(oppIdRaw, oppName, oppListIdRaw) : null;
       const safeEvId = String(eventId).replace(/'/g, "\\'");
+
+      const oppNameLink = !isBye && lastOppInfo
+        ? `<span class="player-link" style="color:#38bdf8; font-weight:700; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(lastOppInfo.pid)}', '${escapeHtml(lastOppInfo.name)}');" title="View ${escapeHtml(oppName)}'s Player Quick Profile">${escapeHtml(oppName)}</span>`
+        : `<strong>${escapeHtml(oppName)}</strong>`;
 
       waitingHero.innerHTML = `
         <div class="card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(245, 158, 11, 0.15)); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 12px; padding: 1.25rem;">
@@ -4556,12 +4955,22 @@ async function renderPlayerStation(ev, userRegData) {
             <span class="badge" style="background:rgba(245,158,11,0.2); border:1px solid rgba(245,158,11,0.4); color:#fbbf24; font-size:0.75rem;">STANDBY</span>
           </div>
           <p style="font-size:0.82rem; color:#cbd5e1; margin:0 0 0.85rem 0; line-height:1.45;">
-            You finished Round ${lastRound} against <strong>${escapeHtml(oppName)}</strong> with a score of <strong>${myScore} - ${oppScore}</strong> (${isWin ? '<span style="color:#4ade80; font-weight:700;">WIN</span>' : '<span style="color:#f87171; font-weight:700;">LOSS</span>'}). The Tournament Organizer is currently finalizing all remaining tables before drawing Round ${lastRound + 1}.
+            You finished Round ${lastRound} against ${oppNameLink} with a score of <strong>${myScore} - ${oppScore}</strong> (${isWin ? '<span style="color:#4ade80; font-weight:700;">WIN</span>' : '<span style="color:#f87171; font-weight:700;">LOSS</span>'}). The Tournament Organizer is currently finalizing all remaining tables before drawing Round ${lastRound + 1}.
           </p>
           <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
             <button type="button" class="btn btn-outline" onclick="openEventHubPage('${safeEvId}', typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k', { initialTab: 'player', forceSync: true })" style="font-size:0.78rem; font-weight:700; padding:0.45rem 0.9rem; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.08); cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;">
               🔄 Refresh Round Status
             </button>
+            ${(!isBye && lastOppInfo && lastOppInfo.hasList) ? `
+              <button type="button" class="btn btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(lastOppInfo.pid || lastOppInfo.name)}', '${escapeHtml(lastOppInfo.listId)}')" style="font-size:0.78rem; font-weight:700; padding:0.45rem 0.9rem; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.08); cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;">
+                📋 ${escapeHtml(oppName)}'s Roster
+              </button>
+            ` : ''}
+            ${myInfo.hasList ? `
+              <button type="button" class="btn btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(myInfo.pid || myInfo.name)}', '${escapeHtml(myInfo.listId)}')" style="font-size:0.78rem; font-weight:700; padding:0.45rem 0.9rem; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.08); cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;">
+                📋 My Roster
+              </button>
+            ` : ''}
             <button type="button" class="btn btn-outline" onclick="switchEventModalTab('matches')" style="font-size:0.78rem; font-weight:600; padding:0.45rem 0.9rem; color:#cbd5e1; border-color:rgba(255,255,255,0.15); background:rgba(255,255,255,0.04); cursor:pointer;">
               ⚔️ Browse Other Table Scores
             </button>
@@ -4776,33 +5185,18 @@ function copyEventHubLink(eventId, sys = '40k') {
 }
 
 function openEventPlayerListModal(playerIdentifier, directPlayerObj = null) {
+  const fallbackListId = typeof directPlayerObj === 'string' ? directPlayerObj.trim() : '';
   let p = (directPlayerObj && typeof directPlayerObj === 'object')
     ? directPlayerObj
     : (playerIdentifier && typeof playerIdentifier === 'object' ? playerIdentifier : null);
-  const q = String((p ? (p.player_id || p.id || p.full_name) : playerIdentifier) || '').trim().toLowerCase();
   if (!p) {
-    p = (eventPlayersCache || []).find(item => {
-      const pid = String(item.player_id || item.id || '').trim().toLowerCase();
-      const pname = String(item.full_name || item.name || '').trim().toLowerCase();
-      return (pid && pid === q) || (pname && pname === q);
-    });
+    const resolved = resolveEventCompetitorRecord(playerIdentifier, playerIdentifier, fallbackListId);
+    p = resolved ? resolved.record : null;
+  } else if (fallbackListId && !p.list_id && !p.listId) {
+    p = Object.assign({}, p, { list_id: fallbackListId });
   }
 
-  if (!p && typeof currentEventData !== 'undefined' && currentEventData) {
-    const candidates = [
-      ...(Array.isArray(currentEventData.players) ? currentEventData.players : []),
-      ...(Array.isArray(currentEventData.standings) ? currentEventData.standings : []),
-      ...(Array.isArray(currentEventData.roster) ? currentEventData.roster : []),
-      ...(Array.isArray(currentEventData.unassigned) ? currentEventData.unassigned : [])
-    ];
-    p = candidates.find(item => {
-      const pid = String(item.player_id || item.id || '').trim().toLowerCase();
-      const pname = String(item.full_name || item.name || '').trim().toLowerCase();
-      return (pid && pid === q) || (pname && pname === q);
-    });
-  }
-
-  currentArmyListModalPlayer = p || { full_name: String(playerIdentifier || ''), player_id: String(playerIdentifier || '') };
+  currentArmyListModalPlayer = p || { full_name: String(playerIdentifier || ''), player_id: String(playerIdentifier || ''), list_id: fallbackListId };
   currentEventParsedRoster = p?._parsed_roster || null;
   currentEventArmyListText = '';
 
@@ -7080,6 +7474,7 @@ window.openEventHubPage = openEventHubPage;
 window.renderEventHubHeroSection = renderEventHubHeroSection;
 window.populateEventHubFactionFilter = populateEventHubFactionFilter;
 window.handleEventHubFactionFilter = handleEventHubFactionFilter;
+window.resolveEventCompetitorRecord = resolveEventCompetitorRecord;
 window.renderPersonalEventScorecard = renderPersonalEventScorecard;
 window.renderEventMetaAndHighlights = renderEventMetaAndHighlights;
 window.copyEventHubLink = copyEventHubLink;

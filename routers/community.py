@@ -1163,8 +1163,9 @@ async def api_community_event_registration(
                             "sub_faction_id": p.get("subFactionId") or "",
                             "checked_in": bool(p.get("checkedIn") or p.get("checked_in") or False),
                             "dropped": bool(p.get("dropped") or False),
-                            "has_list_submitted": bool(p.get("hasList") or p.get("armyList") or p.get("listSubmitted")),
+                            "has_list_submitted": bool(p.get("hasList") or p.get("armyList") or p.get("listSubmitted") or p.get("listId")),
                             "army_list": p.get("armyList") or p.get("listText") or "",
+                            "list_id": str(p.get("listId") or ""),
                         }
                         break
             except Exception as ex:
@@ -1181,11 +1182,13 @@ async def api_community_event_registration(
             fn_val = matched_reg.get("first_name") or fn
             ln_val = matched_reg.get("last_name") or ln
             full_name_val = f"{fn_val} {ln_val}".strip() or matched_reg.get("player_name") or matched_reg.get("name") or user_display or "Competitor"
+            list_id_val = str(matched_reg.get("list_id") or matched_reg.get("listId") or "").strip()
 
             player_registration = {
                 "player_id": actual_pid,
                 "first_name": fn_val,
                 "last_name": ln_val,
+                "full_name": full_name_val,
                 "player_name": full_name_val,
                 "team_name": matched_reg.get("team_name") or matched_reg.get("team") or "",
                 "faction": matched_reg.get("faction") or "",
@@ -1194,8 +1197,9 @@ async def api_community_event_registration(
                 "sub_faction_id": matched_reg.get("sub_faction_id") or matched_reg.get("subFactionId") or "",
                 "checked_in": bool(matched_reg.get("checked_in") or matched_reg.get("checkedIn") or False),
                 "dropped": bool(matched_reg.get("dropped") or False),
-                "has_list_submitted": bool(matched_reg.get("has_list_submitted") or matched_reg.get("army_list") or matched_reg.get("armyList")),
+                "has_list_submitted": bool(matched_reg.get("has_list_submitted") or matched_reg.get("army_list") or matched_reg.get("armyList") or list_id_val),
                 "army_list": matched_reg.get("army_list") or matched_reg.get("armyList") or "",
+                "list_id": list_id_val,
                 "gamesystem_id": matched_reg.get("gamesystem_id") or ev.get("gamesystem_id") or rj.get("gameSystemId") or "WGMSzfKFYA",
             }
         else:

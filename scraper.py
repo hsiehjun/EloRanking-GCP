@@ -128,18 +128,18 @@ class BestCoastPairingsScraper:
     def fetch_event_pairings_for_round(self, event_id: str, round_num: int, pairing_type: str = "Pairing") -> List[Dict[str, Any]]:
         """Fetches all pairings for a specific round of an event. Falls back to TeamPairing if standard Pairing is empty."""
         endpoints = [
+            (f"/events/{event_id}/pairings", {"round": round_num, "pairingType": pairing_type}),
             ("/pairings", {"eventId": event_id, "round": round_num, "pairingType": pairing_type, "limit": 500}),
-            (f"/events/{event_id}/pairings", {"round": round_num, "pairingType": pairing_type})
         ]
         items = []
         for ep, params in endpoints:
             resp = self._make_request(ep, params=params)
             if isinstance(resp, dict):
-                if "data" in resp and isinstance(resp["data"], list) and resp["data"]:
-                    items = resp["data"]
-                    break
-                elif "active" in resp and isinstance(resp["active"], list) and resp["active"]:
+                if "active" in resp and isinstance(resp["active"], list) and resp["active"]:
                     items = resp["active"]
+                    break
+                elif "data" in resp and isinstance(resp["data"], list) and resp["data"]:
+                    items = resp["data"]
                     break
             elif isinstance(resp, list) and resp:
                 items = resp
@@ -148,17 +148,17 @@ class BestCoastPairingsScraper:
         # Fallback to TeamPairing if standard Pairing is empty (e.g. Doubles or Team events)
         if not items and pairing_type == "Pairing":
             team_endpoints = [
+                (f"/events/{event_id}/pairings", {"round": round_num, "pairingType": "TeamPairing"}),
                 ("/pairings", {"eventId": event_id, "round": round_num, "pairingType": "TeamPairing", "limit": 500}),
-                (f"/events/{event_id}/pairings", {"round": round_num, "pairingType": "TeamPairing"})
             ]
             for ep, params in team_endpoints:
                 resp_team = self._make_request(ep, params=params)
                 if isinstance(resp_team, dict):
-                    if "data" in resp_team and isinstance(resp_team["data"], list) and resp_team["data"]:
-                        items = resp_team["data"]
-                        break
-                    elif "active" in resp_team and isinstance(resp_team["active"], list) and resp_team["active"]:
+                    if "active" in resp_team and isinstance(resp_team["active"], list) and resp_team["active"]:
                         items = resp_team["active"]
+                        break
+                    elif "data" in resp_team and isinstance(resp_team["data"], list) and resp_team["data"]:
+                        items = resp_team["data"]
                         break
                 elif isinstance(resp_team, list) and resp_team:
                     items = resp_team
@@ -802,30 +802,18 @@ class BestCoastPairingsScraper:
             pairing.get("isBye")
         )
 
-        # Scores and results
+        # Scores and results:
+        # 1. Primary source: player1Game / player2Game (official BCP Game objects)
+        # 2. Secondary source: player's official games array from roster_id_map
+        # 3. Tertiary fallback: legacy metaData (only if official game records are absent)
         p1_game = pairing.get("player1Game") or {}
         p2_game = pairing.get("player2Game") or {}
         meta = pairing.get("metaData") or {}
 
         p1_score = p1_game.get("points")
-        if p1_score is None and meta.get("p1-gamePoints") is not None:
-            try: p1_score = int(meta.get("p1-gamePoints"))
-            except Exception: pass
-
         p2_score = p2_game.get("points")
-        if p2_score is None and meta.get("p2-gamePoints") is not None:
-            try: p2_score = int(meta.get("p2-gamePoints"))
-            except Exception: pass
-
         p1_result = p1_game.get("result")  # 2: Win, 0: Loss, 1: Draw
-        if p1_result is None and meta.get("p1-gameResult") is not None:
-            try: p1_result = int(meta.get("p1-gameResult"))
-            except Exception: pass
-
         p2_result = p2_game.get("result")
-        if p2_result is None and meta.get("p2-gameResult") is not None:
-            try: p2_result = int(meta.get("p2-gameResult"))
-            except Exception: pass
 
         # Fallback to player's games array from roster_id_map if points/result missing in pairing
         if roster_id_map and (p1_score is None or p1_result is None):
@@ -853,6 +841,19 @@ class BestCoastPairingsScraper:
                             try: p2_result = int(g.get("gameResult"))
                             except Exception: pass
                         break
+
+        if p1_score is None and meta.get("p1-gamePoints") is not None:
+            try: p1_score = int(meta.get("p1-gamePoints"))
+            except Exception: pass
+        if p2_score is None and meta.get("p2-gamePoints") is not None:
+            try: p2_score = int(meta.get("p2-gamePoints"))
+            except Exception: pass
+        if p1_result is None and meta.get("p1-gameResult") is not None:
+            try: p1_result = int(meta.get("p1-gameResult"))
+            except Exception: pass
+        if p2_result is None and meta.get("p2-gameResult") is not None:
+            try: p2_result = int(meta.get("p2-gameResult"))
+            except Exception: pass
 
         is_done_flag = bool(pairing.get("isDone", True))
         has_scores = p1_score is not None and p2_score is not None
