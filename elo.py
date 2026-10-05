@@ -396,6 +396,7 @@ class EloEngine:
 
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cur:
+                cur.execute("SELECT pg_advisory_xact_lock(840202602);")
                 cur.execute("SET LOCAL synchronous_commit = OFF;")
 
                 # 1. Fetch all completed matches in the replay window directly via idx_pg_matches_date
