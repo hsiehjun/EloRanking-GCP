@@ -63,7 +63,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-REPAIR_MIGRATION_KEY = "bcp_pairing_elo_repair_v3"
+REPAIR_MIGRATION_KEY = "bcp_pairing_elo_repair_v4"
 ALWAYS_CHECK_EVENT_IDS = ("7ohG0RuDqC1k",)
 META_BUG_WINDOW_START = "2026-09-01"
 

@@ -368,6 +368,10 @@ class EloEngine:
         game_system: Optional[str] = "40k",
     ) -> Dict[str, Any]:
         """Rewinds rating_history and player_ratings back to `since_date` and replays all subsequent matches chronologically."""
+        try:
+            from psycopg2 import extras
+        except ImportError:
+            extras = None
         import time
 
         sys_target = (game_system or "40k").lower()
@@ -386,10 +390,41 @@ class EloEngine:
             }
 
         t0 = time.time()
-        rewound_pids: List[str] = []
+        rewound_pids_set: set = set()
+        window_matches: List[Dict[str, Any]] = []
+        history_batch: List[Tuple[Any, ...]] = []
+
         with self.db.get_connection() as conn:
-            with conn.cursor() as cur:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cur:
                 cur.execute("SET LOCAL synchronous_commit = OFF;")
+
+                # 1. Fetch all completed matches in the replay window directly via idx_pg_matches_date
+                cur.execute(
+                    """
+                    SELECT
+                        m.id, m.event_id, m.round, m.table_number, m.match_date,
+                        m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                        m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                        m.winner_id, m.is_draw, m.is_bye,
+                        COALESCE(m.game_system, '40k') AS game_system
+                    FROM matches m
+                    WHERE m.match_date >= %s::timestamptz
+                      AND m.is_done = TRUE
+                      AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                      AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                      AND (
+                          m.is_bye = TRUE
+                          OR (m.winner_id IS NOT NULL AND m.winner_id != '')
+                          OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0))
+                      )
+                      AND COALESCE(m.game_system, '40k') = %s
+                    ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
+                    """,
+                    (since_date, sys_target),
+                )
+                window_matches = [dict(r) for r in (cur.fetchall() or [])]
+
+                # 2. Delete rating_history rows in the window via idx_pg_history_match
                 cur.execute(
                     """
                     WITH target_matches AS (
@@ -409,14 +444,24 @@ class EloEngine:
                     """,
                     (since_date, sys_target, sys_target),
                 )
-                rows = cur.fetchall() or []
-                rewound_pids = [
-                    str(r[0] if isinstance(r, (list, tuple)) else r.get("player_id"))
-                    for r in rows
-                    if (r[0] if isinstance(r, (list, tuple)) else r.get("player_id"))
-                ]
+                for r in (cur.fetchall() or []):
+                    pid = r[0] if isinstance(r, (list, tuple)) else r.get("player_id")
+                    if pid:
+                        rewound_pids_set.add(str(pid)[:64])
 
-                if rewound_pids:
+                for m in window_matches:
+                    if m.get("player1_id"):
+                        rewound_pids_set.add(str(m["player1_id"])[:64])
+                    if m.get("player2_id"):
+                        rewound_pids_set.add(str(m["player2_id"])[:64])
+
+                touched_pids = sorted(rewound_pids_set)
+                player_states: Dict[str, Dict[str, Any]] = {}
+                player_factions: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+                existing_teams: Dict[str, str] = {}
+
+                # 3. Load exact pre-window state ONLY for touched_pids via idx_pg_history_player + PKs
+                if touched_pids:
                     cur.execute(
                         """
                         WITH touched AS (
@@ -437,27 +482,26 @@ class EloEngine:
                             WHERE COALESCE(rh.game_system, '40k') = %s
                             GROUP BY rh.player_id
                         )
-                        UPDATE player_ratings pr
-                        SET current_elo = COALESCE(ps.latest_elo, %s),
-                            peak_elo = GREATEST(%s, COALESCE(ps.max_hist_elo, %s)),
-                            matches_played = COALESCE(ps.matches_played, 0),
-                            wins = COALESCE(ps.wins, 0),
-                            losses = COALESCE(ps.losses, 0),
-                            draws = COALESCE(ps.draws, 0),
-                            win_rate = CASE
-                                WHEN COALESCE(ps.matches_played, 0) > 0
-                                THEN ROUND(((COALESCE(ps.wins, 0)::numeric / ps.matches_played::numeric) * 100.0), 1)::double precision
-                                ELSE 0.0
-                            END,
-                            last_active_date = ps.last_hist_date,
-                            updated_at = NOW()
+                        SELECT
+                            t.player_id,
+                            p.full_name AS auth_name,
+                            pr.player_name AS pr_name,
+                            COALESCE(ps.latest_elo, %s) AS current_elo,
+                            GREATEST(%s, COALESCE(ps.max_hist_elo, %s)) AS peak_elo,
+                            COALESCE(ps.matches_played, 0) AS matches_played,
+                            COALESCE(ps.wins, 0) AS wins,
+                            COALESCE(ps.losses, 0) AS losses,
+                            COALESCE(ps.draws, 0) AS draws,
+                            ps.last_hist_date AS last_active_date,
+                            pr.top_faction,
+                            COALESCE(NULLIF(TRIM(pr.team), ''), NULLIF(TRIM(p.team), '')) AS team
                         FROM touched t
                         LEFT JOIN pre_stats ps ON ps.player_id = t.player_id
-                        WHERE pr.player_id = t.player_id
-                          AND COALESCE(pr.game_system, '40k') = %s;
+                        LEFT JOIN player_ratings pr ON pr.player_id = t.player_id AND COALESCE(pr.game_system, '40k') = %s
+                        LEFT JOIN players p ON p.id = t.player_id;
                         """,
                         (
-                            rewound_pids,
+                            touched_pids,
                             sys_target,
                             self.initial_elo,
                             self.initial_elo,
@@ -465,33 +509,260 @@ class EloEngine:
                             sys_target,
                         ),
                     )
+                    for r in (cur.fetchall() or []):
+                        pid = str(r["player_id"])[:64]
+                        auth_n = _sanitize_name(r.get("auth_name"), max_len=100)
+                        pr_n = _sanitize_name(r.get("pr_name"), max_len=100)
+                        best_n = (
+                            auth_n
+                            if (auth_n and not _is_placeholder_name(auth_n, pid))
+                            else (pr_n if (pr_n and not _is_placeholder_name(pr_n, pid)) else (auth_n or pr_n or f"Player {pid[:8]}"))
+                        )
+                        player_states[pid] = {
+                            "name": best_n,
+                            "elo": float(r.get("current_elo") or self.initial_elo),
+                            "peak_elo": float(r.get("peak_elo") or self.initial_elo),
+                            "matches_played": int(r.get("matches_played") or 0),
+                            "wins": int(r.get("wins") or 0),
+                            "losses": int(r.get("losses") or 0),
+                            "draws": int(r.get("draws") or 0),
+                            "last_active_date": r.get("last_active_date"),
+                        }
+                        clean_t = _sanitize_team(r.get("team"), max_len=100)
+                        if clean_t:
+                            existing_teams[pid] = clean_t
+                        if r.get("top_faction"):
+                            for fac in str(r["top_faction"]).split(", "):
+                                clean_fac = _sanitize_name(fac, max_len=60)
+                                if clean_fac:
+                                    player_factions[pid][clean_fac] += 1
+
+                # 4. Replay window_matches in chronological order
+                for m in window_matches:
+                    p1_id, p2_id = m.get("player1_id"), m.get("player2_id")
+                    if not p1_id or not p2_id:
+                        continue
+                    p1_id = str(p1_id)[:64]
+                    p2_id = str(p2_id)[:64]
+
+                    p1_mname = _sanitize_name(m.get("player1_name"), max_len=100)
+                    s1 = player_states.get(p1_id)
+                    if not s1:
+                        s1 = {
+                            "name": p1_mname or f"Player {p1_id[:8]}",
+                            "elo": self.initial_elo,
+                            "peak_elo": self.initial_elo,
+                            "matches_played": 0,
+                            "wins": 0,
+                            "losses": 0,
+                            "draws": 0,
+                            "last_active_date": None,
+                        }
+                        player_states[p1_id] = s1
+                    elif _is_placeholder_name(s1["name"], p1_id) and p1_mname and not _is_placeholder_name(p1_mname, p1_id):
+                        s1["name"] = p1_mname
+
+                    p2_mname = _sanitize_name(m.get("player2_name"), max_len=100)
+                    s2 = player_states.get(p2_id)
+                    if not s2:
+                        s2 = {
+                            "name": p2_mname or f"Player {p2_id[:8]}",
+                            "elo": self.initial_elo,
+                            "peak_elo": self.initial_elo,
+                            "matches_played": 0,
+                            "wins": 0,
+                            "losses": 0,
+                            "draws": 0,
+                            "last_active_date": None,
+                        }
+                        player_states[p2_id] = s2
+                    elif _is_placeholder_name(s2["name"], p2_id) and p2_mname and not _is_placeholder_name(p2_mname, p2_id):
+                        s2["name"] = p2_mname
+
+                    is_real_draw = bool(m.get("is_draw") and ((m.get("player1_score") or 0) > 0 or (m.get("player2_score") or 0) > 0))
+                    has_valid_winner = bool(m.get("winner_id") and m.get("winner_id") in (p1_id, p2_id))
+                    if not m.get("is_bye") and not has_valid_winner and not is_real_draw:
+                        continue
+
+                    old_elo1 = s1["elo"]
+                    old_elo2 = s2["elo"]
+                    m_date = m.get("match_date")
+                    match_sys = m.get("game_system") or sys_target
+
+                    if m.get("is_bye") or is_real_draw:
+                        res1, res2 = ("D", "D") if is_real_draw else ("W", "L")
+                        new_elo1, new_elo2 = old_elo1, old_elo2
+                    else:
+                        is_p1_win = (m.get("winner_id") == p1_id)
+                        res1, res2 = ("W", "L") if is_p1_win else ("L", "W")
+                        k1 = self.provisional_k if s1["matches_played"] < self.provisional_matches else self.default_k
+                        k2 = self.provisional_k if s2["matches_played"] < self.provisional_matches else self.default_k
+
+                        exp1 = self.expected_score(old_elo1, old_elo2)
+                        exp2 = 1.0 - exp1
+                        act1 = 1.0 if is_p1_win else 0.0
+                        act2 = 1.0 - act1
+
+                        new_elo1 = round(old_elo1 + k1 * (act1 - exp1), 2)
+                        new_elo2 = round(old_elo2 + k2 * (act2 - exp2), 2)
+
+                    s1["elo"] = new_elo1
+                    s1["peak_elo"] = max(s1["peak_elo"], new_elo1)
+                    s1["matches_played"] += 1
+                    if res1 == "W":
+                        s1["wins"] += 1
+                    elif res1 == "L":
+                        s1["losses"] += 1
+                    else:
+                        s1["draws"] += 1
+                    if m_date:
+                        s1["last_active_date"] = _max_date(s1["last_active_date"], m_date)
+                    fac1 = _sanitize_name(m.get("player1_faction"), max_len=60)
+                    fac2 = _sanitize_name(m.get("player2_faction"), max_len=60)
+                    if fac1:
+                        player_factions[p1_id][fac1] += 1
+                    if fac2:
+                        player_factions[p2_id][fac2] += 1
+
+                    s2["elo"] = new_elo2
+                    s2["peak_elo"] = max(s2["peak_elo"], new_elo2)
+                    s2["matches_played"] += 1
+                    if res2 == "W":
+                        s2["wins"] += 1
+                    elif res2 == "L":
+                        s2["losses"] += 1
+                    else:
+                        s2["draws"] += 1
+                    if m_date:
+                        s2["last_active_date"] = _max_date(s2["last_active_date"], m_date)
+
+                    history_batch.append(
+                        (
+                            p1_id,
+                            str(m["id"])[:64],
+                            str(m.get("event_id") or "")[:64] if m.get("event_id") else None,
+                            m.get("round"),
+                            m_date,
+                            old_elo1,
+                            new_elo1,
+                            round(new_elo1 - old_elo1, 2),
+                            p2_id,
+                            _sanitize_name(s2["name"], max_len=100),
+                            old_elo2,
+                            res1,
+                            fac1,
+                            fac2,
+                            m.get("player1_score"),
+                            m.get("player2_score"),
+                            match_sys,
+                        )
+                    )
+                    history_batch.append(
+                        (
+                            p2_id,
+                            str(m["id"])[:64],
+                            str(m.get("event_id") or "")[:64] if m.get("event_id") else None,
+                            m.get("round"),
+                            m_date,
+                            old_elo2,
+                            new_elo2,
+                            round(new_elo2 - old_elo2, 2),
+                            p1_id,
+                            _sanitize_name(s1["name"], max_len=100),
+                            old_elo1,
+                            res2,
+                            fac2,
+                            fac1,
+                            m.get("player2_score"),
+                            m.get("player1_score"),
+                            match_sys,
+                        )
+                    )
+
+                if history_batch:
+                    insert_history_pg = """
+                    INSERT INTO rating_history (
+                        player_id, match_id, event_id, round, match_date,
+                        old_elo, new_elo, delta_elo, opponent_id, opponent_name,
+                        opponent_elo, result, player_faction, opponent_faction,
+                        player_score, opponent_score, game_system
+                    ) VALUES %s;
+                    """
+                    extras.execute_values(cur, insert_history_pg, history_batch, page_size=2500)
+
+                if touched_pids:
+                    now_iso = datetime.now(timezone.utc)
+                    upsert_ratings_pg = f"""
+                    INSERT INTO player_ratings (
+                        player_id, player_name, current_elo, peak_elo,
+                        matches_played, wins, losses, draws, win_rate,
+                        top_faction, team, last_active_date, updated_at, game_system
+                    ) VALUES %s
+                    ON CONFLICT (player_id, game_system) DO UPDATE SET
+                        player_name = CASE
+                            WHEN EXCLUDED.player_name !~* '{PLACEHOLDER_REGEX_STR}'
+                            THEN EXCLUDED.player_name
+                            ELSE COALESCE(NULLIF(player_ratings.player_name, ''), EXCLUDED.player_name)
+                        END,
+                        current_elo = EXCLUDED.current_elo,
+                        peak_elo = EXCLUDED.peak_elo,
+                        matches_played = EXCLUDED.matches_played,
+                        wins = EXCLUDED.wins,
+                        losses = EXCLUDED.losses,
+                        draws = EXCLUDED.draws,
+                        win_rate = EXCLUDED.win_rate,
+                        top_faction = EXCLUDED.top_faction,
+                        team = COALESCE(EXCLUDED.team, player_ratings.team),
+                        last_active_date = EXCLUDED.last_active_date,
+                        updated_at = EXCLUDED.updated_at;
+                    """
+                    ratings_data = []
+                    for pid in touched_pids:
+                        s = player_states.get(pid)
+                        if not s:
+                            continue
+                        total = s["matches_played"]
+                        win_rate = round((s["wins"] / total) * 100.0, 1) if total > 0 else 0.0
+                        top_fac = _sanitize_top_factions(player_factions[pid], max_factions=5, max_len=200)
+                        team_name = _sanitize_team(existing_teams.get(pid), max_len=100)
+                        clean_player_name = _sanitize_name(s.get("name"), max_len=100) or f"Player {str(pid)[:8]}"
+                        ratings_data.append(
+                            (
+                                str(pid)[:64],
+                                clean_player_name,
+                                s["elo"],
+                                s["peak_elo"],
+                                total,
+                                s["wins"],
+                                s["losses"],
+                                s["draws"],
+                                win_rate,
+                                top_fac,
+                                team_name,
+                                s["last_active_date"],
+                                now_iso,
+                                sys_target,
+                            )
+                        )
+                    if ratings_data:
+                        extras.execute_values(cur, upsert_ratings_pg, ratings_data, page_size=2000)
+
             conn.commit()
 
-        total_replayed = 0
-        total_players_updated = 0
-        total_history_saved = 0
-        for _ in range(5):
-            inc_res = self.reconstruct_incremental(
-                batch_limit=100000,
-                game_system=sys_target,
-                since_date=since_date,
-                skip_stale_check=True,
-            )
-            batch_new = int(inc_res.get("total_new_matches") or 0)
-            total_replayed += batch_new
-            total_players_updated = max(total_players_updated, int(inc_res.get("players_updated") or 0))
-            total_history_saved += int(inc_res.get("history_points_saved") or 0)
-            if batch_new < 100000:
-                break
+        self.invalidate_caches()
+        if hasattr(self.db, "invalidate_all_caches"):
+            self.db.invalidate_all_caches()
+        elif hasattr(self.db.__class__, "invalidate_all_caches"):
+            self.db.__class__.invalidate_all_caches()
 
         elapsed = round(time.time() - t0, 2)
         return {
             "game_system": sys_target,
             "since_date": since_date,
-            "rewound_players": len(rewound_pids),
-            "total_matches_processed": total_replayed,
-            "players_updated": total_players_updated,
-            "history_points_saved": total_history_saved,
+            "rewound_players": len(touched_pids),
+            "total_matches_processed": len(window_matches),
+            "players_updated": len(touched_pids),
+            "history_points_saved": len(history_batch),
             "elapsed_seconds": elapsed,
         }
 
