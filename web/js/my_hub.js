@@ -174,18 +174,7 @@ async function loadMyHubDashboard() {
     } catch (e) {}
   }
 
-  if (!Array.isArray(hubSavedLists) || hubSavedLists.length === 0) {
-    try {
-      const cachedListsRaw = localStorage.getItem('my_hub_armylists_cache');
-      if (cachedListsRaw) {
-        const parsedLists = JSON.parse(cachedListsRaw);
-        if (Array.isArray(parsedLists)) {
-          hubSavedLists = parsedLists.filter(l => !isHubListTombstoned(l));
-          window.hubSavedLists = hubSavedLists;
-        }
-      }
-    } catch (e) {}
-  }
+  purgeLegacyHubArmyListCache();
 
   // Ensure local active and completed tracker matches are instantly reflected in optimistic render
   const localInitial = getLocalTrackerSessions(gs);
@@ -3357,114 +3346,50 @@ window.executeHubEventsSearch = executeHubEventsSearch;
 let hubSavedLists = [];
 let hubNrCloudAccount = { connected: false, login: '', last_sync: null };
 
-const HUB_TOMBSTONE_STORAGE_KEY = 'omni_deleted_nr_lists_v3';
-const HUB_TOMBSTONE_TTL_MS = 5 * 60 * 1000;
-
-function getHubDeletedNrTombstones() {
+function purgeLegacyHubArmyListCache(extraKeysToPurgeFromRemote = []) {
   try {
+    localStorage.removeItem('my_hub_armylists_cache');
     localStorage.removeItem('omni_deleted_nr_lists');
     localStorage.removeItem('omni_deleted_nr_lists_v2');
-    const raw = localStorage.getItem(HUB_TOMBSTONE_STORAGE_KEY);
-    if (!raw) return { keys: {}, names: {} };
-    const parsed = JSON.parse(raw);
-    const rawKeys = (parsed && typeof parsed.keys === 'object' && parsed.keys) ? parsed.keys : {};
-    const validKeys = {};
-    const now = Date.now();
-    let changed = false;
-    for (const [k, tsVal] of Object.entries(rawKeys)) {
-      const ts = Number(tsVal) || 0;
-      if (ts && (now - ts) < HUB_TOMBSTONE_TTL_MS) {
-        validKeys[k] = ts;
-      } else {
-        changed = true;
+    localStorage.removeItem('omni_deleted_nr_lists_v3');
+    if (Array.isArray(extraKeysToPurgeFromRemote) && extraKeysToPurgeFromRemote.length > 0) {
+      const remRaw = localStorage.getItem('remote-lists-state');
+      if (remRaw) {
+        const remObj = JSON.parse(remRaw);
+        if (remObj && typeof remObj === 'object') {
+          let changed = false;
+          for (const k of extraKeysToPurgeFromRemote) {
+            const cleanK = String(k || '').replace(/^(nr_|list_)/, '').trim();
+            if (cleanK && cleanK in remObj) {
+              delete remObj[cleanK];
+              changed = true;
+            }
+          }
+          if (changed) localStorage.setItem('remote-lists-state', JSON.stringify(remObj));
+        }
       }
     }
-    if (changed) {
-      localStorage.setItem(HUB_TOMBSTONE_STORAGE_KEY, JSON.stringify({ keys: validKeys, names: {} }));
-    }
-    return {
-      keys: validKeys,
-      names: {}
-    };
-  } catch (e) {
-    return { keys: {}, names: {} };
-  }
+  } catch (e) {}
+}
+
+function getHubDeletedNrTombstones() {
+  purgeLegacyHubArmyListCache();
+  return { keys: {}, names: {} };
 }
 
 function markHubListDeletedTombstone(listKey, listName, extraKeys = []) {
-  try {
-    const tomb = getHubDeletedNrTombstones();
-    const now = Date.now();
-    const allKeys = [];
-    if (listKey) {
-      const cleanK = String(listKey).replace(/^(nr_|list_)/, '').trim();
-      if (cleanK) {
-        tomb.keys[cleanK] = now;
-        allKeys.push(cleanK);
-      }
-    }
-    if (Array.isArray(extraKeys)) {
-      for (const k of extraKeys) {
-        const cleanEk = String(k || '').replace(/^(nr_|list_)/, '').trim();
-        if (cleanEk) {
-          tomb.keys[cleanEk] = now;
-          if (!allKeys.includes(cleanEk)) allKeys.push(cleanEk);
-        }
-      }
-    }
-    localStorage.setItem(HUB_TOMBSTONE_STORAGE_KEY, JSON.stringify(tomb));
-    if (allKeys.length > 0) {
-      try {
-        const remRaw = localStorage.getItem('remote-lists-state');
-        if (remRaw) {
-          const remObj = JSON.parse(remRaw);
-          if (remObj && typeof remObj === 'object') {
-            let changed = false;
-            for (const k of allKeys) {
-              if (k in remObj) {
-                delete remObj[k];
-                changed = true;
-              }
-            }
-            if (changed) localStorage.setItem('remote-lists-state', JSON.stringify(remObj));
-          }
-        }
-      } catch (e2) {}
-    }
-  } catch (e) {}
+  const allKeys = [];
+  if (listKey) allKeys.push(listKey);
+  if (Array.isArray(extraKeys)) allKeys.push(...extraKeys);
+  purgeLegacyHubArmyListCache(allKeys);
 }
 
 function clearHubListDeletedTombstone(listKey, listName) {
-  try {
-    const tomb = getHubDeletedNrTombstones();
-    let changed = false;
-    if (listKey) {
-      const cleanK = String(listKey).replace(/^(nr_|list_)/, '').trim();
-      if (cleanK && tomb.keys[cleanK]) {
-        delete tomb.keys[cleanK];
-        changed = true;
-      }
-    }
-    if (changed) {
-      localStorage.setItem(HUB_TOMBSTONE_STORAGE_KEY, JSON.stringify(tomb));
-    }
-  } catch (e) {}
+  purgeLegacyHubArmyListCache();
 }
 
 function isHubListTombstoned(item) {
-  if (!item) return false;
-  const tomb = getHubDeletedNrTombstones();
-  const rawId = String(item.list_key || item.nr_list_key || item.id || '').replace(/^(nr_|list_)/, '').trim();
-  const ts = (rawId && tomb.keys[rawId]) ? Number(tomb.keys[rawId]) : 0;
-  if (!ts) return false;
-  const modStr = item.updated_at || (item.nr_row && item.nr_row.date_mod) || '';
-  if (modStr) {
-    const modMs = new Date(modStr).getTime();
-    if (!isNaN(modMs) && modMs > ts + 2000) {
-      return false;
-    }
-  }
-  return true;
+  return false;
 }
 
 function getLocalNrCloudAccountFallback() {
@@ -3505,32 +3430,16 @@ async function loadHubArmyLists() {
   const container = document.getElementById('hub-armylists-list-container');
   if (!container) return;
 
+  purgeLegacyHubArmyListCache();
+
   try {
     const [res, nrState] = await Promise.all([
       window.api.getArmyLists('all'),
       window.api.getNewRecruitState ? window.api.getNewRecruitState().catch(() => null) : Promise.resolve(null)
     ]);
-    const rawLists = (res && res.army_lists) ? res.army_lists : [];
-    const lists = [];
-    for (const item of rawLists) {
-      if (isHubListTombstoned(item)) {
-        // Reconcile any lingering tombstoned list in the background so it stays permanently deleted
-        try {
-          const lKey = resolveHubNrListKey(item);
-          removeNrListKeyFromSameOriginIdb(lKey, item.name || '').catch(() => {});
-          if (item.id && window.api && typeof window.api.deleteArmyList === 'function') {
-            window.api.deleteArmyList(item.id).catch(() => {});
-          }
-        } catch (e) {}
-        continue;
-      }
-      lists.push(item);
-    }
+    const lists = (res && Array.isArray(res.army_lists)) ? res.army_lists : [];
     hubSavedLists = lists;
     window.hubSavedLists = lists;
-    try {
-      localStorage.setItem('my_hub_armylists_cache', JSON.stringify(lists));
-    } catch (e) {}
     if (nrState && nrState.cloud_account) {
       if (nrState.cloud_account.connected) {
         hubNrCloudAccount = nrState.cloud_account;

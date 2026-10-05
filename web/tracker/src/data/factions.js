@@ -354,27 +354,27 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Corsair Coterie", "priority", 2),
     detachment("Devoted of Ynnead", "priority", 2),
     detachment("Eldritch Raiders", "purge", 2),
-    detachment("Fateful Performance", "disruption", 1, "ACROBATIC"),
-    detachment("Ghosts of the Webway", "disruption", 2, "ACROBATIC"),
+    detachment("Fateful Performance", "disruption", 1),
+    detachment("Ghosts of the Webway", "disruption", 2),
     detachment("Guardian Battlehost", "hold", 2),
     detachment("Path of the Outcast", "recon", 1),
     detachment("Seer Council", "priority", 2),
-    detachment("Serpent’s Brood", "purge", 2, "ACROBATIC"),
+    detachment("Serpent’s Brood", "purge", 2),
     detachment("Spirit Conclave", "hold", 2),
-    detachment("Twilight Flickers", "hold", 1, "ACROBATIC"),
+    detachment("Twilight Flickers", "hold", 1),
     detachment("Warhost", "recon", 2),
     detachment("Windrider Host", "disruption", 2)
   ],
   drukhari: [
-    detachment("Covenite Coterie", "hold", 2, "COVENS"),
-    detachment("Exhibition of Slaughter", "recon", 1, "WYCH CULT"),
-    detachment("Kabalite Agonysts", "disruption", 1, "KABAL"),
-    detachment("Kabalite Cartel", "disruption", 2, "KABAL"),
+    detachment("Covenite Coterie", "hold", 2),
+    detachment("Exhibition of Slaughter", "recon", 1),
+    detachment("Kabalite Agonysts", "disruption", 1),
+    detachment("Kabalite Cartel", "disruption", 2),
     detachment("Realspace Raiders", "priority", 2),
     detachment("Reaper’s Wager", ["priority", "purge"], 3),
     detachment("Skysplinter Assault", "recon", 2),
-    detachment("Spectacle of Spite", "purge", 2, "WYCH CULT"),
-    detachment("Tools of Torment", "hold", 1, "COVENS")
+    detachment("Spectacle of Spite", "purge", 2),
+    detachment("Tools of Torment", "hold", 1)
   ],
   tyranids: [
     detachment("Ambush Predators", "disruption", 1),
@@ -389,13 +389,13 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Warrior Bioform Onslaught", "hold", 1)
   ],
   "genestealer-cults": [
-    detachment("Biosanctic Broodsurge", "hold", 2, "PURESTRAIN"),
+    detachment("Biosanctic Broodsurge", "hold", 2),
     detachment("Brood Brothers Auxilia", "hold", 2),
     detachment("Final Day", "purge", 2),
     detachment("Heroes of the Uprising", "disruption", 1),
     detachment("Host of Ascension", ["hold", "recon"], 3, "HOSTS"),
     detachment("Outlander Claw", "recon", 2),
-    detachment("Purestrain Broodswarm", "priority", 1, "PURESTRAIN"),
+    detachment("Purestrain Broodswarm", "priority", 1),
     detachment("Xenocreed Congregation", "priority", 2),
     detachment("Xenocult Masses", "recon", 1, "HOSTS")
   ],
@@ -462,6 +462,39 @@ DETACHMENTS_BY_FACTION["night-lords"] = CSM_DETACHMENTS;
 DETACHMENTS_BY_FACTION["red-corsairs"] = CSM_DETACHMENTS;
 DETACHMENTS_BY_FACTION["word-bearers"] = CSM_DETACHMENTS;
 DETACHMENTS_BY_FACTION["imperial-agents"] = DETACHMENTS_BY_FACTION["agents-of-imperium"];
+
+let _nrDetachmentsHydrated = false;
+
+/**
+ * Hydrates DETACHMENTS_BY_FACTION directly from NewRecruit's live catalogue (/api/nr/detachments)
+ * so NewRecruit serves as the single source of truth for detachments, DP, Force Dispositions, and UNIQUE tags.
+ */
+export async function hydrateDetachmentsFromNewRecruit() {
+  if (_nrDetachmentsHydrated || typeof window === "undefined" || typeof fetch !== "function") {
+    return DETACHMENTS_BY_FACTION;
+  }
+  _nrDetachmentsHydrated = true;
+  try {
+    const resp = await fetch("/api/nr/detachments", { headers: { Accept: "application/json" } });
+    if (!resp.ok) return DETACHMENTS_BY_FACTION;
+    const data = await resp.json();
+    const byFaction = data && data.detachments_by_faction;
+    if (byFaction && typeof byFaction === "object") {
+      for (const [slug, detList] of Object.entries(byFaction)) {
+        if (Array.isArray(detList) && detList.length > 0) {
+          DETACHMENTS_BY_FACTION[slug] = detList;
+        }
+      }
+    }
+  } catch (e) {
+    // Fallback to static MFM v1.5 definitions if offline
+  }
+  return DETACHMENTS_BY_FACTION;
+}
+
+if (typeof window !== "undefined") {
+  hydrateDetachmentsFromNewRecruit();
+}
 
 export function getFactionDetachments(factionSlug) {
   if (!factionSlug) return [];

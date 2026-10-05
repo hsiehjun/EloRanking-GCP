@@ -104,17 +104,32 @@ def _resolve_user_id(request: Request) -> Optional[str]:
     return None
 
 
-@router.get("/api/armylists", summary="Get saved army lists for current user")
+@router.get("/api/nr/detachments", summary="Get live 40k 11th Edition detachments, DP, Force Dispositions, and UNIQUE tags from NewRecruit")
+@router.get("/api/armylists/nr_detachments", include_in_schema=False)
+async def api_get_nr_detachments():
+    from newrecruit_integration import get_nr_detachments_catalog
+    return await asyncio.to_thread(get_nr_detachments_catalog)
+
+
+@router.get("/api/armylists", summary="Get saved army lists for current user directly from NewRecruit state")
 async def api_get_armylists(request: Request, game_system: Optional[str] = Query(None)):
+    from newrecruit_integration import sync_nr_cloud_lists_if_connected
     user_id = _resolve_user_id(request)
     db = get_database()
+    await asyncio.to_thread(
+        sync_nr_cloud_lists_if_connected,
+        user_id or "default",
+        lambda item: db.save_user_army_list(user_id=user_id, list_data=item),
+        lambda lid: db.delete_user_army_list(lid, user_id=user_id),
+        lambda: db.get_user_army_lists(user_id=user_id),
+    )
     lists = db.get_user_army_lists(user_id=user_id, game_system=game_system) or []
     parser = get_army_parser()
     enriched = [
         parser._finalize_roster_compatibility(dict(item)) if isinstance(item, dict) else item
         for item in lists
     ]
-    return {"success": True, "army_lists": enriched}
+    return {"success": True, "army_lists": enriched, "source": "newrecruit"}
 
 def _propagate_saved_list_to_tracker_rooms(saved: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(saved, dict):
@@ -181,10 +196,17 @@ async def api_save_armylist(request: Request):
 
 @router.get("/api/armylists/nr_state", summary="Get NewRecruit IndexedDB hydration state and cloud connection status")
 async def api_get_nr_state(request: Request):
-    from newrecruit_integration import get_nr_state_payload
+    from newrecruit_integration import get_nr_state_payload, sync_nr_cloud_lists_if_connected
     user_id = _resolve_user_id(request)
 
     db = get_database()
+    await asyncio.to_thread(
+        sync_nr_cloud_lists_if_connected,
+        user_id or "default",
+        lambda item: db.save_user_army_list(user_id=user_id, list_data=item),
+        lambda lid: db.delete_user_army_list(lid, user_id=user_id),
+        lambda: db.get_user_army_lists(user_id=user_id),
+    )
     saved_lists = list(db.get_user_army_lists(user_id=user_id) or [])
     return get_nr_state_payload(saved_lists, user_key=user_id or "default")
 

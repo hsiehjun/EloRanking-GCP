@@ -7541,19 +7541,20 @@ const CANONICAL_FORCE_DISPOSITIONS = [
 const DETACHMENT_DISPOSITION_LOOKUP = {
   // Space Marines & Chapters
   'assault brethren': 'Take and Hold',
-  'blade of ultramar': 'Take and Hold',
+  'blade of ultramar': ['Take and Hold', 'Priority Assets'],
   'ceramite sentinels': 'Take and Hold',
   'deathwatch support': 'Disruption',
   'devastator brethren': 'Purge the Foe',
   'forgefather’s seekers': 'Priority Assets',
   "forgefather's seekers": 'Priority Assets',
   'gauntlet task force': 'Reconnaissance',
-  'gladius task force': 'Take and Hold',
+  'gladius task force': ['Take and Hold', 'Priority Assets'],
   'gravis linebreaker force': 'Take and Hold',
   'gravis siege force': 'Take and Hold',
   'ironclad champions': 'Priority Assets',
   'ironstorm spearhead': 'Purge the Foe',
   "medusa's wrath": 'Purge the Foe',
+  'medusa’s wrath': 'Purge the Foe',
   'phobos shadow force': 'Disruption',
   'phobos shock force': 'Disruption',
   'shadowmark talon': 'Disruption',
@@ -7566,7 +7567,7 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'darkflight pursuit': 'Reconnaissance',
   'inner circle task force': 'Priority Assets',
   'wrath of the rock': 'Take and Hold',
-  'angelic inheritors': 'Priority Assets',
+  'angelic inheritors': ['Priority Assets', 'Purge the Foe'],
   'encarmine speartip': 'Disruption',
   'wrath of the doomed': 'Purge the Foe',
   'champions of fenris': 'Priority Assets',
@@ -7574,8 +7575,9 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'saga of the great wolf': 'Take and Hold',
   'fist of the god-emperor': 'Take and Hold',
   "marshal's household": 'Priority Assets',
+  'marshal’s household': 'Priority Assets',
   'vow-sworn crusaders': 'Purge the Foe',
-  'black spear task force': 'Priority Assets',
+  'black spear task force': ['Priority Assets', 'Purge the Foe'],
   // Grey Knights
   'argent assault': 'Priority Assets',
   'augurium task force': 'Reconnaissance',
@@ -7585,14 +7587,14 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'hallowed conclave': 'Take and Hold',
   'immaterial interdiction': 'Reconnaissance',
   'sanctic spearhead': 'Priority Assets',
-  'warpbane task force': 'Take and Hold',
+  'warpbane task force': ['Take and Hold', 'Purge the Foe'],
   // Astra Militarum
   'abhuman auxiliaries': 'Take and Hold',
   'armoured infantry': 'Take and Hold',
   'bridgehead strike': 'Priority Assets',
   'combined arms': 'Take and Hold',
   'designation force': 'Reconnaissance',
-  'grizzled company': 'Priority Assets',
+  'grizzled company': ['Priority Assets', 'Purge the Foe'],
   'hammer of the emperor': 'Purge the Foe',
   'mechanised assault': 'Reconnaissance',
   'recon element': 'Reconnaissance',
@@ -7603,7 +7605,7 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'bringers of flame': 'Priority Assets',
   'champions of faith': 'Disruption',
   'chorus of condemnation': 'Reconnaissance',
-  'hallowed martyrs': 'Take and Hold',
+  'hallowed martyrs': ['Take and Hold', 'Priority Assets'],
   'penitent host': 'Purge the Foe',
   'sacred champions': 'Take and Hold',
   'sanctified orators': 'Disruption',
@@ -7613,67 +7615,70 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'data-psalm conclave': 'Disruption',
   'eradication cohort': 'Purge the Foe',
   'explorator maniple': 'Priority Assets',
-  'haloscreed battle clade': 'Priority Assets',
+  'haloscreed battle clade': ['Priority Assets', 'Purge the Foe'],
   'lords of the forge': 'Priority Assets',
   'luminen auto-choir': 'Disruption',
   'rad-zone corps': 'Take and Hold',
   'skitarii hunter cohort': 'Reconnaissance',
   // Imperial Knights
   'dominus foebreakers': 'Priority Assets',
-  'freeblade company': 'Priority Assets',
+  'freeblade company': ['Priority Assets', 'Purge the Foe'],
   'gate warden lance': 'Take and Hold',
   'questor forgepact': 'Disruption',
-  'questoris companions': 'Take and Hold',
+  'questoris companions': ['Take and Hold', 'Reconnaissance'],
   'spearhead-at-arms': 'Reconnaissance',
   'throne-bonded outriders': 'Reconnaissance',
   'valourstrike lance': 'Purge the Foe',
   // Adeptus Custodes
   'auric champions': 'Priority Assets',
-  'lions of the emperor': 'Take and Hold',
+  'lions of the emperor': ['Take and Hold', 'Disruption'],
   'might of the moritoi': 'Take and Hold',
   'null maiden vigil': 'Reconnaissance',
   'shield host': 'Purge the Foe',
   'silent hunters': 'Reconnaissance',
   'solar spearhead': 'Take and Hold',
-  'talons of the emperor': 'Take and Hold',
+  'talons of the emperor': ['Take and Hold', 'Priority Assets'],
   'tharanatoi hammerblow': 'Disruption',
   // Imperial Agents
   'imperialis fleet': 'Reconnaissance',
   'ordo hereticus, purgation force': 'Take and Hold',
+  'ordo hereticus purgation force': 'Take and Hold',
   'ordo malleus, daemon hunters': 'Priority Assets',
+  'ordo malleus daemon hunters': 'Priority Assets',
   'ordo xenos, alien hunters': 'Purge the Foe',
+  'ordo xenos alien hunters': 'Purge the Foe',
   'veiled blade elimination force': 'Disruption',
   // Chaos Space Marines
   'cabal of chaos': 'Disruption',
   'chaos cult': 'Priority Assets',
-  'creations of bile': 'Take and Hold',
+  'creations of bile': ['Take and Hold', 'Purge the Foe'],
   'cult of the arkifane': 'Priority Assets',
   'deceptors': 'Disruption',
   'devotees of destruction': 'Priority Assets',
   'dread talons': 'Disruption',
-  'fellhammer siege-host': 'Take and Hold',
-  "huron's marauders": 'Disruption',
-  'huron’s marauders': 'Disruption',
+  'fellhammer siege-host': ['Take and Hold', 'Disruption'],
+  "huron's marauders": ['Disruption', 'Reconnaissance'],
+  'huron’s marauders': ['Disruption', 'Reconnaissance'],
   'murdertalon raiders': 'Reconnaissance',
   'nightmare hunt': 'Disruption',
-  'pactbound zealots': 'Disruption',
-  'renegade raiders': 'Priority Assets',
+  'pactbound zealots': ['Disruption', 'Purge the Foe'],
+  'renegade raiders': ['Priority Assets', 'Reconnaissance'],
   'renegade warband': 'Priority Assets',
   'soulforged warpack': 'Take and Hold',
-  'veterans of the long war': 'Take and Hold',
+  'veterans of the long war': ['Take and Hold', 'Priority Assets'],
   'warpstrike champions': 'Disruption',
   // World Eaters
-  'berzerker warband': 'Purge the Foe',
+  'berzerker warband': ['Purge the Foe', 'Take and Hold'],
   'brazen engines': 'Disruption',
   'butchers of khorne': 'Take and Hold',
   'cult of blood': 'Priority Assets',
   'goretrack onslaught': 'Take and Hold',
-  'khorne daemonkin': 'Reconnaissance',
+  'khorne daemonkin': ['Reconnaissance', 'Disruption'],
   'possessed slaughterband': 'Purge the Foe',
-  'vessels of wrath': 'Priority Assets',
+  'vessels of wrath': ['Priority Assets', 'Purge the Foe'],
   // Emperor's Children
   'carnival of excess': 'Disruption',
-  'coterie of the conceited': 'Priority Assets',
+  'coterie of the conceited': ['Priority Assets', 'Purge the Foe'],
   'court of the phoenician': 'Purge the Foe',
   'elegant brutes': 'Take and Hold',
   'frenzied host': 'Reconnaissance',
@@ -7684,7 +7689,7 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'slaanesh’s chosen': 'Purge the Foe',
   'spectacle of slaughter': 'Disruption',
   // Death Guard
-  'champions of contagion': 'Take and Hold',
+  'champions of contagion': ['Take and Hold', 'Purge the Foe'],
   'contagion engines': 'Reconnaissance',
   "death lord's chosen": 'Priority Assets',
   'death lord’s chosen': 'Priority Assets',
@@ -7694,10 +7699,10 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'paragons of putrescence': 'Priority Assets',
   'shamblerot vectorium': 'Disruption',
   'tallyband summoners': 'Disruption',
-  'virulent vectorium': 'Take and Hold',
+  'virulent vectorium': ['Take and Hold', 'Disruption'],
   // Thousand Sons
   'changehost of deceit': 'Reconnaissance',
-  'grand coven': 'Disruption',
+  'grand coven': ['Disruption', 'Priority Assets'],
   'hexwarp thrallband': 'Take and Hold',
   'ritual of regeneration': 'Take and Hold',
   'rubricae phalanx': 'Take and Hold',
@@ -7711,22 +7716,22 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'houndpack lance': 'Reconnaissance',
   'hunting warpack': 'Reconnaissance',
   'iconoclast fiefdom': 'Take and Hold',
-  'infernal lance': 'Priority Assets',
+  'infernal lance': ['Priority Assets', 'Purge the Foe'],
   'lords of dread': 'Take and Hold',
   'traitoris lance': 'Purge the Foe',
   // Chaos Daemons
   'blood legion': 'Purge the Foe',
   'cavalcade of chaos': 'Disruption',
-  'daemonic incursion': 'Take and Hold',
+  'daemonic incursion': ['Take and Hold', 'Disruption'],
   'legion of excess': 'Priority Assets',
   'lords of the warp': 'Take and Hold',
   'plague legion': 'Take and Hold',
   'scintillating legion': 'Priority Assets',
-  'shadow legion': 'Purge the Foe',
+  'shadow legion': ['Purge the Foe', 'Reconnaissance'],
   'warptide': 'Reconnaissance',
   // Aeldari
   'armoured warhost': 'Reconnaissance',
-  'aspect host': 'Priority Assets',
+  'aspect host': ['Priority Assets', 'Purge the Foe'],
   'corsair coterie': 'Priority Assets',
   'devoted of ynnead': 'Priority Assets',
   'eldritch raiders': 'Purge the Foe',
@@ -7734,12 +7739,12 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'ghosts of the webway': 'Disruption',
   'guardian battlehost': 'Take and Hold',
   'path of the outcast': 'Reconnaissance',
-  'seer council': 'Priority Assets',
+  'seer council': ['Priority Assets', 'Disruption'],
   "serpent's brood": 'Purge the Foe',
   'serpent’s brood': 'Purge the Foe',
   'spirit conclave': 'Take and Hold',
   'twilight flickers': 'Take and Hold',
-  'warhost': 'Reconnaissance',
+  'warhost': ['Reconnaissance', 'Take and Hold'],
   'windrider host': 'Disruption',
   // Drukhari
   'covenite coterie': 'Take and Hold',
@@ -7747,8 +7752,8 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'kabalite agonysts': 'Disruption',
   'kabalite cartel': 'Disruption',
   'realspace raiders': 'Priority Assets',
-  "reaper's wager": 'Priority Assets',
-  'reaper’s wager': 'Priority Assets',
+  "reaper's wager": ['Priority Assets', 'Disruption'],
+  'reaper’s wager': ['Priority Assets', 'Disruption'],
   'skysplinter assault': 'Reconnaissance',
   'spectacle of spite': 'Purge the Foe',
   'tools of torment': 'Take and Hold',
@@ -7756,8 +7761,8 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'ambush predators': 'Disruption',
   'assimilation swarm': 'Priority Assets',
   'crusher stampede': 'Purge the Foe',
-  'invasion fleet': 'Take and Hold',
-  'subterranean assault': 'Disruption',
+  'invasion fleet': ['Take and Hold', 'Purge the Foe'],
+  'subterranean assault': ['Disruption', 'Reconnaissance'],
   'synaptic nexus': 'Disruption',
   'talons of the norn queen': 'Take and Hold',
   'unending swarm': 'Take and Hold',
@@ -7768,14 +7773,14 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'brood brothers auxilia': 'Take and Hold',
   'final day': 'Purge the Foe',
   'heroes of the uprising': 'Disruption',
-  'host of ascension': 'Take and Hold',
+  'host of ascension': ['Take and Hold', 'Disruption'],
   'outlander claw': 'Reconnaissance',
   'purestrain broodswarm': 'Priority Assets',
   'xenocreed congregation': 'Priority Assets',
   'xenocult masses': 'Reconnaissance',
   // Necrons
   'annihilation legion': 'Purge the Foe',
-  'awakened dynasty': 'Take and Hold',
+  'awakened dynasty': ['Take and Hold', 'Priority Assets'],
   'canoptek court': 'Take and Hold',
   'cryptek conclave': 'Priority Assets',
   'cursed legion': 'Purge the Foe',
@@ -7784,8 +7789,9 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'obeisance phalanx': 'Disruption',
   'pantheon of woe': 'Disruption',
   'skyshroud spearhead': 'Reconnaissance',
-  'starshatter arsenal': 'Priority Assets',
+  'starshatter arsenal': ['Priority Assets', 'Reconnaissance'],
   "the phaeron's armoury": 'Priority Assets',
+  'the phaeron’s armoury': 'Priority Assets',
   // Orks
   'blitz brigade': 'Take and Hold',
   'brute bosses': 'Purge the Foe',
@@ -7798,8 +7804,8 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'madcap meks': 'Disruption',
   'runt swarm': 'Priority Assets',
   'shoota boyz': 'Purge the Foe',
-  'taktikal brigade': 'Take and Hold',
-  'war horde': 'Take and Hold',
+  'taktikal brigade': ['Take and Hold', 'Reconnaissance'],
+  'war horde': ['Take and Hold', 'Purge the Foe'],
   'wreckas': 'Priority Assets',
   'wurrband': 'Disruption',
   // T'au Empire
@@ -7808,12 +7814,12 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'experimental prototype cadre': 'Priority Assets',
   'kauyon': 'Reconnaissance',
   'kroot hunting pack': 'Take and Hold',
-  "mont'ka": 'Take and Hold',
-  'mont’ka': 'Take and Hold',
-  'retaliation cadre': 'Purge the Foe',
+  "mont'ka": ['Take and Hold', 'Purge the Foe'],
+  'mont’ka': ['Take and Hold', 'Purge the Foe'],
+  'retaliation cadre': ['Purge the Foe', 'Priority Assets'],
   // Leagues of Votann
   'armoured trailblazers': 'Disruption',
-  'brandfast oathband': 'Take and Hold',
+  'brandfast oathband': ['Take and Hold', 'Reconnaissance'],
   'dêlve assault shift': 'Purge the Foe',
   'delve assault shift': 'Purge the Foe',
   'farseekers': 'Reconnaissance',
@@ -7821,10 +7827,29 @@ const DETACHMENT_DISPOSITION_LOOKUP = {
   'hearthfyre arsenal': 'Priority Assets',
   'hearthguard covenant': 'Priority Assets',
   'mercenary oathband': 'Take and Hold',
-  'needgaârd oathband': 'Purge the Foe',
-  'needgaard oathband': 'Purge the Foe',
+  'needgaârd oathband': ['Purge the Foe', 'Priority Assets'],
+  'needgaard oathband': ['Purge the Foe', 'Priority Assets'],
   'persecution prospect': 'Disruption'
 };
+
+let _nrTournamentDetachmentsHydrated = false;
+async function hydrateTournamentDetachmentsFromNewRecruit() {
+  if (_nrTournamentDetachmentsHydrated || typeof fetch === 'undefined') return;
+  _nrTournamentDetachmentsHydrated = true;
+  try {
+    const res = await fetch('/api/nr/detachments');
+    if (!res || !res.ok) return;
+    const payload = await res.json();
+    const lookup = payload && payload.disposition_lookup;
+    if (lookup && typeof lookup === 'object') {
+      for (const [k, v] of Object.entries(lookup)) {
+        if (!k || !v) continue;
+        DETACHMENT_DISPOSITION_LOOKUP[k.toLowerCase()] = Array.isArray(v) && v.length === 1 ? v[0] : v;
+      }
+    }
+  } catch (e) {}
+}
+setTimeout(() => { hydrateTournamentDetachmentsFromNewRecruit(); }, 0);
 
 function resolveForceDispositionAndDetachment(rawDet, rawFac) {
   const cleanDet = String(rawDet || '').trim();
@@ -7832,35 +7857,42 @@ function resolveForceDispositionAndDetachment(rawDet, rawFac) {
 
   for (const disp of CANONICAL_FORCE_DISPOSITIONS) {
     if (lower === disp.key.toLowerCase()) {
-      return { disposition: disp.key, detachment: disp.key, meta: disp };
+      return { disposition: disp.key, dispositions: [disp.key], detachment: disp.key, meta: disp, secondaryMeta: null };
     }
   }
   if (lower === 'recon' || lower.includes('reconnaissance')) {
-    return { disposition: 'Reconnaissance', detachment: cleanDet || 'Reconnaissance', meta: CANONICAL_FORCE_DISPOSITIONS[3] };
+    return { disposition: 'Reconnaissance', dispositions: ['Reconnaissance'], detachment: cleanDet || 'Reconnaissance', meta: CANONICAL_FORCE_DISPOSITIONS[3], secondaryMeta: null };
   }
   if (lower === 'priority' || lower.includes('priority assets')) {
-    return { disposition: 'Priority Assets', detachment: cleanDet || 'Priority Assets', meta: CANONICAL_FORCE_DISPOSITIONS[1] };
+    return { disposition: 'Priority Assets', dispositions: ['Priority Assets'], detachment: cleanDet || 'Priority Assets', meta: CANONICAL_FORCE_DISPOSITIONS[1], secondaryMeta: null };
   }
   if (lower === 'hold' || lower.includes('take and hold') || lower.includes('take & hold')) {
-    return { disposition: 'Take and Hold', detachment: cleanDet || 'Take and Hold', meta: CANONICAL_FORCE_DISPOSITIONS[0] };
+    return { disposition: 'Take and Hold', dispositions: ['Take and Hold'], detachment: cleanDet || 'Take and Hold', meta: CANONICAL_FORCE_DISPOSITIONS[0], secondaryMeta: null };
   }
   if (lower === 'purge' || lower.includes('purge the foe')) {
-    return { disposition: 'Purge the Foe', detachment: cleanDet || 'Purge the Foe', meta: CANONICAL_FORCE_DISPOSITIONS[2] };
+    return { disposition: 'Purge the Foe', dispositions: ['Purge the Foe'], detachment: cleanDet || 'Purge the Foe', meta: CANONICAL_FORCE_DISPOSITIONS[2], secondaryMeta: null };
   }
   if (lower.includes('disruption')) {
-    return { disposition: 'Disruption', detachment: cleanDet || 'Disruption', meta: CANONICAL_FORCE_DISPOSITIONS[4] };
+    return { disposition: 'Disruption', dispositions: ['Disruption'], detachment: cleanDet || 'Disruption', meta: CANONICAL_FORCE_DISPOSITIONS[4], secondaryMeta: null };
   }
 
   if (DETACHMENT_DISPOSITION_LOOKUP[lower]) {
-    const mappedDisp = DETACHMENT_DISPOSITION_LOOKUP[lower];
-    const meta = CANONICAL_FORCE_DISPOSITIONS.find(d => d.key === mappedDisp) || CANONICAL_FORCE_DISPOSITIONS[0];
-    return { disposition: mappedDisp, detachment: cleanDet, meta };
+    const mapped = DETACHMENT_DISPOSITION_LOOKUP[lower];
+    const dispList = Array.isArray(mapped) ? mapped : [mapped];
+    const primaryDisp = dispList[0];
+    const secondaryDisp = dispList.length > 1 ? dispList[1] : null;
+    const meta = CANONICAL_FORCE_DISPOSITIONS.find(d => d.key === primaryDisp) || CANONICAL_FORCE_DISPOSITIONS[0];
+    const secondaryMeta = secondaryDisp ? (CANONICAL_FORCE_DISPOSITIONS.find(d => d.key === secondaryDisp) || null) : null;
+    return { disposition: primaryDisp, dispositions: dispList, detachment: cleanDet, meta, secondaryMeta };
   }
 
+  const fallbackDisp = cleanDet && cleanDet !== 'Standard Detachment' && cleanDet !== 'Standard' && cleanDet !== 'Unknown' ? cleanDet : 'Unassigned';
   return {
-    disposition: cleanDet && cleanDet !== 'Standard Detachment' && cleanDet !== 'Standard' && cleanDet !== 'Unknown' ? cleanDet : 'Unassigned',
+    disposition: fallbackDisp,
+    dispositions: [fallbackDisp],
     detachment: cleanDet || 'Standard Detachment',
-    meta: { key: 'Other', label: cleanDet || 'Unassigned', icon: '⚙️', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.14)', border: 'rgba(148, 163, 184, 0.3)' }
+    meta: { key: 'Other', label: cleanDet || 'Unassigned', icon: '⚙️', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.14)', border: 'rgba(148, 163, 184, 0.3)' },
+    secondaryMeta: null
   };
 }
 
@@ -8002,8 +8034,10 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
       listId: String(p.list_id || p.listId || '').trim(),
       faction: fac,
       disposition: resolved.disposition,
+      dispositions: resolved.dispositions || [resolved.disposition],
       detachment: resolved.detachment,
       dispMeta: resolved.meta,
+      secondaryDispMeta: resolved.secondaryMeta || null,
       wins: pWins,
       losses: pLosses,
       draws: pDraws,
@@ -8016,14 +8050,14 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
   // Apply player-level filters (Disposition, Faction, Search)
   const q = powerGridState.search.trim().toLowerCase();
   const filteredPlayers = enrichedPlayers.filter(ep => {
-    if (powerGridState.dispositionFilter !== 'All' && ep.disposition !== powerGridState.dispositionFilter) {
+    if (powerGridState.dispositionFilter !== 'All' && ep.disposition !== powerGridState.dispositionFilter && !(Array.isArray(ep.dispositions) && ep.dispositions.includes(powerGridState.dispositionFilter))) {
       return false;
     }
     if (powerGridState.factionFilter !== 'All' && ep.faction !== powerGridState.factionFilter) {
       return false;
     }
     if (q) {
-      const hay = `${ep.faction} ${ep.disposition} ${ep.detachment} ${ep.name}`.toLowerCase();
+      const hay = `${ep.faction} ${(ep.dispositions || [ep.disposition]).join(' ')} ${ep.detachment} ${ep.name}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;

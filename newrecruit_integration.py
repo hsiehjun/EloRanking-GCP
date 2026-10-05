@@ -1984,6 +1984,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
 
   function getNrDeletedTombstones() {
     try {
+      localStorage.removeItem('my_hub_armylists_cache');
+      localStorage.removeItem('omni_deleted_nr_lists');
+      localStorage.removeItem('omni_deleted_nr_lists_v2');
       var raw = localStorage.getItem(TOMBSTONE_STORAGE_KEY);
       if (!raw) return { keys: {}, names: {} };
       var parsed = JSON.parse(raw);
@@ -6159,3 +6162,414 @@ def handle_nr_cloud_connect(
     except Exception as e:
         logger.warning("NewRecruit Cloud sync error: %s", e)
         return {"success": False, "error": f"Failed to sync lists from NewRecruit Cloud: {e}"}
+
+
+_NR_CLOUD_PULL_COOLDOWN: Dict[str, float] = {}
+
+
+def sync_nr_cloud_lists_if_connected(
+    user_key: str,
+    save_fn: Callable[[Dict[str, Any]], Dict[str, Any]],
+    delete_fn: Callable[[str], bool],
+    list_fn: Callable[[], List[Dict[str, Any]]],
+    cooldown_sec: float = 15.0,
+) -> List[Dict[str, Any]]:
+    """
+    If the user has a connected NewRecruit Cloud account, pulls their lists directly from
+    NewRecruit Cloud (with a short cooldown to avoid redundant upstream RPCs) so NewRecruit
+    remains the single source of truth for personal army lists.
+    """
+    ukey = str(user_key or "default").strip() or "default"
+    acct = _resolve_nr_cloud_account(ukey)
+    if not acct or not acct.get("connected") or not acct.get("access"):
+        return list(list_fn() or [])
+
+    now_ts = time.time()
+    last_pull = _NR_CLOUD_PULL_COOLDOWN.get(ukey, 0.0)
+    if (now_ts - last_pull) < cooldown_sec:
+        return list(list_fn() or [])
+
+    _NR_CLOUD_PULL_COOLDOWN[ukey] = now_ts
+    try:
+        res = handle_nr_cloud_connect(
+            {"action": "connect", "access_token": acct["access"], "refresh_token": acct.get("refresh") or ""},
+            save_fn,
+            delete_fn,
+            list_fn,
+            ukey,
+        )
+        if isinstance(res, dict) and isinstance(res.get("army_lists"), list):
+            return res["army_lists"]
+    except Exception as e:
+        logger.debug("Background NewRecruit Cloud pull skipped: %s", e)
+    return list(list_fn() or [])
+
+
+_NR_DETACHMENTS_CACHE: Dict[str, Any] = {
+    "version_signature": None,
+    "payload": None,
+    "ts": 0.0,
+}
+
+_NR_DISPOSITION_CAT_TO_KEY = {
+    "Take and Hold": "hold",
+    "Priority Assets": "priority",
+    "Purge the Foe": "purge",
+    "Reconnaissance": "recon",
+    "Disruption": "disruption",
+}
+
+_NR_KEY_TO_CANONICAL_DISPOSITION = {
+    "hold": "Take and Hold",
+    "priority": "Priority Assets",
+    "purge": "Purge the Foe",
+    "recon": "Reconnaissance",
+    "disruption": "Disruption",
+}
+
+_NR_IGNORE_CATEGORY_LINKS = set(_NR_DISPOSITION_CAT_TO_KEY.keys()) | {
+    "Configuration",
+    "3DP Detachment",
+    "2DP Detachment",
+    "1DP Detachment",
+}
+
+_NR_BSDATA_DETACHMENT_NAME_MAP = {
+    "Haloscreed Battleclade": "Haloscreed Battle Clade",
+    "Rad-zone Corps": "Rad-Zone Corps",
+    "Luminen Auto-choir": "Luminen Auto-Choir",
+    "Ordo Hereticus Purgation Force": "Ordo Hereticus, Purgation Force",
+    "Ordo Malleus Daemon Hunters": "Ordo Malleus, Daemon Hunters",
+    "Ordo Xenos Alien Hunters": "Ordo Xenos, Alien Hunters",
+    "Brood Brother Auxilia": "Brood Brothers Auxilia",
+    "Forgefather's Seekers": "Forgefather’s Seekers",
+    "Huron's Marauders": "Huron’s Marauders",
+    "Slaanesh's Chosen": "Slaanesh’s Chosen",
+    "Death Lord's Chosen": "Death Lord’s Chosen",
+    "Mortarion's Hammer": "Mortarion’s Hammer",
+    "Serpent's Brood": "Serpent’s Brood",
+    "Reaper's Wager": "Reaper’s Wager",
+    "Mont'ka": "Mont’ka",
+}
+
+_NR_SINGLE_FACTION_BOOK_IDS = {
+    "adepta-sororitas": 2058815731,
+    "adeptus-custodes": 2461408627,
+    "adeptus-mechanicus": 1915182632,
+    "astra-militarum": 1759993360,
+    "grey-knights": 3875817488,
+    "agents-of-imperium": 394010041,
+    "imperial-knights": 3944765409,
+    "chaos-daemons": 3598103853,
+    "chaos-knights": 3913935639,
+    "chaos-space-marines": 4171985849,
+    "death-guard": 253717870,
+    "emperors-children": 708977740,
+    "thousand-sons": 164965956,
+    "world-eaters": 3934587149,
+    "leagues-of-votann": 3439666802,
+    "necrons": 1694145926,
+    "orks": 3898668199,
+    "tau-empire": 3882515956,
+}
+
+
+def _make_det(name: str, dispositions: Any, dp: int, unique: Optional[str] = None) -> Dict[str, Any]:
+    dispo_list = list(dispositions) if isinstance(dispositions, (list, tuple)) else [str(dispositions)]
+    out: Dict[str, Any] = {
+        "name": name,
+        "disposition": dispo_list[0],
+        "dispositions": dispo_list,
+        "dp": int(dp),
+    }
+    if unique:
+        out["unique"] = str(unique)
+    return out
+
+
+def _get_mfm_v15_space_marines_fallback() -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Baseline MFM v1.5 Space Marines & Chapters detachment definitions used when NewRecruit's
+    Space Marines book (455211524) is still at nrversion <= 16.
+    """
+    sm_all = [
+        _make_det("Assault Brethren", "hold", 1, "DOCTRINES"),
+        _make_det("Blade of Ultramar", ["hold", "priority"], 3),
+        _make_det("Ceramite Sentinels", "hold", 2),
+        _make_det("Deathwatch Support", "disruption", 1),
+        _make_det("Devastator Brethren", "purge", 1, "DOCTRINES"),
+        _make_det("Forgefather’s Seekers", "priority", 2),
+        _make_det("Gauntlet Task Force", "recon", 1),
+        _make_det("Gladius Task Force", ["hold", "priority"], 3),
+        _make_det("Gravis Linebreaker Force", "hold", 1, "GRAVIS"),
+        _make_det("Gravis Siege Force", "hold", 1, "GRAVIS"),
+        _make_det("Ironclad Champions", "priority", 1),
+        _make_det("Ironstorm Spearhead", "purge", 1, "IRONSTORM"),
+        _make_det("Medusa's Wrath", "purge", 2, "IRONSTORM"),
+        _make_det("Phobos Shadow Force", "disruption", 1, "PHOBOS"),
+        _make_det("Phobos Shock Force", "disruption", 1, "PHOBOS"),
+        _make_det("Shadowmark Talon", "disruption", 2, "PHOBOS"),
+        _make_det("Spearpoint Task Force", "recon", 2),
+        _make_det("Stormlance Task Force", "recon", 1),
+        _make_det("Tactical Brethren", "priority", 1, "DOCTRINES"),
+        _make_det("Tacticus Attack Force", "hold", 1, "TACTICUS"),
+        _make_det("Tacticus Firestorm Force", "priority", 1, "TACTICUS"),
+        _make_det("Terminator Storm Force", "priority", 1, "TERMINATOR"),
+    ]
+    chapter_specific = {
+        "Blade of Ultramar",
+        "Ceramite Sentinels",
+        "Forgefather’s Seekers",
+        "Medusa's Wrath",
+        "Shadowmark Talon",
+        "Spearpoint Task Force",
+    }
+    core_sm = [d for d in sm_all if d["name"] not in chapter_specific]
+    bt_core = [d for d in core_sm if d["name"] != "Gladius Task Force"]
+    dw_core = [d for d in core_sm if d["name"] != "Deathwatch Support"]
+
+    return {
+        "space-marines": sm_all,
+        "imperial-fists": sm_all,
+        "iron-hands": sm_all,
+        "raven-guard": sm_all,
+        "salamanders": sm_all,
+        "ultramarines": sm_all,
+        "white-scars": sm_all,
+        "dark-angels": [
+            _make_det("Darkflight Pursuit", "recon", 1),
+            _make_det("Inner Circle Task Force", "priority", 1),
+            _make_det("Wrath of the Rock", "hold", 2, "TERMINATOR"),
+            *core_sm,
+        ],
+        "blood-angels": [
+            _make_det("Angelic Inheritors", ["priority", "purge"], 3),
+            _make_det("Encarmine Speartip", "disruption", 1),
+            _make_det("Wrath of the Doomed", "purge", 1),
+            *core_sm,
+        ],
+        "space-wolves": [
+            _make_det("Champions of Fenris", "priority", 1, "TERMINATOR"),
+            _make_det("Saga of the Beastslayer", "purge", 1),
+            _make_det("Saga of the Great Wolf", "hold", 2),
+            *core_sm,
+        ],
+        "black-templars": [
+            _make_det("Fist of the God-Emperor", "hold", 1),
+            _make_det("Marshal's Household", "priority", 1),
+            _make_det("Vow-sworn Crusaders", "purge", 2),
+            *bt_core,
+        ],
+        "deathwatch": [
+            _make_det("Black Spear Task Force", ["priority", "purge"], 3),
+            *dw_core,
+        ],
+    }
+
+
+def _parse_nr_detachment_upgrade_node(node: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], List[Any]]]:
+    if not isinstance(node, dict) or node.get("type") != "upgrade":
+        return None
+    dp = 0
+    for c in (node.get("costs") or []):
+        if isinstance(c, dict) and c.get("name") == "Detachment Points":
+            try:
+                dp = int(float(c.get("value") or 0))
+            except Exception:
+                dp = 0
+    if dp <= 0:
+        return None
+
+    cats = [
+        str(cl.get("name")).strip()
+        for cl in (node.get("categoryLinks") or [])
+        if isinstance(cl, dict) and cl.get("name")
+    ]
+    dispos = [_NR_DISPOSITION_CAT_TO_KEY[x] for x in cats if x in _NR_DISPOSITION_CAT_TO_KEY]
+    if not dispos:
+        return None
+
+    # Canonicalize disposition ordering to match MFM v1.5 (e.g. ["hold", "priority"])
+    dispo_priority = {"hold": 0, "disruption": 1, "priority": 2, "purge": 3, "recon": 4}
+    dispos_sorted = sorted(dispos, key=lambda k: dispo_priority.get(k, 99))
+    # Preserve specific MFM pairs where Disruption comes before Priority/Purge/Recon or Hold comes before Disruption
+    if set(dispos_sorted) == {"hold", "disruption"}:
+        dispos_sorted = ["hold", "disruption"]
+
+    uniques = [
+        ("HEARTHBAND" if x.upper() == "HEARTHGUARD" else x.upper())
+        for x in cats
+        if x not in _NR_IGNORE_CATEGORY_LINKS
+    ]
+    raw_name = str(node.get("name") or "").strip()
+    canon_name = _NR_BSDATA_DETACHMENT_NAME_MAP.get(raw_name, raw_name)
+    det_obj = _make_det(canon_name, dispos_sorted, dp, uniques[0] if uniques else None)
+    return det_obj, (node.get("modifiers") or [])
+
+
+def _load_nr_book_json_via_proxy(book_id: int) -> Optional[Dict[str, Any]]:
+    try:
+        body = json.dumps({"method": "books_get_book_row", "params": [827374861, int(book_id)]}).encode("utf-8")
+        status, resp_bytes, _ = proxy_nr_request(
+            "/api/rpc?m=books_get_book_row",
+            "POST",
+            body,
+            {"Content-Type": "application/json"},
+        )
+        if status >= 400 or not resp_bytes:
+            return None
+        row = json.loads(resp_bytes.decode("utf-8", errors="ignore"))
+        raw_content = row.get("content") or row.get("data")
+        if isinstance(raw_content, str):
+            return json.loads(raw_content)
+        if isinstance(raw_content, dict):
+            return raw_content
+    except Exception as e:
+        logger.warning("Failed to load NewRecruit book %s for detachments: %s", book_id, e)
+    return None
+
+
+def get_nr_detachments_catalog(force_refresh: bool = False) -> Dict[str, Any]:
+    """
+    Extracts all Warhammer 40,000 11th Edition detachments, Detachment Points (DP),
+    Force Dispositions (including dual 3-DP dispositions), and UNIQUE tags directly
+    from NewRecruit's live catalogue books (cached by nrversion).
+    """
+    now_ts = time.time()
+    # Ensure live library version index is populated
+    try:
+        proxy_nr_request(
+            "/api/rpc?m=get_library",
+            "POST",
+            b'{"method":"get_library","params":[]}',
+            {"Content-Type": "application/json"},
+        )
+    except Exception:
+        pass
+
+    ver_sig = tuple(sorted(_NR_LIVE_BOOK_VERSIONS.items()))
+    if (
+        not force_refresh
+        and _NR_DETACHMENTS_CACHE["payload"] is not None
+        and _NR_DETACHMENTS_CACHE["version_signature"] == ver_sig
+        and (now_ts - float(_NR_DETACHMENTS_CACHE["ts"] or 0.0)) < 1800.0
+    ):
+        return _NR_DETACHMENTS_CACHE["payload"]
+
+    detachments_by_faction: Dict[str, List[Dict[str, Any]]] = {}
+
+    # 1. Space Marines & Chapters (from MFM v1.5 baseline or live NR book 455211524 if updated past v16)
+    detachments_by_faction.update(_get_mfm_v15_space_marines_fallback())
+
+    # 2. Single-faction NewRecruit books
+    for slug, bid in _NR_SINGLE_FACTION_BOOK_IDS.items():
+        bdata = _load_nr_book_json_via_proxy(bid)
+        if not bdata:
+            continue
+        dets_map: Dict[str, Dict[str, Any]] = {}
+
+        def _scan_single(node: Any) -> None:
+            if isinstance(node, dict):
+                parsed = _parse_nr_detachment_upgrade_node(node)
+                if parsed:
+                    det_obj, _ = parsed
+                    dets_map[det_obj["name"]] = det_obj
+                for v in node.values():
+                    _scan_single(v)
+            elif isinstance(node, list):
+                for item in node:
+                    _scan_single(item)
+
+        _scan_single(bdata)
+        if dets_map:
+            detachments_by_faction[slug] = sorted(dets_map.values(), key=lambda d: d["name"])
+
+    # 3. Shared Aeldari Library (123062806) -> Aeldari & Drukhari
+    aeldari_bdata = _load_nr_book_json_via_proxy(123062806)
+    if aeldari_bdata:
+        ael_map: Dict[str, Dict[str, Any]] = {}
+        dru_map: Dict[str, Dict[str, Any]] = {}
+
+        def _scan_aeldari(node: Any) -> None:
+            if isinstance(node, dict):
+                parsed = _parse_nr_detachment_upgrade_node(node)
+                if parsed:
+                    det_obj, mods = parsed
+                    mods_str = json.dumps(mods)
+                    if "notInstanceOf" in mods_str and "38de-521f-1ce0-44a0" in mods_str:
+                        dru_map[det_obj["name"]] = det_obj
+                    else:
+                        ael_map[det_obj["name"]] = det_obj
+                for v in node.values():
+                    _scan_aeldari(v)
+            elif isinstance(node, list):
+                for item in node:
+                    _scan_aeldari(item)
+
+        _scan_aeldari(aeldari_bdata)
+        if ael_map:
+            detachments_by_faction["aeldari"] = sorted(ael_map.values(), key=lambda d: d["name"])
+        if dru_map:
+            detachments_by_faction["drukhari"] = sorted(dru_map.values(), key=lambda d: d["name"])
+
+    # 4. Shared Tyranids Library (1089268149) -> Tyranids & Genestealer Cults
+    tyr_bdata = _load_nr_book_json_via_proxy(1089268149)
+    if tyr_bdata:
+        tyr_groups: List[List[Dict[str, Any]]] = []
+        for seg in (tyr_bdata.get("catalogue", {}).get("sharedSelectionEntryGroups") or []):
+            if isinstance(seg, dict) and seg.get("name") == "Detachment":
+                grp_map: Dict[str, Dict[str, Any]] = {}
+                for se in (seg.get("selectionEntries") or []):
+                    parsed = _parse_nr_detachment_upgrade_node(se)
+                    if parsed:
+                        det_obj, _ = parsed
+                        grp_map[det_obj["name"]] = det_obj
+                if grp_map:
+                    tyr_groups.append(sorted(grp_map.values(), key=lambda d: d["name"]))
+        if len(tyr_groups) >= 1:
+            detachments_by_faction["tyranids"] = tyr_groups[0]
+        if len(tyr_groups) >= 2:
+            detachments_by_faction["genestealer-cults"] = tyr_groups[1]
+
+    # 5. Sub-faction aliases & Titan Legions
+    csm_dets = detachments_by_faction.get("chaos-space-marines", [])
+    for sub_csm in ("alpha-legion", "black-legion", "iron-warriors", "night-lords", "red-corsairs", "word-bearers"):
+        detachments_by_faction[sub_csm] = csm_dets
+    detachments_by_faction["imperial-agents"] = detachments_by_faction.get("agents-of-imperium", [])
+    detachments_by_faction["titan-legions"] = []
+    detachments_by_faction["chaos-titan-legions"] = []
+
+    # 6. Build lowercase disposition lookup (supporting dual dispositions for 3-DP detachments)
+    disposition_lookup: Dict[str, List[str]] = {}
+    for det_list in detachments_by_faction.values():
+        for d in det_list:
+            canon_dispos = [
+                _NR_KEY_TO_CANONICAL_DISPOSITION.get(k, k)
+                for k in (d.get("dispositions") or [d.get("disposition")])
+                if k
+            ]
+            nm = str(d.get("name") or "").strip()
+            if not nm or not canon_dispos:
+                continue
+            disposition_lookup[nm.lower()] = canon_dispos
+            disposition_lookup[nm.lower().replace("’", "'")] = canon_dispos
+            disposition_lookup[nm.lower().replace("'", "’")] = canon_dispos
+
+    # Add reverse aliases (BSData spelling variants)
+    for bs_name, mfm_name in _NR_BSDATA_DETACHMENT_NAME_MAP.items():
+        if mfm_name.lower() in disposition_lookup:
+            disposition_lookup[bs_name.lower()] = disposition_lookup[mfm_name.lower()]
+
+    payload = {
+        "success": True,
+        "source": "newrecruit_live_catalogue",
+        "system_id": 827374861,
+        "detachments_by_faction": detachments_by_faction,
+        "factions": detachments_by_faction,
+        "disposition_lookup": disposition_lookup,
+    }
+    _NR_DETACHMENTS_CACHE["version_signature"] = ver_sig
+    _NR_DETACHMENTS_CACHE["payload"] = payload
+    _NR_DETACHMENTS_CACHE["ts"] = now_ts
+    return payload
+

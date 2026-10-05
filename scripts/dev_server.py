@@ -5706,6 +5706,18 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
+        if clean_path in ("api/nr/detachments", "api/armylists/nr_detachments"):
+            from newrecruit_integration import get_nr_detachments_catalog
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            force_refresh = str((qs.get("refresh") or ["0"])[0]).lower() in ("1", "true", "yes")
+            payload = get_nr_detachments_catalog(force_refresh=force_refresh)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(payload, default=str).encode("utf-8"))
+            return
+
         if clean_path == "api/armylists/nr_state":
             from newrecruit_integration import get_nr_state_payload
             saved_lists = list(dev_get_army_lists() or [])
@@ -5739,7 +5751,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": True, "army_lists": lists, "lists": lists}, default=str).encode("utf-8"))
             return
 
-        if clean_path.startswith("api/armylists/") and clean_path not in ("api/armylists/nr_state", "api/armylists/nr_sync", "api/armylists/nr_cloud_connect"):
+        if clean_path.startswith("api/armylists/") and clean_path not in ("api/armylists/nr_state", "api/armylists/nr_sync", "api/armylists/nr_cloud_connect", "api/armylists/nr_detachments"):
             lid = urllib.parse.unquote(clean_path.split("/", 2)[2])
             raw_key = re.sub(r"^(nr_|list_)", "", lid)
             found = next(
