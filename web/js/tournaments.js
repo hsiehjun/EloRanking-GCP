@@ -4551,17 +4551,17 @@ function renderPersonalEventScorecard(ev, userRegData) {
     }
 
     const oppNameHtml = !isBye && oppInfo
-      ? `<span class="player-link" style="color:#38bdf8; font-weight:700; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(oppInfo.pid)}', '${escapeHtml(oppInfo.name)}');" title="View ${escapeHtml(oppName)}'s Player Quick Profile">${escapeHtml(oppName)}</span>`
-      : `<span style="color:var(--text-muted); font-weight:600;">${escapeHtml(oppName)}</span>`;
+      ? `<span class="player-link scorecard-opp-name" style="color:#38bdf8; font-weight:700; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(oppInfo.pid)}', '${escapeHtml(oppInfo.name)}');" title="View ${escapeHtml(oppName)}'s Player Quick Profile">${escapeHtml(oppName)}</span>`
+      : `<span class="scorecard-opp-name" style="color:var(--text-muted); font-weight:600;">${escapeHtml(oppName)}</span>`;
 
     return `
       <tr>
         <td style="font-family:var(--font-mono); font-weight:700;">R${roundNum}</td>
         <td style="font-family:var(--font-mono); color:var(--text-muted);">T${tableNum}</td>
-        <td style="font-weight:600; color:#fff;">
-          <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
+        <td class="scorecard-opp-cell" style="font-weight:600; color:#fff;">
+          <div class="scorecard-opp-wrap">
             ${oppNameHtml}
-            ${oppFac ? `<span class="badge" style="font-size:0.7rem;">${escapeHtml(oppFac)}</span>` : ''}
+            ${oppFac ? `<span class="badge scorecard-opp-fac" style="font-size:0.68rem;">${escapeHtml(oppFac)}</span>` : ''}
           </div>
         </td>
         <td style="font-family:var(--font-mono); font-weight:700;">${hasScore ? `${myScore} - ${oppScore}` : '-'}</td>
@@ -4578,20 +4578,23 @@ function renderPersonalEventScorecard(ev, userRegData) {
 
   const netStr = totalDelta >= 0 ? `+${totalDelta.toFixed(1)}` : totalDelta.toFixed(1);
   const netColor = totalDelta >= 0 ? '#4ade80' : '#f87171';
+  const myDisplayName = (myInfo && myInfo.record && myInfo.record.full_name) || (myInfo && myInfo.name) || 'My Profile';
 
   container.innerHTML = `
-    <div class="card" style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 10px; padding: 1.15rem;">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 0.85rem; flex-wrap:wrap; gap:0.5rem;">
-        <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap;">
+    <div class="card personal-scorecard-card" style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 10px; padding: 1.15rem;">
+      <div class="personal-scorecard-header">
+        <div class="personal-scorecard-title-row">
           <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">⚔️ Your Personal Event Scorecard</h4>
-          <span class="player-link" style="font-size:0.8rem; font-weight:700; color:#38bdf8; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(myInfo.pid)}', '${escapeHtml(myInfo.name)}');" title="View Your Player Quick Profile">👤 ${escapeHtml(myInfo.record.full_name || 'My Profile')}</span>
+          <span class="badge personal-scorecard-net-elo" style="font-family:var(--font-mono); font-size:0.78rem; font-weight:700; color:${netColor}; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15);">Event Net Elo: ${netStr}</span>
+        </div>
+        <div class="personal-scorecard-player-bar">
+          <span class="player-link personal-scorecard-player-chip" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(myInfo.pid)}', '${escapeHtml(myInfo.name)}');" title="View Your Player Quick Profile">👤 ${escapeHtml(myDisplayName)}</span>
           ${myInfo.hasList ? `
-            <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(myInfo.pid || myInfo.name)}', '${escapeHtml(myInfo.listId)}')" style="font-size:0.72rem; padding:2px 8px; border-radius:5px; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:4px;" title="View Your Submitted Army Roster">
+            <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(myInfo.pid || myInfo.name)}', '${escapeHtml(myInfo.listId)}')" style="font-size:0.72rem; padding:3px 9px; border-radius:6px; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:4px;" title="View Your Submitted Army Roster">
               📋 My Roster
             </button>
           ` : ''}
         </div>
-        <span class="badge" style="font-family:var(--font-mono); font-size:0.78rem; font-weight:700; color:${netColor}; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15);">Event Net Elo: ${netStr}</span>
       </div>
       <div class="table-container">
         <table id="personal-scorecard-table">
@@ -4759,13 +4762,13 @@ async function renderPlayerStation(ev, userRegData) {
       concludedHero.innerHTML = `
         <div class="card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(16, 185, 129, 0.2)); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 12px; padding: 1.25rem;">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 0.75rem; flex-wrap:wrap; gap:0.5rem;">
-            <div style="display:flex; align-items:center; gap:0.5rem;">
-              <span style="font-size: 1.3rem;">🏆</span>
-              <div>
-                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #fff;">Tournament Concluded • Final Performance</h3>
-                <div style="font-size: 0.78rem; color: #94a3b8;">
-                  <span class="player-link" style="color:#38bdf8; font-weight:700; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(myInfo.pid)}', '${escapeHtml(myInfo.name)}');" title="View Your Player Quick Profile">👤 ${escapeHtml(myInfo.record.full_name || 'Your Profile')}</span>
-                  • Official results recorded on Best Coast Pairings
+            <div style="display:flex; align-items:flex-start; gap:0.6rem; min-width:0; flex:1;">
+              <span style="font-size: 1.3rem; flex-shrink:0; line-height:1.2;">🏆</span>
+              <div style="min-width:0; flex:1;">
+                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #fff; line-height: 1.3;">Tournament Concluded • Final Performance</h3>
+                <div class="concluded-hero-sub" style="font-size: 0.78rem; color: #94a3b8; margin-top: 0.2rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem;">
+                  <span class="player-link" style="color:#38bdf8; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.25rem;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(myInfo.pid)}', '${escapeHtml(myInfo.name)}');" title="View Your Player Quick Profile">👤 ${escapeHtml(myInfo.record.full_name || 'Your Profile')}</span>
+                  <span>• Official results recorded on Best Coast Pairings</span>
                 </div>
               </div>
             </div>
@@ -4854,43 +4857,43 @@ async function renderPlayerStation(ev, userRegData) {
                   🔴 Featured on ${escapeHtml(matchStream.channel)}
                 </button>
               ` : ''}
-              <span class="badge" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); font-size:0.72rem; color:#cbd5e1;">IN PROGRESS</span>
+              <span class="badge" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); font-size:0.72rem; color:#cbd5e1; white-space:nowrap;">IN PROGRESS</span>
             </div>
           </div>
 
           <!-- Matchup Grid -->
-          <div style="display:grid; grid-template-columns: 1fr auto 1fr; gap: 1rem; align-items:center; margin-bottom: 1.25rem; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding: 1rem;">
+          <div class="player-station-matchup-grid" style="display:grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.75rem; align-items:center; margin-bottom: 1.25rem; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding: 1rem;">
             <!-- My Side -->
-            <div style="text-align:left;">
+            <div class="player-station-matchup-side player-station-my-side" style="text-align:left; min-width:0;">
               <div style="font-size:0.72rem; color:#38bdf8; font-weight:700; text-transform:uppercase;">YOU</div>
-              <div style="font-size:1.1rem; font-weight:800; color:#fff; margin-top:2px;">
+              <div class="player-station-matchup-name" style="font-size:1.05rem; font-weight:800; color:#fff; margin-top:2px; overflow-wrap:break-word; word-break:break-word; line-height:1.25;">
                 <span class="player-link" style="color:#38bdf8; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(myInfo.pid)}', '${escapeHtml(myInfo.name)}');" title="View Your Player Quick Profile">${escapeHtml(myNameClean)}</span>
               </div>
-              <div style="display:flex; align-items:center; flex-wrap:wrap; gap:5px; margin-top:4px;">
-                ${myFaction ? `<span class="badge" style="background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); color:#7dd3fc; font-size:0.72rem;">${escapeHtml(myFaction)}</span>` : ''}
-                ${myInfo.hasList ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(myInfo.pid || myInfo.name)}', '${escapeHtml(myInfo.listId)}')" style="font-size:0.7rem; padding:2px 7px; border-radius:4px; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600;" title="View Your Army Roster">📋 My Roster</button>` : ''}
+              <div class="player-station-my-badges" style="display:flex; align-items:center; flex-wrap:wrap; gap:5px; margin-top:5px;">
+                ${myFaction ? `<span class="badge" style="background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); color:#7dd3fc; font-size:0.7rem; max-width:100%; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(myFaction)}</span>` : ''}
+                ${myInfo.hasList ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(myInfo.pid || myInfo.name)}', '${escapeHtml(myInfo.listId)}')" style="font-size:0.7rem; padding:2px 7px; border-radius:4px; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600; white-space:nowrap;" title="View Your Army Roster">📋 My Roster</button>` : ''}
               </div>
               <div style="margin-top:5px; font-size:0.72rem; font-family:var(--font-mono); color:#38bdf8; font-weight:700;">${myProb}% Win Prob</div>
             </div>
 
             <!-- VS Badge -->
-            <div style="text-align:center;">
-              <div style="font-size:0.85rem; font-weight:900; color:var(--text-muted); background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; margin:0 auto;">VS</div>
+            <div class="player-station-matchup-vs" style="text-align:center; flex-shrink:0;">
+              <div style="font-size:0.8rem; font-weight:900; color:var(--text-muted); background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:50%; width:34px; height:34px; display:flex; align-items:center; justify-content:center; margin:0 auto;">VS</div>
               <div style="font-size:0.68rem; font-family:var(--font-mono); color:var(--text-muted); margin-top:4px;">T${tableNum}</div>
             </div>
 
             <!-- Opponent Side -->
-            <div style="text-align:right;">
+            <div class="player-station-matchup-side player-station-opp-side" style="text-align:right; min-width:0;">
               <div style="font-size:0.72rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">OPPONENT</div>
-              <div style="font-size:1.1rem; font-weight:800; color:#fff; margin-top:2px;">
+              <div class="player-station-matchup-name" style="font-size:1.05rem; font-weight:800; color:#fff; margin-top:2px; overflow-wrap:break-word; word-break:break-word; line-height:1.25;">
                 ${!isBye && oppInfo
                   ? `<span class="player-link" style="color:#38bdf8; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(oppInfo.pid)}', '${escapeHtml(oppInfo.name)}');" title="View ${escapeHtml(oppNameClean)}'s Player Quick Profile">${escapeHtml(oppNameClean)}</span>`
                   : `<span>${escapeHtml(oppNameClean)}</span>`
                 }
               </div>
-              <div style="display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:5px; margin-top:4px;">
-                ${oppFaction ? `<span class="badge" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; font-size:0.72rem;">${escapeHtml(oppFaction)}</span>` : ''}
-                ${(!isBye && oppInfo && oppInfo.hasList) ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(oppInfo.pid || oppInfo.name)}', '${escapeHtml(oppInfo.listId)}')" style="font-size:0.7rem; padding:2px 7px; border-radius:4px; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600;" title="View ${escapeHtml(oppNameClean)}'s Army Roster">📋 Opponent Roster</button>` : ''}
+              <div class="player-station-opp-badges" style="display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:5px; margin-top:5px;">
+                ${oppFaction ? `<span class="badge" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; font-size:0.7rem; max-width:100%; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(oppFaction)}</span>` : ''}
+                ${(!isBye && oppInfo && oppInfo.hasList) ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(oppInfo.pid || oppInfo.name)}', '${escapeHtml(oppInfo.listId)}')" style="font-size:0.7rem; padding:2px 7px; border-radius:4px; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600; white-space:nowrap;" title="View ${escapeHtml(oppNameClean)}'s Army Roster">📋 Opponent Roster</button>` : ''}
               </div>
               <div style="margin-top:5px; font-size:0.72rem; font-family:var(--font-mono); color:var(--text-muted); font-weight:700;">${oppProb}% Win Prob</div>
             </div>
@@ -5199,6 +5202,7 @@ function openEventPlayerListModal(playerIdentifier, directPlayerObj = null) {
   currentArmyListModalPlayer = p || { full_name: String(playerIdentifier || ''), player_id: String(playerIdentifier || ''), list_id: fallbackListId };
   currentEventParsedRoster = p?._parsed_roster || null;
   currentEventArmyListText = '';
+  window.__currentEventParsePromise = null;
 
   const modal = document.getElementById('event-army-list-modal');
   if (!modal) return;
@@ -5407,11 +5411,15 @@ function setEventArmyListViewMode(mode) {
         </div>
       `;
 
-      window.api.parseArmyList(currentEventArmyListText)
+      const parseProm = window.__currentEventParsePromise || (window.__currentEventParsePromise = window.api.parseArmyList(currentEventArmyListText));
+      parseProm
         .then(res => {
           if (res && res.success && res.army_list) {
             res.army_list._ephemeral_view = true;
-            if (res.army_list.nr_row) res.army_list.nr_row._ephemeral_view = true;
+            if (res.army_list.nr_row) {
+              res.army_list.nr_row._ephemeral_view = true;
+              res.army_list.nr_row.synced = 0;
+            }
             currentEventParsedRoster = res.army_list;
             if (currentArmyListModalPlayer) {
               currentArmyListModalPlayer._parsed_roster = res.army_list;
@@ -5435,7 +5443,10 @@ function setEventArmyListViewMode(mode) {
     const renderer = window.renderNativeRosterViewer || (typeof renderNativeRosterViewer === 'function' ? renderNativeRosterViewer : null);
     if (renderer && currentEventParsedRoster) {
       currentEventParsedRoster._ephemeral_view = true;
-      if (currentEventParsedRoster.nr_row) currentEventParsedRoster.nr_row._ephemeral_view = true;
+      if (currentEventParsedRoster.nr_row) {
+        currentEventParsedRoster.nr_row._ephemeral_view = true;
+        currentEventParsedRoster.nr_row.synced = 0;
+      }
       contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'text', ephemeral: true });
       return;
     }
@@ -5450,11 +5461,18 @@ function setEventArmyListViewMode(mode) {
       </div>
     `;
     if (renderer && currentEventArmyListText && window.api && typeof window.api.parseArmyList === 'function') {
-      window.api.parseArmyList(currentEventArmyListText).then(res => {
+      const parseProm = window.__currentEventParsePromise || (window.__currentEventParsePromise = window.api.parseArmyList(currentEventArmyListText));
+      parseProm.then(res => {
         if (res && res.success && res.army_list) {
           res.army_list._ephemeral_view = true;
-          if (res.army_list.nr_row) res.army_list.nr_row._ephemeral_view = true;
+          if (res.army_list.nr_row) {
+            res.army_list.nr_row._ephemeral_view = true;
+            res.army_list.nr_row.synced = 0;
+          }
           currentEventParsedRoster = res.army_list;
+          if (currentArmyListModalPlayer) {
+            currentArmyListModalPlayer._parsed_roster = res.army_list;
+          }
           if (currentEventArmyListViewMode === 'text' && document.getElementById('event-army-list-modal-content') === contentEl) {
             contentEl.innerHTML = renderer(currentEventParsedRoster, { mode: 'text', ephemeral: true });
           }
@@ -5952,6 +5970,98 @@ function copyObsOverlayUrl(overlayType) {
 }
 window.copyObsOverlayUrl = copyObsOverlayUrl;
 
+var casterPlayerProfileCache = (typeof window !== 'undefined' && window.__casterPlayerProfileCache) || {};
+var casterArmyListCache = (typeof window !== 'undefined' && window.__casterArmyListCache) || {};
+if (typeof window !== 'undefined') {
+  window.__casterPlayerProfileCache = casterPlayerProfileCache;
+  window.__casterArmyListCache = casterArmyListCache;
+}
+
+function getEventRoundMetadata(ev, matches, roundNum, maxR) {
+  const r = Number(roundNum || 1);
+  const totalR = Number(maxR || 5);
+  let rawJson = (ev && ev.raw_json) || {};
+  if (typeof rawJson === 'string') {
+    try { rawJson = JSON.parse(rawJson); } catch (e) { rawJson = {}; }
+  }
+  const podRound = Number(ev?.pod_round || rawJson?.podRound || 0);
+  const podSize = Number(ev?.pod_size || rawJson?.podSize || 0);
+  const topCut = Boolean(rawJson?.topCut || rawJson?.bracketPairings || podRound > 0);
+  const desc = String(rawJson?.eventDescription || ev?.description || '').toLowerCase();
+
+  const rMatches = (matches || []).filter(m => Number(m.round) === r && !m.is_bye);
+  const pod1Matches = rMatches.filter(m => Number(m.pod_num) === 1);
+  const activeCount = pod1Matches.length > 0 ? pod1Matches.length : rMatches.length;
+
+  let isShadowRound = false;
+  let isTopCut = false;
+  let shortLabel = `R${r}`;
+  let fullLabel = `Round ${r}`;
+  let badgeText = `Round ${r}`;
+  let badgeColor = '#38bdf8';
+  let badgeBg = 'rgba(56, 189, 248, 0.15)';
+  let badgeBorder = 'rgba(56, 189, 248, 0.35)';
+
+  const hasShadowDesc = desc.includes('shadow round');
+  if (
+    (podRound > 0 && r === podRound && ((podSize === 16 && (totalR - podRound) >= 3) || hasShadowDesc)) ||
+    (r === 7 && totalR === 10 && (activeCount === 8 || hasShadowDesc))
+  ) {
+    isShadowRound = true;
+    shortLabel = `🌑 R${r} • Shadow`;
+    fullLabel = `Round ${r} • Shadow Round (Top 16 Play-In)`;
+    badgeText = `🌑 SHADOW ROUND • TOP 16`;
+    badgeColor = '#c084fc';
+    badgeBg = 'rgba(168, 85, 247, 0.2)';
+    badgeBorder = 'rgba(168, 85, 247, 0.45)';
+  } else if ((topCut && podRound > 0 && r >= podRound) || (totalR >= 8 && r >= 8 && activeCount > 0 && activeCount <= 8)) {
+    isTopCut = true;
+    if (activeCount === 1 || (r === totalR && activeCount <= 2 && totalR >= 8)) {
+      shortLabel = `👑 R${r} • Finals`;
+      fullLabel = `Round ${r} • Championship Grand Finals`;
+      badgeText = `👑 GRAND FINALS`;
+      badgeColor = '#fbbf24';
+      badgeBg = 'rgba(245, 158, 11, 0.2)';
+      badgeBorder = 'rgba(245, 158, 11, 0.45)';
+    } else if (activeCount === 2 || (r === totalR - 1 && totalR >= 8)) {
+      shortLabel = `🏆 R${r} • Top 4`;
+      fullLabel = `Round ${r} • Semifinals (Top 4 Cut)`;
+      badgeText = `🏆 TOP 4 SEMIFINALS`;
+      badgeColor = '#fbbf24';
+      badgeBg = 'rgba(245, 158, 11, 0.16)';
+      badgeBorder = 'rgba(245, 158, 11, 0.4)';
+    } else if (activeCount === 4 || (r === totalR - 2 && totalR >= 8)) {
+      shortLabel = `🏆 R${r} • Top 8`;
+      fullLabel = `Round ${r} • Quarterfinals (Top 8 Cut)`;
+      badgeText = `🏆 TOP 8 QUARTERFINALS`;
+      badgeColor = '#34d399';
+      badgeBg = 'rgba(16, 185, 129, 0.16)';
+      badgeBorder = 'rgba(16, 185, 129, 0.4)';
+    } else if (activeCount === 8) {
+      shortLabel = `🏆 R${r} • Top 16`;
+      fullLabel = `Round ${r} • Top 16 Bracket`;
+      badgeText = `🏆 TOP 16 BRACKET`;
+      badgeColor = '#c084fc';
+      badgeBg = 'rgba(168, 85, 247, 0.16)';
+      badgeBorder = 'rgba(168, 85, 247, 0.4)';
+    }
+  }
+
+  return {
+    round: r,
+    isShadowRound,
+    isTopCut,
+    shortLabel,
+    fullLabel,
+    badgeText,
+    badgeColor,
+    badgeBg,
+    badgeBorder,
+    matchCount: rMatches.length
+  };
+}
+window.getEventRoundMetadata = getEventRoundMetadata;
+
 function renderEventCreatorHub(ev) {
   const container = document.getElementById('event-creator-hub-container');
   if (!container) return;
@@ -5970,6 +6080,10 @@ function renderEventCreatorHub(ev) {
     return;
   }
 
+  if (creatorHubActiveMode === 'storylines') {
+    creatorHubActiveMode = 'caster';
+  }
+
   const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (ev.players || []);
   const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (ev.matches || []);
 
@@ -5978,9 +6092,19 @@ function renderEventCreatorHub(ev) {
     return;
   }
 
-  // Determine rounds dynamically
+  // Determine rounds dynamically (including R9, R10, Shadow Round, Top Cut)
+  let rawJson = (ev && ev.raw_json) || {};
+  if (typeof rawJson === 'string') {
+    try { rawJson = JSON.parse(rawJson); } catch (e) { rawJson = {}; }
+  }
   const matchRounds = [...new Set(matches.map(m => Number(m.round)).filter(r => r > 0))].sort((a, b) => a - b);
-  const totalRounds = Number(ev.rounds_count || ev.rounds || ev.total_rounds) || (matchRounds.length > 0 ? Math.max(...matchRounds, Number(ev.current_round || 0)) : (Number(ev.current_round) || 5));
+  const resolvedNumRounds = Number(ev.num_rounds || ev.numberOfRounds || ev.rounds_count || ev.rounds || ev.total_rounds || rawJson.numberOfRounds || rawJson.numRounds || 0);
+  const totalRounds = Math.max(
+    resolvedNumRounds,
+    matchRounds.length > 0 ? Math.max(...matchRounds) : 0,
+    Number(ev.current_round || 0),
+    1
+  );
 
   // Determine selected / current round
   let curRound = selectedCasterRound;
@@ -6008,15 +6132,19 @@ function renderEventCreatorHub(ev) {
     selectedCasterTable = Number(selectedMatch?.table_number || selectedMatch?.table || 1);
 
     p1 = players.find(p => String(p.player_id || p.id) === String(selectedMatch?.player1_id) || p.full_name === selectedMatch?.player1_name) || {
+      player_id: selectedMatch.player1_id || '',
       full_name: selectedMatch.player1_name || 'Player 1',
       faction: selectedMatch.player1_faction || 'Army',
       detachment: 'Standard',
+      list_id: selectedMatch.player1_list_id || '',
       current_elo: selectedMatch.player1_elo || 1500
     };
     p2 = players.find(p => String(p.player_id || p.id) === String(selectedMatch?.player2_id) || p.full_name === selectedMatch?.player2_name) || {
+      player_id: selectedMatch.player2_id || '',
       full_name: selectedMatch.player2_name || 'Player 2',
       faction: selectedMatch.player2_faction || 'Army',
       detachment: 'Standard',
+      list_id: selectedMatch.player2_list_id || '',
       current_elo: selectedMatch.player2_elo || 1500
     };
 
@@ -6028,7 +6156,7 @@ function renderEventCreatorHub(ev) {
     p2WinProb = 100 - p1WinProb;
   }
 
-  // Header Banner & Mode Navigator
+  // Header Banner & Mode Navigator (Storylines & Upsets tab removed per user request)
   const headerHtml = `
     <div class="creator-hero-banner">
       <div class="creator-hero-header">
@@ -6046,7 +6174,7 @@ function renderEventCreatorHub(ev) {
         </div>
       </div>
       <div style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45;">
-        Live commentator cheat sheet, side-by-side tale of the tape, livestream embed & OBS overlays, storyline upset tracking, and one-click broadcast social graphics.
+        Live commentator desk, side-by-side tale of the tape, commander faction mastery & army rosters, livestream embed & OBS overlays, and one-click broadcast social graphics.
       </div>
       <div class="creator-mode-tabs">
         <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'caster' ? 'active' : ''}" onclick="switchCreatorHubMode('caster')">
@@ -6055,9 +6183,6 @@ function renderEventCreatorHub(ev) {
         <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'stream' ? 'active' : ''}" onclick="switchCreatorHubMode('stream')">
           <span>📺 Live Stream & OBS</span>
           <span class="badge" style="background:#ef4444; color:#fff; font-size:0.65rem; padding:1px 5px; border-radius:4px;">LIVE</span>
-        </button>
-        <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'storylines' ? 'active' : ''}" onclick="switchCreatorHubMode('storylines')">
-          <span>⚔️ Storylines & Upsets</span>
         </button>
         <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'meta' ? 'active' : ''}" onclick="switchCreatorHubMode('meta')">
           <span>🧬 Deep Meta & Lists</span>
@@ -6075,8 +6200,6 @@ function renderEventCreatorHub(ev) {
     bodyHtml = renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, matchRounds, totalRounds);
   } else if (creatorHubActiveMode === 'stream') {
     bodyHtml = renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, curRound);
-  } else if (creatorHubActiveMode === 'storylines') {
-    bodyHtml = renderStorylinesMode(ev, players, matches);
   } else if (creatorHubActiveMode === 'meta') {
     bodyHtml = renderDeepMetaMode(ev, players, matches);
   } else if (creatorHubActiveMode === 'export') {
@@ -6089,63 +6212,332 @@ function renderEventCreatorHub(ev) {
       ${bodyHtml}
     </div>
   `;
+
+  if (creatorHubActiveMode === 'caster' && selectedMatch && p1 && p2) {
+    setTimeout(() => {
+      hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch);
+    }, 10);
+  }
 }
 window.renderEventCreatorHub = renderEventCreatorHub;
+
+function buildCasterFactionMasteryHtml(playerObj, profileData, accentColor) {
+  const curFac = formatEventPlayerFaction(playerObj?.faction || playerObj?.army_name || 'Army');
+  const history = Array.isArray(profileData?.history) ? profileData.history : (Array.isArray(profileData?.win_path) ? profileData.win_path : []);
+  const rawBreakdown = profileData?.faction_mastery || profileData?.factions_breakdown || [];
+  let masteryList = [];
+
+  if (typeof computeProfileFactionMastery === 'function' && (history.length > 0 || rawBreakdown.length > 0)) {
+    masteryList = computeProfileFactionMastery(history, rawBreakdown);
+  } else if (Array.isArray(rawBreakdown) && rawBreakdown.length > 0) {
+    masteryList = rawBreakdown.map(f => {
+      const g = Number(f.games || f.matches || (Number(f.wins || 0) + Number(f.losses || 0) + Number(f.draws || 0)) || 0);
+      const w = Number(f.wins || 0);
+      return {
+        faction: f.faction || curFac,
+        games: g,
+        wins: w,
+        losses: Number(f.losses || 0),
+        draws: Number(f.draws || 0),
+        net_elo: Number(f.net_elo || 0),
+        win_rate: g > 0 ? (w / g) * 100 : 0
+      };
+    });
+  }
+
+  const evW = Number(playerObj?.event_wins || 0);
+  const evL = Number(playerObj?.event_losses || 0);
+  const evD = Number(playerObj?.event_draws || 0);
+  const evG = evW + evL + evD;
+  const evNet = Number(playerObj?.event_net_elo || playerObj?._computed_net_elo || 0);
+
+  if (masteryList.length === 0) {
+    const careerW = Number(profileData?.player?.wins ?? playerObj?.wins ?? evW);
+    const careerL = Number(profileData?.player?.losses ?? playerObj?.losses ?? evL);
+    const careerD = Number(profileData?.player?.draws ?? playerObj?.draws ?? evD);
+    const careerG = Math.max(evG, careerW + careerL + careerD);
+    masteryList = [{
+      faction: curFac,
+      games: careerG,
+      wins: Math.max(evW, careerW),
+      losses: Math.max(evL, careerL),
+      draws: Math.max(evD, careerD),
+      net_elo: evNet,
+      win_rate: careerG > 0 ? (Math.max(evW, careerW) / careerG) * 100 : 0
+    }];
+  }
+
+  const totalGames = masteryList.reduce((acc, m) => acc + Number(m.games || 0), 0);
+  const activeFacEntry = masteryList.find(m => m.faction.toLowerCase() === curFac.toLowerCase()) || masteryList[0];
+  const sigEntry = masteryList[0];
+
+  const getMasteryTierBadge = (games, wr) => {
+    if (games >= 25 && wr >= 60) return { label: '👑 Grandmaster', bg: 'rgba(245, 158, 11, 0.18)', col: '#fbbf24', border: 'rgba(245, 158, 11, 0.45)' };
+    if (games >= 15 && wr >= 55) return { label: '🔥 Master', bg: 'rgba(168, 85, 247, 0.18)', col: '#c084fc', border: 'rgba(168, 85, 247, 0.45)' };
+    if (games >= 8) return { label: '⚔️ Veteran Specialist', bg: 'rgba(56, 189, 248, 0.15)', col: '#38bdf8', border: 'rgba(56, 189, 248, 0.35)' };
+    return { label: '🛡️ Faction Adept', bg: 'rgba(148, 163, 184, 0.15)', col: '#cbd5e1', border: 'rgba(148, 163, 184, 0.3)' };
+  };
+
+  const tierBadge = getMasteryTierBadge(activeFacEntry?.games || 0, activeFacEntry?.win_rate || 0);
+  const topArmies = masteryList.slice(0, 3);
+
+  const pData = profileData?.player || profileData || {};
+  const careerElo = Number(pData.current_elo || playerObj?.current_elo || 1500);
+  const peakElo = Math.max(careerElo, Number(pData.peak_elo || playerObj?.peak_elo || careerElo));
+  const careerWins = Number(pData.wins ?? totalGames > 0 ? masteryList.reduce((s, m) => s + m.wins, 0) : evW);
+  const careerLosses = Number(pData.losses ?? totalGames > 0 ? masteryList.reduce((s, m) => s + m.losses, 0) : evL);
+  const careerTotal = Math.max(1, careerWins + careerLosses + Number(pData.draws || 0));
+  const careerWr = ((careerWins / careerTotal) * 100).toFixed(1);
+  const maxStreak = Number(profileData?.longest_win_streak || profileData?.max_streak || 0);
+
+  return `
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.45rem; margin-bottom: 0.65rem;">
+      <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 0.45rem 0.6rem;">
+        <div style="font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Peak Elo 👑</div>
+        <div style="font-family: var(--font-mono); font-size: 0.92rem; font-weight: 800; color: #fbbf24;">${peakElo.toFixed(1)}</div>
+      </div>
+      <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 0.45rem 0.6rem;">
+        <div style="font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Career Record</div>
+        <div style="font-family: var(--font-mono); font-size: 0.86rem; font-weight: 800; color: #fff;">${careerWins}W-${careerLosses}L <span style="color:#4ade80; font-size:0.74rem;">(${careerWr}%)</span></div>
+      </div>
+      <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 0.45rem 0.6rem;">
+        <div style="font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Best Streak</div>
+        <div style="font-family: var(--font-mono); font-size: 0.88rem; font-weight: 800; color: #fb923c;">🔥 ${maxStreak > 0 ? `${maxStreak} Wins` : `${evW}W Event`}</div>
+      </div>
+    </div>
+
+    <div style="background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 0.65rem 0.75rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
+        <span style="font-size: 0.74rem; font-weight: 800; text-transform: uppercase; color: ${accentColor}; letter-spacing: 0.04em;">
+          🛡️ Faction Mastery (${escapeHtml(activeFacEntry?.faction || curFac)})
+        </span>
+        <span class="badge" style="background: ${tierBadge.bg}; color: ${tierBadge.col}; border: 1px solid ${tierBadge.border}; font-size: 0.68rem; font-weight: 800; padding: 2px 7px;">
+          ${tierBadge.label}
+        </span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+        ${topArmies.map((fm, idx) => {
+          const wr = Number(fm.win_rate || 0).toFixed(1);
+          const share = totalGames > 0 ? Math.round((fm.games / totalGames) * 100) : 100;
+          const net = Number(fm.net_elo || 0);
+          const netStr = (net >= 0 ? '+' : '') + net.toFixed(1);
+          const barCol = Number(wr) >= 55 ? '#10b981' : (Number(wr) >= 48 ? accentColor : '#f43f5e');
+          return `
+            <div style="display: flex; flex-direction: column; gap: 3px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.76rem;">
+                <span style="font-weight: 700; color: #f8fafc;">
+                  ${idx === 0 ? '★ ' : ''}${escapeHtml(fm.faction)}
+                  <span style="color: var(--text-muted); font-weight: 500; font-size: 0.7rem;">(${fm.games}G • ${share}% share)</span>
+                </span>
+                <span style="font-family: var(--font-mono); font-size: 0.75rem;">
+                  <strong style="color: ${barCol};">${wr}% WR</strong>
+                  <span style="color: var(--text-secondary);">(${fm.wins}W-${fm.losses}L)</span>
+                  <span style="color: ${net >= 0 ? '#4ade80' : '#f87171'}; margin-left: 4px;">${netStr} Elo</span>
+                </span>
+              </div>
+              <div style="width: 100%; height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+                <div style="width: ${Math.min(100, Math.max(4, Number(wr)))}%; height: 100%; background: ${barCol};"></div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
+  const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+  const pairs = [
+    { side: 'p1', obj: p1, matchPid: selectedMatch?.player1_id, matchName: selectedMatch?.player1_name, matchListId: selectedMatch?.player1_list_id, color: '#38bdf8' },
+    { side: 'p2', obj: p2, matchPid: selectedMatch?.player2_id, matchName: selectedMatch?.player2_name, matchListId: selectedMatch?.player2_list_id, color: '#f43f5e' }
+  ];
+
+  for (const item of pairs) {
+    const pid = String(item.obj?.player_id || item.obj?.id || item.matchPid || '').trim();
+    const pname = String(item.obj?.full_name || item.matchName || '').trim();
+    const cacheKey = `${sys}:${pid || pname.toLowerCase()}`;
+
+    // 1. Hydrate Career Profile & Faction Mastery
+    if (window.api && typeof window.api.getPlayerProfile === 'function' && (pid || pname)) {
+      if (casterPlayerProfileCache[cacheKey]) {
+        const el = document.getElementById(`caster-dossier-mastery-${item.side}`);
+        if (el) el.innerHTML = buildCasterFactionMasteryHtml(item.obj, casterPlayerProfileCache[cacheKey], item.color);
+      } else {
+        window.api.getPlayerProfile(pid || 'unknown', sys, pname).then(data => {
+          if (data && !data.error) {
+            casterPlayerProfileCache[cacheKey] = data;
+            const el = document.getElementById(`caster-dossier-mastery-${item.side}`);
+            if (el) el.innerHTML = buildCasterFactionMasteryHtml(item.obj, data, item.color);
+          }
+        }).catch(() => {});
+      }
+    }
+
+    // 2. Hydrate BCP Army Roster Text if listId exists and army_list is not yet loaded
+    const listInfo = typeof getPlayerListDetails === 'function' ? getPlayerListDetails(item.obj) : {};
+    const targetListId = String(listInfo.listId || item.obj?.list_id || item.obj?.listId || item.matchListId || '').trim();
+    const existingText = String(listInfo.text || item.obj?.army_list || item.obj?.army_list_text || '').trim();
+
+    if (!existingText && targetListId && window.api && typeof window.api.getBcpArmyList === 'function') {
+      if (casterArmyListCache[targetListId]) {
+        const cachedTxt = casterArmyListCache[targetListId];
+        if (item.obj) {
+          item.obj.army_list = cachedTxt;
+          item.obj.army_list_text = cachedTxt;
+        }
+        updateCasterRosterPreviewDom(item.side, item.obj, cachedTxt, targetListId);
+      } else {
+        window.api.getBcpArmyList(targetListId).then(res => {
+          if (res && res.success && res.text) {
+            const trimmed = res.text.trim();
+            casterArmyListCache[targetListId] = trimmed;
+            if (item.obj) {
+              item.obj.army_list = trimmed;
+              item.obj.army_list_text = trimmed;
+            }
+            updateCasterRosterPreviewDom(item.side, item.obj, trimmed, targetListId);
+          }
+        }).catch(() => {});
+      }
+    }
+  }
+}
+
+function updateCasterRosterPreviewDom(side, playerObj, rosterText, listId) {
+  const unitsEl = document.getElementById(`caster-dossier-units-${side}`);
+  const fighterUnitsEl = document.getElementById(`caster-fighter-units-${side}`);
+  const previewEl = document.getElementById(`caster-dossier-roster-preview-${side}`);
+  const units = extractKeyListUnits(rosterText, playerObj?.faction);
+
+  if (fighterUnitsEl && units.length > 0) {
+    fighterUnitsEl.innerHTML = escapeHtml(units.slice(0, 4).join(', '));
+  }
+  if (unitsEl && units.length > 0) {
+    unitsEl.innerHTML = units.slice(0, 8).map(u => `
+      <span class="badge" style="background: rgba(255,255,255,0.07); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.12); font-size: 0.7rem; padding: 2px 7px;">
+        ⚔️ ${escapeHtml(u)}
+      </span>
+    `).join('');
+  }
+  if (previewEl && rosterText) {
+    previewEl.innerHTML = `
+      <details style="margin-top: 0.45rem; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.45rem 0.65rem;">
+        <summary style="cursor: pointer; font-size: 0.74rem; font-weight: 700; color: #38bdf8; user-select: none;">
+          📜 Expand Inline Army List Text (${rosterText.split('\n').filter(Boolean).length} lines)
+        </summary>
+        <pre style="margin: 0.5rem 0 0 0; max-height: 220px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.72rem; color: #cbd5e1; white-space: pre-wrap; line-height: 1.4;">${escapeHtml(rosterText)}</pre>
+      </details>
+    `;
+  }
+}
 
 /* ==========================================================================
    MODE 1: CASTER DECK (LIVE DESK & TALE OF THE TAPE)
    ========================================================================== */
 function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, matchRounds, totalRounds) {
+  let rawJson = (ev && ev.raw_json) || {};
+  if (typeof rawJson === 'string') {
+    try { rawJson = JSON.parse(rawJson); } catch (e) { rawJson = {}; }
+  }
   curRound = curRound || selectedCasterRound || ev.current_round || 1;
   matchRounds = matchRounds || [...new Set(matches.map(m => Number(m.round)).filter(r => r > 0))].sort((a, b) => a - b);
-  totalRounds = totalRounds || Number(ev.rounds_count || ev.rounds || ev.total_rounds) || (matchRounds.length > 0 ? Math.max(...matchRounds, Number(ev.current_round || 0)) : 5);
+  const resolvedNumRounds = Number(ev.num_rounds || ev.numberOfRounds || ev.rounds_count || ev.rounds || ev.total_rounds || rawJson.numberOfRounds || rawJson.numRounds || 0);
+  totalRounds = Math.max(
+    Number(totalRounds || 0),
+    resolvedNumRounds,
+    matchRounds.length > 0 ? Math.max(...matchRounds) : 0,
+    Number(ev.current_round || 0),
+    1
+  );
 
   const maxR = Math.max(totalRounds, matchRounds.length > 0 ? Math.max(...matchRounds) : 1, 1);
-  const roundList = Array.from({ length: Math.min(maxR, 8) }, (_, i) => i + 1);
+  const roundList = Array.from({ length: maxR }, (_, i) => i + 1);
+  const curRoundMeta = getEventRoundMetadata(ev, matches, curRound, maxR);
 
-  const roundButtonsHtml = roundList.map(r => `
-    <button type="button" onclick="selectCasterMatch(${selectedCasterTable || 1}, ${r})" class="btn-sm" style="padding: 2px 8px; font-size: 0.74rem; font-weight: 700; border-radius: 4px; border: 1px solid ${r === curRound ? '#38bdf8' : 'rgba(255,255,255,0.08)'}; background: ${r === curRound ? 'rgba(56,189,248,0.2)' : 'transparent'}; color: ${r === curRound ? '#fff' : 'var(--text-muted)'}; cursor: pointer;">
-      R${r}
-    </button>
-  `).join('');
+  const roundButtonsHtml = roundList.map(r => {
+    const rMeta = getEventRoundMetadata(ev, matches, r, maxR);
+    const isSel = r === curRound;
+    const isSpecial = rMeta.isShadowRound || rMeta.isTopCut;
+    const activeBorder = isSel ? (isSpecial ? rMeta.badgeColor : '#38bdf8') : (isSpecial ? rMeta.badgeBorder : 'rgba(255,255,255,0.1)');
+    const activeBg = isSel ? (isSpecial ? rMeta.badgeBg : 'rgba(56,189,248,0.22)') : (isSpecial ? 'rgba(168,85,247,0.08)' : 'transparent');
+    const activeCol = isSel ? '#fff' : (isSpecial ? rMeta.badgeColor : 'var(--text-muted)');
+    return `
+      <button type="button" onclick="selectCasterMatch(${selectedCasterTable || 1}, ${r})" class="btn-sm" title="${escapeHtml(rMeta.fullLabel)} (${rMeta.matchCount} tables)" style="padding: 3px 9px; font-size: 0.74rem; font-weight: 700; border-radius: 5px; border: 1px solid ${activeBorder}; background: ${activeBg}; color: ${activeCol}; cursor: pointer; white-space: nowrap;">
+        ${escapeHtml(rMeta.shortLabel)}
+      </button>
+    `;
+  }).join('');
 
   // Case A: Real pairings exist for curRound
   if (roundMatches && roundMatches.length > 0 && selectedMatch && p1 && p2) {
+    const eventId = ev?.id || currentOpenEventId || currentEventData?.id || '';
+    const activeTableNum = Number(selectedMatch?.table_number || selectedMatch?.table || selectedCasterTable || 1);
+    const activeMatchId = `BCP-${eventId}-R${curRound}-T${activeTableNum}`;
+
+    const p1Info = resolveEventCompetitorRecord(
+      selectedMatch?.player1_id || p1?.player_id || p1?.id || '',
+      p1?.full_name || selectedMatch?.player1_name || 'Player 1',
+      selectedMatch?.player1_list_id || p1?.list_id || p1?.listId || ''
+    );
+    const p2Info = resolveEventCompetitorRecord(
+      selectedMatch?.player2_id || p2?.player_id || p2?.id || '',
+      p2?.full_name || selectedMatch?.player2_name || 'Player 2',
+      selectedMatch?.player2_list_id || p2?.list_id || p2?.listId || ''
+    );
+
+    const p1Pid = String(p1Info?.pid || p1?.player_id || p1?.id || selectedMatch?.player1_id || '').trim();
+    const p2Pid = String(p2Info?.pid || p2?.player_id || p2?.id || selectedMatch?.player2_id || '').trim();
+    const p1Name = p1?.full_name || selectedMatch?.player1_name || 'Player 1';
+    const p2Name = p2?.full_name || selectedMatch?.player2_name || 'Player 2';
+    const p1SafeName = String(p1Name).replace(/'/g, "\\'");
+    const p2SafeName = String(p2Name).replace(/'/g, "\\'");
+    const p1SafePid = String(p1Pid).replace(/'/g, "\\'");
+    const p2SafePid = String(p2Pid).replace(/'/g, "\\'");
+    const p1ListId = String(p1Info?.listId || p1?.list_id || p1?.listId || selectedMatch?.player1_list_id || '').trim();
+    const p2ListId = String(p2Info?.listId || p2?.list_id || p2?.listId || selectedMatch?.player2_list_id || '').trim();
+    const p1SafeListId = p1ListId.replace(/'/g, "\\'");
+    const p2SafeListId = p2ListId.replace(/'/g, "\\'");
+
+    const p1ListDetails = typeof getPlayerListDetails === 'function' ? getPlayerListDetails(p1Info?.record || p1) : {};
+    const p2ListDetails = typeof getPlayerListDetails === 'function' ? getPlayerListDetails(p2Info?.record || p2) : {};
+    const p1RosterText = String(p1ListDetails.text || p1?.army_list || p1?.army_list_text || casterArmyListCache[p1ListId] || '').trim();
+    const p2RosterText = String(p2ListDetails.text || p2?.army_list || p2?.army_list_text || casterArmyListCache[p2ListId] || '').trim();
+    const p1HasList = Boolean(p1Info?.hasList || p1ListId || p1RosterText || p1?.has_list_submitted);
+    const p2HasList = Boolean(p2Info?.hasList || p2ListId || p2RosterText || p2?.has_list_submitted);
+
     const tableButtons = roundMatches.map(m => {
       const tNum = Number(m.table_number || m.table || 1);
-      const isSel = tNum === Number(selectedMatch?.table_number || selectedMatch?.table);
+      const isSel = tNum === activeTableNum;
       const p1n = escapeHtml((m.player1_name || 'P1').split(' ')[0]);
       const p2n = escapeHtml((m.player2_name || 'P2').split(' ')[0]);
+      const isPod1 = Number(m.pod_num) === 1;
       return `
-        <button type="button" onclick="selectCasterMatch(${tNum}, ${curRound})" class="btn-sm" style="padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.76rem; font-weight: 700; cursor: pointer; border: 1px solid ${isSel ? 'var(--accent)' : 'rgba(255,255,255,0.08)'}; background: ${isSel ? 'rgba(56, 189, 248, 0.15)' : 'rgba(15,23,42,0.6)'}; color: ${isSel ? '#38bdf8' : 'var(--text-secondary)'};">
+        <button type="button" onclick="selectCasterMatch(${tNum}, ${curRound})" class="btn-sm" style="padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.76rem; font-weight: 700; cursor: pointer; border: 1px solid ${isSel ? 'var(--accent)' : (isPod1 && curRoundMeta.isShadowRound ? 'rgba(168,85,247,0.35)' : 'rgba(255,255,255,0.08)')}; background: ${isSel ? 'rgba(56, 189, 248, 0.15)' : 'rgba(15,23,42,0.6)'}; color: ${isSel ? '#38bdf8' : 'var(--text-secondary)'};">
           Table ${tNum}: ${p1n} vs ${p2n}
         </button>
       `;
     }).join('');
 
-    const p1Units = extractKeyListUnits(p1?.army_list, p1?.faction);
-    const p2Units = extractKeyListUnits(p2?.army_list, p2?.faction);
+    const p1Units = extractKeyListUnits(p1RosterText || p1?.army_list, p1?.faction);
+    const p2Units = extractKeyListUnits(p2RosterText || p2?.army_list, p2?.faction);
 
     // Dynamic Head-to-Head
     let p1H2hWins = 0;
     let p2H2hWins = 0;
-    const p1Id = String(p1?.player_id || p1?.id || '');
-    const p2Id = String(p2?.player_id || p2?.id || '');
-    const p1Name = p1?.full_name || '';
-    const p2Name = p2?.full_name || '';
 
     matches.forEach(m => {
       const mP1Id = String(m.player1_id || '');
       const mP2Id = String(m.player2_id || '');
       const mP1Name = m.player1_name || '';
       const mP2Name = m.player2_name || '';
-      const isMatch = (p1Id && p2Id && ((mP1Id === p1Id && mP2Id === p2Id) || (mP1Id === p2Id && mP2Id === p1Id))) ||
-                      (!p1Id && mP1Name && mP2Name && ((mP1Name === p1Name && mP2Name === p2Name) || (mP1Name === p2Name && mP2Name === p1Name)));
+      const isMatch = (p1Pid && p2Pid && ((mP1Id === p1Pid && mP2Id === p2Pid) || (mP1Id === p2Pid && mP2Id === p1Pid))) ||
+                      (!p1Pid && mP1Name && mP2Name && ((mP1Name === p1Name && mP2Name === p2Name) || (mP1Name === p2Name && mP2Name === p1Name)));
       if (!isMatch) return;
       if (m.player1_score !== null && m.player2_score !== null && m.player1_score !== undefined && m.player2_score !== undefined) {
         const s1 = Number(m.player1_score);
         const s2 = Number(m.player2_score);
-        if (mP1Id === p1Id || mP1Name === p1Name) {
+        if (mP1Id === p1Pid || mP1Name === p1Name) {
           if (s1 > s2) p1H2hWins++;
           else if (s2 > s1) p2H2hWins++;
         } else {
@@ -6205,23 +6597,164 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
     const expectedP1 = 1 / (1 + Math.pow(10, (p2Elo - p1Elo) / 400));
     const p1GainOnWin = Math.round(32 * (1 - expectedP1));
     const p2GainOnWin = Math.round(32 * expectedP1);
-    const isP1Favorite = p1Elo >= p2Elo;
-    const underdogName = isP1Favorite ? (p2?.full_name || 'Player 2') : (p1?.full_name || 'Player 1');
-    const underdogGain = isP1Favorite ? p2GainOnWin : p1GainOnWin;
-    const favoriteName = isP1Favorite ? (p1?.full_name || 'Player 1') : (p2?.full_name || 'Player 2');
-    const favoriteGain = isP1Favorite ? p1GainOnWin : p2GainOnWin;
 
     const hasScore = selectedMatch?.player1_score !== null && selectedMatch?.player1_score !== undefined && selectedMatch?.player2_score !== null && selectedMatch?.player2_score !== undefined;
     const scoreDisplay = hasScore ? `${selectedMatch.player1_score} - ${selectedMatch.player2_score}` : 'Live in Progress';
+
+    // Helper to build each player's Dossier card underneath the Headline Clash
+    const buildPlayerDossierCard = (side, playerObj, pid, safePid, pname, safeName, listId, safeListId, hasList, rosterText, units, eloVal, gainOnWin, accentColor, borderAccent) => {
+      const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+      const cacheKey = `${sys}:${pid || pname.toLowerCase()}`;
+      const cachedProfile = casterPlayerProfileCache[cacheKey] || null;
+      const masteryHtml = buildCasterFactionMasteryHtml(playerObj, cachedProfile, accentColor);
+
+      const playerMatches = matches.filter(m => {
+        const m1Id = String(m.player1_id || '').trim();
+        const m2Id = String(m.player2_id || '').trim();
+        const m1Name = String(m.player1_name || '').trim().toLowerCase();
+        const m2Name = String(m.player2_name || '').trim().toLowerCase();
+        if (pid && (m1Id === pid || m2Id === pid)) return true;
+        if (pname && (m1Name === pname.toLowerCase() || m2Name === pname.toLowerCase())) return true;
+        return false;
+      }).sort((a, b) => Number(a.round || 1) - Number(b.round || 1));
+
+      const pathRowsHtml = playerMatches.map(m => {
+        const m1Id = String(m.player1_id || '').trim();
+        const m1Name = String(m.player1_name || '').trim().toLowerCase();
+        const isP1Side = (pid && m1Id === pid) || (pname && m1Name === pname.toLowerCase());
+        const mySc = isP1Side ? m.player1_score : m.player2_score;
+        const opSc = isP1Side ? m.player2_score : m.player1_score;
+        const opName = isP1Side ? (m.player2_name || 'BYE') : (m.player1_name || 'BYE');
+        const opPid = isP1Side ? String(m.player2_id || '').trim() : String(m.player1_id || '').trim();
+        const opFac = isP1Side ? (m.player2_faction || '') : (m.player1_faction || '');
+        const safeOpName = String(opName).replace(/'/g, "\\'");
+        const safeOpPid = String(opPid).replace(/'/g, "\\'");
+        const rNum = Number(m.round || 1);
+        const tNum = Number(m.table_number || m.table || 1);
+        const rMeta = getEventRoundMetadata(ev, matches, rNum, maxR);
+        const mId = `BCP-${eventId}-R${rNum}-T${tNum}`;
+        const mHasScore = mySc !== null && mySc !== undefined && opSc !== null && opSc !== undefined;
+        let resPill = `<span class="badge" style="background:rgba(148,163,184,0.15); color:#94a3b8; font-size:0.66rem;">LIVE</span>`;
+        if (m.is_bye || opName === 'BYE') {
+          resPill = `<span class="badge badge-win" style="font-size:0.66rem;">BYE</span>`;
+        } else if (mHasScore) {
+          if (Number(mySc) > Number(opSc)) resPill = `<span class="badge badge-win" style="font-size:0.66rem;">W ${mySc}-${opSc}</span>`;
+          else if (Number(mySc) < Number(opSc)) resPill = `<span class="badge badge-loss" style="font-size:0.66rem;">L ${mySc}-${opSc}</span>`;
+          else resPill = `<span class="badge badge-draw" style="font-size:0.66rem;">D ${mySc}-${opSc}</span>`;
+        }
+        return `
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.35rem 0.5rem; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 0.75rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 0; flex: 1;">
+              <span style="font-family: var(--font-mono); font-weight: 800; color: ${rMeta.isShadowRound || rMeta.isTopCut ? rMeta.badgeColor : '#94a3b8'}; min-width: 28px;" title="${escapeHtml(rMeta.fullLabel)}">R${rNum}${rMeta.isShadowRound ? '🌑' : (rMeta.isTopCut ? '🏆' : '')}</span>
+              ${resPill}
+              <span style="color: var(--text-muted); font-size: 0.7rem;">vs</span>
+              ${(!m.is_bye && opName !== 'BYE') ? `
+                <span class="player-link" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(safeOpPid)}', '${escapeHtml(safeOpName)}')" style="font-weight: 700; color: #e2e8f0; cursor: pointer; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="View ${escapeHtml(opName)} Quick Profile">${escapeHtml(opName)}</span>
+              ` : `<span style="color: var(--text-muted);">BYE</span>`}
+              ${opFac ? `<span style="color: var(--text-muted); font-size: 0.68rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">(${escapeHtml(opFac)})</span>` : ''}
+            </div>
+            <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openScorecardModal('${escapeHtml(mId)}')" style="font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.3); background: rgba(56,189,248,0.06); cursor: pointer; flex-shrink: 0;" title="View Round ${rNum} Table ${tNum} Game Scorecard">
+              📄 Scorecard
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div style="background: rgba(15, 23, 42, 0.78); border: 1px solid ${borderAccent}; border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+          <!-- Dossier Header -->
+          <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem; flex-wrap: wrap;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                <span class="player-link" onclick="openPlayerModal('${escapeHtml(safePid)}', '${escapeHtml(safeName)}')" style="font-size: 1.05rem; font-weight: 800; color: #fff; cursor: pointer; text-decoration: underline; text-decoration-color: ${accentColor}; text-underline-offset: 3px;" title="Click to open ${escapeHtml(pname)}'s Quick Profile">
+                  👤 ${escapeHtml(pname)}
+                </span>
+                ${playerObj?.placement ? `<span class="badge" style="background: rgba(255,255,255,0.08); color: #f8fafc; font-size: 0.68rem;">Seed / Rank #${playerObj.placement}</span>` : ''}
+              </div>
+              <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.2rem;">
+                🛡️ <strong>${escapeHtml(playerObj?.faction || 'Army')}</strong> • <span style="color: ${accentColor}; font-weight: 600;">${escapeHtml(playerObj?.detachment || 'Standard Detachment')}</span>
+                ${playerObj?.team ? ` • 👥 ${escapeHtml(playerObj.team)}` : ''}
+              </div>
+            </div>
+            <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+              <button type="button" class="btn-sm btn-outline" onclick="openPlayerModal('${escapeHtml(safePid)}', '${escapeHtml(safeName)}')" style="font-size: 0.72rem; padding: 3px 8px; color: #f8fafc; border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); cursor: pointer; font-weight: 700;">
+                👤 Quick Profile
+              </button>
+              <button type="button" class="btn-sm btn-outline" onclick="openEventPlayerListModal('${escapeHtml(safePid || safeName)}', '${escapeHtml(safeListId)}')" style="font-size: 0.72rem; padding: 3px 8px; color: ${accentColor}; border-color: ${borderAccent}; background: rgba(56,189,248,0.08); cursor: pointer; font-weight: 700;">
+                📋 Army Roster
+              </button>
+            </div>
+          </div>
+
+          <!-- Career & Faction Mastery Telemetry (Async Enriched) -->
+          <div id="caster-dossier-mastery-${side}">
+            ${masteryHtml}
+          </div>
+
+          <!-- Submitted Army Roster & Key Tech -->
+          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem 0.75rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; margin-bottom: 0.45rem; flex-wrap: wrap;">
+              <span style="font-size: 0.73rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">
+                📋 Submitted Army Roster & Key Assets
+              </span>
+              <button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(safePid || safeName)}', '${escapeHtml(safeListId)}')" style="font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.1); cursor: pointer; font-weight: 700;">
+                📋 Open Full List Modal ↗
+              </button>
+            </div>
+            <div id="caster-dossier-units-${side}" style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+              ${units.length > 0 ? units.slice(0, 8).map(u => `
+                <span class="badge" style="background: rgba(255,255,255,0.07); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.12); font-size: 0.7rem; padding: 2px 7px;">
+                  ⚔️ ${escapeHtml(u)}
+                </span>
+              `).join('') : `
+                <span style="font-size: 0.75rem; color: var(--text-muted);">
+                  ${hasList ? 'Click "Open Full List Modal" to inspect complete BCP army roster.' : 'Standard tournament detachment configuration.'}
+                </span>
+              `}
+            </div>
+            <div id="caster-dossier-roster-preview-${side}">
+              ${rosterText ? `
+                <details style="margin-top: 0.45rem; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.45rem 0.65rem;">
+                  <summary style="cursor: pointer; font-size: 0.74rem; font-weight: 700; color: #38bdf8; user-select: none;">
+                    📜 Expand Inline Army List Text (${rosterText.split('\n').filter(Boolean).length} lines)
+                  </summary>
+                  <pre style="margin: 0.5rem 0 0 0; max-height: 220px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.72rem; color: #cbd5e1; white-space: pre-wrap; line-height: 1.4;">${escapeHtml(rosterText)}</pre>
+                </details>
+              ` : ''}
+            </div>
+          </div>
+
+          <!-- Tournament Run & Round-by-Round Scorecards -->
+          <div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+              <span style="font-size: 0.73rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">
+                ⚔️ Tournament Path (${playerObj?.event_wins || 0}W-${playerObj?.event_losses || 0}L • ${playerObj?.event_battle_points || 0} Battle Pts)
+              </span>
+              <span style="font-size: 0.7rem; font-family: var(--font-mono); color: #4ade80;">Win Stakes: +${gainOnWin} Elo</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.3rem; max-height: 210px; overflow-y: auto;">
+              ${pathRowsHtml || '<div style="font-size:0.75rem; color:var(--text-muted);">No matches recorded yet.</div>'}
+            </div>
+          </div>
+        </div>
+      `;
+    };
 
     return `
       <!-- Match Table Selector Row -->
       <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.85rem 1rem;">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.65rem; flex-wrap: wrap;">
-          <span style="font-size: 0.84rem; font-weight: 700; color: #fff;">
-            🎯 Select Featured Broadcast Table (Round ${curRound}):
-          </span>
-          <div style="display: flex; gap: 0.4rem; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="font-size: 0.84rem; font-weight: 700; color: #fff;">
+              🎯 Select Featured Broadcast Table (${escapeHtml(curRoundMeta.fullLabel)}):
+            </span>
+            ${(curRoundMeta.isShadowRound || curRoundMeta.isTopCut) ? `
+              <span class="badge" style="background: ${curRoundMeta.badgeBg}; color: ${curRoundMeta.badgeColor}; border: 1px solid ${curRoundMeta.badgeBorder}; font-size: 0.7rem; font-weight: 800; padding: 2px 8px;">
+                ${escapeHtml(curRoundMeta.badgeText)}
+              </span>
+            ` : ''}
+          </div>
+          <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
             <span style="font-size: 0.76rem; color: var(--text-muted);">Round:</span>
             ${roundButtonsHtml}
           </div>
@@ -6233,12 +6766,17 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
 
       <!-- TALE OF THE TAPE FIGHTER CARD -->
       <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 12px; padding: 1.25rem; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem;">
-          <div style="font-size: 0.95rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
-            <span>⚔️ Table ${selectedMatch?.table_number || selectedCasterTable} Headline Clash</span>
-            <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.72rem; padding: 2px 7px;">Round ${curRound}</span>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="font-size: 0.95rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span>⚔️ Table ${activeTableNum} Headline Clash</span>
+            <span class="badge" style="background: ${curRoundMeta.badgeBg}; color: ${curRoundMeta.badgeColor}; border: 1px solid ${curRoundMeta.badgeBorder}; font-size: 0.72rem; padding: 2px 8px;">
+              ${escapeHtml(curRoundMeta.badgeText)}
+            </span>
           </div>
-          <div style="display: flex; gap: 0.5rem;">
+          <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+            <button type="button" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; background: rgba(56, 189, 248, 0.1); cursor: pointer; font-weight: 700;">
+              📄 Game Scorecard
+            </button>
             <button type="button" onclick="copyObsOverlayUrl('lower_third')" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(168, 85, 247, 0.4); color: #c084fc; cursor: pointer;">
               📺 Copy OBS Lower-Third
             </button>
@@ -6252,7 +6790,11 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
               <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 0.72rem; font-weight: 700;">PLAYER 1</span>
               <span style="font-family: var(--font-mono); font-size: 0.85rem; font-weight: 800; color: #38bdf8;">${p1Elo.toFixed(1)} Elo</span>
             </div>
-            <div style="font-size: 1.2rem; font-weight: 800; color: #fff;">${escapeHtml(p1?.full_name || 'Player 1')}</div>
+            <div style="font-size: 1.2rem; font-weight: 800; color: #fff;">
+              <span class="player-link" onclick="openPlayerModal('${escapeHtml(p1SafePid)}', '${escapeHtml(p1SafeName)}')" style="cursor: pointer; color: #fff; text-decoration: underline; text-decoration-color: rgba(56,189,248,0.6); text-underline-offset: 3px;" title="Click to view ${escapeHtml(p1Name)}'s Quick Profile">
+                ${escapeHtml(p1Name)}
+              </span>
+            </div>
             <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
               <span class="badge" style="background: rgba(255,255,255,0.06); color: #e2e8f0; font-size: 0.74rem;">🛡️ ${escapeHtml(p1?.faction || 'Faction')}</span>
               <span class="badge" style="background: rgba(56,189,248,0.1); color: #7dd3fc; font-size: 0.74rem;">${escapeHtml(p1?.detachment || 'Standard Detachment')}</span>
@@ -6260,7 +6802,15 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
             </div>
             <div style="background: rgba(0,0,0,0.25); border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.25rem;">
               <div><strong>Event Record:</strong> ${p1?.event_wins || 0}W - ${p1?.event_losses || 0}L (${p1?.event_battle_points || 0} pts)</div>
-              <div><strong>Core Units:</strong> ${p1Units.length > 0 ? escapeHtml(p1Units.slice(0, 3).join(', ')) : '<span style="color:var(--text-muted);">Standard Roster</span>'}</div>
+              <div><strong>Core Units:</strong> <span id="caster-fighter-units-p1">${p1Units.length > 0 ? escapeHtml(p1Units.slice(0, 3).join(', ')) : '<span style="color:var(--text-muted);">View Roster for Details</span>'}</span></div>
+            </div>
+            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.25rem;">
+              <button type="button" class="btn-xs btn-outline" onclick="openPlayerModal('${escapeHtml(p1SafePid)}', '${escapeHtml(p1SafeName)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.08); cursor: pointer; font-weight: 700;">
+                👤 Quick Profile
+              </button>
+              <button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(p1SafePid || p1SafeName)}', '${escapeHtml(p1SafeListId)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #e2e8f0; border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.06); cursor: pointer; font-weight: 700;">
+                📋 View Roster
+              </button>
             </div>
           </div>
 
@@ -6277,6 +6827,9 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
             <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">
               ${Math.abs(p1Elo - p2Elo).toFixed(1)} Elo Delta
             </div>
+            <button type="button" class="btn-xs btn-outline" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" style="margin-top: 0.45rem; font-size: 0.71rem; padding: 3px 9px; border-radius: 5px; color: #fbbf24; border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.1); cursor: pointer; font-weight: 700;">
+              📄 View Scorecard
+            </button>
           </div>
 
           <!-- Player 2 Card (Pink/Red) -->
@@ -6285,7 +6838,11 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
               <span style="font-family: var(--font-mono); font-size: 0.85rem; font-weight: 800; color: #f43f5e;">${p2Elo.toFixed(1)} Elo</span>
               <span class="badge" style="background: rgba(244, 63, 94, 0.15); color: #f43f5e; font-size: 0.72rem; font-weight: 700;">PLAYER 2</span>
             </div>
-            <div style="font-size: 1.2rem; font-weight: 800; color: #fff; text-align: right;">${escapeHtml(p2?.full_name || 'Player 2')}</div>
+            <div style="font-size: 1.2rem; font-weight: 800; color: #fff; text-align: right;">
+              <span class="player-link" onclick="openPlayerModal('${escapeHtml(p2SafePid)}', '${escapeHtml(p2SafeName)}')" style="cursor: pointer; color: #fff; text-decoration: underline; text-decoration-color: rgba(244,63,94,0.6); text-underline-offset: 3px;" title="Click to view ${escapeHtml(p2Name)}'s Quick Profile">
+                ${escapeHtml(p2Name)}
+              </span>
+            </div>
             <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end;">
               ${p2?.team ? `<span class="badge" style="background: rgba(255,255,255,0.04); color: var(--text-muted); font-size: 0.72rem;">👥 ${escapeHtml(p2.team)}</span>` : ''}
               <span class="badge" style="background: rgba(244,63,94,0.1); color: #fda4af; font-size: 0.74rem;">${escapeHtml(p2?.detachment || 'Standard Detachment')}</span>
@@ -6293,7 +6850,15 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
             </div>
             <div style="background: rgba(0,0,0,0.25); border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.25rem;">
               <div style="text-align: right;"><strong>Event Record:</strong> ${p2?.event_wins || 0}W - ${p2?.event_losses || 0}L (${p2?.event_battle_points || 0} pts)</div>
-              <div style="text-align: right;"><strong>Core Units:</strong> ${p2Units.length > 0 ? escapeHtml(p2Units.slice(0, 3).join(', ')) : '<span style="color:var(--text-muted);">Standard Roster</span>'}</div>
+              <div style="text-align: right;"><strong>Core Units:</strong> <span id="caster-fighter-units-p2">${p2Units.length > 0 ? escapeHtml(p2Units.slice(0, 3).join(', ')) : '<span style="color:var(--text-muted);">View Roster for Details</span>'}</span></div>
+            </div>
+            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; margin-top: 0.25rem;">
+              <button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(p2SafePid || p2SafeName)}', '${escapeHtml(p2SafeListId)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #e2e8f0; border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.06); cursor: pointer; font-weight: 700;">
+                📋 View Roster
+              </button>
+              <button type="button" class="btn-xs btn-outline" onclick="openPlayerModal('${escapeHtml(p2SafePid)}', '${escapeHtml(p2SafeName)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #f43f5e; border-color: rgba(244,63,94,0.35); background: rgba(244,63,94,0.08); cursor: pointer; font-weight: 700;">
+                👤 Quick Profile
+              </button>
             </div>
           </div>
         </div>
@@ -6302,52 +6867,34 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
         <div style="margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: var(--text-secondary);">
           <div>⚔️ <strong>Head-to-Head:</strong> ${h2hText}</div>
           <div>📊 <strong>Faction Matchup:</strong> ${facMatchupText}</div>
-          <div>🏆 <strong>Current Table Score:</strong> <span style="font-family:var(--font-mono); font-weight:800; color:#fff;">${scoreDisplay}</span></div>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span>🏆 <strong>Table Score:</strong> <span style="font-family:var(--font-mono); font-weight:800; color:#fff;">${scoreDisplay}</span></span>
+            <button type="button" class="btn-xs btn-outline" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" style="font-size: 0.7rem; padding: 2px 7px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.35); cursor: pointer;">
+              📄 Scorecard
+            </button>
+          </div>
         </div>
       </div>
 
-      <!-- CASTER TALKING POINTS / COMMENTARY CHEAT SHEET -->
-      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-          <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
-            <span>⚡ Caster Talking Points & Narrative Cues</span>
-          </h4>
-          <button type="button" onclick="copyCasterCheatSheet()" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 3px 9px; cursor: pointer; color: #38bdf8; border-color: rgba(56,189,248,0.3);">
-            📋 Copy Cheat Sheet
+      <!-- SIDE-BY-SIDE COMMANDER DOSSIERS: FACTION MASTERY, ROSTERS & TOURNAMENT PATH -->
+      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 1.15rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <h4 style="margin: 0; font-size: 0.98rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.45rem;">
+              <span>🎖️ Commander Dossiers: Faction Mastery, Army Rosters & Match History</span>
+            </h4>
+            <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 2px;">
+              Click either player's name for their full Quick Profile, inspect their submitted army list, or open any round's Game Scorecard.
+            </div>
+          </div>
+          <button type="button" onclick="switchCreatorHubMode('meta')" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 4px 10px; cursor: pointer; color: #38bdf8; border-color: rgba(56,189,248,0.35);">
+            🧬 Force Disposition Power Grid ➔
           </button>
         </div>
 
-        <div id="caster-cheat-sheet-content" style="display: flex; flex-direction: column; gap: 0.6rem;">
-          <div class="caster-cue-card">
-            <span style="font-size: 1.1rem; line-height: 1;">🔥</span>
-            <div>
-              <strong>Tournament Momentum:</strong> 
-              ${escapeHtml(p1?.full_name)} (${p1?.event_wins || 0}W - ${p1?.event_losses || 0}L, ${p1?.event_battle_points || 0} pts) takes on ${escapeHtml(p2?.full_name)} (${p2?.event_wins || 0}W - ${p2?.event_losses || 0}L, ${p2?.event_battle_points || 0} pts) in Round ${curRound}.
-            </div>
-          </div>
-          <div class="caster-cue-card">
-            <span style="font-size: 1.1rem; line-height: 1;">🛡️</span>
-            <div>
-              <strong>Force Composition:</strong> 
-              ${escapeHtml(p1?.full_name)} fields ${escapeHtml(p1?.faction || 'Army')} (${escapeHtml(p1?.detachment || 'Standard')}) matching up against ${escapeHtml(p2?.full_name)}'s ${escapeHtml(p2?.faction || 'Army')} (${escapeHtml(p2?.detachment || 'Standard')}).
-            </div>
-          </div>
-          <div class="caster-cue-card">
-            <span style="font-size: 1.1rem; line-height: 1;">🎯</span>
-            <div>
-              <strong>Key Tactical Assets:</strong> 
-              ${(p1Units.length > 0 || p2Units.length > 0)
-                ? `${escapeHtml(p1?.full_name)} features ${escapeHtml(p1Units.slice(0, 2).join(', ') || 'core roster')}. ${escapeHtml(p2?.full_name)} deploys ${escapeHtml(p2Units.slice(0, 2).join(', ') || 'core roster')}.`
-                : `Tactical matchup between ${escapeHtml(p1?.faction || 'P1')} and ${escapeHtml(p2?.faction || 'P2')} with focus on primary objective control and battle tactics execution.`}
-            </div>
-          </div>
-          <div class="caster-cue-card">
-            <span style="font-size: 1.1rem; line-height: 1;">⚖️</span>
-            <div>
-              <strong>Elo & Bracket Stakes:</strong> 
-              With a ${Math.abs(p1Elo - p2Elo).toFixed(1)} Elo differential, an upset win by ${escapeHtml(underdogName)} nets approx +${underdogGain} Elo, while a favorite win by ${escapeHtml(favoriteName)} awards +${favoriteGain} Elo.
-            </div>
-          </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem;">
+          ${buildPlayerDossierCard('p1', p1Info?.record || p1, p1Pid, p1SafePid, p1Name, p1SafeName, p1ListId, p1SafeListId, p1HasList, p1RosterText, p1Units, p1Elo, p1GainOnWin, '#38bdf8', 'rgba(56, 189, 248, 0.35)')}
+          ${buildPlayerDossierCard('p2', p2Info?.record || p2, p2Pid, p2SafePid, p2Name, p2SafeName, p2ListId, p2SafeListId, p2HasList, p2RosterText, p2Units, p2Elo, p2GainOnWin, '#f43f5e', 'rgba(244, 63, 94, 0.35)')}
         </div>
       </div>
     `;
@@ -6360,9 +6907,9 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
       <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.85rem 1rem;">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.65rem; flex-wrap: wrap;">
           <span style="font-size: 0.84rem; font-weight: 700; color: #fff;">
-            🎯 Select Featured Broadcast Table (Round ${curRound}):
+            🎯 Select Featured Broadcast Table (${escapeHtml(curRoundMeta.fullLabel)}):
           </span>
-          <div style="display: flex; gap: 0.4rem; align-items: center;">
+          <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
             <span style="font-size: 0.76rem; color: var(--text-muted);">Round:</span>
             ${roundButtonsHtml}
           </div>
@@ -6372,10 +6919,10 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
       <div style="background: rgba(15, 23, 42, 0.8); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 12px; padding: 2.5rem 1.5rem; text-align: center;">
         <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">⏳</div>
         <div style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 0.35rem;">
-          Round ${curRound} Pairings Pending
+          ${escapeHtml(curRoundMeta.fullLabel)} Pairings Pending
         </div>
         <p style="color: var(--text-secondary); font-size: 0.85rem; max-width: 520px; margin: 0 auto 1.25rem; line-height: 1.5;">
-          Official pairings for Round ${curRound} have not yet been posted by event organizers.
+          Official pairings for ${escapeHtml(curRoundMeta.fullLabel)} have not yet been posted by event organizers.
           Live matches are available for earlier rounds.
         </p>
         <button type="button" onclick="selectCasterMatch(1, ${latestRound})" class="btn btn-primary" style="font-size: 0.84rem; font-weight: 700; padding: 0.5rem 1.25rem;">
@@ -6403,12 +6950,15 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
   const topSeedsCardsHtml = topSeeds.map((p, idx) => {
     const units = extractKeyListUnits(p.army_list, p.faction);
     const elo = Number(p.current_elo || 1500).toFixed(1);
+    const pid = String(p.player_id || p.id || '').replace(/'/g, "\\'");
+    const pname = String(p.full_name || 'Player').replace(/'/g, "\\'");
+    const listId = String(p.list_id || p.listId || '').replace(/'/g, "\\'");
     return `
       <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.85rem;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
           <div style="display: flex; align-items: center; gap: 0.4rem;">
             <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 800; font-size: 0.72rem;">SEED #${idx + 1}</span>
-            <span style="font-weight: 800; color: #fff; font-size: 0.88rem;">${escapeHtml(p.full_name || 'Player')}</span>
+            <span class="player-link" onclick="openPlayerModal('${escapeHtml(pid)}', '${escapeHtml(pname)}')" style="font-weight: 800; color: #fff; font-size: 0.88rem; cursor: pointer; text-decoration: underline;">${escapeHtml(p.full_name || 'Player')}</span>
           </div>
           <span style="font-family: var(--font-mono); font-weight: 800; color: #38bdf8; font-size: 0.85rem;">${elo} Elo</span>
         </div>
@@ -6416,8 +6966,12 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
           ${escapeHtml(p.faction || 'Army')} • ${escapeHtml(p.detachment || 'Standard Detachment')}
           ${p.team ? ` • <span style="color:var(--text-muted);">${escapeHtml(p.team)}</span>` : ''}
         </div>
+        <div style="display: flex; gap: 0.4rem; margin-top: 0.4rem;">
+          <button type="button" class="btn-xs btn-outline" onclick="openPlayerModal('${escapeHtml(pid)}', '${escapeHtml(pname)}')" style="font-size: 0.7rem; padding: 2px 7px; color: #38bdf8; border-color: rgba(56,189,248,0.35); cursor: pointer;">👤 Profile</button>
+          <button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(pid || pname)}', '${escapeHtml(listId)}')" style="font-size: 0.7rem; padding: 2px 7px; color: #e2e8f0; border-color: rgba(255,255,255,0.2); cursor: pointer;">📋 Roster</button>
+        </div>
         ${units.length > 0 ? `
-          <div style="font-size: 0.72rem; color: var(--text-muted); background: rgba(0,0,0,0.25); padding: 0.35rem 0.5rem; border-radius: 4px;">
+          <div style="font-size: 0.72rem; color: var(--text-muted); background: rgba(0,0,0,0.25); padding: 0.35rem 0.5rem; border-radius: 4px; margin-top: 0.4rem;">
             <strong>Submitted Tech:</strong> ${escapeHtml(units.slice(0, 3).join(', '))}
           </div>
         ` : ''}
@@ -6432,7 +6986,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
         <span style="font-size: 0.84rem; font-weight: 700; color: #fff;">
           🎯 Broadcast Desk Schedule:
         </span>
-        <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
           <span style="font-size: 0.76rem; color: var(--text-muted);">Rounds:</span>
           ${roundButtonsHtml}
         </div>
@@ -6452,7 +7006,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
             <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.72rem; padding: 2px 7px;">${players.length} Competitors</span>
           </div>
           <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.2rem;">
-            Field preview, top podium favorites, and opening commentary cues.
+            Field preview, top podium favorites, and roster breakdown.
           </div>
         </div>
         <div style="display: flex; gap: 0.5rem;">
@@ -6484,48 +7038,12 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
       </div>
 
       <!-- Top Seeds Spotlight Grid -->
-      <div style="margin-bottom: 1rem;">
+      <div style="margin-bottom: 0.5rem;">
         <div style="font-size: 0.85rem; font-weight: 800; color: #fff; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.4rem;">
           <span>🌟 Top Seeded Contenders</span>
         </div>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.75rem;">
           ${topSeedsCardsHtml}
-        </div>
-      </div>
-    </div>
-
-    <!-- PRE-EVENT TALKING POINTS -->
-    <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
-          <span>⚡ Pre-Event Commentator Narrative Cues</span>
-        </h4>
-        <button type="button" onclick="copyCasterCheatSheet()" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 3px 9px; cursor: pointer; color: #38bdf8; border-color: rgba(56,189,248,0.3);">
-          📋 Copy Cheat Sheet
-        </button>
-      </div>
-
-      <div id="caster-cheat-sheet-content" style="display: flex; flex-direction: column; gap: 0.6rem;">
-        <div class="caster-cue-card">
-          <span style="font-size: 1.1rem; line-height: 1;">🏆</span>
-          <div>
-            <strong>Podium Contenders:</strong> 
-            Entering as top overall seed, ${escapeHtml(topSeedPlayer.full_name || 'The top seed')} (${Number(topSeedPlayer.current_elo || 1500).toFixed(1)} Elo, ${escapeHtml(topSeedPlayer.faction || 'Army')}) leads a competitive field of ${players.length} players.
-          </div>
-        </div>
-        <div class="caster-cue-card">
-          <span style="font-size: 1.1rem; line-height: 1;">📊</span>
-          <div>
-            <strong>Meta Distribution:</strong> 
-            The field features ${facCountMap.size} unique factions with average competitor Elo at ${avgElo}. ${topFactions[0] ? `${escapeHtml(topFactions[0][0])} represents the single largest contingent with ${topFactions[0][1]} players.` : ''}
-          </div>
-        </div>
-        <div class="caster-cue-card">
-          <span style="font-size: 1.1rem; line-height: 1;">⚔️</span>
-          <div>
-            <strong>Round 1 Outlook:</strong> 
-            Keep a close watch on opening round swiss pairings. Opening round upsets will deliver substantial Elo swings to underdogs battling the top seeds.
-          </div>
         </div>
       </div>
     </div>
@@ -6998,38 +7516,1111 @@ function renderStorylinesMode(ev, players, matches) {
   `;
 }
 
-function renderDeepMetaMode(ev, players, matches) {
-  // Aggregate detachments
-  const detMap = new Map();
-  players.forEach(p => {
-    const det = p.detachment || 'Standard Detachment';
-    const fac = p.faction || 'Army';
-    const key = `${fac} - ${det}`;
-    if (!detMap.has(key)) {
-      detMap.set(key, { faction: fac, detachment: det, count: 0, wins: 0, losses: 0, points: 0, topPlayer: p.full_name, topWins: -1 });
-    }
-    const item = detMap.get(key);
-    item.count++;
-    const pWins = Number(p.event_wins || 0);
-    const pLosses = Number(p.event_losses || 0);
-    item.wins += pWins;
-    item.losses += pLosses;
-    item.points += Number(p.event_battle_points || 0);
-    if (pWins > item.topWins) {
-      item.topWins = pWins;
-      item.topPlayer = p.full_name;
-    }
-  });
+var powerGridState = {
+  groupBy: 'disposition', // 'disposition' | 'faction' | 'combo'
+  dispositionFilter: 'All',
+  factionFilter: 'All',
+  minReps: 1,
+  sortBy: 'win_rate_desc', // 'win_rate_desc' | 'win_rate_asc' | 'reps_desc' | 'wins_desc' | 'avg_pts_desc'
+  search: '',
+  expandedKeys: new Set(),
+  expandAll: false
+};
+if (typeof window !== 'undefined') {
+  window.__powerGridState = powerGridState;
+}
 
-  const detList = Array.from(detMap.values()).sort((a, b) => {
-    const totalA = a.wins + a.losses;
-    const totalB = b.wins + b.losses;
+const CANONICAL_FORCE_DISPOSITIONS = [
+  { key: 'Take and Hold', label: 'Take and Hold', icon: '🛡️', color: '#38bdf8', bg: 'rgba(56, 189, 248, 0.14)', border: 'rgba(56, 189, 248, 0.38)' },
+  { key: 'Priority Assets', label: 'Priority Assets', icon: '🎯', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.14)', border: 'rgba(245, 158, 11, 0.38)' },
+  { key: 'Purge the Foe', label: 'Purge the Foe', icon: '💀', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(239, 68, 68, 0.38)' },
+  { key: 'Reconnaissance', label: 'Reconnaissance', icon: '🦅', color: '#10b981', bg: 'rgba(16, 185, 129, 0.14)', border: 'rgba(16, 185, 129, 0.38)' },
+  { key: 'Disruption', label: 'Disruption', icon: '⚡', color: '#c084fc', bg: 'rgba(168, 85, 247, 0.14)', border: 'rgba(168, 85, 247, 0.38)' }
+];
+
+const DETACHMENT_DISPOSITION_LOOKUP = {
+  // Space Marines & Chapters
+  'assault brethren': 'Take and Hold',
+  'blade of ultramar': 'Take and Hold',
+  'ceramite sentinels': 'Take and Hold',
+  'deathwatch support': 'Disruption',
+  'devastator brethren': 'Purge the Foe',
+  'forgefather’s seekers': 'Priority Assets',
+  "forgefather's seekers": 'Priority Assets',
+  'gauntlet task force': 'Reconnaissance',
+  'gladius task force': 'Take and Hold',
+  'gravis linebreaker force': 'Take and Hold',
+  'gravis siege force': 'Take and Hold',
+  'ironclad champions': 'Priority Assets',
+  'ironstorm spearhead': 'Purge the Foe',
+  "medusa's wrath": 'Purge the Foe',
+  'phobos shadow force': 'Disruption',
+  'phobos shock force': 'Disruption',
+  'shadowmark talon': 'Disruption',
+  'spearpoint task force': 'Reconnaissance',
+  'stormlance task force': 'Reconnaissance',
+  'tactical brethren': 'Priority Assets',
+  'tacticus attack force': 'Take and Hold',
+  'tacticus firestorm force': 'Priority Assets',
+  'terminator storm force': 'Priority Assets',
+  'darkflight pursuit': 'Reconnaissance',
+  'inner circle task force': 'Priority Assets',
+  'wrath of the rock': 'Take and Hold',
+  'angelic inheritors': 'Priority Assets',
+  'encarmine speartip': 'Disruption',
+  'wrath of the doomed': 'Purge the Foe',
+  'champions of fenris': 'Priority Assets',
+  'saga of the beastslayer': 'Purge the Foe',
+  'saga of the great wolf': 'Take and Hold',
+  'fist of the god-emperor': 'Take and Hold',
+  "marshal's household": 'Priority Assets',
+  'vow-sworn crusaders': 'Purge the Foe',
+  'black spear task force': 'Priority Assets',
+  // Grey Knights
+  'argent assault': 'Priority Assets',
+  'augurium task force': 'Reconnaissance',
+  'banishers': 'Disruption',
+  'brotherhood strike': 'Purge the Foe',
+  'fires of purgation': 'Disruption',
+  'hallowed conclave': 'Take and Hold',
+  'immaterial interdiction': 'Reconnaissance',
+  'sanctic spearhead': 'Priority Assets',
+  'warpbane task force': 'Take and Hold',
+  // Astra Militarum
+  'abhuman auxiliaries': 'Take and Hold',
+  'armoured infantry': 'Take and Hold',
+  'bridgehead strike': 'Priority Assets',
+  'combined arms': 'Take and Hold',
+  'designation force': 'Reconnaissance',
+  'grizzled company': 'Priority Assets',
+  'hammer of the emperor': 'Purge the Foe',
+  'mechanised assault': 'Reconnaissance',
+  'recon element': 'Reconnaissance',
+  'siege regiment': 'Disruption',
+  'steel hammer': 'Purge the Foe',
+  // Adepta Sororitas
+  'army of faith': 'Take and Hold',
+  'bringers of flame': 'Priority Assets',
+  'champions of faith': 'Disruption',
+  'chorus of condemnation': 'Reconnaissance',
+  'hallowed martyrs': 'Take and Hold',
+  'penitent host': 'Purge the Foe',
+  'sacred champions': 'Take and Hold',
+  'sanctified orators': 'Disruption',
+  // Adeptus Mechanicus
+  'cohort acquisitus': 'Reconnaissance',
+  'cohort cybernetica': 'Take and Hold',
+  'data-psalm conclave': 'Disruption',
+  'eradication cohort': 'Purge the Foe',
+  'explorator maniple': 'Priority Assets',
+  'haloscreed battle clade': 'Priority Assets',
+  'lords of the forge': 'Priority Assets',
+  'luminen auto-choir': 'Disruption',
+  'rad-zone corps': 'Take and Hold',
+  'skitarii hunter cohort': 'Reconnaissance',
+  // Imperial Knights
+  'dominus foebreakers': 'Priority Assets',
+  'freeblade company': 'Priority Assets',
+  'gate warden lance': 'Take and Hold',
+  'questor forgepact': 'Disruption',
+  'questoris companions': 'Take and Hold',
+  'spearhead-at-arms': 'Reconnaissance',
+  'throne-bonded outriders': 'Reconnaissance',
+  'valourstrike lance': 'Purge the Foe',
+  // Adeptus Custodes
+  'auric champions': 'Priority Assets',
+  'lions of the emperor': 'Take and Hold',
+  'might of the moritoi': 'Take and Hold',
+  'null maiden vigil': 'Reconnaissance',
+  'shield host': 'Purge the Foe',
+  'silent hunters': 'Reconnaissance',
+  'solar spearhead': 'Take and Hold',
+  'talons of the emperor': 'Take and Hold',
+  'tharanatoi hammerblow': 'Disruption',
+  // Imperial Agents
+  'imperialis fleet': 'Reconnaissance',
+  'ordo hereticus, purgation force': 'Take and Hold',
+  'ordo malleus, daemon hunters': 'Priority Assets',
+  'ordo xenos, alien hunters': 'Purge the Foe',
+  'veiled blade elimination force': 'Disruption',
+  // Chaos Space Marines
+  'cabal of chaos': 'Disruption',
+  'chaos cult': 'Priority Assets',
+  'creations of bile': 'Take and Hold',
+  'cult of the arkifane': 'Priority Assets',
+  'deceptors': 'Disruption',
+  'devotees of destruction': 'Priority Assets',
+  'dread talons': 'Disruption',
+  'fellhammer siege-host': 'Take and Hold',
+  "huron's marauders": 'Disruption',
+  'huron’s marauders': 'Disruption',
+  'murdertalon raiders': 'Reconnaissance',
+  'nightmare hunt': 'Disruption',
+  'pactbound zealots': 'Disruption',
+  'renegade raiders': 'Priority Assets',
+  'renegade warband': 'Priority Assets',
+  'soulforged warpack': 'Take and Hold',
+  'veterans of the long war': 'Take and Hold',
+  'warpstrike champions': 'Disruption',
+  // World Eaters
+  'berzerker warband': 'Purge the Foe',
+  'brazen engines': 'Disruption',
+  'butchers of khorne': 'Take and Hold',
+  'cult of blood': 'Priority Assets',
+  'goretrack onslaught': 'Take and Hold',
+  'khorne daemonkin': 'Reconnaissance',
+  'possessed slaughterband': 'Purge the Foe',
+  'vessels of wrath': 'Priority Assets',
+  // Emperor's Children
+  'carnival of excess': 'Disruption',
+  'coterie of the conceited': 'Priority Assets',
+  'court of the phoenician': 'Purge the Foe',
+  'elegant brutes': 'Take and Hold',
+  'frenzied host': 'Reconnaissance',
+  'mercurial host': 'Reconnaissance',
+  'peerless bladesmen': 'Priority Assets',
+  'rapid evisceration': 'Disruption',
+  "slaanesh's chosen": 'Purge the Foe',
+  'slaanesh’s chosen': 'Purge the Foe',
+  'spectacle of slaughter': 'Disruption',
+  // Death Guard
+  'champions of contagion': 'Take and Hold',
+  'contagion engines': 'Reconnaissance',
+  "death lord's chosen": 'Priority Assets',
+  'death lord’s chosen': 'Priority Assets',
+  'flyblown host': 'Reconnaissance',
+  "mortarion's hammer": 'Purge the Foe',
+  'mortarion’s hammer': 'Purge the Foe',
+  'paragons of putrescence': 'Priority Assets',
+  'shamblerot vectorium': 'Disruption',
+  'tallyband summoners': 'Disruption',
+  'virulent vectorium': 'Take and Hold',
+  // Thousand Sons
+  'changehost of deceit': 'Reconnaissance',
+  'grand coven': 'Disruption',
+  'hexwarp thrallband': 'Take and Hold',
+  'ritual of regeneration': 'Take and Hold',
+  'rubricae phalanx': 'Take and Hold',
+  'sekhetar cohort': 'Disruption',
+  'servants of change': 'Reconnaissance',
+  'warpforged cabal': 'Priority Assets',
+  'warpmeld pact': 'Purge the Foe',
+  // Chaos Knights
+  'bastions of tyranny': 'Priority Assets',
+  'helhunt lance': 'Disruption',
+  'houndpack lance': 'Reconnaissance',
+  'hunting warpack': 'Reconnaissance',
+  'iconoclast fiefdom': 'Take and Hold',
+  'infernal lance': 'Priority Assets',
+  'lords of dread': 'Take and Hold',
+  'traitoris lance': 'Purge the Foe',
+  // Chaos Daemons
+  'blood legion': 'Purge the Foe',
+  'cavalcade of chaos': 'Disruption',
+  'daemonic incursion': 'Take and Hold',
+  'legion of excess': 'Priority Assets',
+  'lords of the warp': 'Take and Hold',
+  'plague legion': 'Take and Hold',
+  'scintillating legion': 'Priority Assets',
+  'shadow legion': 'Purge the Foe',
+  'warptide': 'Reconnaissance',
+  // Aeldari
+  'armoured warhost': 'Reconnaissance',
+  'aspect host': 'Priority Assets',
+  'corsair coterie': 'Priority Assets',
+  'devoted of ynnead': 'Priority Assets',
+  'eldritch raiders': 'Purge the Foe',
+  'fateful performance': 'Disruption',
+  'ghosts of the webway': 'Disruption',
+  'guardian battlehost': 'Take and Hold',
+  'path of the outcast': 'Reconnaissance',
+  'seer council': 'Priority Assets',
+  "serpent's brood": 'Purge the Foe',
+  'serpent’s brood': 'Purge the Foe',
+  'spirit conclave': 'Take and Hold',
+  'twilight flickers': 'Take and Hold',
+  'warhost': 'Reconnaissance',
+  'windrider host': 'Disruption',
+  // Drukhari
+  'covenite coterie': 'Take and Hold',
+  'exhibition of slaughter': 'Reconnaissance',
+  'kabalite agonysts': 'Disruption',
+  'kabalite cartel': 'Disruption',
+  'realspace raiders': 'Priority Assets',
+  "reaper's wager": 'Priority Assets',
+  'reaper’s wager': 'Priority Assets',
+  'skysplinter assault': 'Reconnaissance',
+  'spectacle of spite': 'Purge the Foe',
+  'tools of torment': 'Take and Hold',
+  // Tyranids
+  'ambush predators': 'Disruption',
+  'assimilation swarm': 'Priority Assets',
+  'crusher stampede': 'Purge the Foe',
+  'invasion fleet': 'Take and Hold',
+  'subterranean assault': 'Disruption',
+  'synaptic nexus': 'Disruption',
+  'talons of the norn queen': 'Take and Hold',
+  'unending swarm': 'Take and Hold',
+  'vanguard onslaught': 'Reconnaissance',
+  'warrior bioform onslaught': 'Take and Hold',
+  // Genestealer Cults
+  'biosanctic broodsurge': 'Take and Hold',
+  'brood brothers auxilia': 'Take and Hold',
+  'final day': 'Purge the Foe',
+  'heroes of the uprising': 'Disruption',
+  'host of ascension': 'Take and Hold',
+  'outlander claw': 'Reconnaissance',
+  'purestrain broodswarm': 'Priority Assets',
+  'xenocreed congregation': 'Priority Assets',
+  'xenocult masses': 'Reconnaissance',
+  // Necrons
+  'annihilation legion': 'Purge the Foe',
+  'awakened dynasty': 'Take and Hold',
+  'canoptek court': 'Take and Hold',
+  'cryptek conclave': 'Priority Assets',
+  'cursed legion': 'Purge the Foe',
+  'hand of the dynasty': 'Take and Hold',
+  'hypercrypt legion': 'Reconnaissance',
+  'obeisance phalanx': 'Disruption',
+  'pantheon of woe': 'Disruption',
+  'skyshroud spearhead': 'Reconnaissance',
+  'starshatter arsenal': 'Priority Assets',
+  "the phaeron's armoury": 'Priority Assets',
+  // Orks
+  'blitz brigade': 'Take and Hold',
+  'brute bosses': 'Purge the Foe',
+  'bully boyz': 'Purge the Foe',
+  'da big hunt': 'Purge the Foe',
+  'dread mob': 'Purge the Foe',
+  'flyboyz': 'Reconnaissance',
+  'green tide': 'Take and Hold',
+  'kult of speed': 'Reconnaissance',
+  'madcap meks': 'Disruption',
+  'runt swarm': 'Priority Assets',
+  'shoota boyz': 'Purge the Foe',
+  'taktikal brigade': 'Take and Hold',
+  'war horde': 'Take and Hold',
+  'wreckas': 'Priority Assets',
+  'wurrband': 'Disruption',
+  // T'au Empire
+  'advanced acquisition cadre': 'Reconnaissance',
+  'auxiliary cadre': 'Disruption',
+  'experimental prototype cadre': 'Priority Assets',
+  'kauyon': 'Reconnaissance',
+  'kroot hunting pack': 'Take and Hold',
+  "mont'ka": 'Take and Hold',
+  'mont’ka': 'Take and Hold',
+  'retaliation cadre': 'Purge the Foe',
+  // Leagues of Votann
+  'armoured trailblazers': 'Disruption',
+  'brandfast oathband': 'Take and Hold',
+  'dêlve assault shift': 'Purge the Foe',
+  'delve assault shift': 'Purge the Foe',
+  'farseekers': 'Reconnaissance',
+  'hearthband': 'Priority Assets',
+  'hearthfyre arsenal': 'Priority Assets',
+  'hearthguard covenant': 'Priority Assets',
+  'mercenary oathband': 'Take and Hold',
+  'needgaârd oathband': 'Purge the Foe',
+  'needgaard oathband': 'Purge the Foe',
+  'persecution prospect': 'Disruption'
+};
+
+function resolveForceDispositionAndDetachment(rawDet, rawFac) {
+  const cleanDet = String(rawDet || '').trim();
+  const lower = cleanDet.toLowerCase();
+
+  for (const disp of CANONICAL_FORCE_DISPOSITIONS) {
+    if (lower === disp.key.toLowerCase()) {
+      return { disposition: disp.key, detachment: disp.key, meta: disp };
+    }
+  }
+  if (lower === 'recon' || lower.includes('reconnaissance')) {
+    return { disposition: 'Reconnaissance', detachment: cleanDet || 'Reconnaissance', meta: CANONICAL_FORCE_DISPOSITIONS[3] };
+  }
+  if (lower === 'priority' || lower.includes('priority assets')) {
+    return { disposition: 'Priority Assets', detachment: cleanDet || 'Priority Assets', meta: CANONICAL_FORCE_DISPOSITIONS[1] };
+  }
+  if (lower === 'hold' || lower.includes('take and hold') || lower.includes('take & hold')) {
+    return { disposition: 'Take and Hold', detachment: cleanDet || 'Take and Hold', meta: CANONICAL_FORCE_DISPOSITIONS[0] };
+  }
+  if (lower === 'purge' || lower.includes('purge the foe')) {
+    return { disposition: 'Purge the Foe', detachment: cleanDet || 'Purge the Foe', meta: CANONICAL_FORCE_DISPOSITIONS[2] };
+  }
+  if (lower.includes('disruption')) {
+    return { disposition: 'Disruption', detachment: cleanDet || 'Disruption', meta: CANONICAL_FORCE_DISPOSITIONS[4] };
+  }
+
+  if (DETACHMENT_DISPOSITION_LOOKUP[lower]) {
+    const mappedDisp = DETACHMENT_DISPOSITION_LOOKUP[lower];
+    const meta = CANONICAL_FORCE_DISPOSITIONS.find(d => d.key === mappedDisp) || CANONICAL_FORCE_DISPOSITIONS[0];
+    return { disposition: mappedDisp, detachment: cleanDet, meta };
+  }
+
+  return {
+    disposition: cleanDet && cleanDet !== 'Standard Detachment' && cleanDet !== 'Standard' && cleanDet !== 'Unknown' ? cleanDet : 'Unassigned',
+    detachment: cleanDet || 'Standard Detachment',
+    meta: { key: 'Other', label: cleanDet || 'Unassigned', icon: '⚙️', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.14)', border: 'rgba(148, 163, 184, 0.3)' }
+  };
+}
+
+function updatePowerGridControl(key, value) {
+  if (key === 'groupBy') {
+    powerGridState.groupBy = value;
+  } else if (key === 'dispositionFilter') {
+    powerGridState.dispositionFilter = (powerGridState.dispositionFilter === value && value !== 'All') ? 'All' : value;
+  } else if (key === 'dispositionSelect') {
+    powerGridState.dispositionFilter = value;
+  } else if (key === 'factionFilter') {
+    powerGridState.factionFilter = value;
+  } else if (key === 'minReps') {
+    powerGridState.minReps = Number(value) || 1;
+  } else if (key === 'sortBy') {
+    powerGridState.sortBy = value;
+  } else if (key === 'search') {
+    powerGridState.search = String(value || '');
+  } else if (key === 'toggleRow') {
+    if (powerGridState.expandedKeys.has(value)) {
+      powerGridState.expandedKeys.delete(value);
+    } else {
+      powerGridState.expandedKeys.add(value);
+    }
+  } else if (key === 'toggleExpandAll') {
+    powerGridState.expandAll = !powerGridState.expandAll;
+    if (!powerGridState.expandAll) {
+      powerGridState.expandedKeys.clear();
+    }
+  } else if (key === 'reset') {
+    powerGridState.dispositionFilter = 'All';
+    powerGridState.factionFilter = 'All';
+    powerGridState.minReps = 1;
+    powerGridState.sortBy = 'win_rate_desc';
+    powerGridState.search = '';
+    powerGridState.expandedKeys.clear();
+    powerGridState.expandAll = false;
+  }
+
+  if (currentEventData) {
+    const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (currentEventData.players || []);
+    const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (currentEventData.matches || []);
+    const gridMount = document.getElementById('deep-meta-power-grid-mount');
+    if (gridMount) {
+      gridMount.innerHTML = buildInteractivePowerGridHtml(currentEventData, players, matches);
+      if (key === 'search') {
+        const input = document.getElementById('power-grid-search-input');
+        if (input) {
+          input.focus();
+          const len = input.value.length;
+          input.setSelectionRange(len, len);
+        }
+      }
+      return;
+    }
+    renderEventCreatorHub(currentEventData);
+  }
+}
+window.updatePowerGridControl = updatePowerGridControl;
+
+function sortPowerGridRecords(list, sortBy) {
+  return list.slice().sort((a, b) => {
+    const isUnassignedA = (a.disposition === 'Unassigned' || a.label === 'Unassigned');
+    const isUnassignedB = (b.disposition === 'Unassigned' || b.label === 'Unassigned');
+    if (isUnassignedA !== isUnassignedB) return isUnassignedA ? 1 : -1;
+
+    const totalA = a.wins + a.losses + (a.draws || 0);
+    const totalB = b.wins + b.losses + (b.draws || 0);
     const wrA = totalA > 0 ? (a.wins / totalA) : 0;
     const wrB = totalB > 0 ? (b.wins / totalB) : 0;
+    const avgA = a.count > 0 ? (a.points / a.count) : 0;
+    const avgB = b.count > 0 ? (b.points / b.count) : 0;
+
+    if (sortBy === 'win_rate_asc') {
+      if (wrA !== wrB) return wrA - wrB;
+      return b.count - a.count;
+    }
+    if (sortBy === 'reps_desc') {
+      if (b.count !== a.count) return b.count - a.count;
+      return wrB - wrA;
+    }
+    if (sortBy === 'wins_desc') {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      return wrB - wrA;
+    }
+    if (sortBy === 'avg_pts_desc') {
+      if (avgB !== avgA) return avgB - avgA;
+      return wrB - wrA;
+    }
+    // default: win_rate_desc
     if (wrB !== wrA) return wrB - wrA;
     return b.count - a.count;
   });
+}
 
+function buildInteractivePowerGridHtml(ev, players, matches) {
+  const totalField = Math.max(1, players.length);
+  const allFactionsSet = new Set();
+  const dispOverallMap = new Map();
+  CANONICAL_FORCE_DISPOSITIONS.forEach(d => {
+    dispOverallMap.set(d.key, {
+      key: d.key,
+      meta: d,
+      count: 0,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+      points: 0
+    });
+  });
+
+  // Enrich each player with resolved Force Disposition & Faction
+  const enrichedPlayers = [];
+  players.forEach(p => {
+    const rawFacStr = String(p.faction || p.army_name || '').trim();
+    if (!rawFacStr || rawFacStr === '-' || rawFacStr === '—') return;
+    const fac = formatEventPlayerFaction(rawFacStr);
+    if (!fac || fac === '-' || fac === 'Unknown' || fac === 'Unassigned' || fac === 'Army' || fac === 'None') return;
+    allFactionsSet.add(fac);
+    const resolved = resolveForceDispositionAndDetachment(p.detachment, fac);
+    const pWins = Number(p.event_wins || 0);
+    const pLosses = Number(p.event_losses || 0);
+    const pDraws = Number(p.event_draws || 0);
+    const pPts = Number(p.event_battle_points || 0);
+
+    if (dispOverallMap.has(resolved.disposition)) {
+      const dStat = dispOverallMap.get(resolved.disposition);
+      dStat.count++;
+      dStat.wins += pWins;
+      dStat.losses += pLosses;
+      dStat.draws += pDraws;
+      dStat.points += pPts;
+    }
+
+    enrichedPlayers.push({
+      raw: p,
+      pid: String(p.player_id || p.id || '').trim(),
+      name: p.full_name || p.name || 'Player',
+      listId: String(p.list_id || p.listId || '').trim(),
+      faction: fac,
+      disposition: resolved.disposition,
+      detachment: resolved.detachment,
+      dispMeta: resolved.meta,
+      wins: pWins,
+      losses: pLosses,
+      draws: pDraws,
+      points: pPts
+    });
+  });
+
+  const allFactions = Array.from(allFactionsSet).sort();
+
+  // Apply player-level filters (Disposition, Faction, Search)
+  const q = powerGridState.search.trim().toLowerCase();
+  const filteredPlayers = enrichedPlayers.filter(ep => {
+    if (powerGridState.dispositionFilter !== 'All' && ep.disposition !== powerGridState.dispositionFilter) {
+      return false;
+    }
+    if (powerGridState.factionFilter !== 'All' && ep.faction !== powerGridState.factionFilter) {
+      return false;
+    }
+    if (q) {
+      const hay = `${ep.faction} ${ep.disposition} ${ep.detachment} ${ep.name}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  // Top 5 Force Disposition Quick-Filter Cards
+  const dispCardsHtml = CANONICAL_FORCE_DISPOSITIONS.map(d => {
+    const st = dispOverallMap.get(d.key) || { count: 0, wins: 0, losses: 0, draws: 0, points: 0 };
+    const totG = st.wins + st.losses + st.draws;
+    const wr = totG > 0 ? ((st.wins / totG) * 100).toFixed(1) : '0.0';
+    const share = ((st.count / totalField) * 100).toFixed(1);
+    const isSel = powerGridState.dispositionFilter === d.key;
+    const wrCol = Number(wr) >= 53 ? '#4ade80' : (Number(wr) <= 46 ? '#f87171' : '#f8fafc');
+    const safeKey = d.key.replace(/'/g, "\\'");
+
+    return `
+      <div onclick="updatePowerGridControl('dispositionFilter', '${safeKey}')" style="cursor: pointer; background: ${isSel ? d.bg : 'rgba(15, 23, 42, 0.78)'}; border: 1px solid ${isSel ? d.color : 'rgba(255,255,255,0.08)'}; border-radius: 9px; padding: 0.65rem 0.8rem; transition: all 0.15s ease; box-shadow: ${isSel ? `0 0 14px ${d.bg}` : 'none'};">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; margin-bottom: 0.25rem;">
+          <span style="font-size: 0.75rem; font-weight: 800; color: ${d.color}; display: flex; align-items: center; gap: 0.3rem;">
+            <span>${d.icon}</span>
+            <span>${escapeHtml(d.label)}</span>
+          </span>
+          ${isSel ? `<span class="badge" style="background:${d.color}; color:#000; font-size:0.62rem; font-weight:800; padding:1px 5px;">FILTERED</span>` : `<span style="font-size:0.68rem; color:var(--text-muted); font-family:var(--font-mono);">${share}%</span>`}
+        </div>
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 0.4rem;">
+          <span style="font-family: var(--font-mono); font-size: 1.15rem; font-weight: 900; color: ${wrCol};">${wr}% <span style="font-size:0.68rem; font-weight:600; color:var(--text-muted);">WR</span></span>
+          <span style="font-family: var(--font-mono); font-size: 0.74rem; color: #cbd5e1;"><strong>${st.count}</strong> Pilots (${st.wins}W-${st.losses}L)</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Build Grouped Rows according to powerGridState.groupBy
+  let tableHeaderHtml = '';
+  let tableBodyHtml = '';
+  let totalGroupsShown = 0;
+
+  const updateTopPilot = (target, ep) => {
+    if (ep.wins > target.topWins || (ep.wins === target.topWins && ep.points > target.topPoints)) {
+      target.topWins = ep.wins;
+      target.topPoints = ep.points;
+      target.topPlayer = ep.name;
+      target.topPlayerId = ep.pid;
+      target.topPlayerListId = ep.listId;
+    }
+  };
+
+  if (powerGridState.groupBy === 'disposition') {
+    // GROUP BY FORCE DISPOSITION -> Nested Factions Breakdown
+    const dispGroups = new Map();
+    filteredPlayers.forEach(ep => {
+      const key = ep.disposition;
+      if (!dispGroups.has(key)) {
+        dispGroups.set(key, {
+          key,
+          disposition: ep.disposition,
+          dispMeta: ep.dispMeta,
+          count: 0,
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          points: 0,
+          topPlayer: ep.name,
+          topPlayerId: ep.pid,
+          topPlayerListId: ep.listId,
+          topWins: -1,
+          topPoints: -1,
+          subMap: new Map()
+        });
+      }
+      const g = dispGroups.get(key);
+      g.count++;
+      g.wins += ep.wins;
+      g.losses += ep.losses;
+      g.draws += ep.draws;
+      g.points += ep.points;
+      updateTopPilot(g, ep);
+
+      if (!g.subMap.has(ep.faction)) {
+        g.subMap.set(ep.faction, {
+          faction: ep.faction,
+          count: 0,
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          points: 0,
+          topPlayer: ep.name,
+          topPlayerId: ep.pid,
+          topPlayerListId: ep.listId,
+          topWins: -1,
+          topPoints: -1
+        });
+      }
+      const sub = g.subMap.get(ep.faction);
+      sub.count++;
+      sub.wins += ep.wins;
+      sub.losses += ep.losses;
+      sub.draws += ep.draws;
+      sub.points += ep.points;
+      updateTopPilot(sub, ep);
+    });
+
+    const sortedGroups = sortPowerGridRecords(
+      Array.from(dispGroups.values()).filter(g => g.count >= powerGridState.minReps),
+      powerGridState.sortBy
+    );
+    totalGroupsShown = sortedGroups.length;
+
+    tableHeaderHtml = `
+      <tr style="border-bottom: 1px solid rgba(255,255,255,0.12); color: var(--text-muted); text-align: left; font-size: 0.76rem; text-transform: uppercase;">
+        <th style="padding: 0.6rem 0.5rem;">Force Disposition</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: center;">Reps</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: center;">Record (W-L)</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: center;">Win Rate</th>
+        <th style="padding: 0.6rem 0.5rem;">Factions in Disposition (Click to Filter / Expand)</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: right;">Avg Pts</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: right;">Top Pilot</th>
+      </tr>
+    `;
+
+    tableBodyHtml = sortedGroups.map(g => {
+      const tot = g.wins + g.losses + g.draws;
+      const wr = tot > 0 ? ((g.wins / tot) * 100).toFixed(1) : '0.0';
+      const avgPts = g.count > 0 ? (g.points / g.count).toFixed(1) : '0.0';
+      const sharePct = ((g.count / totalField) * 100).toFixed(1);
+      const wrCol = Number(wr) >= 55 ? '#4ade80' : (Number(wr) <= 45 ? '#f87171' : '#fff');
+      const rowKey = `disp:${g.key}`;
+      const safeRowKey = rowKey.replace(/'/g, "\\'");
+      const isExpanded = powerGridState.expandAll || powerGridState.expandedKeys.has(rowKey) || powerGridState.dispositionFilter === g.key;
+
+      const sortedSubFactions = sortPowerGridRecords(
+        Array.from(g.subMap.values()).filter(sf => sf.count >= Math.min(powerGridState.minReps, sf.count)),
+        powerGridState.sortBy
+      );
+
+      const inlinePills = sortedSubFactions.slice(0, 4).map(sf => {
+        const sfTot = sf.wins + sf.losses + sf.draws;
+        const sfWr = sfTot > 0 ? ((sf.wins / sfTot) * 100).toFixed(1) : '0.0';
+        const sfCol = Number(sfWr) >= 55 ? '#4ade80' : (Number(sfWr) <= 45 ? '#f87171' : '#cbd5e1');
+        const safeFac = sf.faction.replace(/'/g, "\\'");
+        return `
+          <span onclick="event.stopPropagation(); updatePowerGridControl('factionFilter', '${safeFac}')" class="badge" style="cursor: pointer; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #f8fafc; font-size: 0.7rem; padding: 2px 7px;" title="Click to filter by ${escapeHtml(sf.faction)}">
+            ${escapeHtml(sf.faction)}: <strong>${sf.count}</strong> (<span style="color:${sfCol}; font-family:var(--font-mono);">${sfWr}%</span>)
+          </span>
+        `;
+      }).join('');
+
+      const safeTopPid = String(g.topPlayerId || '').replace(/'/g, "\\'");
+      const safeTopName = String(g.topPlayer || '').replace(/'/g, "\\'");
+      const safeTopList = String(g.topPlayerListId || '').replace(/'/g, "\\'");
+
+      const subRowsHtml = isExpanded ? `
+        <tr style="background: rgba(9, 14, 26, 0.85); border-bottom: 1px solid rgba(255,255,255,0.08);">
+          <td colspan="7" style="padding: 0.65rem 0.85rem;">
+            <div style="font-size: 0.75rem; font-weight: 800; color: ${g.dispMeta.color}; margin-bottom: 0.45rem; display: flex; align-items: center; justify-content: space-between;">
+              <span>${g.dispMeta.icon} Faction Breakdown for <strong>${escapeHtml(g.disposition)}</strong> (${sortedSubFactions.length} Factions • ${g.count} Total Pilots)</span>
+              <button type="button" class="btn-xs btn-outline" onclick="updatePowerGridControl('toggleRow', '${safeRowKey}')" style="font-size: 0.68rem; padding: 1px 7px; color: var(--text-muted); border-color: rgba(255,255,255,0.15); cursor: pointer;">▲ Hide Factions</button>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0.45rem;">
+              ${sortedSubFactions.map(sf => {
+                const sfTot = sf.wins + sf.losses + sf.draws;
+                const sfWr = sfTot > 0 ? ((sf.wins / sfTot) * 100).toFixed(1) : '0.0';
+                const sfAvgPts = sf.count > 0 ? (sf.points / sf.count).toFixed(1) : '0.0';
+                const sfShare = ((sf.count / Math.max(1, g.count)) * 100).toFixed(0);
+                const sfCol = Number(sfWr) >= 55 ? '#4ade80' : (Number(sfWr) <= 45 ? '#f87171' : '#fff');
+                const sPid = String(sf.topPlayerId || '').replace(/'/g, "\\'");
+                const sName = String(sf.topPlayer || '').replace(/'/g, "\\'");
+                return `
+                  <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255,255,255,0.07); border-radius: 6px; padding: 0.45rem 0.65rem; display: flex; flex-direction: column; gap: 3px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.3rem;">
+                      <span style="font-weight: 700; color: #fff; font-size: 0.78rem;">🛡️ ${escapeHtml(sf.faction)}</span>
+                      <span style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 800; color: ${sfCol};">${sfWr}% WR</span>
+                    </div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.71rem; color: var(--text-secondary);">
+                      <span><strong>${sf.count}</strong> reps (${sfShare}% of disp) • ${sf.wins}W-${sf.losses}L</span>
+                      <span>${sfAvgPts} avg pts</span>
+                    </div>
+                    <div style="font-size: 0.69rem; color: var(--text-muted);">
+                      Top Pilot: <span class="player-link" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(sPid)}', '${escapeHtml(sName)}')" style="color: #38bdf8; cursor: pointer; font-weight: 600;">${escapeHtml(sf.topPlayer)}</span> (${sf.topWins}W)
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </td>
+        </tr>
+      ` : '';
+
+      return `
+        <tr onclick="updatePowerGridControl('toggleRow', '${safeRowKey}')" style="border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; background: ${isExpanded ? 'rgba(56, 189, 248, 0.05)' : 'transparent'};">
+          <td style="padding: 0.6rem 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.45rem;">
+              <span style="font-size: 1rem;">${g.dispMeta.icon}</span>
+              <div>
+                <div style="font-weight: 800; color: ${g.dispMeta.color}; font-size: 0.88rem;">${escapeHtml(g.disposition)}</div>
+                <div style="font-size: 0.7rem; color: var(--text-muted);">${sharePct}% of tournament field • ${sortedSubFactions.length} factions</div>
+              </div>
+            </div>
+          </td>
+          <td style="padding: 0.6rem 0.5rem; text-align: center; font-family: var(--font-mono); font-weight: 700; color: #fff;">${g.count}</td>
+          <td style="padding: 0.6rem 0.5rem; text-align: center; font-family: var(--font-mono);">${g.wins}W - ${g.losses}L${g.draws ? ` - ${g.draws}D` : ''}</td>
+          <td style="padding: 0.6rem 0.5rem; text-align: center;">
+            <div style="display: inline-flex; flex-direction: column; align-items: center; gap: 3px; min-width: 68px;">
+              <span style="font-family: var(--font-mono); font-weight: 800; font-size: 0.88rem; color: ${wrCol};">${wr}%</span>
+              <div style="width: 56px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
+                <div style="width: ${Math.min(100, Number(wr))}%; height: 100%; background: ${wrCol};"></div>
+              </div>
+            </div>
+          </td>
+          <td style="padding: 0.6rem 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+              ${inlinePills}
+              <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); updatePowerGridControl('toggleRow', '${safeRowKey}')" style="font-size: 0.68rem; padding: 2px 7px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.08); cursor: pointer; font-weight: 700;">
+                ${isExpanded ? '▲ Hide' : `▼ All ${sortedSubFactions.length} Factions`}
+              </button>
+            </div>
+          </td>
+          <td style="padding: 0.6rem 0.5rem; text-align: right; font-family: var(--font-mono);">${avgPts}</td>
+          <td style="padding: 0.6rem 0.5rem; text-align: right; white-space: nowrap;" onclick="event.stopPropagation();">
+            <span class="player-link" onclick="openPlayerModal('${escapeHtml(safeTopPid)}', '${escapeHtml(safeTopName)}')" style="color: #38bdf8; font-weight: 700; cursor: pointer;" title="View Quick Profile">${escapeHtml(g.topPlayer)}</span>
+            ${g.topPlayerListId ? `<button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(safeTopPid || safeTopName)}', '${escapeHtml(safeTopList)}')" style="margin-left: 4px; font-size: 0.65rem; padding: 1px 5px; color: #cbd5e1; border-color: rgba(255,255,255,0.2); cursor: pointer;" title="View Army Roster">📋</button>` : ''}
+          </td>
+        </tr>
+        ${subRowsHtml}
+      `;
+    }).join('');
+
+  } else if (powerGridState.groupBy === 'faction') {
+    // GROUP BY FACTION -> Nested Force Dispositions Breakdown
+    const facGroups = new Map();
+    filteredPlayers.forEach(ep => {
+      const key = ep.faction;
+      if (!facGroups.has(key)) {
+        facGroups.set(key, {
+          key,
+          faction: ep.faction,
+          count: 0,
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          points: 0,
+          topPlayer: ep.name,
+          topPlayerId: ep.pid,
+          topPlayerListId: ep.listId,
+          topWins: -1,
+          topPoints: -1,
+          subMap: new Map()
+        });
+      }
+      const g = facGroups.get(key);
+      g.count++;
+      g.wins += ep.wins;
+      g.losses += ep.losses;
+      g.draws += ep.draws;
+      g.points += ep.points;
+      updateTopPilot(g, ep);
+
+      const subKey = ep.detachment && ep.detachment !== ep.disposition
+        ? `${ep.disposition} (${ep.detachment})`
+        : ep.disposition;
+      if (!g.subMap.has(subKey)) {
+        g.subMap.set(subKey, {
+          label: subKey,
+          disposition: ep.disposition,
+          dispMeta: ep.dispMeta,
+          count: 0,
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          points: 0,
+          topPlayer: ep.name,
+          topPlayerId: ep.pid,
+          topPlayerListId: ep.listId,
+          topWins: -1,
+          topPoints: -1
+        });
+      }
+      const sub = g.subMap.get(subKey);
+      sub.count++;
+      sub.wins += ep.wins;
+      sub.losses += ep.losses;
+      sub.draws += ep.draws;
+      sub.points += ep.points;
+      updateTopPilot(sub, ep);
+    });
+
+    const sortedGroups = sortPowerGridRecords(
+      Array.from(facGroups.values()).filter(g => g.count >= powerGridState.minReps),
+      powerGridState.sortBy
+    );
+    totalGroupsShown = sortedGroups.length;
+
+    tableHeaderHtml = `
+      <tr style="border-bottom: 1px solid rgba(255,255,255,0.12); color: var(--text-muted); text-align: left; font-size: 0.76rem; text-transform: uppercase;">
+        <th style="padding: 0.6rem 0.5rem;">Faction</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: center;">Reps</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: center;">Record (W-L)</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: center;">Win Rate</th>
+        <th style="padding: 0.6rem 0.5rem;">Force Dispositions / Detachments Breakdown</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: right;">Avg Pts</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: right;">Top Pilot</th>
+      </tr>
+    `;
+
+    tableBodyHtml = sortedGroups.map(g => {
+      const tot = g.wins + g.losses + g.draws;
+      const wr = tot > 0 ? ((g.wins / tot) * 100).toFixed(1) : '0.0';
+      const avgPts = g.count > 0 ? (g.points / g.count).toFixed(1) : '0.0';
+      const sharePct = ((g.count / totalField) * 100).toFixed(1);
+      const wrCol = Number(wr) >= 55 ? '#4ade80' : (Number(wr) <= 45 ? '#f87171' : '#fff');
+      const rowKey = `fac:${g.key}`;
+      const safeRowKey = rowKey.replace(/'/g, "\\'");
+      const isExpanded = powerGridState.expandAll || powerGridState.expandedKeys.has(rowKey) || powerGridState.factionFilter === g.key;
+
+      const sortedSubs = sortPowerGridRecords(Array.from(g.subMap.values()), powerGridState.sortBy);
+
+      const inlinePills = sortedSubs.slice(0, 4).map(sd => {
+        const sdTot = sd.wins + sd.losses + sd.draws;
+        const sdWr = sdTot > 0 ? ((sd.wins / sdTot) * 100).toFixed(1) : '0.0';
+        const sdCol = Number(sdWr) >= 55 ? '#4ade80' : (Number(sdWr) <= 45 ? '#f87171' : '#cbd5e1');
+        const safeDisp = sd.disposition.replace(/'/g, "\\'");
+        return `
+          <span onclick="event.stopPropagation(); updatePowerGridControl('dispositionFilter', '${safeDisp}')" class="badge" style="cursor: pointer; background: ${sd.dispMeta.bg}; border: 1px solid ${sd.dispMeta.border}; color: #f8fafc; font-size: 0.7rem; padding: 2px 7px;" title="Click to filter by ${escapeHtml(sd.disposition)}">
+            ${sd.dispMeta.icon} ${escapeHtml(sd.label)}: <strong>${sd.count}</strong> (<span style="color:${sdCol}; font-family:var(--font-mono);">${sdWr}%</span>)
+          </span>
+        `;
+      }).join('');
+
+      const safeTopPid = String(g.topPlayerId || '').replace(/'/g, "\\'");
+      const safeTopName = String(g.topPlayer || '').replace(/'/g, "\\'");
+      const safeTopList = String(g.topPlayerListId || '').replace(/'/g, "\\'");
+
+      const subRowsHtml = isExpanded ? `
+        <tr style="background: rgba(9, 14, 26, 0.85); border-bottom: 1px solid rgba(255,255,255,0.08);">
+          <td colspan="7" style="padding: 0.65rem 0.85rem;">
+            <div style="font-size: 0.75rem; font-weight: 800; color: #38bdf8; margin-bottom: 0.45rem; display: flex; align-items: center; justify-content: space-between;">
+              <span>🛡️ Force Disposition Breakdown for <strong>${escapeHtml(g.faction)}</strong> (${g.count} Total Pilots)</span>
+              <button type="button" class="btn-xs btn-outline" onclick="updatePowerGridControl('toggleRow', '${safeRowKey}')" style="font-size: 0.68rem; padding: 1px 7px; color: var(--text-muted); border-color: rgba(255,255,255,0.15); cursor: pointer;">▲ Hide</button>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0.45rem;">
+              ${sortedSubs.map(sd => {
+                const sdTot = sd.wins + sd.losses + sd.draws;
+                const sdWr = sdTot > 0 ? ((sd.wins / sdTot) * 100).toFixed(1) : '0.0';
+                const sdAvgPts = sd.count > 0 ? (sd.points / sd.count).toFixed(1) : '0.0';
+                const sdShare = ((sd.count / Math.max(1, g.count)) * 100).toFixed(0);
+                const sdCol = Number(sdWr) >= 55 ? '#4ade80' : (Number(sdWr) <= 45 ? '#f87171' : '#fff');
+                const sPid = String(sd.topPlayerId || '').replace(/'/g, "\\'");
+                const sName = String(sd.topPlayer || '').replace(/'/g, "\\'");
+                return `
+                  <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid ${sd.dispMeta.border}; border-radius: 6px; padding: 0.45rem 0.65rem; display: flex; flex-direction: column; gap: 3px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.3rem;">
+                      <span style="font-weight: 700; color: ${sd.dispMeta.color}; font-size: 0.78rem;">${sd.dispMeta.icon} ${escapeHtml(sd.label)}</span>
+                      <span style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 800; color: ${sdCol};">${sdWr}% WR</span>
+                    </div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.71rem; color: var(--text-secondary);">
+                      <span><strong>${sd.count}</strong> reps (${sdShare}% of faction) • ${sd.wins}W-${sd.losses}L</span>
+                      <span>${sdAvgPts} avg pts</span>
+                    </div>
+                    <div style="font-size: 0.69rem; color: var(--text-muted);">
+                      Top Pilot: <span class="player-link" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(sPid)}', '${escapeHtml(sName)}')" style="color: #38bdf8; cursor: pointer; font-weight: 600;">${escapeHtml(sd.topPlayer)}</span> (${sd.topWins}W)
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </td>
+        </tr>
+      ` : '';
+
+      return `
+        <tr onclick="updatePowerGridControl('toggleRow', '${safeRowKey}')" style="border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; background: ${isExpanded ? 'rgba(56, 189, 248, 0.05)' : 'transparent'};">
+          <td style="padding: 0.6rem 0.5rem;">
+            <div style="font-weight: 800; color: #fff; font-size: 0.88rem;">🛡️ ${escapeHtml(g.faction)}</div>
+            <div style="font-size: 0.7rem; color: var(--text-muted);">${sharePct}% of field • ${sortedSubs.length} dispositions</div>
+          </td>
+          <td style="padding: 0.6rem 0.5rem; text-align: center; font-family: var(--font-mono); font-weight: 700; color: #fff;">${g.count}</td>
+          <td style="padding: 0.6rem 0.5rem; text-align: center; font-family: var(--font-mono);">${g.wins}W - ${g.losses}L${g.draws ? ` - ${g.draws}D` : ''}</td>
+          <td style="padding: 0.6rem 0.5rem; text-align: center;">
+            <div style="display: inline-flex; flex-direction: column; align-items: center; gap: 3px; min-width: 68px;">
+              <span style="font-family: var(--font-mono); font-weight: 800; font-size: 0.88rem; color: ${wrCol};">${wr}%</span>
+              <div style="width: 56px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
+                <div style="width: ${Math.min(100, Number(wr))}%; height: 100%; background: ${wrCol};"></div>
+              </div>
+            </div>
+          </td>
+          <td style="padding: 0.6rem 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+              ${inlinePills}
+              <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); updatePowerGridControl('toggleRow', '${safeRowKey}')" style="font-size: 0.68rem; padding: 2px 7px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.08); cursor: pointer; font-weight: 700;">
+                ${isExpanded ? '▲ Hide' : `▼ Breakdown`}
+              </button>
+            </div>
+          </td>
+          <td style="padding: 0.6rem 0.5rem; text-align: right; font-family: var(--font-mono);">${avgPts}</td>
+          <td style="padding: 0.6rem 0.5rem; text-align: right; white-space: nowrap;" onclick="event.stopPropagation();">
+            <span class="player-link" onclick="openPlayerModal('${escapeHtml(safeTopPid)}', '${escapeHtml(safeTopName)}')" style="color: #38bdf8; font-weight: 700; cursor: pointer;" title="View Quick Profile">${escapeHtml(g.topPlayer)}</span>
+            ${g.topPlayerListId ? `<button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(safeTopPid || safeTopName)}', '${escapeHtml(safeTopList)}')" style="margin-left: 4px; font-size: 0.65rem; padding: 1px 5px; color: #cbd5e1; border-color: rgba(255,255,255,0.2); cursor: pointer;" title="View Army Roster">📋</button>` : ''}
+          </td>
+        </tr>
+        ${subRowsHtml}
+      `;
+    }).join('');
+
+  } else {
+    // GROUP BY DISPOSITION × FACTION GRID (All Combos)
+    const comboMap = new Map();
+    filteredPlayers.forEach(ep => {
+      const key = `${ep.disposition}__${ep.faction}__${ep.detachment}`;
+      if (!comboMap.has(key)) {
+        comboMap.set(key, {
+          key,
+          disposition: ep.disposition,
+          detachment: ep.detachment,
+          dispMeta: ep.dispMeta,
+          faction: ep.faction,
+          count: 0,
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          points: 0,
+          topPlayer: ep.name,
+          topPlayerId: ep.pid,
+          topPlayerListId: ep.listId,
+          topWins: -1,
+          topPoints: -1
+        });
+      }
+      const c = comboMap.get(key);
+      c.count++;
+      c.wins += ep.wins;
+      c.losses += ep.losses;
+      c.draws += ep.draws;
+      c.points += ep.points;
+      updateTopPilot(c, ep);
+    });
+
+    const sortedCombos = sortPowerGridRecords(
+      Array.from(comboMap.values()).filter(c => c.count >= powerGridState.minReps),
+      powerGridState.sortBy
+    );
+    totalGroupsShown = sortedCombos.length;
+
+    tableHeaderHtml = `
+      <tr style="border-bottom: 1px solid rgba(255,255,255,0.12); color: var(--text-muted); text-align: left; font-size: 0.76rem; text-transform: uppercase;">
+        <th style="padding: 0.6rem 0.5rem;">Force Disposition / Detachment</th>
+        <th style="padding: 0.6rem 0.5rem;">Faction</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: center;">Reps</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: center;">Record (W-L)</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: center;">Win Rate</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: right;">Avg Battle Pts</th>
+        <th style="padding: 0.6rem 0.5rem; text-align: right;">Top Pilot</th>
+      </tr>
+    `;
+
+    tableBodyHtml = sortedCombos.map(c => {
+      const tot = c.wins + c.losses + c.draws;
+      const wr = tot > 0 ? ((c.wins / tot) * 100).toFixed(1) : '0.0';
+      const avgPts = c.count > 0 ? (c.points / c.count).toFixed(1) : '0.0';
+      const wrCol = Number(wr) >= 55 ? '#4ade80' : (Number(wr) <= 45 ? '#f87171' : '#fff');
+      const safeTopPid = String(c.topPlayerId || '').replace(/'/g, "\\'");
+      const safeTopName = String(c.topPlayer || '').replace(/'/g, "\\'");
+      const safeTopList = String(c.topPlayerListId || '').replace(/'/g, "\\'");
+
+      return `
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+          <td style="padding: 0.55rem 0.5rem;">
+            <span class="badge" style="background: ${c.dispMeta.bg}; color: ${c.dispMeta.color}; border: 1px solid ${c.dispMeta.border}; font-size: 0.72rem; font-weight: 700;">
+              ${c.dispMeta.icon} ${escapeHtml(c.disposition)}
+            </span>
+            ${c.detachment && c.detachment !== c.disposition ? `<div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">${escapeHtml(c.detachment)}</div>` : ''}
+          </td>
+          <td style="padding: 0.55rem 0.5rem; font-weight: 700; color: #fff;">🛡️ ${escapeHtml(c.faction)}</td>
+          <td style="padding: 0.55rem 0.5rem; text-align: center; font-family: var(--font-mono); font-weight: 700;">${c.count}</td>
+          <td style="padding: 0.55rem 0.5rem; text-align: center; font-family: var(--font-mono);">${c.wins}W - ${c.losses}L${c.draws ? ` - ${c.draws}D` : ''}</td>
+          <td style="padding: 0.55rem 0.5rem; text-align: center; font-family: var(--font-mono); font-weight: 800; color: ${wrCol};">${wr}%</td>
+          <td style="padding: 0.55rem 0.5rem; text-align: right; font-family: var(--font-mono);">${avgPts}</td>
+          <td style="padding: 0.55rem 0.5rem; text-align: right; white-space: nowrap;">
+            <span class="player-link" onclick="openPlayerModal('${escapeHtml(safeTopPid)}', '${escapeHtml(safeTopName)}')" style="color: #38bdf8; font-weight: 700; cursor: pointer;">${escapeHtml(c.topPlayer)}</span>
+            ${c.topPlayerListId ? `<button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(safeTopPid || safeTopName)}', '${escapeHtml(safeTopList)}')" style="margin-left: 4px; font-size: 0.65rem; padding: 1px 5px; color: #cbd5e1; border-color: rgba(255,255,255,0.2); cursor: pointer;" title="View Army Roster">📋</button>` : ''}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  const hasActiveFilters = powerGridState.dispositionFilter !== 'All' || powerGridState.factionFilter !== 'All' || powerGridState.minReps > 1 || powerGridState.search.trim().length > 0;
+
+  return `
+    <!-- Header & Group By Mode Switcher -->
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.9rem; flex-wrap: wrap;">
+      <div>
+        <h4 style="margin: 0; font-size: 1rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.45rem;">
+          <span>🧬 Detachment & Force Disposition Power Grid</span>
+          <span class="badge" style="background: rgba(56,189,248,0.14); color: #38bdf8; font-size: 0.7rem;">${filteredPlayers.length} / ${enrichedPlayers.length} Pilots</span>
+        </h4>
+        <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 2px;">
+          Dynamically group by Force Disposition (to see win rates & faction breakdowns) or by Faction (to see which dispositions they run).
+        </div>
+      </div>
+
+      <!-- Group By Segmented Buttons -->
+      <div style="display: inline-flex; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 3px; gap: 3px; flex-wrap: wrap;">
+        <button type="button" onclick="updatePowerGridControl('groupBy', 'disposition')" style="padding: 5px 11px; border-radius: 6px; font-size: 0.74rem; font-weight: 700; border: none; cursor: pointer; background: ${powerGridState.groupBy === 'disposition' ? '#0284c7' : 'transparent'}; color: ${powerGridState.groupBy === 'disposition' ? '#fff' : 'var(--text-secondary)'};">
+          🎯 By Force Disposition (→ Factions)
+        </button>
+        <button type="button" onclick="updatePowerGridControl('groupBy', 'faction')" style="padding: 5px 11px; border-radius: 6px; font-size: 0.74rem; font-weight: 700; border: none; cursor: pointer; background: ${powerGridState.groupBy === 'faction' ? '#0284c7' : 'transparent'}; color: ${powerGridState.groupBy === 'faction' ? '#fff' : 'var(--text-secondary)'};">
+          🛡️ By Faction (→ Dispositions)
+        </button>
+        <button type="button" onclick="updatePowerGridControl('groupBy', 'combo')" style="padding: 5px 11px; border-radius: 6px; font-size: 0.74rem; font-weight: 700; border: none; cursor: pointer; background: ${powerGridState.groupBy === 'combo' ? '#0284c7' : 'transparent'}; color: ${powerGridState.groupBy === 'combo' ? '#fff' : 'var(--text-secondary)'};">
+          🧬 Disposition × Faction Grid
+        </button>
+      </div>
+    </div>
+
+    <!-- 5 Force Disposition Quick-Filter Summary Cards -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 0.55rem; margin-bottom: 0.9rem;">
+      ${dispCardsHtml}
+    </div>
+
+    <!-- Interactive Filter Toolbar -->
+    <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 0.6rem 0.75rem; margin-bottom: 0.85rem;">
+      <div style="display: flex; align-items: center; gap: 0.35rem;">
+        <label style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700;">Disposition:</label>
+        <select onchange="updatePowerGridControl('dispositionSelect', this.value)" style="height: 30px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem; cursor: pointer;">
+          <option value="All" ${powerGridState.dispositionFilter === 'All' ? 'selected' : ''}>All Dispositions</option>
+          ${CANONICAL_FORCE_DISPOSITIONS.map(d => `<option value="${escapeHtml(d.key)}" ${powerGridState.dispositionFilter === d.key ? 'selected' : ''}>${d.icon} ${escapeHtml(d.label)}</option>`).join('')}
+        </select>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 0.35rem;">
+        <label style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700;">Faction:</label>
+        <select onchange="updatePowerGridControl('factionFilter', this.value)" style="height: 30px; max-width: 185px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem; cursor: pointer;">
+          <option value="All" ${powerGridState.factionFilter === 'All' ? 'selected' : ''}>All Factions (${allFactions.length})</option>
+          ${allFactions.map(f => `<option value="${escapeHtml(f)}" ${powerGridState.factionFilter === f ? 'selected' : ''}>${escapeHtml(f)}</option>`).join('')}
+        </select>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 0.35rem;">
+        <label style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700;">Min Reps:</label>
+        <select onchange="updatePowerGridControl('minReps', this.value)" style="height: 30px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem; cursor: pointer;">
+          <option value="1" ${powerGridState.minReps === 1 ? 'selected' : ''}>1+ Pilots</option>
+          <option value="2" ${powerGridState.minReps === 2 ? 'selected' : ''}>2+ Pilots</option>
+          <option value="3" ${powerGridState.minReps === 3 ? 'selected' : ''}>3+ Pilots</option>
+          <option value="5" ${powerGridState.minReps === 5 ? 'selected' : ''}>5+ Pilots</option>
+          <option value="10" ${powerGridState.minReps === 10 ? 'selected' : ''}>10+ Pilots</option>
+        </select>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 0.35rem;">
+        <label style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700;">Sort By:</label>
+        <select onchange="updatePowerGridControl('sortBy', this.value)" style="height: 30px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem; cursor: pointer;">
+          <option value="win_rate_desc" ${powerGridState.sortBy === 'win_rate_desc' ? 'selected' : ''}>Win Rate (High → Low)</option>
+          <option value="win_rate_asc" ${powerGridState.sortBy === 'win_rate_asc' ? 'selected' : ''}>Win Rate (Low → High)</option>
+          <option value="reps_desc" ${powerGridState.sortBy === 'reps_desc' ? 'selected' : ''}>Most Played (Reps)</option>
+          <option value="wins_desc" ${powerGridState.sortBy === 'wins_desc' ? 'selected' : ''}>Total Wins</option>
+          <option value="avg_pts_desc" ${powerGridState.sortBy === 'avg_pts_desc' ? 'selected' : ''}>Avg Battle Points</option>
+        </select>
+      </div>
+
+      <div style="flex: 1; min-width: 150px;">
+        <input id="power-grid-search-input" type="text" value="${escapeHtml(powerGridState.search)}" oninput="updatePowerGridControl('search', this.value)" placeholder="🔍 Filter faction, disposition, pilot..." style="width: 100%; height: 30px; box-sizing: border-box; padding: 0 0.6rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem;" />
+      </div>
+
+      ${powerGridState.groupBy !== 'combo' ? `
+        <button type="button" class="btn-xs btn-outline" onclick="updatePowerGridControl('toggleExpandAll')" style="height: 30px; padding: 0 0.65rem; font-size: 0.72rem; color: #38bdf8; border-color: rgba(56,189,248,0.35); cursor: pointer; font-weight: 700;">
+          ${powerGridState.expandAll ? '▲ Collapse All' : '▼ Expand All'}
+        </button>
+      ` : ''}
+
+      ${hasActiveFilters ? `
+        <button type="button" class="btn-xs btn-outline" onclick="updatePowerGridControl('reset')" style="height: 30px; padding: 0 0.65rem; font-size: 0.72rem; color: #f87171; border-color: rgba(248,113,113,0.35); cursor: pointer; font-weight: 700;">
+          ✕ Reset Filters
+        </button>
+      ` : ''}
+    </div>
+
+    <!-- Dynamic Power Grid Table -->
+    <div class="table-container">
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+        <thead>
+          ${tableHeaderHtml}
+        </thead>
+        <tbody>
+          ${tableBodyHtml || `
+            <tr>
+              <td colspan="7" style="padding: 2rem; text-align: center; color: var(--text-muted);">
+                No entries match the current filter criteria. Try lowering Min Reps or resetting filters.
+              </td>
+            </tr>
+          `}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderDeepMetaMode(ev, players, matches) {
   // Dynamic Spiciness Index: Rogue Tech Overperforming
   const unitCounts = {};
   const unitPilots = {};
@@ -7056,6 +8647,7 @@ function renderDeepMetaMode(ev, players, matches) {
           sharePct,
           count,
           pilotName: p.full_name,
+          pilotId: p.player_id || p.id || '',
           faction: p.faction,
           detachment: p.detachment || 'Standard',
           record: `${p.event_wins || 0}-${p.event_losses || 0} Record`,
@@ -7088,51 +8680,9 @@ function renderDeepMetaMode(ev, players, matches) {
   });
 
   return `
-    <!-- Detachment Power Grid -->
-    <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem;">
-        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">
-          🧬 Detachment & Force Disposition Power Grid
-        </h4>
-        <span style="font-size: 0.75rem; color: var(--text-muted);">${detList.length} Unique Detachments</span>
-      </div>
-
-      <div class="table-container">
-        <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
-          <thead>
-            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); text-align: left;">
-              <th style="padding: 0.5rem;">Faction & Detachment</th>
-              <th style="padding: 0.5rem; text-align: center;">Reps</th>
-              <th style="padding: 0.5rem; text-align: center;">Record (W-L)</th>
-              <th style="padding: 0.5rem; text-align: center;">Win Rate</th>
-              <th style="padding: 0.5rem; text-align: right;">Avg Battle Pts</th>
-              <th style="padding: 0.5rem; text-align: right;">Top Pilot</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${detList.map(d => {
-              const total = d.wins + d.losses;
-              const wr = total > 0 ? ((d.wins / total) * 100).toFixed(1) : '0.0';
-              const avgPts = d.count > 0 ? (d.points / d.count).toFixed(0) : '0';
-              return `
-                <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
-                  <td style="padding: 0.5rem;">
-                    <div style="font-weight: 700; color: #fff;">${escapeHtml(d.detachment)}</div>
-                    <div style="font-size: 0.72rem; color: var(--text-muted);">${escapeHtml(d.faction)}</div>
-                  </td>
-                  <td style="padding: 0.5rem; text-align: center; font-family: var(--font-mono);">${d.count}</td>
-                  <td style="padding: 0.5rem; text-align: center; font-family: var(--font-mono);">${d.wins}-${d.losses}</td>
-                  <td style="padding: 0.5rem; text-align: center; font-family: var(--font-mono); font-weight: 700; color: ${Number(wr) >= 55 ? '#4ade80' : (Number(wr) <= 45 ? '#f87171' : '#fff')};">
-                    ${wr}%
-                  </td>
-                  <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono);">${avgPts}</td>
-                  <td style="padding: 0.5rem; text-align: right; color: #38bdf8; font-weight: 600;">${escapeHtml(d.topPlayer)}</td>
-                </tr>
-              `;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
+    <!-- Interactive Detachment & Force Disposition Power Grid -->
+    <div id="deep-meta-power-grid-mount" style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
+      ${buildInteractivePowerGridHtml(ev, players, matches)}
     </div>
 
     <!-- Spicy Tech & Rogue Inclusions Spotlight -->
@@ -7446,11 +8996,14 @@ function extractKeyListUnits(listText, faction) {
   }
   const lines = listText.split('\n');
   const found = [];
+  const skipHeaderRe = /^(?:\+\+|==|--|•|\*|-|characters?\b|epic\s+hero(?:es)?\b|battleline\b|dedicated\s+transports?\b|other\s+datasheets?\b|allied\s+units?\b|allies\b|vehicles?\b|monsters?\b|infantry\b|mounted\b|beasts?\b|fortifications?\b|supreme\s+commanders?\b|detachment\b|force\s+disposition\b|battle\s+size\b|total\b|points\b|created\s+with\b|exported\s+with\b|army\s+roster\b|strike\s+force\b|incursion\b|onslaught\b|show\/hide\b)/i;
   lines.forEach(l => {
     const trimmed = l.trim();
-    if (trimmed.startsWith('++') || trimmed.startsWith('Characters:') || trimmed.startsWith('Battleline:') || trimmed.startsWith('Vehicles:') || trimmed.startsWith('Infantry:') || trimmed.startsWith('Detachment') || trimmed.length < 4) return;
-    const clean = trimmed.replace(/^[0-9]+x\s*/, '').split('[')[0].split('(')[0].split(':')[0].trim();
-    if (clean && !found.includes(clean) && clean.length > 2 && clean.length < 35) {
+    if (!trimmed || trimmed.length < 4 || trimmed.endsWith(':')) return;
+    if (skipHeaderRe.test(trimmed)) return;
+    const clean = trimmed.replace(/^[0-9]+x\s*/i, '').split('[')[0].split('(')[0].split(':')[0].trim();
+    if (!clean || skipHeaderRe.test(clean)) return;
+    if (!found.includes(clean) && clean.length > 2 && clean.length < 38) {
       found.push(clean);
     }
   });

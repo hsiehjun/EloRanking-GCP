@@ -1552,15 +1552,34 @@ function renderMyHub(data) {
   }).join(' ');
 
   // Build Tournament Journey Accordion for My Hub (defaulted to collapsed all, newest event first)
+  const hubTournamentsMeta = Array.isArray(data.events_attended)
+    ? data.events_attended
+    : (Array.isArray(data.tournaments) ? data.tournaments : []);
+  const hubMetaById = new Map();
+  const hubMetaByName = new Map();
+  hubTournamentsMeta.forEach(t => {
+    if (!t) return;
+    const tid = String(t.event_id || t.id || '').trim();
+    if (tid) hubMetaById.set(tid, t);
+    const tname = String(t.event_name || t.name || '').trim().toLowerCase();
+    if (tname && !hubMetaByName.has(tname)) hubMetaByName.set(tname, t);
+  });
+
   const hubEventsMap = new Map();
   sortedHistory.forEach(m => {
     const evKey = m.event_id || m.event_name || 'Tournament Match';
+    const evName = (m.event_name || 'Tournament Match').trim();
+    const tMeta = (m.event_id && hubMetaById.get(String(m.event_id).trim()))
+      || hubMetaByName.get(evName.toLowerCase())
+      || null;
     if (!hubEventsMap.has(evKey)) {
       hubEventsMap.set(evKey, {
-        event_id: m.event_id || '',
+        event_id: m.event_id || (tMeta && (tMeta.event_id || tMeta.id)) || '',
         event_name: m.event_name || 'Tournament Match',
-        date: (m.match_date || m.event_date || '').substring(0, 10),
-        faction: m.player_faction || p.top_faction || '',
+        date: (m.match_date || m.event_date || (tMeta && tMeta.event_date) || '').substring(0, 10),
+        faction: m.player_faction || (tMeta && tMeta.registered_faction !== 'Unknown' ? tMeta.registered_faction : '') || p.top_faction || '',
+        placement: Number((tMeta && tMeta.placement) || m.placement || 0),
+        total_players: Number((tMeta && tMeta.total_players) || m.total_players || 0),
         wins: 0,
         losses: 0,
         draws: 0,
@@ -1573,6 +1592,8 @@ function renderMyHub(data) {
     else if (m.result === 'L') ev.losses++;
     else ev.draws++;
     ev.totalEloDelta += Number(m.delta_elo || 0);
+    if (!ev.placement && tMeta && tMeta.placement) ev.placement = Number(tMeta.placement);
+    if (!ev.total_players && tMeta && tMeta.total_players) ev.total_players = Number(tMeta.total_players);
     ev.rounds.push(m);
   });
   const hubEventsList = Array.from(hubEventsMap.values()).sort((a, b) => {
@@ -1598,6 +1619,9 @@ function renderMyHub(data) {
       const eloDelta = ev.totalEloDelta;
       const eloSign = eloDelta > 0 ? `+${eloDelta.toFixed(1)}` : eloDelta.toFixed(1);
       const eloColor = eloDelta > 0 ? 'var(--win)' : (eloDelta < 0 ? 'var(--loss)' : 'var(--text-muted)');
+      const placingPillHtml = typeof window.formatTournamentPlacingBadge === 'function'
+        ? window.formatTournamentPlacingBadge(ev.placement, ev.total_players)
+        : '';
 
       const roundsRows = ev.rounds.map((r, rIdx) => {
         const isWin = r.result === 'W';
@@ -1650,8 +1674,9 @@ function renderMyHub(data) {
               </div>
             </div>
             <div class="profile-event-stats">
-              <span style="font-family: var(--font-mono); font-weight: 700; font-size: 0.86rem; white-space: nowrap;">${recordStr}</span>
-              <span style="font-family: var(--font-mono); font-weight: 800; font-size: 0.86rem; color: ${eloColor}; min-width: 50px; text-align: right; white-space: nowrap;">${eloSign}</span>
+              ${placingPillHtml}
+              <span class="profile-event-record" style="font-family: var(--font-mono); font-weight: 700; font-size: 0.86rem; white-space: nowrap;">${recordStr}</span>
+              <span class="profile-event-delta" style="font-family: var(--font-mono); font-weight: 800; font-size: 0.86rem; color: ${eloColor}; min-width: 50px; text-align: right; white-space: nowrap;">${eloSign}</span>
               <span class="profile-event-chevron">▼</span>
             </div>
           </div>
@@ -4286,15 +4311,35 @@ if (!window.__omnitacticaNrParentListenerBound) {
     } catch (e) {
       hideNewRecruitStudioLoading();
     }
-    if (msg.action === 'ready') {
-      const playOv = document.getElementById('hub-nr-play-loading-overlay');
-      if (playOv) {
-        playOv.style.opacity = '0';
-        playOv.style.pointerEvents = 'none';
-        setTimeout(() => { if (playOv) playOv.style.display = 'none'; }, 180);
+    if (msg.action === 'loading_progress' && msg.step) {
+      if (window.__activeHubPlayModeController && typeof window.__activeHubPlayModeController.updatePlayLoadingStep === 'function') {
+        window.__activeHubPlayModeController.updatePlayLoadingStep(msg.step);
+      } else {
+        const subEl = document.getElementById('hub-nr-play-loading-subtitle');
+        if (subEl) subEl.textContent = String(msg.step);
       }
-      if (window.__activeHubPlayModeController && typeof window.__activeHubPlayModeController.hidePlayLoading === 'function') {
-        window.__activeHubPlayModeController.hidePlayLoading();
+      return;
+    }
+    if (msg.action === 'ready') {
+      const ctrl = window.__activeHubPlayModeController;
+      const playIframe = document.getElementById('hub-nr-play-mode-iframe');
+      const isFromPlayIframe = Boolean(playIframe && ev && ev.source === playIframe.contentWindow);
+      const matchesPlayKey = Boolean(
+        !ctrl ||
+        !ctrl.listKey ||
+        (msg.list_key && String(msg.list_key).replace(/^(nr_|list_)/, '') === String(ctrl.listKey).replace(/^(nr_|list_)/, '')) ||
+        (isFromPlayIframe && playIframe.contentWindow && /\/Lists\/[^\/\?\#]+/i.test(playIframe.contentWindow.location.pathname || ''))
+      );
+      if (matchesPlayKey) {
+        const playOv = document.getElementById('hub-nr-play-loading-overlay');
+        if (playOv) {
+          playOv.style.opacity = '0';
+          playOv.style.pointerEvents = 'none';
+          playOv.style.display = 'none';
+        }
+        if (ctrl && typeof ctrl.hidePlayLoading === 'function') {
+          ctrl.hidePlayLoading();
+        }
       }
       if (Array.isArray(hubSavedLists) && hubSavedLists.length > 0) {
         renderHubArmyLists(hubSavedLists);
@@ -5339,7 +5384,7 @@ function renderNativeRosterViewer(list, options = {}) {
       <div id="hub-nr-play-loading-overlay" style="position:absolute; inset:0; z-index:20; background:radial-gradient(circle at center, #0f172a 0%, #070b14 100%); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:24px; text-align:center; transition:opacity 0.2s ease;">
         <div class="spinner" style="width:38px; height:38px; border-width:3px; border-top-color:#38bdf8;"></div>
         <div style="font-size:15px; font-weight:900; color:#f8fafc;">Opening "${escapeHtml(list.name || 'Army Roster')}" in Play Mode...</div>
-        <div style="font-size:12px; color:#94a3b8;">Loading interactive datasheets, weapons &amp; detachment stratagems...</div>
+        <div id="hub-nr-play-loading-subtitle" style="font-size:12px; color:#94a3b8;">Loading interactive datasheets, weapons &amp; detachment stratagems...</div>
       </div>
       <iframe
         id="hub-nr-play-mode-iframe"
@@ -5363,12 +5408,19 @@ function attachHubPlayModeIframeLifecycle(list, containerEl = null, options = {}
   const isEphemeralView = Boolean(options.ephemeral || list._ephemeral_view || (list.nr_row && list.nr_row._ephemeral_view));
   let settled = false;
 
+  const updatePlayLoadingStep = (stepText) => {
+    const subEl = (root.querySelector ? root.querySelector('#hub-nr-play-loading-subtitle') : null) || document.getElementById('hub-nr-play-loading-subtitle');
+    if (subEl && stepText) {
+      subEl.textContent = String(stepText);
+    }
+  };
+
   const hidePlayLoading = () => {
     const ov = (root.querySelector ? root.querySelector('#hub-nr-play-loading-overlay') : null) || document.getElementById('hub-nr-play-loading-overlay');
     if (ov) {
       ov.style.opacity = '0';
       ov.style.pointerEvents = 'none';
-      setTimeout(() => { if (ov) ov.style.display = 'none'; }, 180);
+      ov.style.display = 'none';
     }
   };
 
@@ -5386,6 +5438,7 @@ function attachHubPlayModeIframeLifecycle(list, containerEl = null, options = {}
   window.__activeHubPlayModeController = {
     listKey,
     list,
+    updatePlayLoadingStep,
     hidePlayLoading,
     showCompileFailedFallback
   };
@@ -5396,7 +5449,7 @@ function attachHubPlayModeIframeLifecycle(list, containerEl = null, options = {}
       clearInterval(playWatcher);
       return;
     }
-    if (Date.now() - startedAt > 12000) {
+    if (Date.now() - startedAt > 30000) {
       clearInterval(playWatcher);
       hidePlayLoading();
       return;
@@ -5409,20 +5462,21 @@ function attachHubPlayModeIframeLifecycle(list, containerEl = null, options = {}
         return;
       }
       if (win && win.__omnitacticaNrBridge && win.location && /\/Lists\/[^\/\?\#]+/i.test(win.location.pathname || '')) {
-        if (doc && !doc.documentElement.classList.contains('omnitactica-nr-direct-list-loading') && doc.body && (doc.body.innerText || '').trim().length > 10) {
+        const hasPlayDom = Boolean(doc && doc.querySelector && doc.querySelector('.tableList, .listControls, .armyList'));
+        if (doc && !doc.documentElement.classList.contains('omnitactica-nr-direct-list-loading') && hasPlayDom) {
           clearInterval(playWatcher);
           hidePlayLoading();
         }
       }
     } catch (e) {}
-  }, 100);
+  }, 80);
 
   const sendPlayCmd = () => {
     if (settled) return;
     try {
       if (iframe.contentWindow) {
         const nrRowPayload = list.nr_row
-          ? (isEphemeralView ? Object.assign({}, list.nr_row, { _ephemeral_view: true }) : list.nr_row)
+          ? (isEphemeralView ? Object.assign({}, list.nr_row, { _ephemeral_view: true, synced: 0 }) : list.nr_row)
           : null;
         iframe.contentWindow.postMessage({
           type: 'OMNITACTICA_NR_COMMAND',
@@ -5439,7 +5493,7 @@ function attachHubPlayModeIframeLifecycle(list, containerEl = null, options = {}
 
   iframe.addEventListener('load', () => {
     sendPlayCmd();
-    setTimeout(sendPlayCmd, 500);
+    setTimeout(sendPlayCmd, 400);
   });
 }
 window.attachHubPlayModeIframeLifecycle = attachHubPlayModeIframeLifecycle;

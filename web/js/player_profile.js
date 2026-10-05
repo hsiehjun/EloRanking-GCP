@@ -10,6 +10,41 @@ if (typeof window !== 'undefined') {
   window.currentProfileData = null;
 }
 
+function formatOrdinalSuffix(n) {
+  const num = Number(n);
+  if (!Number.isFinite(num) || num <= 0) return '';
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = num % 100;
+  return num + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function formatTournamentPlacingBadge(placement, totalPlayers) {
+  const pl = Number(placement || 0);
+  if (!Number.isFinite(pl) || pl <= 0) return '';
+  const tot = Number(totalPlayers || 0);
+  const ord = formatOrdinalSuffix(pl);
+  const fieldSuffix = tot > 0 ? ` / ${tot}` : '';
+  const tooltipField = tot > 0 ? ` out of ${tot} players` : '';
+
+  if (pl === 1) {
+    return `<span class="profile-event-placing-pill placing-1st" title="Tournament Champion — Placed ${ord}${tooltipField}">🥇 ${ord}${fieldSuffix}</span>`;
+  }
+  if (pl === 2) {
+    return `<span class="profile-event-placing-pill placing-2nd" title="Runner-Up — Placed ${ord}${tooltipField}">🥈 ${ord}${fieldSuffix}</span>`;
+  }
+  if (pl === 3) {
+    return `<span class="profile-event-placing-pill placing-3rd" title="Podium Finish — Placed ${ord}${tooltipField}">🥉 ${ord}${fieldSuffix}</span>`;
+  }
+  if (pl <= 10) {
+    return `<span class="profile-event-placing-pill placing-top10" title="Top 10 Finish — Placed ${ord}${tooltipField}">🏅 ${ord}${fieldSuffix}</span>`;
+  }
+  return `<span class="profile-event-placing-pill placing-standard" title="Placed ${ord}${tooltipField}">${ord}${fieldSuffix}</span>`;
+}
+
+if (typeof window !== 'undefined') {
+  window.formatTournamentPlacingBadge = formatTournamentPlacingBadge;
+}
+
 /**
  * Open the dedicated, full-screen player profile page
  */
@@ -156,17 +191,36 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     ? sortMatchesNewestFirst(rawHistory)
     : [...rawHistory].reverse();
 
+  // Lookup tournament placements and field sizes from data.tournaments / data.events_attended
+  const tournamentsMetaList = Array.isArray(data.tournaments)
+    ? data.tournaments
+    : (Array.isArray(data.events_attended) ? data.events_attended : []);
+  const tournamentMetaById = new Map();
+  const tournamentMetaByName = new Map();
+  tournamentsMetaList.forEach(t => {
+    if (!t) return;
+    const tid = String(t.event_id || t.id || '').trim();
+    if (tid) tournamentMetaById.set(tid, t);
+    const tname = String(t.event_name || t.name || '').trim().toLowerCase();
+    if (tname && !tournamentMetaByName.has(tname)) tournamentMetaByName.set(tname, t);
+  });
+
   // Group matches by Event (most recent event first)
   const eventMap = new Map();
   sortedHistory.forEach(m => {
     const evKey = m.event_id || (m.event_name || 'Tournament Event').trim();
     const evName = (m.event_name || 'Tournament Event').trim();
+    const tMeta = (m.event_id && tournamentMetaById.get(String(m.event_id).trim()))
+      || tournamentMetaByName.get(evName.toLowerCase())
+      || null;
     if (!eventMap.has(evKey)) {
       eventMap.set(evKey, {
         event_name: evName,
-        event_id: m.event_id,
-        date: m.match_date ? String(m.match_date).slice(0, 10) : '',
-        faction: m.player_faction || '',
+        event_id: m.event_id || (tMeta && (tMeta.event_id || tMeta.id)) || '',
+        date: m.match_date ? String(m.match_date).slice(0, 10) : (tMeta && tMeta.event_date ? String(tMeta.event_date).slice(0, 10) : ''),
+        faction: m.player_faction || (tMeta && tMeta.registered_faction !== 'Unknown' ? tMeta.registered_faction : '') || '',
+        placement: Number((tMeta && tMeta.placement) || m.placement || 0),
+        total_players: Number((tMeta && tMeta.total_players) || m.total_players || 0),
         rounds: [],
         wins: 0,
         losses: 0,
@@ -182,6 +236,8 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     ev.totalEloDelta += Number(m.delta_elo || 0);
     if (!ev.faction && m.player_faction) ev.faction = m.player_faction;
     if (!ev.date && m.match_date) ev.date = String(m.match_date).slice(0, 10);
+    if (!ev.placement && tMeta && tMeta.placement) ev.placement = Number(tMeta.placement);
+    if (!ev.total_players && tMeta && tMeta.total_players) ev.total_players = Number(tMeta.total_players);
   });
 
   const eventsList = Array.from(eventMap.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -320,8 +376,9 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
       const eloDelta = ev.totalEloDelta;
       const eloSign = eloDelta > 0 ? `+${eloDelta.toFixed(1)}` : eloDelta.toFixed(1);
       const eloColor = eloDelta > 0 ? 'var(--win)' : (eloDelta < 0 ? 'var(--loss)' : 'var(--text-muted)');
+      const placingPillHtml = formatTournamentPlacingBadge(ev.placement, ev.total_players);
 
-      const roundsRows = ev.rounds.map(r => {
+      const roundsRows = ev.rounds.map((r, rIdx) => {
         const isWin = r.result === 'W';
         const isLoss = r.result === 'L';
         const isBye = Boolean(r.is_bye || (r.opponent_name && r.opponent_name.toUpperCase() === 'BYE'));
@@ -373,8 +430,9 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
               </div>
             </div>
             <div class="profile-event-stats">
-              <span style="font-family: var(--font-mono); font-weight: 700; font-size: 0.86rem; white-space: nowrap;">${recordStr}</span>
-              <span style="font-family: var(--font-mono); font-weight: 800; font-size: 0.86rem; color: ${eloColor}; min-width: 50px; text-align: right; white-space: nowrap;">${eloSign}</span>
+              ${placingPillHtml}
+              <span class="profile-event-record" style="font-family: var(--font-mono); font-weight: 700; font-size: 0.86rem; white-space: nowrap;">${recordStr}</span>
+              <span class="profile-event-delta" style="font-family: var(--font-mono); font-weight: 800; font-size: 0.86rem; color: ${eloColor}; min-width: 50px; text-align: right; white-space: nowrap;">${eloSign}</span>
               <span class="profile-event-chevron">▼</span>
             </div>
           </div>

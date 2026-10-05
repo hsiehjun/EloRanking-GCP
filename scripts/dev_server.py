@@ -2287,6 +2287,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             if pid == "Te1Q9lp3By" or "junior" in pid.lower() or "aflleje" in pid.lower() or "junior" in req_name or "aflleje" in req_name:
                 import badges
                 junior_tourneys = [
+                    {'event_id': 'ev_flg_rtt_sep_26', 'event_name': 'FLG Monthly 40K RTT - September', 'event_date': '2026-09-12', 'total_players': 22, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
                     {'event_id': 'ev_lone_star_2026', 'event_name': 'Lone Star Open 2026 - Warhammer 40k Champs', 'event_date': '2026-08-01', 'total_players': 336, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
                     {'event_id': 'ev_lvtt_2026', 'event_name': 'Las Vegas Teams Tournament - LVTT 2026', 'event_date': '2026-02-14', 'total_players': 265, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Leagues of Votann'},
                     {'event_id': 'ev_lone_star_2025', 'event_name': 'Lone Star Open 2025 - 40k Champs', 'event_date': '2025-07-20', 'total_players': 322, 'num_rounds': 6, 'wins': 6, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Death Guard'},
@@ -2510,14 +2511,54 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "undefeated": True,
                             "faction": "Necrons",
                             "glory_bonus": 150
+                        },
+                        {
+                            "event_id": "ev_tacoma_major_2026",
+                            "event_name": "US Open Tacoma Major",
+                            "event_date": "2026-08-20",
+                            "total_players": 148,
+                            "num_rounds": 5,
+                            "placement": 8,
+                            "wins": 4,
+                            "losses": 1,
+                            "draws": 0,
+                            "faction": "Necrons"
+                        },
+                        {
+                            "event_id": "ev_pnw_summer_gt_2026",
+                            "event_name": "PNW Summer GT 2026",
+                            "event_date": "2026-07-12",
+                            "total_players": 48,
+                            "num_rounds": 5,
+                            "placement": 2,
+                            "wins": 4,
+                            "losses": 1,
+                            "draws": 0,
+                            "faction": "Dark Angels"
+                        },
+                        {
+                            "event_id": "ev_cascade_clash_2026",
+                            "event_name": "Cascade Clash GT 2026",
+                            "event_date": "2026-05-16",
+                            "total_players": 64,
+                            "num_rounds": 5,
+                            "placement": 14,
+                            "wins": 3,
+                            "losses": 2,
+                            "draws": 0,
+                            "faction": "Necrons"
                         }
                     ],
                     "history": [
-                        {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 1, "result": "W", "player_score": 100, "opponent_score": 64, "player_faction": "Necrons", "opponent_name": "Tyler Adams", "opponent_faction": "Space Marines", "opponent_elo": 1720.0, "delta_elo": 11.2, "new_elo": 1888.5},
-                        {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 2, "result": "W", "player_score": 91, "opponent_score": 77, "player_faction": "Necrons", "opponent_name": "Victor Baker", "opponent_faction": "Aeldari", "opponent_elo": 1750.0, "delta_elo": 10.5, "new_elo": 1877.3},
-                        {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 3, "result": "W", "player_score": 100, "opponent_score": 75, "player_faction": "Necrons", "opponent_name": "Ryan Scott", "opponent_faction": "Votann", "opponent_elo": 1690.0, "delta_elo": 9.8, "new_elo": 1866.8},
-                        {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 4, "result": "L", "player_score": 48, "opponent_score": 100, "player_faction": "Necrons", "opponent_name": "Junior Aflleje", "opponent_faction": "Space Marines", "opponent_elo": 2180.0, "delta_elo": -5.2, "new_elo": 1857.0},
-                        {"match_date": "2026-08-20", "event_name": "US Open Tacoma Major", "round": 5, "result": "W", "player_score": 91, "opponent_score": 80, "player_faction": "Necrons", "opponent_name": "James Carmona", "opponent_faction": "Custodes", "opponent_elo": 1940.0, "delta_elo": 12.4, "new_elo": 1862.2}
+                        {"match_date": "2026-08-20", "event_id": "ev_tacoma_major_2026", "event_name": "US Open Tacoma Major", "round": 1, "result": "W", "player_score": 100, "opponent_score": 64, "player_faction": "Necrons", "opponent_name": "Tyler Adams", "opponent_faction": "Space Marines", "opponent_elo": 1720.0, "delta_elo": 11.2, "new_elo": 1888.5},
+                        {"match_date": "2026-08-20", "event_id": "ev_tacoma_major_2026", "event_name": "US Open Tacoma Major", "round": 2, "result": "W", "player_score": 91, "opponent_score": 77, "player_faction": "Necrons", "opponent_name": "Victor Baker", "opponent_faction": "Aeldari", "opponent_elo": 1750.0, "delta_elo": 10.5, "new_elo": 1877.3},
+                        {"match_date": "2026-08-20", "event_id": "ev_tacoma_major_2026", "event_name": "US Open Tacoma Major", "round": 3, "result": "W", "player_score": 100, "opponent_score": 75, "player_faction": "Necrons", "opponent_name": "Ryan Scott", "opponent_faction": "Votann", "opponent_elo": 1690.0, "delta_elo": 9.8, "new_elo": 1866.8},
+                        {"match_date": "2026-08-20", "event_id": "ev_tacoma_major_2026", "event_name": "US Open Tacoma Major", "round": 4, "result": "L", "player_score": 48, "opponent_score": 100, "player_faction": "Necrons", "opponent_name": "Junior Aflleje", "opponent_faction": "Space Marines", "opponent_elo": 2180.0, "delta_elo": -5.2, "new_elo": 1857.0},
+                        {"match_date": "2026-08-20", "event_id": "ev_tacoma_major_2026", "event_name": "US Open Tacoma Major", "round": 5, "result": "W", "player_score": 91, "opponent_score": 80, "player_faction": "Necrons", "opponent_name": "James Carmona", "opponent_faction": "Custodes", "opponent_elo": 1940.0, "delta_elo": 12.4, "new_elo": 1862.2},
+                        {"match_date": "2026-07-12", "event_id": "ev_pnw_summer_gt_2026", "event_name": "PNW Summer GT 2026", "round": 1, "result": "W", "player_score": 95, "opponent_score": 52, "player_faction": "Dark Angels", "opponent_name": "Derek Chen", "opponent_faction": "Orks", "opponent_elo": 1760.0, "delta_elo": 10.8, "new_elo": 1840.0},
+                        {"match_date": "2026-07-12", "event_id": "ev_pnw_summer_gt_2026", "event_name": "PNW Summer GT 2026", "round": 2, "result": "W", "player_score": 88, "opponent_score": 68, "player_faction": "Dark Angels", "opponent_name": "Marcus Vance", "opponent_faction": "Chaos Daemons", "opponent_elo": 1810.0, "delta_elo": 12.1, "new_elo": 1852.1},
+                        {"match_date": "2026-05-16", "event_id": "ev_cascade_clash_2026", "event_name": "Cascade Clash GT 2026", "round": 1, "result": "W", "player_score": 84, "opponent_score": 60, "player_faction": "Necrons", "opponent_name": "Alex Mercer", "opponent_faction": "Tyranids", "opponent_elo": 1710.0, "delta_elo": 9.4, "new_elo": 1815.0},
+                        {"match_date": "2024-03-15", "event_id": "ev_angron_rtt_march", "event_name": "Angron's Book Club RTT: March", "round": 1, "result": "W", "player_score": 96, "opponent_score": 45, "player_faction": "Necrons", "opponent_name": "Sam Carter", "opponent_faction": "World Eaters", "opponent_elo": 1680.0, "delta_elo": 8.5, "new_elo": 1790.0}
                     ]
                 }
             elif leagues_hub_service.get_leagues_hub_service().get_player_career("league_sd40k_big_league", (query_params.get("name", [None])[0] or pid).strip()):
@@ -2565,6 +2606,123 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "longest_win_streak": max(5, int(career.get("pod_titles", 0)) * 3 + 4),
                     "history": history_rows
                 }
+            elif any(
+                (
+                    str(pl.get("player_id") or pl.get("id") or "").strip().lower() == pid.lower()
+                    or (req_name and str(pl.get("full_name") or "").strip().lower() == req_name)
+                    or str(pl.get("full_name") or "").strip().lower() == pid.lower()
+                )
+                for ev_cached in DEV_EVENT_CACHE.values()
+                for pl in (ev_cached.get("players") or [])
+                if isinstance(pl, dict)
+            ) and "folger" not in pid.lower() and "folger" not in req_name:
+                matched_ev = None
+                matched_pl = None
+                for ev_cached in DEV_EVENT_CACHE.values():
+                    for pl in (ev_cached.get("players") or []):
+                        if not isinstance(pl, dict):
+                            continue
+                        pl_id_s = str(pl.get("player_id") or pl.get("id") or "").strip().lower()
+                        pl_nm_s = str(pl.get("full_name") or "").strip().lower()
+                        if pl_id_s == pid.lower() or (req_name and pl_nm_s == req_name) or pl_nm_s == pid.lower():
+                            matched_ev = ev_cached
+                            matched_pl = pl
+                            break
+                    if matched_pl:
+                        break
+                pl_name = matched_pl.get("full_name") or req_name or pid
+                pl_id_val = str(matched_pl.get("player_id") or matched_pl.get("id") or pid)
+                pl_fac = matched_pl.get("faction") or "Space Marines"
+                pl_team = matched_pl.get("team") or ""
+                ev_w = int(matched_pl.get("event_wins") or 0)
+                ev_l = int(matched_pl.get("event_losses") or 0)
+                ev_d = int(matched_pl.get("event_draws") or 0)
+                base_elo = float(matched_pl.get("current_elo") or 1850.0)
+                if base_elo == 1500.0 and (ev_w + ev_l) > 0:
+                    base_elo = round(1680.0 + (ev_w * 34.5) - (ev_l * 14.0), 1)
+                peak_elo = round(base_elo + 28.4, 1)
+                hist_items = []
+                for m in sorted((matched_ev.get("matches") or []), key=lambda x: int(x.get("round") or 1), reverse=True):
+                    p1_match = str(m.get("player1_id") or "").strip().lower() == pl_id_val.lower() or str(m.get("player1_name") or "").strip().lower() == pl_name.strip().lower()
+                    p2_match = str(m.get("player2_id") or "").strip().lower() == pl_id_val.lower() or str(m.get("player2_name") or "").strip().lower() == pl_name.strip().lower()
+                    if not (p1_match or p2_match):
+                        continue
+                    my_sc = m.get("player1_score") if p1_match else m.get("player2_score")
+                    op_sc = m.get("player2_score") if p1_match else m.get("player1_score")
+                    op_nm = (m.get("player2_name") if p1_match else m.get("player1_name")) or "Opponent"
+                    op_fc = (m.get("player2_faction") if p1_match else m.get("player1_faction")) or "Warhammer 40k"
+                    won = (m.get("winner_id") == (m.get("player1_id") if p1_match else m.get("player2_id"))) or (my_sc is not None and op_sc is not None and float(my_sc) > float(op_sc))
+                    lost = (m.get("winner_id") and not won) or (my_sc is not None and op_sc is not None and float(op_sc) > float(my_sc))
+                    res_ch = "W" if won else ("L" if lost else "D")
+                    d_elo = 14.2 if won else (-11.5 if lost else 0.0)
+                    hist_items.append({
+                        "match_date": matched_ev.get("event_date") or "2026-10-02",
+                        "event_name": matched_ev.get("name") or "BCP Tournament",
+                        "round": f"R{m.get('round', 1)}",
+                        "result": res_ch,
+                        "player_score": my_sc if my_sc is not None else 0,
+                        "opponent_score": op_sc if op_sc is not None else 0,
+                        "player_faction": pl_fac,
+                        "opponent_name": op_nm,
+                        "opponent_faction": op_fc,
+                        "opponent_elo": 1750.0,
+                        "delta_elo": d_elo,
+                        "new_elo": base_elo
+                    })
+                # Add a secondary historical tournament for career depth
+                sec_fac = "Space Marines" if pl_fac != "Space Marines" else "Adeptus Custodes"
+                for r_prev, (res_p, m_sc, o_sc, d_e) in enumerate([("W", 94, 62, 11.4), ("W", 88, 71, 9.8), ("L", 72, 85, -7.2)], start=1):
+                    hist_items.append({
+                        "match_date": "2026-07-18",
+                        "event_name": "Summer Major Warmup GT 2026",
+                        "round": f"R{r_prev}",
+                        "result": res_p,
+                        "player_score": m_sc,
+                        "opponent_score": o_sc,
+                        "player_faction": pl_fac if r_prev <= 2 else sec_fac,
+                        "opponent_name": f"Regional Rival #{r_prev}",
+                        "opponent_faction": "Necrons",
+                        "opponent_elo": 1790.0,
+                        "delta_elo": d_e,
+                        "new_elo": round(base_elo - 15.0, 1)
+                    })
+                tot_w = ev_w + 18
+                tot_l = ev_l + 5
+                tot_d = ev_d
+                tot_m = max(1, tot_w + tot_l + tot_d)
+                res = {
+                    "player": {
+                        "player_id": pl_id_val,
+                        "player_name": pl_name,
+                        "team": pl_team,
+                        "teams_history": [pl_team] if pl_team else [],
+                        "top_faction": f"{pl_fac}, {sec_fac}",
+                        "current_elo": base_elo,
+                        "peak_elo": peak_elo,
+                        "wins": tot_w,
+                        "losses": tot_l,
+                        "draws": tot_d,
+                        "win_rate": round((tot_w / tot_m) * 100, 1),
+                        "total_matches": tot_m
+                    },
+                    "has_account": False,
+                    "longest_win_streak": max(ev_w, 6),
+                    "tournaments": [
+                        {
+                            "event_id": matched_ev.get("id"),
+                            "event_name": matched_ev.get("name"),
+                            "event_date": matched_ev.get("event_date"),
+                            "total_players": matched_ev.get("total_players", 64),
+                            "num_rounds": matched_ev.get("num_rounds", 6),
+                            "placement": matched_pl.get("placement", 1),
+                            "wins": ev_w,
+                            "losses": ev_l,
+                            "draws": ev_d,
+                            "faction": pl_fac
+                        }
+                    ],
+                    "history": hist_items
+                }
             else:
                 req_name_raw = (query_params.get("name", [None])[0] or "").strip()
                 fallback_name = req_name_raw if (req_name_raw and "folger" not in req_name_raw.lower() and "folger" not in pid.lower()) else "Folger Pyles"
@@ -2594,6 +2752,32 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     },
                     "has_account": False,
                     "longest_win_streak": 36,
+                    "tournaments": [
+                        {
+                            "event_id": "ev_tacoma_gt_2026",
+                            "event_name": "Battle For The Crown GT 2026",
+                            "event_date": "2026-06-21",
+                            "total_players": 64,
+                            "num_rounds": 5,
+                            "placement": 1,
+                            "wins": 5,
+                            "losses": 0,
+                            "draws": 0,
+                            "faction": "Aeldari"
+                        },
+                        {
+                            "event_id": "ev_gemhammer_2022",
+                            "event_name": "GemHammer RTT April 2022",
+                            "event_date": "2022-04-16",
+                            "total_players": 28,
+                            "num_rounds": 4,
+                            "placement": 3,
+                            "wins": 3,
+                            "losses": 1,
+                            "draws": 0,
+                            "faction": "Adeptus Custodes"
+                        }
+                    ],
                     "history": [
                         {
                             "match_date": "2022-04-16",
@@ -3686,6 +3870,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                                     "is_bye": is_bye,
                                     "is_done": is_done,
                                     "published": bool(p.get("published", True)),
+                                    "pod_num": p.get("podNum"),
                                 })
 
                         res = {
@@ -3700,6 +3885,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "total_players": tot_p,
                             "num_rounds": resolved_rds or max_r,
                             "numberOfRounds": resolved_rds or max_r,
+                            "pod_round": int(b_json.get("podRound") or 0) if b_json.get("podRound") is not None else None,
+                            "pod_size": int(b_json.get("podSize") or 0) if b_json.get("podSize") is not None else None,
                             "current_round": max(cur_rd, max((m.get("round") or 1 for m in live_matches), default=0)),
                             "raw_json": b_json,
                             "is_ended": computed_ended,
@@ -4846,6 +5033,21 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "opponent_faction": "Orks",
                         "delta_elo": 15.0,
                         "new_elo": 1845.5
+                    },
+                    {
+                        "match_date": "2026-09-02",
+                        "event_id": "ev_tacoma_2026",
+                        "event_name": "US Open Tacoma Major 2026",
+                        "round": 7,
+                        "result": "W",
+                        "player_score": 98,
+                        "opponent_score": 68,
+                        "player_faction": "Adeptus Custodes",
+                        "opponent_name": "Marcus Vance",
+                        "opponent_elo": 1980.0,
+                        "opponent_faction": "Space Marines",
+                        "delta_elo": 16.5,
+                        "new_elo": 1862.0
                     }
                 ],
                 "tracker_history": [
@@ -4921,6 +5123,108 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "draws": 0,
                         "registered_faction": "Adeptus Custodes",
                         "faction": "Adeptus Custodes",
+                        "is_gt": True
+                    },
+                    {
+                        "event_id": "ev_tacoma_gt_2026",
+                        "event_name": "US Open Tacoma GT 2026",
+                        "event_date": "2026-09-02",
+                        "date": "2026-09-02",
+                        "num_rounds": 5,
+                        "rounds": 5,
+                        "placement": 2,
+                        "finish": 2,
+                        "total_players": 64,
+                        "wins": 4,
+                        "losses": 1,
+                        "draws": 0,
+                        "registered_faction": "Space Marines",
+                        "faction": "Space Marines",
+                        "is_gt": True
+                    },
+                    {
+                        "event_id": "ev_lgt_2026",
+                        "event_name": "LGT Masters 2026",
+                        "event_date": "2026-08-28",
+                        "date": "2026-08-28",
+                        "num_rounds": 6,
+                        "rounds": 6,
+                        "placement": 12,
+                        "finish": 12,
+                        "total_players": 160,
+                        "wins": 4,
+                        "losses": 2,
+                        "draws": 0,
+                        "registered_faction": "Space Marines",
+                        "faction": "Space Marines",
+                        "is_gt": True
+                    },
+                    {
+                        "event_id": "ev_nova_2026",
+                        "event_name": "Nova Open 2026",
+                        "event_date": "2026-08-15",
+                        "date": "2026-08-15",
+                        "num_rounds": 6,
+                        "rounds": 6,
+                        "placement": 18,
+                        "finish": 18,
+                        "total_players": 256,
+                        "wins": 4,
+                        "losses": 2,
+                        "draws": 0,
+                        "registered_faction": "Space Marines",
+                        "faction": "Space Marines",
+                        "is_gt": True
+                    },
+                    {
+                        "event_id": "ev_bayarea_2026",
+                        "event_name": "Bay Area Cup 2026",
+                        "event_date": "2026-08-01",
+                        "date": "2026-08-01",
+                        "num_rounds": 5,
+                        "rounds": 5,
+                        "placement": 3,
+                        "finish": 3,
+                        "total_players": 48,
+                        "wins": 4,
+                        "losses": 1,
+                        "draws": 0,
+                        "registered_faction": "Space Marines",
+                        "faction": "Space Marines",
+                        "is_gt": True
+                    },
+                    {
+                        "event_id": "ev_lso_2026",
+                        "event_name": "Lone Star Open 2026",
+                        "event_date": "2026-06-14",
+                        "date": "2026-06-14",
+                        "num_rounds": 6,
+                        "rounds": 6,
+                        "placement": 7,
+                        "finish": 7,
+                        "total_players": 240,
+                        "wins": 5,
+                        "losses": 1,
+                        "draws": 0,
+                        "registered_faction": "Space Marines",
+                        "faction": "Space Marines",
+                        "is_gt": True
+                    },
+                    {
+                        "event_id": "ev_atlanta_2026",
+                        "event_name": "Warhammer Open Atlanta",
+                        "event_date": "2026-05-10",
+                        "date": "2026-05-10",
+                        "num_rounds": 5,
+                        "rounds": 5,
+                        "placement": 5,
+                        "finish": 5,
+                        "total_players": 96,
+                        "wins": 4,
+                        "losses": 1,
+                        "draws": 0,
+                        "registered_faction": "Space Marines",
+                        "faction": "Space Marines",
                         "is_gt": True
                     },
                     {
@@ -5188,12 +5492,114 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "list_id": lid
                     }).encode("utf-8"))
                 else:
-                    ret = mock_armylists.get(lid, {
-                        "success": True,
-                        "list_id": lid,
-                        "name": "Best Coast Pairings Roster",
-                        "text": f"++ Army Roster ++ [{lid}] [2,000 pts]\n\nDetachment Choice: Tournament Strike Force\n\nCharacters:\nOverlord with Translocation Shroud [85 pts]: Overlord's blade, Resurrection orb (Warlord)\nTechnomancer [85 pts]: Staff of light\n\nBattleline:\n10x Immortals [150 pts]: Tesla carbine\n\nOther Datasheets:\n6x Canoptek Wraiths [250 pts]: Particle caster, Vicious claws\n2x Doomsday Ark [380 pts]: Doomsday cannon, 2x Gauss flayer array\nC'tan Shard of the Nightbringer [295 pts]: Scythe of the Nightbringer\n\nCreated with Best Coast Pairings"
-                    })
+                    if lid in mock_armylists:
+                        ret = mock_armylists[lid]
+                    else:
+                        owner_pl = None
+                        for ev_cached in DEV_EVENT_CACHE.values():
+                            for pl in (ev_cached.get("players") or []):
+                                if isinstance(pl, dict) and str(pl.get("list_id") or "").strip() == lid:
+                                    owner_pl = pl
+                                    break
+                            if owner_pl:
+                                break
+                        p_fac = (owner_pl.get("faction") if owner_pl else None) or "Necrons"
+                        p_det = (owner_pl.get("detachment") if owner_pl else None) or "Tournament Strike Force"
+                        p_nm = (owner_pl.get("full_name") if owner_pl else None) or "Best Coast Pairings Roster"
+                        fac_low = p_fac.lower()
+                        if "dark angels" in fac_low:
+                            roster_body = (
+                                f"++ Army Roster ++ ({p_fac}) [2,000 pts]\n\n"
+                                f"Force Disposition: {p_det}\n\n"
+                                "Characters:\n"
+                                "Azrael [115 pts]: Lion's Wrath, The Sword of Secrets (Warlord)\n"
+                                "Lion El'Jonson [300 pts]: Arma Luminis, Fealty\n"
+                                "Judiciar [70 pts]: Absolver bolt pistol, Executioner relic blade\n\n"
+                                "Battleline:\n"
+                                "5x Assault Intercessor Squad [75 pts]: Heavy bolt pistol, Astartes chainsword\n\n"
+                                "Other Datasheets:\n"
+                                "5x Deathwing Knights [250 pts]: Mace of absolution, Watcher in the Dark\n"
+                                "5x Deathwing Knights [250 pts]: Power weapon, Relic weapon\n"
+                                "6x Inner Circle Companions [180 pts]: Calibanite greatsword\n"
+                                "5x Scout Squad [65 pts]: Astartes shotgun, Combat knife\n\n"
+                                "Created with Best Coast Pairings"
+                            )
+                        elif "space wolves" in fac_low:
+                            roster_body = (
+                                f"++ Army Roster ++ ({p_fac}) [2,000 pts]\n\n"
+                                f"Force Disposition: {p_det}\n\n"
+                                "Characters:\n"
+                                "Ragnar Blackmane [90 pts]: Bolt Pistol, Frostfang (Warlord)\n"
+                                "Wolf Lord on Thunderwolf [100 pts]: Twin lightning claws, Crushing teeth and claws\n"
+                                "Bjorn the Fell-Handed [190 pts]: Heavy flamer, Helfrost cannon, Trueclaw\n\n"
+                                "Battleline:\n"
+                                "10x Blood Claws [140 pts]: Astartes chainsword, Bolt pistol\n\n"
+                                "Other Datasheets:\n"
+                                "6x Thunderwolf Cavalry [240 pts]: Heirloom weapon, Storm shield\n"
+                                "6x Thunderwolf Cavalry [240 pts]: Heirloom weapon, Storm shield\n"
+                                "5x Wolf Guard Terminators [185 pts]: Thunder hammer, Storm shield\n"
+                                "5x Fenrisian Wolves [30 pts]: Teeth and claws\n\n"
+                                "Created with Best Coast Pairings"
+                            )
+                        elif "mechanicus" in fac_low:
+                            roster_body = (
+                                f"++ Army Roster ++ ({p_fac}) [2,000 pts]\n\n"
+                                f"Force Disposition: {p_det}\n\n"
+                                "Characters:\n"
+                                "Belisarius Cawl [150 pts]: Arc scourge, Cawl's omnissian axe, Solar atomiser (Warlord)\n"
+                                "Skitarii Marshal [35 pts]: Control stave, Radium serpenta\n"
+                                "Technoarcheologist [45 pts]: Mechanicus pistol, Servo-arc claw\n\n"
+                                "Battleline:\n"
+                                "10x Skitarii Vanguard [90 pts]: Radium carbine, Omnispex\n"
+                                "10x Skitarii Rangers [85 pts]: Galvanic rifle, Transuranic arquebus\n\n"
+                                "Other Datasheets:\n"
+                                "6x Kataphron Breachers [320 pts]: Heavy arc rifle, Hydraulic claw\n"
+                                "10x Pteraxii Sterylizors [150 pts]: Phosphor torch, Pteraxii talons\n"
+                                "3x Ironstrider Ballistarii [210 pts]: Twin cognis lascannon\n"
+                                "Skorpius Disintegrator [175 pts]: Ferrumite cannon, 3x Cognis heavy stubber\n\n"
+                                "Created with Best Coast Pairings"
+                            )
+                        elif "ork" in fac_low:
+                            roster_body = (
+                                f"++ Army Roster ++ ({p_fac}) [2,000 pts]\n\n"
+                                f"Force Disposition: {p_det}\n\n"
+                                "Characters:\n"
+                                "Ghazghkull Thraka [235 pts]: Gork's Klaw, Mork's Roar, Makari (Warlord)\n"
+                                "Warboss [65 pts]: Attack squig, Power klaw\n"
+                                "Beastboss [80 pts]: Beast Snagga klaw, Beastchoppa\n\n"
+                                "Battleline:\n"
+                                "10x Beast Snagga Boyz [95 pts]: Choppa, Slugga\n"
+                                "10x Boyz [80 pts]: Power klaw, Choppa\n\n"
+                                "Dedicated Transport:\n"
+                                "2x Trukk [130 pts]: Big shoota, Wreckin' ball\n\n"
+                                "Other Datasheets:\n"
+                                "6x Meganobz [210 pts]: Killsaw, Power klaw\n"
+                                "10x Nobz [210 pts]: Power klaw, Slugga\n"
+                                "4x Squighog Boyz [160 pts]: Saddlegit weapons, Squighog jaws\n"
+                                "10x Gretchin [40 pts]: Grot blasta, Runtherd\n\n"
+                                "Created with Best Coast Pairings"
+                            )
+                        else:
+                            roster_body = (
+                                f"++ Army Roster ++ ({p_fac}) [2,000 pts]\n\n"
+                                f"Force Disposition: {p_det}\n\n"
+                                "Characters:\n"
+                                "Overlord with Translocation Shroud [85 pts]: Overlord's blade, Resurrection orb (Warlord)\n"
+                                "Technomancer [85 pts]: Staff of light\n\n"
+                                "Battleline:\n"
+                                "10x Immortals [150 pts]: Tesla carbine\n\n"
+                                "Other Datasheets:\n"
+                                "6x Canoptek Wraiths [250 pts]: Particle caster, Vicious claws\n"
+                                "2x Doomsday Ark [380 pts]: Doomsday cannon, 2x Gauss flayer array\n"
+                                "C'tan Shard of the Nightbringer [295 pts]: Scythe of the Nightbringer\n\n"
+                                "Created with Best Coast Pairings"
+                            )
+                        ret = {
+                            "success": True,
+                            "list_id": lid,
+                            "name": f"{p_nm} - {p_fac}",
+                            "text": roster_body
+                        }
                     self.wfile.write(json.dumps(ret).encode("utf-8"))
             return
 

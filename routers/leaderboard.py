@@ -1907,6 +1907,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                                 "is_bye": is_bye,
                                 "is_done": is_done,
                                 "published": bool(p.get("published", True)),
+                                "pod_num": p.get("podNum"),
                                 "has_tracker_game": has_tracker_game,
                                 "tracker_is_done": tracker_is_done,
                                 "tracker_started": tracker_started
@@ -1928,6 +1929,11 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             raw_ev = json.loads(raw_ev)
         except Exception:
             raw_ev = {}
+
+    if raw_ev.get("podRound") is not None:
+        event_details["pod_round"] = int(raw_ev.get("podRound") or 0)
+    if raw_ev.get("podSize") is not None:
+        event_details["pod_size"] = int(raw_ev.get("podSize") or 0)
 
     post_bcp_rds = int(raw_ev.get("numberOfRounds") or raw_ev.get("numRounds") or 0)
     if post_bcp_rds > 0 and int(event_details.get("num_rounds") or 0) < post_bcp_rds:
