@@ -276,6 +276,11 @@ async def on_server_startup():
         await asyncio.sleep(2)
         try:
             db = await asyncio.to_thread(get_database)
+            try:
+                from scripts.repair_matches_and_elo import ensure_startup_elo_repair_migration
+                await asyncio.to_thread(ensure_startup_elo_repair_migration, db)
+            except Exception as rep_err:
+                logger.warning(f"Notice during startup BCP pairing & Elo repair check: {rep_err}")
             await asyncio.to_thread(db.sync_player_latest_teams, False)
             await asyncio.to_thread(db.get_summary_stats, "40k")
             logger.info("🔥 Global summary stats 40k cache pre-warmed")

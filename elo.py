@@ -943,14 +943,8 @@ class EloEngine:
                     except Exception as e:
                         logger.debug(f"JSON team scan error: {e}")
 
-            # 2. Clear old history for target game_system and load authoritative real names
+            # 2. Load authoritative real names before streaming
             authoritative_names = _heal_and_load_authoritative_names(conn, sys_target)
-            with conn.cursor() as cursor:
-                print(f"[1/3] 💾 Clearing old {sys_target.upper()} history and optimizing table buffers...")
-                cursor.execute("SET LOCAL synchronous_commit = OFF;")
-                cursor.execute("DELETE FROM rating_history WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
-                cursor.execute("DELETE FROM player_ratings WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
-                conn.commit()
 
         history_cols = (
             "player_id", "match_id", "event_id", "round", "match_date",
@@ -960,7 +954,7 @@ class EloEngine:
         )
 
         num_chunks = (total_matches + chunk_size - 1) // chunk_size
-        print(f"[2/3] 🧠 Streaming & Replaying {num_chunks} chronological batches via COPY...")
+        print(f"[2/3] 🧠 Streaming & Replaying {num_chunks} chronological batches via atomic COPY...")
 
         total_history_count = 0
         processed_matches = 0
@@ -989,6 +983,12 @@ class EloEngine:
                 """, (sys_target,))
 
                 with self.db.get_connection() as write_conn:
+                    with write_conn.cursor() as init_cur:
+                        print(f"[1/3] 💾 Preparing atomic transaction for {sys_target.upper()} history & ratings...")
+                        init_cur.execute("SET LOCAL synchronous_commit = OFF;")
+                        init_cur.execute("DELETE FROM rating_history WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
+                        init_cur.execute("DELETE FROM player_ratings WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
+
                     while True:
                         t_chunk_start = time.time()
                         chunk_matches = stream_cur.fetchmany(chunk_size)
@@ -1110,23 +1110,20 @@ class EloEngine:
                             tsv_buffer.write("\t".join(_format_tsv_field(v) for v in r2_vals) + "\n")
                             history_rows_in_chunk += 2
 
-                        # Write and commit batch immediately to reset transaction buffers
+                        # Stage batch into write_conn transaction
                         tsv_buffer.seek(0)
                         with write_conn.cursor() as write_cur:
                             write_cur.copy_from(tsv_buffer, "rating_history", columns=history_cols, null="\\N")
-                        write_conn.commit()
                         tsv_buffer.close()
                         total_history_count += history_rows_in_chunk
 
                         t_chunk = time.time() - t_chunk_start
                         pct = min(100.0, (processed_matches / total_matches) * 100.0) if total_matches > 0 else 100.0
-                        print(f"      📦 [Batch {c_idx}/{num_chunks}] Matches {processed_matches - c_count + 1:,} - {processed_matches:,} ({pct:.1f}%) replayed & committed in {t_chunk:.2f}s.")
+                        print(f"      📦 [Batch {c_idx}/{num_chunks}] Matches {processed_matches - c_count + 1:,} - {processed_matches:,} ({pct:.1f}%) replayed in {t_chunk:.2f}s.")
 
-                    # Rebuild index and insert ratings
+                    # Ensure index and insert ratings, then commit once atomically
                     with write_conn.cursor() as write_cur:
-                        t_idx = time.time()
                         write_cur.execute("CREATE INDEX IF NOT EXISTS idx_pg_history_player ON rating_history(player_id, match_date DESC);")
-                        write_conn.commit()
 
                         # Step 3: Insert player_ratings via COPY
                         print(f"[3/3] 👑 Persisting {len(player_states):,} {sys_target.upper()} player standings & win rates in PostgreSQL...")

@@ -342,6 +342,23 @@ def cmd_serve(args):
     start_server(port=args.port, host=args.host)
 
 
+def cmd_repair_elo(args):
+    """Retroactively repairs corrupted BCP match results and reconstructs global Elo ratings."""
+    db = get_db(dsn=getattr(args, "db", None))
+    from scripts.repair_matches_and_elo import repair_historical_matches_and_elo
+
+    res = repair_historical_matches_and_elo(
+        db=db,
+        event_ids=args.event_ids,
+        days=args.days,
+        scan_all=args.scan_all,
+        reconstruct=not args.no_reconstruct,
+        force_reconstruct=args.force_reconstruct,
+        max_workers=args.workers,
+    )
+    print(json.dumps(res, indent=2, default=str))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Warhammer 40k & Age of Sigmar BCP Scraper & Elo Ranking Engine")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -368,6 +385,16 @@ def main():
     p_recon.add_argument("--initial-elo", type=float, default=INITIAL_ELO, help="Base starting Elo (default: 1500)")
     p_recon.add_argument("--k-factor", type=float, default=DEFAULT_K_FACTOR, help="Default K-factor (default: 32)")
     p_recon.add_argument("--db", help="PostgreSQL connection string (DSN)")
+
+    # Repair matches & Elo command
+    p_repair = subparsers.add_parser("repair-elo", aliases=["repair-matches"], help="Retroactively repair corrupted BCP match results and reconstruct global Elo ratings")
+    p_repair.add_argument("--event-id", dest="event_ids", action="append", help="Specific BCP event ID(s) to repair (can be passed multiple times)")
+    p_repair.add_argument("--days", type=int, default=None, help="Also scan all BCP events within the past N days")
+    p_repair.add_argument("--scan-all", action="store_true", help="Scan all BCP events in the database")
+    p_repair.add_argument("--no-reconstruct", action="store_true", help="Only repair matches table without running full Elo reconstruction")
+    p_repair.add_argument("--force-reconstruct", action="store_true", default=True, help="Run full Elo reconstruction even if 0 match rows needed changes")
+    p_repair.add_argument("--workers", type=int, default=10, help="Max concurrent BCP API workers (default: 10)")
+    p_repair.add_argument("--db", help="PostgreSQL connection string (DSN)")
 
     # Leaderboard command
     p_lead = subparsers.add_parser("leaderboard", help="View player Elo rankings")
@@ -422,6 +449,8 @@ def main():
         cmd_scrape(args)
     elif args.command == "reconstruct":
         cmd_reconstruct(args)
+    elif args.command in ("repair-elo", "repair-matches"):
+        cmd_repair_elo(args)
     elif args.command == "leaderboard":
         cmd_leaderboard(args)
     elif args.command == "player":

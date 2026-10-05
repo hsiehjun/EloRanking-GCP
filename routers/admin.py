@@ -320,3 +320,98 @@ async def api_admin_run_migrations(request: Request, token: Optional[str] = Quer
         return db.get_db_status()
     return {"status": "completed"}
 
+
+class RepairMatchesEloPayload(BaseModel):
+    event_ids: Optional[List[str]] = None
+    days: Optional[int] = None
+    scan_all: bool = False
+    reconstruct: bool = True
+    force_reconstruct: bool = True
+    run_in_background: bool = False
+    token: Optional[str] = None
+    secret: Optional[str] = None
+
+
+def _is_admin_or_cron_request(request: Request, token: Optional[str] = None, secret: Optional[str] = None) -> bool:
+    cron_secret = os.environ.get("CRON_SECRET", "elo-cron-secret-2026")
+    req_secret = (
+        secret
+        or request.headers.get("X-Cron-Secret")
+        or request.query_params.get("secret")
+    )
+    if req_secret and secrets.compare_digest(str(req_secret), str(cron_secret)):
+        return True
+    try:
+        _get_admin_session_or_403(request, token)
+        return True
+    except HTTPException:
+        return False
+
+
+@router.post(
+    "/api/admin/repair-matches-elo",
+    summary="Retroactively repair historical BCP match results and reconstruct global Elo rankings (Admin/Cron)",
+)
+async def api_admin_repair_matches_elo(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: Optional[RepairMatchesEloPayload] = None,
+    token: Optional[str] = Query(None),
+    secret: Optional[str] = Query(None),
+):
+    body = payload or RepairMatchesEloPayload()
+    if not _is_admin_or_cron_request(request, token=body.token or token, secret=body.secret or secret):
+        raise HTTPException(status_code=403, detail="Admin session or valid X-Cron-Secret required.")
+
+    from scripts.repair_matches_and_elo import get_repair_status, repair_historical_matches_and_elo
+
+    if body.run_in_background:
+        background_tasks.add_task(
+            repair_historical_matches_and_elo,
+            db=get_database(),
+            event_ids=body.event_ids,
+            days=body.days,
+            scan_all=body.scan_all,
+            reconstruct=body.reconstruct,
+            force_reconstruct=body.force_reconstruct,
+        )
+        return {
+            "status": "scheduled",
+            "message": "Historical BCP match & Elo repair started in background.",
+            "repair_status": get_repair_status(),
+        }
+
+    res = await asyncio.to_thread(
+        repair_historical_matches_and_elo,
+        db=get_database(),
+        event_ids=body.event_ids,
+        days=body.days,
+        scan_all=body.scan_all,
+        reconstruct=body.reconstruct,
+        force_reconstruct=body.force_reconstruct,
+    )
+    return res
+
+
+@router.get(
+    "/api/admin/repair-matches-elo/status",
+    summary="Inspect status of the historical BCP match & Elo repair job (Admin/Cron)",
+)
+async def api_admin_repair_matches_elo_status(
+    request: Request,
+    token: Optional[str] = Query(None),
+    secret: Optional[str] = Query(None),
+):
+    if not _is_admin_or_cron_request(request, token=token, secret=secret):
+        raise HTTPException(status_code=403, detail="Admin session or valid X-Cron-Secret required.")
+    from scripts.repair_matches_and_elo import REPAIR_MIGRATION_KEY, get_repair_status
+
+    db = get_database()
+    return {
+        "migration_key": REPAIR_MIGRATION_KEY,
+        "migration_state": db.get_setting(REPAIR_MIGRATION_KEY),
+        "migration_summary": db.get_setting(f"{REPAIR_MIGRATION_KEY}_summary"),
+        "live_status": get_repair_status(),
+    }
+
+

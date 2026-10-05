@@ -578,9 +578,22 @@ class BestCoastPairingsScraper:
         enrolled_players = self.fetch_event_players(event_id)
         return self.ingest_event_roster(event_id, enrolled_players, teams=teams)
 
-    def build_roster_id_map(self, enrolled_players: Optional[List[Dict[str, Any]]]) -> Dict[str, str]:
+    def build_roster_id_map(self, enrolled_players: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
         """Builds a mapping from per-tournament registration IDs (player.id) to canonical global BCP userIds."""
-        mapping: Dict[str, str] = {}
+        mapping: Dict[str, Any] = {}
+        event_max_swiss = 0
+        for p in (enrolled_players or []):
+            if not isinstance(p, dict):
+                continue
+            for g in (p.get("total_games") or p.get("games") or []):
+                if isinstance(g, dict) and not g.get("pod"):
+                    try:
+                        rnum = int(g.get("gameNum") or g.get("gameNumber") or 0)
+                        if rnum > event_max_swiss:
+                            event_max_swiss = rnum
+                    except Exception:
+                        pass
+
         for p in (enrolled_players or []):
             if not isinstance(p, dict):
                 continue
@@ -609,14 +622,30 @@ class BestCoastPairingsScraper:
                     if not full_name and resolved_reg.get("full_name"):
                         full_name = resolved_reg["full_name"]
 
-            games_list = p.get("games") or p.get("total_games")
+            t_games = p.get("total_games") if isinstance(p.get("total_games"), list) else []
+            s_games = p.get("games") if isinstance(p.get("games"), list) else []
+            raw_games_list = t_games if len(t_games) >= len(s_games) else s_games
+            games_list = []
+            for g in raw_games_list:
+                if isinstance(g, dict):
+                    g_copy = dict(g)
+                    try:
+                        rnum = int(g.get("gameNum") or g.get("gameNumber") or 0)
+                        if g.get("pod") and event_max_swiss > 0 and rnum > 0:
+                            g_copy["effectiveRound"] = event_max_swiss + rnum
+                        elif rnum > 0:
+                            g_copy["effectiveRound"] = rnum
+                    except Exception:
+                        pass
+                    games_list.append(g_copy)
+
             for alias_id in (p.get("id"), p.get("playerId"), p.get("userId"), user.get("id")):
                 if alias_id:
                     aid_str = str(alias_id).strip()
                     mapping[aid_str] = canonical_id
-                    if isinstance(games_list, list) and games_list:
+                    if games_list:
                         mapping[f"games:{aid_str}"] = games_list
-            if isinstance(games_list, list) and games_list:
+            if games_list:
                 mapping[f"games:{canonical_id}"] = games_list
             if full_name and full_name.lower() not in ("player", "player 1", "player 2", "bye"):
                 mapping[f"fullname:{canonical_id}"] = full_name
@@ -820,7 +849,7 @@ class BestCoastPairingsScraper:
             p1_games = roster_id_map.get(f"games:{p1_user_id}") or roster_id_map.get(f"games:{p1_reg_id}")
             if isinstance(p1_games, list):
                 for g in p1_games:
-                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(round_num):
+                    if isinstance(g, dict) and int(g.get("effectiveRound") or (0 if g.get("pod") else (g.get("gameNum") or g.get("gameNumber") or 0))) == int(round_num):
                         if p1_score is None and g.get("gamePoints") is not None:
                             try: p1_score = int(g.get("gamePoints"))
                             except Exception: pass
@@ -833,7 +862,7 @@ class BestCoastPairingsScraper:
             p2_games = roster_id_map.get(f"games:{p2_user_id}") or roster_id_map.get(f"games:{p2_reg_id}")
             if isinstance(p2_games, list):
                 for g in p2_games:
-                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(round_num):
+                    if isinstance(g, dict) and int(g.get("effectiveRound") or (0 if g.get("pod") else (g.get("gameNum") or g.get("gameNumber") or 0))) == int(round_num):
                         if p2_score is None and g.get("gamePoints") is not None:
                             try: p2_score = int(g.get("gamePoints"))
                             except Exception: pass

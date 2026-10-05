@@ -919,6 +919,21 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
         except Exception as e:
             logger.debug(f"DB ratings read-only lookup notice: {e}")
 
+    event_max_swiss = 0
+    for p in raw_players:
+        if not isinstance(p, dict):
+            continue
+        t_g = p.get("total_games") if isinstance(p.get("total_games"), list) else []
+        s_g = p.get("games") if isinstance(p.get("games"), list) else []
+        for g in (t_g if len(t_g) >= len(s_g) else s_g):
+            if isinstance(g, dict) and not g.get("pod"):
+                try:
+                    gn = int(g.get("gameNum") or g.get("gameNumber") or 0)
+                    if gn > event_max_swiss:
+                        event_max_swiss = gn
+                except (ValueError, TypeError):
+                    pass
+
     formatted = []
     for idx, p in enumerate(raw_players):
         u = p.get("user") or {}
@@ -1032,24 +1047,35 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
 
         t_games = p.get("total_games") if isinstance(p.get("total_games"), list) else []
         s_games = p.get("games") if isinstance(p.get("games"), list) else []
-        raw_games = t_games if len(t_games) >= len(s_games) else s_games
-        if isinstance(raw_games, list) and raw_games:
+        raw_games_src = t_games if len(t_games) >= len(s_games) else s_games
+        raw_games = []
+        if isinstance(raw_games_src, list) and raw_games_src:
             g_wins = 0
             g_losses = 0
             g_draws = 0
             g_bps = 0
-            for g in raw_games:
+            for g in raw_games_src:
                 if isinstance(g, dict):
-                    res_val = g.get("gameResult")
+                    g_copy = dict(g)
+                    try:
+                        gn = int(g_copy.get("gameNum") or g_copy.get("gameNumber") or 0)
+                    except (ValueError, TypeError):
+                        gn = 0
+                    if g_copy.get("pod") and event_max_swiss > 0 and gn > 0:
+                        g_copy["effectiveRound"] = event_max_swiss + gn
+                    else:
+                        g_copy["effectiveRound"] = gn
+                    raw_games.append(g_copy)
+                    res_val = g_copy.get("gameResult")
                     if res_val == 2:
                         g_wins += 1
                     elif res_val == 0:
                         g_losses += 1
                     elif res_val == 1:
                         g_draws += 1
-                    if g.get("gamePoints") is not None:
+                    if g_copy.get("gamePoints") is not None:
                         try:
-                            g_bps += int(g["gamePoints"])
+                            g_bps += int(g_copy["gamePoints"])
                         except Exception:
                             pass
             wins = g_wins
@@ -1594,7 +1620,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 p2_res = None
                 if isinstance(p1_reg.get("games"), list):
                     for g in p1_reg["games"]:
-                        if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == r_num:
+                        if isinstance(g, dict) and int(g.get("effectiveRound") or (0 if g.get("pod") else (g.get("gameNum") or g.get("gameNumber") or 0))) == r_num:
                             if g.get("gamePoints") is not None:
                                 try: m["player1_score"] = int(g["gamePoints"])
                                 except Exception: pass
@@ -1605,7 +1631,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
 
                 if isinstance(p2_reg.get("games"), list):
                     for g in p2_reg["games"]:
-                        if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == r_num:
+                        if isinstance(g, dict) and int(g.get("effectiveRound") or (0 if g.get("pod") else (g.get("gameNum") or g.get("gameNumber") or 0))) == r_num:
                             if g.get("gamePoints") is not None:
                                 try: m["player2_score"] = int(g["gamePoints"])
                                 except Exception: pass
@@ -1784,7 +1810,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                             p1_result = p1_game.get("result")
                             if (p1_score is None or p1_result is None) and isinstance(p1_reg.get("games"), list):
                                 for g in p1_reg["games"]:
-                                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(r):
+                                    if isinstance(g, dict) and int(g.get("effectiveRound") or (0 if g.get("pod") else (g.get("gameNum") or g.get("gameNumber") or 0))) == int(r):
                                         if p1_score is None and g.get("gamePoints") is not None:
                                             try: p1_score = int(g["gamePoints"])
                                             except Exception: pass
@@ -1803,7 +1829,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                             p2_result = p2_game.get("result")
                             if (p2_score is None or p2_result is None) and isinstance(p2_reg.get("games"), list):
                                 for g in p2_reg["games"]:
-                                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(r):
+                                    if isinstance(g, dict) and int(g.get("effectiveRound") or (0 if g.get("pod") else (g.get("gameNum") or g.get("gameNumber") or 0))) == int(r):
                                         if p2_score is None and g.get("gamePoints") is not None:
                                             try: p2_score = int(g["gamePoints"])
                                             except Exception: pass

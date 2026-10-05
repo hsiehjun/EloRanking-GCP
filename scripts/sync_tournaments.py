@@ -52,6 +52,12 @@ def run_tournament_sync(game_system: str = "all", days: int = 3, max_events: Opt
         total_matches += m_aos
         logger.info(f"✅ [AOS] Scraped {e_aos} events, {m_aos} matches.")
 
+    try:
+        from scripts.repair_matches_and_elo import ensure_startup_elo_repair_migration
+        ensure_startup_elo_repair_migration(db)
+    except Exception as rep_err:
+        logger.warning(f"Notice during BCP pairing & Elo repair migration check: {rep_err}")
+
     logger.info(f"📈 Recalculating Elo ratings incrementally for game system(s): {target_sys}...")
     engine = get_elo_engine()
     recon_res = engine.reconstruct_incremental(game_system=target_sys)
