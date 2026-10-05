@@ -63,7 +63,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-REPAIR_MIGRATION_KEY = "bcp_pairing_elo_repair_v1"
+REPAIR_MIGRATION_KEY = "bcp_pairing_elo_repair_v2"
 ALWAYS_CHECK_EVENT_IDS = ("7ohG0RuDqC1k",)
 
 _REPAIR_LOCK = threading.Lock()
@@ -79,6 +79,41 @@ _REPAIR_STATUS: Dict[str, Any] = {
 def get_repair_status() -> Dict[str, Any]:
     """Return a snapshot of the current/last background repair job status."""
     return dict(_REPAIR_STATUS)
+
+
+def _db_get_setting(db: Any, key: str) -> Optional[str]:
+    if hasattr(db, "get_setting"):
+        return db.get_setting(key)
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT value FROM system_settings WHERE key = %s;", (str(key),))
+                row = cur.fetchone()
+                if row is not None:
+                    return row[0] if isinstance(row, (list, tuple)) else row.get("value")
+    except Exception:
+        pass
+    return None
+
+
+def _db_set_setting(db: Any, key: str, value: str) -> bool:
+    if hasattr(db, "set_setting"):
+        return bool(db.set_setting(key, value))
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO system_settings (key, value, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
+                    """,
+                    (str(key), str(value)),
+                )
+            conn.commit()
+        return True
+    except Exception:
+        return False
 
 
 def _compute_authoritative_outcome(
@@ -199,7 +234,7 @@ def find_candidate_event_ids(
     days: Optional[int] = None,
     scan_all: bool = False,
 ) -> List[str]:
-    """Identify BCP event IDs in PostgreSQL that may contain stale `metaData` match results."""
+    """Identify BCP event IDs in PostgreSQL where any player's match results may be corrupted."""
     if explicit_event_ids:
         cleaned = [str(eid).strip() for eid in explicit_event_ids if str(eid).strip()]
         return list(dict.fromkeys(cleaned))
@@ -220,10 +255,10 @@ def find_candidate_event_ids(
                 cur.execute("""
                     SELECT DISTINCT m.event_id
                     FROM matches m
-                    LEFT JOIN events e ON m.event_id = e.id
                     WHERE m.event_id IS NOT NULL
                       AND m.event_id != ''
-                      AND COALESCE(e.source, 'BCP') = 'BCP';
+                      AND m.event_id NOT LIKE 'ES-%%'
+                      AND m.event_id NOT LIKE 'native_%%';
                 """)
                 for (eid,) in cur.fetchall():
                     if eid:
@@ -235,11 +270,11 @@ def find_candidate_event_ids(
                     """
                     SELECT DISTINCT m.event_id
                     FROM matches m
-                    LEFT JOIN events e ON m.event_id = e.id
                     WHERE m.event_id IS NOT NULL
                       AND m.event_id != ''
-                      AND COALESCE(e.source, 'BCP') = 'BCP'
-                      AND m.match_date >= (NOW() - (%s || ' days')::INTERVAL)::TEXT;
+                      AND m.event_id NOT LIKE 'ES-%%'
+                      AND m.event_id NOT LIKE 'native_%%'
+                      AND m.match_date >= NOW() - (%s * INTERVAL '1 day');
                     """,
                     (int(days),),
                 )
@@ -247,38 +282,88 @@ def find_candidate_event_ids(
                     if eid:
                         event_ids.add(str(eid))
 
-            # 1. Events where any match has legacy `metaData` gamePoints/gameResult in raw_json
+            # 1. All-Time Battle Points Mismatch across ANY player in ANY tournament:
+            #    Compares each player's official tournament `battle_points` in `event_participants`
+            #    against the sum of their round-by-round scores in `matches`.
+            #    Whenever `metaData` had stale/swapped points for ANY player, this detects the event.
+            cur.execute("""
+                WITH player_match_totals AS (
+                    SELECT event_id, player_id, SUM(score) AS match_bp
+                    FROM (
+                        SELECT event_id, player1_id AS player_id, COALESCE(player1_score, 0) AS score
+                        FROM matches
+                        WHERE event_id IS NOT NULL AND player1_id IS NOT NULL
+                        UNION ALL
+                        SELECT event_id, player2_id AS player_id, COALESCE(player2_score, 0) AS score
+                        FROM matches
+                        WHERE event_id IS NOT NULL AND player2_id IS NOT NULL AND is_bye = FALSE
+                    ) s
+                    GROUP BY event_id, player_id
+                )
+                SELECT DISTINCT ep.event_id
+                FROM event_participants ep
+                JOIN player_match_totals pmt
+                  ON ep.event_id = pmt.event_id AND ep.player_id = pmt.player_id
+                WHERE ep.event_id NOT LIKE 'ES-%%'
+                  AND ep.event_id NOT LIKE 'native_%%'
+                  AND ep.battle_points IS NOT NULL
+                  AND ep.battle_points > 0
+                  AND ep.battle_points != pmt.match_bp;
+            """)
+            for (eid,) in cur.fetchall():
+                if eid:
+                    event_ids.add(str(eid))
+
+            # 2. All-Time Score vs Winner Contradiction in `matches`:
+            #    Any match where the recorded winner has a lower score than the loser, or a non-equal draw.
             cur.execute("""
                 SELECT DISTINCT m.event_id
                 FROM matches m
-                LEFT JOIN events e ON m.event_id = e.id
                 WHERE m.event_id IS NOT NULL
                   AND m.event_id != ''
-                  AND COALESCE(e.source, 'BCP') = 'BCP'
+                  AND m.event_id NOT LIKE 'ES-%%'
+                  AND m.event_id NOT LIKE 'native_%%'
                   AND m.is_bye = FALSE
-                  AND m.raw_json IS NOT NULL
+                  AND m.player1_score IS NOT NULL
+                  AND m.player2_score IS NOT NULL
                   AND (
-                      m.raw_json->'metaData'->>'p1-gamePoints' IS NOT NULL
-                      OR m.raw_json->'metaData'->>'p2-gamePoints' IS NOT NULL
-                      OR m.raw_json->'metaData'->>'p1-gameResult' IS NOT NULL
-                      OR m.raw_json->'metaData'->>'p2-gameResult' IS NOT NULL
+                      (m.winner_id = m.player1_id AND m.player1_score < m.player2_score)
+                      OR (m.winner_id = m.player2_id AND m.player2_score < m.player1_score)
+                      OR (m.is_draw = TRUE AND m.player1_score != m.player2_score)
                   );
             """)
             for (eid,) in cur.fetchall():
                 if eid:
                     event_ids.add(str(eid))
 
-            # 2. Completed BCP events that still have unscored / unfinished non-bye matches
+            # 3. All BCP events played or scraped during the `metaData` priority window (Sep 7, 2026 -> Present):
+            #    Ensures every tournament scraped while `metaData` had precedence (commit ac57bc5 -> dcc9b15)
+            #    is verified against BCP's authoritative per-player `games` records.
             cur.execute("""
-                SELECT DISTINCT m.event_id
-                FROM matches m
-                JOIN events e ON m.event_id = e.id
-                WHERE COALESCE(e.source, 'BCP') = 'BCP'
-                  AND COALESCE(e.ended, FALSE) = TRUE
+                SELECT DISTINCT e.id
+                FROM events e
+                JOIN matches m ON m.event_id = e.id
+                WHERE e.id NOT LIKE 'ES-%%'
+                  AND e.id NOT LIKE 'native_%%'
+                  AND (
+                      e.event_date >= '2026-09-07'::timestamptz
+                      OR e.scraped_at >= '2026-09-07'::timestamptz
+                  )
                   AND m.is_bye = FALSE
                   AND (
-                      m.is_done = FALSE
-                      OR (m.winner_id IS NULL AND m.is_draw = FALSE)
+                      (
+                          m.raw_json IS NOT NULL
+                          AND (
+                              m.raw_json->'metaData'->>'p1-gamePoints' IS NOT NULL
+                              OR m.raw_json->'metaData'->>'p2-gamePoints' IS NOT NULL
+                              OR m.raw_json->'metaData'->>'p1-gameResult' IS NOT NULL
+                              OR m.raw_json->'metaData'->>'p2-gameResult' IS NOT NULL
+                          )
+                      )
+                      OR (
+                          COALESCE(e.is_ended, FALSE) = TRUE
+                          AND (m.is_done = FALSE OR (m.winner_id IS NULL AND m.is_draw = FALSE))
+                      )
                   );
             """)
             for (eid,) in cur.fetchall():
@@ -292,9 +377,28 @@ def _fetch_event_authoritative_data(
     scraper: BestCoastPairingsScraper,
     event_id: str,
 ) -> Tuple[str, Dict[str, Any], Dict[str, List[Dict[str, Any]]], Optional[str]]:
-    """Fetch BCP `/players` roster for `event_id` and build ID and name lookup maps."""
+    """Fetch BCP `/players?placings=true` roster for `event_id` and build ID and name lookup maps."""
     try:
-        roster = scraper.fetch_event_players(event_id)
+        # Fast single-request fetch to `/events/{event_id}/players?limit=2500&placings=true`
+        # which contains `games` and `total_games` for every competitor.
+        roster: List[Dict[str, Any]] = []
+        make_req = getattr(scraper, "_make_request", None)
+        if callable(make_req) and type(make_req).__name__ not in ("MagicMock", "NonCallableMagicMock"):
+            resp = make_req(
+                f"/events/{event_id}/players",
+                params={"limit": 2500, "placings": "true"},
+            )
+            if isinstance(resp, dict):
+                if isinstance(resp.get("active"), list):
+                    roster = resp["active"]
+                elif isinstance(resp.get("data"), list):
+                    roster = resp["data"]
+                elif isinstance(resp.get("players"), list):
+                    roster = resp["players"]
+            elif isinstance(resp, list):
+                roster = resp
+        if not roster:
+            roster = scraper.fetch_event_players(event_id)
         if not isinstance(roster, list) or not roster:
             return event_id, {}, {}, None
         roster_id_map = scraper.build_roster_id_map(roster)
@@ -318,7 +422,7 @@ def repair_historical_matches_and_elo(
     scan_all: bool = False,
     reconstruct: bool = True,
     force_reconstruct: bool = False,
-    max_workers: int = 10,
+    max_workers: int = 16,
 ) -> Dict[str, Any]:
     """Reconcile historical BCP matches against authoritative per-player game records and rebuild Elo."""
     if not _REPAIR_LOCK.acquire(blocking=False):
@@ -335,7 +439,7 @@ def repair_historical_matches_and_elo(
 
     try:
         db = db or get_db()
-        scraper = BestCoastPairingsScraper(db=db)
+        scraper = BestCoastPairingsScraper(db=db, request_delay=0.05)
 
         candidates = find_candidate_event_ids(
             db=db,
@@ -352,7 +456,7 @@ def repair_historical_matches_and_elo(
         fetch_errors: Dict[str, str] = {}
 
         if candidates:
-            workers = max(1, min(int(max_workers or 8), len(candidates), 16))
+            workers = max(1, min(int(max_workers or 16), len(candidates), 24))
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 futures = {
                     pool.submit(_fetch_event_authoritative_data, scraper, eid): eid
@@ -652,6 +756,21 @@ def repair_historical_matches_and_elo(
         }
         _REPAIR_STATUS["last_result"] = result
         _REPAIR_STATUS["last_completed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        if not event_ids and should_reconstruct:
+            _db_set_setting(db, REPAIR_MIGRATION_KEY, "completed")
+            _db_set_setting(
+                db,
+                f"{REPAIR_MIGRATION_KEY}_summary",
+                json.dumps(
+                    {
+                        "completed_at": _REPAIR_STATUS["last_completed_at"],
+                        "candidate_events_scanned": len(candidates),
+                        "matches_repaired": len(updates_to_apply),
+                        "events_repaired": sorted(repaired_event_ids),
+                        "elapsed_seconds": elapsed,
+                    }
+                ),
+            )
         logger.info(
             f"[RepairMatchesElo] Completed in {elapsed}s: {len(updates_to_apply)} matches repaired across {len(repaired_event_ids)} events (reconstructed={should_reconstruct})."
         )
@@ -670,7 +789,7 @@ def ensure_startup_elo_repair_migration(db: Optional[Database] = None) -> bool:
     """Run the one-time retroactive BCP pairing & Elo repair if not yet marked completed in `system_settings`."""
     db = db or get_db()
     try:
-        status_val = db.get_setting(REPAIR_MIGRATION_KEY)
+        status_val = _db_get_setting(db, REPAIR_MIGRATION_KEY)
         if status_val == "completed":
             return False
 
@@ -689,7 +808,7 @@ def ensure_startup_elo_repair_migration(db: Optional[Database] = None) -> bool:
                 return False
             try:
                 # Re-check after acquiring lock
-                if db.get_setting(REPAIR_MIGRATION_KEY) == "completed":
+                if _db_get_setting(db, REPAIR_MIGRATION_KEY) == "completed":
                     return False
 
                 logger.info(
@@ -701,8 +820,9 @@ def ensure_startup_elo_repair_migration(db: Optional[Database] = None) -> bool:
                     force_reconstruct=True,
                 )
                 if res.get("status") == "success":
-                    db.set_setting(REPAIR_MIGRATION_KEY, "completed")
-                    db.set_setting(
+                    _db_set_setting(db, REPAIR_MIGRATION_KEY, "completed")
+                    _db_set_setting(
+                        db,
                         f"{REPAIR_MIGRATION_KEY}_summary",
                         json.dumps(
                             {

@@ -404,13 +404,17 @@ async def api_admin_repair_matches_elo_status(
 ):
     if not _is_admin_or_cron_request(request, token=token, secret=secret):
         raise HTTPException(status_code=403, detail="Admin session or valid X-Cron-Secret required.")
-    from scripts.repair_matches_and_elo import REPAIR_MIGRATION_KEY, get_repair_status
+    from scripts.repair_matches_and_elo import (
+        REPAIR_MIGRATION_KEY,
+        _db_get_setting,
+        get_repair_status,
+    )
 
     db = get_database()
     return {
         "migration_key": REPAIR_MIGRATION_KEY,
-        "migration_state": db.get_setting(REPAIR_MIGRATION_KEY),
-        "migration_summary": db.get_setting(f"{REPAIR_MIGRATION_KEY}_summary"),
+        "migration_state": _db_get_setting(db, REPAIR_MIGRATION_KEY),
+        "migration_summary": _db_get_setting(db, f"{REPAIR_MIGRATION_KEY}_summary"),
         "live_status": get_repair_status(),
     }
 

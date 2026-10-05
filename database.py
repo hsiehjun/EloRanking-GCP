@@ -305,6 +305,41 @@ class PostgresDatabase:
         except Exception:
             pass
 
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Read a key from the `system_settings` table."""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT value FROM system_settings WHERE key = %s;", (str(key),))
+                    row = cur.fetchone()
+                    if row is not None:
+                        return row[0] if isinstance(row, (list, tuple)) else row.get("value")
+        except Exception as e:
+            logger.debug(f"get_setting({key}) notice: {e}")
+        return default
+
+    def set_setting(self, key: str, value: str, updated_by_user_id: Optional[str] = None) -> bool:
+        """Upsert a key-value pair into the `system_settings` table."""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO system_settings (key, value, updated_at, updated_by_user_id)
+                        VALUES (%s, %s, NOW(), %s)
+                        ON CONFLICT (key) DO UPDATE SET
+                            value = EXCLUDED.value,
+                            updated_at = NOW(),
+                            updated_by_user_id = COALESCE(EXCLUDED.updated_by_user_id, system_settings.updated_by_user_id);
+                        """,
+                        (str(key), str(value), updated_by_user_id),
+                    )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.warning(f"set_setting({key}) error: {e}")
+            return False
+
     def _heal_unlinked_user_profiles(self):
         """Cleanses legacy user rows that were auto-assigned player_ids prior to BCP verification."""
         try:
