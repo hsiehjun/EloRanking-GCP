@@ -618,6 +618,7 @@ DEV_ARMY_LISTS: list = []
 
 
 def dev_save_army_list(list_data: dict) -> dict:
+    """Normalizes army list in-memory and propagates live updates to active Game Tracker rooms (no backend persistence)."""
     if not isinstance(list_data, dict):
         return {}
     import uuid
@@ -649,18 +650,7 @@ def dev_save_army_list(list_data: dict) -> dict:
         item["created_at"] = item["updated_at"]
 
     target_lkey = str(item.get("list_key") or "")
-    replaced = False
-    for idx, existing in enumerate(DEV_ARMY_LISTS):
-        ex_id = str(existing.get("id") or "")
-        ex_lkey = str(existing.get("list_key") or (ex_id[3:] if ex_id.startswith("nr_") else ""))
-        if ex_id == lid or (target_lkey and ex_lkey == target_lkey):
-            DEV_ARMY_LISTS[idx] = item
-            replaced = True
-            break
-    if not replaced:
-        DEV_ARMY_LISTS.insert(0, item)
-
-    # Also propagate live updates to any active Game Tracker room using this list
+    # Propagate live updates to any active Game Tracker room using this list
     for room_data in list(ROOMS_DB.values()):
         if not isinstance(room_data, dict):
             continue
@@ -682,12 +672,6 @@ def dev_delete_army_list(list_id: str) -> bool:
     raw_key = re.sub(r"^(nr_|list_)", "", clean_key)
     nr_key = f"nr_{raw_key}"
     list_key_pref = f"list_{raw_key}"
-    before_len = len(DEV_ARMY_LISTS)
-    DEV_ARMY_LISTS[:] = [
-        item for item in DEV_ARMY_LISTS
-        if str(item.get("id") or "") not in (clean_key, raw_key, nr_key, list_key_pref)
-        and str(item.get("list_key") or "") not in (clean_key, raw_key)
-    ]
     for room_data in list(ROOMS_DB.values()):
         if isinstance(room_data, dict):
             for slot_key in ("p1_army_list", "p2_army_list"):
@@ -697,11 +681,11 @@ def dev_delete_army_list(list_id: str) -> bool:
                     c_key = str(cur_slot.get("list_key") or "")
                     if c_id in (clean_key, raw_key, nr_key, list_key_pref) or c_key in (clean_key, raw_key):
                         room_data[slot_key] = None
-    return len(DEV_ARMY_LISTS) < before_len
+    return True
 
 
 def dev_get_army_lists() -> list:
-    return list(DEV_ARMY_LISTS)
+    return []
 
 
 _DEV_PLAYER_BADGE_CACHE = {}
@@ -1039,12 +1023,15 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 p_load = json.loads(body.decode("utf-8")) if body else {}
             except Exception:
                 p_load = {}
-            raw_text = p_load.get("text") or p_load.get("raw_text") or ""
+            raw_text = str(p_load.get("text") or p_load.get("raw_text") or p_load.get("url") or "").strip()
             source_hint = p_load.get("format")
             from army_list_parser import get_parser
             from newrecruit_integration import build_synthetic_nr_row
             parser = get_parser()
-            parsed = parser.parse(raw_text, source_hint=source_hint, enrich=False)
+            if raw_text.startswith(("http://", "https://")) and "newrecruit" in raw_text.lower() and hasattr(parser, "parse_url"):
+                parsed = parser.parse_url(raw_text)
+            else:
+                parsed = parser.parse(raw_text, source_hint=source_hint, enrich=False)
             nr_row = build_synthetic_nr_row(parsed)
             parsed["list_key"] = nr_row.get("list_key")
             parsed["nr_row"] = nr_row
@@ -5393,23 +5380,137 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(payload_bytes)
             return
 
-        if clean_path.startswith("api/scorecard/"):
-            match_id = clean_path.replace("api/scorecard/", "").strip("/")
-            room_data = ROOMS_DB.get(match_id, {})
+        if clean_path == "api/head_to_head" or clean_path.startswith("api/head_to_head"):
+            qp = urllib.parse.parse_qs(query_str)
+            p1_q = (qp.get("p1", [""])[0] or "").strip()
+            p2_q = (qp.get("p2", [""])[0] or "").strip()
+            p1_name_q = (qp.get("p1_name", [""])[0] or "").strip().lower()
+            p2_name_q = (qp.get("p2_name", [""])[0] or "").strip().lower()
+
+            def _matches_player(m_pid, m_name, target_pid, target_name):
+                if target_pid and m_pid and str(m_pid).strip() == str(target_pid).strip():
+                    return True
+                if target_name and m_name and str(m_name).strip().lower() == target_name:
+                    return True
+                return False
+
+            h2h_results = []
+            seen_ids = set()
+
+            # Check DEV_EVENT_CACHE for any recorded matches between these two players
+            for ev_id_key, ev_obj in list(DEV_EVENT_CACHE.items()):
+                if not isinstance(ev_obj, dict):
+                    continue
+                ev_name_str = ev_obj.get("name") or "Tournament"
+                ev_date_str = ev_obj.get("event_date") or ""
+                for m in (ev_obj.get("matches") or []):
+                    mp1_id = m.get("player1_id") or ""
+                    mp2_id = m.get("player2_id") or ""
+                    mp1_name = m.get("player1_name") or ""
+                    mp2_name = m.get("player2_name") or ""
+                    if (
+                        (_matches_player(mp1_id, mp1_name, p1_q, p1_name_q) and _matches_player(mp2_id, mp2_name, p2_q, p2_name_q))
+                        or (_matches_player(mp1_id, mp1_name, p2_q, p2_name_q) and _matches_player(mp2_id, mp2_name, p1_q, p1_name_q))
+                    ):
+                        mid = str(m.get("id") or f"{ev_id_key}-R{m.get('round')}-T{m.get('table_number') or m.get('table')}")
+                        if mid not in seen_ids:
+                            seen_ids.add(mid)
+                            h2h_results.append({
+                                **m,
+                                "event_id": ev_id_key,
+                                "event_name": ev_name_str,
+                                "match_date": m.get("match_date") or ev_date_str,
+                            })
+
+            # Seed historical past tournament encounters for flagship dev demo players (Innes Wilson vs Alex Spathopoulos)
+            if (
+                (_matches_player("p_innes", "innes wilson", p1_q, p1_name_q) and _matches_player("p_alex", "alex spathopoulos", p2_q, p2_name_q))
+                or (_matches_player("p_innes", "innes wilson", p2_q, p2_name_q) and _matches_player("p_alex", "alex spathopoulos", p1_q, p1_name_q))
+            ):
+                seed_matches = [
+                    {
+                        "id": "hist_lvo2026_r6_t1",
+                        "event_id": "ev_lvo_2026_champ",
+                        "event_name": "LVO 2026 Warhammer 40k Championship",
+                        "match_date": "2026-01-18",
+                        "round": 6,
+                        "table_number": 1,
+                        "table": 1,
+                        "player1_id": "p_innes",
+                        "player1_name": "Innes Wilson",
+                        "player1_faction": "Adeptus Custodes",
+                        "player1_score": 91,
+                        "player2_id": "p_alex",
+                        "player2_name": "Alex Spathopoulos",
+                        "player2_faction": "Chaos Space Marines",
+                        "player2_score": 84,
+                        "winner_id": "p_innes",
+                        "is_draw": False,
+                    },
+                    {
+                        "id": "hist_wcw2025_r5_t2",
+                        "event_id": "ev_wcw_2025_finals",
+                        "event_name": "World Championships of Warhammer",
+                        "match_date": "2025-11-22",
+                        "round": 5,
+                        "table_number": 2,
+                        "table": 2,
+                        "player1_id": "p_alex",
+                        "player1_name": "Alex Spathopoulos",
+                        "player1_faction": "Chaos Space Marines",
+                        "player1_score": 88,
+                        "player2_id": "p_innes",
+                        "player2_name": "Innes Wilson",
+                        "player2_faction": "Genestealer Cults",
+                        "player2_score": 79,
+                        "winner_id": "p_alex",
+                        "is_draw": False,
+                    },
+                ]
+                for sm in seed_matches:
+                    if sm["id"] not in seen_ids:
+                        seen_ids.add(sm["id"])
+                        h2h_results.append(sm)
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                st = room_data.get("state") if isinstance(room_data, dict) else None
+                self.wfile.write(json.dumps(h2h_results).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/scorecard/"):
+            match_id = clean_path.replace("api/scorecard/", "").strip("/")
+            room_data = ROOMS_DB.get(match_id) or ROOMS_DB.get(match_id.upper()) or {}
+            st = room_data.get("state") if isinstance(room_data, dict) else None
+            is_finished = bool(
+                room_data.get("is_finished", False)
+                or room_data.get("status") == "completed"
+                or (isinstance(st, dict) and (st.get("is_finished") or st.get("status") == "completed"))
+            )
+            if not is_finished or not st:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps({
+                        "detail": "Completed scorecard not found in database for this match ID"
+                    }).encode("utf-8"))
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
                 sys_id = (room_data.get("game_system") if isinstance(room_data, dict) else None) or (st.get("gameSystem") if isinstance(st, dict) else None) or ("aos" if match_id.startswith("AOS-") else "40k")
                 self.wfile.write(json.dumps({
                     "success": True,
                     "match_id": match_id,
                     "game_system": sys_id,
-                    "game_record": None,
+                    "game_record": room_data,
                     "state": st,
-                    "is_finished": bool(room_data.get("is_finished", False)),
-                    "status": room_data.get("status", "active")
+                    "is_finished": True,
+                    "status": "completed",
+                    "source": "tracker_games"
                 }).encode("utf-8"))
             return
 
@@ -5720,21 +5821,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path == "api/armylists/nr_state":
             from newrecruit_integration import get_nr_state_payload
-            saved_lists = list(dev_get_army_lists() or [])
-            saved_ids = {str(x.get("id") or "") for x in saved_lists if isinstance(x, dict)}
-            saved_keys = {str(x.get("list_key") or "") for x in saved_lists if isinstance(x, dict) and x.get("list_key")}
-            combined_lists = list(saved_lists)
-            for r_data in list(ROOMS_DB.values()):
-                if isinstance(r_data, dict):
-                    for k in ("p1_army_list", "p2_army_list"):
-                        rl = r_data.get(k)
-                        if isinstance(rl, dict) and rl:
-                            rl_id = str(rl.get("id") or "")
-                            rl_key = str(rl.get("list_key") or "")
-                            if rl_id not in saved_ids and (not rl_key or rl_key not in saved_keys):
-                                combined_lists.append(dict(rl, _ephemeral_view=True))
             nr_user_key = self.headers.get("X-Test-User") or DEV_USER.get("id", "user_innes")
-            payload = get_nr_state_payload(combined_lists, nr_user_key)
+            payload = get_nr_state_payload([], nr_user_key)
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -5743,25 +5831,51 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path == "api/armylists":
-            lists = dev_get_army_lists()
+            from newrecruit_integration import fetch_nr_cloud_lists_for_user
+            nr_user_key = self.headers.get("X-Test-User") or DEV_USER.get("id", "user_innes")
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            game_sys = (qs.get("game_system") or [None])[0]
+            lists = fetch_nr_cloud_lists_for_user(
+                nr_user_key,
+                explicit_access=self.headers.get("X-NR-Access"),
+                game_system=game_sys,
+            )
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"success": True, "army_lists": lists, "lists": lists}, default=str).encode("utf-8"))
+                self.wfile.write(json.dumps({"success": True, "army_lists": lists, "lists": lists, "source": "newrecruit"}, default=str).encode("utf-8"))
             return
 
         if clean_path.startswith("api/armylists/") and clean_path not in ("api/armylists/nr_state", "api/armylists/nr_sync", "api/armylists/nr_cloud_connect", "api/armylists/nr_detachments"):
+            from newrecruit_integration import fetch_nr_cloud_lists_for_user
             lid = urllib.parse.unquote(clean_path.split("/", 2)[2])
             raw_key = re.sub(r"^(nr_|list_)", "", lid)
-            found = next(
-                (
-                    item for item in dev_get_army_lists()
-                    if str(item.get("id")) in (lid, raw_key, f"nr_{raw_key}", f"list_{raw_key}")
-                    or str(item.get("list_key")) in (lid, raw_key)
-                ),
-                None,
-            )
+            found = None
+            for r_data in list(ROOMS_DB.values()):
+                if isinstance(r_data, dict):
+                    for k in ("p1_army_list", "p2_army_list"):
+                        rl = r_data.get(k)
+                        if isinstance(rl, dict) and (
+                            str(rl.get("id")) in (lid, raw_key, f"nr_{raw_key}", f"list_{raw_key}")
+                            or str(rl.get("list_key")) in (lid, raw_key)
+                        ):
+                            found = rl
+                            break
+            if not found:
+                nr_user_key = self.headers.get("X-Test-User") or DEV_USER.get("id", "user_innes")
+                cloud_lists = fetch_nr_cloud_lists_for_user(
+                    nr_user_key,
+                    explicit_access=self.headers.get("X-NR-Access"),
+                )
+                found = next(
+                    (
+                        item for item in (cloud_lists or [])
+                        if str(item.get("id")) in (lid, raw_key, f"nr_{raw_key}", f"list_{raw_key}")
+                        or str(item.get("list_key")) in (lid, raw_key)
+                    ),
+                    None,
+                )
             if not found:
                 self.send_response(404)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -6019,6 +6133,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path in ("eventstudio", "eventstudio.html", "40k/eventstudio", "aos/eventstudio"):
             self._serve_html_with_auth(WEB_DIR / "eventstudio.html", is_head)
+            return
+
+        if clean_path in ("overlay", "overlay.html", "40k/overlay", "aos/overlay"):
+            self._serve_file(WEB_DIR / "overlay.html", "text/html; charset=utf-8", is_head)
             return
 
         if ".." in urllib.parse.unquote(self.path):

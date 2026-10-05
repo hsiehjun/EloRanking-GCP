@@ -745,6 +745,14 @@ async def serve_eventstudio(request: Request, token: Optional[str] = Query(None)
         return FileResponse(str(es_file), media_type="text/html")
     raise HTTPException(status_code=404, detail="eventstudio.html not found")
 
+@app.get("/overlay", include_in_schema=False)
+@app.get("/overlay.html", include_in_schema=False)
+async def serve_obs_overlay():
+    ov_file = web_dir / "overlay.html"
+    if ov_file.exists():
+        return FileResponse(str(ov_file), media_type="text/html", headers=NO_CACHE_HEADERS)
+    raise HTTPException(status_code=404, detail="overlay.html not found")
+
 NO_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, proxy-revalidate",
     "Pragma": "no-cache",

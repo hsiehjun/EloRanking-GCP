@@ -3426,6 +3426,177 @@ function getLocalNrCloudAccountFallback() {
   }
 }
 
+async function readSameOriginNewRecruitIdbRows() {
+  const rowsByKey = new Map();
+  // 1. Check live NewRecruit Studio iframe Pinia store if open
+  try {
+    const studioIframe = document.getElementById('hub-nr-studio-iframe');
+    const win = studioIframe && studioIframe.contentWindow;
+    const st = win && (win.__nr_stores || (win.__omnitacticaNrBridge && win.__omnitacticaNrBridge.getStores && win.__omnitacticaNrBridge.getStores()));
+    if (st && st.list && Array.isArray(st.list.listData)) {
+      for (const r of st.list.listData) {
+        if (r && (r.list_key || r._id) && !r._ephemeral_view && !r.deleted && !r.trashed) {
+          const lk = String(r.list_key || r._id).replace(/^(nr_|list_)/, '').trim();
+          if (lk) rowsByKey.set(lk, r);
+        }
+      }
+    }
+  } catch (e) {}
+
+  // 2. Read from same-origin browser IndexedDB ('nr' -> 'lists')
+  try {
+    let hasNrDb = true;
+    if (typeof indexedDB !== 'undefined' && typeof indexedDB.databases === 'function') {
+      const dbs = await indexedDB.databases();
+      const nrMeta = (dbs || []).find(d => d && d.name === 'nr');
+      if (!nrMeta) hasNrDb = false;
+    }
+    if (hasNrDb && typeof indexedDB !== 'undefined') {
+      await new Promise(resolve => {
+        let settled = false;
+        let dbRef = null;
+        const done = () => {
+          if (settled) return;
+          settled = true;
+          if (dbRef) {
+            try { dbRef.close(); } catch (e) {}
+          }
+          resolve();
+        };
+        setTimeout(done, 800);
+        const req = indexedDB.open('nr');
+        req.onupgradeneeded = (ev) => {
+          try { ev.target.transaction.abort(); } catch (e) {}
+          done();
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          dbRef = db;
+          if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('lists')) {
+            done();
+            return;
+          }
+          try {
+            const tx = db.transaction('lists', 'readonly');
+            const store = tx.objectStore('lists');
+            const allReq = store.getAll();
+            allReq.onsuccess = () => {
+              const allRows = allReq.result || [];
+              for (const r of allRows) {
+                if (r && (r.list_key || r._id) && !r._ephemeral_view && !r.deleted && !r.trashed) {
+                  const lk = String(r.list_key || r._id).replace(/^(nr_|list_)/, '').trim();
+                  if (lk && !rowsByKey.has(lk)) {
+                    rowsByKey.set(lk, r);
+                  }
+                }
+              }
+              done();
+            };
+            allReq.onerror = done;
+          } catch (e) {
+            done();
+          }
+        };
+        req.onerror = done;
+        req.onblocked = done;
+      });
+    }
+  } catch (e) {}
+
+  return Array.from(rowsByKey.values());
+}
+window.readSameOriginNewRecruitIdbRows = readSameOriginNewRecruitIdbRows;
+
+async function writeNrRowToSameOriginIdb(nrRow) {
+  if (!nrRow || typeof nrRow !== 'object') return false;
+  const lk = String(nrRow.list_key || nrRow._id || '').replace(/^(nr_|list_)/, '').trim();
+  if (!lk) return false;
+  const cleanRow = Object.assign({}, nrRow, { list_key: lk });
+  delete cleanRow._ephemeral_view;
+
+  try {
+    if (typeof indexedDB !== 'undefined') {
+      await new Promise(resolve => {
+        let settled = false;
+        let dbRef = null;
+        const done = () => {
+          if (settled) return;
+          settled = true;
+          if (dbRef) {
+            try { dbRef.close(); } catch (e) {}
+          }
+          resolve();
+        };
+        setTimeout(done, 800);
+        const req = indexedDB.open('nr');
+        req.onupgradeneeded = (ev) => {
+          const db = ev.target.result;
+          if (db && !db.objectStoreNames.contains('lists')) {
+            db.createObjectStore('lists', { keyPath: 'list_key' });
+          }
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          dbRef = db;
+          if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('lists')) {
+            done();
+            return;
+          }
+          try {
+            const tx = db.transaction('lists', 'readwrite');
+            const store = tx.objectStore('lists');
+            if (store.keyPath) {
+              store.put(cleanRow);
+            } else {
+              store.put(cleanRow, lk);
+            }
+            tx.oncomplete = done;
+            tx.onerror = done;
+          } catch (e) {
+            done();
+          }
+        };
+        req.onerror = done;
+        req.onblocked = done;
+      });
+    }
+  } catch (e) {}
+
+  try {
+    const studioIframe = document.getElementById('hub-nr-studio-iframe');
+    if (studioIframe && studioIframe.contentWindow) {
+      studioIframe.contentWindow.postMessage({
+        type: 'OMNITACTICA_NR_COMMAND',
+        command: 'upsert_list',
+        nr_row: cleanRow
+      }, '*');
+    }
+  } catch (e) {}
+  return true;
+}
+window.writeNrRowToSameOriginIdb = writeNrRowToSameOriginIdb;
+
+function mergeHubNewRecruitLists(localLists, cloudLists) {
+  const mergedMap = new Map();
+  const addItem = (item) => {
+    if (!item || typeof item !== 'object') return;
+    const lk = String(item.list_key || (item.nr_row && item.nr_row.list_key) || item.id || '').replace(/^(nr_|list_)/, '').trim();
+    if (!lk) return;
+    if (!mergedMap.has(lk)) {
+      mergedMap.set(lk, item);
+    } else {
+      const existing = mergedMap.get(lk);
+      // Prefer local list if it has more recent edits or units, while preserving Cloud badge if synced
+      if (item.source_format && String(item.source_format).includes('Cloud')) {
+        existing.source_format = item.source_format;
+      }
+    }
+  };
+  (Array.isArray(localLists) ? localLists : []).forEach(addItem);
+  (Array.isArray(cloudLists) ? cloudLists : []).forEach(addItem);
+  return Array.from(mergedMap.values());
+}
+
 async function loadHubArmyLists() {
   const container = document.getElementById('hub-armylists-list-container');
   if (!container) return;
@@ -3433,11 +3604,17 @@ async function loadHubArmyLists() {
   purgeLegacyHubArmyListCache();
 
   try {
-    const [res, nrState] = await Promise.all([
-      window.api.getArmyLists('all'),
+    const localRows = await readSameOriginNewRecruitIdbRows();
+    const [localSyncRes, cloudRes, nrState] = await Promise.all([
+      localRows.length > 0 && window.api.syncNewRecruitLists
+        ? window.api.syncNewRecruitLists({ action: 'bulk_sync', lists: localRows }).catch(() => null)
+        : Promise.resolve({ army_lists: [] }),
+      window.api.getArmyLists('all').catch(() => ({ army_lists: [] })),
       window.api.getNewRecruitState ? window.api.getNewRecruitState().catch(() => null) : Promise.resolve(null)
     ]);
-    const lists = (res && Array.isArray(res.army_lists)) ? res.army_lists : [];
+    const localLists = (localSyncRes && Array.isArray(localSyncRes.army_lists)) ? localSyncRes.army_lists : [];
+    const cloudLists = (cloudRes && Array.isArray(cloudRes.army_lists)) ? cloudRes.army_lists : [];
+    const lists = mergeHubNewRecruitLists(localLists, cloudLists);
     hubSavedLists = lists;
     window.hubSavedLists = lists;
     if (nrState && nrState.cloud_account) {
@@ -4343,12 +4520,41 @@ if (!window.__omnitacticaNrParentListenerBound) {
 
     if (msg.action === 'upsert' && msg.army_list) {
       clearHubListDeletedTombstone(msg.army_list.list_key || msg.army_list.id, msg.army_list.name);
+      const upItem = msg.army_list;
+      const upKey = String(upItem.list_key || (upItem.nr_row && upItem.nr_row.list_key) || upItem.id || '').replace(/^(nr_|list_)/, '').trim();
+      let replaced = false;
+      const nextLists = (Array.isArray(hubSavedLists) ? hubSavedLists : []).map(existing => {
+        const exKey = String(existing.list_key || (existing.nr_row && existing.nr_row.list_key) || existing.id || '').replace(/^(nr_|list_)/, '').trim();
+        if (upKey && exKey === upKey) {
+          replaced = true;
+          return upItem;
+        }
+        return existing;
+      });
+      if (!replaced) {
+        nextLists.unshift(upItem);
+      }
+      hubSavedLists = nextLists;
+      window.hubSavedLists = hubSavedLists;
+      renderHubArmyLists(hubSavedLists);
+      return;
     } else if (msg.action === 'delete' && msg.list_key) {
       markHubListDeletedTombstone(msg.list_key, '');
+      const delKey = String(msg.list_key || '').replace(/^(nr_|list_)/, '').trim();
+      hubSavedLists = (Array.isArray(hubSavedLists) ? hubSavedLists : []).filter(existing => {
+        const exKey = String(existing.list_key || (existing.nr_row && existing.nr_row.list_key) || existing.id || '').replace(/^(nr_|list_)/, '').trim();
+        return !delKey || exKey !== delKey;
+      });
+      window.hubSavedLists = hubSavedLists;
+      renderHubArmyLists(hubSavedLists);
+      return;
     }
 
     if (Array.isArray(msg.army_lists)) {
-      hubSavedLists = msg.army_lists.filter(l => !isHubListTombstoned(l));
+      const existingCloudOnly = (Array.isArray(hubSavedLists) ? hubSavedLists : []).filter(
+        l => l && l.source_format && String(l.source_format).includes('Cloud')
+      );
+      hubSavedLists = mergeHubNewRecruitLists(msg.army_lists.filter(l => !isHubListTombstoned(l)), existingCloudOnly);
       window.hubSavedLists = hubSavedLists;
       renderHubArmyLists(hubSavedLists);
     } else {
@@ -4499,12 +4705,7 @@ async function submitNewRecruitCloudConnect() {
       last_sync: res.last_sync
     };
     updateHubNrSyncPill();
-    if (Array.isArray(res.army_lists)) {
-      hubSavedLists = res.army_lists;
-      renderHubArmyLists(hubSavedLists);
-    } else {
-      await loadHubArmyLists();
-    }
+    await loadHubArmyLists();
     closeNewRecruitCloudModal();
   } catch (e) {
     if (msgEl) {
@@ -4529,12 +4730,7 @@ async function triggerNewRecruitCloudSync() {
   try {
     const res = await window.api.connectNewRecruitCloud({ action: 'sync' });
     if (res && res.success) {
-      if (Array.isArray(res.army_lists)) {
-        hubSavedLists = res.army_lists;
-        renderHubArmyLists(hubSavedLists);
-      } else {
-        await loadHubArmyLists();
-      }
+      await loadHubArmyLists();
       closeNewRecruitCloudModal();
     }
   } catch (e) {
@@ -4556,6 +4752,7 @@ async function disconnectNewRecruitCloud() {
     await window.api.connectNewRecruitCloud({ action: 'disconnect' });
     hubNrCloudAccount = { connected: false, login: '', last_sync: null };
     updateHubNrSyncPill();
+    await loadHubArmyLists();
     closeNewRecruitCloudModal();
   } catch (e) {}
 }
@@ -4576,12 +4773,11 @@ async function handleNewRecruitShareUrlSync() {
     if (!res || !res.success) {
       throw new Error((res && res.error) || 'Could not sync NewRecruit link');
     }
-    if (Array.isArray(res.army_lists)) {
-      hubSavedLists = res.army_lists;
-      renderHubArmyLists(hubSavedLists);
-    } else {
-      await loadHubArmyLists();
+    const syncedItem = res.army_list || (Array.isArray(res.army_lists) && res.army_lists[0]);
+    if (syncedItem && syncedItem.nr_row) {
+      await writeNrRowToSameOriginIdb(syncedItem.nr_row);
     }
+    await loadHubArmyLists();
     closeNewRecruitCloudModal();
   } catch (e) {
     if (msgEl) {

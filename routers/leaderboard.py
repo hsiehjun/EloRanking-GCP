@@ -2114,8 +2114,22 @@ async def api_cron_sync_tournaments(
 
 # API: Past Head-to-Head Encounters
 @router.get("/api/head_to_head", summary="Get head-to-head encounters between two players")
-async def api_head_to_head(p1: str = Query(...), p2: str = Query(...), game_system: Optional[str] = Query("40k")):
-    return get_database().get_head_to_head(p1.strip(), p2.strip(), game_system=game_system)
+async def api_head_to_head(
+    p1: str = Query(...),
+    p2: str = Query(...),
+    p1_name: Optional[str] = Query(None),
+    p2_name: Optional[str] = Query(None),
+    game_system: Optional[str] = Query("40k")
+):
+    def _run_h2h():
+        return get_database().get_head_to_head(
+            p1.strip(),
+            p2.strip(),
+            game_system=game_system,
+            p1_name=p1_name.strip() if p1_name else None,
+            p2_name=p2_name.strip() if p2_name else None
+        )
+    return await asyncio.to_thread(_run_h2h)
 
 # API: Unique Factions
 @router.get("/api/factions", summary="List all active Warhammer factions")

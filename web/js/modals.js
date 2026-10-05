@@ -1422,16 +1422,31 @@ async function openScorecardModal(matchId) {
       if (!evMatch) throw apiErr;
       data = {};
     }
-    const rec = data.game_record || {};
-    const st = data.state || {};
-    const game = st.game || rec.state_json?.game || {};
 
-    const p1Name = game.p1Name || rec.p1_name || evMatch?.player1_name || 'Player 1';
-    const p2Name = game.p2Name || rec.p2_name || evMatch?.player2_name || 'Player 2';
-    const p1Fac = game.p1Faction || rec.p1_faction || evMatch?.player1_faction || evP1?.faction || 'Warhammer 40k';
-    const p2Fac = game.p2Faction || rec.p2_faction || evMatch?.player2_faction || evP2?.faction || 'Warhammer 40k';
-    const p1Det = (Array.isArray(game.p1Detachments) && game.p1Detachments[0]) || rec.p1_detachment || evMatch?.player1_detachment || evP1?.detachment || '';
-    const p2Det = (Array.isArray(game.p2Detachments) && game.p2Detachments[0]) || rec.p2_detachment || evMatch?.player2_detachment || evP2?.detachment || '';
+    // Only show our OmniTactica turn-by-turn scorecard when the game is finalized/submitted
+    // and saved in our actual PostgreSQL database (tracker_games), NEVER from unsubmitted Firestore rooms.
+    const isSubmittedDbScorecard = Boolean(
+      data &&
+      data.source === 'tracker_games' &&
+      data.is_finished === true &&
+      (data.game_record || data.state)
+    );
+
+    const bcpMatchRec = evMatch || data.bcp_match || null;
+    if (!isSubmittedDbScorecard && !bcpMatchRec) {
+      throw new Error('Completed scorecard not found for this match.');
+    }
+
+    const rec = isSubmittedDbScorecard ? (data.game_record || {}) : {};
+    const st = isSubmittedDbScorecard ? (data.state || {}) : {};
+    const game = isSubmittedDbScorecard ? (st.game || rec.state_json?.game || {}) : {};
+
+    const p1Name = (isSubmittedDbScorecard && (game.p1Name || rec.p1_name)) || bcpMatchRec?.player1_name || 'Player 1';
+    const p2Name = (isSubmittedDbScorecard && (game.p2Name || rec.p2_name)) || bcpMatchRec?.player2_name || 'Player 2';
+    const p1Fac = (isSubmittedDbScorecard && (game.p1Faction || rec.p1_faction)) || bcpMatchRec?.player1_faction || evP1?.faction || 'Warhammer 40k';
+    const p2Fac = (isSubmittedDbScorecard && (game.p2Faction || rec.p2_faction)) || bcpMatchRec?.player2_faction || evP2?.faction || 'Warhammer 40k';
+    const p1Det = (isSubmittedDbScorecard && ((Array.isArray(game.p1Detachments) && game.p1Detachments[0]) || rec.p1_detachment)) || bcpMatchRec?.player1_detachment || evP1?.detachment || '';
+    const p2Det = (isSubmittedDbScorecard && ((Array.isArray(game.p2Detachments) && game.p2Detachments[0]) || rec.p2_detachment)) || bcpMatchRec?.player2_detachment || evP2?.detachment || '';
 
     const p1NameEl = document.getElementById('msc-p1-name');
     const p2NameEl = document.getElementById('msc-p2-name');
@@ -1447,17 +1462,19 @@ async function openScorecardModal(matchId) {
     if (p1DetEl) p1DetEl.innerText = p1Det;
     if (p2DetEl) p2DetEl.innerText = p2Det;
 
-    const p1Obj = st.p1 || {};
-    const p2Obj = st.p2 || {};
+    const p1Obj = isSubmittedDbScorecard ? (st.p1 || {}) : {};
+    const p2Obj = isSubmittedDbScorecard ? (st.p2 || {}) : {};
     const p1Rounds = p1Obj.rounds || [];
     const p2Rounds = p2Obj.rounds || [];
-    const hasTurnData = !!(
-      p1Rounds.length > 0 ||
-      p2Rounds.length > 0 ||
-      p1Obj.score !== undefined ||
-      p2Obj.score !== undefined ||
-      rec.p1_score !== undefined ||
-      rec.p2_score !== undefined
+    const hasTurnData = Boolean(
+      isSubmittedDbScorecard && (
+        p1Rounds.length > 0 ||
+        p2Rounds.length > 0 ||
+        p1Obj.score !== undefined ||
+        p2Obj.score !== undefined ||
+        rec.p1_score !== undefined ||
+        rec.p2_score !== undefined
+      )
     );
 
     function getVp(obj, rounds) {
@@ -1468,37 +1485,59 @@ async function openScorecardModal(matchId) {
       return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
     }
 
+    const hasBcpScore = Boolean(
+      bcpMatchRec &&
+      bcpMatchRec.player1_score !== null &&
+      bcpMatchRec.player1_score !== undefined &&
+      bcpMatchRec.player2_score !== null &&
+      bcpMatchRec.player2_score !== undefined
+    );
+
     const p1Score = hasTurnData
       ? (getVp(p1Obj, p1Rounds) || rec.p1_score || 0)
-      : (evMatch && evMatch.player1_score !== null && evMatch.player1_score !== undefined ? evMatch.player1_score : 0);
+      : (hasBcpScore ? bcpMatchRec.player1_score : 0);
     const p2Score = hasTurnData
       ? (getVp(p2Obj, p2Rounds) || rec.p2_score || 0)
-      : (evMatch && evMatch.player2_score !== null && evMatch.player2_score !== undefined ? evMatch.player2_score : 0);
+      : (hasBcpScore ? bcpMatchRec.player2_score : 0);
 
     const p1ScoreEl = document.getElementById('msc-p1-score');
     const p2ScoreEl = document.getElementById('msc-p2-score');
-    if (p1ScoreEl) p1ScoreEl.innerText = p1Score;
-    if (p2ScoreEl) p2ScoreEl.innerText = p2Score;
+    if (p1ScoreEl) p1ScoreEl.innerText = (hasTurnData || hasBcpScore) ? p1Score : '-';
+    if (p2ScoreEl) p2ScoreEl.innerText = (hasTurnData || hasBcpScore) ? p2Score : '-';
 
-    const roundNum = rec.round_num || game.roundNum || st.round_num || evMatch?.round || parsedRound || 1;
-    const tableNum = rec.table_num || game.tableNum || st.table_num || evMatch?.table_number || evMatch?.table || parsedTable || null;
-    const eventLabel = (currentEventData && currentEventData.name) || rec.event_id || game.eventId || parsedEventId || null;
+    const roundNum = (isSubmittedDbScorecard && (rec.round_num || game.roundNum || st.round_num)) || bcpMatchRec?.round || parsedRound || 1;
+    const tableNum = (isSubmittedDbScorecard && (rec.table_num || game.tableNum || st.table_num)) || bcpMatchRec?.table_number || bcpMatchRec?.table || parsedTable || null;
+    const eventLabel = (currentEventData && currentEventData.name) || bcpMatchRec?.event_name || (isSubmittedDbScorecard && (rec.event_id || game.eventId)) || parsedEventId || null;
 
     if (titleEl) {
       titleEl.innerHTML = `🏆 ${eventLabel ? escapeHtml(eventLabel) + ' • ' : ''}Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''}`;
     }
     if (subEl) {
-      const dateStr = rec.updated_at || (currentEventData && currentEventData.event_date) || Date.now();
-      subEl.innerText = `🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'} • 🗺️ ${game.deployment || rec.deployment || 'Search & Destroy'} • ⏱️ ${new Date(dateStr).toLocaleDateString()}`;
+      const dateStr = (isSubmittedDbScorecard && rec.updated_at) || bcpMatchRec?.match_date || (currentEventData && currentEventData.event_date) || Date.now();
+      if (hasTurnData) {
+        subEl.innerText = `🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'} • 🗺️ ${game.deployment || rec.deployment || 'Search & Destroy'} • ⏱️ ${new Date(dateStr).toLocaleDateString()}`;
+      } else {
+        subEl.innerText = `📋 Official Best Coast Pairings (BCP) Scorecard • ⏱️ ${new Date(dateStr).toLocaleDateString()}`;
+      }
     }
 
     // Render Matrix Rows
     if (tbody) {
       tbody.innerHTML = '';
 
-      if (!hasTurnData && evMatch) {
-        const p1Won = Number(p1Score) > Number(p2Score);
-        const p2Won = Number(p2Score) > Number(p1Score);
+      if (!hasTurnData && bcpMatchRec) {
+        const p1Won = hasBcpScore && Number(p1Score) > Number(p2Score);
+        const p2Won = hasBcpScore && Number(p2Score) > Number(p1Score);
+        const isDraw = hasBcpScore && Number(p1Score) === Number(p2Score);
+        const p1Badge = !hasBcpScore
+          ? '<span class="badge badge-draw" style="margin-right:6px;">PENDING</span>'
+          : (p1Won ? '<span class="badge badge-win" style="margin-right:6px;">VICTORY</span>' : (p2Won ? '<span class="badge badge-loss" style="margin-right:6px;">DEFEAT</span>' : '<span class="badge badge-draw" style="margin-right:6px;">DRAW</span>'));
+        const p2Badge = !hasBcpScore
+          ? '<span class="badge badge-draw" style="margin-right:6px;">PENDING</span>'
+          : (p2Won ? '<span class="badge badge-win" style="margin-right:6px;">VICTORY</span>' : (p1Won ? '<span class="badge badge-loss" style="margin-right:6px;">DEFEAT</span>' : '<span class="badge badge-draw" style="margin-right:6px;">DRAW</span>'));
+        const statusDesc = hasBcpScore ? 'Official BCP Final Battle Points' : 'Official BCP Match Pairing (Awaiting Final Score)';
+        const p1TotalDisplay = hasBcpScore ? `${escapeHtml(String(p1Score))} / 100` : '- / 100';
+        const p2TotalDisplay = hasBcpScore ? `${escapeHtml(String(p2Score))} / 100` : '- / 100';
         tbody.innerHTML = `
           <tr>
             <td style="color:#38bdf8; font-weight:800; text-align:left; white-space:normal;">
@@ -1506,10 +1545,10 @@ async function openScorecardModal(matchId) {
               <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600; margin-top:2px;">${escapeHtml(p1Fac)}${p1Det ? ' • ' + escapeHtml(p1Det) : ''}</div>
             </td>
             <td colspan="5" style="text-align:center; color:var(--text-secondary); font-size:0.78rem; white-space:normal;">
-              ${p1Won ? '<span class="badge badge-win" style="margin-right:6px;">VICTORY</span>' : (p2Won ? '<span class="badge badge-loss" style="margin-right:6px;">DEFEAT</span>' : '<span class="badge badge-draw" style="margin-right:6px;">RESULT</span>')}
-              Official BCP Final Battle Points
+              ${p1Badge}
+              ${statusDesc}
             </td>
-            <td style="font-family:var(--font-mono); font-weight:900; font-size:1.02rem; color:${p1Won ? '#4ade80' : '#f8fafc'}; text-align:center; white-space:nowrap;">${escapeHtml(String(p1Score))} / 100</td>
+            <td style="font-family:var(--font-mono); font-weight:900; font-size:1.02rem; color:${p1Won ? '#4ade80' : '#f8fafc'}; text-align:center; white-space:nowrap;">${p1TotalDisplay}</td>
           </tr>
           <tr>
             <td style="color:#f43f5e; font-weight:800; text-align:left; white-space:normal;">
@@ -1517,14 +1556,14 @@ async function openScorecardModal(matchId) {
               <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600; margin-top:2px;">${escapeHtml(p2Fac)}${p2Det ? ' • ' + escapeHtml(p2Det) : ''}</div>
             </td>
             <td colspan="5" style="text-align:center; color:var(--text-secondary); font-size:0.78rem; white-space:normal;">
-              ${p2Won ? '<span class="badge badge-win" style="margin-right:6px;">VICTORY</span>' : (p1Won ? '<span class="badge badge-loss" style="margin-right:6px;">DEFEAT</span>' : '<span class="badge badge-draw" style="margin-right:6px;">RESULT</span>')}
-              Official BCP Final Battle Points
+              ${p2Badge}
+              ${statusDesc}
             </td>
-            <td style="font-family:var(--font-mono); font-weight:900; font-size:1.02rem; color:${p2Won ? '#4ade80' : '#f8fafc'}; text-align:center; white-space:nowrap;">${escapeHtml(String(p2Score))} / 100</td>
+            <td style="font-family:var(--font-mono); font-weight:900; font-size:1.02rem; color:${p2Won ? '#4ade80' : '#f8fafc'}; text-align:center; white-space:nowrap;">${p2TotalDisplay}</td>
           </tr>
           <tr style="background: rgba(255,255,255,0.02);">
             <td colspan="7" style="text-align:center; padding:0.7rem; font-size:0.76rem; color:var(--text-muted); white-space:normal; line-height:1.4;">
-              ℹ️ Final Battle Points synced from Best Coast Pairings. Turn-by-turn primary &amp; secondary breakdown is populated when recorded via OmniTactica Live Game Tracker.
+              ℹ️ Final Battle Points synced from Best Coast Pairings. Turn-by-turn primary &amp; secondary breakdown is populated when a game is submitted and saved via OmniTactica Live Game Tracker.
             </td>
           </tr>
         `;

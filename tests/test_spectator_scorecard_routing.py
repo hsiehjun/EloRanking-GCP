@@ -73,11 +73,12 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         print("✓ test_dev_server_spectator_redirects_and_scorecard_serving passed")
 
     def test_api_get_scorecard_live_and_completed_status(self):
-        """Verify api_get_scorecard returns is_finished and status for live and finished rooms."""
+        """Verify api_get_scorecard never returns unsubmitted in-memory/Firestore rooms and only returns completed games saved in tracker_games."""
         import asyncio
+        from unittest.mock import patch
+        from core import HTTPException
         from routers.tracker import api_get_scorecard, TRACKER_ROOMS
 
-        # 1. Live active in-memory room
         test_mid = "SPEC-TEST-LIVE-R1-T1"
         TRACKER_ROOMS[test_mid] = {
             "match_id": test_mid,
@@ -90,20 +91,34 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
             }
         }
 
-        try:
-            res = asyncio.run(api_get_scorecard(test_mid))
-            self.assertTrue(res["success"])
-            self.assertFalse(res["is_finished"])
-            self.assertEqual(res["status"], "active")
-            self.assertEqual(res["state"]["game"]["p1Name"], "Alpha")
-            self.assertEqual(res["state"]["p1"]["score"], 24)
+        mock_db = MagicMock()
+        mock_db.get_tracker_game.return_value = None
 
-            # 2. Mark completed
-            TRACKER_ROOMS[test_mid]["is_finished"] = True
-            TRACKER_ROOMS[test_mid]["status"] = "completed"
-            res_done = asyncio.run(api_get_scorecard(test_mid))
-            self.assertTrue(res_done["is_finished"])
-            self.assertEqual(res_done["status"], "completed")
+        try:
+            with patch("routers.tracker.get_database", return_value=mock_db):
+                # 1. Unsubmitted room in memory/Firestore must NOT return a scorecard
+                with self.assertRaises(HTTPException) as ctx:
+                    asyncio.run(api_get_scorecard(test_mid))
+                self.assertEqual(ctx.exception.status_code, 404)
+
+                # 2. Once finalized and saved in tracker_games DB, it returns source="tracker_games"
+                mock_db.get_tracker_game.return_value = {
+                    "match_id": test_mid,
+                    "is_finished": True,
+                    "status": "completed",
+                    "state_json": {
+                        "is_finished": True,
+                        "game": {"p1Name": "Alpha", "p2Name": "Beta", "roundNum": 5},
+                        "p1": {"score": 84, "rounds": [{"round": 1, "primaryScore": 10}]},
+                        "p2": {"score": 65, "rounds": [{"round": 1, "primaryScore": 5}]}
+                    }
+                }
+                res_done = asyncio.run(api_get_scorecard(test_mid))
+                self.assertTrue(res_done["success"])
+                self.assertTrue(res_done["is_finished"])
+                self.assertEqual(res_done["status"], "completed")
+                self.assertEqual(res_done["source"], "tracker_games")
+                self.assertEqual(res_done["state"]["p1"]["score"], 84)
         finally:
             if test_mid in TRACKER_ROOMS:
                 del TRACKER_ROOMS[test_mid]
@@ -121,8 +136,9 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn("LIVE IN PROGRESS", sc_html)
         self.assertIn("Verified Scorecard", sc_html)
 
-        # 2. Live match banner vs winner outcome
-        self.assertIn("🔴 LIVE SCORECARD • Battle Round", sc_html)
+        # 2. Live match banner vs winner outcome & BCP fallback
+        self.assertIn("LIVE SCORECARD • Battle Round", sc_html)
+        self.assertIn("isSubmittedDbScorecard", sc_html)
         self.assertIn("winnerBanner.className = 'sc-winner-banner';", sc_html)
 
         # 3. Real-time updates & resilience

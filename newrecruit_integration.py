@@ -5746,25 +5746,18 @@ def _persist_nr_cloud_account(user_key: str, acct: Dict[str, Any]) -> None:
 
 
 def get_nr_state_payload(
-    current_lists: List[Dict[str, Any]],
+    current_lists: Optional[List[Dict[str, Any]]] = None,
     user_key: str = "default",
 ) -> Dict[str, Any]:
-    """Returns the hydration payload for GET /api/armylists/nr_state."""
-    nr_rows = []
-    seen_keys = set()
-    for item in current_lists:
-        if not isinstance(item, dict) or item.get("_ephemeral_view"):
-            continue
-        row = build_synthetic_nr_row(item)
-        lkey = row.get("list_key")
-        if lkey and lkey not in seen_keys:
-            seen_keys.add(lkey)
-            nr_rows.append(row)
-
+    """
+    Returns the hydration payload for GET /api/armylists/nr_state.
+    No army lists are stored in the OmniTactica backend database; NewRecruit (local storage IndexedDB
+    or NewRecruit Cloud) is the sole source of truth, so nr_rows is always empty.
+    """
     acct = _resolve_nr_cloud_account(user_key)
     return {
         "success": True,
-        "nr_rows": nr_rows,
+        "nr_rows": [],
         "cloud_account": {
             "connected": bool(acct.get("connected")),
             "login": acct.get("login") or "",
@@ -5777,16 +5770,31 @@ def get_nr_state_payload(
     }
 
 
+def _enrich_parsed_nr_item(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """Attaches nr_row and list_key to a parsed NewRecruit roster dict in-memory."""
+    if not isinstance(parsed, dict):
+        return parsed
+    nr_row = build_synthetic_nr_row(parsed)
+    lkey = str(parsed.get("list_key") or nr_row.get("list_key") or "").strip()
+    if lkey.startswith("nr_"):
+        lkey = lkey[3:]
+    parsed["id"] = f"nr_{lkey}" if lkey else str(parsed.get("id") or f"nr_{uuid.uuid4().hex[:6]}")
+    parsed["list_key"] = lkey or parsed["id"].replace("nr_", "")
+    nr_row["list_key"] = parsed["list_key"]
+    parsed["nr_row"] = nr_row
+    return parsed
+
+
 def process_nr_sync_payload(
     body: Dict[str, Any],
-    save_fn: Callable[[Dict[str, Any]], Dict[str, Any]],
-    delete_fn: Callable[[str], bool],
-    list_fn: Callable[[], List[Dict[str, Any]]],
+    save_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+    delete_fn: Optional[Callable[[str], bool]] = None,
+    list_fn: Optional[Callable[[], List[Dict[str, Any]]]] = None,
 ) -> Dict[str, Any]:
     """
-    Processes a POST /api/armylists/nr_sync payload from the embedded NewRecruit Studio Bridge.
-    Note: Wahapedia enrichment is intentionally NOT called (`enrich=False`) because NewRecruit Play Mode
-    handles all datasheet and stratagem rendering directly.
+    Statelessly processes a POST /api/armylists/nr_sync payload from the browser's NewRecruit storage.
+    Converts NewRecruit rows into display format in-memory without saving any army lists to our backend DB.
+    If save_fn/delete_fn are provided, they are used only to propagate live changes to active Game Tracker match rooms.
     """
     action = str(body.get("action") or "upsert").strip().lower()
     parser = get_parser()
@@ -5797,114 +5805,44 @@ def process_nr_sync_payload(
         if not list_key and not list_name:
             return {"success": False, "error": "Missing list_key for delete"}
         raw_k = re.sub(r"^(nr_|list_)", "", list_key)
-        if list_key:
+        if delete_fn and list_key:
             delete_fn(list_key)
-            delete_fn(raw_k)
-            delete_fn(f"nr_{raw_k}")
-            delete_fn(f"list_{raw_k}")
-        for item in list(list_fn() or []):
-            if not isinstance(item, dict):
-                continue
-            item_id = str(item.get("id") or "")
-            item_lkey = str(item.get("list_key") or "")
-            item_name = str(item.get("name") or "").strip().lower()
-            nr_meta = ((item.get("nr_row") or {}).get("metadata") or {}) if isinstance(item.get("nr_row"), dict) else {}
-            mig_to = str(nr_meta.get("migrated_to") or "").strip() if isinstance(nr_meta, dict) else ""
-            is_key_match = bool(
-                raw_k and (
-                    item_lkey in (list_key, raw_k)
-                    or item_id in (list_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}")
-                    or (mig_to and mig_to in (list_key, raw_k))
-                )
-            )
-            is_name_only_match = bool(not raw_k and list_name and item_name == list_name)
-            if is_key_match or is_name_only_match:
-                if item_id:
-                    delete_fn(item_id)
         return {
             "success": True,
             "action": "delete",
             "deleted_id": f"nr_{raw_k}" if raw_k else list_key,
-            "army_lists": list_fn(),
+            "army_lists": [],
         }
 
-    existing_by_key: Dict[str, Dict[str, Any]] = {}
-    for item in list(list_fn() or []):
-        if isinstance(item, dict):
-            ik = str(item.get("list_key") or "").strip()
-            iid = str(item.get("id") or "").strip()
-            if ik:
-                existing_by_key[ik] = item
-            if iid.startswith("nr_"):
-                existing_by_key[iid[3:]] = item
-
-    def _merge_existing_native_texts(row_obj: Dict[str, Any], lkey_str: str) -> None:
-        ex = existing_by_key.get(lkey_str)
-        if not isinstance(ex, dict):
-            return
-        ex_nr_row = ex.get("nr_row") if isinstance(ex.get("nr_row"), dict) else {}
-        eff_pts = 0
-        tc_raw = row_obj.get("totalCosts")
-        if isinstance(tc_raw, list):
-            for tc_item in tc_raw:
-                if isinstance(tc_item, dict) and (tc_item.get("typeId") == "pts" or tc_item.get("name") == "pts"):
-                    try:
-                        eff_pts = int(float(tc_item.get("value") or 0))
-                        if eff_pts > 0:
-                            break
-                    except Exception:
-                        pass
-        if not eff_pts:
-            try:
-                eff_pts = int(float(row_obj.get("totalCost") or 0))
-            except Exception:
-                eff_pts = 0
-        ex_pts = int(ex.get("points") or 0)
-        if not row_obj.get("_omnitactica_gw_text"):
-            ex_gw = str(ex_nr_row.get("_omnitactica_gw_text") or "").strip()
-            if ex_gw and "(0 Points)" not in ex_gw and "(0 pts)" not in ex_gw:
-                if eff_pts > 0 and ex_pts > 0 and eff_pts != ex_pts:
-                    ex_gw = ex_gw.replace(f"({ex_pts} Points)", f"({eff_pts} Points)").replace(f"({ex_pts} pts)", f"({eff_pts} pts)")
-                row_obj["_omnitactica_gw_text"] = ex_gw
-        if not row_obj.get("_omnitactica_nr_text"):
-            ex_nr = str(ex_nr_row.get("_omnitactica_nr_text") or "").strip()
-            if ex_nr and "(0 Points)" not in ex_nr and "(0 pts)" not in ex_nr:
-                if eff_pts > 0 and ex_pts > 0 and eff_pts != ex_pts:
-                    ex_nr = ex_nr.replace(f"[{ex_pts}pts]", f"[{eff_pts}pts]").replace(f"({ex_pts} pts)", f"({eff_pts} pts)")
-                row_obj["_omnitactica_nr_text"] = ex_nr
-
     if action == "bulk_sync":
-        incoming_lists = body.get("lists")
+        incoming_lists = body.get("lists") if isinstance(body.get("lists"), list) else body.get("rows")
         if not isinstance(incoming_lists, list):
-            return {"success": True, "action": "bulk_sync", "army_lists": list_fn()}
+            return {"success": True, "action": "bulk_sync", "army_lists": []}
 
-        incoming_keys = set()
+        parsed_lists: List[Dict[str, Any]] = []
+        seen_keys: Set[str] = set()
         for row in incoming_lists:
-            if not isinstance(row, dict) or not row.get("list_key") or row.get("_ephemeral_view"):
+            if not isinstance(row, dict) or not (row.get("list_key") or row.get("_id")) or row.get("_ephemeral_view") or row.get("deleted") or row.get("trashed"):
                 continue
-            lkey = str(row["list_key"]).strip()
-            if lkey in _EPHEMERAL_NR_ROWS and lkey not in existing_by_key:
+            lkey = str(row.get("list_key") or row.get("_id")).strip()
+            if lkey.startswith("nr_"):
+                lkey = lkey[3:]
+            if not lkey or lkey in seen_keys or lkey in _EPHEMERAL_NR_ROWS:
                 continue
-            incoming_keys.add(lkey)
-            _merge_existing_native_texts(row, lkey)
-            parsed = parser.parse_newrecruit_dict(row, default_id=f"nr_{lkey}", enrich=False)
-            parsed["source_format"] = "NewRecruit Studio"
-            save_fn(parsed)
-
-        if body.get("reconcile_deletions", True):
-            existing = list_fn()
-            for item in existing:
-                if not isinstance(item, dict):
-                    continue
-                item_id = str(item.get("id") or "")
-                item_lkey = str(item.get("list_key") or (item_id[3:] if item_id.startswith("nr_") else item_id))
-                if item_lkey not in incoming_keys and item_id not in incoming_keys:
-                    delete_fn(item_id)
+            seen_keys.add(lkey)
+            row_copy = dict(row)
+            row_copy["list_key"] = lkey
+            parsed = parser.parse_newrecruit_dict(row_copy, default_id=f"nr_{lkey}", enrich=False)
+            parsed["source_format"] = row_copy.get("source_format") or "NewRecruit"
+            parsed = _enrich_parsed_nr_item(parsed)
+            if save_fn:
+                parsed = save_fn(parsed) or parsed
+            parsed_lists.append(parsed)
 
         return {
             "success": True,
             "action": "bulk_sync",
-            "army_lists": list_fn(),
+            "army_lists": parsed_lists,
         }
 
     # Default: 'upsert'
@@ -5915,28 +5853,29 @@ def process_nr_sync_payload(
         return {
             "success": True,
             "action": "ephemeral_ignored",
-            "army_lists": list_fn(),
+            "army_lists": [],
         }
-    lkey = str(row.get("list_key") or row.get("id") or uuid.uuid4().hex[:6]).strip()
+    lkey = str(row.get("list_key") or row.get("_id") or row.get("id") or uuid.uuid4().hex[:6]).strip()
     if lkey.startswith("nr_"):
         lkey = lkey[3:]
-    if lkey in _EPHEMERAL_NR_ROWS and lkey not in existing_by_key:
+    if lkey in _EPHEMERAL_NR_ROWS:
         return {
             "success": True,
             "action": "ephemeral_ignored",
-            "army_lists": list_fn(),
+            "army_lists": [],
         }
-    row["list_key"] = lkey
-    _merge_existing_native_texts(row, lkey)
+    row_copy = dict(row)
+    row_copy["list_key"] = lkey
 
-    parsed = parser.parse_newrecruit_dict(row, default_id=f"nr_{lkey}", enrich=False)
-    parsed["source_format"] = row.get("source_format") or "NewRecruit Studio"
-    saved = save_fn(parsed)
+    parsed = parser.parse_newrecruit_dict(row_copy, default_id=f"nr_{lkey}", enrich=False)
+    parsed["source_format"] = row_copy.get("source_format") or "NewRecruit"
+    parsed = _enrich_parsed_nr_item(parsed)
+    if save_fn:
+        parsed = save_fn(parsed) or parsed
     return {
         "success": True,
         "action": "upsert",
-        "army_list": saved,
-        "army_lists": list_fn(),
+        "army_list": parsed,
     }
 
 
@@ -5968,15 +5907,78 @@ def hash_newrecruit_password(login: str, password: str) -> str:
     return hashlib.sha256(step1.encode("utf-8")).hexdigest()
 
 
+def fetch_nr_cloud_lists_for_user(
+    user_key: str = "default",
+    explicit_access: Optional[str] = None,
+    game_system: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Fetches army lists directly from NewRecruit Cloud on the fly (when the user has a NewRecruit Cloud token)
+    without saving anything in our backend database.
+    """
+    ukey = str(user_key or "default").strip() or "default"
+    acct = _resolve_nr_cloud_account(ukey)
+    access_token = str(explicit_access or (acct.get("access") if acct.get("connected") else "") or "").strip()
+    if not access_token:
+        return []
+
+    parser = get_parser()
+    try:
+        user_data = _nr_rpc_call("user_get_data", [], access_token=access_token)
+        if not isinstance(user_data, dict) or user_data.get("error"):
+            return []
+        cloud_list_stubs = user_data.get("lists")
+        if not isinstance(cloud_list_stubs, list) or not cloud_list_stubs:
+            return []
+        list_keys = [
+            str(item.get("list_key")).strip()
+            for item in cloud_list_stubs
+            if isinstance(item, dict) and item.get("list_key")
+        ]
+        if not list_keys:
+            return []
+        bulk_res = _nr_rpc_call("get_list_bulk", [list_keys], access_token=access_token)
+        full_lists: List[Dict[str, Any]] = []
+        if isinstance(bulk_res, list):
+            full_lists = [r for r in bulk_res if isinstance(r, dict)]
+        elif isinstance(bulk_res, dict) and isinstance(bulk_res.get("lists"), list):
+            full_lists = [r for r in bulk_res["lists"] if isinstance(r, dict)]
+
+        target_sys = (game_system or "").strip().lower()
+        if target_sys in ("all", "any", ""):
+            target_sys = ""
+        elif target_sys in ("wh40k", "wh40k_10e", "40k_11e"):
+            target_sys = "40k"
+        elif target_sys in ("aos_4e", "sigmar"):
+            target_sys = "aos"
+
+        results: List[Dict[str, Any]] = []
+        for row in full_lists:
+            lkey = str(row.get("list_key") or "").strip()
+            if not lkey or row.get("deleted") or row.get("trashed"):
+                continue
+            parsed = parser.parse_newrecruit_dict(row, default_id=f"nr_{lkey}", enrich=False)
+            parsed["source_format"] = "NewRecruit Cloud"
+            parsed = _enrich_parsed_nr_item(parsed)
+            if target_sys and str(parsed.get("game_system") or "40k").lower() != target_sys:
+                continue
+            results.append(parsed)
+        return results
+    except Exception as e:
+        logger.debug("Direct NewRecruit Cloud list fetch skipped: %s", e)
+        return []
+
+
 def handle_nr_cloud_connect(
     body: Dict[str, Any],
-    save_fn: Callable[[Dict[str, Any]], Dict[str, Any]],
-    delete_fn: Callable[[str], bool],
-    list_fn: Callable[[], List[Dict[str, Any]]],
+    save_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+    delete_fn: Optional[Callable[[str], bool]] = None,
+    list_fn: Optional[Callable[[], List[Dict[str, Any]]]] = None,
     user_key: str = "default",
 ) -> Dict[str, Any]:
     """
-    Handles NewRecruit Cloud Account Connection, Cross-Device Token Persistence, & Bidirectional Cloud List Sync.
+    Handles NewRecruit Cloud Account Connection & Direct Stateless Cloud List Fetching.
+    Does not save any army lists to our backend database.
     """
     action = str(body.get("action") or "connect").strip().lower()
     parser = get_parser()
@@ -6010,7 +6012,7 @@ def handle_nr_cloud_connect(
             "connected": False,
             "login": "",
             "disconnected_at": now_iso,
-            "army_lists": list_fn(),
+            "army_lists": [],
         }
 
     if action == "save_tokens":
@@ -6056,14 +6058,16 @@ def handle_nr_cloud_connect(
     if share_url_or_key and not password_input and action in ("sync_link", "connect"):
         parsed = parser.parse_url(share_url_or_key)
         parsed["source_format"] = "NewRecruit Cloud"
-        saved = save_fn(parsed)
+        parsed = _enrich_parsed_nr_item(parsed)
+        if save_fn:
+            parsed = save_fn(parsed) or parsed
         return {
             "success": True,
             "connected": bool(acct.get("connected")),
             "login": acct.get("login") or "NewRecruit Share Link",
             "synced_count": 1,
-            "army_list": saved,
-            "army_lists": list_fn(),
+            "army_list": parsed,
+            "army_lists": [parsed],
         }
 
     if login_input and password_input:
@@ -6108,47 +6112,16 @@ def handle_nr_cloud_connect(
         }
 
     try:
-        user_data = _nr_rpc_call("user_get_data", [], access_token=access_token)
-        if isinstance(user_data, dict) and user_data.get("error"):
-            return {"success": False, "error": str(user_data["error"])}
-
-        cloud_list_stubs = user_data.get("lists") if isinstance(user_data, dict) else []
-        if not isinstance(cloud_list_stubs, list):
-            cloud_list_stubs = []
-
-        list_keys = [str(item.get("list_key")).strip() for item in cloud_list_stubs if isinstance(item, dict) and item.get("list_key")]
-        full_lists: List[Dict[str, Any]] = []
-        if list_keys:
-            bulk_res = _nr_rpc_call("get_list_bulk", [list_keys], access_token=access_token)
-            if isinstance(bulk_res, list):
-                full_lists = [r for r in bulk_res if isinstance(r, dict)]
-            elif isinstance(bulk_res, dict) and isinstance(bulk_res.get("lists"), list):
-                full_lists = [r for r in bulk_res["lists"] if isinstance(r, dict)]
-
-        synced_keys = set()
-        for row in full_lists:
-            lkey = str(row.get("list_key") or "").strip()
-            if not lkey:
-                continue
-            synced_keys.add(lkey)
-            parsed = parser.parse_newrecruit_dict(row, default_id=f"nr_{lkey}", enrich=False)
-            parsed["source_format"] = "NewRecruit Cloud"
-            save_fn(parsed)
-
-        for existing_item in list_fn():
-            if not isinstance(existing_item, dict):
-                continue
-            if existing_item.get("source_format") == "NewRecruit Cloud":
-                ex_id = str(existing_item.get("id") or "")
-                ex_key = str(existing_item.get("list_key") or (ex_id[3:] if ex_id.startswith("nr_") else ""))
-                if ex_key and ex_key not in synced_keys:
-                    delete_fn(ex_id)
+        cloud_lists = fetch_nr_cloud_lists_for_user(ukey, explicit_access=access_token)
+        if save_fn:
+            for item in cloud_lists:
+                save_fn(item)
 
         now_iso = datetime.now(timezone.utc).isoformat()
         acct["connected"] = True
         acct["last_sync"] = now_iso
         acct["disconnected_at"] = None
-        acct["synced_count"] = len(synced_keys)
+        acct["synced_count"] = len(cloud_lists)
         _persist_nr_cloud_account(ukey, acct)
 
         return {
@@ -6156,53 +6129,26 @@ def handle_nr_cloud_connect(
             "connected": True,
             "login": acct.get("login") or login_input,
             "last_sync": now_iso,
-            "synced_count": len(synced_keys),
-            "army_lists": list_fn(),
+            "synced_count": len(cloud_lists),
+            "army_lists": cloud_lists,
         }
     except Exception as e:
         logger.warning("NewRecruit Cloud sync error: %s", e)
         return {"success": False, "error": f"Failed to sync lists from NewRecruit Cloud: {e}"}
 
 
-_NR_CLOUD_PULL_COOLDOWN: Dict[str, float] = {}
-
-
 def sync_nr_cloud_lists_if_connected(
     user_key: str,
-    save_fn: Callable[[Dict[str, Any]], Dict[str, Any]],
-    delete_fn: Callable[[str], bool],
-    list_fn: Callable[[], List[Dict[str, Any]]],
+    save_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+    delete_fn: Optional[Callable[[str], bool]] = None,
+    list_fn: Optional[Callable[[], List[Dict[str, Any]]]] = None,
     cooldown_sec: float = 15.0,
 ) -> List[Dict[str, Any]]:
     """
-    If the user has a connected NewRecruit Cloud account, pulls their lists directly from
-    NewRecruit Cloud (with a short cooldown to avoid redundant upstream RPCs) so NewRecruit
-    remains the single source of truth for personal army lists.
+    Fetches lists directly from NewRecruit Cloud if the user has a connected NewRecruit Cloud account.
+    Does not save any army lists to our backend database.
     """
-    ukey = str(user_key or "default").strip() or "default"
-    acct = _resolve_nr_cloud_account(ukey)
-    if not acct or not acct.get("connected") or not acct.get("access"):
-        return list(list_fn() or [])
-
-    now_ts = time.time()
-    last_pull = _NR_CLOUD_PULL_COOLDOWN.get(ukey, 0.0)
-    if (now_ts - last_pull) < cooldown_sec:
-        return list(list_fn() or [])
-
-    _NR_CLOUD_PULL_COOLDOWN[ukey] = now_ts
-    try:
-        res = handle_nr_cloud_connect(
-            {"action": "connect", "access_token": acct["access"], "refresh_token": acct.get("refresh") or ""},
-            save_fn,
-            delete_fn,
-            list_fn,
-            ukey,
-        )
-        if isinstance(res, dict) and isinstance(res.get("army_lists"), list):
-            return res["army_lists"]
-    except Exception as e:
-        logger.debug("Background NewRecruit Cloud pull skipped: %s", e)
-    return list(list_fn() or [])
+    return fetch_nr_cloud_lists_for_user(user_key)
 
 
 _NR_DETACHMENTS_CACHE: Dict[str, Any] = {

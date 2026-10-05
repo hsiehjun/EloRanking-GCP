@@ -2203,7 +2203,8 @@ async def api_get_scorecard(match_id: str):
     if match_id.startswith("ES-"):
         candidates.append(match_id[3:])
 
-    # 1. Check PostgreSQL tracker_games first: completed games are permanently stored here
+    # 1. Check PostgreSQL tracker_games ONLY: only submitted & completed games saved in our actual DB
+    # should ever return the OmniTactica turn-by-turn scorecard. Never read unsubmitted games from Firestore.
     game_rec = None
     if db:
         for cand in candidates:
@@ -2215,7 +2216,14 @@ async def api_get_scorecard(match_id: str):
             except Exception:
                 pass
 
-    if game_rec and (game_rec.get("is_finished") or (isinstance(game_rec.get("state_json"), dict) and game_rec["state_json"].get("is_finished"))):
+    is_rec_finished = bool(
+        game_rec and (
+            game_rec.get("is_finished")
+            or (isinstance(game_rec.get("state_json"), dict) and game_rec["state_json"].get("is_finished"))
+            or (isinstance(game_rec.get("state"), dict) and game_rec["state"].get("is_finished"))
+        )
+    )
+    if game_rec and is_rec_finished:
         state = game_rec.get("state") or game_rec.get("state_json") or {}
         return {
             "success": True,
@@ -2227,56 +2235,52 @@ async def api_get_scorecard(match_id: str):
             "source": "tracker_games"
         }
 
-    # 2. If not completed in tracker_games, read from active live match (in-memory or Firestore Native)
-    room = None
-    state = None
-    for cand in candidates:
-        if cand in TRACKER_ROOMS:
-            room = TRACKER_ROOMS[cand]
-            if room and room.get("state"):
-                state = room.get("state")
-                break
-    
-    fs_room = None
-    if not state:
+    # 2. If not submitted/saved in tracker_games, check official BCP match record in our database
+    bcp_match = None
+    m_pat = re.match(r"^(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id.strip(), re.IGNORECASE)
+    if m_pat and db and hasattr(db, "get_connection"):
+        ev_id_raw = m_pat.group(1)
+        r_num = int(m_pat.group(2))
+        t_num = int(m_pat.group(3))
         try:
-            fs_engine = get_firestore_engine()
-            for cand in candidates:
-                fs_room = fs_engine.get_room(cand)
-                if fs_room and fs_room.get("state"):
-                    state = fs_room.get("state")
-                    break
+            with db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                               m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                               m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                               m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
+                               e.name AS event_name
+                        FROM matches m
+                        LEFT JOIN events e ON e.id = m.event_id
+                        WHERE LOWER(m.event_id) = LOWER(%s)
+                          AND m.round = %s
+                          AND m.table_number = %s
+                        LIMIT 1;
+                    """, (ev_id_raw, r_num, t_num))
+                    row = cur.fetchone()
+                    if row:
+                        cols = [desc[0] for desc in cur.description]
+                        bcp_match = dict(zip(cols, row))
+                        if bcp_match.get("match_date") and hasattr(bcp_match["match_date"], "isoformat"):
+                            bcp_match["match_date"] = bcp_match["match_date"].isoformat()
         except Exception:
             pass
 
-    # 3. Fallback: If found in tracker_games without is_finished flag explicitly true
-    if not state and game_rec:
-        state = game_rec.get("state") or game_rec.get("state_json") or game_rec
-        
-    if not state and not game_rec:
-        raise HTTPException(status_code=404, detail="Scorecard not found for this match ID")
+    if bcp_match:
+        has_bcp_score = (bcp_match.get("player1_score") is not None and bcp_match.get("player2_score") is not None)
+        return {
+            "success": True,
+            "match_id": match_id,
+            "game_record": None,
+            "state": None,
+            "bcp_match": bcp_match,
+            "is_finished": bool(bcp_match.get("is_done") or has_bcp_score),
+            "status": "completed" if (bcp_match.get("is_done") or has_bcp_score) else "pending",
+            "source": "bcp"
+        }
 
-    active_room = room or fs_room
-    is_finished = False
-    status = "active"
-    if active_room:
-        is_finished = bool(active_room.get("is_finished", False))
-        status = active_room.get("status", "active")
-        if status == "completed":
-            is_finished = True
-    elif game_rec:
-        is_finished = True
-        status = "completed"
-
-    return {
-        "success": True,
-        "match_id": match_id,
-        "game_record": game_rec,
-        "state": state,
-        "is_finished": is_finished,
-        "status": status,
-        "source": "firestore" if active_room else "tracker_games"
-    }
+    raise HTTPException(status_code=404, detail="Completed scorecard not found in database for this match ID")
 
 @router.get("/scorecard/{match_id}", summary="View digital scorecard page")
 async def view_scorecard_page(match_id: str):

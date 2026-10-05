@@ -761,6 +761,16 @@ window.api = {
     return this._fetchJson(`/api/predict?${params}`);
   },
 
+  // Past Head-to-Head Encounters
+  async getHeadToHead(p1Id, p2Id, p1Name = '', p2Name = '', gameSystem = '') {
+    const params = new URLSearchParams({ p1: p1Id || p1Name || '', p2: p2Id || p2Name || '' });
+    if (p1Name) params.append('p1_name', p1Name);
+    if (p2Name) params.append('p2_name', p2Name);
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.append('game_system', currentSys);
+    return this._fetchJson(`/api/head_to_head?${params}`);
+  },
+
   // Autocomplete Search Players
   async searchPlayers(query, limit = 10, gameSystem = '') {
     const params = new URLSearchParams({ q: query, limit });
@@ -1236,23 +1246,25 @@ window.api = {
     return this._fetchJson(`/api/eventstudio/wtc_draft?event_id=${encodeURIComponent(eventId)}&round_num=${roundNum}`);
   },
 
-  // Army Lists: Get User Lists
+  // Army Lists: Get User Lists directly from NewRecruit Cloud (if connected)
   async getArmyLists(gameSystem = '') {
     const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     const qs = currentSys ? `?game_system=${encodeURIComponent(currentSys)}` : '';
-    return this._fetchJson(`/api/armylists${qs}`, {
-      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
-    });
+    const nrAccess = (typeof localStorage !== 'undefined' && localStorage.getItem('access')) || '';
+    const headers = { 'Authorization': `Bearer ${this.getAuthToken()}` };
+    if (nrAccess) headers['X-NR-Access'] = nrAccess;
+    return this._fetchJson(`/api/armylists${qs}`, { headers });
   },
 
   // Army Lists: Get Single List
   async getArmyList(listId) {
-    return this._fetchJson(`/api/armylists/${encodeURIComponent(listId)}`, {
-      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
-    });
+    const nrAccess = (typeof localStorage !== 'undefined' && localStorage.getItem('access')) || '';
+    const headers = { 'Authorization': `Bearer ${this.getAuthToken()}` };
+    if (nrAccess) headers['X-NR-Access'] = nrAccess;
+    return this._fetchJson(`/api/armylists/${encodeURIComponent(listId)}`, { headers });
   },
 
-  // Army Lists: Save or Create
+  // Army Lists: Save or Create (in-memory normalization / room propagation only)
   async saveArmyList(listData) {
     const currentSys = (listData && listData.game_system) || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     const payload = Object.assign({}, listData, { game_system: currentSys });
@@ -1265,9 +1277,12 @@ window.api = {
 
   // Army Lists: Delete List
   async deleteArmyList(listId) {
+    const nrAccess = (typeof localStorage !== 'undefined' && localStorage.getItem('access')) || '';
+    const headers = { 'Authorization': `Bearer ${this.getAuthToken()}` };
+    if (nrAccess) headers['X-NR-Access'] = nrAccess;
     return this._fetchJson(`/api/armylists/${encodeURIComponent(listId)}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+      headers
     });
   },
 

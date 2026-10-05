@@ -3791,7 +3791,14 @@
   };
 
   window.gtAttachSavedList = async function(listId) {
-    const list = (window.gtSavedListsCache || []).find(l => l.id === listId);
+    const cleanTarget = String(listId || '').replace(/^(nr_|list_)/, '').trim();
+    const list = (window.gtSavedListsCache || []).find(l =>
+      l && (
+        l.id === listId ||
+        l.list_key === listId ||
+        resolveTrackerNrListKey(l) === cleanTarget
+      )
+    );
     if (!list) {
       alert('Could not locate the selected list.');
       return;
@@ -3893,6 +3900,111 @@
     renderArmyListModal();
   };
 
+  async function readTrackerSameOriginNrRows() {
+    const rowsByKey = new Map();
+    try {
+      let hasNrDb = true;
+      if (typeof indexedDB !== 'undefined' && typeof indexedDB.databases === 'function') {
+        const dbs = await indexedDB.databases();
+        const nrMeta = (dbs || []).find(d => d && d.name === 'nr');
+        if (!nrMeta) hasNrDb = false;
+      }
+      if (hasNrDb && typeof indexedDB !== 'undefined') {
+        await new Promise(resolve => {
+          let settled = false;
+          let dbRef = null;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            if (dbRef) {
+              try { dbRef.close(); } catch (e) {}
+            }
+            resolve();
+          };
+          setTimeout(done, 800);
+          const req = indexedDB.open('nr');
+          req.onupgradeneeded = (ev) => {
+            try { ev.target.transaction.abort(); } catch (e) {}
+            done();
+          };
+          req.onsuccess = () => {
+            const db = req.result;
+            dbRef = db;
+            if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('lists')) {
+              done();
+              return;
+            }
+            try {
+              const tx = db.transaction('lists', 'readonly');
+              const store = tx.objectStore('lists');
+              const allReq = store.getAll();
+              allReq.onsuccess = () => {
+                const allRows = allReq.result || [];
+                for (const r of allRows) {
+                  if (r && (r.list_key || r._id) && !r._ephemeral_view && !r.deleted && !r.trashed) {
+                    const lk = String(r.list_key || r._id).replace(/^(nr_|list_)/, '').trim();
+                    if (lk && !rowsByKey.has(lk)) {
+                      rowsByKey.set(lk, r);
+                    }
+                  }
+                }
+                done();
+              };
+              allReq.onerror = done;
+            } catch (e) {
+              done();
+            }
+          };
+          req.onerror = done;
+          req.onblocked = done;
+        });
+      }
+    } catch (e) {}
+    return Array.from(rowsByKey.values());
+  }
+
+  async function fetchTrackerNewRecruitLists() {
+    const mergedMap = new Map();
+    const addItem = (item) => {
+      if (!item || typeof item !== 'object') return;
+      const lk = String(item.list_key || (item.nr_row && item.nr_row.list_key) || item.id || '').replace(/^(nr_|list_)/, '').trim();
+      if (!lk) return;
+      if (!mergedMap.has(lk)) {
+        mergedMap.set(lk, item);
+      } else if (item.source_format && String(item.source_format).includes('Cloud')) {
+        mergedMap.get(lk).source_format = item.source_format;
+      }
+    };
+    const authTok = getAuthToken();
+    const nrAccess = (typeof localStorage !== 'undefined' && localStorage.getItem('access')) || '';
+    const localRows = await readTrackerSameOriginNrRows();
+    const [localSyncRes, cloudRes] = await Promise.all([
+      localRows.length > 0
+        ? fetch('/api/armylists/nr_sync', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(authTok ? { 'Authorization': `Bearer ${authTok}` } : {})
+            },
+            body: JSON.stringify({ action: 'bulk_sync', lists: localRows })
+          }).then(r => r.ok ? r.json() : null).catch(() => null)
+        : Promise.resolve(null),
+      fetch('/api/armylists?game_system=all', {
+        headers: {
+          ...(authTok ? { 'Authorization': `Bearer ${authTok}` } : {}),
+          ...(nrAccess ? { 'X-NR-Access': nrAccess } : {})
+        }
+      }).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+    if (localSyncRes && Array.isArray(localSyncRes.army_lists)) {
+      localSyncRes.army_lists.forEach(addItem);
+    }
+    if (cloudRes && Array.isArray(cloudRes.army_lists)) {
+      cloudRes.army_lists.forEach(addItem);
+    }
+    return Array.from(mergedMap.values());
+  }
+
   window.gtImportAndAttach = async function() {
     const textarea = document.getElementById('gt-import-raw-input');
     if (!textarea || !textarea.value.trim()) {
@@ -3905,22 +4017,13 @@
       const parseResp = await fetch('/api/armylists/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(isUrl ? { url: rawText } : { text: rawText })
+        body: JSON.stringify(isUrl ? { url: rawText, text: rawText } : { text: rawText })
       });
       if (!parseResp.ok) throw new Error('Failed to parse roster');
       const pData = await parseResp.json();
       const armyList = pData.army_list;
 
-      // Save to user lists if logged in
-      try {
-        await fetch('/api/armylists', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
-          body: JSON.stringify(armyList)
-        });
-      } catch(e) {}
-
-      // Attach to current match
+      // Attach directly to current match room (never saving to backend user_army_lists DB)
       await window.gtAttachList(armyList);
     } catch(e) {
       alert('Parse error: ' + e.message);
@@ -3976,17 +4079,28 @@
           if (!slotObj) return false;
           return slotObj.id === updated.id || resolveTrackerNrListKey(slotObj) === uKey;
         };
+        const isP1 = clientState.role !== 'player2';
+        let myMatched = false;
         if (matchSlot(clientState.p1ArmyList)) {
           clientState.p1ArmyList = updated;
+          if (isP1) myMatched = true;
         }
         if (matchSlot(clientState.p2ArmyList)) {
           clientState.p2ArmyList = updated;
+          if (!isP1) myMatched = true;
+        }
+        if (myMatched && clientState.matchId) {
+          const role = isP1 ? 'player1' : 'player2';
+          fetch(`/api/tracker/room/${clientState.matchId}/armylist`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+            body: JSON.stringify({ role: role, army_list: updated })
+          }).catch(() => {});
         }
         injectMultiplayerHUD();
         const titleEl = document.getElementById('gt-active-roster-title');
         const metaEl = document.getElementById('gt-active-roster-meta');
         const iframeEl = document.getElementById('gt-nr-play-mode-iframe');
-        const isP1 = clientState.role !== 'player2';
         const curActive = clientState.activeListTab === 'opponent'
           ? (isP1 ? clientState.p2ArmyList : clientState.p1ArmyList)
           : (isP1 ? clientState.p1ArmyList : clientState.p2ArmyList);
@@ -4035,7 +4149,15 @@
     }
 
     const isOppTab = clientState.activeListTab === 'opponent';
-    const ephParam = (isOppTab || list._ephemeral_view || (list.nr_row && list.nr_row._ephemeral_view)) ? '&ephemeral=1' : '';
+    const isEphemeralView = Boolean(isOppTab || list._ephemeral_view || (list.nr_row && list.nr_row._ephemeral_view));
+    try {
+      if (list.nr_row && window.sessionStorage) {
+        const rowToStore = isEphemeralView ? Object.assign({}, list.nr_row, { _ephemeral_view: true }) : list.nr_row;
+        window.sessionStorage.setItem('omni_pending_nr_row_' + listKey, JSON.stringify(rowToStore));
+      }
+    } catch (e) {}
+
+    const ephParam = isEphemeralView ? '&ephemeral=1' : '';
     const nameParam = list.name ? `&name=${encodeURIComponent(list.name)}` : '';
     const cbParam = `&_cb=${Date.now()}`;
     const iframeUrl = (activeMode === 'edit' && !isOppTab)
@@ -4088,7 +4210,7 @@
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
             <div>
               <h3 style="font-size:16px; font-weight:800; color:#f8fafc; margin:0;">📋 Pick from Your NewRecruit Lists</h3>
-              <div style="font-size:12px; color:#94a3b8; margin-top:2px;">Select any roster synced from your NewRecruit Studio or Cloud account to open it in Play Mode.</div>
+              <div style="font-size:12px; color:#94a3b8; margin-top:2px;">Select any roster from your NewRecruit Local Storage or NewRecruit Cloud account to attach &amp; share with your opponent.</div>
             </div>
           </div>
           <div id="gt-saved-lists-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(270px, 1fr)); gap:12px;">
@@ -4113,36 +4235,17 @@ Space Marines - Gladius Task Force (2000 pts)
         </div>
       `;
 
-      // Async fetch saved lists
+      // Async fetch lists directly from NewRecruit Local Storage (IndexedDB) + NewRecruit Cloud
       setTimeout(async () => {
         const grid = document.getElementById('gt-saved-lists-grid');
         if (!grid) return;
         try {
-          const resp = await fetch('/api/armylists', {
-            headers: { 'Authorization': `Bearer ${getAuthToken()}` }
-          });
-          if (resp.ok) {
-            const data = await resp.json();
-            const lists = data.army_lists || [];
-            window.gtSavedListsCache = lists;
-            if (lists.length === 0) {
-              grid.innerHTML = `<div style="color:#64748b; font-size:12px; grid-column:1/-1;">No saved lists found yet. Paste a NewRecruit link/text below or build one in My Hub's NewRecruit Studio.</div>`;
-            } else {
-              grid.innerHTML = lists.map(l => `
-                <div style="background:#131d33; border:1px solid rgba(56,189,248,0.18); border-radius:10px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; gap:10px;">
-                  <div>
-                    <div style="font-weight:800; font-size:14px; color:#f8fafc;">${escapeHtml(l.name || 'Unnamed List')}</div>
-                    <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-top:2px;">${escapeHtml(l.faction || '40k')} • ${escapeHtml(l.detachment || 'Core')}</div>
-                    <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${l.points || 2000} pts • 🎮 Play Mode Ready</div>
-                  </div>
-                  <button onclick="window.gtAttachSavedList('${l.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:8px 12px; border-radius:6px; cursor:pointer;">
-                    ⚔️ Attach This List
-                  </button>
-                </div>
-              `).join('');
-            }
-          }
-        } catch(e) {}
+          const lists = await fetchTrackerNewRecruitLists();
+          window.gtSavedListsCache = lists;
+          renderSavedListsGridInTracker(lists);
+        } catch(e) {
+          renderSavedListsGridInTracker([]);
+        }
       }, 50);
 
     } else if (!hasActiveRoster) {
@@ -4217,6 +4320,11 @@ Space Marines - Gladius Task Force (2000 pts)
         const nrRowPayload = activeList.nr_row
           ? (isEphemeralOpp ? Object.assign({}, activeList.nr_row, { _ephemeral_view: true }) : activeList.nr_row)
           : null;
+        try {
+          if (nrRowPayload && window.sessionStorage) {
+            window.sessionStorage.setItem('omni_pending_nr_row_' + listKey, JSON.stringify(nrRowPayload));
+          }
+        } catch (e) {}
         const sendPlayCmd = () => {
           try {
             if (iframe.contentWindow) {

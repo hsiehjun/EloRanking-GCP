@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=5a7c912e7a">
+  <link rel="manifest" href="/manifest.json?v=0720b0706e">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "5a7c912e7a";</script>
+  <script>window.APP_VERSION = "0720b0706e";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -876,35 +876,9 @@
     }
 
     function initFirestoreLiveListener(matchId) {
-      if (typeof firebase === 'undefined' || !firebase.firestore) return;
-      try {
-        if (!firebase.apps || !firebase.apps.length) {
-          firebase.initializeApp({ projectId: "eloranking-506820" });
-        }
-        const db = firebase.firestore();
-        const candIds = [matchId, matchId.toUpperCase()];
-        candIds.forEach(cid => {
-          db.collection('rooms').doc(cid).onSnapshot(snap => {
-            if (snap && snap.exists) {
-              const rData = snap.data();
-              if (rData && rData.state) {
-                renderScorecardData({
-                  success: true,
-                  match_id: matchId,
-                  state: rData.state,
-                  is_finished: Boolean(rData.is_finished || rData.status === 'completed'),
-                  status: rData.status || 'active'
-                });
-              }
-            } else if (snap && !snap.exists) {
-              // Room was discarded from Firestore upon completion; immediately fetch finalized scorecard from tracker_games
-              pollLiveScorecardQuietly();
-            }
-          }, err => console.debug('Firestore scorecard notice:', err));
-        });
-      } catch (e) {
-        console.debug('Firestore live listener notice:', e);
-      }
+      // Scorecards only display submitted games saved to PostgreSQL (tracker_games) or official BCP results.
+      // Never subscribe to unsubmitted in-progress Firestore rooms.
+      return;
     }
 
     async function loadScorecard() {
@@ -922,7 +896,6 @@
         globalScorecardData = json;
         renderScorecardData(json);
         setupLiveScorecardUpdates(Boolean(json.is_finished));
-        initFirestoreLiveListener(matchId);
       } catch (err) {
         document.getElementById('sc-matrix-body').innerHTML = `<tr><td colspan="7" style="padding:2rem; color:#ef4444;">Error loading scorecard: ${err.message}</td></tr>`;
       }
@@ -937,6 +910,90 @@
     }
 
     function renderScorecardData(data) {
+      const isSubmittedDbScorecard = Boolean(
+        data &&
+        data.source === 'tracker_games' &&
+        data.is_finished === true &&
+        (data.game_record || data.state)
+      );
+      const bcpMatch = data.bcp_match || null;
+
+      if (!isSubmittedDbScorecard && bcpMatch) {
+        const p1Name = bcpMatch.player1_name || 'Player 1';
+        const p2Name = bcpMatch.player2_name || 'Player 2';
+        const p1Fac = bcpMatch.player1_faction || 'Warhammer 40k';
+        const p2Fac = bcpMatch.player2_faction || 'Warhammer 40k';
+        const hasBcpScore = bcpMatch.player1_score !== null && bcpMatch.player1_score !== undefined && bcpMatch.player2_score !== null && bcpMatch.player2_score !== undefined;
+        const p1Score = hasBcpScore ? Number(bcpMatch.player1_score) : 0;
+        const p2Score = hasBcpScore ? Number(bcpMatch.player2_score) : 0;
+
+        document.getElementById('sc-p1-name').innerText = p1Name;
+        document.getElementById('sc-p2-name').innerText = p2Name;
+        document.getElementById('sc-p1-faction').innerText = p1Fac;
+        document.getElementById('sc-p2-faction').innerText = p2Fac;
+        document.getElementById('sc-p1-det').innerText = '';
+        document.getElementById('sc-p2-det').innerText = '';
+        document.getElementById('sc-p1-sub-breakdown').innerHTML = '<span>Official BCP Battle Points</span>';
+        document.getElementById('sc-p2-sub-breakdown').innerHTML = '<span>Official BCP Battle Points</span>';
+        document.getElementById('sc-p1-final-score').innerText = hasBcpScore ? p1Score : '-';
+        document.getElementById('sc-p2-final-score').innerText = hasBcpScore ? p2Score : '-';
+
+        const statusBadgeContainer = document.getElementById('sc-status-badges');
+        if (statusBadgeContainer) {
+          statusBadgeContainer.innerHTML = `<span class="sc-badge">📋 Official BCP Scorecard</span>`;
+        }
+
+        const winnerBanner = document.getElementById('sc-winner-banner');
+        const winnerText = document.getElementById('sc-winner-text');
+        if (hasBcpScore) {
+          winnerBanner.className = 'sc-winner-banner';
+          winnerBanner.style.display = 'flex';
+          if (p1Score > p2Score) {
+            winnerText.innerText = `🏆 ${p1Name.toUpperCase()} WINS • ${p1Score} to ${p2Score} (BCP)`;
+          } else if (p2Score > p1Score) {
+            winnerText.innerText = `🏆 ${p2Name.toUpperCase()} WINS • ${p2Score} to ${p1Score} (BCP)`;
+          } else {
+            winnerText.innerText = `🤝 TIED MATCH • ${p1Score} - ${p2Score} (BCP)`;
+          }
+        } else {
+          winnerBanner.style.display = 'none';
+        }
+
+        if (bcpMatch.event_id) {
+          document.getElementById('sc-event-title').innerText = `🏆 ${bcpMatch.event_name || 'Tournament Match'} (${bcpMatch.event_id})`;
+          const backBtn = document.getElementById('sc-event-back-btn');
+          if (backBtn) {
+            backBtn.href = `/app`;
+            backBtn.style.display = 'inline-flex';
+          }
+        }
+        document.getElementById('sc-round-table').innerText = `Round ${bcpMatch.round || 1} ${bcpMatch.table_number ? '• Table ' + bcpMatch.table_number : ''}`;
+        document.getElementById('sc-mission-name').innerText = `📋 Source: Best Coast Pairings`;
+        document.getElementById('sc-date-time').innerText = `⏱️ ${new Date(bcpMatch.match_date || Date.now()).toLocaleDateString()}`;
+
+        const tbody = document.getElementById('sc-matrix-body');
+        const p1Won = hasBcpScore && p1Score > p2Score;
+        const p2Won = hasBcpScore && p2Score > p1Score;
+        tbody.innerHTML = `
+          <tr>
+            <td style="color:#38bdf8; font-weight:800; text-align:left;">🟦 ${p1Name}</td>
+            <td colspan="5" style="text-align:center; color:#94a3b8;">${hasBcpScore ? 'Official BCP Final Battle Points' : 'Official BCP Pairing (Awaiting Final Score)'}</td>
+            <td style="font-family:monospace; font-weight:900; color:${p1Won ? '#4ade80' : '#f8fafc'}; text-align:center;">${hasBcpScore ? p1Score + ' / 100' : '- / 100'}</td>
+          </tr>
+          <tr>
+            <td style="color:#f43f5e; font-weight:800; text-align:left;">🟥 ${p2Name}</td>
+            <td colspan="5" style="text-align:center; color:#94a3b8;">${hasBcpScore ? 'Official BCP Final Battle Points' : 'Official BCP Pairing (Awaiting Final Score)'}</td>
+            <td style="font-family:monospace; font-weight:900; color:${p2Won ? '#4ade80' : '#f8fafc'}; text-align:center;">${hasBcpScore ? p2Score + ' / 100' : '- / 100'}</td>
+          </tr>
+          <tr style="background:rgba(255,255,255,0.02);">
+            <td colspan="7" style="text-align:center; padding:0.75rem; font-size:0.78rem; color:#94a3b8;">
+              ℹ️ Final Battle Points synced from Best Coast Pairings. Turn-by-turn breakdown is shown only when a game is submitted and saved to our database.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
       const rec = data.game_record || {};
       const st = data.state || {};
       const game = st.game || rec.state_json?.game || {};

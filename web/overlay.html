@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OBS Live Broadcast Overlay • OmniTactica</title>
+  <style>
+    :root {
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent !important;
+      overflow: hidden;
+      font-family: var(--font-sans);
+      color: #fff;
+    }
+    .overlay-wrapper {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 28px;
+    }
+    .lower-third-bar {
+      width: 100%;
+      max-width: 1680px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(90deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.94));
+      border: 2px solid rgba(56, 189, 248, 0.55);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65);
+      border-radius: 12px;
+      padding: 16px 28px;
+      gap: 20px;
+    }
+    .player-side {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+      flex: 1;
+    }
+    .player-side.right {
+      justify-content: flex-end;
+      text-align: right;
+    }
+    .table-badge {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-weight: 900;
+      font-size: 0.95rem;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      text-transform: uppercase;
+    }
+    .table-badge.p1 {
+      background: #38bdf8;
+      color: #020617;
+    }
+    .table-badge.p2 {
+      background: #f43f5e;
+      color: #fff;
+    }
+    .player-name {
+      font-weight: 800;
+      font-size: 1.35rem;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .player-meta {
+      font-size: 0.92rem;
+      font-weight: 600;
+      margin-top: 3px;
+    }
+    .player-meta.p1 { color: #38bdf8; }
+    .player-meta.p2 { color: #fb7185; }
+    .score-box {
+      font-family: var(--font-mono);
+      font-weight: 900;
+      font-size: 2.1rem;
+      color: #f59e0b;
+      padding: 6px 24px;
+      background: rgba(2, 6, 23, 0.65);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 10px;
+      white-space: nowrap;
+    }
+    .tale-card {
+      width: 100%;
+      max-width: 960px;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.96));
+      border: 2px solid rgba(168, 85, 247, 0.6);
+      border-radius: 14px;
+      padding: 22px 28px;
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.7);
+    }
+    .tale-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      padding-bottom: 10px;
+      margin-bottom: 16px;
+      font-size: 0.9rem;
+      font-weight: 800;
+      color: #c084fc;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .prob-bar-track {
+      width: 100%;
+      height: 10px;
+      background: rgba(244, 63, 94, 0.85);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 14px;
+    }
+    .prob-bar-fill {
+      height: 100%;
+      background: #38bdf8;
+      transition: width 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+  <div id="overlay-root" class="overlay-wrapper"></div>
+  <script>
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    async function refreshOverlay() {
+      const params = new URLSearchParams(window.location.search);
+      const eventId = params.get('event') || 'ev_ongoing_gt_live';
+      const tableNum = parseInt(params.get('table') ?? '1', 10);
+      const reqRound = parseInt(params.get('round') ?? '0', 10);
+      const overlayType = (params.get('type') || 'lower_third').toLowerCase();
+
+      try {
+        const res = await fetch(`/api/event/${encodeURIComponent(eventId)}`, { cache: 'no-store' });
+        const ev = res.ok ? await res.json() : {};
+        const players = Array.isArray(ev.players) ? ev.players : [];
+        const matches = Array.isArray(ev.matches) ? ev.matches : [];
+        const matchRounds = [...new Set(matches.map(m => Number(m.round)).filter(r => r > 0))].sort((a, b) => a - b);
+
+        let curRound = reqRound > 0 ? reqRound : 0;
+        if (!curRound) {
+          if (ev.current_round && matches.some(m => Number(m.round) === Number(ev.current_round))) {
+            curRound = Number(ev.current_round);
+          } else if (matchRounds.length > 0) {
+            curRound = matchRounds[matchRounds.length - 1];
+          } else {
+            curRound = Number(ev.current_round) || 1;
+          }
+        }
+
+        const roundMatches = matches.filter(m => Number(m.round || 1) === curRound);
+        const match = tableNum === 0
+          ? (roundMatches.find(m => Number(m.table_number || m.table) === 1) || roundMatches[0] || null)
+          : (roundMatches.find(m => Number(m.table_number || m.table) === tableNum) || null);
+
+        const findPlayer = (pid, pname) =>
+          players.find(p => (pid && String(p.player_id || p.id) === String(pid)) || (pname && p.full_name === pname)) || null;
+
+        const p1 = match ? findPlayer(match.player1_id, match.player1_name) : null;
+        const p2 = match ? findPlayer(match.player2_id, match.player2_name) : null;
+
+        const tableBadge = tableNum === 0 ? 'MAIN DESK' : `TABLE ${isNaN(tableNum) ? 1 : tableNum}`;
+        const p1Name = match ? (p1?.full_name || match.player1_name || 'Player 1') : (tableNum === 0 ? 'Main Desk' : 'Player 1 (TBD)');
+        const p2Name = match ? (p2?.full_name || match.player2_name || 'Player 2') : (tableNum === 0 ? 'Broadcast' : 'Player 2 (TBD)');
+        const p1Fac = match ? (p1?.faction || match.player1_faction || 'Army') : (tableNum === 0 ? 'All Tables' : 'TBD');
+        const p2Fac = match ? (p2?.faction || match.player2_faction || 'Army') : (tableNum === 0 ? 'Coverage' : 'TBD');
+        const p1Elo = match ? Number(match.player1_elo || p1?.current_elo || 1500) : 1500;
+        const p2Elo = match ? Number(match.player2_elo || p2?.current_elo || 1500) : 1500;
+        const hasScore = match && match.player1_score !== null && match.player1_score !== undefined && match.player2_score !== null && match.player2_score !== undefined;
+        const scoreStr = hasScore ? `${match.player1_score} - ${match.player2_score}` : (tableNum === 0 && !match ? 'LIVE' : '0 - 0');
+
+        const eloDiff = p2Elo - p1Elo;
+        const p1WinProb = Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, eloDiff / 400)))));
+        const p2WinProb = 100 - p1WinProb;
+
+        const root = document.getElementById('overlay-root');
+        if (!root) return;
+
+        if (overlayType === 'tale_of_tape') {
+          root.innerHTML = `
+            <div class="tale-card">
+              <div class="tale-header">
+                <span>⚔️ ${escapeHtml(ev.name || 'Tournament Broadcast')} • ${escapeHtml(tableBadge)}</span>
+                <span>ROUND ${curRound} • WIN PROBABILITY ${p1WinProb}% - ${p2WinProb}%</span>
+              </div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:20px;">
+                <div class="player-side">
+                  <span class="table-badge p1">${escapeHtml(tableBadge)}</span>
+                  <div>
+                    <div class="player-name">${escapeHtml(p1Name)} (${escapeHtml(p1Fac)})</div>
+                    <div class="player-meta p1">${p1Elo.toFixed(1)} Elo • ${p1WinProb}% Win Prob</div>
+                  </div>
+                </div>
+                <div class="score-box">${escapeHtml(scoreStr)}</div>
+                <div class="player-side right">
+                  <div>
+                    <div class="player-name">${escapeHtml(p2Name)} (${escapeHtml(p2Fac)})</div>
+                    <div class="player-meta p2">${p2Elo.toFixed(1)} Elo • ${p2WinProb}% Win Prob</div>
+                  </div>
+                  <span class="table-badge p2">${escapeHtml(tableBadge)}</span>
+                </div>
+              </div>
+              <div class="prob-bar-track">
+                <div class="prob-bar-fill" style="width:${p1WinProb}%;"></div>
+              </div>
+            </div>
+          `;
+        } else {
+          root.innerHTML = `
+            <div class="lower-third-bar">
+              <div class="player-side">
+                <span class="table-badge p1">${escapeHtml(tableBadge)}</span>
+                <div>
+                  <div class="player-name">${escapeHtml(p1Name)} (${escapeHtml(p1Fac)})</div>
+                  <div class="player-meta p1">${p1Elo.toFixed(1)} Elo • Round ${curRound}</div>
+                </div>
+              </div>
+              <div class="score-box">${escapeHtml(scoreStr)}</div>
+              <div class="player-side right">
+                <div>
+                  <div class="player-name">${escapeHtml(p2Name)} (${escapeHtml(p2Fac)})</div>
+                  <div class="player-meta p2">${p2Elo.toFixed(1)} Elo • Round ${curRound}</div>
+                </div>
+                <span class="table-badge p2">${escapeHtml(tableBadge)}</span>
+              </div>
+            </div>
+          `;
+        }
+      } catch (err) {
+        console.error('Overlay refresh failed:', err);
+      }
+    }
+
+    refreshOverlay();
+    setInterval(refreshOverlay, 15000);
+  </script>
+</body>
+</html>

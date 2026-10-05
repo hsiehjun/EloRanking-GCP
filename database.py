@@ -6086,40 +6086,72 @@ class PostgresDatabase:
                             """, (f"%{q_str}%", q_str, limit))
                         return [dict(r) for r in cur_safe.fetchall()]
 
-    def get_head_to_head(self, p1_id: str, p2_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
-        """Returns past head-to-head encounters strictly between the two unique player IDs."""
+    def get_head_to_head(
+        self,
+        p1_id: str,
+        p2_id: str,
+        game_system: Optional[str] = "40k",
+        p1_name: Optional[str] = None,
+        p2_name: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Returns past head-to-head encounters between two players by ID and/or full name."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                # 1. Resolve player IDs if names were passed
-                cursor.execute("SELECT player_id FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s ORDER BY matches_played DESC LIMIT 1;", (p1_id, f"%{p1_id}%"))
+                # 1. Resolve player IDs and canonical names if names/IDs were passed
+                cursor.execute(
+                    "SELECT player_id, player_name FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s ORDER BY matches_played DESC LIMIT 1;",
+                    (p1_id, f"%{p1_name or p1_id}%")
+                )
                 p1_row = cursor.fetchone()
                 p1_real_id = p1_row["player_id"] if p1_row else p1_id
+                p1_real_name = (p1_name or (p1_row["player_name"] if p1_row else "") or "").strip()
 
-                cursor.execute("SELECT player_id FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s ORDER BY matches_played DESC LIMIT 1;", (p2_id, f"%{p2_id}%"))
+                cursor.execute(
+                    "SELECT player_id, player_name FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s ORDER BY matches_played DESC LIMIT 1;",
+                    (p2_id, f"%{p2_name or p2_id}%")
+                )
                 p2_row = cursor.fetchone()
                 p2_real_id = p2_row["player_id"] if p2_row else p2_id
+                p2_real_name = (p2_name or (p2_row["player_name"] if p2_row else "") or "").strip()
 
-                # 2. Strict ID-based match query
+                # 2. Match by ID pair or exact normalized name pair
+                match_cond = "( (m.player1_id = %s AND m.player2_id = %s) OR (m.player1_id = %s AND m.player2_id = %s)"
+                base_params = [p1_real_id, p2_real_id, p2_real_id, p1_real_id]
+                if p1_id and p2_id and (p1_id != p1_real_id or p2_id != p2_real_id):
+                    match_cond += " OR (m.player1_id = %s AND m.player2_id = %s) OR (m.player1_id = %s AND m.player2_id = %s)"
+                    base_params.extend([p1_id, p2_id, p2_id, p1_id])
+                if p1_real_name and p2_real_name:
+                    match_cond += " OR (LOWER(TRIM(m.player1_name)) = LOWER(TRIM(%s)) AND LOWER(TRIM(m.player2_name)) = LOWER(TRIM(%s))) OR (LOWER(TRIM(m.player1_name)) = LOWER(TRIM(%s)) AND LOWER(TRIM(m.player2_name)) = LOWER(TRIM(%s)))"
+                    base_params.extend([p1_real_name, p2_real_name, p2_real_name, p1_real_name])
+                match_cond += " )"
+
                 sys_clause = ""
-                sys_params = [p1_real_id, p2_real_id, p2_real_id, p1_real_id]
+                sys_params = list(base_params)
                 if game_system and game_system != "all":
                     sys_clause = " AND COALESCE(m.game_system, '40k') = %s"
                     sys_params.append((game_system or "40k").lower())
+
+                def _normalize_rows(rows):
+                    out = []
+                    for r in rows:
+                        d = dict(r)
+                        md = d.get("match_date")
+                        if md and hasattr(md, "isoformat"):
+                            d["match_date"] = md.isoformat()
+                        out.append(d)
+                    return out
 
                 try:
                     cursor.execute(f"""
                     SELECT m.*, COALESCE(e.name, 'Tournament') as event_name, COALESCE(m.match_date, e.event_date) as match_date
                     FROM matches m
                     LEFT JOIN events e ON m.event_id = e.id
-                    WHERE (
-                        (m.player1_id = %s AND m.player2_id = %s)
-                        OR (m.player1_id = %s AND m.player2_id = %s)
-                    )
+                    WHERE {match_cond}
                     AND m.is_done = TRUE
                     {sys_clause}
-                    ORDER BY COALESCE(m.match_date, e.event_date) DESC;
+                    ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC;
                     """, tuple(sys_params))
-                    return [dict(r) for r in cursor.fetchall()]
+                    return _normalize_rows(cursor.fetchall())
                 except Exception as e:
                     conn.rollback()
                     logger.warning(f"Fallback get_head_to_head notice: {e}")
@@ -6130,18 +6162,15 @@ class PostgresDatabase:
                     except Exception:
                         conn.rollback()
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
-                        cur_safe.execute("""
+                        cur_safe.execute(f"""
                         SELECT m.*, COALESCE(e.name, 'Tournament') as event_name, COALESCE(m.match_date, e.event_date) as match_date
                         FROM matches m
                         LEFT JOIN events e ON m.event_id = e.id
-                        WHERE (
-                            (m.player1_id = %s AND m.player2_id = %s)
-                            OR (m.player1_id = %s AND m.player2_id = %s)
-                        )
+                        WHERE {match_cond}
                         AND m.is_done = TRUE
-                        ORDER BY COALESCE(m.match_date, e.event_date) DESC;
-                        """, (p1_real_id, p2_real_id, p2_real_id, p1_real_id))
-                        return [dict(r) for r in cur_safe.fetchall()]
+                        ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC;
+                        """, tuple(base_params))
+                        return _normalize_rows(cur_safe.fetchall())
 
 
 
@@ -7410,9 +7439,12 @@ class PostgresDatabase:
             return 0
 
     def save_user_army_list(self, user_id: Optional[str], list_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Saves or updates a user army list in the database."""
-        raw_id = str(list_data.get("id") or "").strip()
-        raw_lkey = str(list_data.get("list_key") or "").strip()
+        """No-op: NewRecruit (local IndexedDB or NewRecruit Cloud) is the single source of truth; backend DB never saves army lists."""
+        if not isinstance(list_data, dict):
+            return {}
+        item = dict(list_data)
+        raw_id = str(item.get("id") or "").strip()
+        raw_lkey = str(item.get("list_key") or "").strip()
         if raw_lkey:
             clean_k = re.sub(r"^(nr_|list_)", "", raw_lkey)
             list_id = f"nr_{clean_k}"
@@ -7422,179 +7454,21 @@ class PostgresDatabase:
         else:
             clean_k = uuid.uuid4().hex[:10]
             list_id = f"nr_{clean_k}"
-        list_data["id"] = list_id
-        if not list_data.get("list_key"):
-            list_data["list_key"] = clean_k
-
-        name = str(list_data.get("name") or "Unnamed Army List")
-        faction = str(list_data.get("faction") or "Unknown Faction")
-        detachment = str(list_data.get("detachment") or "")
-        points = int(list_data["points"]) if list_data.get("points") is not None else 2000
-        points_limit = int(list_data.get("points_limit") or 2000)
-        warlord = str(list_data.get("warlord") or "")
-        source_format = str(list_data.get("source_format") or "Custom")
-        raw_text = str(list_data.get("raw_text") or "")
-        game_system = str(list_data.get("game_system") or "40k").strip().lower()
-        if isinstance(list_data.get("nr_row"), dict):
-            list_data["nr_row"]["name"] = name
-            if list_data.get("points") is not None:
-                list_data["nr_row"]["totalCost"] = points
-                t_costs = list_data["nr_row"].get("totalCosts")
-                if isinstance(t_costs, dict):
-                    t_costs["pts"] = points
-                elif isinstance(t_costs, list):
-                    for tc_item in t_costs:
-                        if isinstance(tc_item, dict) and (tc_item.get("typeId") == "pts" or tc_item.get("name") == "pts"):
-                            tc_item["value"] = points
-        list_json = json.dumps(list_data, default=str)
-
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-                if list_id.startswith("nr_"):
-                    cursor.execute("DELETE FROM user_army_lists WHERE id = %s;", (f"list_{clean_k}",))
-                cursor.execute("""
-                INSERT INTO user_army_lists (
-                    id, user_id, name, faction, detachment, points, points_limit,
-                    warlord, source_format, raw_text, list_data, game_system, updated_at
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s::jsonb, %s, NOW()
-                )
-                ON CONFLICT (id) DO UPDATE SET
-                    user_id = COALESCE(EXCLUDED.user_id, user_army_lists.user_id),
-                    name = EXCLUDED.name,
-                    faction = EXCLUDED.faction,
-                    detachment = EXCLUDED.detachment,
-                    points = EXCLUDED.points,
-                    points_limit = EXCLUDED.points_limit,
-                    warlord = EXCLUDED.warlord,
-                    source_format = EXCLUDED.source_format,
-                    raw_text = EXCLUDED.raw_text,
-                    list_data = EXCLUDED.list_data,
-                    game_system = COALESCE(EXCLUDED.game_system, user_army_lists.game_system, '40k'),
-                    updated_at = NOW();
-                """, (
-                    list_id, user_id, name, faction, detachment, points, points_limit,
-                    warlord, source_format, raw_text, list_json, game_system
-                ))
-            conn.commit()
-
-        return self.get_user_army_list(list_id, user_id=user_id) or list_data
+        item["id"] = list_id
+        if not item.get("list_key"):
+            item["list_key"] = clean_k
+        return item
 
     def get_user_army_lists(self, user_id: Optional[str] = None, game_system: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Retrieves all saved army lists for a given user or global defaults."""
-        target_sys = (game_system.strip().lower() if game_system else None)
-        if target_sys in ("", "all", "any"):
-            target_sys = None
-        elif target_sys in ("wh40k_10e", "wh40k", "40k_11e"):
-            target_sys = "40k"
-        elif target_sys in ("aos_4e", "sigmar"):
-            target_sys = "aos"
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-                if user_id:
-                    if target_sys:
-                        cursor.execute("""
-                        SELECT id, user_id, name, faction, detachment, points, points_limit,
-                               warlord, source_format, list_data, game_system, created_at, updated_at
-                        FROM user_army_lists
-                        WHERE (user_id = %s OR user_id IS NULL) AND COALESCE(game_system, '40k') = %s
-                        ORDER BY updated_at DESC;
-                        """, (user_id, target_sys))
-                    else:
-                        cursor.execute("""
-                        SELECT id, user_id, name, faction, detachment, points, points_limit,
-                               warlord, source_format, list_data, game_system, created_at, updated_at
-                        FROM user_army_lists
-                        WHERE user_id = %s OR user_id IS NULL
-                        ORDER BY updated_at DESC;
-                        """, (user_id,))
-                else:
-                    if target_sys:
-                        cursor.execute("""
-                        SELECT id, user_id, name, faction, detachment, points, points_limit,
-                               warlord, source_format, list_data, game_system, created_at, updated_at
-                        FROM user_army_lists
-                        WHERE COALESCE(game_system, '40k') = %s
-                        ORDER BY updated_at DESC
-                        LIMIT 50;
-                        """, (target_sys,))
-                    else:
-                        cursor.execute("""
-                        SELECT id, user_id, name, faction, detachment, points, points_limit,
-                               warlord, source_format, list_data, game_system, created_at, updated_at
-                        FROM user_army_lists
-                        ORDER BY updated_at DESC
-                        LIMIT 50;
-                        """)
-                rows = cursor.fetchall()
-                res = []
-                for r in rows:
-                    item = dict(r)
-                    for dt_col in ("created_at", "updated_at"):
-                        if hasattr(item.get(dt_col), "isoformat"):
-                            item[dt_col] = item[dt_col].isoformat()
-                    ld = item.get("list_data")
-                    if isinstance(ld, str):
-                        try:
-                            ld = json.loads(ld)
-                        except Exception:
-                            ld = None
-                    if isinstance(ld, dict):
-                        for k, v in ld.items():
-                            if k not in item or item[k] is None or item[k] == "":
-                                item[k] = v
-                    res.append(item)
-                return res
+        """No-op: NewRecruit is the single source of truth; backend DB never stores or returns army lists."""
+        return []
 
     def get_user_army_list(self, list_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Retrieves a single army list by ID."""
-        clean_key = str(list_id or "").strip()
-        raw_k = re.sub(r"^(nr_|list_)", "", clean_key)
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-                cursor.execute("""
-                SELECT id, user_id, name, faction, detachment, points, points_limit,
-                       warlord, source_format, raw_text, list_data, created_at, updated_at
-                FROM user_army_lists
-                WHERE id IN (%s, %s, %s, %s);
-                """, (clean_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}"))
-                row = cursor.fetchone()
-                if not row:
-                    return None
-                item = dict(row)
-                for dt_col in ("created_at", "updated_at"):
-                    if hasattr(item.get(dt_col), "isoformat"):
-                        item[dt_col] = item[dt_col].isoformat()
-                ld = item.get("list_data")
-                if isinstance(ld, str):
-                    try:
-                        ld = json.loads(ld)
-                    except Exception:
-                        ld = None
-                if isinstance(ld, dict):
-                    for k, v in ld.items():
-                        if k not in item or item[k] is None or item[k] == "":
-                            item[k] = v
-                return item
+        """No-op: NewRecruit is the single source of truth; backend DB never stores or returns army lists."""
+        return None
 
     def delete_user_army_list(self, list_id: str, user_id: Optional[str] = None) -> bool:
-        """Deletes an army list by ID, list_key, or explicit migration link from user_army_lists table."""
-        clean_key = str(list_id or "").strip()
-        raw_k = re.sub(r"^(nr_|list_)", "", clean_key)
-        with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    DELETE FROM user_army_lists
-                    WHERE id IN (%s, %s, %s, %s)
-                       OR list_data->>'list_key' IN (%s, %s)
-                       OR list_data->'nr_row'->>'list_key' IN (%s, %s)
-                       OR list_data->'nr_row'->'metadata'->>'migrated_to' IN (%s, %s);
-                    """,
-                    (clean_key, raw_k, f"nr_{raw_k}", f"list_{raw_k}", clean_key, raw_k, clean_key, raw_k, clean_key, raw_k),
-                )
-            conn.commit()
+        """No-op: NewRecruit is the single source of truth; backend DB never stores army lists."""
         return True
 
     def get_user_registered_tournaments(self, user_id: str) -> List[Dict[str, Any]]:

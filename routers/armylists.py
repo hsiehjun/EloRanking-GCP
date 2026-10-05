@@ -37,10 +37,13 @@ async def api_parse_armylist(req: Request):
         body = await req.json()
     except Exception:
         body = {}
-    raw_text = body.get("text") or body.get("raw_text") or ""
+    raw_text = str(body.get("text") or body.get("raw_text") or body.get("url") or "").strip()
     source_format = body.get("format")
     parser = get_army_parser()
-    parsed = parser.parse(raw_text, source_hint=source_format, enrich=bool(body.get("enrich")))
+    if raw_text.startswith(("http://", "https://")) and "newrecruit" in raw_text.lower() and hasattr(parser, "parse_url"):
+        parsed = await asyncio.to_thread(parser.parse_url, raw_text)
+    else:
+        parsed = parser.parse(raw_text, source_hint=source_format, enrich=bool(body.get("enrich")))
     if not body.get("save"):
         parsed["_ephemeral_view"] = True
     nr_row = build_synthetic_nr_row(parsed)
@@ -111,36 +114,60 @@ async def api_get_nr_detachments():
     return await asyncio.to_thread(get_nr_detachments_catalog)
 
 
-@router.get("/api/armylists", summary="Get saved army lists for current user directly from NewRecruit state")
+@router.get("/api/armylists", summary="Get army lists for current user directly from NewRecruit Cloud (if connected)")
 async def api_get_armylists(request: Request, game_system: Optional[str] = Query(None)):
-    from newrecruit_integration import sync_nr_cloud_lists_if_connected
+    from newrecruit_integration import fetch_nr_cloud_lists_for_user
     user_id = _resolve_user_id(request)
-    db = get_database()
-    await asyncio.to_thread(
-        sync_nr_cloud_lists_if_connected,
+    explicit_access = request.headers.get("X-NR-Access")
+    lists = await asyncio.to_thread(
+        fetch_nr_cloud_lists_for_user,
         user_id or "default",
-        lambda item: db.save_user_army_list(user_id=user_id, list_data=item),
-        lambda lid: db.delete_user_army_list(lid, user_id=user_id),
-        lambda: db.get_user_army_lists(user_id=user_id),
+        explicit_access,
+        game_system,
     )
-    lists = db.get_user_army_lists(user_id=user_id, game_system=game_system) or []
     parser = get_army_parser()
     enriched = [
         parser._finalize_roster_compatibility(dict(item)) if isinstance(item, dict) else item
-        for item in lists
+        for item in (lists or [])
     ]
     return {"success": True, "army_lists": enriched, "source": "newrecruit"}
+
+def _normalize_in_memory_army_list(list_data: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(list_data, dict):
+        return {}
+    item = dict(list_data)
+    raw_id = str(item.get("id") or "").strip()
+    raw_lkey = str(item.get("list_key") or "").strip()
+    if raw_lkey:
+        clean_k = re.sub(r"^(nr_|list_)", "", raw_lkey)
+        list_id = f"nr_{clean_k}"
+    elif raw_id:
+        clean_k = re.sub(r"^(nr_|list_)", "", raw_id)
+        list_id = f"nr_{clean_k}" if raw_id.startswith("nr_") else raw_id
+    else:
+        clean_k = secrets.token_hex(5)
+        list_id = f"nr_{clean_k}"
+    item["id"] = list_id
+    if not item.get("list_key"):
+        item["list_key"] = clean_k
+    try:
+        from newrecruit_integration import build_synthetic_nr_row
+        nr_row = build_synthetic_nr_row(item)
+        item["list_key"] = nr_row.get("list_key") or item["list_key"]
+        item["nr_row"] = nr_row
+    except Exception:
+        pass
+    try:
+        item = get_army_parser()._finalize_roster_compatibility(item)
+    except Exception:
+        pass
+    return item
+
 
 def _propagate_saved_list_to_tracker_rooms(saved: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(saved, dict):
         return saved
-    try:
-        from newrecruit_integration import build_synthetic_nr_row
-        nr_row = build_synthetic_nr_row(saved)
-        saved["list_key"] = nr_row.get("list_key")
-        saved["nr_row"] = nr_row
-    except Exception:
-        pass
+    saved = _normalize_in_memory_army_list(saved)
     s_id = str(saved.get("id") or "")
     s_key = str(saved.get("list_key") or (s_id[3:] if s_id.startswith("nr_") else ""))
     for match_id, room_data in list(TRACKER_ROOMS.items()):
@@ -181,37 +208,39 @@ def _propagate_saved_list_to_tracker_rooms(saved: Dict[str, Any]) -> Dict[str, A
     return saved
 
 
-@router.post("/api/armylists", summary="Save or create user army list")
+def _clear_deleted_list_from_tracker_rooms(list_id: str) -> bool:
+    clean_key = str(list_id or "").strip()
+    raw_key = re.sub(r"^(nr_|list_)", "", clean_key)
+    nr_key = f"nr_{raw_key}"
+    for room_data in list(TRACKER_ROOMS.values()):
+        if isinstance(room_data, dict):
+            for slot_key in ("p1_army_list", "p2_army_list"):
+                cur_slot = room_data.get(slot_key)
+                if isinstance(cur_slot, dict):
+                    c_id = str(cur_slot.get("id") or "")
+                    c_key = str(cur_slot.get("list_key") or "")
+                    if c_id in (clean_key, raw_key, nr_key) or c_key in (clean_key, raw_key):
+                        room_data[slot_key] = None
+    return True
+
+
+@router.post("/api/armylists", summary="Normalize army list in-memory (no backend DB storage)")
 async def api_save_armylist(request: Request):
     try:
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
-    
-    user_id = _resolve_user_id(request)
-    db = get_database()
-    saved = db.save_user_army_list(user_id=user_id, list_data=body)
-    saved = _propagate_saved_list_to_tracker_rooms(saved)
+    saved = _propagate_saved_list_to_tracker_rooms(body)
     return {"success": True, "army_list": saved}
 
-@router.get("/api/armylists/nr_state", summary="Get NewRecruit IndexedDB hydration state and cloud connection status")
+@router.get("/api/armylists/nr_state", summary="Get NewRecruit cloud connection status (never injects backend DB lists)")
 async def api_get_nr_state(request: Request):
-    from newrecruit_integration import get_nr_state_payload, sync_nr_cloud_lists_if_connected
+    from newrecruit_integration import get_nr_state_payload
     user_id = _resolve_user_id(request)
-
-    db = get_database()
-    await asyncio.to_thread(
-        sync_nr_cloud_lists_if_connected,
-        user_id or "default",
-        lambda item: db.save_user_army_list(user_id=user_id, list_data=item),
-        lambda lid: db.delete_user_army_list(lid, user_id=user_id),
-        lambda: db.get_user_army_lists(user_id=user_id),
-    )
-    saved_lists = list(db.get_user_army_lists(user_id=user_id) or [])
-    return get_nr_state_payload(saved_lists, user_key=user_id or "default")
+    return get_nr_state_payload([], user_key=user_id or "default")
 
 
-@router.post("/api/armylists/nr_sync", summary="Sync army list creation, modification, or deletion from embedded NewRecruit Studio")
+@router.post("/api/armylists/nr_sync", summary="Statelessly parse NewRecruit lists and propagate live edits to active Game Tracker rooms")
 async def api_post_nr_sync(request: Request):
     from newrecruit_integration import process_nr_sync_payload
     try:
@@ -219,23 +248,16 @@ async def api_post_nr_sync(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-    user_id = _resolve_user_id(request)
-    db = get_database()
-
-    def _save_and_propagate(item: Dict[str, Any]) -> Dict[str, Any]:
-        saved = db.save_user_army_list(user_id=user_id, list_data=item)
-        return _propagate_saved_list_to_tracker_rooms(saved)
-
     return await asyncio.to_thread(
         process_nr_sync_payload,
         body,
-        _save_and_propagate,
-        lambda lid: db.delete_user_army_list(lid, user_id=user_id),
-        lambda: db.get_user_army_lists(user_id=user_id),
+        _propagate_saved_list_to_tracker_rooms,
+        _clear_deleted_list_from_tracker_rooms,
+        lambda: [],
     )
 
 
-@router.post("/api/armylists/nr_cloud_connect", summary="Connect NewRecruit Cloud account and sync cloud army lists")
+@router.post("/api/armylists/nr_cloud_connect", summary="Connect NewRecruit Cloud account and fetch cloud army lists without backend DB storage")
 async def api_post_nr_cloud_connect(request: Request):
     from newrecruit_integration import handle_nr_cloud_connect
     try:
@@ -244,27 +266,46 @@ async def api_post_nr_cloud_connect(request: Request):
         body = {}
 
     user_id = _resolve_user_id(request)
-    db = get_database()
     return await asyncio.to_thread(
         handle_nr_cloud_connect,
         body,
-        lambda item: db.save_user_army_list(user_id=user_id, list_data=item),
-        lambda lid: db.delete_user_army_list(lid, user_id=user_id),
-        lambda: db.get_user_army_lists(user_id=user_id),
+        _propagate_saved_list_to_tracker_rooms,
+        _clear_deleted_list_from_tracker_rooms,
+        lambda: [],
         user_id or "default",
     )
 
 
-@router.get("/api/armylists/{list_id}", summary="Get single army list by ID")
+@router.get("/api/armylists/{list_id}", summary="Get single army list by ID from NewRecruit Cloud or active Game Tracker room")
 async def api_get_armylist(list_id: str, request: Request):
+    from newrecruit_integration import fetch_nr_cloud_lists_for_user
+    clean_key = str(list_id or "").strip()
+    raw_key = re.sub(r"^(nr_|list_)", "", clean_key)
+    nr_key = f"nr_{raw_key}"
+    for room_data in list(TRACKER_ROOMS.values()):
+        if isinstance(room_data, dict):
+            for slot_key in ("p1_army_list", "p2_army_list"):
+                cur_slot = room_data.get(slot_key)
+                if isinstance(cur_slot, dict):
+                    c_id = str(cur_slot.get("id") or "")
+                    c_key = str(cur_slot.get("list_key") or "")
+                    if c_id in (clean_key, raw_key, nr_key) or c_key in (clean_key, raw_key):
+                        item = get_army_parser()._finalize_roster_compatibility(dict(cur_slot))
+                        return {"success": True, "army_list": item}
     user_id = _resolve_user_id(request)
-    db = get_database()
-    item = db.get_user_army_list(list_id, user_id=user_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Army list not found")
-    if isinstance(item, dict):
-        item = get_army_parser()._finalize_roster_compatibility(dict(item))
-    return {"success": True, "army_list": item}
+    cloud_lists = await asyncio.to_thread(
+        fetch_nr_cloud_lists_for_user,
+        user_id or "default",
+        request.headers.get("X-NR-Access"),
+        None,
+    )
+    for item in (cloud_lists or []):
+        if isinstance(item, dict):
+            c_id = str(item.get("id") or "")
+            c_key = str(item.get("list_key") or "")
+            if c_id in (clean_key, raw_key, nr_key) or c_key in (clean_key, raw_key):
+                return {"success": True, "army_list": get_army_parser()._finalize_roster_compatibility(dict(item))}
+    raise HTTPException(status_code=404, detail="Army list not found")
 
 @router.get("/api/bcp/armylist/{list_id}", summary="Fetch official army list text from Best Coast Pairings")
 async def api_get_bcp_armylist(list_id: str, request: Request, bcp_token: Optional[str] = Query(None)):
@@ -355,24 +396,13 @@ async def api_get_bcp_armylist(list_id: str, request: Request, bcp_token: Option
         "sub_faction_id": data.get("subFactionId") or data.get("sub_faction_id") or ""
     }
 
-@router.delete("/api/armylists/{list_id}", summary="Delete an army list")
+@router.delete("/api/armylists/{list_id}", summary="Delete an army list from NewRecruit Cloud (if connected) and active rooms")
 async def api_delete_armylist(list_id: str, request: Request):
     from newrecruit_integration import _resolve_nr_cloud_account, _nr_rpc_call
     user_id = _resolve_user_id(request)
-    db = get_database()
-    success = db.delete_user_army_list(list_id, user_id=user_id)
+    _clear_deleted_list_from_tracker_rooms(list_id)
     clean_key = str(list_id or "").strip()
     raw_key = re.sub(r"^(nr_|list_)", "", clean_key)
-    nr_key = f"nr_{raw_key}"
-    for room_data in list(TRACKER_ROOMS.values()):
-        if isinstance(room_data, dict):
-            for slot_key in ("p1_army_list", "p2_army_list"):
-                cur_slot = room_data.get(slot_key)
-                if isinstance(cur_slot, dict):
-                    c_id = str(cur_slot.get("id") or "")
-                    c_key = str(cur_slot.get("list_key") or "")
-                    if c_id in (clean_key, raw_key, nr_key) or c_key in (clean_key, raw_key):
-                        room_data[slot_key] = None
     try:
         acct = _resolve_nr_cloud_account(user_id or "default") or {}
         nr_access = request.headers.get("X-NR-Access") or acct.get("access")
@@ -380,7 +410,7 @@ async def api_delete_armylist(list_id: str, request: Request):
             await asyncio.to_thread(_nr_rpc_call, "deleteList", [raw_key], nr_access)
     except Exception:
         pass
-    return {"success": success, "deleted_id": list_id}
+    return {"success": True, "deleted_id": list_id}
 
 @router.get("/nr/app", include_in_schema=False)
 @router.get("/nr/app/{subpath:path}", include_in_schema=False)

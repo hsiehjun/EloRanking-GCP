@@ -664,7 +664,8 @@ def test_all_games_stored_in_tracker_games():
         assert sc_res["status"] == "completed"
         assert sc_res["source"] == "tracker_games"
 
-    # Case B: In-progress match in Firestore
+    # Case B: In-progress match in Firestore must NOT be returned as a scorecard
+    from core import HTTPException
     mock_db_instance.get_tracker_game.return_value = None
     fs_engine.create_room("BCP-LIVE-200", {
         "match_id": "BCP-LIVE-200",
@@ -677,12 +678,11 @@ def test_all_games_stored_in_tracker_games():
     })
     with patch("routers.tracker.get_database", return_value=mock_db_instance), \
          patch("routers.tracker.get_firestore_engine", return_value=fs_engine):
-        sc_live = asyncio.run(api_get_scorecard("BCP-LIVE-200"))
-        assert sc_live["success"] is True
-        assert sc_live["is_finished"] is False
-        assert sc_live["status"] == "active"
-        assert sc_live["source"] == "firestore"
-        assert sc_live["state"]["game"]["p1Name"] == "LiveP1"
+        try:
+            asyncio.run(api_get_scorecard("BCP-LIVE-200"))
+            assert False, "Expected HTTPException 404 for unsubmitted Firestore room"
+        except HTTPException as exc:
+            assert exc.status_code == 404
 
 
 if __name__ == "__main__":
