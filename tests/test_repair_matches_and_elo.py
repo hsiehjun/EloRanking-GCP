@@ -139,7 +139,7 @@ class TestRepairMatchesAndElo(unittest.TestCase):
         mock_cur.fetchall.return_value = [corrupted_db_row]
 
         mock_elo_engine = MagicMock()
-        mock_elo_engine.reconstruct_all_rankings.return_value = {"status": "success"}
+        mock_elo_engine.reconstruct_since_date.return_value = {"status": "success"}
 
         with patch("scripts.repair_matches_and_elo.BestCoastPairingsScraper") as MockScraperCls, \
              patch("scripts.repair_matches_and_elo.get_elo_engine", return_value=mock_elo_engine), \
@@ -159,7 +159,10 @@ class TestRepairMatchesAndElo(unittest.TestCase):
         self.assertEqual(res["matches_repaired"], 1)
         self.assertEqual(res["events_repaired"], ["7ohG0RuDqC1k"])
         self.assertTrue(res["elo_reconstructed"])
-        mock_elo_engine.reconstruct_all_rankings.assert_called_once_with(game_system="all")
+        mock_elo_engine.reconstruct_since_date.assert_called_once_with(
+            since_date="2026-09-01",
+            game_system="all",
+        )
 
         # Verify the exact SQL parameters passed to execute_batch
         self.assertTrue(mock_exec_batch.called)

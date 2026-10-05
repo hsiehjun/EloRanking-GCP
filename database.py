@@ -3346,15 +3346,23 @@ class PostgresDatabase:
                         """, (limit, offset))
                         return [dict(r) for r in cur_safe.fetchall()]
 
-    def get_unranked_matches(self, limit: int = 50000, game_system: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_unranked_matches(
+        self,
+        limit: int = 50000,
+        game_system: Optional[str] = None,
+        since_date: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Returns new matches that do not yet have a record in rating_history."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 where_extra = ""
-                params = []
+                params: List[Any] = []
                 if game_system and game_system != "all":
-                    where_extra = " AND COALESCE(m.game_system, '40k') = %s"
+                    where_extra += " AND COALESCE(m.game_system, '40k') = %s"
                     params.append(game_system)
+                if since_date:
+                    where_extra += " AND m.match_date >= %s::timestamptz"
+                    params.append(since_date)
                 try:
                     cursor.execute(f"""
                     SELECT 

@@ -63,8 +63,9 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-REPAIR_MIGRATION_KEY = "bcp_pairing_elo_repair_v2"
+REPAIR_MIGRATION_KEY = "bcp_pairing_elo_repair_v3"
 ALWAYS_CHECK_EVENT_IDS = ("7ohG0RuDqC1k",)
+META_BUG_WINDOW_START = "2026-09-01"
 
 _REPAIR_LOCK = threading.Lock()
 _REPAIR_STATUS: Dict[str, Any] = {
@@ -266,106 +267,92 @@ def find_candidate_event_ids(
                 return sorted(event_ids)
 
             if days is not None and int(days) > 0:
-                cur.execute(
-                    """
-                    SELECT DISTINCT m.event_id
-                    FROM matches m
-                    WHERE m.event_id IS NOT NULL
-                      AND m.event_id != ''
-                      AND m.event_id NOT LIKE 'ES-%%'
-                      AND m.event_id NOT LIKE 'native_%%'
-                      AND m.match_date >= NOW() - (%s * INTERVAL '1 day');
-                    """,
-                    (int(days),),
-                )
-                for (eid,) in cur.fetchall():
-                    if eid:
-                        event_ids.add(str(eid))
+                window_sql = "e.event_date >= NOW() - (%s * INTERVAL '1 day')"
+                window_params: Tuple[Any, ...] = (int(days),)
+            else:
+                window_sql = "e.event_date >= %s::timestamptz"
+                window_params = (META_BUG_WINDOW_START,)
 
-            # 1. All-Time Battle Points Mismatch across ANY player in ANY tournament:
+            # 1. All-Player Battle Points Mismatch or Playoff Pods within the target window:
             #    Compares each player's official tournament `battle_points` in `event_participants`
-            #    against the sum of their round-by-round scores in `matches`.
-            #    Whenever `metaData` had stale/swapped points for ANY player, this detects the event.
-            cur.execute("""
-                WITH player_match_totals AS (
-                    SELECT event_id, player_id, SUM(score) AS match_bp
-                    FROM (
-                        SELECT event_id, player1_id AS player_id, COALESCE(player1_score, 0) AS score
-                        FROM matches
-                        WHERE event_id IS NOT NULL AND player1_id IS NOT NULL
-                        UNION ALL
-                        SELECT event_id, player2_id AS player_id, COALESCE(player2_score, 0) AS score
-                        FROM matches
-                        WHERE event_id IS NOT NULL AND player2_id IS NOT NULL AND is_bye = FALSE
-                    ) s
-                    GROUP BY event_id, player_id
+            #    against the sum of their round-by-round scores in `matches`, or flags Playoff Pod events.
+            cur.execute(
+                f"""
+                WITH recent_events AS (
+                    SELECT e.id
+                    FROM events e
+                    WHERE {window_sql}
+                      AND e.event_date <= NOW() + INTERVAL '1 day'
+                      AND e.id NOT LIKE 'ES-%%'
+                      AND e.id NOT LIKE 'native_%%'
+                ),
+                player_match_totals AS (
+                    SELECT
+                        m.event_id,
+                        s.player_id,
+                        SUM(s.score) AS match_bp,
+                        BOOL_OR(s.is_bye) AS had_bye
+                    FROM matches m
+                    JOIN recent_events re ON m.event_id = re.id
+                    CROSS JOIN LATERAL (
+                        VALUES
+                            (m.player1_id, COALESCE(m.player1_score, 0), COALESCE(m.is_bye, FALSE)),
+                            (CASE WHEN COALESCE(m.is_bye, FALSE) THEN NULL ELSE m.player2_id END, COALESCE(m.player2_score, 0), FALSE)
+                    ) AS s(player_id, score, is_bye)
+                    WHERE s.player_id IS NOT NULL AND s.player_id != ''
+                    GROUP BY m.event_id, s.player_id
                 )
                 SELECT DISTINCT ep.event_id
                 FROM event_participants ep
-                JOIN player_match_totals pmt
+                JOIN recent_events re ON ep.event_id = re.id
+                LEFT JOIN player_match_totals pmt
                   ON ep.event_id = pmt.event_id AND ep.player_id = pmt.player_id
-                WHERE ep.event_id NOT LIKE 'ES-%%'
-                  AND ep.event_id NOT LIKE 'native_%%'
-                  AND ep.battle_points IS NOT NULL
-                  AND ep.battle_points > 0
-                  AND ep.battle_points != pmt.match_bp;
-            """)
+                WHERE ep.pod_num IS NOT NULL
+                   OR (
+                       COALESCE(ep.dropped, FALSE) = FALSE
+                       AND COALESCE(pmt.had_bye, FALSE) = FALSE
+                       AND ep.battle_points IS NOT NULL
+                       AND ep.battle_points > 0
+                       AND pmt.match_bp IS NOT NULL
+                       AND ep.battle_points != pmt.match_bp
+                   );
+                """,
+                window_params,
+            )
             for (eid,) in cur.fetchall():
                 if eid:
                     event_ids.add(str(eid))
 
-            # 2. All-Time Score vs Winner Contradiction in `matches`:
-            #    Any match where the recorded winner has a lower score than the loser, or a non-equal draw.
-            cur.execute("""
+            # 2. Score vs. Winner Contradictions, raw_json playerGame discrepancies, or unscored completed events:
+            cur.execute(
+                f"""
                 SELECT DISTINCT m.event_id
                 FROM matches m
-                WHERE m.event_id IS NOT NULL
-                  AND m.event_id != ''
-                  AND m.event_id NOT LIKE 'ES-%%'
-                  AND m.event_id NOT LIKE 'native_%%'
-                  AND m.is_bye = FALSE
-                  AND m.player1_score IS NOT NULL
-                  AND m.player2_score IS NOT NULL
-                  AND (
-                      (m.winner_id = m.player1_id AND m.player1_score < m.player2_score)
-                      OR (m.winner_id = m.player2_id AND m.player2_score < m.player1_score)
-                      OR (m.is_draw = TRUE AND m.player1_score != m.player2_score)
-                  );
-            """)
-            for (eid,) in cur.fetchall():
-                if eid:
-                    event_ids.add(str(eid))
-
-            # 3. All BCP events played or scraped during the `metaData` priority window (Sep 7, 2026 -> Present):
-            #    Ensures every tournament scraped while `metaData` had precedence (commit ac57bc5 -> dcc9b15)
-            #    is verified against BCP's authoritative per-player `games` records.
-            cur.execute("""
-                SELECT DISTINCT e.id
-                FROM events e
-                JOIN matches m ON m.event_id = e.id
-                WHERE e.id NOT LIKE 'ES-%%'
+                JOIN events e ON e.id = m.event_id
+                WHERE {window_sql}
+                  AND e.event_date <= NOW() + INTERVAL '1 day'
+                  AND e.id NOT LIKE 'ES-%%'
                   AND e.id NOT LIKE 'native_%%'
-                  AND (
-                      e.event_date >= '2026-09-07'::timestamptz
-                      OR e.scraped_at >= '2026-09-07'::timestamptz
-                  )
                   AND m.is_bye = FALSE
                   AND (
                       (
-                          m.raw_json IS NOT NULL
+                          m.player1_score IS NOT NULL
+                          AND m.player2_score IS NOT NULL
                           AND (
-                              m.raw_json->'metaData'->>'p1-gamePoints' IS NOT NULL
-                              OR m.raw_json->'metaData'->>'p2-gamePoints' IS NOT NULL
-                              OR m.raw_json->'metaData'->>'p1-gameResult' IS NOT NULL
-                              OR m.raw_json->'metaData'->>'p2-gameResult' IS NOT NULL
+                              (m.winner_id = m.player1_id AND m.player1_score < m.player2_score)
+                              OR (m.winner_id = m.player2_id AND m.player2_score < m.player1_score)
+                              OR (m.is_draw = TRUE AND m.player1_score != m.player2_score)
                           )
                       )
                       OR (
                           COALESCE(e.is_ended, FALSE) = TRUE
+                          AND e.event_date <= NOW() - INTERVAL '6 hours'
                           AND (m.is_done = FALSE OR (m.winner_id IS NULL AND m.is_draw = FALSE))
                       )
                   );
-            """)
+                """,
+                window_params,
+            )
             for (eid,) in cur.fetchall():
                 if eid:
                     event_ids.add(str(eid))
@@ -383,7 +370,8 @@ def _fetch_event_authoritative_data(
         # which contains `games` and `total_games` for every competitor.
         roster: List[Dict[str, Any]] = []
         make_req = getattr(scraper, "_make_request", None)
-        if callable(make_req) and type(make_req).__name__ not in ("MagicMock", "NonCallableMagicMock"):
+        used_direct_req = callable(make_req) and type(make_req).__name__ not in ("MagicMock", "NonCallableMagicMock")
+        if used_direct_req:
             resp = make_req(
                 f"/events/{event_id}/players",
                 params={"limit": 2500, "placings": "true"},
@@ -397,7 +385,16 @@ def _fetch_event_authoritative_data(
                     roster = resp["players"]
             elif isinstance(resp, list):
                 roster = resp
-        if not roster:
+            if not roster and getattr(scraper, "last_http_code", None) != 404:
+                resp2 = make_req(
+                    f"/events/{event_id}/players",
+                    params={"limit": 2500},
+                )
+                if isinstance(resp2, dict):
+                    roster = resp2.get("active") or resp2.get("data") or resp2.get("players") or []
+                elif isinstance(resp2, list):
+                    roster = resp2
+        else:
             roster = scraper.fetch_event_players(event_id)
         if not isinstance(roster, list) or not roster:
             return event_id, {}, {}, None
@@ -422,7 +419,7 @@ def repair_historical_matches_and_elo(
     scan_all: bool = False,
     reconstruct: bool = True,
     force_reconstruct: bool = False,
-    max_workers: int = 16,
+    max_workers: int = 24,
 ) -> Dict[str, Any]:
     """Reconcile historical BCP matches against authoritative per-player game records and rebuild Elo."""
     if not _REPAIR_LOCK.acquire(blocking=False):
@@ -439,7 +436,7 @@ def repair_historical_matches_and_elo(
 
     try:
         db = db or get_db()
-        scraper = BestCoastPairingsScraper(db=db, request_delay=0.05)
+        scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
 
         candidates = find_candidate_event_ids(
             db=db,
@@ -726,9 +723,18 @@ def repair_historical_matches_and_elo(
         elo_summary = None
         should_reconstruct = bool(reconstruct and (updates_to_apply or force_reconstruct))
         if should_reconstruct:
-            logger.info("[RepairMatchesElo] Starting atomic global Elo reconstruction (game_system='all')...")
             elo_engine = get_elo_engine(db=db)
-            elo_summary = elo_engine.reconstruct_all_rankings(game_system="all")
+            if scan_all or not hasattr(elo_engine, "reconstruct_since_date"):
+                logger.info("[RepairMatchesElo] Starting full Elo reconstruction (game_system='all')...")
+                elo_summary = elo_engine.reconstruct_all_rankings(game_system="all")
+            else:
+                logger.info(
+                    f"[RepairMatchesElo] Starting windowed Elo reconstruction since {META_BUG_WINDOW_START} (game_system='all')..."
+                )
+                elo_summary = elo_engine.reconstruct_since_date(
+                    since_date=META_BUG_WINDOW_START,
+                    game_system="all",
+                )
             elo_engine.invalidate_caches()
 
         # Invalidate all caches (DB + Leaderboard router caches)

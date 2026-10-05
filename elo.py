@@ -362,7 +362,146 @@ class EloEngine:
             "head_to_head": h2h_matches
         }
 
-    def reconstruct_incremental(self, batch_limit: int = 50000, game_system: Optional[str] = "40k") -> Dict[str, Any]:
+    def reconstruct_since_date(
+        self,
+        since_date: str = "2026-09-01",
+        game_system: Optional[str] = "40k",
+    ) -> Dict[str, Any]:
+        """Rewinds rating_history and player_ratings back to `since_date` and replays all subsequent matches chronologically."""
+        import time
+
+        sys_target = (game_system or "40k").lower()
+        if sys_target == "all":
+            r_40k = self.reconstruct_since_date(since_date=since_date, game_system="40k")
+            r_aos = self.reconstruct_since_date(since_date=since_date, game_system="aos")
+            return {
+                "game_system": "all",
+                "since_date": since_date,
+                "40k": r_40k,
+                "aos": r_aos,
+                "rewound_players": r_40k.get("rewound_players", 0) + r_aos.get("rewound_players", 0),
+                "total_matches_processed": r_40k.get("total_matches_processed", 0) + r_aos.get("total_matches_processed", 0),
+                "players_updated": r_40k.get("players_updated", 0) + r_aos.get("players_updated", 0),
+                "history_points_saved": r_40k.get("history_points_saved", 0) + r_aos.get("history_points_saved", 0),
+            }
+
+        t0 = time.time()
+        rewound_pids: List[str] = []
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL synchronous_commit = OFF;")
+                cur.execute(
+                    """
+                    WITH target_matches AS (
+                        SELECT id
+                        FROM matches
+                        WHERE match_date >= %s::timestamptz
+                          AND COALESCE(game_system, '40k') = %s
+                    ),
+                    deleted_rh AS (
+                        DELETE FROM rating_history rh
+                        USING target_matches tm
+                        WHERE rh.match_id = tm.id
+                          AND COALESCE(rh.game_system, '40k') = %s
+                        RETURNING rh.player_id
+                    )
+                    SELECT DISTINCT player_id FROM deleted_rh WHERE player_id IS NOT NULL;
+                    """,
+                    (since_date, sys_target, sys_target),
+                )
+                rows = cur.fetchall() or []
+                rewound_pids = [
+                    str(r[0] if isinstance(r, (list, tuple)) else r.get("player_id"))
+                    for r in rows
+                    if (r[0] if isinstance(r, (list, tuple)) else r.get("player_id"))
+                ]
+
+                if rewound_pids:
+                    cur.execute(
+                        """
+                        WITH touched AS (
+                            SELECT UNNEST(%s::varchar[]) AS player_id
+                        ),
+                        pre_stats AS (
+                            SELECT
+                                rh.player_id,
+                                COUNT(*) AS matches_played,
+                                COUNT(*) FILTER (WHERE rh.result = 'W') AS wins,
+                                COUNT(*) FILTER (WHERE rh.result = 'L') AS losses,
+                                COUNT(*) FILTER (WHERE rh.result = 'D') AS draws,
+                                MAX(rh.new_elo) AS max_hist_elo,
+                                MAX(rh.match_date) AS last_hist_date,
+                                (ARRAY_AGG(rh.new_elo ORDER BY rh.match_date DESC NULLS LAST, rh.id DESC))[1] AS latest_elo
+                            FROM rating_history rh
+                            JOIN touched t ON rh.player_id = t.player_id
+                            WHERE COALESCE(rh.game_system, '40k') = %s
+                            GROUP BY rh.player_id
+                        )
+                        UPDATE player_ratings pr
+                        SET current_elo = COALESCE(ps.latest_elo, %s),
+                            peak_elo = GREATEST(%s, COALESCE(ps.max_hist_elo, %s)),
+                            matches_played = COALESCE(ps.matches_played, 0),
+                            wins = COALESCE(ps.wins, 0),
+                            losses = COALESCE(ps.losses, 0),
+                            draws = COALESCE(ps.draws, 0),
+                            win_rate = CASE
+                                WHEN COALESCE(ps.matches_played, 0) > 0
+                                THEN ROUND(((COALESCE(ps.wins, 0)::numeric / ps.matches_played::numeric) * 100.0), 1)::double precision
+                                ELSE 0.0
+                            END,
+                            last_active_date = ps.last_hist_date,
+                            updated_at = NOW()
+                        FROM touched t
+                        LEFT JOIN pre_stats ps ON ps.player_id = t.player_id
+                        WHERE pr.player_id = t.player_id
+                          AND COALESCE(pr.game_system, '40k') = %s;
+                        """,
+                        (
+                            rewound_pids,
+                            sys_target,
+                            self.initial_elo,
+                            self.initial_elo,
+                            self.initial_elo,
+                            sys_target,
+                        ),
+                    )
+            conn.commit()
+
+        total_replayed = 0
+        total_players_updated = 0
+        total_history_saved = 0
+        for _ in range(5):
+            inc_res = self.reconstruct_incremental(
+                batch_limit=100000,
+                game_system=sys_target,
+                since_date=since_date,
+                skip_stale_check=True,
+            )
+            batch_new = int(inc_res.get("total_new_matches") or 0)
+            total_replayed += batch_new
+            total_players_updated = max(total_players_updated, int(inc_res.get("players_updated") or 0))
+            total_history_saved += int(inc_res.get("history_points_saved") or 0)
+            if batch_new < 100000:
+                break
+
+        elapsed = round(time.time() - t0, 2)
+        return {
+            "game_system": sys_target,
+            "since_date": since_date,
+            "rewound_players": len(rewound_pids),
+            "total_matches_processed": total_replayed,
+            "players_updated": total_players_updated,
+            "history_points_saved": total_history_saved,
+            "elapsed_seconds": elapsed,
+        }
+
+    def reconstruct_incremental(
+        self,
+        batch_limit: int = 50000,
+        game_system: Optional[str] = "40k",
+        since_date: Optional[str] = None,
+        skip_stale_check: bool = False,
+    ) -> Dict[str, Any]:
         """Incrementally processes newly scraped matches without replaying historical data from scratch."""
         try:
             from psycopg2 import extras
@@ -372,8 +511,18 @@ class EloEngine:
 
         sys_target = (game_system or "40k").lower()
         if sys_target == "all":
-            r_40k = self.reconstruct_incremental(batch_limit=batch_limit, game_system="40k")
-            r_aos = self.reconstruct_incremental(batch_limit=batch_limit, game_system="aos")
+            r_40k = self.reconstruct_incremental(
+                batch_limit=batch_limit,
+                game_system="40k",
+                since_date=since_date,
+                skip_stale_check=skip_stale_check,
+            )
+            r_aos = self.reconstruct_incremental(
+                batch_limit=batch_limit,
+                game_system="aos",
+                since_date=since_date,
+                skip_stale_check=skip_stale_check,
+            )
             return {
                 "game_system": "all",
                 "40k": r_40k,
@@ -389,110 +538,117 @@ class EloEngine:
         print("=" * 68)
 
         # 0. Self-healing: revert and purge any stale rating_history rows from unscored/0-0 matches or updated outcomes
-        try:
-            with self.db.get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                    WITH stale_rh AS (
-                        SELECT rh.id, rh.match_id, rh.player_id, rh.delta_elo, rh.result, COALESCE(rh.game_system, '40k') as game_system
-                        FROM rating_history rh
-                        JOIN matches m ON rh.match_id = m.id
-                        WHERE COALESCE(rh.game_system, '40k') = %s
-                          AND (
-                              m.is_done = FALSE
-                              OR (
-                                  COALESCE(m.is_bye, FALSE) = FALSE
-                                  AND (m.winner_id IS NULL OR m.winner_id = '')
-                                  AND (COALESCE(m.is_draw, FALSE) = FALSE OR (COALESCE(m.player1_score, 0) = 0 AND COALESCE(m.player2_score, 0) = 0))
+        if not skip_stale_check:
+            try:
+                with self.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                        WITH stale_rh AS (
+                            SELECT rh.id, rh.match_id, rh.player_id, rh.delta_elo, rh.result, COALESCE(rh.game_system, '40k') as game_system
+                            FROM rating_history rh
+                            JOIN matches m ON rh.match_id = m.id
+                            WHERE COALESCE(rh.game_system, '40k') = %s
+                              AND (
+                                  m.is_done = FALSE
+                                  OR (
+                                      COALESCE(m.is_bye, FALSE) = FALSE
+                                      AND (m.winner_id IS NULL OR m.winner_id = '')
+                                      AND (COALESCE(m.is_draw, FALSE) = FALSE OR (COALESCE(m.player1_score, 0) = 0 AND COALESCE(m.player2_score, 0) = 0))
+                                  )
+                                  OR (
+                                      COALESCE(m.is_bye, FALSE) = FALSE
+                                      AND COALESCE(m.is_draw, FALSE) = TRUE
+                                      AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0)
+                                      AND rh.result != 'D'
+                                  )
+                                  OR (
+                                      COALESCE(m.is_bye, FALSE) = FALSE
+                                      AND COALESCE(m.is_draw, FALSE) = FALSE
+                                      AND m.winner_id IS NOT NULL AND m.winner_id != ''
+                                      AND ((rh.player_id = m.winner_id AND rh.result != 'W') OR (rh.player_id != m.winner_id AND rh.result != 'L'))
+                                  )
+                                  OR (
+                                      rh.player_id != COALESCE(m.player1_id, '')
+                                      AND rh.player_id != COALESCE(m.player2_id, '')
+                                  )
                               )
-                              OR (
-                                  COALESCE(m.is_bye, FALSE) = FALSE
-                                  AND COALESCE(m.is_draw, FALSE) = TRUE
-                                  AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0)
-                                  AND rh.result != 'D'
-                              )
-                              OR (
-                                  COALESCE(m.is_bye, FALSE) = FALSE
-                                  AND COALESCE(m.is_draw, FALSE) = FALSE
-                                  AND m.winner_id IS NOT NULL AND m.winner_id != ''
-                                  AND ((rh.player_id = m.winner_id AND rh.result != 'W') OR (rh.player_id != m.winner_id AND rh.result != 'L'))
-                              )
-                              OR (
-                                  rh.player_id != COALESCE(m.player1_id, '')
-                                  AND rh.player_id != COALESCE(m.player2_id, '')
-                              )
-                          )
-                    ),
-                    agg_revert AS (
-                        SELECT player_id, game_system,
-                               SUM(COALESCE(delta_elo, 0)) as total_delta,
-                               COUNT(*) as total_matches,
-                               COUNT(*) FILTER (WHERE result = 'W') as total_wins,
-                               COUNT(*) FILTER (WHERE result = 'L') as total_losses,
-                               COUNT(*) FILTER (WHERE result = 'D') as total_draws
-                        FROM stale_rh
-                        GROUP BY player_id, game_system
-                    ),
-                    reverted_pr AS (
-                        UPDATE player_ratings pr
-                        SET current_elo = pr.current_elo - ar.total_delta,
-                            matches_played = GREATEST(0, pr.matches_played - ar.total_matches),
-                            wins = GREATEST(0, pr.wins - ar.total_wins),
-                            losses = GREATEST(0, pr.losses - ar.total_losses),
-                            draws = GREATEST(0, pr.draws - ar.total_draws)
-                        FROM agg_revert ar
-                        WHERE pr.player_id = ar.player_id
-                          AND COALESCE(pr.game_system, '40k') = ar.game_system
-                    )
-                    DELETE FROM rating_history
-                    WHERE id IN (SELECT id FROM stale_rh);
-                    """, (sys_target,))
-                    purged = int(cur.rowcount or 0)
-                    conn.commit()
-                    if purged > 0:
-                        logger.info(f"🧹 Reverted and purged {purged} stale/unscored rating_history record(s) for {sys_target.upper()}.")
-        except Exception as cleanup_err:
-            logger.debug(f"Notice during stale rating_history cleanup: {cleanup_err}")
+                        ),
+                        agg_revert AS (
+                            SELECT player_id, game_system,
+                                   SUM(COALESCE(delta_elo, 0)) as total_delta,
+                                   COUNT(*) as total_matches,
+                                   COUNT(*) FILTER (WHERE result = 'W') as total_wins,
+                                   COUNT(*) FILTER (WHERE result = 'L') as total_losses,
+                                   COUNT(*) FILTER (WHERE result = 'D') as total_draws
+                            FROM stale_rh
+                            GROUP BY player_id, game_system
+                        ),
+                        reverted_pr AS (
+                            UPDATE player_ratings pr
+                            SET current_elo = pr.current_elo - ar.total_delta,
+                                matches_played = GREATEST(0, pr.matches_played - ar.total_matches),
+                                wins = GREATEST(0, pr.wins - ar.total_wins),
+                                losses = GREATEST(0, pr.losses - ar.total_losses),
+                                draws = GREATEST(0, pr.draws - ar.total_draws)
+                            FROM agg_revert ar
+                            WHERE pr.player_id = ar.player_id
+                              AND COALESCE(pr.game_system, '40k') = ar.game_system
+                        )
+                        DELETE FROM rating_history
+                        WHERE id IN (SELECT id FROM stale_rh);
+                        """, (sys_target,))
+                        purged = int(cur.rowcount or 0)
+                        conn.commit()
+                        if purged > 0:
+                            logger.info(f"🧹 Reverted and purged {purged} stale/unscored rating_history record(s) for {sys_target.upper()}.")
+            except Exception as cleanup_err:
+                logger.debug(f"Notice during stale rating_history cleanup: {cleanup_err}")
 
         # 1. Fetch unranked matches for this game system
         print(f"[1/3] 🔍 Checking for new unranked {sys_target.upper()} matches in PostgreSQL...")
-        new_matches = self.db.get_unranked_matches(limit=batch_limit, game_system=sys_target)
+        try:
+            new_matches = self.db.get_unranked_matches(
+                limit=batch_limit, game_system=sys_target, since_date=since_date
+            )
+        except TypeError:
+            new_matches = self.db.get_unranked_matches(limit=batch_limit, game_system=sys_target)
         total_new = len(new_matches)
 
         if total_new == 0:
             # Self-healing: verify if any player ratings are out-of-sync with their latest rating_history
             healed = 0
-            try:
-                with self.db.get_connection() as conn:
-                    _heal_and_load_authoritative_names(conn, sys_target)
-                    with conn.cursor() as cur:
-                        cur.execute("""
-                        WITH latest_rh AS (
-                            SELECT DISTINCT ON (player_id, game_system)
-                                player_id, new_elo, game_system, match_date
-                            FROM rating_history
-                            WHERE COALESCE(game_system, '40k') = %s
-                            ORDER BY player_id, game_system, match_date DESC NULLS LAST, id DESC
-                        )
-                        UPDATE player_ratings pr
-                        SET current_elo = l.new_elo,
-                            peak_elo = GREATEST(pr.peak_elo, l.new_elo),
-                            last_active_date = COALESCE(l.match_date, pr.last_active_date),
-                            updated_at = NOW()
-                        FROM latest_rh l
-                        WHERE pr.player_id = l.player_id
-                          AND COALESCE(pr.game_system, '40k') = l.game_system
-                          AND ABS(pr.current_elo - l.new_elo) > 0.01;
-                        """, (sys_target,))
-                        try:
-                            healed = int(cur.rowcount)
-                        except (ValueError, TypeError):
-                            healed = 0
-                        conn.commit()
-                        if healed > 0:
-                            logger.info(f"✨ Self-healed {healed} out-of-sync player rating(s) for {sys_target.upper()} from rating_history.")
-            except Exception as heal_err:
-                logger.debug(f"Notice during rating history alignment: {heal_err}")
+            if not since_date:
+                try:
+                    with self.db.get_connection() as conn:
+                        _heal_and_load_authoritative_names(conn, sys_target)
+                        with conn.cursor() as cur:
+                            cur.execute("""
+                            WITH latest_rh AS (
+                                SELECT DISTINCT ON (player_id, game_system)
+                                    player_id, new_elo, game_system, match_date
+                                FROM rating_history
+                                WHERE COALESCE(game_system, '40k') = %s
+                                ORDER BY player_id, game_system, match_date DESC NULLS LAST, id DESC
+                            )
+                            UPDATE player_ratings pr
+                            SET current_elo = l.new_elo,
+                                peak_elo = GREATEST(pr.peak_elo, l.new_elo),
+                                last_active_date = COALESCE(l.match_date, pr.last_active_date),
+                                updated_at = NOW()
+                            FROM latest_rh l
+                            WHERE pr.player_id = l.player_id
+                              AND COALESCE(pr.game_system, '40k') = l.game_system
+                              AND ABS(pr.current_elo - l.new_elo) > 0.01;
+                            """, (sys_target,))
+                            try:
+                                healed = int(cur.rowcount)
+                            except (ValueError, TypeError):
+                                healed = 0
+                            conn.commit()
+                            if healed > 0:
+                                logger.info(f"✨ Self-healed {healed} out-of-sync player rating(s) for {sys_target.upper()} from rating_history.")
+                except Exception as heal_err:
+                    logger.debug(f"Notice during rating history alignment: {heal_err}")
 
             print(f"      ✅ Database is completely up to date for {sys_target.upper()}! Zero new matches to process (healed: {healed}).\n")
             return {"total_new_matches": 0, "status": "UP_TO_DATE", "game_system": sys_target, "healed_ratings": healed}
@@ -984,10 +1140,11 @@ class EloEngine:
 
                 with self.db.get_connection() as write_conn:
                     with write_conn.cursor() as init_cur:
-                        print(f"[1/3] 💾 Preparing atomic transaction for {sys_target.upper()} history & ratings...")
+                        print(f"[1/3] 💾 Preparing {sys_target.upper()} history & ratings tables...")
                         init_cur.execute("SET LOCAL synchronous_commit = OFF;")
                         init_cur.execute("DELETE FROM rating_history WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
                         init_cur.execute("DELETE FROM player_ratings WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
+                        write_conn.commit()
 
                     while True:
                         t_chunk_start = time.time()
@@ -1110,10 +1267,12 @@ class EloEngine:
                             tsv_buffer.write("\t".join(_format_tsv_field(v) for v in r2_vals) + "\n")
                             history_rows_in_chunk += 2
 
-                        # Stage batch into write_conn transaction
+                        # Stage and commit batch
                         tsv_buffer.seek(0)
                         with write_conn.cursor() as write_cur:
+                            write_cur.execute("SET LOCAL synchronous_commit = OFF;")
                             write_cur.copy_from(tsv_buffer, "rating_history", columns=history_cols, null="\\N")
+                        write_conn.commit()
                         tsv_buffer.close()
                         total_history_count += history_rows_in_chunk
 
