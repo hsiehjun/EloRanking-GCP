@@ -180,7 +180,21 @@ class TestJourneyPlacings(unittest.TestCase):
         self.assertNotIn("View Scorecard", fn_body)
         self.assertNotIn("stream-modal-versus-strip", fn_body)
 
+    def test_open_scorecard_modal_populates_top_strip_before_async_fetch(self):
+        with open("web/js/modals.js", "r", encoding="utf-8") as f:
+            modals_js = f.read()
+
+        fn_start = modals_js.index("async function openScorecardModal(matchId)")
+        await_idx = modals_js.index("await window.api.getScorecard(matchId)", fn_start)
+        pre_await_body = modals_js[fn_start:await_idx]
+
+        # Verify top player names, factions, detachments, and scores are populated/reset BEFORE the async API call
+        self.assertIn("if (evMatch)", pre_await_body)
+        self.assertIn("p1NameEl.innerText = evMatch.player1_name", pre_await_body)
+        self.assertIn("p2NameEl.innerText = evMatch.player2_name", pre_await_body)
+        self.assertIn("p1ScoreEl.innerText = hasInitScore ? evMatch.player1_score : '-'", pre_await_body)
+        self.assertIn("p1NameEl.innerText = 'Loading...'", pre_await_body)
+
 
 if __name__ == "__main__":
     unittest.main()
-

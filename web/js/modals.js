@@ -1376,9 +1376,15 @@ async function openScorecardModal(matchId) {
   const tbody = document.getElementById('modal-scorecard-matrix-body');
   const matchIdEl = document.getElementById('msc-match-id');
   const liveLink = document.getElementById('msc-live-link');
+  const p1NameEl = document.getElementById('msc-p1-name');
+  const p2NameEl = document.getElementById('msc-p2-name');
+  const p1FacEl = document.getElementById('msc-p1-faction');
+  const p2FacEl = document.getElementById('msc-p2-faction');
+  const p1DetEl = document.getElementById('msc-p1-det');
+  const p2DetEl = document.getElementById('msc-p2-det');
+  const p1ScoreEl = document.getElementById('msc-p1-score');
+  const p2ScoreEl = document.getElementById('msc-p2-score');
 
-  if (titleEl) titleEl.innerHTML = `🏆 Match Scorecard`;
-  if (subEl) subEl.innerText = `Loading tournament match details for ${matchId}...`;
   if (matchIdEl) matchIdEl.innerText = matchId;
   if (liveLink) liveLink.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}`;
   if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Fetching verified battle records...</div></td></tr>';
@@ -1391,27 +1397,71 @@ async function openScorecardModal(matchId) {
   let evMatch = null;
   let evP1 = null;
   let evP2 = null;
-  if (typeof currentEventData === 'object' && currentEventData) {
-    const evMatches = Array.isArray(currentEventData.matches) ? currentEventData.matches : [];
-    if (parsedRound !== null && parsedTable !== null) {
-      evMatch = evMatches.find(m => Number(m.round || 1) === parsedRound && Number(m.table_number || m.table || 1) === parsedTable) || null;
+  const evObj = (typeof currentEventData === 'object' && currentEventData) ? currentEventData : null;
+  const evMatches = (evObj && Array.isArray(evObj.matches) && evObj.matches.length > 0)
+    ? evObj.matches
+    : ((typeof eventMatchesCache !== 'undefined' && Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0)
+      ? eventMatchesCache
+      : (Array.isArray(window.eventMatchesCache) ? window.eventMatchesCache : []));
+  const evPlayers = (evObj && Array.isArray(evObj.players) && evObj.players.length > 0)
+    ? evObj.players
+    : ((typeof eventPlayersCache !== 'undefined' && Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0)
+      ? eventPlayersCache
+      : (Array.isArray(window.eventPlayersCache) ? window.eventPlayersCache : []));
+
+  if (parsedRound !== null && parsedTable !== null && evMatches.length > 0) {
+    evMatch = evMatches.find(m => Number(m.round || 1) === parsedRound && Number(m.table_number || m.table || 1) === parsedTable) || null;
+  }
+  if (evMatch && evPlayers.length > 0) {
+    const p1Id = String(evMatch.player1_id || '').trim().toLowerCase();
+    const p2Id = String(evMatch.player2_id || '').trim().toLowerCase();
+    const p1Nm = String(evMatch.player1_name || '').trim().toLowerCase();
+    const p2Nm = String(evMatch.player2_name || '').trim().toLowerCase();
+    evP1 = evPlayers.find(p => {
+      const pid = String(p.player_id || p.id || '').trim().toLowerCase();
+      const nm = String(p.full_name || p.name || '').trim().toLowerCase();
+      return (p1Id && pid === p1Id) || (p1Nm && nm === p1Nm);
+    }) || null;
+    evP2 = evPlayers.find(p => {
+      const pid = String(p.player_id || p.id || '').trim().toLowerCase();
+      const nm = String(p.full_name || p.name || '').trim().toLowerCase();
+      return (p2Id && pid === p2Id) || (p2Nm && nm === p2Nm);
+    }) || null;
+  }
+
+  // Immediately populate the top header and P1 vs P2 strip if we already know the clicked match,
+  // or clear to loading placeholders so stale player names from a previous match never flash.
+  if (evMatch) {
+    const initRound = evMatch.round || parsedRound || 1;
+    const initTable = evMatch.table_number || evMatch.table || parsedTable || null;
+    const initEventLabel = (evObj && evObj.name) || evMatch.event_name || parsedEventId || null;
+    const initDate = evMatch.match_date || (evObj && evObj.event_date) || Date.now();
+    if (titleEl) {
+      titleEl.innerHTML = `🏆 ${initEventLabel ? escapeHtml(initEventLabel) + ' • ' : ''}Round ${initRound}${initTable ? ' • Table ' + initTable : ''}`;
     }
-    if (evMatch && Array.isArray(currentEventData.players)) {
-      const p1Id = String(evMatch.player1_id || '').trim().toLowerCase();
-      const p2Id = String(evMatch.player2_id || '').trim().toLowerCase();
-      const p1Nm = String(evMatch.player1_name || '').trim().toLowerCase();
-      const p2Nm = String(evMatch.player2_name || '').trim().toLowerCase();
-      evP1 = currentEventData.players.find(p => {
-        const pid = String(p.player_id || p.id || '').trim().toLowerCase();
-        const nm = String(p.full_name || p.name || '').trim().toLowerCase();
-        return (p1Id && pid === p1Id) || (p1Nm && nm === p1Nm);
-      }) || null;
-      evP2 = currentEventData.players.find(p => {
-        const pid = String(p.player_id || p.id || '').trim().toLowerCase();
-        const nm = String(p.full_name || p.name || '').trim().toLowerCase();
-        return (p2Id && pid === p2Id) || (p2Nm && nm === p2Nm);
-      }) || null;
+    if (subEl) {
+      subEl.innerText = `📋 Official Best Coast Pairings (BCP) Scorecard • ⏱️ ${new Date(initDate).toLocaleDateString()}`;
     }
+    if (p1NameEl) p1NameEl.innerText = evMatch.player1_name || 'Player 1';
+    if (p2NameEl) p2NameEl.innerText = evMatch.player2_name || 'Player 2';
+    if (p1FacEl) p1FacEl.innerText = evMatch.player1_faction || evP1?.faction || 'Warhammer 40k';
+    if (p2FacEl) p2FacEl.innerText = evMatch.player2_faction || evP2?.faction || 'Warhammer 40k';
+    if (p1DetEl) p1DetEl.innerText = evMatch.player1_detachment || evP1?.detachment || '';
+    if (p2DetEl) p2DetEl.innerText = evMatch.player2_detachment || evP2?.detachment || '';
+    const hasInitScore = evMatch.player1_score !== null && evMatch.player1_score !== undefined && evMatch.player2_score !== null && evMatch.player2_score !== undefined;
+    if (p1ScoreEl) p1ScoreEl.innerText = hasInitScore ? evMatch.player1_score : '-';
+    if (p2ScoreEl) p2ScoreEl.innerText = hasInitScore ? evMatch.player2_score : '-';
+  } else {
+    if (titleEl) titleEl.innerHTML = `🏆 Match Scorecard`;
+    if (subEl) subEl.innerText = `Loading tournament match details for ${matchId}...`;
+    if (p1NameEl) p1NameEl.innerText = 'Loading...';
+    if (p2NameEl) p2NameEl.innerText = 'Loading...';
+    if (p1FacEl) p1FacEl.innerText = '-';
+    if (p2FacEl) p2FacEl.innerText = '-';
+    if (p1DetEl) p1DetEl.innerText = '';
+    if (p2DetEl) p2DetEl.innerText = '';
+    if (p1ScoreEl) p1ScoreEl.innerText = '-';
+    if (p2ScoreEl) p2ScoreEl.innerText = '-';
   }
 
   try {
@@ -1422,6 +1472,7 @@ async function openScorecardModal(matchId) {
       if (!evMatch) throw apiErr;
       data = {};
     }
+    if (activeScorecardMatchId !== matchId) return;
 
     // Only show our OmniTactica turn-by-turn scorecard when the game is finalized/submitted
     // and saved in our actual PostgreSQL database (tracker_games), NEVER from unsubmitted Firestore rooms.
@@ -1447,13 +1498,6 @@ async function openScorecardModal(matchId) {
     const p2Fac = (isSubmittedDbScorecard && (game.p2Faction || rec.p2_faction)) || bcpMatchRec?.player2_faction || evP2?.faction || 'Warhammer 40k';
     const p1Det = (isSubmittedDbScorecard && ((Array.isArray(game.p1Detachments) && game.p1Detachments[0]) || rec.p1_detachment)) || bcpMatchRec?.player1_detachment || evP1?.detachment || '';
     const p2Det = (isSubmittedDbScorecard && ((Array.isArray(game.p2Detachments) && game.p2Detachments[0]) || rec.p2_detachment)) || bcpMatchRec?.player2_detachment || evP2?.detachment || '';
-
-    const p1NameEl = document.getElementById('msc-p1-name');
-    const p2NameEl = document.getElementById('msc-p2-name');
-    const p1FacEl = document.getElementById('msc-p1-faction');
-    const p2FacEl = document.getElementById('msc-p2-faction');
-    const p1DetEl = document.getElementById('msc-p1-det');
-    const p2DetEl = document.getElementById('msc-p2-det');
 
     if (p1NameEl) p1NameEl.innerText = p1Name;
     if (p2NameEl) p2NameEl.innerText = p2Name;
