@@ -160,7 +160,7 @@ async function loadMyHubDashboard() {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && (!parsed.player_id || parsed.player_id !== 'p_innes')) {
-          if (parsed.player && typeof parsed.player === 'object') {
+          if (parsed.player && typeof parsed.player === 'object' && parsed._journeySchemaVer === 2) {
             cachedData = parsed;
           } else {
             localStorage.removeItem(cacheStorageKey);
@@ -326,6 +326,7 @@ async function loadMyHubDashboard() {
     }
 
     data._gameSystem = gs;
+    data._journeySchemaVer = 2;
     myHubData = data;
     try {
       localStorage.setItem(cacheStorageKey, JSON.stringify(data));

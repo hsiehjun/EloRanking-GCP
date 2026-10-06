@@ -1483,6 +1483,30 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             event_details["players"] = formatted_players
             if formatted_players:
                 event_details["total_players"] = len(formatted_players)
+                try:
+                    by_id_cache = {}
+                    by_name_cache = {}
+                    for fp in formatted_players:
+                        if not isinstance(fp, dict):
+                            continue
+                        pl_val = fp.get("placement") or fp.get("official_placement")
+                        if pl_val and int(pl_val) > 0:
+                            pl_int = int(pl_val)
+                            for kid in (fp.get("player_id"), fp.get("user_id"), fp.get("bcp_event_player_id"), fp.get("id")):
+                                if kid:
+                                    by_id_cache[str(kid).strip()] = pl_int
+                            fn_str = str(fp.get("full_name") or "").strip().lower()
+                            if fn_str:
+                                by_name_cache[fn_str] = pl_int
+                    if by_id_cache or by_name_cache:
+                        PostgresDatabase.set_cached(
+                            PostgresDatabase._bcp_event_placings_cache_dict,
+                            event_id_str,
+                            {"by_id": by_id_cache, "by_name": by_name_cache, "active_count": len(formatted_players)},
+                            max_size=2000
+                        )
+                except Exception:
+                    pass
             elos = [float(p["current_elo"]) for p in formatted_players if p.get("current_elo") is not None]
             if elos:
                 event_details["avg_field_elo"] = round(sum(elos) / len(elos), 1)

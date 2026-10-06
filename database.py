@@ -210,6 +210,7 @@ class PostgresDatabase:
     _team_roster_cache_dict = {}
     _recommended_events_cache_dict = {}
     _player_tournaments_cache_dict = {}
+    _bcp_event_placings_cache_dict = {}
     _event_details_cache_dict = {}
     _community_overview_cache_dict = {}
     _bcp_upcoming_cache_dict = {}
@@ -253,6 +254,7 @@ class PostgresDatabase:
         cls._team_roster_cache_dict.clear()
         cls._recommended_events_cache_dict.clear()
         cls._player_tournaments_cache_dict.clear()
+        cls._bcp_event_placings_cache_dict.clear()
         cls._event_details_cache_dict.clear()
         cls._community_overview_cache_dict.clear()
         cls._bcp_upcoming_cache_dict.clear()
@@ -2608,8 +2610,13 @@ class PostgresDatabase:
         if not reg_id or not canonical_id or reg_id == canonical_id:
             return
 
-        # Fast primary-key check on players table (avoids multi-table UNION ALL scans)
-        cursor.execute("SELECT 1 FROM players WHERE id = %s LIMIT 1;", (reg_id,))
+        # Fast check on players and event_participants tables
+        cursor.execute("""
+            SELECT 1 FROM players WHERE id = %s
+            UNION ALL
+            SELECT 1 FROM event_participants WHERE player_id = %s
+            LIMIT 1;
+        """, (reg_id, reg_id))
         if not cursor.fetchone():
             return
 
@@ -2636,7 +2643,20 @@ class PostgresDatabase:
         cursor.execute("UPDATE matches SET winner_id = %s WHERE winner_id = %s;", (canonical_id, reg_id))
         cursor.execute("UPDATE matches SET loser_id = %s WHERE loser_id = %s;", (canonical_id, reg_id))
 
-        # Remap event_participants (deduplicating if both exist in the same event)
+        # Remap event_participants (merging placement/pod_num/battle_points/faction onto canonical_id if both exist)
+        cursor.execute("""
+            UPDATE event_participants ep_canon
+            SET
+                placement = COALESCE(ep_canon.placement, ep_reg.placement),
+                pod_num = COALESCE(ep_canon.pod_num, ep_reg.pod_num),
+                battle_points = COALESCE(ep_canon.battle_points, ep_reg.battle_points),
+                faction = COALESCE(NULLIF(ep_canon.faction, ''), ep_reg.faction),
+                team = COALESCE(NULLIF(ep_canon.team, ''), ep_reg.team)
+            FROM event_participants ep_reg
+            WHERE ep_canon.event_id = ep_reg.event_id
+              AND ep_canon.player_id = %s
+              AND ep_reg.player_id = %s;
+        """, (canonical_id, reg_id))
         cursor.execute("""
             DELETE FROM event_participants ep1
             WHERE ep1.player_id = %s
@@ -2664,16 +2684,22 @@ class PostgresDatabase:
         cursor.execute("DELETE FROM players WHERE id = %s;", (reg_id,))
 
     def _remap_registration_ids_batch_cursor(self, cursor, reg_to_canonical: Dict[str, str]):
-        """Checks all registration IDs in a single primary-key query and remaps only those that exist in the DB."""
+        """Checks all registration IDs in a single query across players and event_participants and remaps those that exist in the DB."""
         if not reg_to_canonical:
             return
         valid_map = {str(r).strip(): str(c).strip() for r, c in reg_to_canonical.items() if r and c and str(r).strip() != str(c).strip()}
         if not valid_map:
             return
-        cursor.execute("SELECT id FROM players WHERE id = ANY(%s);", (list(valid_map.keys()),))
+        reg_keys = list(valid_map.keys())
+        cursor.execute("""
+            SELECT id FROM players WHERE id = ANY(%s)
+            UNION
+            SELECT player_id AS id FROM event_participants WHERE player_id = ANY(%s);
+        """, (reg_keys, reg_keys))
         existing_regs = [row[0] for row in cursor.fetchall() if row and row[0]]
         for reg_id in existing_regs:
-            self._remap_registration_id_cursor(cursor, reg_id, valid_map[reg_id])
+            if reg_id in valid_map:
+                self._remap_registration_id_cursor(cursor, reg_id, valid_map[reg_id])
 
     def upsert_player(self, player_id: str, first_name: str = "", last_name: str = "", full_name: str = "", team: str = ""):
         """Inserts or updates player metadata including team affiliation without clobbering real names with placeholders."""
@@ -5397,6 +5423,117 @@ class PostgresDatabase:
                     logger.warning(f"Error fetching team matches in get_team_matches: {e}")
                     return []
 
+    def _enrich_tournaments_with_bcp_placings(
+        self,
+        tournaments: List[Dict[str, Any]],
+        player_id: str,
+        player_norm_name: str = ""
+    ) -> None:
+        """Enriches player tournament records in-memory with official BCP placings (cached per event)."""
+        if not tournaments:
+            return
+        pid_clean = str(player_id or "").strip()
+        norm_name = str(player_norm_name or "").strip().lower()
+
+        missing_eids: List[str] = []
+        seen_eids: Set[str] = set()
+        for t in tournaments:
+            eid = str(t.get("event_id") or "").strip()
+            if not eid or len(eid) < 10 or not eid.isalnum() or eid.startswith(("ES-", "test", "mock")):
+                continue
+            if int(t.get("matches_played") or 0) <= 0 and int(t.get("placement") or 0) <= 0:
+                continue
+            if PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, eid, ttl=3600) is None:
+                if eid not in seen_eids:
+                    seen_eids.add(eid)
+                    missing_eids.append(eid)
+
+        if missing_eids:
+            import urllib.request
+            from concurrent.futures import ThreadPoolExecutor
+
+            headers = {
+                "Accept": "application/json",
+                "client-id": "web-app",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Origin": "https://www.bestcoastpairings.com",
+                "Referer": "https://www.bestcoastpairings.com/",
+            }
+
+            def _fetch_one_bcp_placing(eid: str):
+                url = f"https://newprod-api.bestcoastpairings.com/v1/events/{eid}/players?limit=2500&placings=true"
+                try:
+                    req = urllib.request.Request(url, headers=headers)
+                    with urllib.request.urlopen(req, timeout=3.5) as resp:
+                        data = json.loads(resp.read().decode("utf-8"))
+                    active = []
+                    if isinstance(data, dict):
+                        for k in ("active", "data", "players"):
+                            if isinstance(data.get(k), list):
+                                active = data[k]
+                                break
+                    elif isinstance(data, list):
+                        active = data
+
+                    by_id: Dict[str, int] = {}
+                    by_name: Dict[str, int] = {}
+                    for p in active:
+                        if not isinstance(p, dict):
+                            continue
+                        placing_num = None
+                        for pk in ("manualPlacing", "placing", "place", "rank", "placement", "ranking", "overallPlacing"):
+                            val = p.get(pk)
+                            if val is not None and not isinstance(val, bool):
+                                try:
+                                    pv = int(val)
+                                    if pv > 0:
+                                        placing_num = pv
+                                        break
+                                except (ValueError, TypeError):
+                                    pass
+                        if not placing_num:
+                            continue
+                        u = p.get("user") if isinstance(p.get("user"), dict) else {}
+                        for kid in (u.get("id"), p.get("userId"), p.get("user_id"), p.get("id"), p.get("playerId")):
+                            if kid:
+                                by_id[str(kid).strip()] = placing_num
+                        fn = str(u.get("firstName") or p.get("firstName") or "").strip()
+                        ln = str(u.get("lastName") or p.get("lastName") or "").strip()
+                        full = f"{fn} {ln}".strip() or str(p.get("name") or "").strip()
+                        if full:
+                            by_name[full.lower()] = placing_num
+                    return eid, {"by_id": by_id, "by_name": by_name, "active_count": len(active)}
+                except Exception:
+                    return eid, None
+
+            try:
+                with ThreadPoolExecutor(max_workers=min(12, len(missing_eids))) as pool:
+                    for eid, plc_payload in pool.map(_fetch_one_bcp_placing, missing_eids):
+                        if plc_payload is not None:
+                            PostgresDatabase.set_cached(
+                                PostgresDatabase._bcp_event_placings_cache_dict,
+                                eid,
+                                plc_payload,
+                                max_size=2000
+                            )
+            except Exception as e:
+                logger.debug(f"BCP tournament placing enrichment notice: {e}")
+
+        for t in tournaments:
+            eid = str(t.get("event_id") or "").strip()
+            if not eid:
+                continue
+            plc_info = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, eid, ttl=3600)
+            if not isinstance(plc_info, dict):
+                continue
+            by_id = plc_info.get("by_id") or {}
+            by_name = plc_info.get("by_name") or {}
+            bcp_pl = by_id.get(pid_clean) or (by_name.get(norm_name) if norm_name else None)
+            if bcp_pl and int(bcp_pl) > 0:
+                t["placement"] = int(bcp_pl)
+            if int(t.get("total_players") or 0) <= 0 and int(plc_info.get("active_count") or 0) > 0:
+                t["total_players"] = int(plc_info["active_count"])
+
     def get_player_tournaments(self, player_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Returns verified tournament attendances, records, and placements for a competitor (instant cached)."""
         player_id = (player_id or "").strip()
@@ -5420,75 +5557,200 @@ class PostgresDatabase:
                         UNION
                         SELECT m.event_id FROM matches m WHERE m.player2_id = %(pid)s AND m.event_id IS NOT NULL
                     ),
-                    target_events AS (
-                        SELECT e.id AS event_id
-                        FROM raw_player_events rpe
-                        JOIN events e ON e.id = rpe.event_id
-                        WHERE COALESCE(e.game_system, '40k') = %(system)s
-                    ),
                     player_name_ref AS (
                         SELECT LOWER(TRIM(full_name)) AS norm_name
                         FROM players
                         WHERE id = %(pid)s AND full_name IS NOT NULL AND TRIM(full_name) != ''
+                          AND LOWER(TRIM(full_name)) NOT IN ('player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye')
                         LIMIT 1
                     ),
-                    event_match_players AS (
+                    target_events AS (
+                        SELECT
+                            e.id AS event_id,
+                            GREATEST(
+                                COALESCE(
+                                    CASE
+                                        WHEN (e.raw_json->>'numberOfRounds') ~ '^[0-9]+$' THEN NULLIF((e.raw_json->>'numberOfRounds')::int, 0)
+                                        ELSE NULL
+                                    END,
+                                    NULLIF(e.num_rounds, 0),
+                                    0
+                                ),
+                                COALESCE((SELECT MAX(m2.round) FROM matches m2 WHERE m2.event_id = e.id), 0),
+                                3
+                            ) AS eff_rounds,
+                            ARRAY(
+                                SELECT COALESCE(m_elem->>'name', m_elem->>'key', '')
+                                FROM jsonb_array_elements(
+                                    CASE
+                                        WHEN jsonb_typeof(e.raw_json->'placingMetrics') = 'array' THEN e.raw_json->'placingMetrics'
+                                        ELSE '[]'::jsonb
+                                    END
+                                ) AS m_elem
+                                WHERE COALESCE((m_elem->>'isOn')::boolean, FALSE) = TRUE
+                                  AND COALESCE(m_elem->>'name', m_elem->>'key', '') NOT IN ('Wins', 'wins', 'numWins', 'numGameWins', 'gameWins', 'gamesWon', 'teamMatchPoints')
+                            ) AS tb_metrics
+                        FROM raw_player_events rpe
+                        JOIN events e ON e.id = rpe.event_id
+                        WHERE COALESCE(e.game_system, '40k') = %(system)s
+                    ),
+                    event_match_outcomes AS (
                         SELECT
                             m.event_id,
                             m.player1_id AS pid,
-                            COUNT(*) AS matches_played,
-                            SUM(CASE WHEN m.winner_id = m.player1_id THEN 1 ELSE 0 END) AS wins,
-                            SUM(CASE WHEN m.loser_id = m.player1_id THEN 1 ELSE 0 END) AS losses,
-                            SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) AS draws,
-                            SUM(COALESCE(m.player1_score, 0)) AS match_bp,
-                            MAX(NULLIF(m.player1_faction, '')) AS match_faction,
-                            MAX(m.match_date) AS last_match_date
+                            NULLIF(TRIM(m.player1_name), '') AS match_name,
+                            CASE
+                                WHEN COALESCE(m.is_bye, FALSE) = FALSE AND m.player2_id IS NOT NULL AND m.player2_id != '' AND COALESCE(UPPER(TRIM(m.player2_name)), '') != 'BYE'
+                                THEN m.player2_id
+                                ELSE NULL
+                            END AS opp_id,
+                            COALESCE(m.round, 1) AS round_num,
+                            CASE
+                                WHEN m.winner_id = m.player1_id
+                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score > m.player2_score)
+                                THEN 1 ELSE 0
+                            END AS is_win,
+                            CASE
+                                WHEN m.loser_id = m.player1_id
+                                  OR (m.winner_id IS NOT NULL AND m.winner_id != m.player1_id)
+                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score < m.player2_score)
+                                THEN 1 ELSE 0
+                            END AS is_loss,
+                            CASE
+                                WHEN COALESCE(m.is_draw, FALSE) = TRUE
+                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND (m.player1_score > 0 OR COALESCE(m.is_done, TRUE) = TRUE))
+                                THEN 1 ELSE 0
+                            END AS is_draw,
+                            COALESCE(m.player1_score, 0) AS match_bp,
+                            NULLIF(m.player1_faction, '') AS match_faction,
+                            m.match_date
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
                         WHERE m.player1_id IS NOT NULL AND m.player1_id != ''
-                        GROUP BY m.event_id, m.player1_id
+                          AND (
+                              m.winner_id IS NOT NULL
+                              OR COALESCE(m.is_draw, FALSE) = TRUE
+                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
+                          )
                         UNION ALL
                         SELECT
                             m.event_id,
                             m.player2_id AS pid,
-                            COUNT(*) AS matches_played,
-                            SUM(CASE WHEN m.winner_id = m.player2_id THEN 1 ELSE 0 END) AS wins,
-                            SUM(CASE WHEN m.loser_id = m.player2_id THEN 1 ELSE 0 END) AS losses,
-                            SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) AS draws,
-                            SUM(COALESCE(m.player2_score, 0)) AS match_bp,
-                            MAX(NULLIF(m.player2_faction, '')) AS match_faction,
-                            MAX(m.match_date) AS last_match_date
+                            NULLIF(TRIM(m.player2_name), '') AS match_name,
+                            CASE
+                                WHEN m.player1_id IS NOT NULL AND m.player1_id != '' AND COALESCE(UPPER(TRIM(m.player1_name)), '') != 'BYE'
+                                THEN m.player1_id
+                                ELSE NULL
+                            END AS opp_id,
+                            COALESCE(m.round, 1) AS round_num,
+                            CASE
+                                WHEN m.winner_id = m.player2_id
+                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score > m.player1_score)
+                                THEN 1 ELSE 0
+                            END AS is_win,
+                            CASE
+                                WHEN m.loser_id = m.player2_id
+                                  OR (m.winner_id IS NOT NULL AND m.winner_id != m.player2_id)
+                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score < m.player1_score)
+                                THEN 1 ELSE 0
+                            END AS is_loss,
+                            CASE
+                                WHEN COALESCE(m.is_draw, FALSE) = TRUE
+                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND (m.player2_score > 0 OR COALESCE(m.is_done, TRUE) = TRUE))
+                                THEN 1 ELSE 0
+                            END AS is_draw,
+                            COALESCE(m.player2_score, 0) AS match_bp,
+                            NULLIF(m.player2_faction, '') AS match_faction,
+                            m.match_date
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
                         WHERE m.player2_id IS NOT NULL AND m.player2_id != '' AND COALESCE(m.is_bye, FALSE) = FALSE
-                        GROUP BY m.event_id, m.player2_id
+                          AND (
+                              m.winner_id IS NOT NULL
+                              OR COALESCE(m.is_draw, FALSE) = TRUE
+                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
+                          )
                     ),
                     agg_match_players AS (
                         SELECT
-                            event_id,
-                            pid,
-                            SUM(matches_played)::int AS matches_played,
-                            SUM(wins)::int AS wins,
-                            SUM(losses)::int AS losses,
-                            SUM(draws)::int AS draws,
-                            SUM(match_bp)::int AS match_bp,
-                            MAX(match_faction) AS match_faction,
-                            MAX(last_match_date) AS last_match_date
-                        FROM event_match_players
-                        GROUP BY event_id, pid
+                            emo.event_id,
+                            emo.pid,
+                            LOWER(TRIM(COALESCE(
+                                MAX(CASE WHEN emo.match_name IS NOT NULL AND LOWER(emo.match_name) NOT IN ('player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye') THEN emo.match_name END),
+                                (SELECT p.full_name FROM players p WHERE p.id = emo.pid LIMIT 1),
+                                ''
+                            ))) AS norm_name,
+                            COUNT(*)::int AS matches_played,
+                            SUM(emo.is_win)::int AS wins,
+                            SUM(emo.is_loss)::int AS losses,
+                            SUM(emo.is_draw)::int AS draws,
+                            SUM(emo.match_bp)::int AS match_bp,
+                            SUM(CASE WHEN emo.is_win = 1 THEN POWER(2::numeric, LEAST(20, GREATEST(0, te.eff_rounds - emo.round_num))) ELSE 0 END)::numeric AS ptv,
+                            ((SUM(emo.is_win) + 0.5 * SUM(emo.is_draw))::numeric / GREATEST(1, COUNT(*)))::numeric AS win_pct,
+                            MAX(emo.match_faction) AS match_faction,
+                            MAX(emo.match_date) AS last_match_date
+                        FROM event_match_outcomes emo
+                        JOIN target_events te ON te.event_id = emo.event_id
+                        GROUP BY emo.event_id, emo.pid
                     ),
-                    agg_ep AS (
+                    match_player_sos AS (
+                        SELECT
+                            emo.event_id,
+                            emo.pid,
+                            AVG(GREATEST(0.33, COALESCE(opp.win_pct, 0.33)))::numeric AS sos,
+                            AVG(COALESCE(opp.wins, 0)::numeric)::numeric AS wins_sos
+                        FROM event_match_outcomes emo
+                        JOIN agg_match_players opp ON opp.event_id = emo.event_id AND opp.pid = emo.opp_id
+                        WHERE emo.opp_id IS NOT NULL
+                        GROUP BY emo.event_id, emo.pid
+                    ),
+                    raw_ep AS (
                         SELECT
                             ep.event_id,
                             ep.player_id AS pid,
-                            MIN(NULLIF(ep.placement, 0)) AS ep_placement,
-                            MIN(NULLIF(ep.pod_num, 0)) AS ep_pod_num,
-                            MAX(ep.battle_points) AS ep_bp,
-                            MAX(NULLIF(ep.faction, '')) AS ep_faction,
-                            BOOL_OR(COALESCE(ep.dropped, FALSE)) AS dropped
+                            CASE
+                                WHEN ep.full_name IS NOT NULL AND LOWER(TRIM(ep.full_name)) NOT IN ('', 'player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye')
+                                THEN LOWER(TRIM(ep.full_name))
+                                ELSE ''
+                            END AS norm_name,
+                            NULLIF(ep.placement, 0) AS ep_placement,
+                            NULLIF(ep.pod_num, 0) AS ep_pod_num,
+                            ep.battle_points AS ep_bp,
+                            NULLIF(ep.faction, '') AS ep_faction,
+                            COALESCE(ep.dropped, FALSE) AS dropped
                         FROM event_participants ep
                         JOIN target_events te ON te.event_id = ep.event_id
-                        GROUP BY ep.event_id, ep.player_id
+                    ),
+                    matched_ep AS (
+                        SELECT
+                            amp.event_id,
+                            amp.pid,
+                            MIN(rep.ep_placement) AS ep_placement,
+                            MIN(rep.ep_pod_num) AS ep_pod_num,
+                            MAX(rep.ep_bp) AS ep_bp,
+                            MAX(rep.ep_faction) AS ep_faction,
+                            BOOL_OR(rep.dropped) AS dropped
+                        FROM agg_match_players amp
+                        JOIN raw_ep rep ON rep.event_id = amp.event_id
+                                       AND (rep.pid = amp.pid OR (amp.norm_name != '' AND rep.norm_name = amp.norm_name))
+                        GROUP BY amp.event_id, amp.pid
+                    ),
+                    unmatched_ep AS (
+                        SELECT
+                            rep.event_id,
+                            COALESCE(MAX(CASE WHEN rep.pid = %(pid)s THEN rep.pid END), MIN(rep.pid)) AS pid,
+                            MIN(rep.ep_placement) AS ep_placement,
+                            MIN(rep.ep_pod_num) AS ep_pod_num,
+                            MAX(rep.ep_bp) AS ep_bp,
+                            MAX(rep.ep_faction) AS ep_faction,
+                            BOOL_AND(rep.dropped) AS dropped
+                        FROM raw_ep rep
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM agg_match_players amp
+                            WHERE amp.event_id = rep.event_id
+                              AND (amp.pid = rep.pid OR (amp.norm_name != '' AND amp.norm_name = rep.norm_name))
+                        )
+                        GROUP BY rep.event_id, COALESCE(NULLIF(rep.norm_name, ''), rep.pid)
                     ),
                     name_ep AS (
                         SELECT
@@ -5502,21 +5764,43 @@ class PostgresDatabase:
                     ),
                     combined_competitors AS (
                         SELECT
-                            COALESCE(amp.event_id, aep.event_id) AS event_id,
-                            COALESCE(amp.pid, aep.pid) AS pid,
-                            COALESCE(amp.matches_played, 0) AS matches_played,
-                            COALESCE(amp.wins, 0) AS wins,
-                            COALESCE(amp.losses, 0) AS losses,
-                            COALESCE(amp.draws, 0) AS draws,
-                            COALESCE(amp.match_bp, 0) AS match_bp,
-                            COALESCE(aep.ep_bp, amp.match_bp, 0) AS effective_bp,
-                            aep.ep_placement,
-                            aep.ep_pod_num,
-                            COALESCE(aep.ep_faction, amp.match_faction, 'Unknown') AS registered_faction,
+                            amp.event_id,
+                            amp.pid,
+                            amp.matches_played,
+                            amp.wins,
+                            amp.losses,
+                            amp.draws,
+                            amp.match_bp,
+                            COALESCE(mep.ep_bp, amp.match_bp, 0) AS effective_bp,
+                            amp.ptv,
+                            COALESCE(mps.sos, 0.0)::numeric AS sos,
+                            COALESCE(mps.wins_sos, 0.0)::numeric AS wins_sos,
+                            mep.ep_placement,
+                            mep.ep_pod_num,
+                            COALESCE(mep.ep_faction, amp.match_faction, 'Unknown') AS registered_faction,
                             amp.last_match_date
                         FROM agg_match_players amp
-                        FULL OUTER JOIN agg_ep aep ON amp.event_id = aep.event_id AND amp.pid = aep.pid
-                        WHERE COALESCE(amp.matches_played, 0) > 0 OR aep.ep_placement IS NOT NULL OR COALESCE(aep.dropped, FALSE) = FALSE
+                        LEFT JOIN matched_ep mep ON mep.event_id = amp.event_id AND mep.pid = amp.pid
+                        LEFT JOIN match_player_sos mps ON mps.event_id = amp.event_id AND mps.pid = amp.pid
+                        UNION ALL
+                        SELECT
+                            uep.event_id,
+                            uep.pid,
+                            0 AS matches_played,
+                            0 AS wins,
+                            0 AS losses,
+                            0 AS draws,
+                            0 AS match_bp,
+                            COALESCE(uep.ep_bp, 0) AS effective_bp,
+                            0::numeric AS ptv,
+                            0::numeric AS sos,
+                            0::numeric AS wins_sos,
+                            uep.ep_placement,
+                            uep.ep_pod_num,
+                            COALESCE(uep.ep_faction, 'Unknown') AS registered_faction,
+                            NULL::timestamptz AS last_match_date
+                        FROM unmatched_ep uep
+                        WHERE uep.ep_placement IS NOT NULL OR COALESCE(uep.dropped, FALSE) = FALSE
                     ),
                     ranked_competitors AS (
                         SELECT
@@ -5527,12 +5811,36 @@ class PostgresDatabase:
                                     COALESCE(cc.ep_placement, 999999) ASC,
                                     COALESCE(cc.ep_pod_num, 9999) ASC,
                                     (cc.wins + 0.5 * cc.draws) DESC,
+                                    CASE
+                                        WHEN COALESCE(te.tb_metrics[1], 'Path to Victory') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
+                                        WHEN te.tb_metrics[1] IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN te.tb_metrics[1] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
+                                        WHEN te.tb_metrics[1] IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
+                                        ELSE cc.ptv
+                                    END DESC,
+                                    CASE
+                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
+                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %') IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN te.tb_metrics[2] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
+                                        WHEN te.tb_metrics[2] IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
+                                        ELSE ROUND(cc.sos, 4)
+                                    END DESC,
+                                    CASE
+                                        WHEN COALESCE(te.tb_metrics[3], 'Battle Points') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
+                                        WHEN te.tb_metrics[3] IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN te.tb_metrics[3] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
+                                        WHEN COALESCE(te.tb_metrics[3], 'Battle Points') IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
+                                        ELSE cc.effective_bp::numeric
+                                    END DESC,
                                     cc.effective_bp DESC,
+                                    ROUND(cc.sos, 4) DESC,
+                                    ROUND(cc.wins_sos, 4) DESC,
                                     cc.matches_played DESC,
                                     cc.pid ASC
                             )::int AS computed_rank,
                             COUNT(*) OVER (PARTITION BY cc.event_id)::int AS computed_total_players
                         FROM combined_competitors cc
+                        JOIN target_events te ON te.event_id = cc.event_id
                     )
                     SELECT 
                         e.id AS event_id,
@@ -5541,7 +5849,11 @@ class PostgresDatabase:
                         e.city,
                         e.state,
                         e.country,
-                        GREATEST(COALESCE(e.total_players, 0), COALESCE(rc.computed_total_players, 0)) AS total_players, 
+                        CASE
+                            WHEN (e.raw_json->>'totalPlayers') ~ '^[0-9]+$' AND (e.raw_json->>'totalPlayers')::int > 0
+                            THEN (e.raw_json->>'totalPlayers')::int
+                            ELSE GREATEST(COALESCE(e.total_players, 0), COALESCE(rc.computed_total_players, 0))
+                        END AS total_players, 
                         COALESCE(e.num_rounds, 0) AS num_rounds,
                         COALESCE(rc.registered_faction, 'Unknown') AS registered_faction,
                         CASE
@@ -5556,14 +5868,24 @@ class PostgresDatabase:
                         COALESCE(rc.wins, 0) AS wins,
                         COALESCE(rc.losses, 0) AS losses,
                         COALESCE(rc.draws, 0) AS draws,
-                        COALESCE(rc.match_bp, 0) AS total_battle_points
+                        COALESCE(rc.match_bp, 0) AS total_battle_points,
+                        (SELECT norm_name FROM player_name_ref) AS _player_norm_name
                     FROM target_events te
                     JOIN events e ON e.id = te.event_id
                     LEFT JOIN ranked_competitors rc ON rc.event_id = e.id AND rc.pid = %(pid)s
                     LEFT JOIN name_ep nep ON nep.event_id = e.id
                     ORDER BY COALESCE(e.event_date, rc.last_match_date) DESC NULLS LAST;
                     """, {"pid": player_id, "system": system})
-                    res = [dict(r) for r in cursor.fetchall()]
+                    raw_rows = cursor.fetchall()
+                    res = []
+                    player_norm_name = ""
+                    for r in raw_rows:
+                        row_dict = dict(r)
+                        p_norm = row_dict.pop("_player_norm_name", None)
+                        if p_norm and not player_norm_name:
+                            player_norm_name = str(p_norm)
+                        res.append(row_dict)
+                    self._enrich_tournaments_with_bcp_placings(res, player_id, player_norm_name)
                     PostgresDatabase.set_cached(PostgresDatabase._player_tournaments_cache_dict, cache_key, res)
                     return res
                 except Exception as e:
@@ -5610,86 +5932,232 @@ class PostgresDatabase:
                         WHERE m.player2_id = ANY(%(pids)s) AND m.event_id IS NOT NULL
                     ),
                     target_events AS (
-                        SELECT DISTINCT pe.event_id
-                        FROM p_events pe
+                        SELECT
+                            e.id AS event_id,
+                            GREATEST(
+                                COALESCE(
+                                    CASE
+                                        WHEN (e.raw_json->>'numberOfRounds') ~ '^[0-9]+$' THEN NULLIF((e.raw_json->>'numberOfRounds')::int, 0)
+                                        ELSE NULL
+                                    END,
+                                    NULLIF(e.num_rounds, 0),
+                                    0
+                                ),
+                                COALESCE((SELECT MAX(m2.round) FROM matches m2 WHERE m2.event_id = e.id), 0),
+                                3
+                            ) AS eff_rounds,
+                            ARRAY(
+                                SELECT COALESCE(m_elem->>'name', m_elem->>'key', '')
+                                FROM jsonb_array_elements(
+                                    CASE
+                                        WHEN jsonb_typeof(e.raw_json->'placingMetrics') = 'array' THEN e.raw_json->'placingMetrics'
+                                        ELSE '[]'::jsonb
+                                    END
+                                ) AS m_elem
+                                WHERE COALESCE((m_elem->>'isOn')::boolean, FALSE) = TRUE
+                                  AND COALESCE(m_elem->>'name', m_elem->>'key', '') NOT IN ('Wins', 'wins', 'numWins', 'numGameWins', 'gameWins', 'gamesWon', 'teamMatchPoints')
+                            ) AS tb_metrics
+                        FROM (SELECT DISTINCT event_id FROM p_events) pe
                         JOIN events e ON e.id = pe.event_id
                         WHERE COALESCE(e.game_system, '40k') = %(system)s
                     ),
-                    event_match_players AS (
+                    event_match_outcomes AS (
                         SELECT
                             m.event_id,
                             m.player1_id AS pid,
-                            COUNT(*) AS matches_played,
-                            SUM(CASE WHEN m.winner_id = m.player1_id THEN 1 ELSE 0 END) AS wins,
-                            SUM(CASE WHEN m.loser_id = m.player1_id THEN 1 ELSE 0 END) AS losses,
-                            SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) AS draws,
-                            SUM(COALESCE(m.player1_score, 0)) AS match_bp,
-                            MAX(NULLIF(m.player1_faction, '')) AS match_faction,
-                            MAX(m.match_date) AS last_match_date
+                            NULLIF(TRIM(m.player1_name), '') AS match_name,
+                            CASE
+                                WHEN COALESCE(m.is_bye, FALSE) = FALSE AND m.player2_id IS NOT NULL AND m.player2_id != '' AND COALESCE(UPPER(TRIM(m.player2_name)), '') != 'BYE'
+                                THEN m.player2_id
+                                ELSE NULL
+                            END AS opp_id,
+                            COALESCE(m.round, 1) AS round_num,
+                            CASE
+                                WHEN m.winner_id = m.player1_id
+                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score > m.player2_score)
+                                THEN 1 ELSE 0
+                            END AS is_win,
+                            CASE
+                                WHEN m.loser_id = m.player1_id
+                                  OR (m.winner_id IS NOT NULL AND m.winner_id != m.player1_id)
+                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score < m.player2_score)
+                                THEN 1 ELSE 0
+                            END AS is_loss,
+                            CASE
+                                WHEN COALESCE(m.is_draw, FALSE) = TRUE
+                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND (m.player1_score > 0 OR COALESCE(m.is_done, TRUE) = TRUE))
+                                THEN 1 ELSE 0
+                            END AS is_draw,
+                            COALESCE(m.player1_score, 0) AS match_bp,
+                            NULLIF(m.player1_faction, '') AS match_faction,
+                            m.match_date
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
                         WHERE m.player1_id IS NOT NULL AND m.player1_id != ''
-                        GROUP BY m.event_id, m.player1_id
+                          AND (
+                              m.winner_id IS NOT NULL
+                              OR COALESCE(m.is_draw, FALSE) = TRUE
+                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
+                          )
                         UNION ALL
                         SELECT
                             m.event_id,
                             m.player2_id AS pid,
-                            COUNT(*) AS matches_played,
-                            SUM(CASE WHEN m.winner_id = m.player2_id THEN 1 ELSE 0 END) AS wins,
-                            SUM(CASE WHEN m.loser_id = m.player2_id THEN 1 ELSE 0 END) AS losses,
-                            SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) AS draws,
-                            SUM(COALESCE(m.player2_score, 0)) AS match_bp,
-                            MAX(NULLIF(m.player2_faction, '')) AS match_faction,
-                            MAX(m.match_date) AS last_match_date
+                            NULLIF(TRIM(m.player2_name), '') AS match_name,
+                            CASE
+                                WHEN m.player1_id IS NOT NULL AND m.player1_id != '' AND COALESCE(UPPER(TRIM(m.player1_name)), '') != 'BYE'
+                                THEN m.player1_id
+                                ELSE NULL
+                            END AS opp_id,
+                            COALESCE(m.round, 1) AS round_num,
+                            CASE
+                                WHEN m.winner_id = m.player2_id
+                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score > m.player1_score)
+                                THEN 1 ELSE 0
+                            END AS is_win,
+                            CASE
+                                WHEN m.loser_id = m.player2_id
+                                  OR (m.winner_id IS NOT NULL AND m.winner_id != m.player2_id)
+                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score < m.player1_score)
+                                THEN 1 ELSE 0
+                            END AS is_loss,
+                            CASE
+                                WHEN COALESCE(m.is_draw, FALSE) = TRUE
+                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND (m.player2_score > 0 OR COALESCE(m.is_done, TRUE) = TRUE))
+                                THEN 1 ELSE 0
+                            END AS is_draw,
+                            COALESCE(m.player2_score, 0) AS match_bp,
+                            NULLIF(m.player2_faction, '') AS match_faction,
+                            m.match_date
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
                         WHERE m.player2_id IS NOT NULL AND m.player2_id != '' AND COALESCE(m.is_bye, FALSE) = FALSE
-                        GROUP BY m.event_id, m.player2_id
+                          AND (
+                              m.winner_id IS NOT NULL
+                              OR COALESCE(m.is_draw, FALSE) = TRUE
+                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
+                          )
                     ),
                     agg_match_players AS (
                         SELECT
-                            event_id,
-                            pid,
-                            SUM(matches_played)::int AS matches_played,
-                            SUM(wins)::int AS wins,
-                            SUM(losses)::int AS losses,
-                            SUM(draws)::int AS draws,
-                            SUM(match_bp)::int AS match_bp,
-                            MAX(match_faction) AS match_faction,
-                            MAX(last_match_date) AS last_match_date
-                        FROM event_match_players
-                        GROUP BY event_id, pid
+                            emo.event_id,
+                            emo.pid,
+                            LOWER(TRIM(COALESCE(
+                                MAX(CASE WHEN emo.match_name IS NOT NULL AND LOWER(emo.match_name) NOT IN ('player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye') THEN emo.match_name END),
+                                (SELECT p.full_name FROM players p WHERE p.id = emo.pid LIMIT 1),
+                                ''
+                            ))) AS norm_name,
+                            COUNT(*)::int AS matches_played,
+                            SUM(emo.is_win)::int AS wins,
+                            SUM(emo.is_loss)::int AS losses,
+                            SUM(emo.is_draw)::int AS draws,
+                            SUM(emo.match_bp)::int AS match_bp,
+                            SUM(CASE WHEN emo.is_win = 1 THEN POWER(2::numeric, LEAST(20, GREATEST(0, te.eff_rounds - emo.round_num))) ELSE 0 END)::numeric AS ptv,
+                            ((SUM(emo.is_win) + 0.5 * SUM(emo.is_draw))::numeric / GREATEST(1, COUNT(*)))::numeric AS win_pct,
+                            MAX(emo.match_faction) AS match_faction,
+                            MAX(emo.match_date) AS last_match_date
+                        FROM event_match_outcomes emo
+                        JOIN target_events te ON te.event_id = emo.event_id
+                        GROUP BY emo.event_id, emo.pid
                     ),
-                    agg_ep AS (
+                    match_player_sos AS (
+                        SELECT
+                            emo.event_id,
+                            emo.pid,
+                            AVG(GREATEST(0.33, COALESCE(opp.win_pct, 0.33)))::numeric AS sos,
+                            AVG(COALESCE(opp.wins, 0)::numeric)::numeric AS wins_sos
+                        FROM event_match_outcomes emo
+                        JOIN agg_match_players opp ON opp.event_id = emo.event_id AND opp.pid = emo.opp_id
+                        WHERE emo.opp_id IS NOT NULL
+                        GROUP BY emo.event_id, emo.pid
+                    ),
+                    raw_ep AS (
                         SELECT
                             ep.event_id,
                             ep.player_id AS pid,
-                            MIN(NULLIF(ep.placement, 0)) AS ep_placement,
-                            MIN(NULLIF(ep.pod_num, 0)) AS ep_pod_num,
-                            MAX(ep.battle_points) AS ep_bp,
-                            MAX(NULLIF(ep.faction, '')) AS ep_faction,
-                            BOOL_OR(COALESCE(ep.dropped, FALSE)) AS dropped
+                            CASE
+                                WHEN ep.full_name IS NOT NULL AND LOWER(TRIM(ep.full_name)) NOT IN ('', 'player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye')
+                                THEN LOWER(TRIM(ep.full_name))
+                                ELSE ''
+                            END AS norm_name,
+                            NULLIF(ep.placement, 0) AS ep_placement,
+                            NULLIF(ep.pod_num, 0) AS ep_pod_num,
+                            ep.battle_points AS ep_bp,
+                            NULLIF(ep.faction, '') AS ep_faction,
+                            COALESCE(ep.dropped, FALSE) AS dropped
                         FROM event_participants ep
                         JOIN target_events te ON te.event_id = ep.event_id
-                        GROUP BY ep.event_id, ep.player_id
+                    ),
+                    matched_ep AS (
+                        SELECT
+                            amp.event_id,
+                            amp.pid,
+                            MIN(rep.ep_placement) AS ep_placement,
+                            MIN(rep.ep_pod_num) AS ep_pod_num,
+                            MAX(rep.ep_bp) AS ep_bp,
+                            MAX(rep.ep_faction) AS ep_faction,
+                            BOOL_OR(rep.dropped) AS dropped
+                        FROM agg_match_players amp
+                        JOIN raw_ep rep ON rep.event_id = amp.event_id
+                                       AND (rep.pid = amp.pid OR (amp.norm_name != '' AND rep.norm_name = amp.norm_name))
+                        GROUP BY amp.event_id, amp.pid
+                    ),
+                    unmatched_ep AS (
+                        SELECT
+                            rep.event_id,
+                            COALESCE(MAX(CASE WHEN rep.pid = ANY(%(pids)s) THEN rep.pid END), MIN(rep.pid)) AS pid,
+                            MIN(rep.ep_placement) AS ep_placement,
+                            MIN(rep.ep_pod_num) AS ep_pod_num,
+                            MAX(rep.ep_bp) AS ep_bp,
+                            MAX(rep.ep_faction) AS ep_faction,
+                            BOOL_AND(rep.dropped) AS dropped
+                        FROM raw_ep rep
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM agg_match_players amp
+                            WHERE amp.event_id = rep.event_id
+                              AND (amp.pid = rep.pid OR (amp.norm_name != '' AND amp.norm_name = rep.norm_name))
+                        )
+                        GROUP BY rep.event_id, COALESCE(NULLIF(rep.norm_name, ''), rep.pid)
                     ),
                     combined_competitors AS (
                         SELECT
-                            COALESCE(amp.event_id, aep.event_id) AS event_id,
-                            COALESCE(amp.pid, aep.pid) AS pid,
-                            COALESCE(amp.matches_played, 0) AS matches_played,
-                            COALESCE(amp.wins, 0) AS wins,
-                            COALESCE(amp.losses, 0) AS losses,
-                            COALESCE(amp.draws, 0) AS draws,
-                            COALESCE(amp.match_bp, 0) AS match_bp,
-                            COALESCE(aep.ep_bp, amp.match_bp, 0) AS effective_bp,
-                            aep.ep_placement,
-                            aep.ep_pod_num,
-                            COALESCE(aep.ep_faction, amp.match_faction, 'Unknown') AS registered_faction,
+                            amp.event_id,
+                            amp.pid,
+                            amp.matches_played,
+                            amp.wins,
+                            amp.losses,
+                            amp.draws,
+                            amp.match_bp,
+                            COALESCE(mep.ep_bp, amp.match_bp, 0) AS effective_bp,
+                            amp.ptv,
+                            COALESCE(mps.sos, 0.0)::numeric AS sos,
+                            COALESCE(mps.wins_sos, 0.0)::numeric AS wins_sos,
+                            mep.ep_placement,
+                            mep.ep_pod_num,
+                            COALESCE(mep.ep_faction, amp.match_faction, 'Unknown') AS registered_faction,
                             amp.last_match_date
                         FROM agg_match_players amp
-                        FULL OUTER JOIN agg_ep aep ON amp.event_id = aep.event_id AND amp.pid = aep.pid
-                        WHERE COALESCE(amp.matches_played, 0) > 0 OR aep.ep_placement IS NOT NULL OR COALESCE(aep.dropped, FALSE) = FALSE
+                        LEFT JOIN matched_ep mep ON mep.event_id = amp.event_id AND mep.pid = amp.pid
+                        LEFT JOIN match_player_sos mps ON mps.event_id = amp.event_id AND mps.pid = amp.pid
+                        UNION ALL
+                        SELECT
+                            uep.event_id,
+                            uep.pid,
+                            0 AS matches_played,
+                            0 AS wins,
+                            0 AS losses,
+                            0 AS draws,
+                            0 AS match_bp,
+                            COALESCE(uep.ep_bp, 0) AS effective_bp,
+                            0::numeric AS ptv,
+                            0::numeric AS sos,
+                            0::numeric AS wins_sos,
+                            uep.ep_placement,
+                            uep.ep_pod_num,
+                            COALESCE(uep.ep_faction, 'Unknown') AS registered_faction,
+                            NULL::timestamptz AS last_match_date
+                        FROM unmatched_ep uep
+                        WHERE uep.ep_placement IS NOT NULL OR COALESCE(uep.dropped, FALSE) = FALSE
                     ),
                     ranked_competitors AS (
                         SELECT
@@ -5700,12 +6168,36 @@ class PostgresDatabase:
                                     COALESCE(cc.ep_placement, 999999) ASC,
                                     COALESCE(cc.ep_pod_num, 9999) ASC,
                                     (cc.wins + 0.5 * cc.draws) DESC,
+                                    CASE
+                                        WHEN COALESCE(te.tb_metrics[1], 'Path to Victory') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
+                                        WHEN te.tb_metrics[1] IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN te.tb_metrics[1] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
+                                        WHEN te.tb_metrics[1] IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
+                                        ELSE cc.ptv
+                                    END DESC,
+                                    CASE
+                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
+                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %') IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN te.tb_metrics[2] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
+                                        WHEN te.tb_metrics[2] IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
+                                        ELSE ROUND(cc.sos, 4)
+                                    END DESC,
+                                    CASE
+                                        WHEN COALESCE(te.tb_metrics[3], 'Battle Points') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
+                                        WHEN te.tb_metrics[3] IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN te.tb_metrics[3] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
+                                        WHEN COALESCE(te.tb_metrics[3], 'Battle Points') IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
+                                        ELSE cc.effective_bp::numeric
+                                    END DESC,
                                     cc.effective_bp DESC,
+                                    ROUND(cc.sos, 4) DESC,
+                                    ROUND(cc.wins_sos, 4) DESC,
                                     cc.matches_played DESC,
                                     cc.pid ASC
                             )::int AS computed_rank,
                             COUNT(*) OVER (PARTITION BY cc.event_id)::int AS computed_total_players
                         FROM combined_competitors cc
+                        JOIN target_events te ON te.event_id = cc.event_id
                     )
                     SELECT 
                         pe.player_id,
@@ -5715,7 +6207,11 @@ class PostgresDatabase:
                         e.city,
                         e.state,
                         e.country,
-                        GREATEST(COALESCE(e.total_players, 0), COALESCE(rc.computed_total_players, 0)) AS total_players, 
+                        CASE
+                            WHEN (e.raw_json->>'totalPlayers') ~ '^[0-9]+$' AND (e.raw_json->>'totalPlayers')::int > 0
+                            THEN (e.raw_json->>'totalPlayers')::int
+                            ELSE GREATEST(COALESCE(e.total_players, 0), COALESCE(rc.computed_total_players, 0))
+                        END AS total_players, 
                         COALESCE(e.num_rounds, 0) AS num_rounds,
                         COALESCE(rc.registered_faction, 'Unknown') AS registered_faction,
                         CASE
@@ -5747,6 +6243,13 @@ class PostgresDatabase:
                             fetched_map[pid].append(row_dict)
                     
                     for pid, t_list in fetched_map.items():
+                        for t in t_list:
+                            eid = str(t.get("event_id") or "").strip()
+                            plc_info = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, eid, ttl=3600) if eid else None
+                            if isinstance(plc_info, dict):
+                                bcp_pl = (plc_info.get("by_id") or {}).get(pid)
+                                if bcp_pl and int(bcp_pl) > 0:
+                                    t["placement"] = int(bcp_pl)
                         results[pid] = t_list
                         PostgresDatabase.set_cached(PostgresDatabase._player_tournaments_cache_dict, f"{system}:{pid}", t_list)
                 except Exception as e:
