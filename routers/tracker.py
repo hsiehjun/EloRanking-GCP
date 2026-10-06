@@ -2192,25 +2192,48 @@ async def api_get_scorecard(match_id: str):
         db = get_database()
     except Exception:
         pass
-    
-    candidates = [match_id, match_id.upper(), match_id.lower()]
-    if not match_id.startswith("BCP-"):
-        candidates.extend([f"BCP-{match_id}", f"BCP-{match_id}".upper()])
-    if not match_id.startswith("ES-"):
-        candidates.extend([f"ES-{match_id}", f"ES-{match_id}".upper()])
-    if match_id.startswith("BCP-"):
-        candidates.append(match_id[4:])
-    if match_id.startswith("ES-"):
-        candidates.append(match_id[3:])
+    fs_engine = None
+    try:
+        fs_engine = get_firestore_engine()
+    except Exception:
+        pass
 
-    # 1. Check PostgreSQL tracker_games ONLY: only submitted & completed games saved in our actual DB
-    # should ever return the OmniTactica turn-by-turn scorecard. Never read unsubmitted games from Firestore.
+    norm_mid = normalize_tracker_match_id(match_id)
+    candidates = []
+    for c in [
+        match_id,
+        match_id.upper(),
+        match_id.lower(),
+        norm_mid,
+        norm_mid.upper(),
+        norm_mid.lower(),
+    ]:
+        if c and c not in candidates:
+            candidates.append(c)
+    if not match_id.upper().startswith("BCP-"):
+        for c in (f"BCP-{match_id}", f"BCP-{match_id}".upper()):
+            if c not in candidates:
+                candidates.append(c)
+    if not match_id.upper().startswith("ES-"):
+        for c in (f"ES-{match_id}", f"ES-{match_id}".upper()):
+            if c not in candidates:
+                candidates.append(c)
+    if match_id.upper().startswith("BCP-"):
+        c = match_id[4:]
+        if c and c not in candidates:
+            candidates.append(c)
+    if match_id.upper().startswith("ES-"):
+        c = match_id[3:]
+        if c and c not in candidates:
+            candidates.append(c)
+
+    # 1. Check PostgreSQL tracker_games first (submitted & finalized scorecards in our backend DB)
     game_rec = None
-    if db:
+    if db and hasattr(db, "get_tracker_game"):
         for cand in candidates:
             try:
                 rec = db.get_tracker_game(cand)
-                if rec:
+                if rec and isinstance(rec, dict):
                     game_rec = rec
                     break
             except Exception:
@@ -2224,6 +2247,16 @@ async def api_get_scorecard(match_id: str):
         )
     )
     if game_rec and is_rec_finished:
+        # Ensure any leftover Firestore room for this finalized game is cleaned up
+        if fs_engine and hasattr(fs_engine, "discard_room"):
+            for cand in candidates:
+                try:
+                    fs_engine.discard_room(cand)
+                except Exception:
+                    pass
+        for cand in candidates:
+            TRACKER_ROOMS.pop(cand, None)
+
         state = game_rec.get("state") or game_rec.get("state_json") or {}
         sys_id = (
             game_rec.get("game_system")
@@ -2242,38 +2275,165 @@ async def api_get_scorecard(match_id: str):
             "source": "tracker_games"
         }
 
-    # 2. If not submitted/saved in tracker_games, check official BCP match record in our database
+    # 2. Check event & official BCP match record in our database if this is an event pairing
     bcp_match = None
-    m_pat = re.match(r"^(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id.strip(), re.IGNORECASE)
-    if m_pat and db and hasattr(db, "get_connection"):
+    is_event_completed = False
+    ev_id_raw = None
+    m_pat = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id.strip(), re.IGNORECASE)
+    if m_pat:
         ev_id_raw = m_pat.group(1)
         r_num = int(m_pat.group(2))
         t_num = int(m_pat.group(3))
-        try:
-            with db.get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                               m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                               m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
-                               m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
-                               e.name AS event_name
-                        FROM matches m
-                        LEFT JOIN events e ON e.id = m.event_id
-                        WHERE LOWER(m.event_id) = LOWER(%s)
-                          AND m.round = %s
-                          AND m.table_number = %s
-                        LIMIT 1;
-                    """, (ev_id_raw, r_num, t_num))
-                    row = cur.fetchone()
-                    if row:
-                        cols = [desc[0] for desc in cur.description]
-                        bcp_match = dict(zip(cols, row))
-                        if bcp_match.get("match_date") and hasattr(bcp_match["match_date"], "isoformat"):
-                            bcp_match["match_date"] = bcp_match["match_date"].isoformat()
-        except Exception:
-            pass
 
+        if db and hasattr(db, "get_studio_event"):
+            try:
+                st_ev = db.get_studio_event(ev_id_raw)
+                if isinstance(st_ev, dict):
+                    if (
+                        st_ev.get("is_ended") is True
+                        or st_ev.get("ended") is True
+                        or str(st_ev.get("status") or "").lower() in ("ended", "completed", "finished", "concluded")
+                    ):
+                        is_event_completed = True
+            except Exception:
+                pass
+
+        if db and hasattr(db, "get_connection"):
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                   m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
+                                   e.name AS event_name, e.is_ended AS event_is_ended,
+                                   e.event_date, e.end_date, e.raw_json AS event_raw_json
+                            FROM matches m
+                            LEFT JOIN events e ON e.id = m.event_id
+                            WHERE LOWER(m.event_id) = LOWER(%s)
+                              AND m.round = %s
+                              AND m.table_number = %s
+                            LIMIT 1;
+                        """, (ev_id_raw, r_num, t_num))
+                        row = cur.fetchone()
+                        if row and getattr(cur, "description", None):
+                            cols = [desc[0] for desc in cur.description]
+                            row_dict = dict(zip(cols, row)) if not isinstance(row, dict) else dict(row)
+                            ev_is_ended = row_dict.pop("event_is_ended", False)
+                            ev_date = row_dict.pop("event_date", None)
+                            ev_end_date = row_dict.pop("end_date", None)
+                            ev_raw = row_dict.pop("event_raw_json", None)
+                            if isinstance(ev_raw, str):
+                                try:
+                                    ev_raw = json.loads(ev_raw)
+                                except Exception:
+                                    ev_raw = None
+
+                            now_utc = datetime.now(timezone.utc)
+                            if ev_is_ended is True:
+                                is_event_completed = True
+                            elif isinstance(ev_raw, dict) and (
+                                ev_raw.get("ended") is True
+                                or ev_raw.get("isEnded") is True
+                                or (isinstance(ev_raw.get("status"), dict) and ev_raw["status"].get("ended") is True)
+                                or str(ev_raw.get("status") or "").lower() in ("ended", "completed", "finished")
+                            ):
+                                is_event_completed = True
+                            elif ev_end_date and hasattr(ev_end_date, "timestamp"):
+                                end_dt = ev_end_date if ev_end_date.tzinfo else ev_end_date.replace(tzinfo=timezone.utc)
+                                if end_dt < (now_utc - timedelta(hours=48)):
+                                    is_event_completed = True
+                            elif ev_date and hasattr(ev_date, "timestamp"):
+                                start_dt = ev_date if ev_date.tzinfo else ev_date.replace(tzinfo=timezone.utc)
+                                if start_dt < (now_utc - timedelta(days=3)):
+                                    is_event_completed = True
+
+                            bcp_match = row_dict
+                            if bcp_match.get("match_date") and hasattr(bcp_match["match_date"], "isoformat"):
+                                bcp_match["match_date"] = bcp_match["match_date"].isoformat()
+            except Exception:
+                pass
+
+    # If the event is completed, delete any leftover Firestore room records for it
+    # and return the BCP score (since tracker_games was already checked in Step 1).
+    if is_event_completed:
+        if fs_engine:
+            try:
+                if ev_id_raw and hasattr(fs_engine, "delete_event_rooms"):
+                    fs_engine.delete_event_rooms(ev_id_raw)
+                if hasattr(fs_engine, "discard_room"):
+                    for cand in candidates:
+                        fs_engine.discard_room(cand)
+            except Exception:
+                pass
+        for cand in candidates:
+            TRACKER_ROOMS.pop(cand, None)
+
+        if bcp_match:
+            has_bcp_score = (bcp_match.get("player1_score") is not None and bcp_match.get("player2_score") is not None)
+            return {
+                "success": True,
+                "match_id": match_id,
+                "game_record": None,
+                "state": None,
+                "bcp_match": bcp_match,
+                "is_finished": True,
+                "status": "completed" if (bcp_match.get("is_done") or has_bcp_score) else "completed",
+                "source": "bcp"
+            }
+        raise HTTPException(status_code=404, detail="Completed scorecard not found in database for this match ID")
+
+    # 3. Event is in progress (or standalone live tracker game like WH40K-DD52-6CA8):
+    # Read live up-to-date game state from Firestore / TRACKER_ROOMS
+    room_doc = None
+    if fs_engine and hasattr(fs_engine, "get_room"):
+        for cand in candidates:
+            try:
+                rdoc = fs_engine.get_room(cand)
+                if rdoc and isinstance(rdoc, dict):
+                    room_doc = rdoc
+                    break
+            except Exception:
+                pass
+    if not room_doc:
+        for cand in candidates:
+            rdoc = TRACKER_ROOMS.get(cand)
+            if rdoc and isinstance(rdoc, dict) and not rdoc.get("is_abandoned") and rdoc.get("status") != "abandoned":
+                room_doc = rdoc
+                break
+
+    if room_doc:
+        state = (
+            room_doc.get("state")
+            if isinstance(room_doc.get("state"), dict)
+            else (room_doc.get("state_json") if isinstance(room_doc.get("state_json"), dict) else room_doc)
+        )
+        is_room_finished = bool(
+            room_doc.get("is_finished")
+            or (isinstance(state, dict) and state.get("is_finished"))
+            or room_doc.get("status") == "completed"
+            or (isinstance(state, dict) and state.get("status") == "completed")
+        )
+        sys_id = (
+            room_doc.get("game_system")
+            or (state.get("game_system") if isinstance(state, dict) else None)
+            or (state.get("gameSystem") if isinstance(state, dict) else None)
+            or ("aos" if str(match_id).upper().startswith("AOS-") else "40k")
+        )
+        return {
+            "success": True,
+            "match_id": match_id,
+            "game_system": sys_id,
+            "game_record": room_doc,
+            "state": state,
+            "bcp_match": bcp_match,
+            "is_finished": is_room_finished,
+            "status": "completed" if is_room_finished else "in_progress",
+            "source": "firestore"
+        }
+
+    # 4. Fallback to BCP match pairing if no live Firestore room exists yet for an in-progress event
     if bcp_match:
         has_bcp_score = (bcp_match.get("player1_score") is not None and bcp_match.get("player2_score") is not None)
         return {
@@ -2287,7 +2447,7 @@ async def api_get_scorecard(match_id: str):
             "source": "bcp"
         }
 
-    raise HTTPException(status_code=404, detail="Completed scorecard not found in database for this match ID")
+    raise HTTPException(status_code=404, detail="Scorecard not found")
 
 @router.get("/scorecard/{match_id}", summary="View digital scorecard page")
 async def view_scorecard_page(match_id: str):

@@ -1474,30 +1474,31 @@ async function openScorecardModal(matchId) {
     }
     if (activeScorecardMatchId !== matchId) return;
 
-    // Only show our OmniTactica turn-by-turn scorecard when the game is finalized/submitted
-    // and saved in our actual PostgreSQL database (tracker_games), NEVER from unsubmitted Firestore rooms.
-    const isSubmittedDbScorecard = Boolean(
+    const eventEnded = (typeof isEventEnded === 'function' && evObj) ? Boolean(isEventEnded(evObj)) : false;
+
+    // For completed events: only show our turn-by-turn scorecard if saved in PostgreSQL (tracker_games); otherwise use BCP.
+    // For in-progress events (or standalone live games): also allow live Firestore rooms (source === 'firestore').
+    const isTrackerScorecard = Boolean(
       data &&
-      data.source === 'tracker_games' &&
-      data.is_finished === true &&
+      ((data.source === 'tracker_games' && data.is_finished === true) || (!eventEnded && data.source === 'firestore')) &&
       (data.game_record || data.state)
     );
 
     const bcpMatchRec = evMatch || data.bcp_match || null;
-    if (!isSubmittedDbScorecard && !bcpMatchRec) {
-      throw new Error('Completed scorecard not found for this match.');
+    if (!isTrackerScorecard && !bcpMatchRec) {
+      throw new Error('Scorecard not found for this match.');
     }
 
-    const rec = isSubmittedDbScorecard ? (data.game_record || {}) : {};
-    const st = isSubmittedDbScorecard ? (data.state || {}) : {};
-    const game = isSubmittedDbScorecard ? (st.game || rec.state_json?.game || {}) : {};
+    const rec = isTrackerScorecard ? (data.game_record || {}) : {};
+    const st = isTrackerScorecard ? (data.state || {}) : {};
+    const game = isTrackerScorecard ? (st.game || rec.state_json?.game || {}) : {};
 
-    const p1Name = (isSubmittedDbScorecard && (game.p1Name || rec.p1_name)) || bcpMatchRec?.player1_name || 'Player 1';
-    const p2Name = (isSubmittedDbScorecard && (game.p2Name || rec.p2_name)) || bcpMatchRec?.player2_name || 'Player 2';
-    const p1Fac = (isSubmittedDbScorecard && (game.p1Faction || rec.p1_faction)) || bcpMatchRec?.player1_faction || evP1?.faction || 'Warhammer 40k';
-    const p2Fac = (isSubmittedDbScorecard && (game.p2Faction || rec.p2_faction)) || bcpMatchRec?.player2_faction || evP2?.faction || 'Warhammer 40k';
-    const p1Det = (isSubmittedDbScorecard && ((Array.isArray(game.p1Detachments) && game.p1Detachments[0]) || rec.p1_detachment)) || bcpMatchRec?.player1_detachment || evP1?.detachment || '';
-    const p2Det = (isSubmittedDbScorecard && ((Array.isArray(game.p2Detachments) && game.p2Detachments[0]) || rec.p2_detachment)) || bcpMatchRec?.player2_detachment || evP2?.detachment || '';
+    const p1Name = (isTrackerScorecard && (game.p1Name || rec.p1_name || st.p1?.name)) || bcpMatchRec?.player1_name || 'Player 1';
+    const p2Name = (isTrackerScorecard && (game.p2Name || rec.p2_name || st.p2?.name)) || bcpMatchRec?.player2_name || 'Player 2';
+    const p1Fac = (isTrackerScorecard && (game.p1Faction || rec.p1_faction || st.p1?.faction)) || bcpMatchRec?.player1_faction || evP1?.faction || 'Warhammer 40k';
+    const p2Fac = (isTrackerScorecard && (game.p2Faction || rec.p2_faction || st.p2?.faction)) || bcpMatchRec?.player2_faction || evP2?.faction || 'Warhammer 40k';
+    const p1Det = (isTrackerScorecard && ((Array.isArray(game.p1Detachments) && game.p1Detachments[0]) || rec.p1_detachment)) || bcpMatchRec?.player1_detachment || evP1?.detachment || '';
+    const p2Det = (isTrackerScorecard && ((Array.isArray(game.p2Detachments) && game.p2Detachments[0]) || rec.p2_detachment)) || bcpMatchRec?.player2_detachment || evP2?.detachment || '';
 
     if (p1NameEl) p1NameEl.innerText = p1Name;
     if (p2NameEl) p2NameEl.innerText = p2Name;
@@ -1506,12 +1507,12 @@ async function openScorecardModal(matchId) {
     if (p1DetEl) p1DetEl.innerText = p1Det;
     if (p2DetEl) p2DetEl.innerText = p2Det;
 
-    const p1Obj = isSubmittedDbScorecard ? (st.p1 || {}) : {};
-    const p2Obj = isSubmittedDbScorecard ? (st.p2 || {}) : {};
+    const p1Obj = isTrackerScorecard ? (st.p1 || {}) : {};
+    const p2Obj = isTrackerScorecard ? (st.p2 || {}) : {};
     const p1Rounds = p1Obj.rounds || [];
     const p2Rounds = p2Obj.rounds || [];
     const hasTurnData = Boolean(
-      isSubmittedDbScorecard && (
+      isTrackerScorecard && (
         p1Rounds.length > 0 ||
         p2Rounds.length > 0 ||
         p1Obj.score !== undefined ||
@@ -1544,22 +1545,21 @@ async function openScorecardModal(matchId) {
       ? (getVp(p2Obj, p2Rounds) || rec.p2_score || 0)
       : (hasBcpScore ? bcpMatchRec.player2_score : 0);
 
-    const p1ScoreEl = document.getElementById('msc-p1-score');
-    const p2ScoreEl = document.getElementById('msc-p2-score');
     if (p1ScoreEl) p1ScoreEl.innerText = (hasTurnData || hasBcpScore) ? p1Score : '-';
     if (p2ScoreEl) p2ScoreEl.innerText = (hasTurnData || hasBcpScore) ? p2Score : '-';
 
-    const roundNum = (isSubmittedDbScorecard && (rec.round_num || game.roundNum || st.round_num)) || bcpMatchRec?.round || parsedRound || 1;
-    const tableNum = (isSubmittedDbScorecard && (rec.table_num || game.tableNum || st.table_num)) || bcpMatchRec?.table_number || bcpMatchRec?.table || parsedTable || null;
-    const eventLabel = (currentEventData && currentEventData.name) || bcpMatchRec?.event_name || (isSubmittedDbScorecard && (rec.event_id || game.eventId)) || parsedEventId || null;
+    const roundNum = (isTrackerScorecard && (rec.round_num || game.roundNum || st.round_num)) || bcpMatchRec?.round || parsedRound || 1;
+    const tableNum = (isTrackerScorecard && (rec.table_num || game.tableNum || st.table_num)) || bcpMatchRec?.table_number || bcpMatchRec?.table || parsedTable || null;
+    const eventLabel = (currentEventData && currentEventData.name) || bcpMatchRec?.event_name || (isTrackerScorecard && (rec.event_id || game.eventId)) || parsedEventId || null;
 
     if (titleEl) {
       titleEl.innerHTML = `🏆 ${eventLabel ? escapeHtml(eventLabel) + ' • ' : ''}Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''}`;
     }
     if (subEl) {
-      const dateStr = (isSubmittedDbScorecard && rec.updated_at) || bcpMatchRec?.match_date || (currentEventData && currentEventData.event_date) || Date.now();
+      const dateStr = (isTrackerScorecard && (rec.updated_at || rec.updatedAt)) || bcpMatchRec?.match_date || (currentEventData && currentEventData.event_date) || Date.now();
       if (hasTurnData) {
-        subEl.innerText = `🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'} • 🗺️ ${game.deployment || rec.deployment || 'Search & Destroy'} • ⏱️ ${new Date(dateStr).toLocaleDateString()}`;
+        const liveTag = (data.source === 'firestore' && !data.is_finished) ? '🔴 LIVE IN PROGRESS • ' : '';
+        subEl.innerText = `${liveTag}🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'} • 🗺️ ${game.deployment || rec.deployment || 'Search & Destroy'} • ⏱️ ${new Date(dateStr).toLocaleDateString()}`;
       } else {
         subEl.innerText = `📋 Official Best Coast Pairings (BCP) Scorecard • ⏱️ ${new Date(dateStr).toLocaleDateString()}`;
       }

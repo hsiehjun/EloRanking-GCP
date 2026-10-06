@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=a5e1bb1720">
+  <link rel="manifest" href="/manifest.json?v=3076f606e0">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "a5e1bb1720";</script>
+  <script>window.APP_VERSION = "3076f606e0";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -916,9 +916,13 @@
         data.is_finished === true &&
         (data.game_record || data.state)
       );
+      const hasTrackerScorecard = Boolean(
+        isSubmittedDbScorecard ||
+        (data && data.source === 'firestore' && (data.game_record || data.state))
+      );
       const bcpMatch = data.bcp_match || null;
 
-      if (!isSubmittedDbScorecard && bcpMatch) {
+      if (!hasTrackerScorecard && bcpMatch) {
         const p1Name = bcpMatch.player1_name || 'Player 1';
         const p2Name = bcpMatch.player2_name || 'Player 2';
         const p1Fac = bcpMatch.player1_faction || 'Warhammer 40k';

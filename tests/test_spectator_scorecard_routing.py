@@ -73,16 +73,15 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         print("✓ test_dev_server_spectator_redirects_and_scorecard_serving passed")
 
     def test_api_get_scorecard_live_and_completed_status(self):
-        """Verify api_get_scorecard never returns unsubmitted in-memory/Firestore rooms and only returns completed games saved in tracker_games."""
+        """Verify api_get_scorecard returns live Firestore rooms for in-progress games, and tracker_games or BCP (deleting Firestore rooms) for completed events."""
         import asyncio
         from unittest.mock import patch
-        from core import HTTPException
         from routers.tracker import api_get_scorecard, TRACKER_ROOMS
 
-        test_mid = "SPEC-TEST-LIVE-R1-T1"
+        test_mid = "WH40K-DD52-6CA8"
         TRACKER_ROOMS[test_mid] = {
             "match_id": test_mid,
-            "status": "active",
+            "status": "in_progress",
             "is_finished": False,
             "state": {
                 "game": {"p1Name": "Alpha", "p2Name": "Beta", "roundNum": 2},
@@ -96,12 +95,15 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
 
         try:
             with patch("routers.tracker.get_database", return_value=mock_db):
-                # 1. Unsubmitted room in memory/Firestore must NOT return a scorecard
-                with self.assertRaises(HTTPException) as ctx:
-                    asyncio.run(api_get_scorecard(test_mid))
-                self.assertEqual(ctx.exception.status_code, 404)
+                # 1. In-progress game returns live scorecard from Firestore/TRACKER_ROOMS
+                res_live = asyncio.run(api_get_scorecard(test_mid))
+                self.assertTrue(res_live["success"])
+                self.assertFalse(res_live["is_finished"])
+                self.assertEqual(res_live["status"], "in_progress")
+                self.assertEqual(res_live["source"], "firestore")
+                self.assertEqual(res_live["state"]["p1"]["score"], 24)
 
-                # 2. Once finalized and saved in tracker_games DB, it returns source="tracker_games"
+                # 2. Once finalized and saved in tracker_games DB, it returns source="tracker_games" and evicts live room
                 mock_db.get_tracker_game.return_value = {
                     "match_id": test_mid,
                     "is_finished": True,
@@ -119,6 +121,7 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
                 self.assertEqual(res_done["status"], "completed")
                 self.assertEqual(res_done["source"], "tracker_games")
                 self.assertEqual(res_done["state"]["p1"]["score"], 84)
+                self.assertNotIn(test_mid, TRACKER_ROOMS)
         finally:
             if test_mid in TRACKER_ROOMS:
                 del TRACKER_ROOMS[test_mid]

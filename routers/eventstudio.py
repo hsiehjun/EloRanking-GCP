@@ -3068,6 +3068,23 @@ async def api_eventstudio_end_tournament(event_id: str, request: Request):
     ev["is_ended"] = True
     saved = db.save_studio_event(ev)
 
+    # Delete all live Firestore game rooms for this completed event
+    rooms_deleted = 0
+    try:
+        fs_engine = get_firestore_engine()
+        if fs_engine and hasattr(fs_engine, "delete_event_rooms"):
+            rooms_deleted = fs_engine.delete_event_rooms(event_id)
+    except Exception as fe:
+        logger.warning(f"Notice cleaning up Firestore rooms on event end for {event_id}: {fe}")
+
+    try:
+        clean_eid = str(event_id).replace("ES-", "").replace("BCP-", "").strip().lower()
+        for mid_key in list(TRACKER_ROOMS.keys()):
+            if clean_eid and clean_eid in str(mid_key).lower():
+                TRACKER_ROOMS.pop(mid_key, None)
+    except Exception:
+        pass
+
     # Sync ended to BCP
     bcp_ended = False
     if user_id and not event_id.startswith("ES-"):
@@ -3081,6 +3098,7 @@ async def api_eventstudio_end_tournament(event_id: str, request: Request):
         "success": True,
         "event_id": event_id,
         "bcp_ended": bcp_ended,
+        "rooms_deleted": rooms_deleted,
         "event": saved,
         "message": "Tournament concluded and archived successfully."
     }

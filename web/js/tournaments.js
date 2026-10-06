@@ -5852,13 +5852,52 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
   const p1Elo = Number(overlayData?.p1Elo || match?.player1_elo || p1?.current_elo || 1500);
   const p2Elo = Number(overlayData?.p2Elo || match?.player2_elo || p2?.current_elo || 1500);
 
+  const eventEnded = (typeof isEventEnded === 'function' && currentEventData) ? Boolean(isEventEnded(currentEventData)) : false;
   const sc = scData && (scData.scorecard || scData);
-  const isSubmittedDbScorecard = Boolean(
-    sc && !sc.is_mock && (sc.source === 'tracker_games' || (Array.isArray(sc.p1_primary) && sc.p1_primary.length > 0))
+  const rec = sc?.game_record || {};
+  const st = sc?.state || rec?.state_json || {};
+  const game = st?.game || {};
+
+  const isTrackerScorecard = Boolean(
+    sc && !sc.is_mock && (
+      (sc.source === 'tracker_games' && sc.is_finished !== false) ||
+      (!eventEnded && sc.source === 'firestore' && (sc.state || sc.game_record)) ||
+      (Array.isArray(sc.p1_primary) && sc.p1_primary.length > 0)
+    )
   );
 
-  const rawS1 = sc?.player1_score ?? sc?.p1_total ?? match?.player1_score;
-  const rawS2 = sc?.player2_score ?? sc?.p2_total ?? match?.player2_score;
+  const p1Rounds = Array.isArray(st?.p1?.rounds) ? st.p1.rounds : [];
+  const p2Rounds = Array.isArray(st?.p2?.rounds) ? st.p2.rounds : [];
+
+  const extractRoundValues = (roundsArr, field, fallbackArr) => {
+    if (Array.isArray(fallbackArr) && fallbackArr.length > 0) return fallbackArr;
+    return [1, 2, 3, 4, 5].map(rNum => {
+      const rObj = roundsArr.find(x => (x.round === rNum || x.battleRound === rNum)) || roundsArr[rNum - 1] || {};
+      return Number(rObj[field] || 0);
+    });
+  };
+
+  const p1Prim = extractRoundValues(p1Rounds, 'primaryScore', sc?.p1_primary);
+  const p1Sec = extractRoundValues(p1Rounds, 'secondaryScore', sc?.p1_secondary);
+  const p2Prim = extractRoundValues(p2Rounds, 'primaryScore', sc?.p2_primary);
+  const p2Sec = extractRoundValues(p2Rounds, 'secondaryScore', sc?.p2_secondary);
+
+  const p1PrimTotal = sc?.p1_primary_total ?? Math.min(50, p1Prim.reduce((a, b) => a + Number(b || 0), 0));
+  const p1SecTotal = sc?.p1_secondary_total ?? Math.min(40, p1Sec.reduce((a, b) => a + Number(b || 0), 0));
+  const p2PrimTotal = sc?.p2_primary_total ?? Math.min(50, p2Prim.reduce((a, b) => a + Number(b || 0), 0));
+  const p2SecTotal = sc?.p2_secondary_total ?? Math.min(40, p2Sec.reduce((a, b) => a + Number(b || 0), 0));
+  const p1Br = sc?.p1_battle_ready !== undefined ? Number(sc.p1_battle_ready) : (st?.p1?.battleReady === false ? 0 : 10);
+  const p2Br = sc?.p2_battle_ready !== undefined ? Number(sc.p2_battle_ready) : (st?.p2?.battleReady === false ? 0 : 10);
+
+  const computedTrackerS1 = isTrackerScorecard
+    ? (st?.p1?.score ?? rec?.p1_score ?? Math.min(100, p1PrimTotal + p1SecTotal + p1Br))
+    : undefined;
+  const computedTrackerS2 = isTrackerScorecard
+    ? (st?.p2?.score ?? rec?.p2_score ?? Math.min(100, p2PrimTotal + p2SecTotal + p2Br))
+    : undefined;
+
+  const rawS1 = computedTrackerS1 ?? sc?.player1_score ?? sc?.p1_total ?? sc?.bcp_match?.player1_score ?? match?.player1_score;
+  const rawS2 = computedTrackerS2 ?? sc?.player2_score ?? sc?.p2_total ?? sc?.bcp_match?.player2_score ?? match?.player2_score;
   const hasScore = (rawS1 !== null && rawS1 !== undefined && rawS2 !== null && rawS2 !== undefined)
     || (overlayData?.scoreStr && overlayData.scoreStr !== '0 - 0' && overlayData.scoreStr !== 'LIVE');
 
@@ -5872,29 +5911,20 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
     }
   }
 
-  const p1Won = hasScore && s1 > s2;
-  const p2Won = hasScore && s2 > s1;
-  const isDraw = hasScore && s1 === s2;
+  const isLiveFirestore = Boolean(isTrackerScorecard && sc?.source === 'firestore' && !sc?.is_finished);
+  const p1Won = hasScore && !isLiveFirestore && s1 > s2;
+  const p2Won = hasScore && !isLiveFirestore && s2 > s1;
+  const isDraw = hasScore && !isLiveFirestore && s1 === s2;
 
-  const missionText = (sc && sc.primary_mission && sc.primary_mission !== 'Unknown Mission')
-    ? `${sc.primary_mission}${sc.deployment && sc.deployment !== 'Standard Deployment' ? ` • ${sc.deployment}` : ''}`
+  const rawMission = game.primary || game.p1Primary || rec.primary_mission || sc?.primary_mission || '';
+  const rawDeploy = game.deployment || rec.deployment || sc?.deployment || '';
+  const missionText = (rawMission && rawMission !== 'Unknown Mission')
+    ? `${rawMission}${rawDeploy && rawDeploy !== 'Standard Deployment' ? ` • ${rawDeploy}` : ''}`
     : (match?.mission || '');
 
   let tableBodyHtml = '';
 
-  if (isSubmittedDbScorecard) {
-    const p1Prim = Array.isArray(sc.p1_primary) ? sc.p1_primary : [0, 0, 0, 0, 0];
-    const p1Sec = Array.isArray(sc.p1_secondary) ? sc.p1_secondary : [0, 0, 0, 0, 0];
-    const p2Prim = Array.isArray(sc.p2_primary) ? sc.p2_primary : [0, 0, 0, 0, 0];
-    const p2Sec = Array.isArray(sc.p2_secondary) ? sc.p2_secondary : [0, 0, 0, 0, 0];
-
-    const p1PrimTotal = sc.p1_primary_total ?? p1Prim.reduce((a, b) => a + Number(b || 0), 0);
-    const p1SecTotal = sc.p1_secondary_total ?? p1Sec.reduce((a, b) => a + Number(b || 0), 0);
-    const p2PrimTotal = sc.p2_primary_total ?? p2Prim.reduce((a, b) => a + Number(b || 0), 0);
-    const p2SecTotal = sc.p2_secondary_total ?? p2Sec.reduce((a, b) => a + Number(b || 0), 0);
-    const p1Br = sc.p1_battle_ready !== undefined ? Number(sc.p1_battle_ready) : 10;
-    const p2Br = sc.p2_battle_ready !== undefined ? Number(sc.p2_battle_ready) : 10;
-
+  if (isTrackerScorecard) {
     const renderRoundCells = (arr, color) => [0, 1, 2, 3, 4].map(i => {
       const val = Number(arr[i] || 0);
       return `<td style="text-align:center; font-family:var(--font-mono); color:${val > 0 ? color : 'var(--text-muted)'}; font-weight:${val > 0 ? '700' : '400'}; padding:0.35rem 0.4rem;">${val}</td>`;
@@ -6050,7 +6080,9 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
         ${missionText ? `<span style="font-size: 0.74rem; color: var(--text-secondary); font-weight: 600;">• ${escapeHtml(missionText)}</span>` : ''}
       </div>
       <div style="display: flex; align-items: center; gap: 0.5rem;">
-        ${isSubmittedDbScorecard ? `
+        ${isLiveFirestore ? `
+          <span style="font-size: 0.7rem; color: #38bdf8; font-weight: 700;">🔴 Live Tracker Scorecard</span>
+        ` : (isTrackerScorecard ? `
           <span style="font-size: 0.7rem; color: #10b981; font-weight: 700;">✓ Turn-by-Turn Tracker Breakdown</span>
         ` : (hasScore ? `
           <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600;">✓ Official BCP Scorecard</span>
@@ -6058,7 +6090,7 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
           <button type="button" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 3px 8px; color: #a5b4fc; border-color: #6366f1; background: rgba(99,102,241,0.1); cursor: pointer;" onclick="spectateTournamentTracker('${eventId}', ${curRound}, ${tableNum}, '${escapeHtml(match?.player1_name || 'P1')}', '${escapeHtml(match?.player2_name || 'P2')}', '${match?.player1_id || ''}', '${match?.player2_id || ''}', '${match?.id || ''}')">
             👁️ Spectate Live Tracker
           </button>
-        `)}
+        `))}
       </div>
     </div>
     ${tableBodyHtml}
@@ -6078,12 +6110,22 @@ function hydrateStreamTrackerScoreAsync(eventId, overlayData) {
       streamScorecardDataCache[matchId] = scData || { found: false };
       const sc = scData && (scData.scorecard || scData);
       const ev = currentEventData || {};
+      const eventEnded = (typeof isEventEnded === 'function' && ev) ? Boolean(isEventEnded(ev)) : false;
       const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (ev.players || []);
       const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (ev.matches || []);
-      if (sc && (sc.player1_score !== undefined || sc.p1_total !== undefined)) {
-        const s1 = sc.player1_score ?? sc.p1_total ?? 0;
-        const s2 = sc.player2_score ?? sc.p2_total ?? 0;
-        streamLiveTrackerScoreCache[matchId] = `${s1} - ${s2}`;
+
+      const st = sc?.state || sc?.game_record?.state_json || {};
+      const rec = sc?.game_record || {};
+      const allowTracker = sc && ((sc.source === 'tracker_games' && sc.is_finished !== false) || (!eventEnded && sc.source === 'firestore'));
+      const s1Val = allowTracker
+        ? (st?.p1?.score ?? rec?.p1_score ?? sc?.player1_score ?? sc?.p1_total)
+        : (sc?.bcp_match?.player1_score ?? sc?.player1_score ?? sc?.p1_total);
+      const s2Val = allowTracker
+        ? (st?.p2?.score ?? rec?.p2_score ?? sc?.player2_score ?? sc?.p2_total)
+        : (sc?.bcp_match?.player2_score ?? sc?.player2_score ?? sc?.p2_total);
+
+      if (s1Val !== undefined && s1Val !== null && s2Val !== undefined && s2Val !== null) {
+        streamLiveTrackerScoreCache[matchId] = `${s1Val} - ${s2Val}`;
         // Refresh HUDs if still viewing this table
         const updatedOverlay = resolveStreamTableMatchData(ev, players, matches, overlayData.tableNum, overlayData.roundNum);
         const modalHud = document.getElementById('modal-stream-hud-overlay');

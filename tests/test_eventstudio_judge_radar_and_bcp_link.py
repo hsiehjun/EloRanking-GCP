@@ -195,14 +195,14 @@ def test_scorecard_retention_and_no_judge_polling():
     poll_fn_body = studio_js[poll_fn_start:poll_fn_end]
     assert "getJudgeCalls" not in poll_fn_body, "pollTournamentWorkspaceQuietly must not poll getJudgeCalls!"
 
-    # 2. Verify api_get_scorecard ignores unsubmitted/Firestore rooms and only returns completed games from tracker_games DB
+    # 2. Verify api_get_scorecard returns Firestore room when event is in-progress, deletes Firestore room when event is completed, and returns tracker_games when saved in DB
     from core import HTTPException
     fs = get_firestore_engine()
     test_match_id = "BCP-K0mczlQ3fDnw-R1-T1"
     norm_mid = test_match_id.strip().upper()
     fs.create_room(norm_mid, {
         "match_id": test_match_id,
-        "status": "active",
+        "status": "in_progress",
         "is_finished": False,
         "state": {
             "is_finished": False,
@@ -215,14 +215,24 @@ def test_scorecard_retention_and_no_judge_polling():
 
     mock_db = MagicMock()
     mock_db.get_tracker_game.return_value = None
+    mock_db.get_studio_event.return_value = None
 
     with patch("routers.tracker.get_database", return_value=mock_db):
-        # Unsubmitted Firestore room must NOT return a tracker scorecard
+        # In-progress event returns live Firestore room
+        res_live = asyncio.run(api_get_scorecard(test_match_id))
+        assert res_live.get("success") is True
+        assert res_live.get("source") == "firestore"
+        assert res_live.get("status") == "in_progress"
+        assert res_live["state"]["p1"]["score"] == 85
+
+        # Once the event is completed, any leftover Firestore room is deleted and NOT returned
+        mock_db.get_studio_event.return_value = {"id": "K0mczlQ3fDnw", "is_ended": True, "status": "completed"}
         try:
             asyncio.run(api_get_scorecard(test_match_id))
-            assert False, "Expected HTTPException 404 when match is only in Firestore and not in tracker_games DB"
+            assert False, "Expected HTTPException 404 when event is completed and match is not in tracker_games or BCP"
         except HTTPException as exc:
             assert exc.status_code == 404
+        assert fs.get_room(norm_mid) is None
 
         # Test retrieval when finalized and saved in database tracker_games
         mock_db.get_tracker_game.return_value = {
