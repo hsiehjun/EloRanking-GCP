@@ -1991,13 +1991,23 @@
               const impBadge = impSrc === 'gw_app'
                 ? `<span style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">📥 GW App</span>`
                 : (impSrc ? `<span style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35); font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">📥 Tabletop Battles</span>` : '');
+              const edCode = String(item.edition || '').toLowerCase();
+              const edShort = edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : '')))));
+              const edBadge = edShort
+                ? `<span style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">${escapeHtml(edShort)}</span>`
+                : '';
+              const isLockedEvent = Boolean(item.event_match_locked || item.event_id);
+              const lockBadge = isLockedEvent
+                ? `<span style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.4); font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">🔒 ${escapeHtml(item.mapped_event_name || item.event_id || 'Tournament')} R${item.round_num || 1}${item.table_num ? ' T' + item.table_num : ''}</span>`
+                : '';
+              const sysStr = item.game_system || (String(mid).startsWith('AOS-') || isAosMode ? 'aos' : '40k');
 
               return `
-                <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/scorecard/${encodeURIComponent(mid)}'" style="background:var(--bg-secondary, #12161f); border:1px solid var(--border, #273042); border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative;" onmouseover="this.style.borderColor='var(--accent, #38bdf8)'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='var(--border, #273042)'; this.style.transform='none'">
+                <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/scorecard/${encodeURIComponent(mid)}'" style="background:var(--bg-secondary, #12161f); border:1px solid var(--border, #273042); border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative; flex-wrap:wrap; gap:10px;" onmouseover="this.style.borderColor='var(--accent, #38bdf8)'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='var(--border, #273042)'; this.style.transform='none'">
                   <div style="min-width:0; flex:1;">
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px; flex-wrap:wrap;">
                       <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:var(--accent-glow, rgba(56,189,248,0.1)); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(shortId)} ↗</span>
-                      ${impBadge}
+                      ${impBadge}${edBadge}${lockBadge}
                       <b style="color:var(--text-primary, #f0f4fc); font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:var(--text-muted, #64748b); font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
                     </div>
                     ${factionSubtitle}
@@ -2005,13 +2015,15 @@
                       <span>${escapeHtml(dateStr)}</span>
                     </div>
                   </div>
-                  <div style="display:flex; align-items:center; gap:12px; margin-left:14px;">
+                  <div style="display:flex; align-items:center; gap:8px; margin-left:auto;">
                     <span style="font-size:15px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8);">
                       ${p1S} - ${p2S}
                     </span>
-                    <span style="background:rgba(148,163,184,0.1); color:var(--text-secondary, #94a3b8); border:1px solid rgba(148,163,184,0.25); font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
-                      Completed
-                    </span>
+                    ${!isLockedEvent ? `
+                      <button title="Map & Lock Scorecard to Official Tournament Pairing" onclick="event.stopPropagation(); window.openMapGameToEventModal('${escapeHtml(mid)}', '${escapeHtml(sysStr)}')" style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.38); color:#fbbf24; font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">
+                        🏆 Map to Event
+                      </button>
+                    ` : ''}
                     <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:var(--accent-glow, rgba(56,189,248,0.12)); border:1px solid rgba(56,189,248,0.28); color:var(--accent, #38bdf8); font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='var(--accent-glow, rgba(56,189,248,0.12))'">
                       📄 Scorecard
                     </button>
@@ -2193,6 +2205,13 @@
                 id: item.match_id,
                 match_id: item.match_id,
                 game_system: item.game_system || s.gameSystem || (String(item.match_id || '').startsWith('AOS-') ? 'aos' : '40k'),
+                edition: item.edition || s.edition || null,
+                edition_label: item.edition_label || s.edition_label || null,
+                event_id: item.event_id || s.event_id || null,
+                round_num: item.round_num || s.round_num || null,
+                table_num: item.table_num || s.table_num || null,
+                mapped_event_name: item.mapped_event_name || s.mapped_event_name || null,
+                event_match_locked: Boolean(item.event_match_locked || s.event_match_locked || item.event_id || s.event_id),
                 imported_source: item.imported_source || s.imported_source || null,
                 imported_app: item.imported_app || s.imported_app || null,
                 game_date: item.game_date || s.game_date || item.updated_at || null,
@@ -6283,13 +6302,13 @@ Space Marines - Gladius Task Force (2000 pts)
             <div style="display:flex; flex-direction:column; gap:6px;">
               ${games.map(g => {
                 const mid = g.match_id || g.id || '';
-                const sysBadge = (g.game_system === 'aos' || String(mid).startsWith('AOS-'))
-                  ? '<span style="background:rgba(245,158,11,0.2); color:#fbbf24; font-size:0.65rem; font-weight:800; padding:1px 6px; border-radius:4px;">AoS 4.0</span>'
-                  : '<span style="background:rgba(56,189,248,0.2); color:#38bdf8; font-size:0.65rem; font-weight:800; padding:1px 6px; border-radius:4px;">40k</span>';
+                const isAosG = (g.game_system === 'aos' || String(mid).startsWith('AOS-'));
+                const edLabel = g.edition_label || (isAosG ? 'AoS 4.0' : '40k 10th Ed');
+                const sysBadge = `<span style="background:rgba(245,158,11,0.2); color:#fbbf24; font-size:0.65rem; font-weight:800; padding:1px 6px; border-radius:4px;">${escapeHtml(edLabel)}</span>`;
                 return `
                   <div style="background:#070b14; border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:8px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
                     <div>
-                      <div style="display:flex; align-items:center; gap:6px;">
+                      <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                         ${sysBadge}
                         <span style="font-family:monospace; font-size:0.74rem; color:#38bdf8; font-weight:700;">#${escapeHtml(mid)}</span>
                         <b style="font-size:0.82rem; color:#fff;">${escapeHtml(g.p1_name)} (${g.p1_score}) vs ${escapeHtml(g.p2_name)} (${g.p2_score})</b>
@@ -6298,9 +6317,14 @@ Space Marines - Gladius Task Force (2000 pts)
                         ${escapeHtml(g.p1_faction || 'Army 1')} vs ${escapeHtml(g.p2_faction || 'Army 2')} • 🎯 ${escapeHtml(g.primary_mission || 'Matched Play')}
                       </div>
                     </div>
-                    <a href="/scorecard/${encodeURIComponent(mid)}" target="_blank" style="background:rgba(16,185,129,0.2); border:1px solid rgba(16,185,129,0.45); color:#34d399; font-size:0.74rem; font-weight:800; padding:5px 10px; border-radius:6px; text-decoration:none; white-space:nowrap;">
-                      📄 Open Scorecard ↗
-                    </a>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <button type="button" onclick="window.openMapGameToEventModal('${escapeHtml(mid)}', '${isAosG ? 'aos' : '40k'}')" style="background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.45); color:#fbbf24; font-size:0.73rem; font-weight:800; padding:5px 9px; border-radius:6px; cursor:pointer; white-space:nowrap;">
+                        🏆 Map to Event
+                      </button>
+                      <a href="/scorecard/${encodeURIComponent(mid)}" target="_blank" style="background:rgba(16,185,129,0.2); border:1px solid rgba(16,185,129,0.45); color:#34d399; font-size:0.74rem; font-weight:800; padding:5px 10px; border-radius:6px; text-decoration:none; white-space:nowrap;">
+                        📄 Open Scorecard ↗
+                      </a>
+                    </div>
                   </div>
                 `;
               }).join('')}
@@ -6320,6 +6344,153 @@ Space Marines - Gladius Task Force (2000 pts)
         }
       }
     };
+
+    let _lobbyMappableMatchesCache = [];
+    let _lobbyActiveMapMatchId = '';
+    let _lobbyActiveMapGameSystem = '40k';
+
+    if (typeof window.openMapGameToEventModal !== 'function') {
+      window.openMapGameToEventModal = async function(matchId, gameSystem) {
+        _lobbyActiveMapMatchId = matchId || '';
+        _lobbyActiveMapGameSystem = gameSystem || (String(matchId || '').startsWith('AOS-') || isAosMode ? 'aos' : '40k');
+
+        let modal = document.getElementById('omni-map-game-event-modal');
+        if (!modal) {
+          modal = document.createElement('div');
+          modal.id = 'omni-map-game-event-modal';
+          modal.style.cssText = 'position:fixed; inset:0; background:rgba(2,6,23,0.85); backdrop-filter:blur(8px); z-index:100005; display:none; align-items:center; justify-content:center; padding:1rem; box-sizing:border-box;';
+          document.body.appendChild(modal);
+        }
+
+        modal.innerHTML = `
+          <div style="background:#0f172a; border:1px solid #334155; border-radius:16px; max-width:580px; width:100%; max-height:88vh; display:flex; flex-direction:column; box-shadow:0 25px 65px rgba(0,0,0,0.8); overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+            <div style="padding:1rem 1.25rem; background:#1e293b; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <div style="font-weight:800; font-size:1.02rem; color:#fff;">🏆 Map Scorecard to Tournament Match</div>
+                <div style="font-size:0.75rem; color:#94a3b8; font-family:monospace; margin-top:2px;">Match #${escapeHtml(_lobbyActiveMapMatchId)}</div>
+              </div>
+              <button type="button" onclick="document.getElementById('omni-map-game-event-modal').style.display='none'" style="background:transparent; border:none; color:#94a3b8; font-size:1.25rem; cursor:pointer;">✕</button>
+            </div>
+            <div style="padding:1.1rem 1.25rem; overflow-y:auto; flex:1;">
+              <div style="font-size:0.78rem; color:#cbd5e1; line-height:1.45; margin-bottom:0.85rem; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.25); padding:0.65rem 0.85rem; border-radius:10px;">
+                🔒 <b>Participant-Only &amp; Auto-Aligned:</b> You can only map a scorecard to a tournament pairing you participated in. Player 1 and Player 2 columns are automatically aligned to the official pairing and locked once mapped.
+              </div>
+              <div style="display:flex; gap:0.5rem; margin-bottom:0.85rem;">
+                <input id="omni-map-event-search" type="text" placeholder="Search event name, opponent, or event ID..." style="flex:1; background:#020617; border:1px solid #334155; color:#fff; padding:0.55rem 0.75rem; border-radius:8px; font-size:0.84rem;" oninput="window.__filterLobbyMappableEventMatches()">
+              </div>
+              <div id="omni-map-event-status" style="display:none; margin-bottom:0.75rem; padding:0.6rem 0.85rem; border-radius:8px; font-size:0.8rem;"></div>
+              <div id="omni-map-event-list" style="display:flex; flex-direction:column; gap:0.55rem;">
+                <div style="padding:1.5rem; text-align:center; color:#94a3b8; font-size:0.84rem;">Loading your verified tournament matches...</div>
+              </div>
+            </div>
+          </div>
+        `;
+        modal.style.display = 'flex';
+
+        try {
+          const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(_lobbyActiveMapGameSystem)}&match_id=${encodeURIComponent(_lobbyActiveMapMatchId)}`, { headers: getAuthHeaders() });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) {
+            throw new Error(data.detail || 'Please sign in to map scorecards to your tournament matches.');
+          }
+          _lobbyMappableMatchesCache = data.matches || [];
+          window.__renderLobbyMappableEventMatches(_lobbyMappableMatchesCache);
+        } catch (err) {
+          const listEl = document.getElementById('omni-map-event-list');
+          if (listEl) {
+            listEl.innerHTML = `<div style="padding:1.25rem; text-align:center; color:#fca5a5; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; font-size:0.82rem;">⚠️ ${escapeHtml(err.message)}</div>`;
+          }
+        }
+      };
+
+      window.__filterLobbyMappableEventMatches = function() {
+        const q = (document.getElementById('omni-map-event-search')?.value || '').toLowerCase().trim();
+        if (!q) {
+          window.__renderLobbyMappableEventMatches(_lobbyMappableMatchesCache);
+          return;
+        }
+        const filtered = _lobbyMappableMatchesCache.filter(m =>
+          String(m.event_name || '').toLowerCase().includes(q) ||
+          String(m.event_id || '').toLowerCase().includes(q) ||
+          String(m.player1_name || '').toLowerCase().includes(q) ||
+          String(m.player2_name || '').toLowerCase().includes(q)
+        );
+        window.__renderLobbyMappableEventMatches(filtered);
+      };
+
+      window.__renderLobbyMappableEventMatches = function(matches) {
+        const listEl = document.getElementById('omni-map-event-list');
+        if (!listEl) return;
+        if (!matches || matches.length === 0) {
+          listEl.innerHTML = '<div style="padding:1.5rem; text-align:center; color:#94a3b8; font-size:0.84rem;">No eligible tournament matches found for your player profile.</div>';
+          return;
+        }
+        listEl.innerHTML = matches.map(m => {
+          const isLocked = Boolean(m.is_locked);
+          const recBadge = m.recommended ? '<span style="background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.4); font-size:0.68rem; font-weight:800; padding:1px 6px; border-radius:4px;">★ Recommended Pairing</span>' : '';
+          const actionHtml = isLocked
+            ? '<span style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.35); font-size:0.7rem; font-weight:800; padding:4px 8px; border-radius:6px;">🔒 Locked</span>'
+            : `<button type="button" onclick="window.__confirmMapGameToEventFromLobby('${escapeHtml(m.event_id)}', ${Number(m.round || 1)}, ${m.table_number ? Number(m.table_number) : 'null'})" style="background:#0284c7; border:1px solid #38bdf8; color:#fff; font-weight:800; font-size:0.75rem; padding:5px 10px; border-radius:7px; cursor:pointer;">🔗 Map &amp; Lock</button>`;
+          return `
+            <div style="background:#090f1e; border:1px solid ${m.recommended ? '#10b981' : '#1e293b'}; border-radius:10px; padding:0.75rem 0.9rem; display:flex; justify-content:space-between; align-items:center; gap:0.75rem;">
+              <div style="min-width:0;">
+                <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+                  <span style="font-weight:800; color:#f8fafc; font-size:0.86rem;">🏆 ${escapeHtml(m.event_name || m.event_id)}</span>
+                  <span style="font-family:monospace; font-size:0.74rem; color:#38bdf8;">R${m.round || 1}${m.table_number ? ' • T' + m.table_number : ''}</span>
+                  ${recBadge}
+                </div>
+                <div style="font-size:0.78rem; color:#cbd5e1; margin-top:0.22rem;">
+                  🟦 ${escapeHtml(m.player1_name)} (${m.player1_score ?? '-'}) <span style="color:#64748b;">vs</span> 🟥 ${escapeHtml(m.player2_name)} (${m.player2_score ?? '-'})
+                </div>
+                <div style="font-size:0.7rem; color:#64748b; margin-top:0.15rem;">
+                  ${m.match_date ? new Date(m.match_date).toLocaleDateString() : '-'} • Event ID: ${escapeHtml(m.event_id)}
+                </div>
+              </div>
+              <div style="flex-shrink:0;">
+                ${actionHtml}
+              </div>
+            </div>
+          `;
+        }).join('');
+      };
+
+      window.__confirmMapGameToEventFromLobby = async function(eventId, roundNum, tableNum) {
+        const statusEl = document.getElementById('omni-map-event-status');
+        try {
+          const resp = await fetch(`/api/tracker/games/${encodeURIComponent(_lobbyActiveMapMatchId)}/map_event_match`, {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, getAuthHeaders()),
+            body: JSON.stringify({ event_id: eventId, round_num: roundNum, table_num: tableNum })
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) {
+            throw new Error(data.detail || resp.statusText);
+          }
+          if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.style.background = 'rgba(16,185,129,0.15)';
+            statusEl.style.border = '1px solid rgba(16,185,129,0.4)';
+            statusEl.style.color = '#34d399';
+            statusEl.innerHTML = `✅ Mapped &amp; locked to <b>${escapeHtml(data.event_name || eventId)}</b> (Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''})${data.swapped_p1_p2 ? ' • Auto-aligned Player 1 / Player 2 columns!' : '!'}`;
+          }
+          if (typeof window.__refreshTrackerHistoryAfterImport === 'function') {
+            await window.__refreshTrackerHistoryAfterImport();
+          }
+          setTimeout(() => {
+            const modal = document.getElementById('omni-map-game-event-modal');
+            if (modal) modal.style.display = 'none';
+          }, 1100);
+        } catch (err) {
+          if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.style.background = 'rgba(239,68,68,0.14)';
+            statusEl.style.border = '1px solid rgba(239,68,68,0.4)';
+            statusEl.style.color = '#f87171';
+            statusEl.innerHTML = `⚠️ ${escapeHtml(err.message)}`;
+          }
+        }
+      };
+    }
   }
 
   // Real-time Armory Dice Skin Sync Listener

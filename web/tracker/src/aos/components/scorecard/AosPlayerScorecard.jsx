@@ -7,7 +7,7 @@ import { BattleTacticPickerModal } from "./BattleTacticPickerModal.jsx";
 import { SwordsIcon, ShieldIcon, CheckIcon } from "../common/Icons.jsx";
 
 export function AosPlayerScorecard({ playerKey, round, isTurnActive, turnNumber }) {
-  const { state, resolveBattleTactic, adjustCP } = useAosTracker();
+  const { state, selectBattleTactic, resolveBattleTactic, adjustCP } = useAosTracker();
   const player = state[playerKey];
   const roundData = player.rounds?.find(r => r.round === round) || {};
 
@@ -195,12 +195,21 @@ export function AosPlayerScorecard({ playerKey, round, isTurnActive, turnNumber 
                     {tacticObj?.shortDesc || ""}
                   </div>
                 </div>
-                <button
-                  onClick={() => setIsTacticModalOpen(true)}
-                  className="gtk-mono text-[10.5px] font-bold uppercase text-[#38bdf8] underline ml-2"
-                >
-                  Change
-                </button>
+                <div className="flex items-center gap-2.5 ml-2 flex-shrink-0">
+                  <button
+                    onClick={() => setIsTacticModalOpen(true)}
+                    className="gtk-mono text-[10.5px] font-bold uppercase text-[#38bdf8] underline"
+                  >
+                    Change
+                  </button>
+                  <button
+                    onClick={() => selectBattleTactic(playerKey, round, "none")}
+                    className="gtk-mono text-[10.5px] font-bold uppercase text-[#f87171] underline"
+                    title="Clear tactic and return it to available pool"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
 
               {/* Status Toggles: Achieved vs Failed */}

@@ -5866,6 +5866,48 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
     )
   );
 
+  const isAosStream = Boolean(
+    sc?.game_system === 'aos' ||
+    st?.gameSystem === 'aos' ||
+    String(matchId || '').startsWith('AOS-') ||
+    (window.currentGameSystem === 'aos' && !isTrackerScorecard)
+  );
+
+  const missionObj = st?.mission || {};
+  const rawEd = String(
+    st?.edition || rec?.edition || missionObj.edition || st?.p1?.edition || st?.p2?.edition || game?.edition || ''
+  ).toLowerCase().trim();
+  const packId = String(missionObj.packId || '').toLowerCase();
+
+  let priCap = isAosStream ? 30 : 50;
+  let secCap = isAosStream ? 20 : 40;
+  let maxTot = isAosStream ? 50 : 100;
+  let hasPaint = !isAosStream;
+  let hasGrandStrategy = false;
+  let edShortBadge = isAosStream ? '⚡ AoS 4e' : '🦅 10th Ed';
+
+  if (isAosStream) {
+    if (rawEd === 'aos_3e' || rawEd === '3e' || packId.includes('3e') || packId.includes('pitched') || st?.p1?.grandStrategy || st?.p2?.grandStrategy) {
+      maxTot = 53;
+      hasGrandStrategy = true;
+      edShortBadge = '⚔️ AoS 3e';
+    }
+  } else if (rawEd === '8th_itc' || rawEd === '8th' || packId.includes('8th') || packId.includes('itc') || Number(st?.p1?.primaryCap) === 36) {
+    priCap = 36;
+    secCap = 12;
+    maxTot = 48;
+    hasPaint = false;
+    edShortBadge = '🏛️ 8th ITC';
+  } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || Number(st?.p1?.primaryCap) === 45 || Number(st?.p1?.secondaryCap) === 45) {
+    priCap = 45;
+    secCap = 45;
+    maxTot = 100;
+    hasPaint = true;
+    edShortBadge = '📜 9th Ed';
+  } else if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th')) {
+    edShortBadge = '🚀 11th Ed';
+  }
+
   const p1Rounds = Array.isArray(st?.p1?.rounds) ? st.p1.rounds : [];
   const p2Rounds = Array.isArray(st?.p2?.rounds) ? st.p2.rounds : [];
 
@@ -5873,6 +5915,9 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
     if (Array.isArray(fallbackArr) && fallbackArr.length > 0) return fallbackArr;
     return [1, 2, 3, 4, 5].map(rNum => {
       const rObj = roundsArr.find(x => (x.round === rNum || x.battleRound === rNum)) || roundsArr[rNum - 1] || {};
+      if (field === 'secondaryScore' && isAosStream) {
+        return Number(rObj.tacticScore || 0);
+      }
       return Number(rObj[field] || 0);
     });
   };
@@ -5882,18 +5927,20 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
   const p2Prim = extractRoundValues(p2Rounds, 'primaryScore', sc?.p2_primary);
   const p2Sec = extractRoundValues(p2Rounds, 'secondaryScore', sc?.p2_secondary);
 
-  const p1PrimTotal = sc?.p1_primary_total ?? Math.min(50, p1Prim.reduce((a, b) => a + Number(b || 0), 0));
-  const p1SecTotal = sc?.p1_secondary_total ?? Math.min(40, p1Sec.reduce((a, b) => a + Number(b || 0), 0));
-  const p2PrimTotal = sc?.p2_primary_total ?? Math.min(50, p2Prim.reduce((a, b) => a + Number(b || 0), 0));
-  const p2SecTotal = sc?.p2_secondary_total ?? Math.min(40, p2Sec.reduce((a, b) => a + Number(b || 0), 0));
-  const p1Br = sc?.p1_battle_ready !== undefined ? Number(sc.p1_battle_ready) : (st?.p1?.battleReady === false ? 0 : 10);
-  const p2Br = sc?.p2_battle_ready !== undefined ? Number(sc.p2_battle_ready) : (st?.p2?.battleReady === false ? 0 : 10);
+  const p1PrimTotal = sc?.p1_primary_total ?? Math.min(priCap, p1Prim.reduce((a, b) => a + Number(b || 0), 0));
+  const p1SecTotal = sc?.p1_secondary_total ?? Math.min(secCap, p1Sec.reduce((a, b) => a + Number(b || 0), 0));
+  const p2PrimTotal = sc?.p2_primary_total ?? Math.min(priCap, p2Prim.reduce((a, b) => a + Number(b || 0), 0));
+  const p2SecTotal = sc?.p2_secondary_total ?? Math.min(secCap, p2Sec.reduce((a, b) => a + Number(b || 0), 0));
+  const p1Br = !hasPaint ? 0 : (sc?.p1_battle_ready !== undefined ? Number(sc.p1_battle_ready) : (typeof st?.p1?.paintScore === 'number' ? st.p1.paintScore : (st?.p1?.battleReady === false ? 0 : 10)));
+  const p2Br = !hasPaint ? 0 : (sc?.p2_battle_ready !== undefined ? Number(sc.p2_battle_ready) : (typeof st?.p2?.paintScore === 'number' ? st.p2.paintScore : (st?.p2?.battleReady === false ? 0 : 10)));
+  const p1Gs = hasGrandStrategy ? Number(st?.p1?.grandStrategyScore || (st?.p1?.grandStrategyAchieved ? 3 : 0)) : 0;
+  const p2Gs = hasGrandStrategy ? Number(st?.p2?.grandStrategyScore || (st?.p2?.grandStrategyAchieved ? 3 : 0)) : 0;
 
   const computedTrackerS1 = isTrackerScorecard
-    ? (st?.p1?.score ?? rec?.p1_score ?? Math.min(100, p1PrimTotal + p1SecTotal + p1Br))
+    ? (st?.p1?.score ?? rec?.p1_score ?? Math.min(maxTot, p1PrimTotal + p1SecTotal + p1Br + p1Gs))
     : undefined;
   const computedTrackerS2 = isTrackerScorecard
-    ? (st?.p2?.score ?? rec?.p2_score ?? Math.min(100, p2PrimTotal + p2SecTotal + p2Br))
+    ? (st?.p2?.score ?? rec?.p2_score ?? Math.min(maxTot, p2PrimTotal + p2SecTotal + p2Br + p2Gs))
     : undefined;
 
   const rawS1 = computedTrackerS1 ?? sc?.player1_score ?? sc?.p1_total ?? sc?.bcp_match?.player1_score ?? match?.player1_score;
@@ -5916,7 +5963,7 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
   const p2Won = hasScore && !isLiveFirestore && s2 > s1;
   const isDraw = hasScore && !isLiveFirestore && s1 === s2;
 
-  const rawMission = game.primary || game.p1Primary || rec.primary_mission || sc?.primary_mission || '';
+  const rawMission = game.primary || game.p1Primary || st?.mission?.primaryName || game.battleplan?.name || st?.battleplan?.name || rec.primary_mission || sc?.primary_mission || '';
   const rawDeploy = game.deployment || rec.deployment || sc?.deployment || '';
   const missionText = (rawMission && rawMission !== 'Unknown Mission')
     ? `${rawMission}${rawDeploy && rawDeploy !== 'Standard Deployment' ? ` • ${rawDeploy}` : ''}`
@@ -5929,6 +5976,8 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
       const val = Number(arr[i] || 0);
       return `<td style="text-align:center; font-family:var(--font-mono); color:${val > 0 ? color : 'var(--text-muted)'}; font-weight:${val > 0 ? '700' : '400'}; padding:0.35rem 0.4rem;">${val}</td>`;
     }).join('');
+
+    const secRowLabel = isAosStream ? 'Battle Tactics' : 'Secondary Objectives';
 
     tableBodyHtml = `
       <div style="overflow-x: auto;">
@@ -5953,24 +6002,31 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
                 ${p1Won ? '<span class="badge" style="background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); margin-left:0.4rem; font-size:0.64rem;">VICTORY</span>' : ''}
               </td>
               <td style="text-align: right; padding: 0.45rem 0.65rem; font-family: var(--font-mono); font-size: 0.95rem; font-weight: 900; color: ${p1Won ? '#10b981' : '#fff'};">
-                ${s1} <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 500;">/ 100</span>
+                ${s1} <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 500;">/ ${maxTot}</span>
               </td>
             </tr>
             <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
               <td style="padding: 0.35rem 0.65rem 0.35rem 1.25rem; color: var(--text-secondary);">Primary Mission</td>
               ${renderRoundCells(p1Prim, '#38bdf8')}
-              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p1PrimTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ 50</span></td>
+              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p1PrimTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ ${priCap}</span></td>
             </tr>
             <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
-              <td style="padding: 0.35rem 0.65rem 0.35rem 1.25rem; color: var(--text-secondary);">Secondary Objectives</td>
+              <td style="padding: 0.35rem 0.65rem 0.35rem 1.25rem; color: var(--text-secondary);">${secRowLabel}</td>
               ${renderRoundCells(p1Sec, '#a855f7')}
-              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p1SecTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ 40</span></td>
+              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p1SecTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ ${secCap}</span></td>
             </tr>
+            ${hasPaint ? `
             <tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">
               <td style="padding: 0.3rem 0.65rem 0.3rem 1.25rem; color: var(--text-muted); font-size: 0.72rem;">Battle Ready Bonus</td>
               <td colspan="5" style="text-align: center; color: var(--text-muted); font-size: 0.7rem;">Painted Army Standard</td>
               <td style="text-align: right; padding: 0.3rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #10b981;">+${p1Br}</td>
-            </tr>
+            </tr>` : ''}
+            ${hasGrandStrategy ? `
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">
+              <td style="padding: 0.3rem 0.65rem 0.3rem 1.25rem; color: #fbbf24; font-size: 0.72rem;">👑 Grand Strategy (AoS 3e)</td>
+              <td colspan="5" style="text-align: center; color: var(--text-muted); font-size: 0.7rem;">${escapeHtml(st?.p1?.grandStrategy || 'Grand Strategy')}</td>
+              <td style="text-align: right; padding: 0.3rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #fbbf24;">+${p1Gs}</td>
+            </tr>` : ''}
 
             <!-- Player 2 Header -->
             <tr style="background: rgba(244, 63, 94, 0.1); border-top: 1px solid rgba(244, 63, 94, 0.25);">
@@ -5980,24 +6036,31 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
                 ${p2Won ? '<span class="badge" style="background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); margin-left:0.4rem; font-size:0.64rem;">VICTORY</span>' : ''}
               </td>
               <td style="text-align: right; padding: 0.45rem 0.65rem; font-family: var(--font-mono); font-size: 0.95rem; font-weight: 900; color: ${p2Won ? '#10b981' : '#fff'};">
-                ${s2} <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 500;">/ 100</span>
+                ${s2} <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 500;">/ ${maxTot}</span>
               </td>
             </tr>
             <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
               <td style="padding: 0.35rem 0.65rem 0.35rem 1.25rem; color: var(--text-secondary);">Primary Mission</td>
               ${renderRoundCells(p2Prim, '#fb7185')}
-              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p2PrimTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ 50</span></td>
+              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p2PrimTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ ${priCap}</span></td>
             </tr>
             <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
-              <td style="padding: 0.35rem 0.65rem 0.35rem 1.25rem; color: var(--text-secondary);">Secondary Objectives</td>
+              <td style="padding: 0.35rem 0.65rem 0.35rem 1.25rem; color: var(--text-secondary);">${secRowLabel}</td>
               ${renderRoundCells(p2Sec, '#f59e0b')}
-              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p2SecTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ 40</span></td>
+              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p2SecTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ ${secCap}</span></td>
             </tr>
+            ${hasPaint ? `
             <tr>
               <td style="padding: 0.3rem 0.65rem 0.3rem 1.25rem; color: var(--text-muted); font-size: 0.72rem;">Battle Ready Bonus</td>
               <td colspan="5" style="text-align: center; color: var(--text-muted); font-size: 0.7rem;">Painted Army Standard</td>
               <td style="text-align: right; padding: 0.3rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #10b981;">+${p2Br}</td>
-            </tr>
+            </tr>` : ''}
+            ${hasGrandStrategy ? `
+            <tr>
+              <td style="padding: 0.3rem 0.65rem 0.3rem 1.25rem; color: #fbbf24; font-size: 0.72rem;">👑 Grand Strategy (AoS 3e)</td>
+              <td colspan="5" style="text-align: center; color: var(--text-muted); font-size: 0.7rem;">${escapeHtml(st?.p2?.grandStrategy || 'Grand Strategy')}</td>
+              <td style="text-align: right; padding: 0.3rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #fbbf24;">+${p2Gs}</td>
+            </tr>` : ''}
           </tbody>
         </table>
       </div>
@@ -6046,7 +6109,7 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
                 ${p1Badge}
               </td>
               <td style="padding: 0.55rem 0.75rem; text-align: right; font-family: var(--font-mono); font-size: 1rem; font-weight: 900; color: ${p1Won ? '#10b981' : '#fff'};">
-                ${hasScore ? `${s1} <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 400;">/ 100</span>` : '<span style="font-size:0.78rem; color:#38bdf8;">In Progress</span>'}
+                ${hasScore ? `${s1} <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 400;">/ ${maxTot}</span>` : '<span style="font-size:0.78rem; color:#38bdf8;">In Progress</span>'}
               </td>
             </tr>
             <tr style="background: ${p2Won ? 'rgba(16, 185, 129, 0.06)' : 'transparent'};">
@@ -6063,7 +6126,7 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
                 ${p2Badge}
               </td>
               <td style="padding: 0.55rem 0.75rem; text-align: right; font-family: var(--font-mono); font-size: 1rem; font-weight: 900; color: ${p2Won ? '#10b981' : '#fff'};">
-                ${hasScore ? `${s2} <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 400;">/ 100</span>` : '<span style="font-size:0.78rem; color:#38bdf8;">In Progress</span>'}
+                ${hasScore ? `${s2} <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 400;">/ ${maxTot}</span>` : '<span style="font-size:0.78rem; color:#38bdf8;">In Progress</span>'}
               </td>
             </tr>
           </tbody>
@@ -6077,6 +6140,7 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
       <div style="font-size: 0.86rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
         <span>📋 Table ${tableNum} • Round ${curRound} Match Scorecard</span>
         <span class="badge" style="background: rgba(56, 189, 248, 0.14); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-size: 0.66rem;">Synced with Caster Desk</span>
+        ${isTrackerScorecard ? `<span class="badge" style="background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-size: 0.66rem;">${escapeHtml(edShortBadge)}</span>` : ''}
         ${missionText ? `<span style="font-size: 0.74rem; color: var(--text-secondary); font-weight: 600;">• ${escapeHtml(missionText)}</span>` : ''}
       </div>
       <div style="display: flex; align-items: center; gap: 0.5rem;">

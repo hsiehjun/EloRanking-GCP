@@ -1507,6 +1507,13 @@ async function openScorecardModal(matchId) {
     if (p1DetEl) p1DetEl.innerText = p1Det;
     if (p2DetEl) p2DetEl.innerText = p2Det;
 
+    const isAosModal = Boolean(
+      data.game_system === 'aos' ||
+      st.gameSystem === 'aos' ||
+      String(matchId || '').startsWith('AOS-') ||
+      (window.currentGameSystem === 'aos' && !isTrackerScorecard)
+    );
+
     const p1Obj = isTrackerScorecard ? (st.p1 || {}) : {};
     const p2Obj = isTrackerScorecard ? (st.p2 || {}) : {};
     const p1Rounds = p1Obj.rounds || [];
@@ -1522,12 +1529,77 @@ async function openScorecardModal(matchId) {
       )
     );
 
+    const missionObj = st.mission || {};
+    const rawEd = String(
+      st.edition || rec.edition || missionObj.edition || p1Obj.edition || p2Obj.edition || game.edition || ''
+    ).toLowerCase().trim();
+    const packId = String(missionObj.packId || '').toLowerCase();
+
+    let edCode = isAosModal ? 'aos_4e' : '10th';
+    let edBadgeLabel = isAosModal ? '⚡ AoS 4e' : '🦅 WH40K 10th Ed';
+    let priCap = isAosModal ? 30 : 50;
+    let secCap = isAosModal ? 20 : 40;
+    let maxTot = isAosModal ? 50 : 100;
+    let hasPaint = !isAosModal;
+    let hasGrandStrategy = false;
+
+    if (isAosModal) {
+      if (rawEd === 'aos_3e' || rawEd === '3e' || packId.includes('3e') || packId.includes('pitched') || p1Obj.grandStrategy || p2Obj.grandStrategy || Number(p1Obj.grandStrategyScore || 0) > 0 || Number(p2Obj.grandStrategyScore || 0) > 0) {
+        edCode = 'aos_3e';
+        edBadgeLabel = '⚔️ AoS 3e (GHB + Grand Strategy)';
+        maxTot = 53;
+        hasGrandStrategy = true;
+      }
+    } else if (rawEd === '8th_itc' || rawEd === '8th' || packId.includes('8th') || packId.includes('itc') || Number(p1Obj.primaryCap) === 36) {
+      edCode = '8th_itc';
+      edBadgeLabel = '🏛️ WH40K 8th Ed • ITC';
+      priCap = 36;
+      secCap = 12;
+      maxTot = 48;
+      hasPaint = false;
+    } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || Number(p1Obj.primaryCap) === 45 || Number(p1Obj.secondaryCap) === 45) {
+      edCode = '9th';
+      edBadgeLabel = '📜 WH40K 9th Ed (45/45/10)';
+      priCap = 45;
+      secCap = 45;
+      maxTot = 100;
+      hasPaint = true;
+    } else if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th')) {
+      edCode = '11th';
+      edBadgeLabel = '🚀 WH40K 11th Ed';
+    }
+
+    function getRoundSecScore(pObj, rObj, rNum) {
+      if (isAosModal) return Number(rObj.tacticScore || 0);
+      if (typeof rObj.secondaryScore === 'number' && rObj.secondaryScore > 0) return rObj.secondaryScore;
+      const hand = Array.isArray(pObj.hand) ? pObj.hand : [];
+      let sum = 0;
+      hand.forEach(c => {
+        if (!c || c.status === 'discarded') return;
+        if (c.recurring && c.roundScores) {
+          const rs = c.roundScores[rNum] || c.roundScores[String(rNum)];
+          if (rs) sum += (typeof rs === 'object' ? Number(rs.points || 0) : Number(rs || 0));
+        } else if (Number(c.scoredRound) === rNum) {
+          sum += Number(c.points || 0);
+        }
+      });
+      return sum;
+    }
+
     function getVp(obj, rounds) {
-      if (obj.score !== undefined && obj.score > 0) return obj.score;
-      const pri = rounds.reduce((s, r) => s + (r.primaryScore || 0), 0);
-      const sec = rounds.reduce((s, r) => s + (r.secondaryScore || 0), 0);
-      const paint = obj.battleReady !== false ? 10 : 0;
-      return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
+      const pri = Math.min(priCap, rounds.reduce((s, r) => s + Number(r.primaryScore || 0), 0));
+      let secRaw = 0;
+      for (let i = 1; i <= 5; i++) {
+        const rObj = rounds.find(x => (x.round === i || x.battleRound === i)) || rounds[i - 1] || {};
+        secRaw += getRoundSecScore(obj, rObj, i);
+      }
+      const sec = Math.min(secCap, secRaw);
+      if (isAosModal) {
+        const gs = hasGrandStrategy ? Number(obj.grandStrategyScore || (obj.grandStrategyAchieved ? 3 : 0)) : 0;
+        return Math.min(maxTot, pri + sec + gs);
+      }
+      const paint = !hasPaint ? 0 : (typeof obj.paintScore === 'number' ? obj.paintScore : (obj.battleReady !== false ? 10 : 0));
+      return Math.min(maxTot, pri + sec + paint);
     }
 
     const hasBcpScore = Boolean(
@@ -1550,16 +1622,22 @@ async function openScorecardModal(matchId) {
 
     const roundNum = (isTrackerScorecard && (rec.round_num || game.roundNum || st.round_num)) || bcpMatchRec?.round || parsedRound || 1;
     const tableNum = (isTrackerScorecard && (rec.table_num || game.tableNum || st.table_num)) || bcpMatchRec?.table_number || bcpMatchRec?.table || parsedTable || null;
-    const eventLabel = (currentEventData && currentEventData.name) || bcpMatchRec?.event_name || (isTrackerScorecard && (rec.event_id || game.eventId)) || parsedEventId || null;
+    const eventLabel = (currentEventData && currentEventData.name) || bcpMatchRec?.event_name || (isTrackerScorecard && (st.mapped_event_name || rec.mapped_event_name || rec.event_id || game.eventId)) || parsedEventId || null;
+    const isLockedMatch = Boolean(st.event_match_locked || rec.event_match_locked || (isTrackerScorecard && (rec.event_id || st.event_id)));
 
     if (titleEl) {
-      titleEl.innerHTML = `🏆 ${eventLabel ? escapeHtml(eventLabel) + ' • ' : ''}Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''}`;
+      const lockPill = isLockedMatch ? ` <span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.4); font-size:0.68rem; margin-left:6px;">🔒 Locked</span>` : '';
+      const edPill = hasTurnData ? ` <span class="badge" style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.68rem; margin-left:4px;">${escapeHtml(edBadgeLabel)}</span>` : '';
+      titleEl.innerHTML = `🏆 ${eventLabel ? escapeHtml(eventLabel) + ' • ' : ''}Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''}${edPill}${lockPill}`;
     }
     if (subEl) {
-      const dateStr = (isTrackerScorecard && (rec.updated_at || rec.updatedAt)) || bcpMatchRec?.match_date || (currentEventData && currentEventData.event_date) || Date.now();
+      const dateStr = (isTrackerScorecard && (st.game_date || rec.game_date || rec.updated_at || rec.updatedAt)) || bcpMatchRec?.match_date || (currentEventData && currentEventData.event_date) || Date.now();
       if (hasTurnData) {
         const liveTag = (data.source === 'firestore' && !data.is_finished) ? '🔴 LIVE IN PROGRESS • ' : '';
-        subEl.innerText = `${liveTag}🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'} • 🗺️ ${game.deployment || rec.deployment || 'Search & Destroy'} • ⏱️ ${new Date(dateStr).toLocaleDateString()}`;
+        const missionLabel = isAosModal
+          ? `🎯 Battleplan: ${game.battleplan?.name || st.battleplan?.name || rec.primary_mission || 'Border War'}`
+          : `🎯 Primary: ${game.primary || game.p1Primary || st.mission?.primaryName || rec.primary_mission || 'Take & Hold'}`;
+        subEl.innerText = `${liveTag}${edBadgeLabel} • ${missionLabel} • ⏱️ ${new Date(dateStr).toLocaleDateString()}`;
       } else {
         subEl.innerText = `📋 Official Best Coast Pairings (BCP) Scorecard • ⏱️ ${new Date(dateStr).toLocaleDateString()}`;
       }
@@ -1572,7 +1650,6 @@ async function openScorecardModal(matchId) {
       if (!hasTurnData && bcpMatchRec) {
         const p1Won = hasBcpScore && Number(p1Score) > Number(p2Score);
         const p2Won = hasBcpScore && Number(p2Score) > Number(p1Score);
-        const isDraw = hasBcpScore && Number(p1Score) === Number(p2Score);
         const p1Badge = !hasBcpScore
           ? '<span class="badge badge-draw" style="margin-right:6px;">PENDING</span>'
           : (p1Won ? '<span class="badge badge-win" style="margin-right:6px;">VICTORY</span>' : (p2Won ? '<span class="badge badge-loss" style="margin-right:6px;">DEFEAT</span>' : '<span class="badge badge-draw" style="margin-right:6px;">DRAW</span>'));
@@ -1580,8 +1657,8 @@ async function openScorecardModal(matchId) {
           ? '<span class="badge badge-draw" style="margin-right:6px;">PENDING</span>'
           : (p2Won ? '<span class="badge badge-win" style="margin-right:6px;">VICTORY</span>' : (p1Won ? '<span class="badge badge-loss" style="margin-right:6px;">DEFEAT</span>' : '<span class="badge badge-draw" style="margin-right:6px;">DRAW</span>'));
         const statusDesc = hasBcpScore ? 'Official BCP Final Battle Points' : 'Official BCP Match Pairing (Awaiting Final Score)';
-        const p1TotalDisplay = hasBcpScore ? `${escapeHtml(String(p1Score))} / 100` : '- / 100';
-        const p2TotalDisplay = hasBcpScore ? `${escapeHtml(String(p2Score))} / 100` : '- / 100';
+        const p1TotalDisplay = hasBcpScore ? `${escapeHtml(String(p1Score))} / ${maxTot}` : `- / ${maxTot}`;
+        const p2TotalDisplay = hasBcpScore ? `${escapeHtml(String(p2Score))} / ${maxTot}` : `- / ${maxTot}`;
         tbody.innerHTML = `
           <tr>
             <td style="color:#38bdf8; font-weight:800; text-align:left; white-space:normal;">
@@ -1607,47 +1684,86 @@ async function openScorecardModal(matchId) {
           </tr>
           <tr style="background: rgba(255,255,255,0.02);">
             <td colspan="7" style="text-align:center; padding:0.7rem; font-size:0.76rem; color:var(--text-muted); white-space:normal; line-height:1.4;">
-              ℹ️ Final Battle Points synced from Best Coast Pairings. Turn-by-turn primary &amp; secondary breakdown is populated when a game is submitted and saved via OmniTactica Live Game Tracker.
+              ℹ️ Final Battle Points synced from Best Coast Pairings. Turn-by-turn primary &amp; secondary breakdown is populated when a game is submitted or mapped via OmniTactica Game Tracker.
             </td>
           </tr>
         `;
         return;
       }
 
-      function buildRow(title, color, roundsArr, field, maxVal) {
+      function buildPrimaryRowModal(title, color, roundsArr, capVal) {
         let cells = '';
         let total = 0;
         for (let i = 1; i <= 5; i++) {
           const r = roundsArr.find(x => (x.round === i || x.battleRound === i)) || roundsArr[i - 1] || {};
-          const val = r[field] !== undefined ? r[field] : '-';
+          const val = r.primaryScore !== undefined ? r.primaryScore : '-';
           if (typeof val === 'number') total += val;
           cells += `<td style="font-family:var(--font-mono); font-weight:600; text-align:center;">${val}</td>`;
         }
+        const cappedTotal = Math.min(capVal, total);
         return `
           <tr>
             <td style="color:${color}; font-weight:700; text-align:left;">${title}</td>
             ${cells}
-            <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center;">${total} ${maxVal ? '/ ' + maxVal : ''}</td>
+            <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center;">${cappedTotal} / ${capVal}</td>
           </tr>
         `;
       }
 
-      tbody.innerHTML += buildRow(`🟦 ${escapeHtml(p1Name)} Primary`, '#38bdf8', p1Rounds, 'primaryScore', 50);
-      tbody.innerHTML += buildRow(`🟥 ${escapeHtml(p2Name)} Primary`, '#f43f5e', p2Rounds, 'primaryScore', 50);
-      tbody.innerHTML += buildRow(`🟦 ${escapeHtml(p1Name)} Secondaries`, '#7dd3fc', p1Rounds, 'secondaryScore', 40);
-      tbody.innerHTML += buildRow(`🟥 ${escapeHtml(p2Name)} Secondaries`, '#fda4af', p2Rounds, 'secondaryScore', 40);
-      
-      tbody.innerHTML += `
-        <tr style="background: rgba(255,255,255,0.02);">
-          <td style="color:#10b981; font-weight:700; text-align:left;">🎨 Battle Ready (+10)</td>
-          <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:var(--text-secondary);">
-            ${escapeHtml(p1Name)}: ${p1Obj.battleReady !== false ? '+10' : '0'} &nbsp;|&nbsp; ${escapeHtml(p2Name)}: ${p2Obj.battleReady !== false ? '+10' : '0'}
-          </td>
-          <td style="font-family:var(--font-mono); font-weight:800; color:#10b981; text-align:center;">
-            ${(p1Obj.battleReady !== false ? 10 : 0) + (p2Obj.battleReady !== false ? 10 : 0)}
-          </td>
-        </tr>
-      `;
+      function buildSecondaryRowModal(title, color, pObj, roundsArr, capVal) {
+        let cells = '';
+        let total = 0;
+        for (let i = 1; i <= 5; i++) {
+          const r = roundsArr.find(x => (x.round === i || x.battleRound === i)) || roundsArr[i - 1] || {};
+          const val = getRoundSecScore(pObj, r, i);
+          total += val;
+          cells += `<td style="font-family:var(--font-mono); font-weight:600; text-align:center;">${val > 0 ? val : '-'}</td>`;
+        }
+        const cappedTotal = Math.min(capVal, total);
+        return `
+          <tr>
+            <td style="color:${color}; font-weight:700; text-align:left;">${title}</td>
+            ${cells}
+            <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center;">${cappedTotal} / ${capVal}</td>
+          </tr>
+        `;
+      }
+
+      const secLabel = isAosModal ? 'Battle Tactics' : 'Secondaries';
+      tbody.innerHTML += buildPrimaryRowModal(`🟦 ${escapeHtml(p1Name)} Primary`, '#38bdf8', p1Rounds, priCap);
+      tbody.innerHTML += buildPrimaryRowModal(`🟥 ${escapeHtml(p2Name)} Primary`, '#f43f5e', p2Rounds, priCap);
+      tbody.innerHTML += buildSecondaryRowModal(`🟦 ${escapeHtml(p1Name)} ${secLabel}`, '#7dd3fc', p1Obj, p1Rounds, secCap);
+      tbody.innerHTML += buildSecondaryRowModal(`🟥 ${escapeHtml(p2Name)} ${secLabel}`, '#fda4af', p2Obj, p2Rounds, secCap);
+
+      if (isAosModal && hasGrandStrategy) {
+        const gs1 = Number(p1Obj.grandStrategyScore || (p1Obj.grandStrategyAchieved ? 3 : 0));
+        const gs2 = Number(p2Obj.grandStrategyScore || (p2Obj.grandStrategyAchieved ? 3 : 0));
+        tbody.innerHTML += `
+          <tr style="background: rgba(245,158,11,0.06);">
+            <td style="color:#fbbf24; font-weight:700; text-align:left;">👑 Grand Strategy (AoS 3e • +3 VP)</td>
+            <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:var(--text-secondary);">
+              ${escapeHtml(p1Name)}: ${gs1 > 0 ? '+' + gs1 : '0'} &nbsp;|&nbsp; ${escapeHtml(p2Name)}: ${gs2 > 0 ? '+' + gs2 : '0'}
+            </td>
+            <td style="font-family:var(--font-mono); font-weight:800; color:#fbbf24; text-align:center;">
+              +${gs1 + gs2}
+            </td>
+          </tr>
+        `;
+      } else if (hasPaint) {
+        const p1Paint = typeof p1Obj.paintScore === 'number' ? p1Obj.paintScore : (p1Obj.battleReady !== false ? 10 : 0);
+        const p2Paint = typeof p2Obj.paintScore === 'number' ? p2Obj.paintScore : (p2Obj.battleReady !== false ? 10 : 0);
+        tbody.innerHTML += `
+          <tr style="background: rgba(255,255,255,0.02);">
+            <td style="color:#10b981; font-weight:700; text-align:left;">🎨 Battle Ready (+10)</td>
+            <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:var(--text-secondary);">
+              ${escapeHtml(p1Name)}: ${p1Paint > 0 ? '+' + p1Paint : '0'} &nbsp;|&nbsp; ${escapeHtml(p2Name)}: ${p2Paint > 0 ? '+' + p2Paint : '0'}
+            </td>
+            <td style="font-family:var(--font-mono); font-weight:800; color:#10b981; text-align:center;">
+              ${p1Paint + p2Paint}
+            </td>
+          </tr>
+        `;
+      }
     }
   } catch (err) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading scorecard: ${escapeHtml(err.message)}</td></tr>`;

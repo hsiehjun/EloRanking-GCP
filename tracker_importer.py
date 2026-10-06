@@ -847,9 +847,11 @@ def convert_ttb_game_to_omnitactica(
     else:
         game_date_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+    edition_code, edition_label = detect_game_edition(raw_game, is_aos=is_aos, game_date_iso=game_date_iso)
+
     if is_aos:
-        p1_state, p1_total = _build_aos_player_state(p1_raw, p1_name, p1_fac, p1_det)
-        p2_state, p2_total = _build_aos_player_state(p2_raw, p2_name, p2_fac, p2_det)
+        p1_state, p1_total = _build_aos_player_state(p1_raw, p1_name, p1_fac, p1_det, edition=edition_code)
+        p2_state, p2_total = _build_aos_player_state(p2_raw, p2_name, p2_fac, p2_det, edition=edition_code)
 
         priority_rolls = raw_game.get("priorityRollOffs") or []
         round_state = {}
@@ -874,6 +876,8 @@ def convert_ttb_game_to_omnitactica(
             "match_id": match_id,
             "game_system": "aos",
             "gameSystem": "aos",
+            "edition": edition_code,
+            "edition_label": edition_label,
             "imported_source": source_label,
             "imported_app": "GW App" if source_label == "gw_app" else "Tabletop Battles",
             "imported_raw_id": raw_id,
@@ -901,6 +905,8 @@ def convert_ttb_game_to_omnitactica(
                 "deployment": deployment_name,
                 "missionRule": mission_rule,
                 "firstTurn": first_turn,
+                "edition": edition_code,
+                "editionLabel": edition_label,
                 "battleplan": {"name": mission_name, "pack": pack_name},
             },
             "p1": p1_state,
@@ -911,14 +917,16 @@ def convert_ttb_game_to_omnitactica(
             "user_id_p2": uid_p2,
         }
     else:
-        p1_state, p1_total = _build_40k_player_state(p1_raw, p1_name, p1_fac, p1_det)
-        p2_state, p2_total = _build_40k_player_state(p2_raw, p2_name, p2_fac, p2_det)
+        p1_state, p1_total = _build_40k_player_state(p1_raw, p1_name, p1_fac, p1_det, edition=edition_code)
+        p2_state, p2_total = _build_40k_player_state(p2_raw, p2_name, p2_fac, p2_det, edition=edition_code)
 
         state = {
             "id": raw_id,
             "match_id": match_id,
             "game_system": "40k",
             "gameSystem": "40k",
+            "edition": edition_code,
+            "edition_label": edition_label,
             "imported_source": source_label,
             "imported_app": "GW App" if source_label == "gw_app" else "Tabletop Battles",
             "imported_raw_id": raw_id,
@@ -942,6 +950,8 @@ def convert_ttb_game_to_omnitactica(
                 "deployment": deployment_name,
                 "missionRule": mission_rule,
                 "missionPack": pack_name,
+                "edition": edition_code,
+                "editionLabel": edition_label,
                 "firstTurn": first_turn,
             },
             "p1": p1_state,
@@ -955,6 +965,8 @@ def convert_ttb_game_to_omnitactica(
     return {
         "match_id": match_id,
         "game_system": game_sys,
+        "edition": edition_code,
+        "edition_label": edition_label,
         "p1_name": p1_name,
         "p2_name": p2_name,
         "p1_faction": p1_fac,
@@ -974,11 +986,126 @@ def convert_ttb_game_to_omnitactica(
     }
 
 
+def detect_game_edition(
+    raw_game: Dict[str, Any],
+    is_aos: bool = False,
+    game_date_iso: str = "",
+) -> Tuple[str, str]:
+    """
+    Detects the historical or current Warhammer edition for an imported game:
+      - '8th_itc' -> '8th Ed ITC'
+      - '9th'     -> '9th Edition'
+      - '10th'    -> '10th Edition'
+      - '11th'    -> '11th Edition'
+      - 'aos_3e'  -> 'AoS 3rd Edition'
+      - 'aos_4e'  -> 'AoS 4th Edition'
+    """
+    explicit_ed = str(raw_game.get("edition") or "").strip().lower()
+    if explicit_ed in ("8th_itc", "8th", "8e", "itc"):
+        return ("8th_itc", "8th Ed ITC")
+    if explicit_ed in ("9th", "9e"):
+        return ("9th", "9th Edition")
+    if explicit_ed in ("10th", "10e"):
+        return ("10th", "10th Edition")
+    if explicit_ed in ("11th", "11e"):
+        return ("11th", "11th Edition")
+    if explicit_ed in ("aos_3e", "aos3e", "3e", "3rd"):
+        return ("aos_3e", "AoS 3rd Edition")
+    if explicit_ed in ("aos_4e", "aos4e", "4e", "4th"):
+        return ("aos_4e", "AoS 4th Edition")
+
+    gtype = str(raw_game.get("gameType") or raw_game.get("systemId") or "").strip().lower()
+    mission_obj = raw_game.get("mission") if isinstance(raw_game.get("mission"), dict) else {}
+    pack_str = " ".join([
+        str(mission_obj.get("packId") or ""),
+        str(mission_obj.get("packName") or ""),
+        str(mission_obj.get("missionId") or ""),
+        str(mission_obj.get("missionName") or ""),
+        str(raw_game.get("mission_pack") or ""),
+        str(raw_game.get("primary_mission") or ""),
+    ]).lower()
+
+    players = raw_game.get("players") or []
+
+    if is_aos:
+        if any(k in gtype for k in ("aos3", "3e", "3rd")) or any(
+            k in pack_str for k in ("2021", "2022", "2023", "andtor", "gallet", "ghur", "thondia", "3rd", "3e")
+        ):
+            return ("aos_3e", "AoS 3rd Edition")
+        for p in players:
+            if isinstance(p, dict) and (
+                p.get("grandStrategy") or p.get("grand_strategy") or p.get("grandStrategyScore")
+            ):
+                return ("aos_3e", "AoS 3rd Edition")
+        if game_date_iso and len(game_date_iso) >= 10 and game_date_iso[:10] < "2024-07-01":
+            return ("aos_3e", "AoS 3rd Edition")
+        return ("aos_4e", "AoS 4th Edition")
+
+    # 40k Edition Detection
+    if any(k in gtype for k in ("11e", "11th")) or "11th" in pack_str:
+        return ("11th", "11th Edition")
+
+    if any(k in gtype for k in ("8e", "8th", "itc")) or any(
+        k in pack_str for k in ("itc", "champions mission", "champions_mission", "8th")
+    ):
+        return ("8th_itc", "8th Ed ITC")
+
+    if any(k in gtype for k in ("9e", "9th")) or any(
+        k in pack_str
+        for k in (
+            "nephilim",
+            "arks of omen",
+            "arks_of_omen",
+            "nachmund",
+            "octarius",
+            "gt 2020",
+            "gt 2021",
+            "gt 2022",
+            "gt2020",
+            "gt2021",
+            "gt2022",
+            "eternal war",
+            "9th",
+        )
+    ):
+        return ("9th", "9th Edition")
+
+    # Inspect player secondaries/primaries for unmistakable 8th ITC or 9th Edition signatures
+    for p in players:
+        if not isinstance(p, dict):
+            continue
+        for pr in (p.get("primaries") or []):
+            if isinstance(pr, dict) and any(k in pr for k in ("hold", "holdMore", "kill", "killMore")):
+                return ("8th_itc", "8th Ed ITC")
+        secs = p.get("secondaries") or []
+        sec_sum = 0
+        for s in secs:
+            if not isinstance(s, dict):
+                continue
+            pts_arr = s.get("scores") if isinstance(s.get("scores"), list) else (s.get("points") if isinstance(s.get("points"), list) else [])
+            s_tot = sum(int(x or 0) for x in pts_arr if isinstance(x, (int, float))) if pts_arr else int(s.get("totalScore") or (s.get("points") if isinstance(s.get("points"), (int, float)) else 0) or 0)
+            sec_sum += s_tot
+        if sec_sum > 40 or int(p.get("secondaryScore") or 0) > 40:
+            return ("9th", "9th Edition")
+
+    # Check historical date if not explicitly 10e
+    if "10e" not in gtype and "10th" not in gtype and not any(k in pack_str for k in ("leviathan", "pariah", "10th")):
+        if game_date_iso and len(game_date_iso) >= 10:
+            ymd = game_date_iso[:10]
+            if ymd < "2020-07-25":
+                return ("8th_itc", "8th Ed ITC")
+            if ymd < "2023-06-15":
+                return ("9th", "9th Edition")
+
+    return ("10th", "10th Edition")
+
+
 def _build_40k_player_state(
     p_raw: Dict[str, Any],
     p_name: str,
     p_fac: str,
     p_det: str,
+    edition: str = "10th",
 ) -> Tuple[Dict[str, Any], int]:
     """Builds a 40k player state dict (`rounds`, `hand`, `battleReady`, `cp`) and total VP."""
     primaries = p_raw.get("primaries") or []
@@ -988,13 +1115,13 @@ def _build_40k_player_state(
             if isinstance(prim, dict):
                 p_arr = prim.get("scores") if isinstance(prim.get("scores"), list) else (prim.get("points") if isinstance(prim.get("points"), list) else None)
                 if isinstance(p_arr, list):
-                    for idx in range(min(5, len(p_arr))):
+                    for idx in range(len(p_arr)):
                         val = p_arr[idx]
                         if isinstance(val, (int, float)):
-                            pri_scores[idx] += int(val)
+                            pri_scores[min(4, idx)] += int(val)
     elif isinstance(p_raw.get("primaryScores"), list):
-        for idx in range(min(5, len(p_raw["primaryScores"]))):
-            pri_scores[idx] = int(p_raw["primaryScores"][idx] or 0)
+        for idx in range(len(p_raw["primaryScores"])):
+            pri_scores[min(4, idx)] += int(p_raw["primaryScores"][idx] or 0)
 
     # Extract secondaries per round and build hand cards
     secondaries = p_raw.get("secondaries") or []
@@ -1050,7 +1177,7 @@ def _build_40k_player_state(
                     })
 
             if round_scores_map:
-                is_recurring = ("fixed" in cat_id) or (len(scored_rounds) > 1)
+                is_recurring = ("fixed" in cat_id) or (len(scored_rounds) > 1) or (edition in ("9th", "8th_itc"))
                 if is_recurring:
                     hand.append({
                         "cardId": card_id,
@@ -1078,6 +1205,20 @@ def _build_40k_player_state(
         sec_name = _humanize_identifier(p_raw.get("secretMission") or "Secret Mission")
         pri_scores[4] += secret_score
 
+    # Edition-specific scoring caps
+    if edition == "8th_itc":
+        pri_cap = 36
+        sec_cap = 12
+        max_total = 48
+    elif edition == "9th":
+        pri_cap = 45
+        sec_cap = 45
+        max_total = 100
+    else:
+        pri_cap = 50
+        sec_cap = 40
+        max_total = 100
+
     # If round scores weren't broken down by round, distribute or set on round 1..5
     raw_pri_total = p_raw.get("primaryScore")
     if sum(pri_scores) == 0 and isinstance(raw_pri_total, (int, float)) and int(raw_pri_total) > 0:
@@ -1092,7 +1233,7 @@ def _build_40k_player_state(
     if sum(sec_round_totals) == 0 and isinstance(raw_sec_total, (int, float)) and int(raw_sec_total) > 0:
         rem = int(raw_sec_total)
         for r_idx in range(5):
-            chunk = min(10, rem // (5 - r_idx))
+            chunk = min(15, rem // (5 - r_idx))
             if chunk > 0:
                 sec_round_totals[r_idx] = chunk
                 sec_round_items[r_idx].append({
@@ -1113,14 +1254,37 @@ def _build_40k_player_state(
                 rem -= chunk
 
     is_battle_ready = p_raw.get("isBattleReady")
-    if is_battle_ready is None:
+    if edition == "8th_itc":
         br_pts = p_raw.get("battleReadyScore")
-        is_battle_ready = (int(br_pts) > 0) if br_pts is not None else True
+        is_battle_ready = bool(int(br_pts) > 0) if br_pts is not None else False
+        paint_pts = int(br_pts) if br_pts is not None else 0
+    else:
+        if is_battle_ready is None:
+            br_pts = p_raw.get("battleReadyScore")
+            is_battle_ready = (int(br_pts) > 0) if br_pts is not None else True
+        paint_pts = 10 if is_battle_ready else 0
 
-    sec_total = min(40, sum(sec_round_totals))
-    paint_pts = 10 if is_battle_ready else 0
-    pri_total = min(50, sum(pri_scores))
-    computed_total = min(100, pri_total + sec_total + paint_pts)
+    sec_total = min(sec_cap, sum(sec_round_totals))
+    if sum(sec_round_totals) > sec_cap:
+        sec_excess = sum(sec_round_totals) - sec_cap
+        for r_idx in range(4, -1, -1):
+            if sec_excess <= 0:
+                break
+            dec = min(sec_round_totals[r_idx], sec_excess)
+            sec_round_totals[r_idx] -= dec
+            sec_excess -= dec
+
+    pri_total = min(pri_cap, sum(pri_scores))
+    if sum(pri_scores) > pri_cap:
+        pri_excess = sum(pri_scores) - pri_cap
+        for r_idx in range(4, -1, -1):
+            if pri_excess <= 0:
+                break
+            dec = min(pri_scores[r_idx], pri_excess)
+            pri_scores[r_idx] -= dec
+            pri_excess -= dec
+
+    computed_total = min(max_total, pri_total + sec_total + paint_pts)
 
     if isinstance(p_raw.get("totalScore"), (int, float)) and int(p_raw["totalScore"]) > 0:
         explicit_total = int(p_raw["totalScore"])
@@ -1132,7 +1296,7 @@ def _build_40k_player_state(
                 dec = min(pri_scores[r_idx], excess)
                 pri_scores[r_idx] -= dec
                 excess -= dec
-            pri_total = min(50, sum(pri_scores))
+            pri_total = min(pri_cap, sum(pri_scores))
         computed_total = explicit_total
 
     rounds = []
@@ -1149,7 +1313,11 @@ def _build_40k_player_state(
         "name": p_name,
         "faction": p_fac,
         "detachment": p_det,
+        "edition": edition,
         "battleReady": bool(is_battle_ready),
+        "paintScore": paint_pts,
+        "primaryCap": pri_cap,
+        "secondaryCap": sec_cap,
         "cp": int(p_raw.get("cpRemaining") or 0),
         "score": computed_total,
         "totalScore": computed_total,
@@ -1166,8 +1334,9 @@ def _build_aos_player_state(
     p_name: str,
     p_fac: str,
     p_det: str,
+    edition: str = "aos_4e",
 ) -> Tuple[Dict[str, Any], int]:
-    """Builds an AoS 4th Edition player state dict (`rounds` with primaryScore & tacticId/tacticScore) and total VP."""
+    """Builds an AoS 3rd/4th Edition player state dict (`rounds` with primaryScore & tacticId/tacticScore, plus 3e Grand Strategy) and total VP."""
     primaries = p_raw.get("primaries") or []
     pri_scores = [0, 0, 0, 0, 0]
     if isinstance(primaries, list) and primaries:
@@ -1183,18 +1352,73 @@ def _build_aos_player_state(
         for idx in range(min(5, len(p_raw["primaryScores"]))):
             pri_scores[idx] = int(p_raw["primaryScores"][idx] or 0)
 
-    # Extract AoS Battle Tactics per round (from `battleTactics` or `secondaries`)
+    # Extract AoS Battle Tactics per round (from `battleTactics`, `secondaries`, or `rounds`)
     tactics_raw = p_raw.get("battleTactics") or p_raw.get("secondaries") or []
     round_tactics: List[Dict[str, Any]] = [
         {"tacticId": "none", "tacticStatus": "pending", "tacticScore": 0}
         for _ in range(5)
     ]
 
+    if isinstance(p_raw.get("rounds"), list):
+        for idx, r_item in enumerate(p_raw["rounds"][:5]):
+            if not isinstance(r_item, dict):
+                continue
+            r_idx = max(0, min(4, int(r_item.get("round") or (idx + 1)) - 1))
+            if pri_scores[r_idx] == 0:
+                pri_scores[r_idx] = int(r_item.get("primaryScore") if r_item.get("primaryScore") is not None else (r_item.get("primary") or 0))
+            tac_id = r_item.get("tacticId") or r_item.get("tactic") or "none"
+            tac_scored = r_item.get("tacticScored") if "tacticScored" in r_item else (r_item.get("tacticStatus") == "achieved")
+            tac_pts = int(
+                r_item.get("tacticScore")
+                if r_item.get("tacticScore") is not None
+                else (r_item.get("tacticPoints") if r_item.get("tacticPoints") is not None else (4 if tac_scored else 0))
+            )
+            if tac_id and tac_id != "none":
+                round_tactics[r_idx] = {
+                    "tacticId": str(tac_id),
+                    "tacticStatus": "achieved" if (tac_scored or tac_pts > 0) else "failed",
+                    "tacticScore": tac_pts if (tac_scored or tac_pts > 0) else 0,
+                }
+
+    gs_name = None
+    gs_score = 0
+    gs_achieved = False
+
+    gs_raw = p_raw.get("grandStrategy") or p_raw.get("grand_strategy")
+    if isinstance(gs_raw, dict):
+        gs_name = gs_raw.get("name") or _humanize_identifier(gs_raw.get("id") or "Grand Strategy")
+        gs_score = int(
+            gs_raw.get("score")
+            or (gs_raw.get("points") if isinstance(gs_raw.get("points"), (int, float)) else 0)
+            or (3 if gs_raw.get("completed") or gs_raw.get("achieved") else 0)
+        )
+        gs_achieved = gs_score > 0 or bool(gs_raw.get("completed") or gs_raw.get("achieved"))
+    elif isinstance(gs_raw, str) and gs_raw.strip():
+        gs_name = gs_raw.strip()
+        if p_raw.get("grandStrategyScore") is not None:
+            gs_score = int(p_raw.get("grandStrategyScore") or 0)
+        elif p_raw.get("grandStrategyAchieved") is False:
+            gs_score = 0
+        else:
+            gs_score = 3
+        gs_achieved = gs_score > 0
+    elif p_raw.get("grandStrategyScore") is not None:
+        gs_name = "Grand Strategy"
+        gs_score = int(p_raw.get("grandStrategyScore") or 0)
+        gs_achieved = gs_score > 0
+
     if isinstance(tactics_raw, list):
         for tac in tactics_raw:
             if not isinstance(tac, dict):
                 continue
             tac_name = tac.get("name") or _humanize_identifier(tac.get("id") or "Battle Tactic")
+            cat_low = str(tac.get("categoryId") or tac.get("category") or "").lower()
+            if "grand" in cat_low or "grand strategy" in tac_name.lower():
+                gs_name = tac_name
+                pts_arr = tac.get("scores") if isinstance(tac.get("scores"), list) else (tac.get("points") if isinstance(tac.get("points"), list) else [])
+                gs_score = sum(int(x or 0) for x in pts_arr if isinstance(x, (int, float))) if pts_arr else int(tac.get("totalScore") or tac.get("score") or (tac.get("points") if isinstance(tac.get("points"), (int, float)) else 0) or 3)
+                gs_achieved = gs_score > 0
+                continue
             scores_arr = (
                 tac.get("scores")
                 if isinstance(tac.get("scores"), list)
@@ -1234,19 +1458,31 @@ def _build_aos_player_state(
             "tacticScore": round_tactics[r_idx]["tacticScore"],
         })
 
-    pri_total = min(30, sum(pri_scores))
-    tac_total = min(20, sum(r["tacticScore"] for r in rounds))
-    computed_total = min(50, pri_total + tac_total)
-    if isinstance(p_raw.get("totalScore"), (int, float)) and int(p_raw["totalScore"]) > 0 and computed_total == 0:
+    if edition == "aos_3e" or gs_name is not None:
+        pri_total = sum(pri_scores)
+        tac_total = sum(r["tacticScore"] for r in rounds)
+        computed_total = pri_total + tac_total + gs_score
+    else:
+        pri_total = min(30, sum(pri_scores))
+        tac_total = min(20, sum(r["tacticScore"] for r in rounds))
+        computed_total = min(50, pri_total + tac_total)
+
+    if isinstance(p_raw.get("totalScore"), (int, float)) and int(p_raw["totalScore"]) > 0 and (computed_total == 0 or edition == "aos_3e"):
         computed_total = int(p_raw["totalScore"])
 
     p_state = {
         "name": p_name,
         "faction": p_fac,
         "battleFormation": p_det,
+        "edition": edition,
         "cp": int(p_raw.get("cpRemaining") or 4),
         "score": computed_total,
         "totalScore": computed_total,
+        "primaryScore": pri_total,
+        "secondaryScore": tac_total,
+        "grandStrategy": gs_name,
+        "grandStrategyScore": gs_score,
+        "grandStrategyAchieved": gs_achieved,
         "rounds": rounds,
     }
     return p_state, computed_total
@@ -1314,18 +1550,21 @@ def _convert_itcba_game_to_omnitactica(
         return {
             "name": p.get("name") or default_name,
             "faction": {"name": _humanize_identifier(p.get("faction") or p.get("notes") or "Warhammer 40k")},
-            "primaries": [{"name": "Primary Mission", "scores": scores}],
+            "primaries": [{"name": "ITC Champions Mission", "scores": scores}],
             "secondaries": secs,
-            "isBattleReady": True,
+            "isBattleReady": False,
+            "battleReadyScore": 0,
         }
 
     ttb_equiv = {
         "id": battle.get("id") or secrets.token_hex(6),
-        "gameType": "wh40k10e",
+        "gameType": "wh40k8e_itc",
+        "edition": "8th_itc",
         "gameDate": battle.get("battleDate") or battle.get("created_at"),
         "isFinished": True,
         "mission": {
-            "missionName": _humanize_identifier(battle.get("mission") or "Take & Hold"),
+            "missionName": _humanize_identifier(battle.get("mission") or "ITC Champions Mission"),
+            "packName": "8th Ed ITC Champions Missions",
             "deploymentMapName": _humanize_identifier(battle.get("deployment") or "Search & Destroy"),
         },
         "players": [
@@ -1342,7 +1581,7 @@ def _convert_itcba_game_to_omnitactica(
 
 def parse_imported_games_payload(
     raw_input: str,
-    importing_user: Optional[Dict[str, Any]] = None,
+    importing_user: Optional[Any] = None,
     default_system: str = "40k",
     source_hint: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
@@ -1352,7 +1591,15 @@ def parse_imported_games_payload(
     2. Tabletop Battles Share / Export Text Summary
     3. Official GW App (Warhammer 40,000: The App War Journal / Command Bunker) Text Summary
     """
-    text = (raw_input or "").strip()
+    if isinstance(importing_user, str):
+        if not source_hint:
+            source_hint = importing_user
+        importing_user = None
+
+    if isinstance(raw_input, (dict, list)):
+        text = json.dumps(raw_input)
+    else:
+        text = str(raw_input or "").strip()
     if not text:
         raise ValueError("No game data provided to import.")
 
@@ -1626,6 +1873,20 @@ def _parse_single_text_scorecard(
     if p1_score is None and p2_score is None and sum(p1_pri) == 0 and sum(p2_pri) == 0:
         return None
 
+    text_edition = None
+    if is_aos:
+        if any(k in full_lower for k in ("aos 3", "3rd edition", "3e", "grand strategy", "andtor", "gallet", "ghur", "thondia")):
+            text_edition = "aos_3e"
+    else:
+        if any(k in full_lower for k in ("8th", "8e", "itc champions", "hold more", "kill more")):
+            text_edition = "8th_itc"
+            p1_paint = False
+            p2_paint = False
+        elif any(k in full_lower for k in ("9th", "9e", "nephilim", "arks of omen", "nachmund", "octarius", "gt 2020", "gt 2021", "gt 2022")):
+            text_edition = "9th"
+        elif any(k in full_lower for k in ("11th", "11e")):
+            text_edition = "11th"
+
     # If only total scores were given without per-round primary/secondary breakdown, synthesize a clean breakdown
     if sum(p1_pri) == 0 and sum(p2_pri) == 0 and p1_score is not None and p2_score is not None:
         if is_aos:
@@ -1643,27 +1904,40 @@ def _parse_single_text_scorecard(
                     p2_tactics.append({"round": i + 1, "name": f"Round {i + 1} Battle Tactic", "score": 4, "completed": True})
                     p2_tac_tot -= 4
         else:
-            p1_paint = p1_score >= 10
-            p2_paint = p2_score >= 10
-            p1_rem = max(0, p1_score - (10 if p1_paint else 0))
-            p2_rem = max(0, p2_score - (10 if p2_paint else 0))
-            p1_pri_tot = min(50, int(round(p1_rem * 0.56)))
-            p1_sec_tot = max(0, min(40, p1_rem - p1_pri_tot))
-            p2_pri_tot = min(50, int(round(p2_rem * 0.56)))
-            p2_sec_tot = max(0, min(40, p2_rem - p2_pri_tot))
+            if text_edition == "8th_itc":
+                p1_paint = False
+                p2_paint = False
+                p1_pri_tot = min(30, int(round(p1_score * 0.7)))
+                p1_sec_tot = max(0, min(12, p1_score - p1_pri_tot))
+                p2_pri_tot = min(30, int(round(p2_score * 0.7)))
+                p2_sec_tot = max(0, min(12, p2_score - p2_pri_tot))
+            else:
+                p1_paint = p1_score >= 10
+                p2_paint = p2_score >= 10
+                p1_rem = max(0, p1_score - (10 if p1_paint else 0))
+                p2_rem = max(0, p2_score - (10 if p2_paint else 0))
+                pri_cap = 45 if text_edition == "9th" else 50
+                sec_cap = 45 if text_edition == "9th" else 40
+                p1_pri_tot = min(pri_cap, int(round(p1_rem * (0.5 if text_edition == "9th" else 0.56))))
+                p1_sec_tot = max(0, min(sec_cap, p1_rem - p1_pri_tot))
+                p2_pri_tot = min(pri_cap, int(round(p2_rem * (0.5 if text_edition == "9th" else 0.56))))
+                p2_sec_tot = max(0, min(sec_cap, p2_rem - p2_pri_tot))
             for i in range(1, 5):
                 p1_pri[i] = p1_pri_tot // 4 + (1 if (i - 1) < (p1_pri_tot % 4) else 0)
                 p2_pri[i] = p2_pri_tot // 4 + (1 if (i - 1) < (p2_pri_tot % 4) else 0)
             if p1_sec_tot > 0:
                 s_arr = [p1_sec_tot // 5 + (1 if i < (p1_sec_tot % 5) else 0) for i in range(5)]
-                p1_secs.append({"name": "Tactical Secondaries", "id": "tactical-secondaries", "scores": s_arr, "categoryId": "fixedMissions"})
+                p1_secs.append({"name": "Secondary Objectives" if text_edition in ("9th", "8th_itc") else "Tactical Secondaries", "id": "tactical-secondaries", "scores": s_arr, "categoryId": "fixedMissions"})
             if p2_sec_tot > 0:
                 s_arr2 = [p2_sec_tot // 5 + (1 if i < (p2_sec_tot % 5) else 0) for i in range(5)]
-                p2_secs.append({"name": "Tactical Secondaries", "id": "tactical-secondaries", "scores": s_arr2, "categoryId": "fixedMissions"})
+                p2_secs.append({"name": "Secondary Objectives" if text_edition in ("9th", "8th_itc") else "Tactical Secondaries", "id": "tactical-secondaries", "scores": s_arr2, "categoryId": "fixedMissions"})
 
     synthetic_ttb = {
         "id": hashlib.sha256(block.strip().encode("utf-8")).hexdigest()[:16],
-        "gameType": "aos4e" if is_aos else "wh40k10e",
+        "gameType": ("aos3e" if text_edition == "aos_3e" else "aos4e") if is_aos else (
+            "wh40k8e_itc" if text_edition == "8th_itc" else ("wh40k9e" if text_edition == "9th" else ("wh40k11e" if text_edition == "11th" else "wh40k10e"))
+        ),
+        "edition": text_edition,
         "gameDate": game_date or datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "isFinished": True,
         "wentFirstRollOff": "secondPlayer" if first_turn == "p2" else "firstPlayer",

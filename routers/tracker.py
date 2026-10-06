@@ -1990,6 +1990,8 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
         state["is_finished"] = True
         state["started"] = True
         state["round"] = 5
+        if is_tournament:
+            state["event_match_locked"] = True
         
     p1_id = room.get("user_id_p1") or (user["id"] if user else None)
     p2_id = room.get("user_id_p2")
@@ -2539,6 +2541,8 @@ def _persist_imported_games_to_db(
         saved_items.append({
             "match_id": mid,
             "game_system": item.get("game_system", "40k"),
+            "edition": item.get("edition") or st.get("edition") or ("aos_4e" if item.get("game_system") == "aos" else "10th"),
+            "edition_label": item.get("edition_label") or st.get("edition_label") or ("AoS 4th Edition" if item.get("game_system") == "aos" else "10th Edition"),
             "p1_name": item.get("p1_name"),
             "p2_name": item.get("p2_name"),
             "p1_faction": item.get("p1_faction"),
@@ -2552,6 +2556,11 @@ def _persist_imported_games_to_db(
             "game_date": item.get("game_date"),
             "imported_source": item.get("imported_source", "tabletop_battles"),
             "imported_app": st.get("imported_app", "Tabletop Battles"),
+            "event_id": st.get("event_id"),
+            "round_num": st.get("round_num"),
+            "table_num": st.get("table_num"),
+            "mapped_event_name": st.get("mapped_event_name"),
+            "event_match_locked": bool(st.get("event_match_locked")),
             "is_finished": True,
             "status": "completed",
             "scorecard_url": f"/scorecard/{urllib.parse.quote(mid)}",
@@ -2665,6 +2674,648 @@ async def api_tracker_import_parse(request: Request, body: TrackerImportParsePay
     except Exception as e:
         logger.error(f"Error in /api/tracker/import/parse: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to parse and import games: {e}")
+
+
+# =========================================================================
+# EVENT MATCH MAPPING FOR IMPORTED / COMPLETED SCORECARDS
+# =========================================================================
+
+class TrackerMapEventMatchPayload(BaseModel):
+    event_id: str
+    round_num: int = 1
+    table_num: int = 1
+
+
+def _names_roughly_match(name_a: Optional[str], name_b: Optional[str]) -> bool:
+    if not name_a or not name_b:
+        return False
+    na = re.sub(r"[^a-z0-9\s]", "", str(name_a).strip().lower()).strip()
+    nb = re.sub(r"[^a-z0-9\s]", "", str(name_b).strip().lower()).strip()
+    if not na or not nb:
+        return False
+    if na in ("player 1", "player 2", "player1", "player2", "you", "opponent", "unknown"):
+        return False
+    if nb in ("player 1", "player 2", "player1", "player2", "you", "opponent", "unknown"):
+        return False
+    if na == nb:
+        return True
+    parts_a = na.split()
+    parts_b = nb.split()
+    if len(parts_a) >= 2 and len(parts_b) >= 2 and parts_a[0] == parts_b[0] and parts_a[-1] == parts_b[-1]:
+        return True
+    return False
+
+
+def _lookup_event_pairing_record(db: Any, event_id: str, round_num: int, table_num: int) -> Optional[Dict[str, Any]]:
+    """Finds a specific tournament pairing from `matches` table or `events.pairings` JSONB."""
+    if not db or not event_id:
+        return None
+    from psycopg2 import extras
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                           m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                           m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                           m.is_bye, m.is_done,
+                           e.name AS event_name, e.event_date, e.game_system
+                    FROM matches m
+                    LEFT JOIN events e ON e.id = m.event_id
+                    WHERE LOWER(m.event_id) = LOWER(%s)
+                      AND m.round = %s
+                      AND m.table_number = %s
+                    LIMIT 1;
+                """, (event_id.strip(), int(round_num), int(table_num)))
+                row = cur.fetchone()
+                if row:
+                    return dict(row)
+
+                # Fallback: check `events.pairings` JSONB for Event Studio tournaments
+                cur.execute("""
+                    SELECT id, name, event_date, game_system, pairings
+                    FROM events
+                    WHERE LOWER(id) = LOWER(%s)
+                    LIMIT 1;
+                """, (event_id.strip(),))
+                ev_row = cur.fetchone()
+                if ev_row:
+                    ev = dict(ev_row)
+                    pairings = ev.get("pairings")
+                    if isinstance(pairings, str):
+                        try:
+                            pairings = json.loads(pairings)
+                        except Exception:
+                            pairings = {}
+                    if isinstance(pairings, dict):
+                        r_list = pairings.get(str(round_num)) or pairings.get(int(round_num)) or []
+                        if isinstance(r_list, list):
+                            for pr in r_list:
+                                if not isinstance(pr, dict):
+                                    continue
+                                t_val = int(pr.get("table") or pr.get("table_number") or pr.get("tableNum") or 0)
+                                if t_val == int(table_num):
+                                    p1_obj = pr.get("player1") if isinstance(pr.get("player1"), dict) else {}
+                                    p2_obj = pr.get("player2") if isinstance(pr.get("player2"), dict) else {}
+                                    return {
+                                        "id": pr.get("id") or f"{ev['id']}-R{round_num}-T{table_num}",
+                                        "event_id": ev["id"],
+                                        "event_name": ev.get("name") or ev["id"],
+                                        "event_date": ev.get("event_date"),
+                                        "game_system": ev.get("game_system") or "40k",
+                                        "round": int(round_num),
+                                        "table_number": int(table_num),
+                                        "player1_id": pr.get("player1_id") or pr.get("p1_id") or p1_obj.get("id"),
+                                        "player1_name": pr.get("player1_name") or pr.get("p1_name") or p1_obj.get("name") or "Player 1",
+                                        "player1_faction": pr.get("player1_faction") or pr.get("p1_faction") or p1_obj.get("faction") or "",
+                                        "player1_score": pr.get("player1_score") if pr.get("player1_score") is not None else pr.get("p1_score"),
+                                        "player2_id": pr.get("player2_id") or pr.get("p2_id") or p2_obj.get("id"),
+                                        "player2_name": pr.get("player2_name") or pr.get("p2_name") or p2_obj.get("name") or "Player 2",
+                                        "player2_faction": pr.get("player2_faction") or pr.get("p2_faction") or p2_obj.get("faction") or "",
+                                        "player2_score": pr.get("player2_score") if pr.get("player2_score") is not None else pr.get("p2_score"),
+                                        "is_bye": bool(pr.get("is_bye")),
+                                        "is_done": bool(pr.get("is_done")),
+                                    }
+    except Exception as e:
+        logger.warning(f"Notice looking up event pairing ({event_id}, R{round_num}, T{table_num}): {e}")
+    return None
+
+
+def _find_conflicting_locked_tracker_game_for_event_match(
+    db: Any,
+    ev_real_id: str,
+    r_num: int,
+    t_num: int,
+    exclude_match_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Returns any existing locked/completed tracker_games row mapped to (ev_real_id, r_num, t_num) other than exclude_match_id."""
+    if not db or not hasattr(db, "get_connection"):
+        return None
+    from psycopg2 import extras
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT match_id, is_finished, state_json
+                    FROM tracker_games
+                    WHERE LOWER(event_id) = LOWER(%s)
+                      AND round_num = %s
+                      AND table_num = %s
+                      AND UPPER(match_id) != UPPER(%s)
+                    ORDER BY is_finished DESC, updated_at DESC
+                    LIMIT 1;
+                """, (ev_real_id, int(r_num), int(t_num), str(exclude_match_id)))
+                conflict_row = cur.fetchone()
+                if conflict_row:
+                    c_st = conflict_row.get("state_json")
+                    if isinstance(c_st, str):
+                        try:
+                            c_st = json.loads(c_st)
+                        except Exception:
+                            c_st = {}
+                    c_locked = bool(conflict_row.get("is_finished") or (isinstance(c_st, dict) and c_st.get("event_match_locked")))
+                    if c_locked:
+                        return dict(conflict_row)
+    except Exception as e:
+        logger.warning(f"Notice checking conflicting locked tracker game: {e}")
+    return None
+
+
+def _determine_p1_p2_alignment_swap(
+    user: Dict[str, Any],
+    user_is_event_p1: bool,
+    user_is_event_p2: bool,
+    ev_p1_name: str,
+    ev_p2_name: str,
+    game_rec: Dict[str, Any],
+    state: Dict[str, Any],
+) -> bool:
+    """
+    Determines whether `p1` and `p2` in the imported game must be swapped so that:
+      - `p1` aligns with `player1` of the tournament pairing (`ev_p1_name`)
+      - `p2` aligns with `player2` of the tournament pairing (`ev_p2_name`)
+    """
+    game_obj = state.get("game") if isinstance(state.get("game"), dict) else {}
+    p1_obj = state.get("p1") if isinstance(state.get("p1"), dict) else {}
+    p2_obj = state.get("p2") if isinstance(state.get("p2"), dict) else {}
+
+    g_p1_name = str(game_obj.get("p1Name") or p1_obj.get("name") or game_rec.get("p1_name") or "").strip()
+    g_p2_name = str(game_obj.get("p2Name") or p2_obj.get("name") or game_rec.get("p2_name") or "").strip()
+
+    # 1. Direct name alignment check between imported game names and event match names
+    p1_matches_ev1 = _names_roughly_match(g_p1_name, ev_p1_name)
+    p2_matches_ev2 = _names_roughly_match(g_p2_name, ev_p2_name)
+    p1_matches_ev2 = _names_roughly_match(g_p1_name, ev_p2_name)
+    p2_matches_ev1 = _names_roughly_match(g_p2_name, ev_p1_name)
+
+    if (p1_matches_ev2 or p2_matches_ev1) and not (p1_matches_ev1 or p2_matches_ev2):
+        return True
+    if (p1_matches_ev1 or p2_matches_ev2) and not (p1_matches_ev2 or p2_matches_ev1):
+        return False
+
+    # 2. Check which slot the authenticated user occupies in the imported game vs the event match
+    uid = str(user.get("id") or user.get("user_id") or "").strip()
+    g_uid1 = str(state.get("user_id_p1") or game_rec.get("user_id_p1") or "").strip()
+    g_uid2 = str(state.get("user_id_p2") or game_rec.get("user_id_p2") or "").strip()
+
+    user_in_game_p1 = (bool(uid and g_uid1 == uid) or check_user_matches_player(user, g_p1_name, g_uid1 or None))
+    user_in_game_p2 = (bool(uid and g_uid2 == uid) or check_user_matches_player(user, g_p2_name, g_uid2 or None))
+
+    if user_is_event_p2 and not user_is_event_p1:
+        if user_in_game_p1 and not user_in_game_p2:
+            return True
+    if user_is_event_p1 and not user_is_event_p2:
+        if user_in_game_p2 and not user_in_game_p1:
+            return True
+
+    return False
+
+
+@router.get("/api/tracker/mappable_event_matches", summary="List tournament pairings where the authenticated user is a participant")
+async def api_get_mappable_event_matches(
+    request: Request,
+    match_id: Optional[str] = None,
+    search: Optional[str] = None,
+    game_system: Optional[str] = None,
+    limit: int = 50,
+):
+    user = _resolve_importing_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required to map games to tournament matches.")
+
+    db = get_database()
+    target_game = None
+    norm_mid = normalize_tracker_match_id(match_id) if match_id else None
+    if norm_mid and hasattr(db, "get_tracker_game"):
+        target_game = db.get_tracker_game(norm_mid)
+
+    u_ids = []
+    for k in ("id", "user_id", "player_id", "bcp_user_id", "bcp_id"):
+        v = user.get(k)
+        if v and str(v).strip() and str(v).strip() not in u_ids:
+            u_ids.append(str(v).strip())
+
+    u_names = []
+    for k in ("display_name", "name", "username"):
+        v = user.get(k)
+        if v and str(v).strip().lower() not in u_names:
+            u_names.append(str(v).strip().lower())
+
+    from psycopg2 import extras
+    candidates: List[Dict[str, Any]] = []
+    seen_keys = set()
+
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                where_parts = ["COALESCE(m.is_bye, FALSE) = FALSE"]
+                params: List[Any] = []
+
+                part_clauses = []
+                if u_ids:
+                    part_clauses.append("m.player1_id = ANY(%s)")
+                    params.append(u_ids)
+                    part_clauses.append("m.player2_id = ANY(%s)")
+                    params.append(u_ids)
+                if u_names:
+                    part_clauses.append("LOWER(TRIM(m.player1_name)) = ANY(%s)")
+                    params.append(u_names)
+                    part_clauses.append("LOWER(TRIM(m.player2_name)) = ANY(%s)")
+                    params.append(u_names)
+
+                if not part_clauses:
+                    return {"success": True, "matches": []}
+
+                where_parts.append("(" + " OR ".join(part_clauses) + ")")
+
+                if search and search.strip():
+                    s_pat = f"%{search.strip()}%"
+                    where_parts.append("(e.name ILIKE %s OR m.player1_name ILIKE %s OR m.player2_name ILIKE %s OR m.event_id ILIKE %s)")
+                    params.extend([s_pat, s_pat, s_pat, s_pat])
+
+                if game_system and game_system.lower() in ("40k", "aos"):
+                    sys_val = "aos" if "aos" in game_system.lower() else "40k"
+                    where_parts.append("COALESCE(e.game_system, m.game_system, '40k') = %s")
+                    params.append(sys_val)
+
+                params.append(max(10, min(200, int(limit))))
+
+                cur.execute(f"""
+                    SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                           m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                           m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                           m.is_done,
+                           COALESCE(e.name, m.event_id) AS event_name,
+                           e.event_date,
+                           COALESCE(e.game_system, m.game_system, '40k') AS game_system,
+                           tg.match_id AS existing_tracker_match_id,
+                           COALESCE(tg.is_finished, FALSE) AS existing_tracker_finished,
+                           COALESCE((tg.state_json->>'event_match_locked')::boolean, tg.is_finished, FALSE) AS existing_tracker_locked
+                    FROM matches m
+                    LEFT JOIN events e ON e.id = m.event_id
+                    LEFT JOIN LATERAL (
+                        SELECT match_id, is_finished, state_json
+                        FROM tracker_games
+                        WHERE LOWER(event_id) = LOWER(m.event_id)
+                          AND round_num = m.round
+                          AND table_num = m.table_number
+                        ORDER BY is_finished DESC, updated_at DESC
+                        LIMIT 1
+                    ) tg ON TRUE
+                    WHERE {" AND ".join(where_parts)}
+                    ORDER BY COALESCE(e.event_date, m.match_date) DESC NULLS LAST, m.round DESC, m.table_number ASC
+                    LIMIT %s;
+                """, tuple(params))
+
+                rows = cur.fetchall()
+                for r in rows:
+                    d = dict(r)
+                    ev_id = str(d.get("event_id") or "")
+                    r_num = int(d.get("round") or 1)
+                    t_num = int(d.get("table_number") or 1)
+                    key = (ev_id.lower(), r_num, t_num)
+                    if key in seen_keys:
+                        continue
+                    seen_keys.add(key)
+
+                    is_p1 = check_user_matches_player(user, d.get("player1_name"), d.get("player1_id"))
+                    is_p2 = check_user_matches_player(user, d.get("player2_name"), d.get("player2_id"))
+                    if not (is_p1 or is_p2):
+                        continue
+
+                    existing_mid = d.get("existing_tracker_match_id")
+                    is_currently_mapped = bool(norm_mid and existing_mid and str(existing_mid).upper() == norm_mid.upper())
+                    is_locked = bool(
+                        existing_mid
+                        and not is_currently_mapped
+                        and (d.get("existing_tracker_locked") or d.get("existing_tracker_finished"))
+                    )
+
+                    will_swap = False
+                    relevance = 0
+                    if target_game:
+                        t_state = target_game.get("state") or {}
+                        will_swap = _determine_p1_p2_alignment_swap(
+                            user,
+                            is_p1,
+                            is_p2,
+                            str(d.get("player1_name") or ""),
+                            str(d.get("player2_name") or ""),
+                            target_game,
+                            t_state,
+                        )
+                        opp_name_in_event = d.get("player2_name") if is_p1 else d.get("player1_name")
+                        if _names_roughly_match(target_game.get("p1_name"), opp_name_in_event) or _names_roughly_match(target_game.get("p2_name"), opp_name_in_event):
+                            relevance += 50
+                        if d.get("player1_score") is not None and d.get("player2_score") is not None:
+                            ev_s1, ev_s2 = int(d["player1_score"] or 0), int(d["player2_score"] or 0)
+                            tg_s1, tg_s2 = int(target_game.get("p1_score") or 0), int(target_game.get("p2_score") or 0)
+                            if (ev_s1 == tg_s1 and ev_s2 == tg_s2) or (ev_s1 == tg_s2 and ev_s2 == tg_s1):
+                                relevance += 40
+
+                    ev_dt = d.get("event_date") or d.get("match_date")
+                    date_str = ev_dt.strftime("%b %d, %Y") if hasattr(ev_dt, "strftime") else (str(ev_dt)[:10] if ev_dt else "")
+
+                    candidates.append({
+                        "event_id": ev_id,
+                        "event_name": d.get("event_name") or ev_id,
+                        "event_date": date_str,
+                        "match_date": date_str,
+                        "game_system": d.get("game_system") or "40k",
+                        "round_num": r_num,
+                        "round": r_num,
+                        "table_num": t_num,
+                        "table_number": t_num,
+                        "player1_id": d.get("player1_id"),
+                        "player1_name": d.get("player1_name") or "Player 1",
+                        "player1_faction": d.get("player1_faction") or "",
+                        "player1_score": d.get("player1_score"),
+                        "player2_id": d.get("player2_id"),
+                        "player2_name": d.get("player2_name") or "Player 2",
+                        "player2_faction": d.get("player2_faction") or "",
+                        "player2_score": d.get("player2_score"),
+                        "user_slot": "player1" if is_p1 else "player2",
+                        "opponent_name": d.get("player2_name") if is_p1 else d.get("player1_name"),
+                        "opponent_faction": d.get("player2_faction") if is_p1 else d.get("player1_faction"),
+                        "will_auto_swap_p1_p2": will_swap,
+                        "is_locked": is_locked,
+                        "is_currently_mapped": is_currently_mapped,
+                        "locked_by_match_id": existing_mid if is_locked else None,
+                        "relevance": relevance,
+                        "recommended": bool(relevance >= 50),
+                    })
+    except Exception as e:
+        logger.warning(f"Error querying mappable event matches: {e}")
+
+    candidates.sort(key=lambda x: (x.get("is_currently_mapped", False), not x.get("is_locked", False), x.get("relevance", 0)), reverse=True)
+    return {
+        "success": True,
+        "match_id": norm_mid,
+        "matches": candidates,
+    }
+
+
+@router.post("/api/tracker/games/{match_id}/map_event_match", summary="Map an imported or completed scorecard to a tournament match")
+async def api_map_tracker_game_to_event_match(
+    match_id: str,
+    body: TrackerMapEventMatchPayload,
+    request: Request,
+):
+    user = _resolve_importing_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required to map a scorecard to a tournament match.")
+
+    norm_mid = normalize_tracker_match_id(match_id)
+    db = get_database()
+    game_rec = db.get_tracker_game(norm_mid)
+    if not game_rec:
+        raise HTTPException(status_code=404, detail=f"Scorecard '{norm_mid}' not found.")
+
+    actual_mid = str(game_rec.get("match_id") or norm_mid).strip().upper()
+    state = game_rec.get("state") if isinstance(game_rec.get("state"), dict) else {}
+    if not state and isinstance(game_rec.get("state_json"), dict):
+        state = dict(game_rec["state_json"])
+
+    ev_id = (body.event_id or "").strip()
+    r_num = int(body.round_num or 1)
+    t_num = int(body.table_num or 1)
+    if not ev_id:
+        raise HTTPException(status_code=400, detail="event_id is required.")
+
+    # 1. Verify the tournament pairing exists
+    pairing = _lookup_event_pairing_record(db, ev_id, r_num, t_num)
+    if not pairing:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tournament match not found for Event '{ev_id}', Round {r_num}, Table {t_num}.",
+        )
+    if pairing.get("is_bye"):
+        raise HTTPException(status_code=400, detail="Cannot map a scorecard to a BYE pairing.")
+
+    ev_real_id = str(pairing.get("event_id") or ev_id)
+    ev_name = str(pairing.get("event_name") or ev_real_id)
+    ev_p1_id = pairing.get("player1_id")
+    ev_p1_name = str(pairing.get("player1_name") or "Player 1").strip()
+    ev_p1_fac = str(pairing.get("player1_faction") or "").strip()
+    ev_p2_id = pairing.get("player2_id")
+    ev_p2_name = str(pairing.get("player2_name") or "Player 2").strip()
+    ev_p2_fac = str(pairing.get("player2_faction") or "").strip()
+
+    # 2. Strict Participant-Only Verification: ONLY player1 or player2 of the tournament match can map a scorecard to it
+    user_is_p1 = check_user_matches_player(user, ev_p1_name, ev_p1_id)
+    user_is_p2 = check_user_matches_player(user, ev_p2_name, ev_p2_id)
+    if not (user_is_p1 or user_is_p2):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the two players who competed in this tournament match can map a scorecard to it.",
+        )
+
+    # 3. Strict Locking Verification:
+    # 3a. Check if this scorecard is already locked to a DIFFERENT event match
+    if state.get("event_match_locked") and game_rec.get("event_id"):
+        same_target = (
+            str(game_rec.get("event_id") or "").lower() == ev_real_id.lower()
+            and int(game_rec.get("round_num") or 0) == r_num
+            and int(game_rec.get("table_num") or 0) == t_num
+        )
+        if not same_target:
+            raise HTTPException(
+                status_code=409,
+                detail=f"This scorecard is already locked to {state.get('mapped_event_name') or game_rec.get('event_id')} (Round {game_rec.get('round_num')}, Table {game_rec.get('table_num')}).",
+            )
+
+    # 3b. Check if the target tournament match already has another locked/completed scorecard in tracker_games
+    conflict_row = _find_conflicting_locked_tracker_game_for_event_match(db, ev_real_id, r_num, t_num, actual_mid)
+    if conflict_row:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This tournament match (Round {r_num}, Table {t_num}) already has a locked scorecard ({conflict_row['match_id']}) and cannot be overwritten.",
+        )
+
+    # 4. Auto P1 / P2 Alignment
+    should_swap = _determine_p1_p2_alignment_swap(
+        user,
+        user_is_p1,
+        user_is_p2,
+        ev_p1_name,
+        ev_p2_name,
+        game_rec,
+        state,
+    )
+
+    game_obj = state.get("game") if isinstance(state.get("game"), dict) else {}
+    p1_obj = state.get("p1") if isinstance(state.get("p1"), dict) else {}
+    p2_obj = state.get("p2") if isinstance(state.get("p2"), dict) else {}
+
+    if should_swap:
+        state["p1"], state["p2"] = p2_obj, p1_obj
+        p1_obj, p2_obj = state["p1"], state["p2"]
+        state["p1Score"], state["p2Score"] = state.get("p2Score", game_rec.get("p2_score")), state.get("p1Score", game_rec.get("p1_score"))
+        state["user_id_p1"], state["user_id_p2"] = state.get("user_id_p2") or game_rec.get("user_id_p2"), state.get("user_id_p1") or game_rec.get("user_id_p1")
+        if "p1_army_list" in state or "p2_army_list" in state:
+            state["p1_army_list"], state["p2_army_list"] = state.get("p2_army_list"), state.get("p1_army_list")
+        if isinstance(state.get("rosters"), dict):
+            state["rosters"]["player1"], state["rosters"]["player2"] = state["rosters"].get("player2"), state["rosters"].get("player1")
+
+        # Flip firstTurn indicators
+        ft_curr = str(state.get("firstTurn") or game_obj.get("firstTurn") or "").lower()
+        if ft_curr in ("p1", "player1", "1"):
+            state["firstTurn"] = "p2"
+            game_obj["firstTurn"] = "p2"
+        elif ft_curr in ("p2", "player2", "2"):
+            state["firstTurn"] = "p1"
+            game_obj["firstTurn"] = "p1"
+
+        if isinstance(state.get("roundState"), dict):
+            for rk, rv in state["roundState"].items():
+                if isinstance(rv, dict):
+                    r_ft = str(rv.get("firstTurn") or "").lower()
+                    if r_ft == "p1":
+                        rv["firstTurn"] = "p2"
+                    elif r_ft == "p2":
+                        rv["firstTurn"] = "p1"
+
+        game_obj["p1Name"], game_obj["p2Name"] = game_obj.get("p2Name") or p1_obj.get("name"), game_obj.get("p1Name") or p2_obj.get("name")
+        game_obj["p1Faction"], game_obj["p2Faction"] = game_obj.get("p2Faction") or p1_obj.get("faction"), game_obj.get("p1Faction") or p2_obj.get("faction")
+        game_obj["p1Detachments"], game_obj["p2Detachments"] = game_obj.get("p2Detachments") or [], game_obj.get("p1Detachments") or []
+
+    # Preserve original imported names and align with official event pairing names
+    if isinstance(p1_obj, dict):
+        if not p1_obj.get("importedName") and p1_obj.get("name"):
+            p1_obj["importedName"] = p1_obj.get("name")
+        p1_obj["name"] = ev_p1_name
+        if ev_p1_fac and (not p1_obj.get("faction") or p1_obj.get("faction") in ("Warhammer 40k", "Age of Sigmar")):
+            p1_obj["faction"] = ev_p1_fac
+    if isinstance(p2_obj, dict):
+        if not p2_obj.get("importedName") and p2_obj.get("name"):
+            p2_obj["importedName"] = p2_obj.get("name")
+        p2_obj["name"] = ev_p2_name
+        if ev_p2_fac and (not p2_obj.get("faction") or p2_obj.get("faction") in ("Warhammer 40k", "Age of Sigmar")):
+            p2_obj["faction"] = ev_p2_fac
+
+    game_obj["p1Name"] = ev_p1_name
+    game_obj["p2Name"] = ev_p2_name
+    if ev_p1_fac and (not game_obj.get("p1Faction") or game_obj.get("p1Faction") in ("Warhammer 40k", "Age of Sigmar")):
+        game_obj["p1Faction"] = ev_p1_fac
+    if ev_p2_fac and (not game_obj.get("p2Faction") or game_obj.get("p2Faction") in ("Warhammer 40k", "Age of Sigmar")):
+        game_obj["p2Faction"] = ev_p2_fac
+    game_obj["p1Id"] = ev_p1_id
+    game_obj["p2Id"] = ev_p2_id
+    game_obj["eventId"] = ev_real_id
+    game_obj["roundNum"] = r_num
+    game_obj["tableNum"] = t_num
+    state["game"] = game_obj
+
+    uid = str(user.get("id") or user.get("user_id") or "")
+    if user_is_p1 and uid:
+        state["user_id_p1"] = uid
+    elif user_is_p2 and uid:
+        state["user_id_p2"] = uid
+
+    state["event_id"] = ev_real_id
+    state["round_num"] = r_num
+    state["table_num"] = t_num
+    state["mapped_event_name"] = ev_name
+    state["event_match_locked"] = True
+    state["mapped_by_user_id"] = uid
+    state["mapped_at"] = datetime.now(timezone.utc).isoformat()
+    state["swapped_p1_p2"] = bool(should_swap)
+    state["_force_uid_update"] = True
+    state.pop("_clear_event_mapping", None)
+    state["is_finished"] = True
+    state["isFinished"] = True
+    state["started"] = True
+
+    new_ver = int(game_rec.get("version") or 1) + 1
+    saved_ok = db.save_tracker_game(
+        actual_mid,
+        state,
+        version=new_ver,
+        user_id_p1=state.get("user_id_p1"),
+        user_id_p2=state.get("user_id_p2"),
+    )
+    if not saved_ok:
+        raise HTTPException(status_code=500, detail="Failed to persist tournament match mapping.")
+
+    # Invalidate event details cache so Tournament Standings / Pairings reflect the mapped scorecard immediately
+    try:
+        if hasattr(db, "_event_details_cache_dict") and isinstance(db._event_details_cache_dict, dict):
+            db._event_details_cache_dict.clear()
+    except Exception:
+        pass
+
+    updated_rec = db.get_tracker_game(actual_mid) or {}
+    return {
+        "success": True,
+        "match_id": actual_mid,
+        "event_id": ev_real_id,
+        "event_name": ev_name,
+        "round_num": r_num,
+        "table_num": t_num,
+        "swapped_p1_p2": bool(should_swap),
+        "locked": True,
+        "event_match_locked": True,
+        "mapped_by_user_id": uid,
+        "p1_name": updated_rec.get("p1_name") or ev_p1_name,
+        "p2_name": updated_rec.get("p2_name") or ev_p2_name,
+        "p1_score": updated_rec.get("p1_score"),
+        "p2_score": updated_rec.get("p2_score"),
+        "event_scorecard_id": f"BCP-{ev_real_id}-R{r_num}-T{t_num}",
+    }
+
+
+@router.post("/api/tracker/games/{match_id}/unmap_event_match", summary="Unmap an imported scorecard (admin/organizer only once locked)")
+async def api_unmap_tracker_game_from_event_match(
+    match_id: str,
+    request: Request,
+):
+    user = _resolve_importing_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    norm_mid = normalize_tracker_match_id(match_id)
+    db = get_database()
+    game_rec = db.get_tracker_game(norm_mid)
+    if not game_rec:
+        raise HTTPException(status_code=404, detail=f"Scorecard '{norm_mid}' not found.")
+
+    actual_mid = str(game_rec.get("match_id") or norm_mid).strip().upper()
+    state = game_rec.get("state") if isinstance(game_rec.get("state"), dict) else {}
+    if not state and isinstance(game_rec.get("state_json"), dict):
+        state = dict(game_rec["state_json"])
+
+    is_staff = check_user_is_tournament_staff(user, game_rec, match_id=actual_mid, event_id=game_rec.get("event_id"))
+    if state.get("event_match_locked") and not is_staff:
+        raise HTTPException(
+            status_code=403,
+            detail="This scorecard is locked to a tournament match and can only be unlocked by the Tournament Organizer or an Administrator.",
+        )
+
+    state["event_id"] = None
+    state["table_num"] = None
+    state["mapped_event_name"] = None
+    state["event_match_locked"] = False
+    state["mapped_by_user_id"] = None
+    state["_clear_event_mapping"] = True
+    if isinstance(state.get("game"), dict):
+        state["game"]["eventId"] = None
+        state["game"]["tableNum"] = None
+
+    new_ver = int(game_rec.get("version") or 1) + 1
+    db.save_tracker_game(
+        actual_mid,
+        state,
+        version=new_ver,
+        user_id_p1=game_rec.get("user_id_p1"),
+        user_id_p2=game_rec.get("user_id_p2"),
+    )
+    try:
+        if hasattr(db, "_event_details_cache_dict") and isinstance(db._event_details_cache_dict, dict):
+            db._event_details_cache_dict.clear()
+    except Exception:
+        pass
+
+    return {"success": True, "match_id": actual_mid, "event_match_locked": False}
 
 
 

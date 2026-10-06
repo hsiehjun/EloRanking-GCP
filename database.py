@@ -3878,13 +3878,20 @@ class PostgresDatabase:
                        m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
                        m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
                        (tg.match_id IS NOT NULL) as has_tracker_game,
+                       tg.match_id as tracker_match_id,
                        COALESCE(tg.is_finished, FALSE) as tracker_is_done,
-                       COALESCE(tg.started, FALSE) as tracker_started
+                       COALESCE(tg.started, FALSE) as tracker_started,
+                       COALESCE((tg.state_json->>'event_match_locked')::boolean, tg.is_finished, FALSE) as tracker_is_locked
                 FROM matches m
-                LEFT JOIN tracker_games tg 
-                    ON tg.event_id = m.event_id 
-                   AND tg.round_num = m.round 
-                   AND tg.table_num = m.table_number
+                LEFT JOIN LATERAL (
+                    SELECT match_id, is_finished, started, state_json
+                    FROM tracker_games
+                    WHERE LOWER(event_id) = LOWER(m.event_id)
+                      AND round_num = m.round
+                      AND table_num = m.table_number
+                    ORDER BY is_finished DESC, updated_at DESC
+                    LIMIT 1
+                ) tg ON TRUE
                 WHERE m.event_id = %s
                 ORDER BY m.round ASC, m.table_number ASC;
                 """, (event_id,))
@@ -7149,19 +7156,44 @@ class PostgresDatabase:
             str(state.get("game_system") or state.get("gameSystem") or "").lower() == "aos"
             or match_id.startswith("AOS-")
         )
+        edition = str(
+            state.get("edition")
+            or game_data.get("edition")
+            or ("aos_4e" if is_aos else "10th")
+        ).strip().lower()
 
         def calc_vp(p_obj):
             if not isinstance(p_obj, dict):
                 return 0
             
             rounds = [r for r in p_obj.get("rounds", []) if isinstance(r, dict)]
+            p_ed = str(p_obj.get("edition") or edition).strip().lower()
             if is_aos:
+                if p_ed in ("aos_3e", "aos3e", "3e", "3rd") or p_obj.get("grandStrategyScore") is not None:
+                    pri_total = sum([int(r.get("primaryScore") or 0) for r in rounds])
+                    tac_total = sum([int(r.get("tacticScore") or r.get("secondaryScore") or 0) for r in rounds])
+                    gs_score = int(p_obj.get("grandStrategyScore") or 0)
+                    tot = pri_total + tac_total + gs_score
+                    return tot if tot > 0 else int(p_obj.get("score") or p_obj.get("totalScore") or 0)
                 pri_total = min(30, sum([int(r.get("primaryScore") or 0) for r in rounds]))
                 tac_total = min(20, sum([int(r.get("tacticScore") or r.get("secondaryScore") or 0) for r in rounds]))
                 tot = min(50, pri_total + tac_total)
                 return tot if tot > 0 else int(p_obj.get("score") or p_obj.get("totalScore") or 0)
 
-            pri_total = min(50, sum([r.get("primaryScore", 0) for r in rounds]))
+            if p_ed in ("8th_itc", "8th", "8e", "itc"):
+                pri_cap = 36
+                sec_cap = 12
+                max_tot = 48
+            elif p_ed in ("9th", "9e"):
+                pri_cap = 45
+                sec_cap = 45
+                max_tot = 100
+            else:
+                pri_cap = 50
+                sec_cap = 40
+                max_tot = 100
+
+            pri_total = min(pri_cap, sum([r.get("primaryScore", 0) for r in rounds]))
             
             sec_total = 0
             hand = p_obj.get("hand", [])
@@ -7184,9 +7216,12 @@ class PostgresDatabase:
             if sec_total == 0:
                 sec_total = sum([r.get("secondaryScore", 0) for r in rounds])
             
-            sec_total = min(40, sec_total)
-            paint = 10 if p_obj.get("battleReady", True) is not False else 0
-            return min(100, pri_total + sec_total + paint)
+            sec_total = min(sec_cap, sec_total)
+            if p_ed in ("8th_itc", "8th", "8e", "itc"):
+                paint = int(p_obj.get("paintScore") or 0)
+            else:
+                paint = 10 if p_obj.get("battleReady", True) is not False else 0
+            return min(max_tot, pri_total + sec_total + paint)
 
         p1_score = calc_vp(state.get("p1"))
         p2_score = calc_vp(state.get("p2"))
@@ -7271,8 +7306,8 @@ class PostgresDatabase:
                         p2_faction = EXCLUDED.p2_faction,
                         p2_detachment = EXCLUDED.p2_detachment,
                         p2_score = EXCLUDED.p2_score,
-                        user_id_p1 = COALESCE(EXCLUDED.user_id_p1, tracker_games.user_id_p1),
-                        user_id_p2 = COALESCE(EXCLUDED.user_id_p2, tracker_games.user_id_p2),
+                        user_id_p1 = CASE WHEN (EXCLUDED.state_json->>'_force_uid_update')::boolean IS TRUE THEN EXCLUDED.user_id_p1 ELSE COALESCE(EXCLUDED.user_id_p1, tracker_games.user_id_p1) END,
+                        user_id_p2 = CASE WHEN (EXCLUDED.state_json->>'_force_uid_update')::boolean IS TRUE THEN EXCLUDED.user_id_p2 ELSE COALESCE(EXCLUDED.user_id_p2, tracker_games.user_id_p2) END,
                         referee_ids = COALESCE(EXCLUDED.referee_ids, tracker_games.referee_ids),
                         primary_mission = EXCLUDED.primary_mission,
                         deployment = EXCLUDED.deployment,
@@ -7283,9 +7318,9 @@ class PostgresDatabase:
                         winner_name = EXCLUDED.winner_name,
                         version = EXCLUDED.version,
                         state_json = EXCLUDED.state_json,
-                        event_id = COALESCE(EXCLUDED.event_id, tracker_games.event_id),
-                        round_num = COALESCE(EXCLUDED.round_num, tracker_games.round_num),
-                        table_num = COALESCE(EXCLUDED.table_num, tracker_games.table_num),
+                        event_id = CASE WHEN (EXCLUDED.state_json->>'_clear_event_mapping')::boolean IS TRUE THEN NULL ELSE COALESCE(EXCLUDED.event_id, tracker_games.event_id) END,
+                        round_num = CASE WHEN (EXCLUDED.state_json->>'_clear_event_mapping')::boolean IS TRUE THEN EXCLUDED.round_num ELSE COALESCE(EXCLUDED.round_num, tracker_games.round_num) END,
+                        table_num = CASE WHEN (EXCLUDED.state_json->>'_clear_event_mapping')::boolean IS TRUE THEN NULL ELSE COALESCE(EXCLUDED.table_num, tracker_games.table_num) END,
                         who_went_first = COALESCE(EXCLUDED.who_went_first, tracker_games.who_went_first),
                         bcp_submitted = COALESCE(EXCLUDED.bcp_submitted, tracker_games.bcp_submitted),
                         p1_army_list = COALESCE(EXCLUDED.p1_army_list, tracker_games.p1_army_list),
@@ -7320,7 +7355,7 @@ class PostgresDatabase:
                 return False
 
     def get_tracker_game(self, match_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves a persisted tracker game by match_id."""
+        """Retrieves a persisted tracker game by match_id or mapped (event_id, round_num, table_num)."""
         if not match_id:
             return None
         match_id = match_id.strip().upper()
@@ -7344,6 +7379,17 @@ class PostgresDatabase:
                     if not row and match_id.startswith("ES-"):
                         cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (match_id[3:],))
                         row = cursor.fetchone()
+                    if not row:
+                        m_evt = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id, re.IGNORECASE)
+                        if m_evt:
+                            ev_id, r_num, t_num = m_evt.group(1), int(m_evt.group(2)), int(m_evt.group(3))
+                            cursor.execute("""
+                            SELECT * FROM tracker_games
+                            WHERE LOWER(event_id) = LOWER(%s) AND round_num = %s AND table_num = %s
+                            ORDER BY is_finished DESC, updated_at DESC
+                            LIMIT 1;
+                            """, (ev_id, r_num, t_num))
+                            row = cursor.fetchone()
                     if row:
                         d = dict(row)
                         if isinstance(d.get("state_json"), str):
@@ -7450,10 +7496,16 @@ class PostgresDatabase:
                            primary_mission, deployment, mission_rule,
                            current_round, started, is_finished, winner_name,
                            version, created_at, updated_at,
+                           event_id, round_num, table_num,
                            state_json->>'game_system' AS game_system,
+                           state_json->>'edition' AS edition,
+                           state_json->>'edition_label' AS edition_label,
                            state_json->>'imported_source' AS imported_source,
                            state_json->>'imported_app' AS imported_app,
-                           state_json->>'game_date' AS game_date
+                           state_json->>'game_date' AS game_date,
+                           state_json->>'mapped_event_name' AS mapped_event_name,
+                           COALESCE((state_json->>'event_match_locked')::boolean, FALSE) AS event_match_locked,
+                           state_json->>'mapped_by_user_id' AS mapped_by_user_id
                     FROM tracker_games
                     """
                     conditions = []
@@ -7486,6 +7538,18 @@ class PostgresDatabase:
                         d = dict(r)
                         if not d.get("game_system"):
                             d["game_system"] = "aos" if str(d.get("match_id") or "").upper().startswith("AOS-") else "40k"
+                        if not d.get("edition"):
+                            d["edition"] = "aos_4e" if d["game_system"] == "aos" else "10th"
+                        if not d.get("edition_label"):
+                            ed_map = {
+                                "8th_itc": "8th Ed ITC",
+                                "9th": "9th Edition",
+                                "10th": "10th Edition",
+                                "11th": "11th Edition",
+                                "aos_3e": "AoS 3rd Edition",
+                                "aos_4e": "AoS 4th Edition",
+                            }
+                            d["edition_label"] = ed_map.get(str(d["edition"]).lower(), "10th Edition")
                         if d.get("updated_at") and hasattr(d["updated_at"], "strftime"):
                             d["date"] = d["updated_at"].strftime("%b %d, %Y")
                         elif d.get("game_date"):

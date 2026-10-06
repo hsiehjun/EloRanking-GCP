@@ -10,9 +10,10 @@ export function BattleTacticPickerModal({ isOpen, onClose, playerKey, round }) {
 
   if (!player) return null;
 
-  // Find tactics already attempted in ANY round
+  // Find tactics already attempted in OTHER rounds
   const attemptedTacticIds = new Set(
     (player.rounds || [])
+      .filter(r => r.round !== round)
       .map(r => r.tacticId)
       .filter(id => id && id !== "none" && id !== "forfeited_double_turn")
   );
@@ -55,9 +56,20 @@ export function BattleTacticPickerModal({ isOpen, onClose, playerKey, round }) {
           </div>
         </div>
 
-        <p className="text-xs text-[#94a3b8]">
-          Each Battle Tactic awards <strong>4 Victory Points</strong> upon completion and can only be attempted <strong>once per game</strong>.
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-[#94a3b8]">
+            Each Battle Tactic awards <strong>4 Victory Points</strong> upon completion and can only be attempted <strong>once per game</strong>.
+          </p>
+          {currentRoundTacticId && currentRoundTacticId !== "none" && currentRoundTacticId !== "forfeited_double_turn" && (
+            <button
+              type="button"
+              onClick={() => handleSelect("none")}
+              className="text-xs font-bold text-[#f87171] bg-[#ef4444]/10 hover:bg-[#ef4444]/20 border border-[#ef4444]/30 px-2.5 py-1.5 rounded-lg flex-shrink-0 transition-colors"
+            >
+              ↩️ Return Tactic to Pool
+            </button>
+          )}
+        </div>
 
         <div className="space-y-2.5 max-h-[440px] overflow-y-auto pr-1">
           {availableTactics.length === 0 ? (

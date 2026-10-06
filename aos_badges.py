@@ -501,6 +501,12 @@ def evaluate_aos_player_badges(
     gt_4_1_runs = len([t for t in tournaments if t.get("wins", 0) >= 4 and t.get("matches_played", 0) >= 5])
     gt_3_2_runs = len([t for t in tournaments if t.get("wins", 0) >= 3 and t.get("matches_played", 0) >= 5])
 
+    from badges import extract_tournament_championships
+    championships = extract_tournament_championships(tournaments, history, "aos")
+    gt_wins = championships.get("gt_wins", 0)
+    major_wins = championships.get("major_wins", 0)
+    rtt_wins = championships.get("rtt_wins", 0)
+
     table_one_starts = 0
     for ev_id, m_list in event_matches.items():
         sorted_m = sorted(m_list, key=lambda x: _safe_round(x.get("round")))
@@ -600,18 +606,18 @@ def evaluate_aos_player_badges(
             if unlocked: provenance = "Achieved 4-1 (or better) finishes across multiple AoS Grand Tournaments"
 
         elif b_id == "aos_grand_champion":
-            unlocked = gt_5_0_runs >= 1 or best_streak >= 5
-            progress = {"current": gt_5_0_runs or (1 if best_streak >= 5 else 0), "target": 1, "unit": "5-0 GT runs"}
+            unlocked = gt_5_0_runs >= 1 or best_streak >= 5 or gt_wins >= 1 or major_wins >= 1
+            progress = {"current": max(gt_wins + major_wins, gt_5_0_runs, (1 if best_streak >= 5 else 0)), "target": 1, "unit": "GT/Major wins"}
             if unlocked: provenance = "Achieved flawless 5-0-0 undefeated AoS Grand Tournament championship run"
 
         elif b_id == "aos_the_undefeated":
-            unlocked = gt_5_0_runs >= 1 or (longest_streak >= 5 and wins >= 5)
-            progress = {"current": gt_5_0_runs or (1 if longest_streak >= 5 else 0), "target": 1, "unit": "undefeated runs"}
+            unlocked = gt_5_0_runs >= 1 or (longest_streak >= 5 and wins >= 5) or any(c.get("undefeated") and c.get("num_rounds", 0) >= 5 for c in championships["items"])
+            progress = {"current": gt_5_0_runs or (1 if any(c.get("undefeated") and c.get("num_rounds", 0) >= 5 for c in championships["items"]) else (1 if longest_streak >= 5 else 0)), "target": 1, "unit": "undefeated GTs"}
             if unlocked: provenance = "Completed 5-round AoS Grand Tournament with a clean 5-0-0 record"
 
         elif b_id == "aos_super_major_conqueror":
-            unlocked = best_streak >= 8 or any(t.get("matches_played", 0) >= 6 and t.get("wins", 0) >= 6 for t in tournaments)
-            progress = {"current": min(best_streak, 8), "target": 8, "unit": "consecutive wins"}
+            unlocked = major_wins >= 1 or best_streak >= 8 or any(t.get("matches_played", 0) >= 6 and t.get("wins", 0) >= 6 for t in tournaments)
+            progress = {"current": max(major_wins, min(best_streak, 8) if best_streak >= 8 else 0, (1 if any(t.get("matches_played", 0) >= 6 and t.get("wins", 0) >= 6 for t in tournaments) else 0)), "target": 1, "unit": "Major wins"}
 
         elif b_id == "aos_double_crown":
             unlocked = best_streak >= 10
@@ -1030,5 +1036,10 @@ def evaluate_aos_player_badges(
         "rank": rank_data,
         "pinned_badges": pinned_badges,
         "badges": evaluated_badges,
-        "categories": CATEGORIES_AOS
+        "categories": CATEGORIES_AOS,
+        "championships": championships
     }
+
+
+evaluate_player_badges_aos = evaluate_aos_player_badges
+

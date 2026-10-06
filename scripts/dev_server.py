@@ -223,6 +223,66 @@ ROOMS_DB = {
 # Dedicated completed games store representing PostgreSQL `tracker_games` (never Firestore/active rooms)
 TRACKER_GAMES_DB = {}
 
+DEV_MAPPABLE_PAIRINGS = [
+    {
+        "id": 901,
+        "event_id": "ev_tacoma_2026",
+        "event_name": "US Open Tacoma Major 2026",
+        "event_date": "2026-09-02",
+        "game_system": "40k",
+        "round": 2,
+        "table_number": 1,
+        "player1_id": "p_innes",
+        "player1_name": "Innes Wilson",
+        "player1_faction": "Adeptus Custodes",
+        "player1_score": 88,
+        "player2_id": "p_david",
+        "player2_name": "David Gaylard",
+        "player2_faction": "Necrons",
+        "player2_score": 72,
+        "is_bye": False,
+        "is_done": True,
+    },
+    {
+        "id": 902,
+        "event_id": "ev_tacoma_2026",
+        "event_name": "US Open Tacoma Major 2026",
+        "event_date": "2026-09-02",
+        "game_system": "40k",
+        "round": 3,
+        "table_number": 2,
+        "player1_id": "p_manny",
+        "player1_name": "Manny Cheema",
+        "player1_faction": "Aeldari",
+        "player1_score": 68,
+        "player2_id": "p_innes",
+        "player2_name": "Innes Wilson",
+        "player2_faction": "Adeptus Custodes",
+        "player2_score": 90,
+        "is_bye": False,
+        "is_done": True,
+    },
+    {
+        "id": 903,
+        "event_id": "ev_pnw_gt_2026",
+        "event_name": "Pacific Northwest GT 2026",
+        "event_date": "2026-06-15",
+        "game_system": "40k",
+        "round": 5,
+        "table_number": 1,
+        "player1_id": "p_innes",
+        "player1_name": "Innes Wilson",
+        "player1_faction": "Necrons",
+        "player1_score": 94,
+        "player2_id": "p_jack",
+        "player2_name": "Jack Harpster",
+        "player2_faction": "Blood Angels",
+        "player2_score": 79,
+        "is_bye": False,
+        "is_done": True,
+    },
+]
+
 def _dev_save_imported_games(converted_games, dry_run=False):
     saved_items = []
     for item in (converted_games or []):
@@ -241,10 +301,18 @@ def _dev_save_imported_games(converted_games, dry_run=False):
         except Exception:
             formatted_date = str(game_date_str)[:10]
 
+        gsys = item.get("game_system") or st.get("game_system") or st.get("gameSystem") or "40k"
+        ed = item.get("edition") or st.get("edition") or ("aos_4e" if gsys == "aos" else "10th")
+        ed_lbl = item.get("edition_label") or st.get("edition_label") or ("AoS 4th Edition" if gsys == "aos" else "10th Edition")
+        st["edition"] = ed
+        st["edition_label"] = ed_lbl
+
         rec = {
             "id": mid,
             "match_id": mid,
-            "game_system": item.get("game_system", "40k"),
+            "game_system": gsys,
+            "edition": ed,
+            "edition_label": ed_lbl,
             "p1_name": item.get("p1_name", "Player 1"),
             "p2_name": item.get("p2_name", "Player 2"),
             "p1_faction": item.get("p1_faction", ""),
@@ -258,6 +326,11 @@ def _dev_save_imported_games(converted_games, dry_run=False):
             "primary_mission": item.get("primary_mission", "Take & Hold"),
             "deployment": item.get("deployment", "Search & Destroy"),
             "mission_rule": item.get("mission_rule", "Matched Play"),
+            "event_id": st.get("event_id"),
+            "round_num": st.get("round_num", 1),
+            "table_num": st.get("table_num"),
+            "mapped_event_name": st.get("mapped_event_name"),
+            "event_match_locked": bool(st.get("event_match_locked")),
             "round": 5,
             "current_round": 5,
             "started": True,
@@ -278,6 +351,155 @@ def _dev_save_imported_games(converted_games, dry_run=False):
             TRACKER_GAMES_DB[mid] = rec
         saved_items.append(rec)
     return saved_items
+
+def _seed_edition_and_mapping_demo_games():
+    try:
+        import tracker_importer
+        demo_payloads = [
+            {
+                "id": "9TH-NEPHILIM-DEMO",
+                "gameType": "wh40k-9e",
+                "packName": "Warzone Nephilim: Grand Tournament",
+                "missionName": "Tear Down Their Icons",
+                "deployment": "Dawn of War",
+                "date": "2022-11-12T18:00:00Z",
+                "players": [
+                    {
+                        "name": "Innes Wilson",
+                        "faction": "Aeldari",
+                        "detachment": "Ulthwe",
+                        "battleReady": True,
+                        "primaryScores": [0, 12, 12, 12, 9],
+                        "secondaries": [
+                            {"name": "Warp Ritual", "scores": [0, 3, 4, 5, 3]},
+                            {"name": "Retrieve Nephilim Data", "scores": [0, 4, 4, 4, 3]},
+                            {"name": "Engage on All Fronts", "scores": [3, 3, 3, 3, 3]},
+                        ],
+                    },
+                    {
+                        "name": "David Gaylard",
+                        "faction": "Necrons",
+                        "detachment": "Obsekh Dynasty",
+                        "battleReady": True,
+                        "primaryScores": [0, 8, 12, 12, 8],
+                        "secondaries": [
+                            {"name": "Ancient Machineries", "scores": [4, 4, 4, 3, 0]},
+                            {"name": "Code of Combat", "scores": [3, 3, 3, 3, 3]},
+                            {"name": "Treasure of the Aeons", "scores": [2, 3, 3, 3, 0]},
+                        ],
+                    },
+                ],
+            },
+            {
+                "id": "8TH-ITC-DEMO",
+                "gameType": "wh40k-8e-itc",
+                "packName": "ITC Champions Missions 2019",
+                "missionName": "Mission 1: Seize Ground",
+                "deployment": "Hammer and Anvil",
+                "date": "2019-08-15T18:00:00Z",
+                "players": [
+                    {
+                        "name": "Innes Wilson",
+                        "faction": "Space Marines",
+                        "detachment": "Iron Hands Successor",
+                        "primaryScores": [6, 6, 6, 6, 6, 6],
+                        "secondaries": [
+                            {"name": "Headhunter", "scores": [1, 1, 1, 1, 0]},
+                            {"name": "Recon", "scores": [1, 1, 1, 1, 0]},
+                            {"name": "Engineers", "scores": [0, 1, 1, 1, 1]},
+                        ],
+                    },
+                    {
+                        "name": "Jack Harpster",
+                        "faction": "Blood Angels",
+                        "detachment": "Brigade Detachment",
+                        "primaryScores": [4, 5, 5, 4, 4, 3],
+                        "secondaries": [
+                            {"name": "Old School", "scores": [1, 1, 1, 1, 0]},
+                            {"name": "Big Game Hunter", "scores": [1, 2, 0, 0, 0]},
+                        ],
+                    },
+                ],
+            },
+            {
+                "id": "3E-GHB-DEMO",
+                "gameType": "aos-3e",
+                "packName": "AoS 3rd Edition Pitched Battles 2023-24",
+                "battleplan": "Geomantic Pulse",
+                "date": "2023-09-10T18:00:00Z",
+                "players": [
+                    {
+                        "name": "Innes Wilson",
+                        "faction": "Stormcast Eternals",
+                        "detachment": "Hammers of Sigmar",
+                        "grandStrategy": "Spellcasting Savant",
+                        "grandStrategyAchieved": True,
+                        "grandStrategyScore": 3,
+                        "rounds": [
+                            {"round": 1, "primary": 4, "tactic": "Surround and Destroy", "tacticScored": True, "tacticPoints": 2},
+                            {"round": 2, "primary": 5, "tactic": "Magical Dominance", "tacticScored": True, "tacticPoints": 2},
+                            {"round": 3, "primary": 5, "tactic": "Led Into the Maelstrom", "tacticScored": True, "tacticPoints": 2},
+                            {"round": 4, "primary": 6, "tactic": "Intimidate the Invaders", "tacticScored": False, "tacticPoints": 0},
+                            {"round": 5, "primary": 6, "tactic": "Secure the Battlefield", "tacticScored": True, "tacticPoints": 2},
+                        ],
+                    },
+                    {
+                        "name": "Liam Hackett",
+                        "faction": "Slaves to Darkness",
+                        "detachment": "Host of the Everchosen",
+                        "grandStrategy": "Overshadow",
+                        "grandStrategyAchieved": False,
+                        "grandStrategyScore": 0,
+                        "rounds": [
+                            {"round": 1, "primary": 4, "tactic": "Run Them Down", "tacticScored": True, "tacticPoints": 2},
+                            {"round": 2, "primary": 4, "tactic": "Glory to Chaos", "tacticScored": True, "tacticPoints": 2},
+                            {"round": 3, "primary": 4, "tactic": "Desecrate Their Lands", "tacticScored": False, "tacticPoints": 0},
+                            {"round": 4, "primary": 4, "tactic": "Eye of the Gods", "tacticScored": True, "tacticPoints": 2},
+                            {"round": 5, "primary": 4, "tactic": "Take the Flanks", "tacticScored": False, "tacticPoints": 0},
+                        ],
+                    },
+                ],
+            },
+            {
+                "id": "MAP-DEMO",
+                "gameType": "wh40k-10e",
+                "packName": "Chapter Approved: Pariah Nexus",
+                "missionName": "Take and Hold",
+                "deployment": "Tipping Point",
+                "date": "2026-09-02T19:30:00Z",
+                "players": [
+                    {
+                        "name": "David Gaylard",
+                        "faction": "Necrons",
+                        "detachment": "Hypercrypt Legion",
+                        "battleReady": True,
+                        "primaryScores": [0, 10, 10, 10, 10],
+                        "secondaries": [
+                            {"name": "Cleanse", "scores": [0, 4, 4, 0, 0]},
+                            {"name": "Engage on All Fronts", "scores": [2, 2, 4, 4, 2]},
+                        ],
+                    },
+                    {
+                        "name": "Innes Wilson",
+                        "faction": "Adeptus Custodes",
+                        "detachment": "Shield Host",
+                        "battleReady": True,
+                        "primaryScores": [0, 10, 15, 15, 10],
+                        "secondaries": [
+                            {"name": "Storm Hostile Objective", "scores": [0, 5, 5, 4, 0]},
+                            {"name": "Bring It Down", "scores": [4, 4, 4, 2, 0]},
+                        ],
+                    },
+                ],
+            },
+        ]
+        for dp in demo_payloads:
+            conv = tracker_importer.parse_imported_games_payload(dp, "tabletop_battles")
+            _dev_save_imported_games(conv, dry_run=False)
+    except Exception as e:
+        print(f"Notice seeding demo games: {e}")
+
+_seed_edition_and_mapping_demo_games()
 
 def get_persona_user(persona):
     if persona == "spectator":
@@ -1736,6 +1958,191 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"detail": f"Import error: {ex}"}).encode("utf-8"))
                 return
+
+        if clean_path.startswith("api/tracker/games/") and (clean_path.endswith("/map_event_match") or clean_path.endswith("/unmap_event_match")):
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                payload = {}
+
+            is_unmap = clean_path.endswith("/unmap_event_match")
+            raw_mid = urllib.parse.unquote(
+                clean_path.replace("api/tracker/games/", "")
+                .replace("/map_event_match", "")
+                .replace("/unmap_event_match", "")
+                .strip("/")
+            ).upper()
+            game_rec = TRACKER_GAMES_DB.get(raw_mid)
+            if not game_rec:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": f"Scorecard '{raw_mid}' not found."}).encode("utf-8"))
+                return
+
+            persona = (
+                self.headers.get("X-Mock-Persona", "").lower()
+                or ("spectator" if "mock_persona=spectator" in self.path else "competitor")
+            )
+            user_envelope = get_persona_user(persona)
+            user = user_envelope.get("user") or {}
+
+            st = game_rec.get("state") or game_rec.get("state_json") or {}
+            if is_unmap:
+                if st.get("event_match_locked") and not user.get("can_access_to"):
+                    self.send_response(403)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "detail": "This scorecard is locked to a tournament match and can only be unlocked by the Tournament Organizer or an Administrator."
+                    }).encode("utf-8"))
+                    return
+                st["event_id"] = None
+                st["table_num"] = None
+                st["mapped_event_name"] = None
+                st["event_match_locked"] = False
+                game_rec["event_id"] = None
+                game_rec["table_num"] = None
+                game_rec["mapped_event_name"] = None
+                game_rec["event_match_locked"] = False
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "match_id": raw_mid, "event_match_locked": False}).encode("utf-8"))
+                return
+
+            ev_id = str(payload.get("event_id") or "").strip()
+            r_num = int(payload.get("round_num") or 1)
+            t_num = int(payload.get("table_num") or 1)
+
+            pairing = next(
+                (
+                    p for p in DEV_MAPPABLE_PAIRINGS
+                    if str(p.get("event_id", "")).lower() == ev_id.lower()
+                    and int(p.get("round", 0)) == r_num
+                    and int(p.get("table_number", 0)) == t_num
+                ),
+                None,
+            )
+            if not pairing:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "detail": f"Tournament match not found for Event '{ev_id}', Round {r_num}, Table {t_num}."
+                }).encode("utf-8"))
+                return
+
+            u_id = str(user.get("player_id") or user.get("id") or "").strip()
+            u_name = str(user.get("display_name") or "").strip().lower()
+            ev_p1_id = str(pairing.get("player1_id") or "").strip()
+            ev_p2_id = str(pairing.get("player2_id") or "").strip()
+            ev_p1_name = str(pairing.get("player1_name") or "Player 1").strip()
+            ev_p2_name = str(pairing.get("player2_name") or "Player 2").strip()
+            ev_p1_fac = str(pairing.get("player1_faction") or "").strip()
+            ev_p2_fac = str(pairing.get("player2_faction") or "").strip()
+
+            user_is_p1 = (u_id and u_id == ev_p1_id) or (u_name and u_name == ev_p1_name.lower())
+            user_is_p2 = (u_id and u_id == ev_p2_id) or (u_name and u_name == ev_p2_name.lower())
+            if not (user_is_p1 or user_is_p2):
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "detail": "Only the two players who competed in this tournament match can map a scorecard to it."
+                }).encode("utf-8"))
+                return
+
+            # Check if another game already locked this event match
+            for other_mid, other_rec in TRACKER_GAMES_DB.items():
+                if other_mid == raw_mid or not isinstance(other_rec, dict):
+                    continue
+                if (
+                    str(other_rec.get("event_id") or "").lower() == ev_id.lower()
+                    and int(other_rec.get("round_num") or 0) == r_num
+                    and int(other_rec.get("table_num") or 0) == t_num
+                    and (other_rec.get("event_match_locked") or other_rec.get("is_finished"))
+                ):
+                    self.send_response(409)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "detail": f"This tournament match (Round {r_num}, Table {t_num}) already has a locked scorecard ({other_mid}) and cannot be overwritten."
+                    }).encode("utf-8"))
+                    return
+
+            # Determine if P1/P2 need to be swapped to match official event pairing
+            g_p1_name = str(game_rec.get("p1_name") or "").strip().lower()
+            g_p2_name = str(game_rec.get("p2_name") or "").strip().lower()
+            should_swap = (
+                (g_p1_name == ev_p2_name.lower() or g_p2_name == ev_p1_name.lower())
+                and not (g_p1_name == ev_p1_name.lower() or g_p2_name == ev_p2_name.lower())
+            )
+            if should_swap:
+                st["p1"], st["p2"] = st.get("p2", {}), st.get("p1", {})
+                st["p1Score"], st["p2Score"] = st.get("p2Score", game_rec.get("p2_score", 0)), st.get("p1Score", game_rec.get("p1_score", 0))
+                game_rec["p1_score"], game_rec["p2_score"] = game_rec.get("p2_score", 0), game_rec.get("p1_score", 0)
+                game_rec["p1Score"], game_rec["p2Score"] = game_rec["p1_score"], game_rec["p2_score"]
+                game_rec["p1_faction"], game_rec["p2_faction"] = game_rec.get("p2_faction", ""), game_rec.get("p1_faction", "")
+                game_rec["p1_detachment"], game_rec["p2_detachment"] = game_rec.get("p2_detachment", ""), game_rec.get("p1_detachment", "")
+                if isinstance(st.get("game"), dict):
+                    st["game"]["p1Detachments"], st["game"]["p2Detachments"] = st["game"].get("p2Detachments", []), st["game"].get("p1Detachments", [])
+
+            if isinstance(st.get("p1"), dict):
+                st["p1"]["name"] = ev_p1_name
+                if ev_p1_fac and not st["p1"].get("faction"):
+                    st["p1"]["faction"] = ev_p1_fac
+            if isinstance(st.get("p2"), dict):
+                st["p2"]["name"] = ev_p2_name
+                if ev_p2_fac and not st["p2"].get("faction"):
+                    st["p2"]["faction"] = ev_p2_fac
+            if isinstance(st.get("game"), dict):
+                st["game"]["p1Name"] = ev_p1_name
+                st["game"]["p2Name"] = ev_p2_name
+                st["game"]["p1Faction"] = game_rec.get("p1_faction") or ev_p1_fac
+                st["game"]["p2Faction"] = game_rec.get("p2_faction") or ev_p2_fac
+                st["game"]["eventId"] = pairing["event_id"]
+                st["game"]["roundNum"] = r_num
+                st["game"]["tableNum"] = t_num
+
+            ev_name = pairing.get("event_name") or pairing["event_id"]
+            st["event_id"] = pairing["event_id"]
+            st["round_num"] = r_num
+            st["table_num"] = t_num
+            st["mapped_event_name"] = ev_name
+            st["event_match_locked"] = True
+            st["swapped_p1_p2"] = bool(should_swap)
+
+            game_rec["p1_name"] = ev_p1_name
+            game_rec["p2_name"] = ev_p2_name
+            game_rec["event_id"] = pairing["event_id"]
+            game_rec["round_num"] = r_num
+            game_rec["table_num"] = t_num
+            game_rec["mapped_event_name"] = ev_name
+            game_rec["event_match_locked"] = True
+            game_rec["state"] = st
+            game_rec["state_json"] = st
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": True,
+                "match_id": raw_mid,
+                "event_id": pairing["event_id"],
+                "event_name": ev_name,
+                "round_num": r_num,
+                "table_num": t_num,
+                "swapped_p1_p2": bool(should_swap),
+                "locked": True,
+                "event_match_locked": True,
+                "p1_name": game_rec["p1_name"],
+                "p2_name": game_rec["p2_name"],
+                "p1_score": game_rec["p1_score"],
+                "p2_score": game_rec["p2_score"],
+                "event_scorecard_id": f"BCP-{pairing['event_id']}-R{r_num}-T{t_num}",
+            }).encode("utf-8"))
+            return
 
         if clean_path.startswith("api/tracker/"):
             try:
@@ -5715,15 +6122,138 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(h2h_results).encode("utf-8"))
             return
 
+        if clean_path == "api/tracker/mappable_event_matches":
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            req_mid = str((qs.get("match_id") or [""])[0]).strip().upper()
+            search_q = str((qs.get("search") or [""])[0]).strip().lower()
+            target_game = TRACKER_GAMES_DB.get(req_mid) if req_mid else None
+
+            persona = (
+                self.headers.get("X-Mock-Persona", "").lower()
+                or ("spectator" if "mock_persona=spectator" in self.path else "competitor")
+            )
+            user_envelope = get_persona_user(persona)
+            user = user_envelope.get("user") or {}
+            u_id = str(user.get("player_id") or user.get("id") or "").strip()
+            u_name = str(user.get("display_name") or "").strip().lower()
+
+            candidates = []
+            for p in DEV_MAPPABLE_PAIRINGS:
+                ev_id = str(p.get("event_id") or "")
+                r_num = int(p.get("round") or 1)
+                t_num = int(p.get("table_number") or 1)
+                p1_id = str(p.get("player1_id") or "").strip()
+                p2_id = str(p.get("player2_id") or "").strip()
+                p1_name = str(p.get("player1_name") or "")
+                p2_name = str(p.get("player2_name") or "")
+
+                is_p1 = (u_id and u_id == p1_id) or (u_name and u_name == p1_name.lower())
+                is_p2 = (u_id and u_id == p2_id) or (u_name and u_name == p2_name.lower())
+                if not (is_p1 or is_p2):
+                    continue
+
+                if search_q and not (
+                    search_q in str(p.get("event_name") or "").lower()
+                    or search_q in p1_name.lower()
+                    or search_q in p2_name.lower()
+                ):
+                    continue
+
+                existing_rec = next(
+                    (
+                        g for g in TRACKER_GAMES_DB.values()
+                        if isinstance(g, dict)
+                        and str(g.get("event_id") or "").lower() == ev_id.lower()
+                        and int(g.get("round_num") or 0) == r_num
+                        and int(g.get("table_num") or 0) == t_num
+                    ),
+                    None,
+                )
+                existing_mid = existing_rec.get("match_id") if existing_rec else None
+                is_currently_mapped = bool(req_mid and existing_mid and str(existing_mid).upper() == req_mid)
+                is_locked = bool(existing_mid and not is_currently_mapped and (existing_rec.get("event_match_locked") or existing_rec.get("is_finished")))
+
+                will_swap = False
+                relevance = 0
+                if target_game:
+                    g_p1 = str(target_game.get("p1_name") or "").strip().lower()
+                    g_p2 = str(target_game.get("p2_name") or "").strip().lower()
+                    will_swap = (
+                        (g_p1 == p2_name.lower() or g_p2 == p1_name.lower())
+                        and not (g_p1 == p1_name.lower() or g_p2 == p2_name.lower())
+                    )
+                    opp_name = (p2_name if is_p1 else p1_name).lower()
+                    if opp_name in (g_p1, g_p2):
+                        relevance += 50
+                    if p.get("player1_score") is not None and p.get("player2_score") is not None:
+                        ev_s1, ev_s2 = int(p["player1_score"] or 0), int(p["player2_score"] or 0)
+                        tg_s1, tg_s2 = int(target_game.get("p1_score") or 0), int(target_game.get("p2_score") or 0)
+                        if (ev_s1 == tg_s1 and ev_s2 == tg_s2) or (ev_s1 == tg_s2 and ev_s2 == tg_s1):
+                            relevance += 40
+
+                candidates.append({
+                    "event_id": ev_id,
+                    "event_name": p.get("event_name") or ev_id,
+                    "event_date": p.get("event_date") or "",
+                    "match_date": p.get("event_date") or "",
+                    "game_system": p.get("game_system") or "40k",
+                    "round_num": r_num,
+                    "round": r_num,
+                    "table_num": t_num,
+                    "table_number": t_num,
+                    "player1_id": p1_id,
+                    "player1_name": p1_name,
+                    "player1_faction": p.get("player1_faction") or "",
+                    "player1_score": p.get("player1_score"),
+                    "player2_id": p2_id,
+                    "player2_name": p2_name,
+                    "player2_faction": p.get("player2_faction") or "",
+                    "player2_score": p.get("player2_score"),
+                    "user_slot": "player1" if is_p1 else "player2",
+                    "opponent_name": p2_name if is_p1 else p1_name,
+                    "opponent_faction": (p.get("player2_faction") if is_p1 else p.get("player1_faction")) or "",
+                    "will_auto_swap_p1_p2": will_swap,
+                    "is_locked": is_locked,
+                    "is_currently_mapped": is_currently_mapped,
+                    "locked_by_match_id": existing_mid if is_locked else None,
+                    "relevance": relevance,
+                    "recommended": bool(relevance >= 50),
+                })
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "match_id": req_mid,
+                    "matches": candidates,
+                }, default=str).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/scorecard/"):
-            match_id = clean_path.replace("api/scorecard/", "").strip("/")
+            match_id = urllib.parse.unquote(clean_path.replace("api/scorecard/", "").strip("/"))
             room_data = (
                 TRACKER_GAMES_DB.get(match_id)
                 or TRACKER_GAMES_DB.get(match_id.upper())
                 or ROOMS_DB.get(match_id)
                 or ROOMS_DB.get(match_id.upper())
-                or {}
             )
+            if not room_data:
+                ev_m = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", str(match_id), re.I)
+                if ev_m:
+                    ev_id_q, r_q, t_q = ev_m.group(1), int(ev_m.group(2)), int(ev_m.group(3))
+                    room_data = next(
+                        (
+                            g for g in TRACKER_GAMES_DB.values()
+                            if isinstance(g, dict)
+                            and str(g.get("event_id") or "").lower() == ev_id_q.lower()
+                            and int(g.get("round_num") or 0) == r_q
+                            and int(g.get("table_num") or 0) == t_q
+                        ),
+                        None,
+                    )
+            room_data = room_data or {}
             st = (room_data.get("state") or room_data.get("state_json")) if isinstance(room_data, dict) else None
             is_finished = bool(
                 room_data.get("is_finished", False)

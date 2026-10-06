@@ -1584,10 +1584,9 @@
 
     const ephParam = isEphemeralView ? '&ephemeral=1' : '';
     const nameParam = list.name ? `&name=${encodeURIComponent(list.name)}` : '';
-    const cbParam = `&_cb=${Date.now()}`;
     const iframeUrl = (activeMode === 'edit' && !isOppTab)
-      ? `/nr/app/Lists/${encodeURIComponent(listKey)}?embed=tracker${nameParam}${cbParam}`
-      : `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=tracker${ephParam}${nameParam}${cbParam}`;
+      ? `/nr/app/Lists/${encodeURIComponent(listKey)}?embed=tracker${nameParam}`
+      : `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=tracker${ephParam}${nameParam}`;
 
     return `
       ${hiddenMetaHooks}

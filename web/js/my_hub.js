@@ -2020,6 +2020,16 @@ function renderMyHub(data) {
                     const impBadge = impSrc === 'gw_app'
                       ? '<span style="display:inline-block; margin-left:4px; font-size:0.62rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.35);">📥 GW</span>'
                       : (impSrc ? '<span style="display:inline-block; margin-left:4px; font-size:0.62rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.35);">📥 TTB</span>' : '');
+                    const edCode = String(th.edition || '').toLowerCase();
+                    const edShort = edCode === '8th_itc' ? '8th ITC' : (edCode === '9th' ? '9th Ed' : (edCode === '11th' ? '11th Ed' : (edCode === 'aos_3e' ? 'AoS 3e' : (edCode === 'aos_4e' ? 'AoS 4e' : (edCode === '10th' ? '10th Ed' : '')))));
+                    const edBadge = edShort
+                      ? `<span style="display:inline-block; margin-left:4px; font-size:0.6rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">${escapeHtml(edShort)}</span>`
+                      : '';
+                    const isLockedEvent = Boolean(th.event_match_locked || th.event_id);
+                    const evTag = isLockedEvent
+                      ? `<div style="font-size:0.66rem; color:#fbbf24; font-weight:700; margin-top:2px;">🔒 ${escapeHtml(th.mapped_event_name || th.event_id || 'Tournament')} R${th.round_num || 1}${th.table_num ? ' T' + th.table_num : ''}</div>`
+                      : '';
+                    const sysStr = th.game_system || (String(matchId).startsWith('AOS-') ? 'aos' : '40k');
 
                     return `
                       <tr>
@@ -2027,7 +2037,7 @@ function renderMyHub(data) {
                           <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="font-family:var(--font-mono); font-size:0.75rem; font-weight:700; color:var(--accent); text-decoration:none;">
                             #${escapeHtml(shortId)} ↗
                           </a>
-                          ${impBadge}
+                          ${impBadge}${edBadge}
                           <div style="font-size:0.7rem; color:var(--text-muted);">${escapeHtml(dateStr)}</div>
                         </td>
                         <td class="cell-ellipsis">
@@ -2037,14 +2047,22 @@ function renderMyHub(data) {
                           <div style="font-size:0.7rem; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                             ${escapeHtml(th.p1_faction || 'Army 1')} vs ${escapeHtml(th.p2_faction || 'Army 2')}
                           </div>
+                          ${evTag}
                         </td>
                         <td style="text-align: center;">
                           <span style="font-weight:700; color:#38bdf8; font-family:var(--font-mono); font-size:0.85rem;">${p1Score} - ${p2Score}</span>
                         </td>
-                        <td style="text-align: right;">
-                          <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="display:inline-flex; align-items:center; gap:3px; background:rgba(16,185,129,0.15); color:#10b981; font-size:0.7rem; font-weight:700; padding:0.2rem 0.5rem; border-radius:6px; text-decoration:none; border:1px solid rgba(16,185,129,0.3);">
-                            📄 Scorecard ↗
-                          </a>
+                        <td style="text-align: right; white-space: nowrap;">
+                          <div style="display:inline-flex; align-items:center; gap:4px;">
+                            ${!isLockedEvent ? `
+                              <button type="button" onclick="openMapGameToEventModal('${escapeHtml(matchId)}', '${escapeHtml(sysStr)}')" title="Map & Lock Scorecard to Tournament Match" style="display:inline-flex; align-items:center; gap:3px; background:rgba(245,158,11,0.15); color:#fbbf24; font-size:0.68rem; font-weight:700; padding:0.2rem 0.45rem; border-radius:6px; border:1px solid rgba(245,158,11,0.35); cursor:pointer;">
+                                🏆 Map
+                              </button>
+                            ` : ''}
+                            <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="display:inline-flex; align-items:center; gap:3px; background:rgba(16,185,129,0.15); color:#10b981; font-size:0.7rem; font-weight:700; padding:0.2rem 0.5rem; border-radius:6px; text-decoration:none; border:1px solid rgba(16,185,129,0.3);">
+                              📄 Scorecard ↗
+                            </a>
+                          </div>
                         </td>
                       </tr>
                     `;
@@ -6419,13 +6437,13 @@ async function submitTrackerImport(mode) {
         <div style="display:flex; flex-direction:column; gap:6px;">
           ${games.map(g => {
             const mid = g.match_id || g.id || '';
-            const sysBadge = (g.game_system === 'aos' || String(mid).startsWith('AOS-'))
-              ? '<span style="background:rgba(245,158,11,0.2); color:#fbbf24; font-size:0.65rem; font-weight:800; padding:1px 6px; border-radius:4px;">AoS 4.0</span>'
-              : '<span style="background:rgba(56,189,248,0.2); color:#38bdf8; font-size:0.65rem; font-weight:800; padding:1px 6px; border-radius:4px;">40k</span>';
+            const isAosG = (g.game_system === 'aos' || String(mid).startsWith('AOS-'));
+            const edBadgeTxt = g.edition_label || (isAosG ? 'AoS 4.0' : '40k 10th Ed');
+            const sysBadge = `<span style="background:rgba(245,158,11,0.2); color:#fbbf24; font-size:0.65rem; font-weight:800; padding:1px 6px; border-radius:4px;">${escapeHtml(edBadgeTxt)}</span>`;
             return `
               <div style="background:#070b14; border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:8px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
                 <div>
-                  <div style="display:flex; align-items:center; gap:6px;">
+                  <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                     ${sysBadge}
                     <span style="font-family:monospace; font-size:0.74rem; color:#38bdf8; font-weight:700;">#${escapeHtml(mid)}</span>
                     <b style="font-size:0.82rem; color:#fff;">${escapeHtml(g.p1_name)} (${g.p1_score}) vs ${escapeHtml(g.p2_name)} (${g.p2_score})</b>
@@ -6434,9 +6452,14 @@ async function submitTrackerImport(mode) {
                     ${escapeHtml(g.p1_faction || 'Army 1')} vs ${escapeHtml(g.p2_faction || 'Army 2')} • 🎯 ${escapeHtml(g.primary_mission || 'Matched Play')}
                   </div>
                 </div>
-                <a href="/scorecard/${encodeURIComponent(mid)}" target="_blank" style="background:rgba(16,185,129,0.2); border:1px solid rgba(16,185,129,0.45); color:#34d399; font-size:0.74rem; font-weight:800; padding:5px 10px; border-radius:6px; text-decoration:none; white-space:nowrap;">
-                  📄 Open Scorecard ↗
-                </a>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <button type="button" onclick="openMapGameToEventModal('${escapeHtml(mid)}', '${isAosG ? 'aos' : '40k'}')" style="background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.45); color:#fbbf24; font-size:0.73rem; font-weight:800; padding:5px 9px; border-radius:6px; cursor:pointer; white-space:nowrap;">
+                    🏆 Map to Event
+                  </button>
+                  <a href="/scorecard/${encodeURIComponent(mid)}" target="_blank" style="background:rgba(16,185,129,0.2); border:1px solid rgba(16,185,129,0.45); color:#34d399; font-size:0.74rem; font-weight:800; padding:5px 10px; border-radius:6px; text-decoration:none; white-space:nowrap;">
+                    📄 Open Scorecard ↗
+                  </a>
+                </div>
               </div>
             `;
           }).join('')}
@@ -6462,11 +6485,172 @@ async function submitTrackerImport(mode) {
   }
 }
 
+let _hubMappableMatchesCache = [];
+let _hubActiveMapMatchId = '';
+let _hubActiveMapGameSystem = '40k';
+
+async function openMapGameToEventModal(matchId, gameSystem) {
+  _hubActiveMapMatchId = matchId || '';
+  _hubActiveMapGameSystem = gameSystem || (String(matchId || '').startsWith('AOS-') ? 'aos' : '40k');
+
+  let modal = document.getElementById('omni-map-game-event-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'omni-map-game-event-modal';
+    modal.style.cssText = 'position:fixed; inset:0; background:rgba(2,6,23,0.85); backdrop-filter:blur(8px); z-index:100005; display:none; align-items:center; justify-content:center; padding:1rem; box-sizing:border-box;';
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div style="background:#0f172a; border:1px solid #334155; border-radius:16px; max-width:580px; width:100%; max-height:88vh; display:flex; flex-direction:column; box-shadow:0 25px 65px rgba(0,0,0,0.8); overflow:hidden; font-family:inherit; color:#f8fafc;">
+      <div style="padding:1rem 1.25rem; background:#1e293b; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-weight:800; font-size:1.02rem; color:#fff;">🏆 Map Scorecard to Tournament Match</div>
+          <div style="font-size:0.75rem; color:#94a3b8; font-family:monospace; margin-top:2px;">Match #${escapeHtml(_hubActiveMapMatchId)}</div>
+        </div>
+        <button type="button" onclick="closeMapGameToEventModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.25rem; cursor:pointer;">✕</button>
+      </div>
+      <div style="padding:1.1rem 1.25rem; overflow-y:auto; flex:1;">
+        <div style="font-size:0.78rem; color:#cbd5e1; line-height:1.45; margin-bottom:0.85rem; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.25); padding:0.65rem 0.85rem; border-radius:10px;">
+          🔒 <b>Participant-Only &amp; Auto-Aligned:</b> You can only map a scorecard to a tournament pairing you participated in. Player 1 and Player 2 columns are automatically aligned to the official pairing and locked once mapped.
+        </div>
+        <div style="display:flex; gap:0.5rem; margin-bottom:0.85rem;">
+          <input id="omni-map-event-search" type="text" placeholder="Search event name, opponent, or event ID..." style="flex:1; background:#020617; border:1px solid #334155; color:#fff; padding:0.55rem 0.75rem; border-radius:8px; font-size:0.84rem;" oninput="filterHubMappableEventMatches()">
+        </div>
+        <div id="omni-map-event-status" style="display:none; margin-bottom:0.75rem; padding:0.6rem 0.85rem; border-radius:8px; font-size:0.8rem;"></div>
+        <div id="omni-map-event-list" style="display:flex; flex-direction:column; gap:0.55rem;">
+          <div style="padding:1.5rem; text-align:center; color:#94a3b8; font-size:0.84rem;">Loading your verified tournament matches...</div>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+
+  try {
+    const headers = {};
+    const tok = localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
+    if (tok) headers['Authorization'] = 'Bearer ' + tok;
+    const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(_hubActiveMapGameSystem)}&match_id=${encodeURIComponent(_hubActiveMapMatchId)}`, { headers });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(data.detail || 'Please sign in to map scorecards to your tournament matches.');
+    }
+    _hubMappableMatchesCache = data.matches || [];
+    renderHubMappableEventMatches(_hubMappableMatchesCache);
+  } catch (err) {
+    const listEl = document.getElementById('omni-map-event-list');
+    if (listEl) {
+      listEl.innerHTML = `<div style="padding:1.25rem; text-align:center; color:#fca5a5; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; font-size:0.82rem;">⚠️ ${escapeHtml(err.message)}</div>`;
+    }
+  }
+}
+
+function closeMapGameToEventModal() {
+  const modal = document.getElementById('omni-map-game-event-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function filterHubMappableEventMatches() {
+  const q = (document.getElementById('omni-map-event-search')?.value || '').toLowerCase().trim();
+  if (!q) {
+    renderHubMappableEventMatches(_hubMappableMatchesCache);
+    return;
+  }
+  const filtered = _hubMappableMatchesCache.filter(m =>
+    String(m.event_name || '').toLowerCase().includes(q) ||
+    String(m.event_id || '').toLowerCase().includes(q) ||
+    String(m.player1_name || '').toLowerCase().includes(q) ||
+    String(m.player2_name || '').toLowerCase().includes(q)
+  );
+  renderHubMappableEventMatches(filtered);
+}
+
+function renderHubMappableEventMatches(matches) {
+  const listEl = document.getElementById('omni-map-event-list');
+  if (!listEl) return;
+  if (!matches || matches.length === 0) {
+    listEl.innerHTML = '<div style="padding:1.5rem; text-align:center; color:#94a3b8; font-size:0.84rem;">No eligible tournament matches found for your player profile.</div>';
+    return;
+  }
+  listEl.innerHTML = matches.map(m => {
+    const isLocked = Boolean(m.is_locked);
+    const recBadge = m.recommended ? '<span style="background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.4); font-size:0.68rem; font-weight:800; padding:1px 6px; border-radius:4px;">★ Recommended Pairing</span>' : '';
+    const actionHtml = isLocked
+      ? '<span style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.35); font-size:0.7rem; font-weight:800; padding:4px 8px; border-radius:6px;">🔒 Locked</span>'
+      : `<button type="button" onclick="confirmMapGameToEventFromHub('${escapeHtml(m.event_id)}', ${Number(m.round || 1)}, ${m.table_number ? Number(m.table_number) : 'null'})" style="background:#0284c7; border:1px solid #38bdf8; color:#fff; font-weight:800; font-size:0.75rem; padding:5px 10px; border-radius:7px; cursor:pointer;">🔗 Map &amp; Lock</button>`;
+    return `
+      <div style="background:#090f1e; border:1px solid ${m.recommended ? '#10b981' : '#1e293b'}; border-radius:10px; padding:0.75rem 0.9rem; display:flex; justify-content:space-between; align-items:center; gap:0.75rem;">
+        <div style="min-width:0;">
+          <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+            <span style="font-weight:800; color:#f8fafc; font-size:0.86rem;">🏆 ${escapeHtml(m.event_name || m.event_id)}</span>
+            <span style="font-family:monospace; font-size:0.74rem; color:#38bdf8;">R${m.round || 1}${m.table_number ? ' • T' + m.table_number : ''}</span>
+            ${recBadge}
+          </div>
+          <div style="font-size:0.78rem; color:#cbd5e1; margin-top:0.22rem;">
+            🟦 ${escapeHtml(m.player1_name)} (${m.player1_score ?? '-'}) <span style="color:#64748b;">vs</span> 🟥 ${escapeHtml(m.player2_name)} (${m.player2_score ?? '-'})
+          </div>
+          <div style="font-size:0.7rem; color:#64748b; margin-top:0.15rem;">
+            ${m.match_date ? new Date(m.match_date).toLocaleDateString() : '-'} • Event ID: ${escapeHtml(m.event_id)}
+          </div>
+        </div>
+        <div style="flex-shrink:0;">
+          ${actionHtml}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function confirmMapGameToEventFromHub(eventId, roundNum, tableNum) {
+  const statusEl = document.getElementById('omni-map-event-status');
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    const tok = localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
+    if (tok) headers['Authorization'] = 'Bearer ' + tok;
+    const resp = await fetch(`/api/tracker/games/${encodeURIComponent(_hubActiveMapMatchId)}/map_event_match`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ event_id: eventId, round_num: roundNum, table_num: tableNum })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(data.detail || resp.statusText);
+    }
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = 'rgba(16,185,129,0.15)';
+      statusEl.style.border = '1px solid rgba(16,185,129,0.4)';
+      statusEl.style.color = '#34d399';
+      statusEl.innerHTML = `✅ Mapped &amp; locked to <b>${escapeHtml(data.event_name || eventId)}</b> (Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''})${data.swapped_p1_p2 ? ' • Auto-aligned Player 1 / Player 2 columns!' : '!'}`;
+    }
+    if (typeof loadMyHubDashboard === 'function' && document.getElementById('my-hub-content')) {
+      myHubData = null;
+      loadMyHubDashboard();
+    }
+    if (typeof window.__refreshTrackerHistoryAfterImport === 'function') {
+      window.__refreshTrackerHistoryAfterImport();
+    }
+    setTimeout(() => closeMapGameToEventModal(), 1100);
+  } catch (err) {
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = 'rgba(239,68,68,0.14)';
+      statusEl.style.border = '1px solid rgba(239,68,68,0.4)';
+      statusEl.style.color = '#f87171';
+      statusEl.innerHTML = `⚠️ ${escapeHtml(err.message)}`;
+    }
+  }
+}
+
 window.openTrackerImportModal = openTrackerImportModal;
 window.closeTrackerImportModal = closeTrackerImportModal;
 window.switchTrackerImportTab = switchTrackerImportTab;
 window.fillTrackerImportDemo = fillTrackerImportDemo;
 window.submitTrackerImport = submitTrackerImport;
+window.openMapGameToEventModal = openMapGameToEventModal;
+window.closeMapGameToEventModal = closeMapGameToEventModal;
+window.filterHubMappableEventMatches = filterHubMappableEventMatches;
+window.confirmMapGameToEventFromHub = confirmMapGameToEventFromHub;
 
 
 

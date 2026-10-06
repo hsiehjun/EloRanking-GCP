@@ -167,9 +167,10 @@ export function AosTrackerProvider({ children }) {
   const selectBattleTactic = useCallback((playerKey, round, tacticId) => {
     setState((prev) => {
       const player = { ...prev[playerKey] };
+      const isNone = !tacticId || tacticId === "none";
       player.rounds = player.rounds.map((r) =>
         r.round === round
-          ? { ...r, tacticId, tacticStatus: "selected", tacticScore: 0 }
+          ? { ...r, tacticId: isNone ? "none" : tacticId, tacticStatus: isNone ? "pending" : "selected", tacticScore: 0 }
           : r
       );
       return { ...prev, [playerKey]: player };

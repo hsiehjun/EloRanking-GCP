@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=ea5fae2a04">
+  <link rel="manifest" href="/manifest.json?v=c3b47cff6d">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "ea5fae2a04";</script>
+  <script>window.APP_VERSION = "c3b47cff6d";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -702,12 +702,38 @@
 
       <!-- Footer & Actions -->
       <div class="sc-footer">
-        <div style="font-size: 0.8rem; color: #94a3b8;">
-          Match ID: <span style="font-family: monospace; color: #cbd5e1; font-weight: 700;" id="sc-match-id">-</span>
+        <div style="font-size: 0.8rem; color: #94a3b8; display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+          <span>Match ID: <span style="font-family: monospace; color: #cbd5e1; font-weight: 700;" id="sc-match-id">-</span></span>
+          <span id="sc-footer-edition-pill"></span>
         </div>
-        <div style="display: flex; gap: 0.5rem;">
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button id="sc-map-event-btn" class="btn-sc" style="display:none; background:rgba(245,158,11,0.14); border-color:rgba(245,158,11,0.4); color:#fbbf24;" onclick="openScorecardMapEventModal()">🏆 Map to Event Match</button>
           <button class="btn-sc" onclick="window.print()">🖨️ Print Scorecard</button>
           <a href="/11th/tracker" class="btn-sc btn-sc-primary">🎲 Tracker Lobby</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Event Match Mapping Modal -->
+  <div id="sc-map-event-modal" style="display:none; position:fixed; inset:0; background:rgba(2,6,23,0.82); backdrop-filter:blur(6px); z-index:9999; align-items:center; justify-content:center; padding:1rem;">
+    <div style="background:#0f172a; border:1px solid #334155; border-radius:16px; max-width:560px; width:100%; max-height:88vh; display:flex; flex-direction:column; box-shadow:0 24px 60px rgba(0,0,0,0.75); overflow:hidden;">
+      <div style="padding:1.1rem 1.35rem; background:#1e293b; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-weight:800; font-size:1.05rem; color:#fff; display:flex; align-items:center; gap:0.5rem;">
+          <span>🏆 Map Scorecard to Tournament Match</span>
+        </div>
+        <button onclick="closeScorecardMapEventModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.25rem; cursor:pointer;">✕</button>
+      </div>
+      <div style="padding:1.15rem 1.35rem; overflow-y:auto; flex:1;">
+        <div style="font-size:0.8rem; color:#94a3b8; line-height:1.45; margin-bottom:0.85rem; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.25); padding:0.65rem 0.85rem; border-radius:10px;">
+          🔒 <strong style="color:#e2e8f0;">Participant-Verified & Locked:</strong> Only a verified participant in the tournament pairing can map their scorecard. Player 1 / Player 2 columns are automatically aligned to the official tournament pairing and locked once mapped.
+        </div>
+        <div style="display:flex; gap:0.5rem; margin-bottom:0.85rem;">
+          <input id="sc-map-search-input" type="text" placeholder="Filter by event name, opponent, or event ID..." style="flex:1; background:#020617; border:1px solid #334155; color:#fff; padding:0.55rem 0.75rem; border-radius:8px; font-size:0.85rem;" oninput="filterMappableMatchesList()">
+          <button class="btn-sc" onclick="loadMappableEventMatches()">↻ Refresh</button>
+        </div>
+        <div id="sc-map-matches-list" style="display:flex; flex-direction:column; gap:0.55rem;">
+          <div style="padding:1.5rem; text-align:center; color:#64748b; font-size:0.85rem;">Loading your tournament matches...</div>
         </div>
       </div>
     </div>
@@ -761,6 +787,130 @@
       return cId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') || 'Secondary Mission';
     }
 
+    function resolveEditionMeta(data, st, rec, game, isAos) {
+      const p1Obj = st.p1 || {};
+      const p2Obj = st.p2 || {};
+      const missionObj = st.mission || {};
+      const rawEd = String(
+        st.edition || rec.edition || missionObj.edition || p1Obj.edition || p2Obj.edition || game.edition || ''
+      ).toLowerCase().trim();
+      const rawLabel = st.edition_label || rec.edition_label || missionObj.packName || '';
+      const packId = String(missionObj.packId || '').toLowerCase();
+
+      if (isAos) {
+        const hasGs = Boolean(
+          rawEd === 'aos_3e' || rawEd === '3e' || rawEd === '3rd' ||
+          packId.includes('3e') || packId.includes('pitched') ||
+          p1Obj.grandStrategy || p2Obj.grandStrategy ||
+          Number(p1Obj.grandStrategyScore || 0) > 0 || Number(p2Obj.grandStrategyScore || 0) > 0
+        );
+        if (hasGs) {
+          return {
+            edition: 'aos_3e',
+            editionLabel: rawLabel || 'AoS 3rd Ed • Pitched Battles',
+            shortBadge: '⚔️ AoS 3rd Ed (GHB + Grand Strategy)',
+            badgeBg: 'rgba(245, 158, 11, 0.15)',
+            badgeColor: '#fbbf24',
+            badgeBorder: 'rgba(245, 158, 11, 0.4)',
+            priCap: 30,
+            secCap: 20,
+            maxTotal: 53,
+            hasGrandStrategy: true
+          };
+        }
+        return {
+          edition: 'aos_4e',
+          editionLabel: rawLabel || "AoS 4th Ed • General's Handbook",
+          shortBadge: "⚡ AoS 4th Ed • GHB",
+          badgeBg: 'rgba(245, 158, 11, 0.14)',
+          badgeColor: '#f59e0b',
+          badgeBorder: 'rgba(245, 158, 11, 0.35)',
+          priCap: 30,
+          secCap: 20,
+          maxTotal: 50,
+          hasGrandStrategy: false
+        };
+      }
+
+      if (rawEd === '8th_itc' || rawEd === '8th' || packId.includes('8th') || packId.includes('itc') || Number(p1Obj.primaryCap) === 36) {
+        return {
+          edition: '8th_itc',
+          editionLabel: rawLabel || 'WH40K 8th Ed • ITC Champions Missions',
+          shortBadge: '🏛️ WH40K 8th Ed • ITC Format',
+          badgeBg: 'rgba(249, 115, 22, 0.15)',
+          badgeColor: '#fb923c',
+          badgeBorder: 'rgba(249, 115, 22, 0.4)',
+          priCap: 36,
+          secCap: 12,
+          maxTotal: 48,
+          hasPaint: false
+        };
+      }
+
+      const p1RawSecSum = (() => {
+        let s = 0;
+        for (let i = 1; i <= 5; i++) {
+          s += getPlayerRoundSecondaries(p1Obj, i).reduce((a, x) => a + (x.score || 0), 0);
+        }
+        return s;
+      })();
+      const p2RawSecSum = (() => {
+        let s = 0;
+        for (let i = 1; i <= 5; i++) {
+          s += getPlayerRoundSecondaries(p2Obj, i).reduce((a, x) => a + (x.score || 0), 0);
+        }
+        return s;
+      })();
+
+      if (
+        rawEd === '9th' || rawEd === '9e' ||
+        packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || packId.includes('nachmund') ||
+        Number(p1Obj.primaryCap) === 45 || Number(p1Obj.secondaryCap) === 45 ||
+        p1RawSecSum > 40 || p2RawSecSum > 40
+      ) {
+        return {
+          edition: '9th',
+          editionLabel: rawLabel || 'WH40K 9th Ed • Strike Force (45/45/10)',
+          shortBadge: '📜 WH40K 9th Ed (45 Pri / 45 Sec)',
+          badgeBg: 'rgba(234, 179, 8, 0.15)',
+          badgeColor: '#facc15',
+          badgeBorder: 'rgba(234, 179, 8, 0.4)',
+          priCap: 45,
+          secCap: 45,
+          maxTotal: 100,
+          hasPaint: true
+        };
+      }
+
+      if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th')) {
+        return {
+          edition: '11th',
+          editionLabel: rawLabel || 'WH40K 11th Ed • Matched Play',
+          shortBadge: '🚀 WH40K 11th Ed',
+          badgeBg: 'rgba(56, 189, 248, 0.14)',
+          badgeColor: '#38bdf8',
+          badgeBorder: 'rgba(56, 189, 248, 0.35)',
+          priCap: 50,
+          secCap: 40,
+          maxTotal: 100,
+          hasPaint: true
+        };
+      }
+
+      return {
+        edition: '10th',
+        editionLabel: rawLabel || 'WH40K 10th Ed • Matched Play',
+        shortBadge: '🦅 WH40K 10th Ed',
+        badgeBg: 'rgba(56, 189, 248, 0.14)',
+        badgeColor: '#38bdf8',
+        badgeBorder: 'rgba(56, 189, 248, 0.35)',
+        priCap: 50,
+        secCap: 40,
+        maxTotal: 100,
+        hasPaint: true
+      };
+    }
+
     function getPlayerRoundSecondaries(pObj, rNum) {
       if (!pObj) return [];
       const res = [];
@@ -812,14 +962,14 @@
       return res;
     }
 
-    function getPlayerTotalSecondary(pObj) {
+    function getPlayerTotalSecondary(pObj, maxSecCap = 40) {
       if (!pObj) return 0;
       let total = 0;
       for (let i = 1; i <= 5; i++) {
         const secs = getPlayerRoundSecondaries(pObj, i);
         total += secs.reduce((acc, s) => acc + (s.score || 0), 0);
       }
-      return Math.min(40, total);
+      return Math.min(maxSecCap, total);
     }
 
     function getMatchIdFromPath() {
@@ -839,6 +989,7 @@
     let areSecondariesExpanded = true;
     let liveTimer = null;
     let isLivePolling = false;
+    let cachedMappableMatches = [];
 
     async function pollLiveScorecardQuietly() {
       if (isLivePolling || document.hidden) return;
@@ -876,8 +1027,6 @@
     }
 
     function initFirestoreLiveListener(matchId) {
-      // Scorecards only display submitted games saved to PostgreSQL (tracker_games) or official BCP results.
-      // Never subscribe to unsubmitted in-progress Firestore rooms.
       return;
     }
 
@@ -1008,6 +1157,7 @@
         String(data.match_id || '').startsWith('AOS-')
       );
 
+      const edMeta = resolveEditionMeta(data, st, rec, game, isAos);
       const p1Obj = st.p1 || {};
       const p2Obj = st.p2 || {};
 
@@ -1040,39 +1190,57 @@
       let p1SecTot = 0, p2SecTot = 0;
       let p1Paint = 0, p2Paint = 0;
       let p1TacticsCount = 0, p2TacticsCount = 0;
+      let p1GrandScore = 0, p2GrandScore = 0;
 
       if (isAos) {
-        // AoS 4th Edition 50 VP Scale (30 Primary, 20 Battle Tactics)
-        p1PriTot = Math.min(30, p1Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
-        p2PriTot = Math.min(30, p2Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
+        p1PriTot = Math.min(edMeta.priCap, p1Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
+        p2PriTot = Math.min(edMeta.priCap, p2Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
 
-        p1SecTot = Math.min(20, p1Rounds.reduce((s, r) => s + (r.tacticScore || 0), 0));
-        p2SecTot = Math.min(20, p2Rounds.reduce((s, r) => s + (r.tacticScore || 0), 0));
+        p1SecTot = Math.min(edMeta.secCap, p1Rounds.reduce((s, r) => s + (r.tacticScore || 0), 0));
+        p2SecTot = Math.min(edMeta.secCap, p2Rounds.reduce((s, r) => s + (r.tacticScore || 0), 0));
 
         p1TacticsCount = p1Rounds.filter(r => r.tacticStatus === 'achieved').length;
         p2TacticsCount = p2Rounds.filter(r => r.tacticStatus === 'achieved').length;
 
-        p1Score = Math.min(50, p1PriTot + p1SecTot);
-        p2Score = Math.min(50, p2PriTot + p2SecTot);
+        p1GrandScore = Number(p1Obj.grandStrategyScore || (p1Obj.grandStrategyAchieved ? 3 : 0)) || 0;
+        p2GrandScore = Number(p2Obj.grandStrategyScore || (p2Obj.grandStrategyAchieved ? 3 : 0)) || 0;
 
-        document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>PRI: ${p1PriTot}/30</span> • <span>TAC: ${p1SecTot}/20</span> • <span style="color:#f59e0b; font-weight:700;">TACTICS: ${p1TacticsCount}/5</span>`;
-        document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>PRI: ${p2PriTot}/30</span> • <span>TAC: ${p2SecTot}/20</span> • <span style="color:#f59e0b; font-weight:700;">TACTICS: ${p2TacticsCount}/5</span>`;
+        p1Score = Math.min(edMeta.maxTotal, p1PriTot + p1SecTot + p1GrandScore);
+        p2Score = Math.min(edMeta.maxTotal, p2PriTot + p2SecTot + p2GrandScore);
+
+        if (edMeta.hasGrandStrategy) {
+          document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>PRI: ${p1PriTot}/${edMeta.priCap}</span> • <span>TAC: ${p1SecTot}/${edMeta.secCap}</span> • <span style="color:#fbbf24; font-weight:700;">GS: +${p1GrandScore}</span>`;
+          document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>PRI: ${p2PriTot}/${edMeta.priCap}</span> • <span>TAC: ${p2SecTot}/${edMeta.secCap}</span> • <span style="color:#fbbf24; font-weight:700;">GS: +${p2GrandScore}</span>`;
+        } else {
+          document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>PRI: ${p1PriTot}/${edMeta.priCap}</span> • <span>TAC: ${p1SecTot}/${edMeta.secCap}</span> • <span style="color:#f59e0b; font-weight:700;">TACTICS: ${p1TacticsCount}/5</span>`;
+          document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>PRI: ${p2PriTot}/${edMeta.priCap}</span> • <span>TAC: ${p2SecTot}/${edMeta.secCap}</span> • <span style="color:#f59e0b; font-weight:700;">TACTICS: ${p2TacticsCount}/5</span>`;
+        }
       } else {
-        // 40k 100 VP Scale (50 Primary, 40 Secondary, 10 Paint)
-        p1PriTot = Math.min(50, p1Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
-        p2PriTot = Math.min(50, p2Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
+        // Edition-aware 40k caps (8th ITC: 36/12/0, 9th: 45/45/10, 10th/11th: 50/40/10)
+        p1PriTot = Math.min(edMeta.priCap, p1Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
+        p2PriTot = Math.min(edMeta.priCap, p2Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
 
-        p1SecTot = getPlayerTotalSecondary(p1Obj);
-        p2SecTot = getPlayerTotalSecondary(p2Obj);
+        p1SecTot = getPlayerTotalSecondary(p1Obj, edMeta.secCap);
+        p2SecTot = getPlayerTotalSecondary(p2Obj, edMeta.secCap);
 
-        p1Paint = p1Obj.battleReady !== false ? 10 : 0;
-        p2Paint = p2Obj.battleReady !== false ? 10 : 0;
+        if (!edMeta.hasPaint) {
+          p1Paint = 0;
+          p2Paint = 0;
+        } else {
+          p1Paint = (typeof p1Obj.paintScore === 'number') ? p1Obj.paintScore : (p1Obj.battleReady !== false ? 10 : 0);
+          p2Paint = (typeof p2Obj.paintScore === 'number') ? p2Obj.paintScore : (p2Obj.battleReady !== false ? 10 : 0);
+        }
 
-        p1Score = Math.min(100, p1PriTot + p1SecTot + p1Paint);
-        p2Score = Math.min(100, p2PriTot + p2SecTot + p2Paint);
+        p1Score = Math.min(edMeta.maxTotal, p1PriTot + p1SecTot + p1Paint);
+        p2Score = Math.min(edMeta.maxTotal, p2PriTot + p2SecTot + p2Paint);
 
-        document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>PRI: ${p1PriTot}/50</span> • <span>SEC: ${p1SecTot}/40</span> • <span>PAINT: +${p1Paint}</span>`;
-        document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>PRI: ${p2PriTot}/50</span> • <span>SEC: ${p2SecTot}/40</span> • <span>PAINT: +${p2Paint}</span>`;
+        if (!edMeta.hasPaint) {
+          document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>PRI: ${p1PriTot}/${edMeta.priCap}</span> • <span>SEC: ${p1SecTot}/${edMeta.secCap}</span> • <span style="color:#fb923c;">ITC 8TH</span>`;
+          document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>PRI: ${p2PriTot}/${edMeta.priCap}</span> • <span>SEC: ${p2SecTot}/${edMeta.secCap}</span> • <span style="color:#fb923c;">ITC 8TH</span>`;
+        } else {
+          document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>PRI: ${p1PriTot}/${edMeta.priCap}</span> • <span>SEC: ${p1SecTot}/${edMeta.secCap}</span> • <span>PAINT: +${p1Paint}</span>`;
+          document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>PRI: ${p2PriTot}/${edMeta.priCap}</span> • <span>SEC: ${p2SecTot}/${edMeta.secCap}</span> • <span>PAINT: +${p2Paint}</span>`;
+        }
       }
 
       document.getElementById('sc-p1-final-score').innerText = p1Score;
@@ -1080,7 +1248,9 @@
 
       const roundNum = rec.round_num || game.roundNum || st.round_num || 1;
       const tableNum = rec.table_num || game.tableNum || st.table_num || null;
-      const eventId = rec.event_id || game.eventId || null;
+      const eventId = rec.event_id || st.event_id || game.eventId || null;
+      const mappedEventName = st.mapped_event_name || rec.mapped_event_name || game.eventName || '';
+      const isEventLocked = Boolean(st.event_match_locked || rec.event_match_locked || eventId);
 
       const isFinished = Boolean(
         data.is_finished === true ||
@@ -1090,6 +1260,21 @@
         st.status === 'completed'
       );
 
+      const edBadgeHtml = `<span class="sc-badge" style="background:${edMeta.badgeBg}; color:${edMeta.badgeColor}; border:1px solid ${edMeta.badgeBorder};">${escapeHtml(edMeta.shortBadge)}</span>`;
+      const footerEdEl = document.getElementById('sc-footer-edition-pill');
+      if (footerEdEl) {
+        footerEdEl.innerHTML = `<span style="color:${edMeta.badgeColor}; font-weight:700;">${escapeHtml(edMeta.editionLabel)}</span>`;
+      }
+
+      const mapBtn = document.getElementById('sc-map-event-btn');
+      if (mapBtn) {
+        if (isFinished && !isEventLocked) {
+          mapBtn.style.display = 'inline-flex';
+        } else {
+          mapBtn.style.display = 'none';
+        }
+      }
+
       const statusBadgeContainer = document.getElementById('sc-status-badges');
       if (statusBadgeContainer) {
         const impSource = st.imported_source || rec.imported_source || (String(data.match_id || '').includes('-GW-') ? 'gw_app' : (String(data.match_id || '').includes('-TTB-') ? 'tabletop_battles' : ''));
@@ -1097,18 +1282,24 @@
         const impBadgeHtml = impSource
           ? `<span class="sc-badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35);">📥 Imported • ${escapeHtml(impAppLabel)}</span>`
           : '';
+        const lockedEventBadgeHtml = isEventLocked && eventId
+          ? `<span class="sc-badge" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.4);" title="Locked to official tournament match">🔒 Locked • ${escapeHtml(mappedEventName || eventId)} R${roundNum}${tableNum ? ' T' + tableNum : ''}</span>`
+          : '';
         if (isFinished) {
           statusBadgeContainer.innerHTML = `
             <span class="sc-badge">
               ✓ Verified Scorecard
             </span>
+            ${edBadgeHtml}
             ${impBadgeHtml}
+            ${lockedEventBadgeHtml}
           `;
         } else {
           statusBadgeContainer.innerHTML = `
             <span class="sc-badge sc-badge-live">
               <span class="sc-badge-pulse"></span> LIVE IN PROGRESS
             </span>
+            ${edBadgeHtml}
             <span class="sc-badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">
               Round ${roundNum}
             </span>
@@ -1141,7 +1332,7 @@
       }
 
       if (eventId) {
-        document.getElementById('sc-event-title').innerText = `🏆 Tournament Match (${eventId})`;
+        document.getElementById('sc-event-title').innerText = `🏆 ${mappedEventName || 'Tournament Match'} (${eventId})`;
         const backBtn = document.getElementById('sc-event-back-btn');
         if (backBtn) {
           backBtn.href = `/app`;
@@ -1151,7 +1342,7 @@
       document.getElementById('sc-round-table').innerText = `Round ${roundNum} ${tableNum ? '• Table ' + tableNum : ''}`;
       document.getElementById('sc-mission-name').innerText = isAos
         ? `🎯 Battleplan: ${game.battleplan?.name || st.battleplan?.name || rec.primary_mission || 'Border War'}`
-        : `🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'}`;
+        : `🎯 Primary: ${game.primary || game.p1Primary || st.mission?.primaryName || rec.primary_mission || 'Take & Hold'}`;
       const rawDateVal = st.game_date || rec.game_date || rec.updated_at || Date.now();
       document.getElementById('sc-date-time').innerText = `⏱️ ${new Date(rawDateVal).toLocaleDateString()}`;
 
@@ -1161,7 +1352,6 @@
 
       if (isAos) {
         // --- AOS MATRIX ROWS ---
-        // Row 1: Priority Roll & Double Turn
         let priorityCells = '';
         for (let i = 1; i <= 5; i++) {
           const rInfo = (st.roundState && st.roundState[i]) || {};
@@ -1177,7 +1367,7 @@
           </tr>
         `;
 
-        // Row 2: P1 Primaries (Max 30)
+        // Row 2: P1 Primaries
         let p1PriCells = '';
         for (let i = 1; i <= 5; i++) {
           const r = p1Rounds.find(x => x.round === i) || {};
@@ -1187,15 +1377,15 @@
           <tr>
             <td style="color:#38bdf8; font-weight:700;">🟦 ${p1Name} Primaries</td>
             ${p1PriCells}
-            <td style="font-family:monospace; font-weight:800; color:#fff;">${p1PriTot} / 30</td>
+            <td style="font-family:monospace; font-weight:800; color:#fff;">${p1PriTot} / ${edMeta.priCap}</td>
           </tr>
         `;
 
-        // Row 3: P1 Battle Tactics (Max 20)
+        // Row 3: P1 Battle Tactics
         let p1TacCells = '';
         for (let i = 1; i <= 5; i++) {
           const r = p1Rounds.find(x => x.round === i) || {};
-          const val = r.tacticStatus === 'achieved' ? '+4' : (r.tacticStatus === 'failed' ? '0' : (r.tacticStatus === 'forfeited_double_turn' ? 'Forfeit' : '-'));
+          const val = r.tacticStatus === 'achieved' ? `+${r.tacticScore || 4}` : (r.tacticStatus === 'failed' ? '0' : (r.tacticStatus === 'forfeited_double_turn' ? 'Forfeit' : '-'));
           const col = r.tacticStatus === 'achieved' ? '#10b981' : (r.tacticStatus === 'failed' ? '#ef4444' : '#94a3b8');
           p1TacCells += `<td style="font-family:monospace; font-weight:700; color:${col};">${val}</td>`;
         }
@@ -1206,23 +1396,22 @@
               <button class="btn-toggle-sec" onclick="togglePlayerSecondaries('p1-sec-sub')">▼ Details</button>
             </td>
             ${p1TacCells}
-            <td style="font-family:monospace; font-weight:800; color:#fff;">${p1SecTot} / 20</td>
+            <td style="font-family:monospace; font-weight:800; color:#fff;">${p1SecTot} / ${edMeta.secCap}</td>
           </tr>
         `;
-        // P1 Tactics Subrows
         p1Rounds.forEach(r => {
           if (r.tacticId && r.tacticId !== 'none') {
             tbody.innerHTML += `
               <tr class="p1-sec-sub" style="display:${areSecondariesExpanded ? 'table-row' : 'none'}; background:rgba(15,23,42,0.7); font-size:0.8rem;">
-                <td style="padding-left:1.5rem; color:#cbd5e1;"><span style="color:#38bdf8; font-weight:700;">R${r.round}:</span> ⚡ ${r.tacticId}</td>
-                <td colspan="5" style="color:#94a3b8; font-size:11px;">Status: <strong style="color:${r.tacticStatus === 'achieved' ? '#10b981' : '#ef4444'}">${r.tacticStatus}</strong></td>
+                <td style="padding-left:1.5rem; color:#cbd5e1;"><span style="color:#38bdf8; font-weight:700;">R${r.round}:</span> ⚡ ${escapeHtml(r.tacticName || r.tacticId)}</td>
+                <td colspan="5" style="color:#94a3b8; font-size:11px;">Status: <strong style="color:${r.tacticStatus === 'achieved' ? '#10b981' : '#ef4444'}">${escapeHtml(r.tacticStatus)}</strong></td>
                 <td style="font-family:monospace; font-weight:700; color:#cbd5e1;">+${r.tacticScore || 0}</td>
               </tr>
             `;
           }
         });
 
-        // Row 4: P2 Primaries (Max 30)
+        // Row 4: P2 Primaries
         let p2PriCells = '';
         for (let i = 1; i <= 5; i++) {
           const r = p2Rounds.find(x => x.round === i) || {};
@@ -1232,15 +1421,15 @@
           <tr>
             <td style="color:#f43f5e; font-weight:700;">🟥 ${p2Name} Primaries</td>
             ${p2PriCells}
-            <td style="font-family:monospace; font-weight:800; color:#fff;">${p2PriTot} / 30</td>
+            <td style="font-family:monospace; font-weight:800; color:#fff;">${p2PriTot} / ${edMeta.priCap}</td>
           </tr>
         `;
 
-        // Row 5: P2 Battle Tactics (Max 20)
+        // Row 5: P2 Battle Tactics
         let p2TacCells = '';
         for (let i = 1; i <= 5; i++) {
           const r = p2Rounds.find(x => x.round === i) || {};
-          const val = r.tacticStatus === 'achieved' ? '+4' : (r.tacticStatus === 'failed' ? '0' : (r.tacticStatus === 'forfeited_double_turn' ? 'Forfeit' : '-'));
+          const val = r.tacticStatus === 'achieved' ? `+${r.tacticScore || 4}` : (r.tacticStatus === 'failed' ? '0' : (r.tacticStatus === 'forfeited_double_turn' ? 'Forfeit' : '-'));
           const col = r.tacticStatus === 'achieved' ? '#10b981' : (r.tacticStatus === 'failed' ? '#ef4444' : '#94a3b8');
           p2TacCells += `<td style="font-family:monospace; font-weight:700; color:${col};">${val}</td>`;
         }
@@ -1251,24 +1440,42 @@
               <button class="btn-toggle-sec" onclick="togglePlayerSecondaries('p2-sec-sub')">▼ Details</button>
             </td>
             ${p2TacCells}
-            <td style="font-family:monospace; font-weight:800; color:#fff;">${p2SecTot} / 20</td>
+            <td style="font-family:monospace; font-weight:800; color:#fff;">${p2SecTot} / ${edMeta.secCap}</td>
           </tr>
         `;
-        // P2 Tactics Subrows
         p2Rounds.forEach(r => {
           if (r.tacticId && r.tacticId !== 'none') {
             tbody.innerHTML += `
               <tr class="p2-sec-sub" style="display:${areSecondariesExpanded ? 'table-row' : 'none'}; background:rgba(15,23,42,0.7); font-size:0.8rem;">
-                <td style="padding-left:1.5rem; color:#cbd5e1;"><span style="color:#f43f5e; font-weight:700;">R${r.round}:</span> ⚡ ${r.tacticId}</td>
-                <td colspan="5" style="color:#94a3b8; font-size:11px;">Status: <strong style="color:${r.tacticStatus === 'achieved' ? '#10b981' : '#ef4444'}">${r.tacticStatus}</strong></td>
+                <td style="padding-left:1.5rem; color:#cbd5e1;"><span style="color:#f43f5e; font-weight:700;">R${r.round}:</span> ⚡ ${escapeHtml(r.tacticName || r.tacticId)}</td>
+                <td colspan="5" style="color:#94a3b8; font-size:11px;">Status: <strong style="color:${r.tacticStatus === 'achieved' ? '#10b981' : '#ef4444'}">${escapeHtml(r.tacticStatus)}</strong></td>
                 <td style="font-family:monospace; font-weight:700; color:#cbd5e1;">+${r.tacticScore || 0}</td>
               </tr>
             `;
           }
         });
 
+        // AoS 3e Grand Strategy Row (+3 VP)
+        if (edMeta.hasGrandStrategy) {
+          const p1GsName = p1Obj.grandStrategy || 'Grand Strategy';
+          const p2GsName = p2Obj.grandStrategy || 'Grand Strategy';
+          tbody.innerHTML += `
+            <tr style="background: rgba(245,158,11,0.06);">
+              <td style="color:#fbbf24; font-weight:700;">👑 Grand Strategy (AoS 3e • +3 VP)</td>
+              <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:#cbd5e1;">
+                🟦 ${escapeHtml(p1Name)} (${escapeHtml(p1GsName)}): <strong style="color:${p1GrandScore > 0 ? '#10b981' : '#94a3b8'};">${p1GrandScore > 0 ? '✓ +' + p1GrandScore + ' VP' : '0 VP'}</strong>
+                &nbsp;|&nbsp;
+                🟥 ${escapeHtml(p2Name)} (${escapeHtml(p2GsName)}): <strong style="color:${p2GrandScore > 0 ? '#10b981' : '#94a3b8'};">${p2GrandScore > 0 ? '✓ +' + p2GrandScore + ' VP' : '0 VP'}</strong>
+              </td>
+              <td style="font-family:monospace; font-weight:800; color:#fbbf24;">
+                +${p1GrandScore + p2GrandScore}
+              </td>
+            </tr>
+          `;
+        }
+
       } else {
-        // --- 40K MATRIX ROWS (100 VP SCALE) ---
+        // --- 40K MATRIX ROWS (EDITION-SPECIFIC CAPS) ---
         function buildPrimaryRow(title, color, roundsArr, maxVal, overrideTotal) {
           let cells = '';
           for (let i = 1; i <= 5; i++) {
@@ -1321,7 +1528,7 @@
                 rowsHtml += `
                   <tr class="${subClass}" style="display:${areSecondariesExpanded ? 'table-row' : 'none'}; background:rgba(15,23,42,0.7); font-size:0.8rem;">
                     <td style="padding-left:1.5rem; color:#cbd5e1;">
-                      <span style="color:${playerColor}; font-weight:700;">R${i}:</span> 🃏 ${s.name}
+                      <span style="color:${playerColor}; font-weight:700;">R${i}:</span> 🃏 ${escapeHtml(s.name)}
                     </td>
                     ${roundCells}
                     <td style="font-family:monospace; font-weight:700; color:#cbd5e1;">+${s.score}</td>
@@ -1334,27 +1541,29 @@
         }
 
         // Group 1: Player 1 Primary & Secondaries
-        tbody.innerHTML += buildPrimaryRow(`🟦 ${p1Name} Primary`, '#38bdf8', p1Rounds, 50, p1PriTot);
-        tbody.innerHTML += buildSecondaryMatrixRow(`🟦 ${p1Name} Secondaries`, '#7dd3fc', p1Obj, 40, p1SecTot, 'p1-sec-sub');
+        tbody.innerHTML += buildPrimaryRow(`🟦 ${p1Name} Primary`, '#38bdf8', p1Rounds, edMeta.priCap, p1PriTot);
+        tbody.innerHTML += buildSecondaryMatrixRow(`🟦 ${p1Name} Secondaries`, '#7dd3fc', p1Obj, edMeta.secCap, p1SecTot, 'p1-sec-sub');
         tbody.innerHTML += buildSecondaryBreakdownSubRows(p1Name, '#38bdf8', p1Obj, 'p1-sec-sub');
 
         // Group 2: Player 2 Primary & Secondaries
-        tbody.innerHTML += buildPrimaryRow(`🟥 ${p2Name} Primary`, '#f43f5e', p2Rounds, 50, p2PriTot);
-        tbody.innerHTML += buildSecondaryMatrixRow(`🟥 ${p2Name} Secondaries`, '#fda4af', p2Obj, 40, p2SecTot, 'p2-sec-sub');
+        tbody.innerHTML += buildPrimaryRow(`🟥 ${p2Name} Primary`, '#f43f5e', p2Rounds, edMeta.priCap, p2PriTot);
+        tbody.innerHTML += buildSecondaryMatrixRow(`🟥 ${p2Name} Secondaries`, '#fda4af', p2Obj, edMeta.secCap, p2SecTot, 'p2-sec-sub');
         tbody.innerHTML += buildSecondaryBreakdownSubRows(p2Name, '#f43f5e', p2Obj, 'p2-sec-sub');
-        
-        // Paint Bonus Row
-        tbody.innerHTML += `
-          <tr style="background: rgba(255,255,255,0.02);">
-            <td style="color:#10b981; font-weight:700;">🎨 Battle Ready (+10)</td>
-            <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:#cbd5e1;">
-              ${p1Name}: ${p1Paint > 0 ? '✓ +10' : '0'} &nbsp;|&nbsp; ${p2Name}: ${p2Paint > 0 ? '✓ +10' : '0'}
-            </td>
-            <td style="font-family:monospace; font-weight:800; color:#10b981;">
-              ${p1Paint + p2Paint}
-            </td>
-          </tr>
-        `;
+
+        // Paint Bonus Row (only for editions with Battle Ready +10)
+        if (edMeta.hasPaint) {
+          tbody.innerHTML += `
+            <tr style="background: rgba(255,255,255,0.02);">
+              <td style="color:#10b981; font-weight:700;">🎨 Battle Ready (+10)</td>
+              <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:#cbd5e1;">
+                ${p1Name}: ${p1Paint > 0 ? '✓ +10' : '0'} &nbsp;|&nbsp; ${p2Name}: ${p2Paint > 0 ? '✓ +10' : '0'}
+              </td>
+              <td style="font-family:monospace; font-weight:800; color:#10b981;">
+                ${p1Paint + p2Paint}
+              </td>
+            </tr>
+          `;
+        }
       }
 
       // Populate Mobile Vertical Round Cards Breakdown (AoS or 40k)
@@ -1417,22 +1626,44 @@
                       </div>
                       ${p1R.tacticId && p1R.tacticId !== 'none' ? `
                         <div class="sc-m-sec-item">
-                          <span style="color:#7dd3fc; font-weight:600;">🟦 ${escapeHtml(p1Name)}: ${escapeHtml(p1R.tacticId)}</span>
+                          <span style="color:#7dd3fc; font-weight:600;">🟦 ${escapeHtml(p1Name)}: ${escapeHtml(p1R.tacticName || p1R.tacticId)}</span>
                           <span style="font-family:monospace; font-weight:800; color:${p1R.tacticStatus === 'achieved' ? '#10b981' : '#ef4444'};">
-                            ${p1R.tacticStatus === 'achieved' ? '+4 VP' : (p1R.tacticStatus === 'failed' ? '0 VP' : p1R.tacticStatus)}
+                            ${p1R.tacticStatus === 'achieved' ? `+${p1R.tacticScore || 4} VP` : (p1R.tacticStatus === 'failed' ? '0 VP' : p1R.tacticStatus)}
                           </span>
                         </div>
                       ` : ''}
                       ${p2R.tacticId && p2R.tacticId !== 'none' ? `
                         <div class="sc-m-sec-item">
-                          <span style="color:#fda4af; font-weight:600;">🟥 ${escapeHtml(p2Name)}: ${escapeHtml(p2R.tacticId)}</span>
+                          <span style="color:#fda4af; font-weight:600;">🟥 ${escapeHtml(p2Name)}: ${escapeHtml(p2R.tacticName || p2R.tacticId)}</span>
                           <span style="font-family:monospace; font-weight:800; color:${p2R.tacticStatus === 'achieved' ? '#10b981' : '#ef4444'};">
-                            ${p2R.tacticStatus === 'achieved' ? '+4 VP' : (p2R.tacticStatus === 'failed' ? '0 VP' : p2R.tacticStatus)}
+                            ${p2R.tacticStatus === 'achieved' ? `+${p2R.tacticScore || 4} VP` : (p2R.tacticStatus === 'failed' ? '0 VP' : p2R.tacticStatus)}
                           </span>
                         </div>
                       ` : ''}
                     </div>
                   ` : ''}
+                </div>
+              </div>
+            `;
+          }
+          if (edMeta.hasGrandStrategy) {
+            mHtml += `
+              <div class="sc-m-card" style="border-color:rgba(245,158,11,0.35); background:rgba(245,158,11,0.04);">
+                <div class="sc-m-card-header" style="background:rgba(245,158,11,0.12);">
+                  <div class="sc-m-round-title" style="color:#fbbf24;">
+                    <span>👑 Grand Strategy (AoS 3e • +3 VP)</span>
+                  </div>
+                  <span class="sc-m-round-score-chip" style="color:#fbbf24;">+3 Bonus</span>
+                </div>
+                <div class="sc-m-card-body" style="padding:0.6rem 1rem;">
+                  <div class="sc-m-player-row">
+                    <span style="color:#38bdf8; font-weight:600;">🟦 ${escapeHtml(p1Name)} (${escapeHtml(p1Obj.grandStrategy || 'Grand Strategy')})</span>
+                    <span style="font-family:monospace; font-weight:700; color:#fbbf24;">${p1GrandScore > 0 ? '✓ +' + p1GrandScore + ' VP' : '0 VP'}</span>
+                  </div>
+                  <div class="sc-m-player-row">
+                    <span style="color:#f43f5e; font-weight:600;">🟥 ${escapeHtml(p2Name)} (${escapeHtml(p2Obj.grandStrategy || 'Grand Strategy')})</span>
+                    <span style="font-family:monospace; font-weight:700; color:#fbbf24;">${p2GrandScore > 0 ? '✓ +' + p2GrandScore + ' VP' : '0 VP'}</span>
+                  </div>
                 </div>
               </div>
             `;
@@ -1512,32 +1743,154 @@
             `;
           }
 
-          // Paint bonus card
-          mHtml += `
-            <div class="sc-m-card" style="border-color:rgba(16,185,129,0.35); background:rgba(16,185,129,0.04);">
-              <div class="sc-m-card-header" style="background:rgba(16,185,129,0.12);">
-                <div class="sc-m-round-title" style="color:#10b981;">
-                  <span>🎨 Battle Ready Painting (+10 VP)</span>
+          if (edMeta.hasPaint) {
+            mHtml += `
+              <div class="sc-m-card" style="border-color:rgba(16,185,129,0.35); background:rgba(16,185,129,0.04);">
+                <div class="sc-m-card-header" style="background:rgba(16,185,129,0.12);">
+                  <div class="sc-m-round-title" style="color:#10b981;">
+                    <span>🎨 Battle Ready Painting (+10 VP)</span>
+                  </div>
+                  <span class="sc-m-round-score-chip" style="color:#10b981;">+10 Standard</span>
                 </div>
-                <span class="sc-m-round-score-chip" style="color:#10b981;">+10 Standard</span>
+                <div class="sc-m-card-body" style="padding:0.6rem 1rem;">
+                  <div class="sc-m-player-row">
+                    <span style="color:#38bdf8; font-weight:600;">🟦 ${escapeHtml(p1Name)}</span>
+                    <span style="font-family:monospace; font-weight:700; color:#10b981;">${p1Paint > 0 ? '✓ +10 VP' : '0 VP'}</span>
+                  </div>
+                  <div class="sc-m-player-row">
+                    <span style="color:#f43f5e; font-weight:600;">🟥 ${escapeHtml(p2Name)}</span>
+                    <span style="font-family:monospace; font-weight:700; color:#10b981;">${p2Paint > 0 ? '✓ +10 VP' : '0 VP'}</span>
+                  </div>
+                </div>
               </div>
-              <div class="sc-m-card-body" style="padding:0.6rem 1rem;">
-                <div class="sc-m-player-row">
-                  <span style="color:#38bdf8; font-weight:600;">🟦 ${escapeHtml(p1Name)}</span>
-                  <span style="font-family:monospace; font-weight:700; color:#10b981;">${p1Paint > 0 ? '✓ +10 VP' : '0 VP'}</span>
-                </div>
-                <div class="sc-m-player-row">
-                  <span style="color:#f43f5e; font-weight:600;">🟥 ${escapeHtml(p2Name)}</span>
-                  <span style="font-family:monospace; font-weight:700; color:#10b981;">${p2Paint > 0 ? '✓ +10 VP' : '0 VP'}</span>
-                </div>
-              </div>
-            </div>
-          `;
+            `;
+          }
         }
 
         mContainer.innerHTML = mHtml;
       }
     }
+
+    async function openScorecardMapEventModal() {
+      const modal = document.getElementById('sc-map-event-modal');
+      if (!modal) return;
+      modal.style.display = 'flex';
+      await loadMappableEventMatches();
+    }
+    window.openScorecardMapEventModal = openScorecardMapEventModal;
+
+    function closeScorecardMapEventModal() {
+      const modal = document.getElementById('sc-map-event-modal');
+      if (modal) modal.style.display = 'none';
+    }
+    window.closeScorecardMapEventModal = closeScorecardMapEventModal;
+
+    async function loadMappableEventMatches() {
+      const listEl = document.getElementById('sc-map-matches-list');
+      if (!listEl) return;
+      listEl.innerHTML = '<div style="padding:1.25rem; text-align:center; color:#94a3b8; font-size:0.85rem;">Loading your verified tournament pairings...</div>';
+      const matchId = getMatchIdFromPath();
+      const isAos = Boolean(globalScorecardData && (globalScorecardData.game_system === 'aos' || String(matchId).startsWith('AOS-')));
+      const sys = isAos ? 'aos' : '40k';
+      try {
+        const headers = {};
+        const tok = localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
+        if (tok) headers['Authorization'] = 'Bearer ' + tok;
+        const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${sys}&match_id=${encodeURIComponent(matchId)}`, { headers });
+        if (!resp.ok) {
+          const errJson = await resp.json().catch(() => ({}));
+          throw new Error(errJson.detail || 'Sign in with your OmniTactica account to map scorecards to your tournament pairings.');
+        }
+        const data = await resp.json();
+        cachedMappableMatches = data.matches || [];
+        renderMappableMatchesList(cachedMappableMatches);
+      } catch (err) {
+        listEl.innerHTML = `<div style="padding:1.25rem; text-align:center; color:#fca5a5; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; font-size:0.83rem;">⚠️ ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function filterMappableMatchesList() {
+      const q = (document.getElementById('sc-map-search-input')?.value || '').toLowerCase().trim();
+      if (!q) {
+        renderMappableMatchesList(cachedMappableMatches);
+        return;
+      }
+      const filtered = cachedMappableMatches.filter(m =>
+        String(m.event_name || '').toLowerCase().includes(q) ||
+        String(m.event_id || '').toLowerCase().includes(q) ||
+        String(m.player1_name || '').toLowerCase().includes(q) ||
+        String(m.player2_name || '').toLowerCase().includes(q)
+      );
+      renderMappableMatchesList(filtered);
+    }
+
+    function renderMappableMatchesList(matches) {
+      const listEl = document.getElementById('sc-map-matches-list');
+      if (!listEl) return;
+      if (!matches || matches.length === 0) {
+        listEl.innerHTML = '<div style="padding:1.5rem; text-align:center; color:#94a3b8; font-size:0.84rem;">No eligible tournament matches found for your player profile.</div>';
+        return;
+      }
+      listEl.innerHTML = matches.map(m => {
+        const isLocked = Boolean(m.is_locked);
+        const rNum = Number(m.round_num ?? m.round ?? 1);
+        const tNum = m.table_num ?? m.table_number ?? null;
+        const dateVal = m.event_date || m.match_date || '';
+        const isRec = Boolean(m.recommended || (Number(m.relevance || 0) >= 50));
+        const willSwap = Boolean(m.will_auto_swap_p1_p2);
+        const recBadge = isRec ? '<span style="background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.4); font-size:0.68rem; font-weight:800; padding:1px 6px; border-radius:4px;">★ Best Match</span>' : '';
+        const swapBadge = willSwap ? '<span style="background:rgba(56,189,248,0.16); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.68rem; font-weight:800; padding:1px 6px; border-radius:4px;">🔄 Auto-aligns P1/P2</span>' : '';
+        const lockBadge = isLocked
+          ? '<span style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.35); font-size:0.7rem; font-weight:800; padding:3px 8px; border-radius:6px;">🔒 Locked</span>'
+          : `<button class="btn-sc btn-sc-primary" style="padding:4px 10px; font-size:0.76rem;" onclick="confirmMapScorecardToEvent('${escapeHtml(m.event_id)}', ${rNum}, ${tNum !== null ? Number(tNum) : 'null'})">🔗 Map & Lock</button>`;
+        return `
+          <div style="background:#090f1e; border:1px solid ${isRec ? '#10b981' : '#1e293b'}; border-radius:10px; padding:0.75rem 0.9rem; display:flex; justify-content:space-between; align-items:center; gap:0.75rem;">
+            <div style="min-width:0;">
+              <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+                <span style="font-weight:800; color:#f8fafc; font-size:0.88rem;">🏆 ${escapeHtml(m.event_name || m.event_id)}</span>
+                <span style="font-family:monospace; font-size:0.75rem; color:#38bdf8;">R${rNum}${tNum !== null ? ' • T' + tNum : ''}</span>
+                ${recBadge}
+                ${swapBadge}
+              </div>
+              <div style="font-size:0.8rem; color:#cbd5e1; margin-top:0.25rem;">
+                🟦 ${escapeHtml(m.player1_name)} (${m.player1_score ?? '-'}) <span style="color:#64748b;">vs</span> 🟥 ${escapeHtml(m.player2_name)} (${m.player2_score ?? '-'})
+              </div>
+              <div style="font-size:0.72rem; color:#64748b; margin-top:0.15rem;">
+                Date: ${dateVal || '-'} • Event ID: ${escapeHtml(m.event_id)}
+              </div>
+            </div>
+            <div style="flex-shrink:0;">
+              ${lockBadge}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function confirmMapScorecardToEvent(eventId, roundNum, tableNum) {
+      const matchId = getMatchIdFromPath();
+      if (!matchId) return;
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        const tok = localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
+        if (tok) headers['Authorization'] = 'Bearer ' + tok;
+        const resp = await fetch(`/api/tracker/games/${encodeURIComponent(matchId)}/map_event_match`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ event_id: eventId, round_num: roundNum, table_num: tableNum })
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          alert('⚠️ Could not map scorecard: ' + (json.detail || resp.statusText));
+          return;
+        }
+        closeScorecardMapEventModal();
+        await loadScorecard();
+      } catch (err) {
+        alert('⚠️ Error mapping scorecard: ' + err.message);
+      }
+    }
+    window.confirmMapScorecardToEvent = confirmMapScorecardToEvent;
 
     function toggleMobileRoundDrawer(roundNum) {
       const drawer = document.getElementById(`sc-m-sec-drawer-${roundNum}`);
