@@ -220,6 +220,65 @@ ROOMS_DB = {
     }
 }
 
+# Dedicated completed games store representing PostgreSQL `tracker_games` (never Firestore/active rooms)
+TRACKER_GAMES_DB = {}
+
+def _dev_save_imported_games(converted_games, dry_run=False):
+    saved_items = []
+    for item in (converted_games or []):
+        if not isinstance(item, dict) or not item.get("match_id"):
+            continue
+        mid = str(item["match_id"]).strip().upper()
+        st = item.get("state") or {}
+        st["is_finished"] = True
+        st["isFinished"] = True
+        st["status"] = "completed"
+        st["started"] = True
+        game_date_str = item.get("game_date") or st.get("game_date") or datetime.now(timezone.utc).isoformat()
+        try:
+            dt_obj = datetime.fromisoformat(str(game_date_str).replace("Z", "+00:00"))
+            formatted_date = dt_obj.strftime("%b %d, %Y")
+        except Exception:
+            formatted_date = str(game_date_str)[:10]
+
+        rec = {
+            "id": mid,
+            "match_id": mid,
+            "game_system": item.get("game_system", "40k"),
+            "p1_name": item.get("p1_name", "Player 1"),
+            "p2_name": item.get("p2_name", "Player 2"),
+            "p1_faction": item.get("p1_faction", ""),
+            "p2_faction": item.get("p2_faction", ""),
+            "p1_detachment": item.get("p1_detachment", ""),
+            "p2_detachment": item.get("p2_detachment", ""),
+            "p1_score": int(item.get("p1_score") or 0),
+            "p2_score": int(item.get("p2_score") or 0),
+            "p1Score": int(item.get("p1_score") or 0),
+            "p2Score": int(item.get("p2_score") or 0),
+            "primary_mission": item.get("primary_mission", "Take & Hold"),
+            "deployment": item.get("deployment", "Search & Destroy"),
+            "mission_rule": item.get("mission_rule", "Matched Play"),
+            "round": 5,
+            "current_round": 5,
+            "started": True,
+            "is_finished": True,
+            "isFinished": True,
+            "status": "completed",
+            "imported_source": item.get("imported_source", "tabletop_battles"),
+            "imported_app": st.get("imported_app", "Tabletop Battles"),
+            "game_date": game_date_str,
+            "date": formatted_date,
+            "updated_at": game_date_str,
+            "created_at": game_date_str,
+            "state": st,
+            "state_json": st,
+            "scorecard_url": f"/scorecard/{urllib.parse.quote(mid)}",
+        }
+        if not dry_run:
+            TRACKER_GAMES_DB[mid] = rec
+        saved_items.append(rec)
+    return saved_items
+
 def get_persona_user(persona):
     if persona == "spectator":
         return {
@@ -1559,6 +1618,125 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
+        if clean_path in ("api/tracker/import/ttb-sync", "api/tracker/import/ttb-code", "api/tracker/import/parse"):
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                payload = {}
+            from tracker_importer import (
+                authenticate_ttb_cognito,
+                fetch_ttb_cloud_games,
+                fetch_ttb_game_by_code,
+                convert_ttb_game_to_omnitactica,
+                parse_imported_games_payload,
+            )
+            dry_run = bool(payload.get("dry_run", False))
+            persona = (
+                self.headers.get("X-Mock-Persona", "").lower()
+                or ("spectator" if "mock_persona=spectator" in self.path else "creator")
+            )
+            user_info = get_persona_user(persona)
+            default_sys = str(payload.get("game_system") or "40k").strip()
+
+            try:
+                if clean_path == "api/tracker/import/ttb-sync":
+                    username = str(payload.get("username") or payload.get("email") or "").strip()
+                    password = str(payload.get("password") or "").strip()
+                    id_token = str(payload.get("id_token") or payload.get("token") or "").strip()
+                    access_token = str(payload.get("access_token") or "").strip()
+
+                    if not id_token and not access_token:
+                        auth_res = authenticate_ttb_cognito(username, password)
+                        id_token = auth_res.get("id_token") or ""
+                        access_token = auth_res.get("access_token") or ""
+
+                    raw_games = fetch_ttb_cloud_games(id_token=id_token, access_token=access_token)
+                    converted = []
+                    for rg in raw_games:
+                        c = convert_ttb_game_to_omnitactica(
+                            rg,
+                            importing_user=user_info,
+                            default_system=default_sys,
+                            source_label="tabletop_battles",
+                        )
+                        if c and c.get("match_id"):
+                            converted.append(c)
+
+                    saved = _dev_save_imported_games(converted, dry_run=dry_run)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "success": True,
+                        "source": "tabletop_battles_cloud",
+                        "storage_target": "tracker_games",
+                        "dry_run": dry_run,
+                        "imported_count": len(saved),
+                        "games": saved,
+                    }, default=str).encode("utf-8"))
+                    return
+
+                if clean_path == "api/tracker/import/ttb-code":
+                    code = str(payload.get("code") or payload.get("url") or "").strip()
+                    id_token = str(payload.get("id_token") or payload.get("token") or "").strip() or None
+                    raw_game = fetch_ttb_game_by_code(code, id_token=id_token)
+                    conv = convert_ttb_game_to_omnitactica(
+                        raw_game,
+                        importing_user=user_info,
+                        default_system=default_sys,
+                        source_label="tabletop_battles",
+                    )
+                    if not conv:
+                        raise ValueError("Unable to parse Tabletop Battles game from the provided code.")
+                    saved = _dev_save_imported_games([conv], dry_run=dry_run)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "success": True,
+                        "source": "tabletop_battles_code",
+                        "storage_target": "tracker_games",
+                        "dry_run": dry_run,
+                        "imported_count": len(saved),
+                        "games": saved,
+                    }, default=str).encode("utf-8"))
+                    return
+
+                if clean_path == "api/tracker/import/parse":
+                    raw_payload = str(payload.get("payload") if "payload" in payload else (payload.get("text") or "")).strip()
+                    source_hint = payload.get("source_hint")
+                    converted = parse_imported_games_payload(
+                        raw_payload,
+                        importing_user=user_info,
+                        default_system=default_sys,
+                        source_hint=source_hint,
+                    )
+                    saved = _dev_save_imported_games(converted, dry_run=dry_run)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "success": True,
+                        "source": source_hint or "parsed_import",
+                        "storage_target": "tracker_games",
+                        "dry_run": dry_run,
+                        "imported_count": len(saved),
+                        "games": saved,
+                    }, default=str).encode("utf-8"))
+                    return
+            except ValueError as ve:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": str(ve)}).encode("utf-8"))
+                return
+            except Exception as ex:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": f"Import error: {ex}"}).encode("utf-8"))
+                return
+
         if clean_path.startswith("api/tracker/"):
             try:
                 payload = json.loads(body.decode("utf-8")) if body else {}
@@ -1842,6 +2020,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             payload = {}
 
+        if clean_path == "api/nr/refresh_bundle":
+            from newrecruit_integration import refresh_nr_offline_bundle_if_needed
+            force_books = bool(payload.get("force_books", False))
+            res = refresh_nr_offline_bundle_if_needed(force_books=force_books)
+            self.send_response(200 if res.get("success") else 500)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(res, default=str).encode("utf-8"))
+            return
+
         if clean_path == "api/teams/confirm-affiliation":
             import teams_hub_service
             svc = teams_hub_service.get_teams_hub_service()
@@ -2048,14 +2236,23 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "state": st,
                         "version": rdata.get("version", 1)
                     })
+                completed_history = []
+                for gid, gdata in list(TRACKER_GAMES_DB.items()):
+                    if not isinstance(gdata, dict):
+                        continue
+                    gsys = gdata.get("game_system") or ("aos" if str(gid).startswith("AOS-") else "40k")
+                    if req_sys and gsys != req_sys:
+                        continue
+                    completed_history.append(gdata)
+                completed_history.sort(key=lambda x: str(x.get("game_date") or x.get("updated_at") or ""), reverse=True)
                 self.wfile.write(json.dumps({
                     "success": True,
-                    "history": active,
+                    "history": active + completed_history,
                     "active_sessions": active,
-                    "completed_history": [],
+                    "completed_history": completed_history,
                     "primary_active": active[0] if active else None,
                     "unfinished_sessions": active[1:] if len(active) > 1 else []
-                }).encode("utf-8"))
+                }, default=str).encode("utf-8"))
             return
 
         if clean_path.endswith("/check"):
@@ -2661,19 +2858,26 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "delta_elo": d_elo,
                         "new_elo": base_elo
                     })
-                # Add a secondary historical tournament for career depth
+                # Add historical tournament games for career & matchup depth
                 sec_fac = "Space Marines" if pl_fac != "Space Marines" else "Adeptus Custodes"
-                for r_prev, (res_p, m_sc, o_sc, d_e) in enumerate([("W", 94, 62, 11.4), ("W", 88, 71, 9.8), ("L", 72, 85, -7.2)], start=1):
+                hist_opponents = [
+                    ("2026-07-18", "Summer Major Warmup GT 2026", "R1", "W", 94, 62, 11.4, pl_fac, "Regional Rival #1", "Orks"),
+                    ("2026-07-18", "Summer Major Warmup GT 2026", "R2", "W", 88, 71, 9.8, pl_fac, "Regional Rival #2", "Adeptus Mechanicus"),
+                    ("2026-07-18", "Summer Major Warmup GT 2026", "R3", "L", 72, 85, -7.2, pl_fac, "Regional Rival #3", "Orks"),
+                    ("2026-07-19", "Summer Major Warmup GT 2026", "R4", "W", 91, 68, 10.6, pl_fac, "Regional Rival #4", "Adeptus Mechanicus"),
+                    ("2026-07-19", "Summer Major Warmup GT 2026", "R5", "W", 85, 74, 8.9, sec_fac, "Regional Rival #5", "Necrons"),
+                ]
+                for m_dt, ev_nm, r_lbl, res_p, m_sc, o_sc, d_e, my_f, op_n, op_f in hist_opponents:
                     hist_items.append({
-                        "match_date": "2026-07-18",
-                        "event_name": "Summer Major Warmup GT 2026",
-                        "round": f"R{r_prev}",
+                        "match_date": m_dt,
+                        "event_name": ev_nm,
+                        "round": r_lbl,
                         "result": res_p,
                         "player_score": m_sc,
                         "opponent_score": o_sc,
-                        "player_faction": pl_fac if r_prev <= 2 else sec_fac,
-                        "opponent_name": f"Regional Rival #{r_prev}",
-                        "opponent_faction": "Necrons",
+                        "player_faction": my_f,
+                        "opponent_name": op_n,
+                        "opponent_faction": op_f,
                         "opponent_elo": 1790.0,
                         "delta_elo": d_e,
                         "new_elo": round(base_elo - 15.0, 1)
@@ -5427,7 +5631,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                                 "match_date": m.get("match_date") or ev_date_str,
                             })
 
-            # Seed historical past tournament encounters for flagship dev demo players (Innes Wilson vs Alex Spathopoulos)
+            # Seed historical past tournament encounters for flagship dev demo players (Innes Wilson vs Alex Spathopoulos, and Innes Wilson vs Kit Smith Hanna)
             if (
                 (_matches_player("p_innes", "innes wilson", p1_q, p1_name_q) and _matches_player("p_alex", "alex spathopoulos", p2_q, p2_name_q))
                 or (_matches_player("p_innes", "innes wilson", p2_q, p2_name_q) and _matches_player("p_alex", "alex spathopoulos", p1_q, p1_name_q))
@@ -5477,6 +5681,33 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         seen_ids.add(sm["id"])
                         h2h_results.append(sm)
 
+            if (
+                (_matches_player("PYYEVPCL1X", "innes wilson", p1_q, p1_name_q) and _matches_player("V45467Y15G", "kit smith hanna", p2_q, p2_name_q))
+                or (_matches_player("PYYEVPCL1X", "innes wilson", p2_q, p2_name_q) and _matches_player("V45467Y15G", "kit smith hanna", p1_q, p1_name_q))
+            ):
+                wcw_match = {
+                    "id": "hist_wcw2025_r8_innes_kit",
+                    "event_id": "ev_wcw_2025",
+                    "event_name": "Warhammer 40,000 World Championships of Warhammer",
+                    "match_date": "2025-11-07",
+                    "round": 8,
+                    "table_number": 3,
+                    "table": 3,
+                    "player1_id": "PYYEVPCL1X",
+                    "player1_name": "Innes Wilson",
+                    "player1_faction": "Space Marines",
+                    "player1_score": 54,
+                    "player2_id": "V45467Y15G",
+                    "player2_name": "Kit Smith Hanna",
+                    "player2_faction": "Chaos Daemons",
+                    "player2_score": 85,
+                    "winner_id": "V45467Y15G",
+                    "is_draw": False,
+                }
+                if wcw_match["id"] not in seen_ids:
+                    seen_ids.add(wcw_match["id"])
+                    h2h_results.append(wcw_match)
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -5486,8 +5717,14 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/scorecard/"):
             match_id = clean_path.replace("api/scorecard/", "").strip("/")
-            room_data = ROOMS_DB.get(match_id) or ROOMS_DB.get(match_id.upper()) or {}
-            st = room_data.get("state") if isinstance(room_data, dict) else None
+            room_data = (
+                TRACKER_GAMES_DB.get(match_id)
+                or TRACKER_GAMES_DB.get(match_id.upper())
+                or ROOMS_DB.get(match_id)
+                or ROOMS_DB.get(match_id.upper())
+                or {}
+            )
+            st = (room_data.get("state") or room_data.get("state_json")) if isinstance(room_data, dict) else None
             is_finished = bool(
                 room_data.get("is_finished", False)
                 or room_data.get("status") == "completed"
@@ -5516,7 +5753,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "is_finished": True,
                     "status": "completed",
                     "source": "tracker_games"
-                }).encode("utf-8"))
+                }, default=str).encode("utf-8"))
             return
 
         if clean_path.startswith("api/tracker/"):
@@ -5529,7 +5766,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     tail = tail[:-len(sa)].strip("/")
                     break
             room_id = tail.strip("/")
-            data = ROOMS_DB.get(room_id, {})
+            data = ROOMS_DB.get(room_id) or TRACKER_GAMES_DB.get(room_id) or TRACKER_GAMES_DB.get(room_id.upper()) or {}
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -5649,41 +5886,77 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             )
                         elif "mechanicus" in fac_low:
                             roster_body = (
-                                f"++ Army Roster ++ ({p_fac}) [2,000 pts]\n\n"
-                                f"Force Disposition: {p_det}\n\n"
-                                "Characters:\n"
-                                "Belisarius Cawl [150 pts]: Arc scourge, Cawl's omnissian axe, Solar atomiser (Warlord)\n"
-                                "Skitarii Marshal [35 pts]: Control stave, Radium serpenta\n"
-                                "Technoarcheologist [45 pts]: Mechanicus pistol, Servo-arc claw\n\n"
-                                "Battleline:\n"
-                                "10x Skitarii Vanguard [90 pts]: Radium carbine, Omnispex\n"
-                                "10x Skitarii Rangers [85 pts]: Galvanic rifle, Transuranic arquebus\n\n"
-                                "Other Datasheets:\n"
-                                "6x Kataphron Breachers [320 pts]: Heavy arc rifle, Hydraulic claw\n"
-                                "10x Pteraxii Sterylizors [150 pts]: Phosphor torch, Pteraxii talons\n"
-                                "3x Ironstrider Ballistarii [210 pts]: Twin cognis lascannon\n"
-                                "Skorpius Disintegrator [175 pts]: Ferrumite cannon, 3x Cognis heavy stubber\n\n"
-                                "Created with Best Coast Pairings"
+                                f"{p_det} (2,000 Points)\n"
+                                f"{p_fac}\n"
+                                "Haloscreed Battle Clade\n"
+                                f"{p_det}\n\n"
+                                "ATTACHED UNITS\n\n"
+                                "Attached unit 1\n"
+                                "Cybernetica Datasmith (35 Points):\n"
+                                "  • 1x Mechanicus pistol\n"
+                                "  • 1x Power fist\n"
+                                "Kastelan Robots (360 Points):\n"
+                                "  • 4x Kastelan Robot\n"
+                                "    • 4x Heavy phosphor blaster\n"
+                                "    • 4x Twin Kastelan fist\n\n"
+                                "CHARACTERS\n\n"
+                                "Belisarius Cawl (150 Points):\n"
+                                "  • Warlord\n"
+                                "  • 1x Arc scourge\n"
+                                "  • 1x Solar atomiser\n"
+                                "Skitarii Marshal (35 Points):\n"
+                                "  • 1x Control stave\n"
+                                "Technoarcheologist (45 Points):\n"
+                                "  • 1x Servo-arc claw\n\n"
+                                "BATTLELINE\n\n"
+                                "Skitarii Vanguard (90 Points):\n"
+                                "  • 10x Skitarii Vanguard\n"
+                                "Skitarii Rangers (85 Points):\n"
+                                "  • 10x Skitarii Ranger\n\n"
+                                "OTHER DATASHEETS\n\n"
+                                "Kataphron Breachers (320 Points):\n"
+                                "  • 6x Kataphron Breacher\n"
+                                "Pteraxii Sterylizors (150 Points):\n"
+                                "  • 10x Pteraxii Sterylizor\n"
+                                "Skorpius Disintegrator (175 Points):\n"
+                                "  • 1x Ferrumite cannon\n"
                             )
                         elif "ork" in fac_low:
                             roster_body = (
-                                f"++ Army Roster ++ ({p_fac}) [2,000 pts]\n\n"
-                                f"Force Disposition: {p_det}\n\n"
-                                "Characters:\n"
-                                "Ghazghkull Thraka [235 pts]: Gork's Klaw, Mork's Roar, Makari (Warlord)\n"
-                                "Warboss [65 pts]: Attack squig, Power klaw\n"
-                                "Beastboss [80 pts]: Beast Snagga klaw, Beastchoppa\n\n"
-                                "Battleline:\n"
-                                "10x Beast Snagga Boyz [95 pts]: Choppa, Slugga\n"
-                                "10x Boyz [80 pts]: Power klaw, Choppa\n\n"
-                                "Dedicated Transport:\n"
-                                "2x Trukk [130 pts]: Big shoota, Wreckin' ball\n\n"
-                                "Other Datasheets:\n"
-                                "6x Meganobz [210 pts]: Killsaw, Power klaw\n"
-                                "10x Nobz [210 pts]: Power klaw, Slugga\n"
-                                "4x Squighog Boyz [160 pts]: Saddlegit weapons, Squighog jaws\n"
-                                "10x Gretchin [40 pts]: Grot blasta, Runtherd\n\n"
-                                "Created with Best Coast Pairings"
+                                "META (2,000 Points)\n"
+                                f"{p_fac}\n"
+                                "Blitz Brigade, Runt Swarm and Wreckas\n"
+                                f"{p_det} (2,000 Points)\n\n"
+                                "ATTACHED UNITS\n\n"
+                                "Attached unit 1\n"
+                                "Zodgrod Wortsnagga (80 Points):\n"
+                                "  • 1x Da Grabzappa\n"
+                                "  • 1x Squigstoppa\n"
+                                "Gretchin (80 Points):\n"
+                                "  • 20x Gretchin\n"
+                                "  • 2x Runtherd\n\n"
+                                "CHARACTERS\n\n"
+                                "Ghazghkull Thraka (235 Points):\n"
+                                "  • Warlord\n"
+                                "  • 1x Gork's Klaw\n"
+                                "Warboss (65 Points):\n"
+                                "  • 1x Attack squig\n"
+                                "  • 1x Power klaw\n"
+                                "Beastboss (80 Points):\n"
+                                "  • 1x Beast Snagga klaw\n\n"
+                                "BATTLELINE\n\n"
+                                "Beast Snagga Boyz (95 Points):\n"
+                                "  • 10x Beast Snagga Boy\n"
+                                "Boyz (80 Points):\n"
+                                "  • 10x Boy\n\n"
+                                "DEDICATED TRANSPORTS\n\n"
+                                "Trukk (65 Points):\n"
+                                "  • 1x Big shoota\n\n"
+                                "OTHER DATASHEETS\n\n"
+                                "Meganobz (210 Points):\n"
+                                "  • 6x Meganob\n"
+                                "Squighog Boyz (160 Points):\n"
+                                "  • 4x Squighog Boy\n"
                             )
                         else:
                             roster_body = (
@@ -5813,10 +6086,36 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path in ("api/nr/detachments", "api/armylists/nr_detachments"):
-            from newrecruit_integration import get_nr_detachments_catalog
+            from newrecruit_integration import get_nr_aos_formations_catalog, get_nr_detachments_catalog
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             force_refresh = str((qs.get("refresh") or ["0"])[0]).lower() in ("1", "true", "yes")
-            payload = get_nr_detachments_catalog(force_refresh=force_refresh)
+            game_sys = str((qs.get("game_system") or [""])[0]).strip().lower()
+            if game_sys == "aos":
+                payload = get_nr_aos_formations_catalog(force_refresh=force_refresh)
+            else:
+                payload = get_nr_detachments_catalog(force_refresh=force_refresh)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(payload, default=str).encode("utf-8"))
+            return
+
+        if clean_path in ("api/nr/aos/battle_formations", "api/armylists/nr_aos_formations"):
+            from newrecruit_integration import get_nr_aos_formations_catalog
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            force_refresh = str((qs.get("refresh") or ["0"])[0]).lower() in ("1", "true", "yes")
+            payload = get_nr_aos_formations_catalog(force_refresh=force_refresh)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(payload, default=str).encode("utf-8"))
+            return
+
+        if clean_path == "api/nr/bundle_status":
+            from newrecruit_integration import get_nr_offline_bundle_refresh_status
+            payload = get_nr_offline_bundle_refresh_status()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -5852,7 +6151,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": True, "army_lists": lists, "lists": lists, "source": "newrecruit"}, default=str).encode("utf-8"))
             return
 
-        if clean_path.startswith("api/armylists/") and clean_path not in ("api/armylists/nr_state", "api/armylists/nr_sync", "api/armylists/nr_cloud_connect", "api/armylists/nr_detachments"):
+        if clean_path.startswith("api/armylists/") and clean_path not in ("api/armylists/nr_state", "api/armylists/nr_sync", "api/armylists/nr_cloud_connect", "api/armylists/nr_detachments", "api/armylists/nr_aos_formations"):
             from newrecruit_integration import fetch_nr_cloud_lists_for_user
             lid = urllib.parse.unquote(clean_path.split("/", 2)[2])
             raw_key = re.sub(r"^(nr_|list_)", "", lid)

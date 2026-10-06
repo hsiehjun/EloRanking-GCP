@@ -405,15 +405,41 @@ class ArmyListParser:
                 or str(roster.get("faction") or "") not in ("", "Warhammer 40,000")
             )
         )
+        # Infer game_system = 'aos' when faction or raw_text clearly belongs to Age of Sigmar 4.0
+        fac_low = str(roster.get("faction") or "").strip().lower()
+        aos_faction_names = {
+            "stormcast eternals", "stormcast", "cities of sigmar", "daughters of khaine", "fyreslayers",
+            "idoneth deepkin", "kharadron overlords", "lumineth realm-lords", "lumineth realm lords", "lumineth",
+            "seraphon", "sylvaneth", "blades of khorne", "khorne", "disciples of tzeentch", "tzeentch",
+            "hedonites of slaanesh", "slaanesh", "maggotkin of nurgle", "nurgle", "skaven", "slaves to darkness",
+            "helsmiths of hashut", "chaos dwarfs", "beasts of chaos", "flesh-eater courts", "flesh eater courts",
+            "nighthaunt", "ossiarch bonereapers", "soulblight gravelords", "gloomspite gitz", "ironjawz",
+            "kruleboyz", "orruk warclans", "ogor mawtribes", "sons of behemat", "bonesplitterz",
+        }
+        if not roster.get("game_system") or roster.get("game_system") == "40k":
+            if (
+                fac_low in aos_faction_names
+                or fac_low.replace("-", " ") in aos_faction_names
+                or any(k in raw_txt.upper() for k in ("BATTLE FORMATION:", "GENERAL'S REGIMENT", "MANIFESTATION LORE:", "PRAYER LORE:"))
+            ):
+                roster["game_system"] = "aos"
+                roster["system_edition"] = roster.get("system_edition") if str(roster.get("system_edition") or "").startswith("AoS") else "AoS 4.0"
+
         roster["is_newrecruit_compatible"] = bool(has_nr_row or has_valid_units)
         roster["created_by_newrecruit"] = bool(is_nr_export and (has_nr_row or len(units) > 0))
         if len(units) > 0 or native_gw or native_nr:
-            is_input_nr = bool(raw_txt.startswith("++++") or "+ FACTION KEYWORD:" in raw_txt.upper())
+            is_input_nr = bool(raw_txt.startswith("++++") or "+ FACTION KEYWORD:" in raw_txt.upper() or "+ BATTLE FORMATION:" in raw_txt.upper())
             is_input_gw = bool(
                 not is_input_nr
                 and raw_txt
                 and not raw_txt.startswith(("{", "<"))
-                and any(h in raw_txt.upper() for h in ("CHARACTERS", "BATTLELINE", "OTHER DATASHEETS", "ATTACHED UNITS", "STRIKE FORCE", "INCURSION"))
+                and any(
+                    h in raw_txt.upper()
+                    for h in (
+                        "CHARACTERS", "BATTLELINE", "OTHER DATASHEETS", "ATTACHED UNITS",
+                        "STRIKE FORCE", "INCURSION", "GENERAL'S REGIMENT", "REGIMENT 1", "BATTLE FORMATION",
+                    )
+                )
             )
             valid_gw_cand = gw_cand if (gw_cand and not gw_cand.startswith("++++") and "+ FACTION KEYWORD:" not in gw_cand.upper()) else ""
             valid_nr_cand = nr_cand if (nr_cand and (nr_cand.startswith("++++") or "+ FACTION KEYWORD:" in nr_cand.upper() or "++ " in nr_cand)) else ""
@@ -461,7 +487,11 @@ class ArmyListParser:
         # 5. Text Format Detection
         if not res:
             content_up = content.upper()
-            if "FACTION KEYWORD:" in content_up or (content.startswith("++") and "TOTAL ARMY POINTS" in content_up):
+            if (
+                "FACTION KEYWORD:" in content_up
+                or "+ BATTLE FORMATION:" in content_up
+                or (content.startswith("++") and "TOTAL ARMY POINTS" in content_up)
+            ):
                 res = self._parse_newrecruit_text(content)
             elif "++ ARMY ROSTER" in content_up or "+ EPIC HERO +" in content_up or "+ CHARACTER +" in content_up:
                 res = self._parse_battlescribe_text(content)
@@ -471,6 +501,8 @@ class ArmyListParser:
                 or "OTHER DATASHEETS" in content
                 or "ATTACHED UNITS" in content_up
                 or "ATTACHED UNIT 1" in content_up
+                or "GENERAL'S REGIMENT" in content_up
+                or "REGIMENT 1" in content_up
                 or "DETACHMENT POINTS)" in content_up
                 or "FORCE DISPOSITIONS:" in content_up
                 or "EXPORTED WITH APP VERSION" in content_up
@@ -765,10 +797,30 @@ class ArmyListParser:
         if nr_row.get("list_key") or nr_row.get("army"):
             roster["nr_row"] = nr_row
 
+        def _split_faction_and_aor(raw_fac: str) -> Tuple[str, Optional[str]]:
+            clean_f = str(raw_fac or "").replace("[LEGENDS]", "").strip()
+            if " - " not in clean_f:
+                return clean_f, None
+            parts = [p.strip() for p in clean_f.split(" - ") if p.strip()]
+            if len(parts) < 2:
+                return clean_f, None
+            superfactions = {
+                "imperium", "chaos", "xenos", "aeldari",
+                "order", "death", "destruction",
+                "grand alliance order", "grand alliance chaos", "grand alliance death", "grand alliance destruction",
+            }
+            if parts[0].lower() in superfactions:
+                return parts[-1], None
+            if is_aos:
+                # In AoS 4.0, '<Faction> - <Army of Renown>' has the faction first and AoR second
+                return parts[0], parts[1]
+            return parts[-1], None
+
+        aor_detachment: Optional[str] = None
         faction = data.get("faction") or data.get("_omnitactica_book_name") or data.get("book_name") or ""
         if not faction and (data.get("id_book") or data.get("bsid_book")):
             try:
-                from newrecruit_integration import NR_40K_FACTION_BOOKS, NR_AOS_FACTION_BOOKS
+                from newrecruit_integration import NR_40K_FACTION_BOOKS, NR_AOS_FACTION_BOOKS, _read_nr_offline_entry, NR_AOS_SYSTEM_ID
                 target_book_id = data.get("id_book")
                 target_bsid = str(data.get("bsid_book") or "")
                 books_to_search = (
@@ -780,17 +832,32 @@ class ArmyListParser:
                     if (target_book_id and str(bid) == str(target_book_id)) or (target_bsid and bsid == target_bsid):
                         faction = bname
                         break
+                if not faction and is_aos and target_book_id:
+                    lib_bytes = _read_nr_offline_entry("rpc/get_library.json")
+                    if lib_bytes:
+                        lib_data = json.loads(lib_bytes.decode("utf-8", errors="ignore"))
+                        lib_arr = lib_data if isinstance(lib_data, list) else lib_data.get("array", [])
+                        for sys_obj in lib_arr:
+                            if isinstance(sys_obj, dict) and int(sys_obj.get("id") or 0) == NR_AOS_SYSTEM_ID:
+                                b_arr = sys_obj.get("books")
+                                if isinstance(b_arr, dict):
+                                    b_arr = b_arr.get("array", [])
+                                for b in (b_arr or []):
+                                    if isinstance(b, dict) and str(b.get("id")) == str(target_book_id):
+                                        faction = str(b.get("name") or "").strip()
+                                        break
             except Exception:
                 pass
         if not faction:
             faction = "Stormcast Eternals" if is_aos else roster["faction"]
         if is_aos and faction == "Space Marines":
             faction = "Stormcast Eternals"
-        if " - " in faction:
-            faction = faction.split(" - ")[-1].strip()
+        faction, aor_cand = _split_faction_and_aor(faction)
+        if aor_cand:
+            aor_detachment = aor_cand
         roster["faction"] = faction
 
-        default_detachment = "Battle Formation" if is_aos else "Core Detachment"
+        default_detachment = aor_detachment or ("Battle Formation" if is_aos else "Core Detachment")
         detachment = str(data.get("_omnitactica_detachment") or data.get("detachment") or default_detachment).strip()
         warlord = data.get("warlord") or None
         units: List[Dict[str, Any]] = []
@@ -798,25 +865,37 @@ class ArmyListParser:
         if army:
             army_root_name = str(army.get("name") or "").strip()
             if " - " in army_root_name:
-                faction = army_root_name.split(" - ")[-1].strip()
+                f_part, a_part = _split_faction_and_aor(army_root_name)
+                if f_part:
+                    faction = f_part
+                if a_part and detachment in ("Battle Formation", "Core Detachment"):
+                    detachment = a_part
             elif army_root_name and army_root_name not in (
                 "Army Roster", "New Roster", "Roster", "Force",
                 "Warhammer 40,000", "Warhammer 40,000 11th Edition",
                 "Age of Sigmar 4.0", "Warhammer Age of Sigmar",
             ):
-                faction = army_root_name
+                faction = army_root_name.replace("[LEGENDS]", "").strip()
 
             def find_army_roster_node(node: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-                nonlocal faction
+                nonlocal faction, detachment
                 name = str(node.get("name") or "").strip()
                 if " - " in name:
-                    faction = name.split(" - ")[-1].strip()
+                    f_p, a_p = _split_faction_and_aor(name)
+                    if f_p:
+                        faction = f_p
+                    if a_p and detachment in ("Battle Formation", "Core Detachment"):
+                        detachment = a_p
                 for opt in node.get("options") or []:
                     if not isinstance(opt, dict):
                         continue
                     opt_n = str(opt.get("name") or "").strip()
                     if " - " in opt_n:
-                        faction = opt_n.split(" - ")[-1].strip()
+                        f_p, a_p = _split_faction_and_aor(opt_n)
+                        if f_p:
+                            faction = f_p
+                        if a_p and detachment in ("Battle Formation", "Core Detachment"):
+                            detachment = a_p
                     if opt_n in ("Army Roster", "Force", "Primary Detachment"):
                         return opt
                     res = find_army_roster_node(opt)
@@ -845,9 +924,9 @@ class ArmyListParser:
                         if sub.get("options"):
                             for sub_sub in sub.get("options") or []:
                                 if isinstance(sub_sub, dict) and sub_sub.get("name"):
-                                    detachment = str(sub_sub.get("name")).strip()
+                                    detachment = str(sub_sub.get("name")).replace("۞", "").strip()
                         elif sub.get("name") and str(sub.get("name")).strip() not in ("Detachment", "Detachment Choice", "Battle Formation", "Battle Formations"):
-                            detachment = str(sub.get("name")).strip()
+                            detachment = str(sub.get("name")).replace("۞", "").strip()
                 elif c_name == "Battle Size" or "battle size" in c_low:
                     for sub in cfg_node.get("options") or []:
                         if not isinstance(sub, dict):
@@ -1461,13 +1540,17 @@ class ArmyListParser:
         warlord = ""
         det_rule_inline = ""
 
-        fac_match = re.search(r"FACTION KEYWORD:\s*(?:Xenos|Imperium|Chaos)?\s*-?\s*([^\n\r\+]+)", text, re.IGNORECASE)
+        fac_match = re.search(
+            r"FACTION KEYWORD:\s*(?:Xenos|Imperium|Chaos|Order|Death|Destruction)?\s*-?\s*([^\n\r\+]+)",
+            text,
+            re.IGNORECASE,
+        )
         if fac_match:
             faction = fac_match.group(1).replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
 
-        det_match = re.search(r"DETACHMENT:\s*([^\n\r\+]+)", text, re.IGNORECASE)
+        det_match = re.search(r"(?:DETACHMENT|BATTLE FORMATION|ARMY OF RENOWN):\s*([^\n\r\+]+)", text, re.IGNORECASE)
         if det_match:
-            raw_det = det_match.group(1).replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
+            raw_det = det_match.group(1).replace('\u00a0', ' ').replace('&nbsp;', ' ').replace('۞', '').strip()
             paren_m = re.search(r'\((.*?)\)', raw_det)
             if paren_m:
                 det_rule_inline = paren_m.group(1).strip()
@@ -1707,12 +1790,18 @@ class ArmyListParser:
             "FORTIFICATIONS": "Fortification",
             "ATTACHED UNITS": "Character",
             "UNATTACHED UNITS": "Infantry",
+            "GENERAL'S REGIMENT": "Hero",
+            "GENERALS REGIMENT": "Hero",
+            "AUXILIARY UNITS": "Infantry",
+            "AUXILIARIES": "Infantry",
+            "FACTION TERRAIN": "Fortification",
+            "REGIMENTS OF RENOWN": "Allied",
         }
 
         first_cat_idx = len(lines)
         for i, l in non_empty_lines:
-            upper = l.upper()
-            if upper in header_roles or re.match(r"^ATTACHED\s+UNIT(S)?(\s+\d+)?$", upper):
+            upper = l.upper().replace("’", "'")
+            if upper in header_roles or re.match(r"^(?:ATTACHED\s+UNIT(S)?|REGIMENT)(\s+\d+)?$", upper):
                 first_cat_idx = i
                 break
 
@@ -1731,10 +1820,22 @@ class ArmyListParser:
             "Adeptus Mechanicus", "Astra Militarum", "Imperial Knights", "Chaos Space Marines",
             "Death Guard", "Thousand Sons", "World Eaters", "Chaos Knights", "Chaos Daemons",
             "Tyranids", "Genestealer Cults", "Necrons", "Orks", "T'au Empire", "Aeldari",
-            "Drukhari", "Leagues of Votann", "Imperial Agents", "Emperor's Children"
+            "Drukhari", "Leagues of Votann", "Imperial Agents", "Emperor's Children",
+            # Age of Sigmar 4.0 Factions
+            "Stormcast Eternals", "Cities of Sigmar", "Daughters of Khaine", "Fyreslayers",
+            "Idoneth Deepkin", "Kharadron Overlords", "Lumineth Realm-lords", "Seraphon",
+            "Sylvaneth", "Blades of Khorne", "Disciples of Tzeentch", "Hedonites of Slaanesh",
+            "Maggotkin of Nurgle", "Skaven", "Slaves to Darkness", "Helsmiths of Hashut",
+            "Beasts of Chaos", "Flesh-eater Courts", "Nighthaunt", "Ossiarch Bonereapers",
+            "Soulblight Gravelords", "Gloomspite Gitz", "Ironjawz", "Kruleboyz",
+            "Orruk Warclans", "Ogor Mawtribes", "Sons of Behemat", "Bonesplitterz",
         ]
 
-        battle_sizes = ["strike force", "incursion", "combat patrol", "onslaught", "boarding patrol", "reconnaissance", "priority assets", "crusade"]
+        battle_sizes = [
+            "strike force", "incursion", "combat patrol", "onslaught",
+            "boarding patrol", "reconnaissance", "priority assets", "crusade",
+            "pitched battle", "battlehost", "vanguard",
+        ]
 
         if header_lines:
             first_line = header_lines[0]
@@ -1747,14 +1848,15 @@ class ArmyListParser:
                 except Exception:
                     points = 2000
 
-            # 1. Match Faction & Battle Size Points Limit
-            for hl in header_lines[1:]:
+            # 1. Match Faction & Battle Size Points Limit across all header_lines (including first_line)
+            for hl in header_lines:
                 hl_clean = hl.strip()
                 hl_lower = hl_clean.lower()
-                for kf in known_factions:
-                    if kf.lower() in hl_lower:
-                        faction = kf
-                        break
+                if faction == "Warhammer 40,000":
+                    for kf in known_factions:
+                        if kf.lower() in hl_lower:
+                            faction = kf
+                            break
                 if any(bs in hl_lower for bs in battle_sizes):
                     m_bs_pts = re.search(r"\((?:([\d,]+)\s*pts|([\d,]+)\s*points)\)", hl_clean, re.IGNORECASE)
                     if m_bs_pts:
@@ -1763,10 +1865,28 @@ class ArmyListParser:
                         except Exception:
                             pass
 
-            # 2. Match Detachment (prioritize lines with explicit Detachment / Detachment Points)
+            # Check if first_line is `<Faction> - <Detachment/Army of Renown>`
+            first_line_sub = ""
+            if " - " in roster_name:
+                parts = roster_name.split(" - ", 1)
+                first_line_sub = parts[1].strip()
+                if faction == "Warhammer 40,000":
+                    for kf in known_factions:
+                        if kf.lower() in parts[0].lower():
+                            faction = kf
+                            break
+
+            # 2. Match Detachment / Battle Formation
             found_explicit_det = False
             for hl in header_lines[1:]:
                 hl_clean = hl.strip()
+                m_bf = re.search(r"(?:Battle\s+Formation|Detachment|Army\s+of\s+Renown)\s*:\s*(.+)$", hl_clean, re.IGNORECASE)
+                if m_bf:
+                    det_clean = re.sub(r"\(.*?\)", "", m_bf.group(1)).replace("۞", "").strip()
+                    if det_clean:
+                        detachment = det_clean
+                        found_explicit_det = True
+                        break
                 if re.search(r"\bDetachment(?:\s+Points)?\b", hl_clean, re.IGNORECASE):
                     det_clean = re.sub(r"\(\s*\d+\s*Detachment\s*Points\s*\)", "", hl_clean, flags=re.IGNORECASE).strip()
                     det_clean = re.sub(r"\(.*?\)", "", det_clean).strip()
@@ -1774,6 +1894,9 @@ class ArmyListParser:
                         detachment = det_clean
                         found_explicit_det = True
                         break
+            if not found_explicit_det and first_line_sub:
+                detachment = first_line_sub
+                found_explicit_det = True
 
             if not found_explicit_det:
                 superfaction_tokens = {"xenos", "imperium", "chaos", "order", "death", "destruction", "grand alliance order", "grand alliance chaos", "grand alliance death", "grand alliance destruction", "warhammer 40,000", "age of sigmar"}
@@ -1786,7 +1909,9 @@ class ArmyListParser:
                         continue
                     if any(kf.lower() in hl_lower for kf in known_factions):
                         continue
-                    det_clean = re.sub(r"\(.*?\)", "", hl_clean).strip()
+                    if hl_lower.startswith(("spell lore:", "prayer lore:", "manifestation lore:", "drops:")):
+                        continue
+                    det_clean = re.sub(r"\(.*?\)", "", hl_clean).replace("۞", "").strip()
                     if det_clean and det_clean.lower() not in superfaction_tokens and not any(bs in det_clean.lower() for bs in battle_sizes):
                         detachment = det_clean
                         break
@@ -1808,19 +1933,25 @@ class ArmyListParser:
             return False
 
         unit_line_re = re.compile(r"^([^\(\[]+?)\s*\((?:([\d,]+)\s*pts|([\d,]+)\s*points)\)", re.IGNORECASE)
-        enh_re = re.compile(r"^[•◦‣\-\*\s]*Enhancements?:\s*(.+?)(?:\s*\((?:Upgrade|\+?([\d,]+)\s*(?:pts?|points?))\))?$", re.IGNORECASE)
+        enh_re = re.compile(r"^[•◦‣\-\*\s]*(?:Enhancements?|Heroic Traits?|Artefacts?(?: of Power)?):\s*(.+?)(?:\s*\((?:Upgrade|\+?([\d,]+)\s*(?:pts?|points?))\))?$", re.IGNORECASE)
 
         for line in body_lines:
             trimmed = line.strip()
             if not trimmed or trimmed.lower().startswith(("exported with ", "created with ", "data version:")):
                 continue
 
-            upper = trimmed.upper()
+            upper = trimmed.upper().replace("’", "'")
             if upper in header_roles:
                 current_role = header_roles[upper]
                 current_unit = None
                 if upper != "ATTACHED UNITS":
                     current_attached_group = None
+                continue
+
+            if re.match(r"^REGIMENT\s+\d+$", upper):
+                current_role = "Hero"
+                current_unit = None
+                current_attached_group = None
                 continue
 
             # Subgroup separators inside attached units
@@ -1958,7 +2089,15 @@ class ArmyListParser:
             "Adeptus Mechanicus", "Astra Militarum", "Imperial Knights", "Chaos Space Marines",
             "Death Guard", "Thousand Sons", "World Eaters", "Chaos Knights", "Chaos Daemons",
             "Tyranids", "Genestealer Cults", "Necrons", "Orks", "T'au Empire", "Aeldari",
-            "Drukhari", "Leagues of Votann", "Imperial Agents", "Emperor's Children"
+            "Drukhari", "Leagues of Votann", "Imperial Agents", "Emperor's Children",
+            # Age of Sigmar 4.0 Factions
+            "Stormcast Eternals", "Cities of Sigmar", "Daughters of Khaine", "Fyreslayers",
+            "Idoneth Deepkin", "Kharadron Overlords", "Lumineth Realm-lords", "Seraphon",
+            "Sylvaneth", "Blades of Khorne", "Disciples of Tzeentch", "Hedonites of Slaanesh",
+            "Maggotkin of Nurgle", "Skaven", "Slaves to Darkness", "Helsmiths of Hashut",
+            "Beasts of Chaos", "Flesh-eater Courts", "Nighthaunt", "Ossiarch Bonereapers",
+            "Soulblight Gravelords", "Gloomspite Gitz", "Ironjawz", "Kruleboyz",
+            "Orruk Warclans", "Ogor Mawtribes", "Sons of Behemat", "Bonesplitterz",
         ]
 
         faction = "Warhammer 40,000"
@@ -1974,10 +2113,10 @@ class ArmyListParser:
                     faction = kf
                     break
 
-            m_det = re.search(r"(?:Detachment|DETACHMENT):\s*([^\n\r\|\+]+)", line, re.IGNORECASE)
+            m_det = re.search(r"(?:Detachment|DETACHMENT|Battle\s+Formation|BATTLE\s+FORMATION|Army\s+of\s+Renown):\s*([^\n\r\|\+]+)", line, re.IGNORECASE)
             if m_det:
-                detachment = m_det.group(1).strip()
-            elif " - " in line and any(kw in line.lower() for kw in ["task force", "detachment", "court", "spearhead", "host", "cadre", "phalanx", "fleet", "brotherhood", "crusade", "legion", "cult", "coven", "strike force", "swarm", "conclave", "horde", "clan", "cabal"]):
+                detachment = m_det.group(1).replace("۞", "").strip()
+            elif " - " in line and any(kw in line.lower() for kw in ["task force", "detachment", "court", "spearhead", "host", "cadre", "phalanx", "fleet", "brotherhood", "crusade", "legion", "cult", "coven", "strike force", "swarm", "conclave", "horde", "clan", "cabal", "wing", "echelon", "convocation", "stampede", "brawl", "menagerie", "procession", "cyst", "troggherd"]):
                 parts = line.split(" - ")
                 if len(parts) >= 2:
                     det_candidate = re.sub(r"[\(\[].*?[\)\]]", "", parts[-1]).strip()

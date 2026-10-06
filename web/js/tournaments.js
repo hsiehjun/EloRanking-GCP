@@ -5668,36 +5668,36 @@ function buildInAppStreamHudHtml(overlayData) {
   const p2Prob = 100 - p1Prob;
 
   return `
-    <div style="display: flex; align-items: stretch; justify-content: space-between; background: linear-gradient(90deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 41, 59, 0.96) 50%, rgba(15, 23, 42, 0.96) 100%); border: 1px solid rgba(56, 189, 248, 0.45); border-radius: 8px; overflow: hidden; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px);">
+    <div class="stream-hud-scoreboard-card" style="display: flex; align-items: stretch; justify-content: space-between; background: linear-gradient(90deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 41, 59, 0.96) 50%, rgba(15, 23, 42, 0.96) 100%); border: 1px solid rgba(56, 189, 248, 0.45); border-radius: 8px; overflow: hidden; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px);">
       <!-- Player 1 Wing (Cyan) -->
-      <div style="flex: 1; min-width: 0; padding: 0.45rem 0.75rem; border-left: 4px solid #38bdf8; display: flex; flex-direction: column; justify-content: center;">
+      <div class="stream-hud-wing stream-hud-wing-p1" style="flex: 1; min-width: 0; padding: 0.45rem 0.75rem; border-left: 4px solid #38bdf8; display: flex; flex-direction: column; justify-content: center;">
         <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 0;">
-          <span style="font-weight: 800; color: #fff; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p1Name)}</span>
-          <span style="font-size: 0.66rem; font-weight: 800; padding: 1px 5px; border-radius: 4px; background: rgba(56, 189, 248, 0.18); color: #38bdf8; font-family: var(--font-mono); flex-shrink: 0;">${Number(p1Elo || 1500).toFixed(0)} (${p1Prob}%)</span>
+          <span class="stream-hud-player-name" style="font-weight: 800; color: #fff; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p1Name)}</span>
+          <span class="stream-hud-elo-pill" style="font-size: 0.66rem; font-weight: 800; padding: 1px 5px; border-radius: 4px; background: rgba(56, 189, 248, 0.18); color: #38bdf8; font-family: var(--font-mono); flex-shrink: 0;">${Number(p1Elo || 1500).toFixed(0)} (${p1Prob}%)</span>
         </div>
-        <div style="font-size: 0.7rem; color: #7dd3fc; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+        <div class="stream-hud-faction-name" style="font-size: 0.7rem; color: #7dd3fc; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
           🛡️ ${escapeHtml(p1Fac)}
         </div>
       </div>
 
       <!-- Center Scoreboard Box -->
-      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(2, 6, 23, 0.92); border-left: 1px solid rgba(255,255,255,0.1); border-right: 1px solid rgba(255,255,255,0.1); padding: 0.35rem 0.85rem; min-width: 135px; flex-shrink: 0;">
-        <div style="font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #f59e0b; display: flex; align-items: center; gap: 4px;">
+      <div class="stream-hud-center-box" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(2, 6, 23, 0.92); border-left: 1px solid rgba(255,255,255,0.1); border-right: 1px solid rgba(255,255,255,0.1); padding: 0.35rem 0.85rem; min-width: 135px; flex-shrink: 0;">
+        <div class="stream-hud-table-tag" style="font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #f59e0b; display: flex; align-items: center; gap: 4px;">
           <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 6px #ef4444;"></span>
           <span>${escapeHtml(tableBadge)} • R${roundNum}</span>
         </div>
-        <div style="font-family: var(--font-mono); font-weight: 900; font-size: 1.15rem; color: #fff; line-height: 1.15; margin-top: 1px;">
+        <div class="stream-hud-score-val" style="font-family: var(--font-mono); font-weight: 900; font-size: 1.15rem; color: #fff; line-height: 1.15; margin-top: 1px;">
           ${escapeHtml(scoreStr)}
         </div>
       </div>
 
       <!-- Player 2 Wing (Rose) -->
-      <div style="flex: 1; min-width: 0; padding: 0.45rem 0.75rem; border-right: 4px solid #f43f5e; display: flex; flex-direction: column; justify-content: center; text-align: right;">
+      <div class="stream-hud-wing stream-hud-wing-p2" style="flex: 1; min-width: 0; padding: 0.45rem 0.75rem; border-right: 4px solid #f43f5e; display: flex; flex-direction: column; justify-content: center; text-align: right;">
         <div style="display: flex; align-items: center; justify-content: flex-end; gap: 0.4rem; min-width: 0;">
-          <span style="font-size: 0.66rem; font-weight: 800; padding: 1px 5px; border-radius: 4px; background: rgba(244, 63, 94, 0.18); color: #fda4af; font-family: var(--font-mono); flex-shrink: 0;">(${p2Prob}%) ${Number(p2Elo || 1500).toFixed(0)}</span>
-          <span style="font-weight: 800; color: #fff; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p2Name)}</span>
+          <span class="stream-hud-elo-pill" style="font-size: 0.66rem; font-weight: 800; padding: 1px 5px; border-radius: 4px; background: rgba(244, 63, 94, 0.18); color: #fda4af; font-family: var(--font-mono); flex-shrink: 0;">(${p2Prob}%) ${Number(p2Elo || 1500).toFixed(0)}</span>
+          <span class="stream-hud-player-name" style="font-weight: 800; color: #fff; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p2Name)}</span>
         </div>
-        <div style="font-size: 0.7rem; color: #fda4af; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+        <div class="stream-hud-faction-name" style="font-size: 0.7rem; color: #fda4af; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
           ${escapeHtml(p2Fac)} 🛡️
         </div>
       </div>
@@ -5712,6 +5712,8 @@ function toggleStreamHudOverlay() {
   const monitorHud = document.getElementById('live-monitor-hud-overlay');
   const modalBtn = document.getElementById('modal-stream-hud-toggle-btn');
   const monitorBtn = document.getElementById('monitor-stream-hud-toggle-btn');
+  const modalFsHudBtn = document.getElementById('modal-stream-fs-hud-btn');
+  const monitorFsHudBtn = document.getElementById('monitor-stream-fs-hud-btn');
 
   if (modalHud) modalHud.style.display = streamHudOverlayEnabled ? 'block' : 'none';
   if (monitorHud) monitorHud.style.display = streamHudOverlayEnabled ? 'block' : 'none';
@@ -5722,11 +5724,116 @@ function toggleStreamHudOverlay() {
     btn.style.background = streamHudOverlayEnabled ? 'rgba(56, 189, 248, 0.14)' : 'rgba(255, 255, 255, 0.05)';
     btn.style.color = streamHudOverlayEnabled ? '#38bdf8' : 'var(--text-muted)';
     btn.style.borderColor = streamHudOverlayEnabled ? 'rgba(56, 189, 248, 0.45)' : 'rgba(255, 255, 255, 0.15)';
+    btn.classList.toggle('active', streamHudOverlayEnabled);
   };
   applyBtnState(modalBtn);
   applyBtnState(monitorBtn);
+  applyBtnState(modalFsHudBtn);
+  applyBtnState(monitorFsHudBtn);
 }
 window.toggleStreamHudOverlay = toggleStreamHudOverlay;
+
+function getStreamStageFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || null;
+}
+
+function syncStreamFullscreenUiState() {
+  const fsEl = getStreamStageFullscreenElement();
+
+  // If the browser ever fullscreened the child <iframe> directly instead of the stage wrapper,
+  // upgrade fullscreen to the parent .stream-stage-fullscreen-wrap so the Live Score HUD stays visible!
+  if (fsEl && fsEl.tagName === 'IFRAME' && fsEl.parentElement && fsEl.parentElement.classList.contains('stream-stage-fullscreen-wrap')) {
+    const parentStage = fsEl.parentElement;
+    const reqFn = parentStage.requestFullscreen || parentStage.webkitRequestFullscreen || parentStage.msRequestFullscreen;
+    if (reqFn) {
+      Promise.resolve(reqFn.call(parentStage)).catch(() => {});
+      return;
+    }
+  }
+
+  const modalStage = document.getElementById('modal-stream-stage-wrap');
+  const monitorStage = document.getElementById('live-monitor-stage-wrap');
+  const isModalFs = Boolean(modalStage && (fsEl === modalStage || modalStage.classList.contains('is-pseudo-fullscreen')));
+  const isMonitorFs = Boolean(monitorStage && (fsEl === monitorStage || monitorStage.classList.contains('is-pseudo-fullscreen')));
+
+  if (modalStage) modalStage.classList.toggle('is-fullscreen', isModalFs);
+  if (monitorStage) monitorStage.classList.toggle('is-fullscreen', isMonitorFs);
+
+  const updateFsButton = (btn, isFs) => {
+    if (!btn) return;
+    btn.innerHTML = isFs ? '🗗 Exit Fullscreen' : '⛶ Fullscreen';
+    btn.classList.toggle('active', isFs);
+  };
+
+  updateFsButton(document.getElementById('modal-stream-fullscreen-btn'), isModalFs);
+  updateFsButton(document.getElementById('modal-stream-stage-fs-btn'), isModalFs);
+  updateFsButton(document.getElementById('monitor-stream-fullscreen-btn'), isMonitorFs);
+  updateFsButton(document.getElementById('monitor-stream-stage-fs-btn'), isMonitorFs);
+}
+window.syncStreamFullscreenUiState = syncStreamFullscreenUiState;
+
+function toggleStreamStageFullscreen(target = 'modal') {
+  const stageId = target === 'monitor' ? 'live-monitor-stage-wrap' : 'modal-stream-stage-wrap';
+  const stageEl = document.getElementById(stageId);
+  if (!stageEl) return;
+
+  const fsEl = getStreamStageFullscreenElement();
+  const isCurrentlyFs = fsEl === stageEl || (fsEl && stageEl.contains(fsEl)) || stageEl.classList.contains('is-pseudo-fullscreen');
+
+  if (isCurrentlyFs) {
+    stageEl.classList.remove('is-pseudo-fullscreen');
+    const exitFn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+    if (fsEl && exitFn) {
+      Promise.resolve(exitFn.call(document)).finally(syncStreamFullscreenUiState).catch(() => syncStreamFullscreenUiState());
+    } else {
+      syncStreamFullscreenUiState();
+    }
+    return;
+  }
+
+  // Request Fullscreen on the parent stage container (wrapping BOTH the <iframe> and the Score HUD overlay!)
+  const reqFn = stageEl.requestFullscreen || stageEl.webkitRequestFullscreen || stageEl.msRequestFullscreen;
+  if (reqFn) {
+    Promise.resolve(reqFn.call(stageEl))
+      .then(() => {
+        syncStreamFullscreenUiState();
+      })
+      .catch(() => {
+        // Fallback for headless/restricted environments where native Fullscreen API is blocked
+        stageEl.classList.toggle('is-pseudo-fullscreen');
+        syncStreamFullscreenUiState();
+      });
+  } else {
+    stageEl.classList.toggle('is-pseudo-fullscreen');
+    syncStreamFullscreenUiState();
+  }
+}
+window.toggleStreamStageFullscreen = toggleStreamStageFullscreen;
+
+if (!window._streamFullscreenListenersBound) {
+  window._streamFullscreenListenersBound = true;
+  document.addEventListener('fullscreenchange', syncStreamFullscreenUiState);
+  document.addEventListener('webkitfullscreenchange', syncStreamFullscreenUiState);
+  document.addEventListener('keydown', (e) => {
+    if (e.defaultPrevented) return;
+    const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+    const modal = document.getElementById('event-stream-modal');
+    const isModalOpen = modal && (modal.classList.contains('active') || modal.style.display === 'flex');
+    if (e.key === 'Escape') {
+      const modalStage = document.getElementById('modal-stream-stage-wrap');
+      const monitorStage = document.getElementById('live-monitor-stage-wrap');
+      if (modalStage?.classList.contains('is-pseudo-fullscreen') || monitorStage?.classList.contains('is-pseudo-fullscreen')) {
+        modalStage?.classList.remove('is-pseudo-fullscreen');
+        monitorStage?.classList.remove('is-pseudo-fullscreen');
+        syncStreamFullscreenUiState();
+      }
+    } else if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey && isModalOpen) {
+      e.preventDefault();
+      toggleStreamStageFullscreen('modal');
+    }
+  });
+}
 
 function hydrateStreamTrackerScoreAsync(eventId, overlayData) {
   if (!eventId || !overlayData || !overlayData.tableNum || overlayData.tableNum <= 0) return;
@@ -5779,11 +5886,29 @@ function openEventStreamModal(tableNum) {
   }
 
   updateEventStreamModalContent();
+
+  if (!eventLiveStreams || eventLiveStreams.length === 0) {
+    const evId = currentOpenEventId || currentEventData?.id || '';
+    if (evId && typeof loadEventLivestreams === 'function') {
+      loadEventLivestreams(evId).then(() => {
+        updateEventStreamModalContent();
+      }).catch(() => {});
+    }
+  }
 }
 window.openEventStreamModal = openEventStreamModal;
 window.openEventBroadcastTheater = openEventStreamModal;
 
 function closeEventStreamModal() {
+  const modalStage = document.getElementById('modal-stream-stage-wrap');
+  if (modalStage) {
+    modalStage.classList.remove('is-pseudo-fullscreen', 'is-fullscreen');
+  }
+  const fsEl = getStreamStageFullscreenElement();
+  if (fsEl && modalStage && (fsEl === modalStage || modalStage.contains(fsEl))) {
+    const exitFn = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exitFn) Promise.resolve(exitFn.call(document)).catch(() => {});
+  }
   if (typeof closeModal === 'function') {
     closeModal('event-stream-modal');
   } else {
@@ -5795,6 +5920,7 @@ function closeEventStreamModal() {
   }
   const iframe = document.getElementById('modal-stream-iframe');
   if (iframe) iframe.src = '';
+  syncStreamFullscreenUiState();
 }
 window.closeEventStreamModal = closeEventStreamModal;
 
@@ -5821,18 +5947,12 @@ function updateEventStreamModalContent() {
   const matches = (eventMatchesCache && eventMatchesCache.length > 0) ? eventMatchesCache : (ev.matches || []);
   const players = (eventPlayersCache && eventPlayersCache.length > 0) ? eventPlayersCache : (ev.players || []);
 
-  if (!eventLiveStreams || eventLiveStreams.length === 0) {
-    if (matchupContainer) {
-      matchupContainer.innerHTML = '<div style="color:var(--text-muted); padding:1rem; text-align:center;">No active broadcasts linked for this event.</div>';
-    }
-    if (modalHud) modalHud.innerHTML = '';
-    return;
-  }
-
   // Find active stream (either matching currentModalStreamTable or the active broadcaster stream)
-  const activeStream = eventLiveStreams.find(s => Number(s.tableNumber) === Number(currentModalStreamTable))
-    || eventLiveStreams[creatorActiveStreamIndex]
-    || eventLiveStreams[0];
+  const activeStream = (eventLiveStreams && eventLiveStreams.length > 0)
+    ? (eventLiveStreams.find(s => Number(s.tableNumber) === Number(currentModalStreamTable))
+      || eventLiveStreams[creatorActiveStreamIndex]
+      || eventLiveStreams[0])
+    : null;
 
   const tableNum = (currentModalStreamTable !== undefined && currentModalStreamTable !== null && !isNaN(Number(currentModalStreamTable)))
     ? Number(currentModalStreamTable)
@@ -5841,6 +5961,17 @@ function updateEventStreamModalContent() {
   const preferredRound = selectedCasterRound || activeStream?.roundNumber || ev.current_round || 1;
   const overlayData = resolveStreamTableMatchData(ev, players, matches, tableNum, preferredRound);
   const curRound = overlayData.roundNum;
+
+  if (!eventLiveStreams || eventLiveStreams.length === 0) {
+    if (modalHud) {
+      modalHud.style.display = streamHudOverlayEnabled ? 'block' : 'none';
+      modalHud.innerHTML = buildInAppStreamHudHtml(overlayData);
+    }
+    if (matchupContainer) {
+      matchupContainer.innerHTML = '<div style="color:var(--text-muted); padding:1rem; text-align:center;">No active broadcasts linked for this event.</div>';
+    }
+    return;
+  }
 
   // Build table switcher options: include all configured streams + tables from current/selected round
   if (select) {
@@ -6628,10 +6759,12 @@ function computeCasterPastH2hRecord(pastMatches, p1Pid, p2Pid, p1Name, p2Name) {
 
 function buildCasterPastH2hCardHtml(pastMatches, p1Pid, p2Pid, p1Name, p2Name, isLoading = false) {
   const rec = computeCasterPastH2hRecord(pastMatches, p1Pid, p2Pid, p1Name, p2Name);
-  const rowsHtml = (pastMatches || []).map(m => {
+  const cardsHtml = (pastMatches || []).map(m => {
     const isP1Side1 = isSameCasterPlayer(m.player1_id, m.player1_name, p1Pid, p1Name);
     const rawS1 = isP1Side1 ? m.player1_score : m.player2_score;
     const rawS2 = isP1Side1 ? m.player2_score : m.player1_score;
+    const facP1 = isP1Side1 ? (m.player1_faction || '') : (m.player2_faction || '');
+    const facP2 = isP1Side1 ? (m.player2_faction || '') : (m.player1_faction || '');
     const scoreP1 = (rawS1 !== null && rawS1 !== undefined) ? rawS1 : '-';
     const scoreP2 = (rawS2 !== null && rawS2 !== undefined) ? rawS2 : '-';
     const numS1 = Number(rawS1);
@@ -6642,13 +6775,13 @@ function buildCasterPastH2hCardHtml(pastMatches, p1Pid, p2Pid, p1Name, p2Name, i
     const isP2Winner = !m.is_draw && ((wId && isSameCasterPlayer(wId, '', p2Pid, '')) || (!isNaN(numS1) && !isNaN(numS2) && numS2 > numS1));
 
     let outcomeText = 'DRAW';
-    let badgeClass = 'badge-draw';
+    let badgeStyle = 'background: rgba(148, 163, 184, 0.16); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.35);';
     if (isP1Winner) {
-      outcomeText = `${p1Name.toUpperCase()} WIN`;
-      badgeClass = 'badge-win';
+      outcomeText = `🏆 ${p1Name.toUpperCase()} WIN`;
+      badgeStyle = 'background: rgba(56, 189, 248, 0.16); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4);';
     } else if (isP2Winner) {
-      outcomeText = `${p2Name.toUpperCase()} WIN`;
-      badgeClass = 'badge-win';
+      outcomeText = `🏆 ${p2Name.toUpperCase()} WIN`;
+      badgeStyle = 'background: rgba(16, 185, 129, 0.16); color: #4ade80; border: 1px solid rgba(16, 185, 129, 0.4);';
     }
 
     const eventName = m.event_name || (currentEventData && String(m.event_id) === String(currentEventData.id) ? currentEventData.name : 'Tournament');
@@ -6660,62 +6793,81 @@ function buildCasterPastH2hCardHtml(pastMatches, p1Pid, p2Pid, p1Name, p2Name, i
     const dateStr = String(m.match_date || '').slice(0, 10) || '-';
 
     return `
-      <tr>
-        <td style="font-family:var(--font-mono); color:var(--text-muted); font-size:0.82rem; white-space:nowrap;">${escapeHtml(dateStr)}</td>
-        <td>
-          ${eventId
-            ? `<span class="player-link" onclick="event.stopPropagation(); if (typeof openEventModal === 'function') openEventModal('${escapeHtml(safeEventId)}', false);" style="font-weight:700; color:#fff; cursor:pointer;" title="View Tournament Details">${escapeHtml(eventName)}</span>`
-            : `<span style="font-weight:700; color:#fff;">${escapeHtml(eventName)}</span>`
-          }
-        </td>
-        <td style="font-family:var(--font-mono); font-weight:700;">R${rNum}</td>
-        <td style="font-family:var(--font-mono); font-weight:800; color:${isP1Winner ? 'var(--win)' : 'var(--text-secondary)'};">${escapeHtml(String(scoreP1))}</td>
-        <td style="font-family:var(--font-mono); font-weight:800; color:${isP2Winner ? 'var(--win)' : 'var(--text-secondary)'};">${escapeHtml(String(scoreP2))}</td>
-        <td>
-          <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
-            <span class="badge ${badgeClass}">${escapeHtml(outcomeText)}</span>
-            ${scMatchId ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openScorecardModal('${escapeHtml(scMatchId.replace(/'/g, "\\'"))}')" style="font-size:0.68rem; padding:2px 6px; border-radius:4px; color:#38bdf8; border-color:rgba(56,189,248,0.35); cursor:pointer;">📄 Scorecard</button>` : ''}
+      <div style="background: rgba(9, 14, 26, 0.78); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 0.75rem 0.9rem; display: flex; flex-direction: column; gap: 0.55rem;">
+        <!-- Top Meta & Outcome Bar -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding-bottom: 0.45rem;">
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; min-width: 0;">
+            <span style="font-family: var(--font-mono); font-size: 0.73rem; color: var(--text-muted); background: rgba(255,255,255,0.04); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.06); white-space: nowrap;">
+              📅 ${escapeHtml(dateStr)}
+            </span>
+            <span style="font-family: var(--font-mono); font-size: 0.72rem; font-weight: 800; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.28); white-space: nowrap;">
+              Round ${rNum}
+            </span>
+            ${eventId
+              ? `<span class="player-link" onclick="event.stopPropagation(); if (typeof openEventModal === 'function') openEventModal('${escapeHtml(safeEventId)}', false);" style="font-weight: 700; font-size: 0.82rem; color: #f8fafc; cursor: pointer; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.25); text-underline-offset: 2px;" title="View Tournament Details">${escapeHtml(eventName)}</span>`
+              : `<span style="font-weight: 700; font-size: 0.82rem; color: #f8fafc;">${escapeHtml(eventName)}</span>`
+            }
           </div>
-        </td>
-      </tr>
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-left: auto;">
+            <span class="badge" style="${badgeStyle} font-size: 0.68rem; font-weight: 800; padding: 2px 8px;">
+              ${escapeHtml(outcomeText)}
+            </span>
+            ${scMatchId ? `
+              <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openScorecardModal('${escapeHtml(scMatchId.replace(/'/g, "\\'"))}')" style="font-size: 0.68rem; padding: 2px 7px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.08); cursor: pointer; font-weight: 700;">
+                📄 Scorecard
+              </button>
+            ` : ''}
+          </div>
+        </div>
+
+        <!-- Responsive VS Scoreboard Row -->
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 0.5rem;">
+          <!-- Player 1 Side -->
+          <div style="display: flex; flex-direction: column; min-width: 0; gap: 2px;">
+            <div style="font-weight: 800; font-size: 0.84rem; line-height: 1.2; color: ${isP1Winner ? '#fff' : '#cbd5e1'}; overflow-wrap: break-word;">
+              ${escapeHtml(p1Name)}
+            </div>
+            ${facP1 ? `<div style="font-size: 0.69rem; line-height: 1.2; color: #38bdf8; overflow-wrap: break-word;">🛡️ ${escapeHtml(facP1)}</div>` : ''}
+          </div>
+
+          <!-- Center Score Pill -->
+          <div style="display: inline-flex; align-items: center; gap: 0.35rem; background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 0.25rem 0.6rem; font-family: var(--font-mono); font-size: 0.92rem; font-weight: 900; flex-shrink: 0; white-space: nowrap;">
+            <span style="color: ${isP1Winner ? '#4ade80' : '#94a3b8'};">${escapeHtml(String(scoreP1))}</span>
+            <span style="color: rgba(255,255,255,0.28); font-size: 0.72rem; font-weight: 700;">—</span>
+            <span style="color: ${isP2Winner ? '#4ade80' : '#94a3b8'};">${escapeHtml(String(scoreP2))}</span>
+          </div>
+
+          <!-- Player 2 Side -->
+          <div style="display: flex; flex-direction: column; align-items: flex-end; text-align: right; min-width: 0; gap: 2px;">
+            <div style="font-weight: 800; font-size: 0.84rem; line-height: 1.2; color: ${isP2Winner ? '#fff' : '#cbd5e1'}; overflow-wrap: break-word; width: 100%;">
+              ${escapeHtml(p2Name)}
+            </div>
+            ${facP2 ? `<div style="font-size: 0.69rem; line-height: 1.2; color: #f43f5e; overflow-wrap: break-word; width: 100%;">🛡️ ${escapeHtml(facP2)}</div>` : ''}
+          </div>
+        </div>
+      </div>
     `;
   }).join('');
 
   return `
-    <div style="background: rgba(15, 23, 42, 0.72); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 1rem 1.15rem;">
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <h4 style="margin: 0; font-size: 0.94rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
-            <span>📜 Past Head-to-Head Encounters</span>
-          </h4>
-          <span class="badge" style="background: rgba(56, 189, 248, 0.14); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 0.7rem; font-weight: 700;">
-            ${rec.total > 0 ? `${rec.total} Past ${rec.total === 1 ? 'Match' : 'Matches'} • ${rec.summaryText}` : (isLoading ? 'Checking Career History...' : 'First Career Meeting')}
-          </span>
+    <div style="background: rgba(15, 23, 42, 0.72); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 0.95rem 1.1rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: ${cardsHtml ? '0.7rem' : '0.45rem'}; flex-wrap: wrap;">
+        <h4 style="margin: 0; font-size: 0.92rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
+          <span>📜 Past Head-to-Head Encounters</span>
+        </h4>
+        <span class="badge" style="background: rgba(56, 189, 248, 0.14); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 0.7rem; font-weight: 700;">
+          ${rec.total > 0 ? `${rec.total} Past ${rec.total === 1 ? 'Match' : 'Matches'} • ${rec.summaryText}` : (isLoading ? 'Checking Career History...' : 'First Career Meeting')}
+        </span>
+      </div>
+      ${cardsHtml ? `
+        <div style="display: flex; flex-direction: column; gap: 0.55rem;">
+          ${cardsHtml}
         </div>
-      </div>
-      <div class="table-responsive" style="margin: 0;">
-        <table class="data-table" style="margin: 0; font-size: 0.82rem;">
-          <thead>
-            <tr>
-              <th>DATE</th>
-              <th>TOURNAMENT</th>
-              <th>ROUND</th>
-              <th>PLAYER 1 SCORE (${escapeHtml(p1Name.toUpperCase())})</th>
-              <th>PLAYER 2 SCORE (${escapeHtml(p2Name.toUpperCase())})</th>
-              <th>OUTCOME</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml || `
-              <tr>
-                <td colspan="6" style="text-align:center; padding:1rem; color:var(--text-muted); font-size:0.8rem;">
-                  ${isLoading ? 'Loading past head-to-head encounters...' : `No previous head-to-head match encounters between ${escapeHtml(p1Name)} and ${escapeHtml(p2Name)}.`}
-                </td>
-              </tr>
-            `}
-          </tbody>
-        </table>
-      </div>
+      ` : `
+        <div style="background: rgba(9, 14, 26, 0.55); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 0.7rem 0.9rem; text-align: center; color: var(--text-muted); font-size: 0.78rem;">
+          ${isLoading ? 'Loading past head-to-head encounters...' : `🤝 No previous head-to-head tournament matches recorded between <strong>${escapeHtml(p1Name)}</strong> and <strong>${escapeHtml(p2Name)}</strong>.`}
+        </div>
+      `}
     </div>
   `;
 }
@@ -6987,10 +7139,40 @@ function renderEventCreatorHub(ev) {
 }
 window.renderEventCreatorHub = renderEventCreatorHub;
 
-function buildCasterFactionMasteryHtml(playerObj, profileData, accentColor) {
+function normalizeCasterFactionKey(raw) {
+  const s = String(raw || '').trim().toLowerCase()
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s) return '';
+  if (s === 'genestealer cult') return 'genestealer cults';
+  if (s === 'custodes') return 'adeptus custodes';
+  if (s === 'admech' || s === 'mechanicus') return 'adeptus mechanicus';
+  if (s === 'csm' || s === 'heretic astartes') return 'chaos space marines';
+  if (s === 'sm' || s === 'astartes' || s === 'adeptus astartes') return 'space marines';
+  if (s === 'guard' || s === 'imperial guard') return 'astra militarum';
+  if (s === 'sisters' || s === 'sisters of battle') return 'adepta sororitas';
+  if (s === 'daemons') return 'chaos daemons';
+  if (s === 'eldar' || s === 'craftworlds') return 'aeldari';
+  if (s === 'dark eldar') return 'drukhari';
+  if (s === 'tau' || s === 'tau empire') return 'tau empire';
+  return s;
+}
+
+function isSameCasterFaction(fA, fB) {
+  const kA = normalizeCasterFactionKey(fA);
+  const kB = normalizeCasterFactionKey(fB);
+  if (!kA || !kB) return false;
+  return kA === kB;
+}
+
+function buildCasterFactionMasteryHtml(playerObj, opponentObj, profileData, accentColor, eventMatches) {
   const curFac = formatEventPlayerFaction(playerObj?.faction || playerObj?.army_name || 'Army');
+  const oppFac = formatEventPlayerFaction(opponentObj?.faction || opponentObj?.army_name || 'Opponent Faction');
   const history = Array.isArray(profileData?.history) ? profileData.history : (Array.isArray(profileData?.win_path) ? profileData.win_path : []);
   const rawBreakdown = profileData?.faction_mastery || profileData?.factions_breakdown || [];
+  const rawMatrix = profileData?.matchup_matrix || [];
   let masteryList = [];
 
   if (typeof computeProfileFactionMastery === 'function' && (history.length > 0 || rawBreakdown.length > 0)) {
@@ -7017,96 +7199,209 @@ function buildCasterFactionMasteryHtml(playerObj, profileData, accentColor) {
   const evG = evW + evL + evD;
   const evNet = Number(playerObj?.event_net_elo || playerObj?._computed_net_elo || 0);
 
-  if (masteryList.length === 0) {
-    const careerW = Number(profileData?.player?.wins ?? playerObj?.wins ?? evW);
-    const careerL = Number(profileData?.player?.losses ?? playerObj?.losses ?? evL);
-    const careerD = Number(profileData?.player?.draws ?? playerObj?.draws ?? evD);
-    const careerG = Math.max(evG, careerW + careerL + careerD);
-    masteryList = [{
-      faction: curFac,
-      games: careerG,
-      wins: Math.max(evW, careerW),
-      losses: Math.max(evL, careerL),
-      draws: Math.max(evD, careerD),
-      net_elo: evNet,
-      win_rate: careerG > 0 ? (Math.max(evW, careerW) / careerG) * 100 : 0
-    }];
+  // 1. Compute Own Faction Mastery (how well this player pilots their current match faction)
+  const matchedOwnEntry = masteryList.find(m => isSameCasterFaction(m.faction, curFac));
+  const curEvName = String(currentEventData?.name || '').trim().toLowerCase();
+  const curEvId = String(currentEventData?.id || currentOpenEventId || '').trim().toLowerCase();
+  const historyHasCurrentEvent = history.some(h => {
+    const hEvId = String(h.event_id || '').trim().toLowerCase();
+    const hEvName = String(h.event_name || '').trim().toLowerCase();
+    return (curEvId && hEvId === curEvId) || (curEvName && hEvName === curEvName);
+  });
+
+  let ownWins = matchedOwnEntry ? Number(matchedOwnEntry.wins || 0) : 0;
+  let ownLosses = matchedOwnEntry ? Number(matchedOwnEntry.losses || 0) : 0;
+  let ownDraws = matchedOwnEntry ? Number(matchedOwnEntry.draws || 0) : 0;
+  let ownNetElo = matchedOwnEntry ? Number(matchedOwnEntry.net_elo || 0) : 0;
+
+  if (!historyHasCurrentEvent && evG > 0) {
+    ownWins += evW;
+    ownLosses += evL;
+    ownDraws += evD;
+    ownNetElo += evNet;
+  } else if (ownWins + ownLosses + ownDraws === 0 && evG > 0) {
+    ownWins = evW;
+    ownLosses = evL;
+    ownDraws = evD;
+    ownNetElo = evNet;
+  }
+  const ownGames = ownWins + ownLosses + ownDraws;
+  const ownWrNum = ownGames > 0 ? (ownWins / ownGames) * 100 : 0;
+
+  // 2. Compute Matchup Mastery vs. Opponent's Faction (how well this player plays into oppFac)
+  let vsWins = 0;
+  let vsLosses = 0;
+  let vsDraws = 0;
+  let vsNetElo = 0;
+  const seenVsKeys = new Set();
+
+  history.forEach((h, idx) => {
+    const hOppFac = h.opponent_faction || h.enemy_faction || h.opp_faction || '';
+    if (!isSameCasterFaction(hOppFac, oppFac)) return;
+    const key = `${String(h.event_id || h.event_name || idx).toLowerCase()}__${String(h.round || idx).toLowerCase()}__${String(h.opponent_name || '').toLowerCase()}`;
+    if (seenVsKeys.has(key)) return;
+    seenVsKeys.add(key);
+
+    const resStr = String(h.result || h.outcome || '').toUpperCase();
+    const pSc = h.player_score !== undefined ? Number(h.player_score) : NaN;
+    const oSc = h.opponent_score !== undefined ? Number(h.opponent_score) : NaN;
+    if (resStr === 'W' || resStr === 'WIN' || (!resStr && !isNaN(pSc) && !isNaN(oSc) && pSc > oSc)) {
+      vsWins++;
+    } else if (resStr === 'L' || resStr === 'LOSS' || (!resStr && !isNaN(pSc) && !isNaN(oSc) && oSc > pSc)) {
+      vsLosses++;
+    } else {
+      vsDraws++;
+    }
+    vsNetElo += Number(h.delta_elo || h.elo_change || 0);
+  });
+
+  // Also include completed matches from current event against oppFac if not already in career history
+  const pid = String(playerObj?.player_id || playerObj?.id || '').trim();
+  const pname = String(playerObj?.full_name || playerObj?.name || '').trim();
+  const evMatchList = Array.isArray(eventMatches) ? eventMatches : (Array.isArray(currentEventData?.matches) ? currentEventData.matches : []);
+  if (!historyHasCurrentEvent && evMatchList.length > 0) {
+    evMatchList.forEach(m => {
+      if (m.is_bye) return;
+      const isP1 = isSameCasterPlayer(m.player1_id, m.player1_name, pid, pname);
+      const isP2 = !isP1 && isSameCasterPlayer(m.player2_id, m.player2_name, pid, pname);
+      if (!isP1 && !isP2) return;
+      const mOppFac = isP1 ? (m.player2_faction || '') : (m.player1_faction || '');
+      if (!isSameCasterFaction(mOppFac, oppFac)) return;
+
+      const mySc = isP1 ? m.player1_score : m.player2_score;
+      const opSc = isP1 ? m.player2_score : m.player1_score;
+      const hasSc = mySc !== null && mySc !== undefined && opSc !== null && opSc !== undefined;
+      const wId = String(m.winner_id || '').trim();
+      if (!hasSc && !wId && !m.is_done) return;
+
+      const opName = isP1 ? (m.player2_name || '') : (m.player1_name || '');
+      const key = `${curEvId || curEvName}__r${m.round || 0}__${String(opName).toLowerCase()}`;
+      if (seenVsKeys.has(key)) return;
+      seenVsKeys.add(key);
+
+      const won = !m.is_draw && ((wId && isSameCasterPlayer(wId, '', pid, '')) || (hasSc && Number(mySc) > Number(opSc)));
+      const lost = !m.is_draw && !won && (Boolean(wId) || (hasSc && Number(opSc) > Number(mySc)));
+      if (won) {
+        vsWins++;
+        vsNetElo += 14.0;
+      } else if (lost) {
+        vsLosses++;
+        vsNetElo -= 11.5;
+      } else {
+        vsDraws++;
+      }
+    });
   }
 
-  const totalGames = masteryList.reduce((acc, m) => acc + Number(m.games || 0), 0);
-  const activeFacEntry = masteryList.find(m => m.faction.toLowerCase() === curFac.toLowerCase()) || masteryList[0];
-  const sigEntry = masteryList[0];
+  // Fallback to matchup_matrix if history didn't have individual vs-faction rows
+  if ((vsWins + vsLosses + vsDraws) === 0 && Array.isArray(rawMatrix) && rawMatrix.length > 0) {
+    const matEntry = rawMatrix.find(m => isSameCasterFaction(m.enemy_faction || m.opponent_faction || m.faction, oppFac));
+    if (matEntry) {
+      vsWins = Number(matEntry.wins || 0);
+      vsLosses = Number(matEntry.losses || 0);
+      vsDraws = Number(matEntry.draws || 0);
+      vsNetElo = Number(matEntry.net_elo || 0);
+    }
+  }
+
+  const vsGames = vsWins + vsLosses + vsDraws;
+  const vsWrNum = vsGames > 0 ? (vsWins / vsGames) * 100 : 0;
 
   const getMasteryTierBadge = (games, wr) => {
-    if (games >= 25 && wr >= 60) return { label: '👑 Grandmaster', bg: 'rgba(245, 158, 11, 0.18)', col: '#fbbf24', border: 'rgba(245, 158, 11, 0.45)' };
-    if (games >= 15 && wr >= 55) return { label: '🔥 Master', bg: 'rgba(168, 85, 247, 0.18)', col: '#c084fc', border: 'rgba(168, 85, 247, 0.45)' };
-    if (games >= 8) return { label: '⚔️ Veteran Specialist', bg: 'rgba(56, 189, 248, 0.15)', col: '#38bdf8', border: 'rgba(56, 189, 248, 0.35)' };
+    if (games >= 20 && wr >= 60) return { label: '👑 Grandmaster', bg: 'rgba(245, 158, 11, 0.18)', col: '#fbbf24', border: 'rgba(245, 158, 11, 0.45)' };
+    if (games >= 10 && wr >= 55) return { label: '🔥 Master', bg: 'rgba(168, 85, 247, 0.18)', col: '#c084fc', border: 'rgba(168, 85, 247, 0.45)' };
+    if (games >= 5) return { label: '⚔️ Veteran Specialist', bg: 'rgba(56, 189, 248, 0.15)', col: '#38bdf8', border: 'rgba(56, 189, 248, 0.35)' };
     return { label: '🛡️ Faction Adept', bg: 'rgba(148, 163, 184, 0.15)', col: '#cbd5e1', border: 'rgba(148, 163, 184, 0.3)' };
   };
 
-  const tierBadge = getMasteryTierBadge(activeFacEntry?.games || 0, activeFacEntry?.win_rate || 0);
-  const topArmies = masteryList.slice(0, 3);
+  const tierBadge = getMasteryTierBadge(ownGames, ownWrNum);
+  const totalGames = masteryList.reduce((acc, m) => acc + Number(m.games || 0), 0);
 
   const pData = profileData?.player || profileData || {};
   const careerElo = Number(pData.current_elo || playerObj?.current_elo || 1500);
   const peakElo = Math.max(careerElo, Number(pData.peak_elo || playerObj?.peak_elo || careerElo));
-  const careerWins = Number(pData.wins ?? totalGames > 0 ? masteryList.reduce((s, m) => s + m.wins, 0) : evW);
-  const careerLosses = Number(pData.losses ?? totalGames > 0 ? masteryList.reduce((s, m) => s + m.losses, 0) : evL);
+  const careerWins = Number(pData.wins ?? (totalGames > 0 ? masteryList.reduce((s, m) => s + m.wins, 0) : evW));
+  const careerLosses = Number(pData.losses ?? (totalGames > 0 ? masteryList.reduce((s, m) => s + m.losses, 0) : evL));
   const careerTotal = Math.max(1, careerWins + careerLosses + Number(pData.draws || 0));
   const careerWr = ((careerWins / careerTotal) * 100).toFixed(1);
   const maxStreak = Number(profileData?.longest_win_streak || profileData?.max_streak || 0);
 
+  const ownWrStr = ownWrNum.toFixed(1);
+  const ownNetStr = (ownNetElo >= 0 ? '+' : '') + ownNetElo.toFixed(1);
+  const ownBarCol = ownWrNum >= 55 ? '#10b981' : (ownWrNum >= 48 ? accentColor : '#f43f5e');
+
+  const vsWrStr = vsWrNum.toFixed(1);
+  const vsNetStr = (vsNetElo >= 0 ? '+' : '') + vsNetElo.toFixed(1);
+  const vsBarCol = vsGames === 0 ? 'rgba(148,163,184,0.35)' : (vsWrNum >= 55 ? '#10b981' : (vsWrNum >= 48 ? '#fbbf24' : '#f43f5e'));
+
   return `
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.45rem; margin-bottom: 0.65rem;">
-      <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 0.45rem 0.6rem;">
-        <div style="font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Peak Elo 👑</div>
-        <div style="font-family: var(--font-mono); font-size: 0.92rem; font-weight: 800; color: #fbbf24;">${peakElo.toFixed(1)}</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.35rem; margin-bottom: 0.65rem;">
+      <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 0.38rem 0.42rem; min-width: 0;">
+        <div style="font-size: 0.58rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; white-space: nowrap;">Peak Elo 👑</div>
+        <div style="font-family: var(--font-mono); font-size: 0.82rem; font-weight: 800; color: #fbbf24; white-space: nowrap;">${peakElo.toFixed(1)}</div>
       </div>
-      <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 0.45rem 0.6rem;">
-        <div style="font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Career Record</div>
-        <div style="font-family: var(--font-mono); font-size: 0.86rem; font-weight: 800; color: #fff;">${careerWins}W-${careerLosses}L <span style="color:#4ade80; font-size:0.74rem;">(${careerWr}%)</span></div>
+      <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 0.38rem 0.42rem; min-width: 0; overflow: hidden;">
+        <div style="font-size: 0.58rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; white-space: nowrap;">Career Record</div>
+        <div style="font-family: var(--font-mono); font-size: 0.74rem; font-weight: 800; color: #fff; display: flex; align-items: baseline; gap: 3px; flex-wrap: wrap; line-height: 1.15;"><span>${careerWins}W-${careerLosses}L</span><span style="color:#4ade80; font-size:0.64rem;">(${careerWr}%)</span></div>
       </div>
-      <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 0.45rem 0.6rem;">
-        <div style="font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Best Streak</div>
-        <div style="font-family: var(--font-mono); font-size: 0.88rem; font-weight: 800; color: #fb923c;">🔥 ${maxStreak > 0 ? `${maxStreak} Wins` : `${evW}W Event`}</div>
+      <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 0.38rem 0.42rem; min-width: 0;">
+        <div style="font-size: 0.58rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; white-space: nowrap;">Best Streak</div>
+        <div style="font-family: var(--font-mono); font-size: 0.76rem; font-weight: 800; color: #fb923c; white-space: nowrap;">🔥 ${maxStreak > 0 ? `${maxStreak} Wins` : `${evW}W Event`}</div>
       </div>
     </div>
 
     <div style="background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 0.65rem 0.75rem;">
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
-        <span style="font-size: 0.74rem; font-weight: 800; text-transform: uppercase; color: ${accentColor}; letter-spacing: 0.04em;">
-          🛡️ Faction Mastery (${escapeHtml(activeFacEntry?.faction || curFac)})
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; margin-bottom: 0.55rem; flex-wrap: wrap;">
+        <span style="font-size: 0.73rem; font-weight: 800; text-transform: uppercase; color: ${accentColor}; letter-spacing: 0.04em;">
+          🛡️ Faction & Matchup Mastery
         </span>
-        <span class="badge" style="background: ${tierBadge.bg}; color: ${tierBadge.col}; border: 1px solid ${tierBadge.border}; font-size: 0.68rem; font-weight: 800; padding: 2px 7px;">
+        <span class="badge" style="background: ${tierBadge.bg}; color: ${tierBadge.col}; border: 1px solid ${tierBadge.border}; font-size: 0.67rem; font-weight: 800; padding: 2px 7px;">
           ${tierBadge.label}
         </span>
       </div>
-      <div style="display: flex; flex-direction: column; gap: 0.45rem;">
-        ${topArmies.map((fm, idx) => {
-          const wr = Number(fm.win_rate || 0).toFixed(1);
-          const share = totalGames > 0 ? Math.round((fm.games / totalGames) * 100) : 100;
-          const net = Number(fm.net_elo || 0);
-          const netStr = (net >= 0 ? '+' : '') + net.toFixed(1);
-          const barCol = Number(wr) >= 55 ? '#10b981' : (Number(wr) >= 48 ? accentColor : '#f43f5e');
-          return `
-            <div style="display: flex; flex-direction: column; gap: 3px;">
-              <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.76rem;">
-                <span style="font-weight: 700; color: #f8fafc;">
-                  ${idx === 0 ? '★ ' : ''}${escapeHtml(fm.faction)}
-                  <span style="color: var(--text-muted); font-weight: 500; font-size: 0.7rem;">(${fm.games}G • ${share}% share)</span>
-                </span>
-                <span style="font-family: var(--font-mono); font-size: 0.75rem;">
-                  <strong style="color: ${barCol};">${wr}% WR</strong>
-                  <span style="color: var(--text-secondary);">(${fm.wins}W-${fm.losses}L)</span>
-                  <span style="color: ${net >= 0 ? '#4ade80' : '#f87171'}; margin-left: 4px;">${netStr} Elo</span>
-                </span>
-              </div>
-              <div style="width: 100%; height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
-                <div style="width: ${Math.min(100, Math.max(4, Number(wr)))}%; height: 100%; background: ${barCol};"></div>
-              </div>
-            </div>
-          `;
-        }).join('')}
+
+      <div style="display: flex; flex-direction: column; gap: 0.55rem;">
+        <!-- Row 1: Own Faction Proficiency -->
+        <div style="display: flex; flex-direction: column; gap: 4px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 0.45rem 0.55rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; flex-wrap: wrap; font-size: 0.75rem;">
+            <span style="font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 0.3rem;">
+              <span>🛡️ Playing as <strong>${escapeHtml(curFac)}</strong></span>
+              <span style="color: var(--text-muted); font-weight: 600; font-size: 0.68rem;">(${ownGames}G)</span>
+            </span>
+            <span style="font-family: var(--font-mono); font-size: 0.74rem;">
+              <strong style="color: ${ownBarCol};">${ownWrStr}% WR</strong>
+              <span style="color: var(--text-secondary);">(${ownWins}W-${ownLosses}L${ownDraws ? `-${ownDraws}D` : ''})</span>
+              <span style="color: ${ownNetElo >= 0 ? '#4ade80' : '#f87171'}; margin-left: 3px;">${ownNetStr} Elo</span>
+            </span>
+          </div>
+          <div style="width: 100%; height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+            <div style="width: ${Math.min(100, Math.max(4, ownWrNum))}%; height: 100%; background: ${ownBarCol};"></div>
+          </div>
+        </div>
+
+        <!-- Row 2: Matchup vs. Opponent's Faction -->
+        <div style="display: flex; flex-direction: column; gap: 4px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 0.45rem 0.55rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; flex-wrap: wrap; font-size: 0.75rem;">
+            <span style="font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 0.3rem;">
+              <span>🎯 Playing vs. <strong>${escapeHtml(oppFac)}</strong></span>
+              <span style="color: var(--text-muted); font-weight: 600; font-size: 0.68rem;">(${vsGames}G)</span>
+            </span>
+            ${vsGames > 0 ? `
+              <span style="font-family: var(--font-mono); font-size: 0.74rem;">
+                <strong style="color: ${vsBarCol};">${vsWrStr}% WR</strong>
+                <span style="color: var(--text-secondary);">(${vsWins}W-${vsLosses}L${vsDraws ? `-${vsDraws}D` : ''})</span>
+                <span style="color: ${vsNetElo >= 0 ? '#4ade80' : '#f87171'}; margin-left: 3px;">${vsNetStr} Elo</span>
+              </span>
+            ` : `
+              <span style="font-family: var(--font-mono); font-size: 0.71rem; color: var(--text-muted);">
+                No Prior Recorded Games
+              </span>
+            `}
+          </div>
+          <div style="width: 100%; height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+            <div style="width: ${vsGames > 0 ? Math.min(100, Math.max(4, vsWrNum)) : 0}%; height: 100%; background: ${vsBarCol};"></div>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -7114,9 +7409,10 @@ function buildCasterFactionMasteryHtml(playerObj, profileData, accentColor) {
 
 async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+  const evMatches = Array.isArray(ev?.matches) ? ev.matches : (Array.isArray(currentEventData?.matches) ? currentEventData.matches : []);
   const pairs = [
-    { side: 'p1', obj: p1, matchPid: selectedMatch?.player1_id, matchName: selectedMatch?.player1_name, matchListId: selectedMatch?.player1_list_id, color: '#38bdf8' },
-    { side: 'p2', obj: p2, matchPid: selectedMatch?.player2_id, matchName: selectedMatch?.player2_name, matchListId: selectedMatch?.player2_list_id, color: '#f43f5e' }
+    { side: 'p1', obj: p1, oppObj: p2, matchPid: selectedMatch?.player1_id, matchName: selectedMatch?.player1_name, matchListId: selectedMatch?.player1_list_id, color: '#38bdf8' },
+    { side: 'p2', obj: p2, oppObj: p1, matchPid: selectedMatch?.player2_id, matchName: selectedMatch?.player2_name, matchListId: selectedMatch?.player2_list_id, color: '#f43f5e' }
   ];
 
   const p1Pid = String(p1?.player_id || p1?.id || selectedMatch?.player1_id || '').trim();
@@ -7127,7 +7423,6 @@ async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
   const h2hKey = getCasterH2hCacheKey(sys, p1Pid, p2Pid, p1Name, p2Name);
 
   const applyPastH2hToDom = (apiList) => {
-    const evMatches = Array.isArray(ev?.matches) ? ev.matches : (Array.isArray(currentEventData?.matches) ? currentEventData.matches : []);
     const combined = [...(Array.isArray(apiList) ? apiList : []), ...evMatches];
     const pastMatches = filterPastHeadToHeadMatches(combined, ev, selectedMatch, curRound, p1Pid, p2Pid, p1Name, p2Name);
     const rec = computeCasterPastH2hRecord(pastMatches, p1Pid, p2Pid, p1Name, p2Name);
@@ -7166,13 +7461,13 @@ async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
     if (window.api && typeof window.api.getPlayerProfile === 'function' && (pid || pname)) {
       if (casterPlayerProfileCache[cacheKey]) {
         const el = document.getElementById(`caster-dossier-mastery-${item.side}`);
-        if (el) el.innerHTML = buildCasterFactionMasteryHtml(item.obj, casterPlayerProfileCache[cacheKey], item.color);
+        if (el) el.innerHTML = buildCasterFactionMasteryHtml(item.obj, item.oppObj, casterPlayerProfileCache[cacheKey], item.color, evMatches);
       } else {
         window.api.getPlayerProfile(pid || 'unknown', sys, pname).then(data => {
           if (data && !data.error) {
             casterPlayerProfileCache[cacheKey] = data;
             const el = document.getElementById(`caster-dossier-mastery-${item.side}`);
-            if (el) el.innerHTML = buildCasterFactionMasteryHtml(item.obj, data, item.color);
+            if (el) el.innerHTML = buildCasterFactionMasteryHtml(item.obj, item.oppObj, data, item.color, evMatches);
           }
         }).catch(() => {});
       }
@@ -7209,22 +7504,29 @@ async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
 }
 
 function updateCasterRosterPreviewDom(side, playerObj, rosterText, listId) {
+  const rosterBoxEl = document.getElementById(`caster-dossier-roster-box-${side}`);
   const unitsEl = document.getElementById(`caster-dossier-units-${side}`);
+  const fighterUnitsRowEl = document.getElementById(`caster-fighter-units-row-${side}`);
   const fighterUnitsEl = document.getElementById(`caster-fighter-units-${side}`);
   const previewEl = document.getElementById(`caster-dossier-roster-preview-${side}`);
-  const units = extractKeyListUnits(rosterText, playerObj?.faction);
+  const units = extractKeyListUnits(rosterText, playerObj?.faction, playerObj?.detachment);
 
-  if (fighterUnitsEl && units.length > 0) {
-    fighterUnitsEl.innerHTML = escapeHtml(units.slice(0, 4).join(', '));
+  if (units.length > 0) {
+    if (fighterUnitsRowEl) fighterUnitsRowEl.style.display = '';
+    if (fighterUnitsEl) fighterUnitsEl.innerHTML = escapeHtml(units.slice(0, 4).join(', '));
+    if (rosterBoxEl) rosterBoxEl.style.display = '';
+    if (unitsEl) {
+      unitsEl.innerHTML = units.slice(0, 8).map(u => `
+        <span class="badge" style="background: rgba(255,255,255,0.07); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.12); font-size: 0.7rem; padding: 2px 7px;">
+          ⚔️ ${escapeHtml(u)}
+        </span>
+      `).join('');
+    }
+  } else {
+    if (fighterUnitsRowEl) fighterUnitsRowEl.style.display = 'none';
+    if (rosterBoxEl) rosterBoxEl.style.display = 'none';
   }
-  if (unitsEl && units.length > 0) {
-    unitsEl.innerHTML = units.slice(0, 8).map(u => `
-      <span class="badge" style="background: rgba(255,255,255,0.07); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.12); font-size: 0.7rem; padding: 2px 7px;">
-        ⚔️ ${escapeHtml(u)}
-      </span>
-    `).join('');
-  }
-  if (previewEl && rosterText) {
+  if (previewEl && rosterText && units.length > 0) {
     previewEl.innerHTML = `
       <details style="margin-top: 0.45rem; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.45rem 0.65rem;">
         <summary style="cursor: pointer; font-size: 0.74rem; font-weight: 700; color: #38bdf8; user-select: none;">
@@ -7323,8 +7625,8 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
       `;
     }).join('');
 
-    const p1Units = extractKeyListUnits(p1RosterText || p1?.army_list, p1?.faction);
-    const p2Units = extractKeyListUnits(p2RosterText || p2?.army_list, p2?.faction);
+    const p1Units = extractKeyListUnits(p1RosterText || p1?.army_list, p1?.faction, p1?.detachment);
+    const p2Units = extractKeyListUnits(p2RosterText || p2?.army_list, p2?.faction, p2?.detachment);
 
     // Dynamic Past Head-to-Head (strictly prior encounters)
     const sysH2h = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
@@ -7377,11 +7679,11 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
     const scoreDisplay = hasScore ? `${selectedMatch.player1_score} - ${selectedMatch.player2_score}` : 'Live in Progress';
 
     // Helper to build each player's Dossier card underneath the Headline Clash
-    const buildPlayerDossierCard = (side, playerObj, pid, safePid, pname, safeName, listId, safeListId, hasList, rosterText, units, eloVal, gainOnWin, accentColor, borderAccent) => {
+    const buildPlayerDossierCard = (side, playerObj, opponentObj, pid, safePid, pname, safeName, listId, safeListId, hasList, rosterText, units, eloVal, gainOnWin, accentColor, borderAccent) => {
       const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
       const cacheKey = `${sys}:${pid || pname.toLowerCase()}`;
       const cachedProfile = casterPlayerProfileCache[cacheKey] || null;
-      const masteryHtml = buildCasterFactionMasteryHtml(playerObj, cachedProfile, accentColor);
+      const masteryHtml = buildCasterFactionMasteryHtml(playerObj, opponentObj, cachedProfile, accentColor, matches);
 
       const playerMatches = matches.filter(m => {
         const m1Id = String(m.player1_id || '').trim();
@@ -7409,13 +7711,13 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
         const rMeta = getEventRoundMetadata(ev, matches, rNum, maxR);
         const mId = `BCP-${eventId}-R${rNum}-T${tNum}`;
         const mHasScore = mySc !== null && mySc !== undefined && opSc !== null && opSc !== undefined;
-        let resPill = `<span class="badge" style="background:rgba(148,163,184,0.15); color:#94a3b8; font-size:0.66rem;">LIVE</span>`;
+        let resPill = `<span class="badge" style="background:rgba(148,163,184,0.15); color:#94a3b8; font-size:0.66rem; white-space:nowrap; flex-shrink:0;">LIVE</span>`;
         if (m.is_bye || opName === 'BYE') {
-          resPill = `<span class="badge badge-win" style="font-size:0.66rem;">BYE</span>`;
+          resPill = `<span class="badge badge-win" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">BYE</span>`;
         } else if (mHasScore) {
-          if (Number(mySc) > Number(opSc)) resPill = `<span class="badge badge-win" style="font-size:0.66rem;">W ${mySc}-${opSc}</span>`;
-          else if (Number(mySc) < Number(opSc)) resPill = `<span class="badge badge-loss" style="font-size:0.66rem;">L ${mySc}-${opSc}</span>`;
-          else resPill = `<span class="badge badge-draw" style="font-size:0.66rem;">D ${mySc}-${opSc}</span>`;
+          if (Number(mySc) > Number(opSc)) resPill = `<span class="badge badge-win" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">W ${mySc}-${opSc}</span>`;
+          else if (Number(mySc) < Number(opSc)) resPill = `<span class="badge badge-loss" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">L ${mySc}-${opSc}</span>`;
+          else resPill = `<span class="badge badge-draw" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">D ${mySc}-${opSc}</span>`;
         }
         return `
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.35rem 0.5rem; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 0.75rem;">
@@ -7436,7 +7738,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
       }).join('');
 
       return `
-        <div style="background: rgba(15, 23, 42, 0.78); border: 1px solid ${borderAccent}; border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <div style="background: rgba(15, 23, 42, 0.78); border: 1px solid ${borderAccent}; border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0;">
           <!-- Dossier Header -->
           <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem; flex-wrap: wrap;">
             <div>
@@ -7466,29 +7768,25 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
             ${masteryHtml}
           </div>
 
-          <!-- Submitted Army Roster & Key Tech -->
-          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem 0.75rem;">
+          <!-- Submitted Army Roster & Key Tech (Only shown when real units are extracted) -->
+          <div id="caster-dossier-roster-box-${side}" style="display: ${units.length > 0 ? 'block' : 'none'}; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem 0.75rem;">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; margin-bottom: 0.45rem; flex-wrap: wrap;">
               <span style="font-size: 0.73rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">
-                📋 Submitted Army Roster & Key Assets
+                📋 Submitted Army Roster & Key Units
               </span>
               <button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(safePid || safeName)}', '${escapeHtml(safeListId)}')" style="font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.1); cursor: pointer; font-weight: 700;">
                 📋 Open Full List Modal ↗
               </button>
             </div>
             <div id="caster-dossier-units-${side}" style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-              ${units.length > 0 ? units.slice(0, 8).map(u => `
+              ${units.slice(0, 8).map(u => `
                 <span class="badge" style="background: rgba(255,255,255,0.07); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.12); font-size: 0.7rem; padding: 2px 7px;">
                   ⚔️ ${escapeHtml(u)}
                 </span>
-              `).join('') : `
-                <span style="font-size: 0.75rem; color: var(--text-muted);">
-                  ${hasList ? 'Click "Open Full List Modal" to inspect complete BCP army roster.' : 'Standard tournament detachment configuration.'}
-                </span>
-              `}
+              `).join('')}
             </div>
             <div id="caster-dossier-roster-preview-${side}">
-              ${rosterText ? `
+              ${(rosterText && units.length > 0) ? `
                 <details style="margin-top: 0.45rem; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.45rem 0.65rem;">
                   <summary style="cursor: pointer; font-size: 0.74rem; font-weight: 700; color: #38bdf8; user-select: none;">
                     📜 Expand Inline Army List Text (${rosterText.split('\n').filter(Boolean).length} lines)
@@ -7501,7 +7799,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
 
           <!-- Tournament Run & Round-by-Round Scorecards -->
           <div>
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.25rem;">
               <span style="font-size: 0.73rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">
                 ⚔️ Tournament Path (${playerObj?.event_wins || 0}W-${playerObj?.event_losses || 0}L • ${playerObj?.event_battle_points || 0} Battle Pts)
               </span>
@@ -7577,7 +7875,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
             </div>
             <div style="background: rgba(0,0,0,0.25); border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.25rem;">
               <div><strong>Event Record:</strong> ${p1?.event_wins || 0}W - ${p1?.event_losses || 0}L (${p1?.event_battle_points || 0} pts)</div>
-              <div><strong>Core Units:</strong> <span id="caster-fighter-units-p1">${p1Units.length > 0 ? escapeHtml(p1Units.slice(0, 3).join(', ')) : '<span style="color:var(--text-muted);">View Roster for Details</span>'}</span></div>
+              <div id="caster-fighter-units-row-p1" style="display: ${p1Units.length > 0 ? 'block' : 'none'};"><strong>Core Units:</strong> <span id="caster-fighter-units-p1">${escapeHtml(p1Units.slice(0, 4).join(', '))}</span></div>
             </div>
             <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.25rem;">
               <button type="button" class="btn-xs btn-outline" onclick="openPlayerModal('${escapeHtml(p1SafePid)}', '${escapeHtml(p1SafeName)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.08); cursor: pointer; font-weight: 700;">
@@ -7625,7 +7923,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
             </div>
             <div style="background: rgba(0,0,0,0.25); border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.25rem;">
               <div style="text-align: right;"><strong>Event Record:</strong> ${p2?.event_wins || 0}W - ${p2?.event_losses || 0}L (${p2?.event_battle_points || 0} pts)</div>
-              <div style="text-align: right;"><strong>Core Units:</strong> <span id="caster-fighter-units-p2">${p2Units.length > 0 ? escapeHtml(p2Units.slice(0, 3).join(', ')) : '<span style="color:var(--text-muted);">View Roster for Details</span>'}</span></div>
+              <div id="caster-fighter-units-row-p2" style="text-align: right; display: ${p2Units.length > 0 ? 'block' : 'none'};"><strong>Core Units:</strong> <span id="caster-fighter-units-p2">${escapeHtml(p2Units.slice(0, 4).join(', '))}</span></div>
             </div>
             <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; margin-top: 0.25rem;">
               <button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(p2SafePid || p2SafeName)}', '${escapeHtml(p2SafeListId)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #e2e8f0; border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.06); cursor: pointer; font-weight: 700;">
@@ -7670,9 +7968,9 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
           </button>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem;">
-          ${buildPlayerDossierCard('p1', p1Info?.record || p1, p1Pid, p1SafePid, p1Name, p1SafeName, p1ListId, p1SafeListId, p1HasList, p1RosterText, p1Units, p1Elo, p1GainOnWin, '#38bdf8', 'rgba(56, 189, 248, 0.35)')}
-          ${buildPlayerDossierCard('p2', p2Info?.record || p2, p2Pid, p2SafePid, p2Name, p2SafeName, p2ListId, p2SafeListId, p2HasList, p2RosterText, p2Units, p2Elo, p2GainOnWin, '#f43f5e', 'rgba(244, 63, 94, 0.35)')}
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 1rem;">
+          ${buildPlayerDossierCard('p1', p1Info?.record || p1, p2Info?.record || p2, p1Pid, p1SafePid, p1Name, p1SafeName, p1ListId, p1SafeListId, p1HasList, p1RosterText, p1Units, p1Elo, p1GainOnWin, '#38bdf8', 'rgba(56, 189, 248, 0.35)')}
+          ${buildPlayerDossierCard('p2', p2Info?.record || p2, p1Info?.record || p1, p2Pid, p2SafePid, p2Name, p2SafeName, p2ListId, p2SafeListId, p2HasList, p2RosterText, p2Units, p2Elo, p2GainOnWin, '#f43f5e', 'rgba(244, 63, 94, 0.35)')}
         </div>
       </div>
     `;
@@ -7726,7 +8024,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
   const topFactions = Array.from(facCountMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
   const topSeedsCardsHtml = topSeeds.map((p, idx) => {
-    const units = extractKeyListUnits(p.army_list, p.faction);
+    const units = extractKeyListUnits(p.army_list, p.faction, p.detachment);
     const elo = Number(p.current_elo || 1500).toFixed(1);
     const pid = String(p.player_id || p.id || '').replace(/'/g, "\\'");
     const pname = String(p.full_name || 'Player').replace(/'/g, "\\'");
@@ -7990,28 +8288,47 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
               <button type="button" id="monitor-stream-hud-toggle-btn" onclick="toggleStreamHudOverlay()" class="btn-xs btn-outline" style="font-size: 0.68rem; padding: 2px 7px; border-radius: 5px; border-color: ${streamHudOverlayEnabled ? 'rgba(56, 189, 248, 0.45)' : 'rgba(255, 255, 255, 0.15)'}; background: ${streamHudOverlayEnabled ? 'rgba(56, 189, 248, 0.14)' : 'rgba(255, 255, 255, 0.05)'}; color: ${streamHudOverlayEnabled ? '#38bdf8' : 'var(--text-muted)'}; font-weight: 700; cursor: pointer;" title="Toggle In-App Live Score HUD on our screen">
                 📺 Score HUD: ${streamHudOverlayEnabled ? 'ON' : 'OFF'}
               </button>
+              <button type="button" id="monitor-stream-fullscreen-btn" onclick="toggleStreamStageFullscreen('monitor')" class="btn-xs btn-outline" style="font-size: 0.68rem; padding: 2px 7px; border-radius: 5px; border-color: rgba(168, 85, 247, 0.5); background: rgba(168, 85, 247, 0.16); color: #e9d5ff; font-weight: 700; cursor: pointer;" title="Fullscreen Live Broadcast Monitor with Score HUD">
+                ⛶ Fullscreen
+              </button>
               <button type="button" onclick="openEventStreamModal(${curTable})" class="btn-xs btn-outline" style="font-size: 0.68rem; padding: 2px 7px; border-radius: 5px; border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.14); color: #fca5a5; font-weight: 700; cursor: pointer;">
-                ⛶ Theater Modal
+                🎬 Theater Modal
               </button>
             </div>
           </div>
 
-          <!-- Video Embed Frame + In-App Live Score HUD Overlay -->
-          <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
+          <!-- Video Embed Frame + Fullscreen Stage Wrapper + In-App Live Score HUD Overlay -->
+          <div id="live-monitor-stage-wrap" class="stream-stage-fullscreen-wrap" style="position: relative; width: 100%; padding-top: 56.25%; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
             <iframe 
               src="${escapeHtml(activeStream?.embedUrl || 'https://www.youtube-nocookie.com/embed/jfKfPfyJRdk')}" 
               title="Live Stream Preview"
               style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;" 
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen" 
               allowfullscreen>
             </iframe>
-            <!-- In-App Live Score Lower-Third HUD Overlay (rendered on OUR screen over the stream) -->
-            <div id="live-monitor-hud-overlay" style="position: absolute; bottom: 0; left: 0; right: 0; pointer-events: none; z-index: 10; padding: 0.5rem 0.65rem; background: linear-gradient(0deg, rgba(2, 6, 23, 0.92) 0%, rgba(2, 6, 23, 0.45) 70%, transparent 100%); display: ${streamHudOverlayEnabled ? 'block' : 'none'};">
+
+            <!-- Floating Top-Right Stage Controls (Visible on hover & in Fullscreen) -->
+            <div class="stream-stage-floating-controls">
+              <button type="button" id="monitor-stream-fs-hud-btn" onclick="toggleStreamHudOverlay()" class="stream-stage-ctrl-btn stream-stage-ctrl-hud ${streamHudOverlayEnabled ? 'active' : ''}" title="Toggle Live Score HUD Overlay">
+                📺 Score HUD: ${streamHudOverlayEnabled ? 'ON' : 'OFF'}
+              </button>
+              <button type="button" id="monitor-stream-stage-fs-btn" onclick="toggleStreamStageFullscreen('monitor')" class="stream-stage-ctrl-btn stream-stage-ctrl-fs" title="Toggle Fullscreen with Score HUD">
+                ⛶ Fullscreen
+              </button>
+            </div>
+
+            <!-- In-App Live Score Lower-Third HUD Overlay (rendered on OUR screen over the stream, stays visible in Fullscreen!) -->
+            <div id="live-monitor-hud-overlay" class="stream-hud-overlay-container" style="position: absolute; bottom: 42px; left: 0; right: 0; pointer-events: none; z-index: 20; padding: 0.4rem 0.65rem; display: ${streamHudOverlayEnabled ? 'block' : 'none'};">
               ${buildInAppStreamHudHtml(overlayData)}
             </div>
+
+            <!-- Bottom-Right Native Player Fullscreen Click Interceptor -->
+            <button type="button" class="stream-stage-fs-hotspot" onclick="toggleStreamStageFullscreen('monitor')" title="Toggle Fullscreen with Live Score HUD" aria-label="Toggle Fullscreen with Live Score HUD">
+              <span class="stream-stage-fs-hotspot-icon">⛶</span>
+            </button>
           </div>
           <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.65rem; font-size: 0.75rem; color: var(--text-muted);">
-            <span>👁️ ~${activeStream?.viewers || 1200} concurrent viewers • In-App Score HUD active</span>
+            <span>👁️ ~${activeStream?.viewers || 1200} concurrent viewers • Fullscreen Score HUD active</span>
             <a href="${escapeHtml(activeStream?.streamUrl || '#')}" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: none; font-weight: 600;">
               Open Stream Page ↗
             </a>
@@ -9460,7 +9777,7 @@ function renderDeepMetaMode(ev, players, matches) {
   const unitCounts = {};
   const unitPilots = {};
   players.forEach(p => {
-    const units = extractKeyListUnits(p.army_list, p.faction);
+    const units = extractKeyListUnits(p.army_list, p.faction, p.detachment);
     units.forEach(u => {
       unitCounts[u] = (unitCounts[u] || 0) + 1;
       if (!unitPilots[u]) unitPilots[u] = [];
@@ -9825,23 +10142,100 @@ function exportRosterJson(eventId) {
 window.exportRosterJson = exportRosterJson;
 
 // Helper: Extract top datasheets / characters from raw army list text
-function extractKeyListUnits(listText, faction) {
+function extractKeyListUnits(listText, faction, detachment) {
   if (!listText || typeof listText !== 'string' || listText.trim().length === 0) {
     return [];
   }
-  const lines = listText.split('\n');
+
+  const rawLines = listText.replace(/\r\n/g, '\n').split('\n');
+
+  const sectionHeaderRe = /^(?:\+\+.*?\+\+|==.*?==|--.*?--|(?:characters?|epic\s+hero(?:es)?|battleline|dedicated\s+transports?|other\s+datasheets?|allied\s+units?|allies|fortifications?|supreme\s+commanders?|attached\s+units?|unattached\s+units?|general'?s\s+regiment|regiment\s+\d+|auxiliary\s+units?|faction\s+terrain|hq|troops|elites|fast\s+attack|heavy\s+support|flyers?|lords?\s+of\s+war)\s*:?)$/i;
+  const subHeaderOrMetaRe = /^(?:\+\+|==|--|•|\*|-|attached\s+units?(?:\s+\d+)?\b|unattached\s+units?(?:\s+\d+)?\b|characters?\b|epic\s+hero(?:es)?\b|battleline\b|dedicated\s+transports?\b|other\s+datasheets?\b|allied\s+units?\b|allies\b|vehicles?\b|monsters?\b|infantry\b|mounted\b|beasts?\b|fortifications?\b|supreme\s+commanders?\b|detachment(?:\s+choice|\s+rule)?\b|force\s+disposition\b|battle\s+size\b|total\b|points\b|created\s+with\b|exported\s+with\b|army\s+roster\b|strike\s+force\b|incursion\b|onslaught\b|show\/hide\b|configuration\b|meta\b|enhancements?\b|warlord\b|attached\s+to\b|attached\s+as\b|leading\b|general'?s\s+regiment\b|regiment\s+\d+\b|auxiliary\s+units?\b|spell\s+lore\b|prayer\s+lore\b|manifestation\s+lore\b|faction\s+terrain\b)/i;
+  const dispositionOrFactionRe = /^(?:take\s+and\s+hold|take\s*&\s*hold|priority\s+assets?|purge\s+the\s+foe|reconnaissance|disruption|meta|blitz\s+brigade.*|runt\s+swarm.*|wreckas.*|adeptus\s+mechanicus|adeptus\s+custodes|adepta\s+sororitas|space\s+marines|adeptus\s+astartes|dark\s+angels|blood\s+angels|space\s+wolves|black\s+templars|deathwatch|grey\s+knights|astra\s+militarum|imperial\s+knights|imperial\s+agents|agents\s+of\s+the\s+imperium|chaos\s+space\s+marines|death\s+guard|thousand\s+sons|world\s+eaters|emperor'?s\s+children|chaos\s+daemons|daemons|chaos\s+knights|aeldari|craftworlds|drukhari|harlequins|ynnari|necrons|orks|tyranids|genestealer\s+cults?|t'?au(?:\s+empire)?|leagues\s+of\s+votann|votann|imperium|chaos|xenos)$/i;
+  const wargearRe = /\b(?:pistol|rifle|blaster|cannon|bolter|boltgun|chainsword|power\s+fist|power\s+weapon|power\s+sword|power\s+axe|power\s+maul|power\s+klaw|thunder\s+hammer|lightning\s+claws?|storm\s+shield|relic\s+blade|relic\s+weapon|accursed\s+weapon|force\s+weapon|nemesis\s+force|close\s+combat\s+weapon|ccw|armoured\s+hull|hull|tracks|wheels|choppa|slugga|shoota|big\s+shoota|rokkit|kustom\s+mega|killsaw|squigstoppa|grabzappa|da\s+grabzappa|grot\s+blasta|stikkbombs?|frag\s+grenades?|krak\s+grenades?|grenade\s+launcher|flamer|heavy\s+flamer|meltagun|multi-melta|plasma\s+gun|plasma\s+incinerator|lascannon|twin\s+.*?\s+fist|kastelan\s+fist|phosphor\s+blaster|stubber|heavy\s+stubber|autocannon|assault\s+cannon|gatling|missile\s+launcher|omnispex|data-tether|vexilla|icon\s+of|instrument\s+of|banner|standard|watcher\s+in\s+the\s+dark|attack\s+squig|makari)\b/i;
+
+  const normFac = normalizeCasterFactionKey(faction || '');
+  const normDet = String(detachment || '').trim().toLowerCase();
+
+  const isBlockedToken = (str) => {
+    const s = String(str || '').trim();
+    if (!s || s.length < 3 || s.length > 42) return true;
+    const low = s.toLowerCase();
+    if (subHeaderOrMetaRe.test(s) || sectionHeaderRe.test(s) || dispositionOrFactionRe.test(s)) return true;
+    if (normFac && ( normalizeCasterFactionKey(s) === normFac || low === normFac )) return true;
+    if (normDet && ( low === normDet || normDet.includes(low) || low.includes(normDet) )) return true;
+    if (typeof DETACHMENT_DISPOSITION_LOOKUP === 'object' && DETACHMENT_DISPOSITION_LOOKUP && DETACHMENT_DISPOSITION_LOOKUP[low]) return true;
+    if (/^\d+\s*(?:pts?|points?|cp|drops?)$/i.test(s)) return true;
+    if (/\b(?:detachment\s+points|battle\s+size|strike\s+force|force\s+disposition)\b/i.test(s)) return true;
+    if (wargearRe.test(s)) return true;
+    return false;
+  };
+
+  const cleanUnitName = (rawLine) => {
+    let s = String(rawLine || '').trim();
+    s = s.replace(/^[•*\-+]+\s*/, '');
+    s = s.replace(/^[0-9]+x\s+/i, '');
+    s = s.split('[')[0].split('(')[0].split(':')[0].trim();
+    s = s.replace(/\s+-\s+\d+\s*(?:pts?|points?).*$/i, '').trim();
+    s = s.replace(/^[0-9]+x\s+/i, '').trim();
+    return s;
+  };
+
+  // Find first section header so we skip top-of-list army/detachment/disposition preamble
+  let startIdx = 0;
+  for (let i = 0; i < rawLines.length; i++) {
+    const t = rawLines[i].trim();
+    if (sectionHeaderRe.test(t)) {
+      startIdx = i + 1;
+      break;
+    }
+  }
+
+  const candidateLines = rawLines.slice(startIdx);
   const found = [];
-  const skipHeaderRe = /^(?:\+\+|==|--|•|\*|-|characters?\b|epic\s+hero(?:es)?\b|battleline\b|dedicated\s+transports?\b|other\s+datasheets?\b|allied\s+units?\b|allies\b|vehicles?\b|monsters?\b|infantry\b|mounted\b|beasts?\b|fortifications?\b|supreme\s+commanders?\b|detachment\b|force\s+disposition\b|battle\s+size\b|total\b|points\b|created\s+with\b|exported\s+with\b|army\s+roster\b|strike\s+force\b|incursion\b|onslaught\b|show\/hide\b)/i;
-  lines.forEach(l => {
-    const trimmed = l.trim();
-    if (!trimmed || trimmed.length < 4 || trimmed.endsWith(':')) return;
-    if (skipHeaderRe.test(trimmed)) return;
-    const clean = trimmed.replace(/^[0-9]+x\s*/i, '').split('[')[0].split('(')[0].split(':')[0].trim();
-    if (!clean || skipHeaderRe.test(clean)) return;
-    if (!found.includes(clean) && clean.length > 2 && clean.length < 38) {
+
+  // Pass 1: Look for non-indented, non-bullet lines with explicit unit points (25..1000 pts)
+  const unitPtsRe = /(?:\(\s*(\d{1,3})\s*(?:pts?|points?)\s*\)|\[\s*(\d{1,3})\s*(?:pts?|points?)\s*\]|-\s*(\d{1,3})\s*(?:pts?|points?)\b)/i;
+  candidateLines.forEach(line => {
+    if (/^\s{2,}|\t|^\s*[•*]/.test(line)) return;
+    const trimmed = line.trim();
+    if (!trimmed || subHeaderOrMetaRe.test(trimmed) || sectionHeaderRe.test(trimmed)) return;
+    if (/detachment\s+points/i.test(trimmed) || /enhancement/i.test(trimmed)) return;
+    const m = trimmed.match(unitPtsRe);
+    if (!m) return;
+    const pts = Number(m[1] || m[2] || m[3] || 0);
+    if (pts < 25 || pts > 1000) return;
+    const clean = cleanUnitName(trimmed);
+    if (!isBlockedToken(clean) && !found.includes(clean)) {
       found.push(clean);
     }
   });
+
+  if (found.length > 0) {
+    return found;
+  }
+
+  // Pass 2: Point-less exports (only runs if a real section header was found)
+  if (startIdx > 0) {
+    const hasColonUnits = candidateLines.some(l => {
+      if (/^\s{2,}|\t|^\s*[•*]/.test(l)) return false;
+      const t = l.trim();
+      return t.endsWith(':') && !sectionHeaderRe.test(t) && !subHeaderOrMetaRe.test(t);
+    });
+
+    candidateLines.forEach(line => {
+      if (/^\s{2,}|\t|^\s*[•*]/.test(line)) return;
+      const trimmed = line.trim();
+      if (!trimmed || sectionHeaderRe.test(trimmed) || subHeaderOrMetaRe.test(trimmed)) return;
+      if (hasColonUnits && !trimmed.endsWith(':')) return;
+      if (!hasColonUnits && /^[0-9]+x\s+/i.test(trimmed)) return;
+      const clean = cleanUnitName(trimmed);
+      if (!isBlockedToken(clean) && !found.includes(clean)) {
+        found.push(clean);
+      }
+    });
+  }
+
   return found;
 }
 

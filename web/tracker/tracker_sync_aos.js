@@ -82,6 +82,20 @@
 
   let role = urlParams.get('role') || 'player1';
 
+  const aosListState = {
+    p1ArmyList: null,
+    p2ArmyList: null,
+    activeListTab: 'my',
+    rosterViewMode: 'play',
+    attachTargetRole: null
+  };
+  try {
+    const savedP1List = sessionStorage.getItem('omni_aos_p1_army_list');
+    if (savedP1List) aosListState.p1ArmyList = JSON.parse(savedP1List);
+    const savedP2List = sessionStorage.getItem('omni_aos_p2_army_list');
+    if (savedP2List) aosListState.p2ArmyList = JSON.parse(savedP2List);
+  } catch (e) {}
+
   function getAuthToken() {
     return localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token') || sessionStorage.getItem('elo_auth_token') || '';
   }
@@ -197,6 +211,20 @@
           firestoreConnected = true;
           if (!snap || !snap.exists) return;
           const data = snap.data();
+          if (data) {
+            let hudUpdated = false;
+            const p1List = data.p1_army_list || (data.rosters && data.rosters.player1);
+            const p2List = data.p2_army_list || (data.rosters && data.rosters.player2);
+            if (p1List && (!aosListState.p1ArmyList || aosListState.p1ArmyList.list_key !== p1List.list_key)) {
+              aosListState.p1ArmyList = p1List;
+              hudUpdated = true;
+            }
+            if (p2List && (!aosListState.p2ArmyList || aosListState.p2ArmyList.list_key !== p2List.list_key)) {
+              aosListState.p2ArmyList = p2List;
+              hudUpdated = true;
+            }
+            if (hudUpdated) injectAosSyncHUD();
+          }
           if (data && data.state && (!currentRemoteVersion || (data.version && data.version > currentRemoteVersion))) {
             currentRemoteVersion = data.version || Date.now();
             isRemoteUpdating = true;
@@ -221,6 +249,18 @@
       const resp = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}`);
       if (resp.ok) {
         const data = await resp.json();
+        if (data) {
+          let hudUpdated = false;
+          if (data.p1_army_list && (!aosListState.p1ArmyList || aosListState.p1ArmyList.list_key !== data.p1_army_list.list_key)) {
+            aosListState.p1ArmyList = data.p1_army_list;
+            hudUpdated = true;
+          }
+          if (data.p2_army_list && (!aosListState.p2ArmyList || aosListState.p2ArmyList.list_key !== data.p2_army_list.list_key)) {
+            aosListState.p2ArmyList = data.p2_army_list;
+            hudUpdated = true;
+          }
+          if (hudUpdated) injectAosSyncHUD();
+        }
         if (data && data.state && (!currentRemoteVersion || (data.version && data.version > currentRemoteVersion))) {
           currentRemoteVersion = data.version || Date.now();
           isRemoteUpdating = true;
@@ -270,6 +310,7 @@
             injectAosSyncHUD();
             injectMobileBottomDock();
             initFirestoreDirectSync();
+            loadAosRoomArmyLists();
             setInterval(() => {
               if (!firestoreConnected) {
                 syncFromRemote();
@@ -319,11 +360,14 @@
 
       initFirestoreDirectSync();
       await syncFromRemote();
+      await loadAosRoomArmyLists();
       setInterval(() => {
         if (!firestoreConnected) {
           syncFromRemote();
         }
       }, 1000);
+    } else {
+      await loadAosRoomArmyLists();
     }
 
     hideAosLoadingOverlay();
@@ -918,16 +962,176 @@
     }
   };
 
-  // 5. Army Lists Modal
-  window.gtOpenArmyListModal = function(tab = 'opponent') {
+  // 5. Army Lists Modal (NewRecruit Single Source of Truth + Play Mode)
+  const AOS_FACTION_LOOKUP = [
+    { id: 'stormcast-eternals', name: 'Stormcast Eternals', grandAlliance: 'Order', aliases: ['stormcast'] },
+    { id: 'cities-of-sigmar', name: 'Cities of Sigmar', grandAlliance: 'Order', aliases: ['cities'] },
+    { id: 'daughters-of-khaine', name: 'Daughters of Khaine', grandAlliance: 'Order', aliases: ['dok', 'khaine'] },
+    { id: 'fyreslayers', name: 'Fyreslayers', grandAlliance: 'Order', aliases: [] },
+    { id: 'idoneth-deepkin', name: 'Idoneth Deepkin', grandAlliance: 'Order', aliases: ['idoneth', 'deepkin'] },
+    { id: 'kharadron-overlords', name: 'Kharadron Overlords', grandAlliance: 'Order', aliases: ['kharadron'] },
+    { id: 'lumineth-realm-lords', name: 'Lumineth Realm-lords', grandAlliance: 'Order', aliases: ['lumineth'] },
+    { id: 'seraphon', name: 'Seraphon', grandAlliance: 'Order', aliases: [] },
+    { id: 'sylvaneth', name: 'Sylvaneth', grandAlliance: 'Order', aliases: [] },
+    { id: 'blades-of-khorne', name: 'Blades of Khorne', grandAlliance: 'Chaos', aliases: ['khorne'] },
+    { id: 'disciples-of-tzeentch', name: 'Disciples of Tzeentch', grandAlliance: 'Chaos', aliases: ['tzeentch'] },
+    { id: 'hedonites-of-slaanesh', name: 'Hedonites of Slaanesh', grandAlliance: 'Chaos', aliases: ['slaanesh', 'hedonites'] },
+    { id: 'maggotkin-of-nurgle', name: 'Maggotkin of Nurgle', grandAlliance: 'Chaos', aliases: ['nurgle', 'maggotkin'] },
+    { id: 'skaven', name: 'Skaven', grandAlliance: 'Chaos', aliases: [] },
+    { id: 'slaves-to-darkness', name: 'Slaves to Darkness', grandAlliance: 'Chaos', aliases: ['s2d', 'std'] },
+    { id: 'beasts-of-chaos', name: 'Beasts of Chaos', grandAlliance: 'Chaos', aliases: ['boc'] },
+    { id: 'helsmiths-of-hashut', name: 'Helsmiths of Hashut', grandAlliance: 'Chaos', aliases: ['hashut', 'helsmiths'] },
+    { id: 'flesh-eater-courts', name: 'Flesh-eater Courts', grandAlliance: 'Death', aliases: ['fec', 'flesh-eater'] },
+    { id: 'nighthaunt', name: 'Nighthaunt', grandAlliance: 'Death', aliases: [] },
+    { id: 'ossiarch-bonereapers', name: 'Ossiarch Bonereapers', grandAlliance: 'Death', aliases: ['obr', 'ossiarch'] },
+    { id: 'soulblight-gravelords', name: 'Soulblight Gravelords', grandAlliance: 'Death', aliases: ['sbgl', 'soulblight'] },
+    { id: 'gloomspite-gitz', name: 'Gloomspite Gitz', grandAlliance: 'Destruction', aliases: ['gitz', 'gloomspite'] },
+    { id: 'ironjawz', name: 'Ironjawz', grandAlliance: 'Destruction', aliases: [] },
+    { id: 'kruleboyz', name: 'Kruleboyz', grandAlliance: 'Destruction', aliases: [] },
+    { id: 'orruk-warclans', name: 'Orruk Warclans', grandAlliance: 'Destruction', aliases: ['big waaagh', 'orruks'] },
+    { id: 'bonesplitterz', name: 'Bonesplitterz', grandAlliance: 'Destruction', aliases: [] },
+    { id: 'ogor-mawtribes', name: 'Ogor Mawtribes', grandAlliance: 'Destruction', aliases: ['ogors', 'mawtribes'] },
+    { id: 'sons-of-behemat', name: 'Sons of Behemat', grandAlliance: 'Destruction', aliases: ['behemat', 'gargants'] }
+  ];
+
+  function resolveAosFactionAndFormation(rawFaction, rawDetachment) {
+    let facStr = String(rawFaction || '').trim();
+    let detStr = String(rawDetachment || '').trim();
+    let aorSub = '';
+    if (facStr.includes(' - ')) {
+      const parts = facStr.split(' - ');
+      facStr = parts[0].trim();
+      aorSub = parts.slice(1).join(' - ').trim();
+    }
+    const cleanFac = facStr.toLowerCase().replace(/^(order|chaos|death|destruction)\s*-\s*/i, '').trim();
+    const slugFac = cleanFac.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    let matched = AOS_FACTION_LOOKUP.find(f =>
+      f.id === slugFac ||
+      f.name.toLowerCase() === cleanFac ||
+      f.aliases.some(a => cleanFac.includes(a))
+    );
+    if (!matched) {
+      matched = AOS_FACTION_LOOKUP.find(f => cleanFac.includes(f.name.toLowerCase()) || f.name.toLowerCase().includes(cleanFac));
+    }
+    let finalFormation = detStr;
+    if (!finalFormation || finalFormation === 'Core Detachment' || finalFormation === 'Battle Formation' || finalFormation === 'Standard') {
+      if (aorSub) finalFormation = aorSub;
+    }
+    return {
+      factionId: matched ? matched.id : null,
+      factionName: matched ? matched.name : (facStr || 'Stormcast Eternals'),
+      grandAlliance: matched ? matched.grandAlliance : null,
+      battleFormation: finalFormation || ''
+    };
+  }
+
+  function applyAttachedAosListToGameState(targetRole, attachedList) {
+    if (!attachedList || typeof attachedList !== 'object') return;
+    try {
+      const st = getAosState();
+      if (!st) return;
+      const pKey = targetRole === 'player2' ? 'p2' : 'p1';
+      if (!st[pKey]) return;
+      const resolved = resolveAosFactionAndFormation(attachedList.faction, attachedList.detachment);
+      let changed = false;
+      if (resolved.factionId && st[pKey].faction !== resolved.factionId) {
+        st[pKey].faction = resolved.factionId;
+        changed = true;
+      }
+      if (resolved.grandAlliance && st[pKey].grandAlliance !== resolved.grandAlliance) {
+        st[pKey].grandAlliance = resolved.grandAlliance;
+        changed = true;
+      }
+      if (resolved.battleFormation && st[pKey].battleFormation !== resolved.battleFormation) {
+        st[pKey].battleFormation = resolved.battleFormation;
+        changed = true;
+      }
+      if (changed) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
+        window.dispatchEvent(new CustomEvent('aos_remote_sync', { detail: st }));
+        broadcastAosState();
+      }
+    } catch (e) {}
+  }
+
+  function isAosListCandidate(item) {
+    if (!item || typeof item !== 'object') return false;
+    const gs = String(item.game_system || item.gameSystem || '').toLowerCase();
+    if (gs === 'aos' || gs.includes('sigmar')) return true;
+    const sysId = String((item.nr_row && item.nr_row.id_system) || item.id_system || '');
+    if (sysId === '4255553472') return true;
+    const resolved = resolveAosFactionAndFormation(item.faction, item.detachment);
+    return Boolean(resolved.factionId);
+  }
+
+  async function loadAosRoomArmyLists() {
+    try {
+      if (matchId) {
+        const resp = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/armylists`);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.p1_army_list) {
+            aosListState.p1ArmyList = data.p1_army_list;
+            try { sessionStorage.setItem('omni_aos_p1_army_list', JSON.stringify(data.p1_army_list)); } catch (e) {}
+          }
+          if (data.p2_army_list) {
+            aosListState.p2ArmyList = data.p2_army_list;
+            try { sessionStorage.setItem('omni_aos_p2_army_list', JSON.stringify(data.p2_army_list)); } catch (e) {}
+          }
+        }
+      }
+      // Auto-attach preloaded list from My Hub ("⚔️ Play") if current seat has no list yet
+      const isP1 = role !== 'player2';
+      const myCurrentList = isP1 ? aosListState.p1ArmyList : aosListState.p2ArmyList;
+      if (!myCurrentList && !isSpectator) {
+        const preloadedRaw = sessionStorage.getItem('omni_preloaded_list') || localStorage.getItem('omni_preloaded_list');
+        if (preloadedRaw) {
+          try {
+            const preloadedList = JSON.parse(preloadedRaw);
+            if (preloadedList && (preloadedList.id || preloadedList.list_key || preloadedList.name) && isAosListCandidate(preloadedList)) {
+              sessionStorage.removeItem('omni_preloaded_list');
+              localStorage.removeItem('omni_preloaded_list');
+              await window.gtAttachList(preloadedList, isP1 ? 'player1' : 'player2', { silent: true });
+            }
+          } catch (err) {}
+        }
+      }
+      injectAosSyncHUD();
+    } catch (e) {}
+  }
+
+  function resolveTrackerNrListKey(list) {
+    if (!list) return 'roster';
+    const rawKey = String(
+      list.list_key ||
+      (list.nr_row && list.nr_row.list_key) ||
+      list.id ||
+      'roster'
+    ).trim();
+    return rawKey.startsWith('nr_') ? rawKey.slice(3) : rawKey;
+  }
+
+  window.gtOpenArmyListModal = function(tab, targetRoleOverride) {
+    const isP1 = role !== 'player2';
+    if (targetRoleOverride === 'player1' || targetRoleOverride === 'player2') {
+      aosListState.attachTargetRole = targetRoleOverride;
+    } else if (!aosListState.attachTargetRole) {
+      aosListState.attachTargetRole = isP1 ? 'player1' : 'player2';
+    }
+    const hasMyList = isP1 ? !!aosListState.p1ArmyList : !!aosListState.p2ArmyList;
+    const hasOppList = isP1 ? !!aosListState.p2ArmyList : !!aosListState.p1ArmyList;
+    if (!tab) {
+      tab = hasMyList ? 'my' : (hasOppList ? 'opponent' : 'attach');
+    }
+    aosListState.activeListTab = tab;
     let modal = document.getElementById('gt-army-list-modal');
     if (!modal) {
       modal = document.createElement('div');
       modal.id = 'gt-army-list-modal';
       document.body.appendChild(modal);
     }
-    modal.style.display = 'flex';
-    renderArmyListModal(tab);
+    modal.style.cssText = 'position:fixed; inset:0; z-index:100005; background:rgba(2,6,23,0.92); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; padding:3px; box-sizing:border-box;';
+    renderArmyListModal();
   };
 
   window.gtCloseArmyListModal = function() {
@@ -935,50 +1139,652 @@
     if (modal) modal.style.display = 'none';
   };
 
-  function renderArmyListModal(activeTab = 'opponent') {
+  window.gtSetListTab = function(tab) {
+    aosListState.activeListTab = tab;
+    renderArmyListModal();
+  };
+
+  window.gtSetAosAttachTarget = function(targetRole) {
+    if (targetRole === 'player1' || targetRole === 'player2') {
+      aosListState.attachTargetRole = targetRole;
+      renderArmyListModal();
+    }
+  };
+
+  window.gtAttachList = async function(listData, explicitRole, opts = {}) {
+    try {
+      const effectiveMatchId = matchId || 'AOS-LOCAL';
+      const isP1 = role !== 'player2';
+      const targetRole = explicitRole || aosListState.attachTargetRole || (isP1 ? 'player1' : 'player2');
+      const payloadList = Object.assign({}, listData, {
+        game_system: 'aos',
+        system_edition: listData.system_edition || 'AoS 4.0'
+      });
+      const resp = await fetch(`/api/tracker/room/${encodeURIComponent(effectiveMatchId)}/armylist`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getAuthToken() ? { 'Authorization': `Bearer ${getAuthToken()}` } : {})
+        },
+        body: JSON.stringify({ role: targetRole, army_list: payloadList })
+      });
+      let attachedList = payloadList;
+      if (resp.ok) {
+        const resData = await resp.json().catch(() => ({}));
+        if (resData && resData.army_list) {
+          attachedList = resData.army_list;
+        }
+      }
+      if (targetRole === 'player2') {
+        aosListState.p2ArmyList = attachedList;
+        try { sessionStorage.setItem('omni_aos_p2_army_list', JSON.stringify(attachedList)); } catch (e) {}
+      } else {
+        aosListState.p1ArmyList = attachedList;
+        try { sessionStorage.setItem('omni_aos_p1_army_list', JSON.stringify(attachedList)); } catch (e) {}
+      }
+      applyAttachedAosListToGameState(targetRole, attachedList);
+      const myRole = isP1 ? 'player1' : 'player2';
+      aosListState.activeListTab = (targetRole === myRole) ? 'my' : 'opponent';
+      aosListState.rosterViewMode = 'play';
+      injectAosSyncHUD();
+      if (!opts.silent) {
+        renderArmyListModal();
+      }
+    } catch (e) {
+      if (!opts.silent) {
+        alert('Error attaching army list: ' + e.message);
+      }
+    }
+  };
+
+  window.gtAttachSavedList = async function(listId) {
+    const cleanTarget = String(listId || '').replace(/^(nr_|list_)/, '').trim();
+    const list = (window.gtSavedListsCache || []).find(l =>
+      l && (
+        l.id === listId ||
+        l.list_key === listId ||
+        resolveTrackerNrListKey(l) === cleanTarget
+      )
+    );
+    if (!list) {
+      alert('Could not locate the selected list.');
+      return;
+    }
+    await window.gtAttachList(list);
+  };
+
+  function generateTrackerRawRosterText(list) {
+    if (list.raw_text && list.raw_text.trim().length > 10) {
+      return list.raw_text.trim();
+    }
+    let out = `${list.faction || 'Age of Sigmar'} - ${list.detachment || 'Battle Formation'} (${list.points || 2000} pts)\n\n`;
+    const units = list.units || [];
+    const groups = {};
+    for (const u of units) {
+      const roleName = (u.role || 'Warscrolls').toUpperCase();
+      if (!groups[roleName]) groups[roleName] = [];
+      groups[roleName].push(u);
+    }
+    for (const [roleName, uList] of Object.entries(groups)) {
+      out += `+ ${roleName} +\n`;
+      for (const u of uList) {
+        const cnt = u.model_count && u.model_count > 1 ? `${u.model_count}x ` : '';
+        out += `${cnt}${u.name} [${u.points || 0} pts]`;
+        const tags = [];
+        if (u.is_warlord) tags.push('General');
+        if (u.enhancement) tags.push(`Enhancement: ${u.enhancement}`);
+        if (tags.length > 0) out += `: ${tags.join(', ')}`;
+        out += '\n';
+        if (u.wargear && u.wargear.length > 0) {
+          out += `  • Options: ${u.wargear.join(', ')}\n`;
+        }
+      }
+      out += '\n';
+    }
+    return out.trim();
+  }
+
+  window.gtCopyTrackerRawText = function() {
+    const isP1 = role !== 'player2';
+    const myList = isP1 ? aosListState.p1ArmyList : aosListState.p2ArmyList;
+    const oppList = isP1 ? aosListState.p2ArmyList : aosListState.p1ArmyList;
+    const activeList = aosListState.activeListTab === 'opponent' ? oppList : myList;
+    if (!activeList) return;
+    const rawText = generateTrackerRawRosterText(activeList);
+    navigator.clipboard.writeText(rawText).then(() => {
+      alert('📋 Raw AoS roster text copied to clipboard!');
+    }).catch(() => {
+      prompt('Copy your AoS roster text below:', rawText);
+    });
+  };
+
+  window.gtToggleRosterViewMode = function(mode) {
+    const prevMode = aosListState.rosterViewMode || 'play';
+    aosListState.rosterViewMode = mode;
+    const isP1 = role !== 'player2';
+    const activeList = aosListState.activeListTab === 'opponent'
+      ? (isP1 ? aosListState.p2ArmyList : aosListState.p1ArmyList)
+      : (isP1 ? aosListState.p1ArmyList : aosListState.p2ArmyList);
+    const iframe = document.getElementById('gt-nr-play-mode-iframe');
+    if (
+      iframe &&
+      activeList &&
+      (mode === 'play' || mode === 'edit') &&
+      (prevMode === 'play' || prevMode === 'edit') &&
+      aosListState.activeListTab !== 'opponent'
+    ) {
+      const listKey = resolveTrackerNrListKey(activeList);
+      if (iframe.getAttribute('data-list-key') === listKey && iframe.contentWindow) {
+        iframe.setAttribute('data-play-mode', mode === 'play' ? '1' : '0');
+        const playBtn = document.getElementById('gt-mode-btn-play');
+        const editBtn = document.getElementById('gt-mode-btn-edit');
+        const textBtn = document.getElementById('gt-mode-btn-text');
+        if (playBtn) {
+          playBtn.style.background = mode === 'play' ? '#0284c7' : 'transparent';
+          playBtn.style.color = mode === 'play' ? '#fff' : '#94a3b8';
+        }
+        if (editBtn) {
+          editBtn.style.background = mode === 'edit' ? '#7c3aed' : 'transparent';
+          editBtn.style.color = mode === 'edit' ? '#fff' : '#94a3b8';
+        }
+        if (textBtn) {
+          textBtn.style.background = 'transparent';
+          textBtn.style.color = '#94a3b8';
+        }
+        try {
+          iframe.contentWindow.postMessage({
+            type: 'OMNITACTICA_NR_COMMAND',
+            command: 'open_play_mode',
+            list_key: listKey,
+            list_name: activeList.name || '',
+            play: mode === 'play',
+            ephemeral: false
+          }, '*');
+        } catch (e) {}
+        return;
+      }
+    }
+    renderArmyListModal();
+  };
+
+  async function readTrackerSameOriginNrRows() {
+    const rowsByKey = new Map();
+    try {
+      let hasNrDb = true;
+      if (typeof indexedDB !== 'undefined' && typeof indexedDB.databases === 'function') {
+        const dbs = await indexedDB.databases();
+        const nrMeta = (dbs || []).find(d => d && d.name === 'nr');
+        if (!nrMeta) hasNrDb = false;
+      }
+      if (hasNrDb && typeof indexedDB !== 'undefined') {
+        await new Promise(resolve => {
+          let settled = false;
+          let dbRef = null;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            if (dbRef) {
+              try { dbRef.close(); } catch (e) {}
+            }
+            resolve();
+          };
+          setTimeout(done, 800);
+          const req = indexedDB.open('nr');
+          req.onupgradeneeded = (ev) => {
+            try { ev.target.transaction.abort(); } catch (e) {}
+            done();
+          };
+          req.onsuccess = () => {
+            const db = req.result;
+            dbRef = db;
+            if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('lists')) {
+              done();
+              return;
+            }
+            try {
+              const tx = db.transaction('lists', 'readonly');
+              const store = tx.objectStore('lists');
+              const allReq = store.getAll();
+              allReq.onsuccess = () => {
+                const allRows = allReq.result || [];
+                for (const r of allRows) {
+                  if (r && (r.list_key || r._id) && !r._ephemeral_view && !r.deleted && !r.trashed) {
+                    const lk = String(r.list_key || r._id).replace(/^(nr_|list_)/, '').trim();
+                    if (lk && !rowsByKey.has(lk)) {
+                      rowsByKey.set(lk, r);
+                    }
+                  }
+                }
+                done();
+              };
+              allReq.onerror = done;
+            } catch (e) {
+              done();
+            }
+          };
+          req.onerror = done;
+          req.onblocked = done;
+        });
+      }
+    } catch (e) {}
+    return Array.from(rowsByKey.values());
+  }
+
+  async function fetchTrackerAosNewRecruitLists() {
+    const mergedMap = new Map();
+    const addItem = (item) => {
+      if (!item || typeof item !== 'object') return;
+      if (!isAosListCandidate(item)) return;
+      const lk = String(item.list_key || (item.nr_row && item.nr_row.list_key) || item.id || '').replace(/^(nr_|list_)/, '').trim();
+      if (!lk) return;
+      if (!mergedMap.has(lk)) {
+        mergedMap.set(lk, item);
+      } else if (item.source_format && String(item.source_format).includes('Cloud')) {
+        mergedMap.get(lk).source_format = item.source_format;
+      }
+    };
+    const authTok = getAuthToken();
+    const nrAccess = (typeof localStorage !== 'undefined' && localStorage.getItem('access')) || '';
+    const localRows = await readTrackerSameOriginNrRows();
+    const [localSyncRes, cloudRes] = await Promise.all([
+      localRows.length > 0
+        ? fetch('/api/armylists/nr_sync', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(authTok ? { 'Authorization': `Bearer ${authTok}` } : {})
+            },
+            body: JSON.stringify({ action: 'bulk_sync', lists: localRows })
+          }).then(r => r.ok ? r.json() : null).catch(() => null)
+        : Promise.resolve(null),
+      fetch('/api/armylists?game_system=aos', {
+        headers: {
+          ...(authTok ? { 'Authorization': `Bearer ${authTok}` } : {}),
+          ...(nrAccess ? { 'X-NR-Access': nrAccess } : {})
+        }
+      }).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+    if (localSyncRes && Array.isArray(localSyncRes.army_lists)) {
+      localSyncRes.army_lists.forEach(addItem);
+    }
+    if (cloudRes && Array.isArray(cloudRes.army_lists)) {
+      cloudRes.army_lists.forEach(addItem);
+    }
+    return Array.from(mergedMap.values());
+  }
+
+  window.gtImportAndAttach = async function() {
+    const textarea = document.getElementById('gt-import-raw-input');
+    if (!textarea || !textarea.value.trim()) {
+      alert('Please paste your NewRecruit share link or Age of Sigmar army roster text.');
+      return;
+    }
+    const rawText = textarea.value.trim();
+    try {
+      const isUrl = /^https?:\/\//i.test(rawText) && rawText.toLowerCase().includes('newrecruit');
+      const parseResp = await fetch('/api/armylists/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isUrl ? { url: rawText, text: rawText, game_system: 'aos' } : { text: rawText, game_system: 'aos' })
+      });
+      if (!parseResp.ok) throw new Error('Failed to parse AoS roster');
+      const pData = await parseResp.json();
+      const armyList = pData.army_list || {};
+      armyList.game_system = 'aos';
+      armyList.system_edition = armyList.system_edition || 'AoS 4.0';
+
+      await window.gtAttachList(armyList);
+    } catch (e) {
+      alert('Parse error: ' + e.message);
+    }
+  };
+
+  function renderSavedListsGridInTracker(lists) {
+    const grid = document.getElementById('gt-saved-lists-grid');
+    if (!grid) return;
+    if (!Array.isArray(lists) || lists.length === 0) {
+      grid.innerHTML = `<div style="color:#64748b; font-size:12px; grid-column:1/-1;">No saved Age of Sigmar lists found yet. Paste a NewRecruit link/text below or build one in My Hub's NewRecruit Studio.</div>`;
+      return;
+    }
+    grid.innerHTML = lists.map(l => `
+      <div class="gt-saved-list-card" data-list-id="${escapeHtml(l.id)}" style="background:#131d33; border:1px solid rgba(245,158,11,0.25); border-radius:10px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; gap:10px;">
+        <div>
+          <div style="font-weight:800; font-size:14px; color:#f8fafc;">${escapeHtml(l.name || 'Unnamed AoS List')}</div>
+          <div style="font-size:12px; color:#f59e0b; font-weight:700; margin-top:2px;">${escapeHtml(l.faction || 'Age of Sigmar')} • ${escapeHtml(l.detachment || 'Battle Formation')}</div>
+          <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${l.points || 2000} pts • 🎮 Play Mode Ready</div>
+        </div>
+        <button onclick="window.gtAttachSavedList('${escapeHtml(l.id)}')" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:8px 12px; border-radius:6px; cursor:pointer;">
+          ⚔️ Attach This List
+        </button>
+      </div>
+    `).join('');
+  }
+
+  // Listen for live NewRecruit edits/creations/deletions inside AoS Game Tracker
+  if (!window.__gtAosNrSyncListenerBound) {
+    window.__gtAosNrSyncListenerBound = true;
+    window.addEventListener('message', (ev) => {
+      const msg = ev && ev.data;
+      if (!msg || msg.type !== 'OMNITACTICA_NR_SYNC_EVENT') return;
+      if (Array.isArray(msg.army_lists)) {
+        const aosOnly = msg.army_lists.filter(isAosListCandidate);
+        window.gtSavedListsCache = aosOnly;
+        renderSavedListsGridInTracker(aosOnly);
+      }
+      const updated = msg.army_list;
+      if (updated && typeof updated === 'object' && isAosListCandidate(updated)) {
+        const uKey = resolveTrackerNrListKey(updated);
+        const matchSlot = (slotObj) => {
+          if (!slotObj) return false;
+          return slotObj.id === updated.id || resolveTrackerNrListKey(slotObj) === uKey;
+        };
+        const isP1 = role !== 'player2';
+        let myMatched = false;
+        if (matchSlot(aosListState.p1ArmyList)) {
+          const prevDet = aosListState.p1ArmyList?.detachment;
+          if (prevDet && prevDet !== 'Battle Formation' && prevDet !== 'Core Detachment' && aosListState.rosterViewMode !== 'edit') {
+            updated.detachment = prevDet;
+          }
+          aosListState.p1ArmyList = updated;
+          applyAttachedAosListToGameState('player1', updated);
+          if (isP1) myMatched = true;
+        }
+        if (matchSlot(aosListState.p2ArmyList)) {
+          const prevDet = aosListState.p2ArmyList?.detachment;
+          if (prevDet && prevDet !== 'Battle Formation' && prevDet !== 'Core Detachment' && aosListState.rosterViewMode !== 'edit') {
+            updated.detachment = prevDet;
+          }
+          aosListState.p2ArmyList = updated;
+          applyAttachedAosListToGameState('player2', updated);
+          if (!isP1) myMatched = true;
+        }
+        if (myMatched && matchId) {
+          const myRole = isP1 ? 'player1' : 'player2';
+          fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/armylist`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(getAuthToken() ? { 'Authorization': `Bearer ${getAuthToken()}` } : {})
+            },
+            body: JSON.stringify({ role: myRole, army_list: updated })
+          }).catch(() => {});
+        }
+        injectAosSyncHUD();
+        const titleEl = document.getElementById('gt-active-roster-title');
+        const metaEl = document.getElementById('gt-active-roster-meta');
+        const iframeEl = document.getElementById('gt-nr-play-mode-iframe');
+        const curActive = aosListState.activeListTab === 'opponent'
+          ? (isP1 ? aosListState.p2ArmyList : aosListState.p1ArmyList)
+          : (isP1 ? aosListState.p1ArmyList : aosListState.p2ArmyList);
+        const targetList = (curActive && matchSlot(curActive))
+          ? curActive
+          : (iframeEl && iframeEl.getAttribute('data-list-key') === uKey ? updated : null);
+        if (targetList) {
+          if (titleEl) titleEl.textContent = targetList.name || 'AoS Warscroll Roster';
+          if (metaEl) metaEl.textContent = `${targetList.faction || 'Age of Sigmar'} • ${targetList.detachment || 'Battle Formation'} • ${targetList.points || 2000} PTS`;
+        }
+      }
+    });
+  }
+
+  // Listen for custom event from AosSetupWizard ("📜 Attach / View P1/P2 NewRecruit List")
+  window.addEventListener('aos_open_armylist_modal', (e) => {
+    const reqRole = (e && e.detail && e.detail.role) || (role !== 'player2' ? 'player1' : 'player2');
+    aosListState.attachTargetRole = reqRole;
+    const isP1 = role !== 'player2';
+    const hasTargetList = reqRole === 'player2' ? !!aosListState.p2ArmyList : !!aosListState.p1ArmyList;
+    if (hasTargetList) {
+      const targetTab = (reqRole === (isP1 ? 'player1' : 'player2')) ? 'my' : 'opponent';
+      window.gtOpenArmyListModal(targetTab, reqRole);
+    } else {
+      window.gtOpenArmyListModal('attach', reqRole);
+    }
+  });
+
+  function renderTrackerNativeRoster(list) {
+    const activeMode = (aosListState.rosterViewMode === 'text' || aosListState.rosterViewMode === 'edit')
+      ? aosListState.rosterViewMode
+      : 'play';
+
+    const name = list.name || 'AoS Warscroll Roster';
+    const faction = list.faction || 'Age of Sigmar';
+    const detachment = list.detachment || 'Battle Formation';
+    const points = list.points || 2000;
+    const listKey = resolveTrackerNrListKey(list);
+
+    const hiddenMetaHooks = `
+      <span id="gt-active-roster-title" style="display:none;">${escapeHtml(name)}</span>
+      <span id="gt-active-roster-meta" style="display:none;">${escapeHtml(faction)} • ${escapeHtml(detachment)} • ${points} PTS</span>
+    `;
+
+    if (activeMode === 'text') {
+      const rawText = generateTrackerRawRosterText(list);
+      return `
+        ${hiddenMetaHooks}
+        <div style="display:flex; flex-direction:column; padding:12px; background:#070b14; flex:1; overflow:hidden;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px; flex-wrap:wrap;">
+            <span style="font-size:12px; font-weight:800; color:#f59e0b;">${escapeHtml(name)} • ${escapeHtml(faction)} (${points} pts)</span>
+            <button onclick="window.gtCopyTrackerRawText()" style="background:#1e293b; color:#f59e0b; border:1px solid rgba(245,158,11,0.3); font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:5px;">
+              📋 Copy Raw Text
+            </button>
+          </div>
+          <pre style="flex:1; margin:0; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:12px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#e2e8f0; line-height:1.55; white-space:pre-wrap; overflow-y:auto; word-break:break-word;">${escapeHtml(rawText)}</pre>
+        </div>
+      `;
+    }
+
+    const isOppTab = aosListState.activeListTab === 'opponent';
+    const isEphemeralView = Boolean(isOppTab || list._ephemeral_view || (list.nr_row && list.nr_row._ephemeral_view));
+    try {
+      if (list.nr_row && window.sessionStorage) {
+        const rowToStore = isEphemeralView ? Object.assign({}, list.nr_row, { _ephemeral_view: true }) : list.nr_row;
+        window.sessionStorage.setItem('omni_pending_nr_row_' + listKey, JSON.stringify(rowToStore));
+      }
+    } catch (e) {}
+
+    const ephParam = isEphemeralView ? '&ephemeral=1' : '';
+    const nameParam = list.name ? `&name=${encodeURIComponent(list.name)}` : '';
+    const cbParam = `&_cb=${Date.now()}`;
+    const iframeUrl = (activeMode === 'edit' && !isOppTab)
+      ? `/nr/app/Lists/${encodeURIComponent(listKey)}?embed=tracker${nameParam}${cbParam}`
+      : `/nr/app/Lists/${encodeURIComponent(listKey)}?view=play&embed=tracker${ephParam}${nameParam}${cbParam}`;
+
+    return `
+      ${hiddenMetaHooks}
+      <div style="flex:1; position:relative; background:#090d16; display:flex; flex-direction:column; min-height:0; height:100%; overflow:hidden;">
+        <iframe
+          id="gt-nr-play-mode-iframe"
+          data-list-key="${escapeHtml(listKey)}"
+          data-play-mode="${activeMode === 'play' ? '1' : '0'}"
+          src="${iframeUrl}"
+          title="NewRecruit Play Mode - AoS Warscrolls & Battle Formations"
+          style="width:100%; height:100%; flex:1; border:none; display:block; background:#090d16;"
+          allow="clipboard-read; clipboard-write"
+        ></iframe>
+      </div>
+    `;
+  }
+
+  function renderArmyListModal() {
     const modal = document.getElementById('gt-army-list-modal');
     if (!modal) return;
-    const st = getAosState() || {};
-    const p1 = st.p1 || {};
-    const p2 = st.p2 || {};
 
-    const isP1 = role === 'player1';
-    const myPlayer = isP1 ? p1 : p2;
-    const oppPlayer = isP1 ? p2 : p1;
-    const activePlayer = activeTab === 'my' ? myPlayer : oppPlayer;
+    const st = getAosState() || {};
+    const p1Name = st.p1?.name || 'Player 1';
+    const p2Name = st.p2?.name || 'Player 2';
+    const isP1 = role !== 'player2';
+    const myList = isP1 ? aosListState.p1ArmyList : aosListState.p2ArmyList;
+    const oppList = isP1 ? aosListState.p2ArmyList : aosListState.p1ArmyList;
+
+    let activeList = null;
+    if (aosListState.activeListTab === 'opponent') activeList = oppList;
+    else if (aosListState.activeListTab === 'my') activeList = myList;
+
+    const tab = aosListState.activeListTab;
+    const hasActiveRoster = (tab === 'opponent' || tab === 'my') && activeList && (activeList.list_key || activeList.nr_row || activeList.source_url || activeList.raw_text || (activeList.units && activeList.units.length > 0));
+    if (tab === 'opponent' && aosListState.rosterViewMode === 'edit') {
+      aosListState.rosterViewMode = 'play';
+    }
+    const activeMode = (aosListState.rosterViewMode === 'text' || (aosListState.rosterViewMode === 'edit' && tab !== 'opponent'))
+      ? aosListState.rosterViewMode
+      : 'play';
+
+    const targetSlot = aosListState.attachTargetRole || (isP1 ? 'player1' : 'player2');
+    let contentHtml = '';
+
+    if (tab === 'attach') {
+      contentHtml = `
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:14px; padding:10px 12px; background:#0f172a; border:1px solid #273042; border-radius:10px;">
+          <div style="font-size:12px; font-weight:800; color:#cbd5e1;">
+            🎯 Attaching AoS Roster For:
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button type="button" onclick="window.gtSetAosAttachTarget('player1')" style="padding:5px 10px; border-radius:6px; font-size:11px; font-weight:800; border:1px solid ${targetSlot === 'player1' ? '#38bdf8' : '#334155'}; background:${targetSlot === 'player1' ? 'rgba(56,189,248,0.18)' : '#1e293b'}; color:${targetSlot === 'player1' ? '#38bdf8' : '#94a3b8'}; cursor:pointer;">
+              ⚔️ ${escapeHtml(p1Name)} (P1)
+            </button>
+            <button type="button" onclick="window.gtSetAosAttachTarget('player2')" style="padding:5px 10px; border-radius:6px; font-size:11px; font-weight:800; border:1px solid ${targetSlot === 'player2' ? '#f43f5e' : '#334155'}; background:${targetSlot === 'player2' ? 'rgba(244,63,94,0.18)' : '#1e293b'}; color:${targetSlot === 'player2' ? '#f43f5e' : '#94a3b8'}; cursor:pointer;">
+              ⚔️ ${escapeHtml(p2Name)} (P2)
+            </button>
+          </div>
+        </div>
+
+        <div id="gt-saved-lists-container" style="margin-bottom: 22px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+            <div>
+              <h3 style="font-size:16px; font-weight:800; color:#f8fafc; margin:0;">📋 Pick from Your NewRecruit AoS Lists</h3>
+              <div style="font-size:12px; color:#94a3b8; margin-top:2px;">Select any Age of Sigmar 4.0 roster from your NewRecruit Local Storage or NewRecruit Cloud account to attach &amp; sync Battle Formation.</div>
+            </div>
+          </div>
+          <div id="gt-saved-lists-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(270px, 1fr)); gap:12px;">
+            <div style="color:#94a3b8; font-size:12px; font-style:italic;">Loading your NewRecruit Age of Sigmar lists...</div>
+          </div>
+        </div>
+
+        <div style="border-top:1px solid rgba(255,255,255,0.08); padding-top:18px;">
+          <h3 style="font-size:15px; font-weight:800; color:#f59e0b; margin:0 0 6px 0;">🔗 Or Paste NewRecruit Share Link / AoS Roster Text</h3>
+          <p style="font-size:12px; color:#94a3b8; margin:0 0 10px 0;">Paste a <b>NewRecruit share URL</b> or exported Age of Sigmar 4.0 text list to compile it into an interactive NewRecruit Play Mode roster with full warscrolls and Battle Formation abilities.</p>
+          <textarea id="gt-import-raw-input" rows="6" placeholder="Paste NewRecruit link (https://www.newrecruit.eu/app/list/...) or AoS 4.0 roster text here... e.g.
+
+Stormcast Eternals - Vanguard Wing (2000 pts)
+Battle Formation: Vanguard Wing
+General's Regiment
+1x Lord-Vigilant on Gryph-stalker (180 pts): General
+5x Liberators (100 pts)
+3x Prosecutors (140 pts)" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; font-size:12px; outline:none; box-sizing:border-box; line-height:1.5; resize:vertical;"></textarea>
+          <div style="margin-top:10px; display:flex; justify-content:flex-end;">
+            <button onclick="window.gtImportAndAttach()" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:10px 18px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+              🎮 Attach &amp; Open in Play Mode
+            </button>
+          </div>
+        </div>
+      `;
+
+      setTimeout(async () => {
+        const grid = document.getElementById('gt-saved-lists-grid');
+        if (!grid) return;
+        try {
+          const lists = await fetchTrackerAosNewRecruitLists();
+          window.gtSavedListsCache = lists;
+          renderSavedListsGridInTracker(lists);
+        } catch (e) {
+          renderSavedListsGridInTracker([]);
+        }
+      }, 50);
+    } else if (!hasActiveRoster) {
+      const isOpp = tab === 'opponent';
+      contentHtml = `
+        <div style="text-align:center; padding:50px 20px;">
+          <div style="font-size:42px; margin-bottom:12px;">${isOpp ? '📜' : '📋'}</div>
+          <h3 style="font-size:18px; font-weight:800; color:#f8fafc; margin-bottom:6px;">${isOpp ? "Opponent hasn't attached an AoS list yet" : "You haven't attached an AoS army list to this match"}</h3>
+          <p style="font-size:13px; color:#94a3b8; max-width:480px; margin:0 auto 20px;">
+            ${isOpp ? "When your opponent attaches their NewRecruit Age of Sigmar roster, you can inspect their full interactive warscrolls and Battle Formation rules here in NewRecruit Play Mode." : "Attach an Age of Sigmar 4.0 list from your NewRecruit Studio or paste a roster to view interactive warscrolls, Battle Formations, and spell lores in NewRecruit Play Mode."}
+          </p>
+          <button onclick="window.gtSetAosAttachTarget('${isOpp ? (isP1 ? 'player2' : 'player1') : (isP1 ? 'player1' : 'player2')}'); window.gtSetListTab('attach');" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:13px; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">
+            ➕ ${isOpp ? 'Attach / Paste Opponent AoS List' : 'Attach / Select My AoS Army List'}
+          </button>
+        </div>
+      `;
+    } else if (activeList) {
+      contentHtml = renderTrackerNativeRoster(activeList);
+    }
 
     modal.innerHTML = `
-      <div class="gt-modal-dialog" style="max-width:600px; background:#0b1120; border:1px solid #273042; border-radius:16px; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#fff;">
-        <div class="gt-modal-header" style="background:#0f172a; padding:16px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08);">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:20px;">📋</span>
-            <h3 style="margin:0; font-size:16px; font-weight:800;">Army Warscroll Lists</h3>
+      <div class="gt-modal-dialog" style="max-width:${hasActiveRoster ? '1440px' : '960px'}; width:${hasActiveRoster ? '99vw' : '100%'}; height:${hasActiveRoster ? '96dvh' : 'auto'}; max-height:96dvh; border-radius:12px;">
+        <div class="gt-modal-header" style="padding:4px 6px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:4px; flex-wrap:nowrap; min-height:36px;">
+          <div style="display:flex; align-items:center; gap:3px; flex-wrap:nowrap; flex-shrink:0;">
+            <button onclick="window.gtSetListTab('opponent')" class="gt-tab-btn ${tab === 'opponent' ? 'active' : ''}" style="padding:3px 6px; font-size:10.5px; white-space:nowrap;">
+              📜 Opp${oppList ? ' 🟢' : ''}
+            </button>
+            <button onclick="window.gtSetListTab('my')" class="gt-tab-btn ${tab === 'my' ? 'active' : ''}" style="padding:3px 6px; font-size:10.5px; white-space:nowrap;">
+              📋 Mine${myList ? ' 🟢' : ''}
+            </button>
+            <button onclick="window.gtSetListTab('attach')" class="gt-tab-btn ${tab === 'attach' ? 'active' : ''}" style="padding:3px 6px; font-size:10.5px; white-space:nowrap;">
+              ➕ Switch
+            </button>
           </div>
-          <button onclick="window.gtCloseArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:18px; cursor:pointer;">✕</button>
+          <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+            ${hasActiveRoster ? `
+              <div style="display:flex; background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:1.5px; gap:1.5px;">
+                <button id="gt-mode-btn-play" onclick="window.gtToggleRosterViewMode('play')" title="NewRecruit Play Mode" style="background:${activeMode==='play'?'#0284c7':'transparent'}; color:${activeMode==='play'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
+                  🎮 Play
+                </button>
+                ${tab !== 'opponent' ? `
+                <button id="gt-mode-btn-edit" onclick="window.gtToggleRosterViewMode('edit')" title="Edit in NewRecruit" style="background:${activeMode==='edit'?'#7c3aed':'transparent'}; color:${activeMode==='edit'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
+                  🛠️ Edit
+                </button>
+                ` : ''}
+                <button id="gt-mode-btn-text" onclick="window.gtToggleRosterViewMode('text')" title="Raw Roster Text" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:3px 6px; border-radius:4px; font-weight:800; font-size:10px; cursor:pointer; white-space:nowrap;">
+                  📄 Text
+                </button>
+              </div>
+            ` : ''}
+            <button onclick="window.gtCloseArmyListModal()" title="Close" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#cbd5e1; font-size:14px; font-weight:800; width:25px; height:25px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; line-height:1;">
+              ✕
+            </button>
+          </div>
         </div>
-        <div style="display:flex; border-bottom:1px solid #273042; background:#070b14;">
-          <button class="gt-tab-btn ${activeTab === 'opponent' ? 'active' : ''}" onclick="window.gtOpenArmyListModal('opponent')" style="flex:1; padding:12px; font-weight:700; border:none; cursor:pointer;">
-            Opponent (${escapeHtml(oppPlayer.name || 'P2')})
-          </button>
-          <button class="gt-tab-btn ${activeTab === 'my' ? 'active' : ''}" onclick="window.gtOpenArmyListModal('my')" style="flex:1; padding:12px; font-weight:700; border:none; cursor:pointer;">
-            My List (${escapeHtml(myPlayer.name || 'P1')})
-          </button>
-        </div>
-        <div class="gt-modal-body" style="padding:20px; max-height:60vh; overflow-y:auto;">
-          <div style="margin-bottom:16px;">
-            <div style="font-size:16px; font-weight:800; color:#f59e0b;">${escapeHtml(activePlayer.name || 'Player')}</div>
-            <div style="font-size:13px; color:#38bdf8; font-family:'JetBrains Mono',monospace;">
-              ${escapeHtml(activePlayer.grandAlliance || 'Order')} • ${escapeHtml(activePlayer.faction || 'Faction')}
-            </div>
-            ${activePlayer.battleFormation ? `<div style="font-size:12px; color:#94a3b8; margin-top:2px;">Battle Formation: <b>${escapeHtml(activePlayer.battleFormation)}</b></div>` : ''}
-          </div>
-          <div style="background:#12161f; border:1px solid #273042; border-radius:10px; padding:16px; color:#cbd5e1; font-size:13px; line-height:1.6;">
-            <p style="margin:0 0 8px 0; color:#94a3b8; font-size:11px; text-transform:uppercase; font-weight:700;">Warscroll Manifest</p>
-            <div>Official Age of Sigmar 4th Edition Warscroll & Roster integrated via Best Coast Pairings / NewRecruit.</div>
-          </div>
+        <div class="gt-modal-body" style="padding:${hasActiveRoster ? '0' : '16px'}; display:flex; flex-direction:column; flex:1; overflow:${hasActiveRoster ? 'hidden' : 'auto'};">
+          ${contentHtml}
         </div>
       </div>
     `;
+
+    if (hasActiveRoster && activeList) {
+      const iframe = document.getElementById('gt-nr-play-mode-iframe');
+      if (iframe) {
+        const listKey = resolveTrackerNrListKey(activeList);
+        const isPlayMode = (aosListState.rosterViewMode || 'play') !== 'edit' || tab === 'opponent';
+        const isEphemeralOpp = tab === 'opponent' || Boolean(activeList._ephemeral_view || (activeList.nr_row && activeList.nr_row._ephemeral_view));
+        const nrRowPayload = activeList.nr_row
+          ? (isEphemeralOpp ? Object.assign({}, activeList.nr_row, { _ephemeral_view: true }) : activeList.nr_row)
+          : null;
+        try {
+          if (nrRowPayload && window.sessionStorage) {
+            window.sessionStorage.setItem('omni_pending_nr_row_' + listKey, JSON.stringify(nrRowPayload));
+          }
+        } catch (e) {}
+        const sendPlayCmd = () => {
+          try {
+            if (iframe.contentWindow) {
+              iframe.contentWindow.postMessage({
+                type: 'OMNITACTICA_NR_COMMAND',
+                command: 'open_play_mode',
+                list_key: listKey,
+                list_name: activeList.name || '',
+                play: isPlayMode,
+                ephemeral: isEphemeralOpp,
+                nr_row: nrRowPayload
+              }, '*');
+            }
+          } catch (e) {}
+        };
+        iframe.addEventListener('load', () => {
+          sendPlayCmd();
+          setTimeout(sendPlayCmd, 600);
+          setTimeout(sendPlayCmd, 1600);
+        });
+      }
+    }
   }
 
   // 6. Scorecard Link
@@ -1021,6 +1827,12 @@
       judgeExtraClass = 'resolved';
     }
 
+    const isP1 = role !== 'player2';
+    const hasAnyList = Boolean(aosListState.p1ArmyList || aosListState.p2ArmyList);
+    const defaultListTab = (isP1 ? aosListState.p1ArmyList : aosListState.p2ArmyList)
+      ? 'my'
+      : ((isP1 ? aosListState.p2ArmyList : aosListState.p1ArmyList) ? 'opponent' : 'attach');
+
     dock.innerHTML = `
       ${!isSpectator ? `
         <button type="button" class="gt-dock-btn gt-dock-finish" onclick="window.__openCompleteModal()" title="Complete Match">
@@ -1046,9 +1858,9 @@
         <span class="gt-dock-icon">📄</span>
         <span class="gt-dock-label">Score</span>
       </button>
-      <button type="button" class="gt-dock-btn" style="background:rgba(56,189,248,0.15); border-color:rgba(56,189,248,0.4); color:#38bdf8;" onclick="window.gtOpenArmyListModal('opponent')" title="View Army Lists">
+      <button type="button" class="gt-dock-btn" style="background:rgba(56,189,248,0.15); border-color:rgba(56,189,248,0.4); color:#38bdf8;" onclick="window.gtOpenArmyListModal('${defaultListTab}')" title="View Army Lists">
         <span class="gt-dock-icon">📋</span>
-        <span class="gt-dock-label">Lists</span>
+        <span class="gt-dock-label">Lists${hasAnyList ? ' 🟢' : ''}</span>
       </button>
     `;
   }
@@ -1076,7 +1888,9 @@
     const st = getAosState() || {};
     const p1Name = st.p1?.name || 'Player 1';
     const p2Name = st.p2?.name || 'Player 2';
-    const isP1 = role === 'player1';
+    const isP1 = role !== 'player2';
+    const myList = isP1 ? aosListState.p1ArmyList : aosListState.p2ArmyList;
+    const oppList = isP1 ? aosListState.p2ArmyList : aosListState.p1ArmyList;
 
     hud.innerHTML = `
       <!-- Left: Hub & Lobby Navigation & Match Tag -->
@@ -1118,11 +1932,11 @@
             🙋‍♂️ Call Judge
           </button>
         ` : ''}
-        <button onclick="window.gtOpenArmyListModal('opponent')" style="background:#1e293b; color:#fff; border:1px solid #334155; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Opponent's List">
-          📜 Opponent List
+        <button onclick="window.gtOpenArmyListModal('opponent')" style="background:#1e293b; color:#fff; border:1px solid ${oppList ? '#10b981' : '#334155'}; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Opponent's List">
+          📜 Opponent List${oppList ? ' 🟢' : ''}
         </button>
-        <button onclick="window.gtOpenArmyListModal('my')" style="background:#1e293b; color:#fff; border:1px solid #334155; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Your List">
-          📋 My List
+        <button onclick="window.gtOpenArmyListModal('${myList ? 'my' : 'attach'}')" style="background:#1e293b; color:#fff; border:1px solid ${myList ? '#10b981' : '#334155'}; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Your List">
+          📋 My List${myList ? ' 🟢' : ''}
         </button>
         <button onclick="window.__openScorecardModal()" style="background:rgba(245,158,11,0.12); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Scorecard">
           📄 Scorecard

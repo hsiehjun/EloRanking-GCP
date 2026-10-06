@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAosTracker } from "../../context/AosTrackerContext.jsx";
 import { AOS_BATTLEPLANS } from "../../data/aosBattleplans.js";
-import { AOS_FACTIONS, getFactionsByAlliance } from "../../data/aosFactions.js";
+import { AOS_FACTIONS, getFactionsByAlliance, getFactionById, hydrateAosFormationsFromNewRecruit } from "../../data/aosFactions.js";
 import { GRAND_ALLIANCES, GRAND_ALLIANCE_COLORS } from "../../data/aosConstants.js";
 import { CheckIcon } from "../common/Icons.jsx";
 
@@ -22,13 +22,14 @@ const STEP_SUBTITLES = [
 export function AosSetupWizard() {
   const { state, updateGameSetup, startGame } = useAosTracker();
   const [step, setStep] = useState(1);
+  const [, setHydrationTick] = useState(0);
 
   // Local form state
   const [battleplanId, setBattleplanId] = useState(state.battleplan?.id || AOS_BATTLEPLANS[0].id);
   const [p1Name, setP1Name] = useState(state.p1.name || "Player 1");
   const [p1Alliance, setP1Alliance] = useState(state.p1.grandAlliance || "Order");
   const [p1Faction, setP1Faction] = useState(state.p1.faction || "stormcast-eternals");
-  const [p1Formation, setP1Formation] = useState(state.p1.battleFormation || "Lightning Echelon");
+  const [p1Formation, setP1Formation] = useState(state.p1.battleFormation || "Vanguard Wing");
 
   const [p2Name, setP2Name] = useState(state.p2.name || "Player 2");
   const [p2Alliance, setP2Alliance] = useState(state.p2.grandAlliance || "Chaos");
@@ -37,11 +38,67 @@ export function AosSetupWizard() {
 
   const [round1First, setRound1First] = useState("p1");
 
+  useEffect(() => {
+    let mounted = true;
+    hydrateAosFormationsFromNewRecruit().then(() => {
+      if (mounted) setHydrationTick(t => t + 1);
+    });
+    const onHydrated = () => {
+      if (mounted) setHydrationTick(t => t + 1);
+    };
+    window.addEventListener("aos_formations_hydrated", onHydrated);
+    return () => {
+      mounted = false;
+      window.removeEventListener("aos_formations_hydrated", onHydrated);
+    };
+  }, []);
+
+  // Sync local form state when an army list is attached from NewRecruit / Army Lists modal
+  useEffect(() => {
+    if (state.p1?.faction) {
+      const fObj = getFactionById(state.p1.faction);
+      if (fObj) {
+        setP1Alliance(fObj.grandAlliance);
+        setP1Faction(fObj.id);
+        if (state.p1.battleFormation && fObj.battleFormations.includes(state.p1.battleFormation)) {
+          setP1Formation(state.p1.battleFormation);
+        } else if (state.p1.battleFormation && state.p1.battleFormation !== "Battle Formation") {
+          setP1Formation(state.p1.battleFormation);
+        } else if (!fObj.battleFormations.includes(p1Formation)) {
+          setP1Formation(fObj.battleFormations[0] || "");
+        }
+      }
+    }
+    if (state.p1?.name && state.p1.name !== "Player 1" && p1Name === "Player 1") {
+      setP1Name(state.p1.name);
+    }
+  }, [state.p1?.faction, state.p1?.battleFormation, state.p1?.name]);
+
+  useEffect(() => {
+    if (state.p2?.faction) {
+      const fObj = getFactionById(state.p2.faction);
+      if (fObj) {
+        setP2Alliance(fObj.grandAlliance);
+        setP2Faction(fObj.id);
+        if (state.p2.battleFormation && fObj.battleFormations.includes(state.p2.battleFormation)) {
+          setP2Formation(state.p2.battleFormation);
+        } else if (state.p2.battleFormation && state.p2.battleFormation !== "Battle Formation") {
+          setP2Formation(state.p2.battleFormation);
+        } else if (!fObj.battleFormations.includes(p2Formation)) {
+          setP2Formation(fObj.battleFormations[0] || "");
+        }
+      }
+    }
+    if (state.p2?.name && state.p2.name !== "Player 2" && p2Name === "Player 2") {
+      setP2Name(state.p2.name);
+    }
+  }, [state.p2?.faction, state.p2?.battleFormation, state.p2?.name]);
+
   const p1Factions = getFactionsByAlliance(p1Alliance);
   const p2Factions = getFactionsByAlliance(p2Alliance);
 
-  const selectedP1FacObj = AOS_FACTIONS.find(f => f.id === p1Faction) || p1Factions[0];
-  const selectedP2FacObj = AOS_FACTIONS.find(f => f.id === p2Faction) || p2Factions[0];
+  const selectedP1FacObj = getFactionById(p1Faction) || p1Factions[0];
+  const selectedP2FacObj = getFactionById(p2Faction) || p2Factions[0];
 
   function handleFinish() {
     updateGameSetup({
@@ -282,7 +339,7 @@ export function AosSetupWizard() {
 
               <div className="flex flex-col gap-2">
                 <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--gtk-muted)" }}>
-                  Battle Formation
+                  Battle Formation / Army of Renown
                 </span>
                 <select
                   value={p1Formation}
@@ -299,6 +356,53 @@ export function AosSetupWizard() {
                   ))}
                 </select>
               </div>
+            </div>
+
+            {(() => {
+              const detObj = (selectedP1FacObj?.formationsDetails || []).find(d => d.name === p1Formation);
+              if (!detObj || (!detObj.effect && !detObj.ability_name)) return null;
+              return (
+                <div
+                  className="rounded-[12px] border p-3 text-left"
+                  style={{ background: "rgba(56, 189, 248, 0.06)", borderColor: "rgba(56, 189, 248, 0.28)" }}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="gtk-mono text-[11px] font-extrabold uppercase tracking-wider text-[#38bdf8]">
+                      {detObj.ability_name || detObj.name}
+                    </span>
+                    <span className="gtk-mono text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-[#38bdf8]/15 text-[#7dd3fc] border border-[#38bdf8]/30">
+                      {detObj.source || "AoS 4.0"}
+                    </span>
+                  </div>
+                  {detObj.timing && (
+                    <div className="gtk-mono text-[10px] text-[#94a3b8] mb-1">
+                      <strong>Timing:</strong> {detObj.timing}
+                    </div>
+                  )}
+                  {detObj.effect && (
+                    <div className="text-[11px] text-[#cbd5e1] leading-snug">
+                      {detObj.effect.replace(/\*\*\^\^|\^\^\*\*/g, "")}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("aos_open_armylist_modal", { detail: { role: "player1" } }));
+                }}
+                className="gtk-mono rounded-[10px] border px-3 py-2 text-[11px] font-bold uppercase tracking-wider transition-all hover:brightness-110"
+                style={{
+                  background: "rgba(56, 189, 248, 0.1)",
+                  borderColor: "rgba(56, 189, 248, 0.35)",
+                  color: "#7dd3fc"
+                }}
+              >
+                📜 Attach / View P1 NewRecruit List
+              </button>
             </div>
           </section>
         )}
@@ -391,7 +495,7 @@ export function AosSetupWizard() {
 
               <div className="flex flex-col gap-2">
                 <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--gtk-muted)" }}>
-                  Battle Formation
+                  Battle Formation / Army of Renown
                 </span>
                 <select
                   value={p2Formation}
@@ -408,6 +512,53 @@ export function AosSetupWizard() {
                   ))}
                 </select>
               </div>
+            </div>
+
+            {(() => {
+              const detObj = (selectedP2FacObj?.formationsDetails || []).find(d => d.name === p2Formation);
+              if (!detObj || (!detObj.effect && !detObj.ability_name)) return null;
+              return (
+                <div
+                  className="rounded-[12px] border p-3 text-left"
+                  style={{ background: "rgba(239, 68, 68, 0.06)", borderColor: "rgba(239, 68, 68, 0.28)" }}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="gtk-mono text-[11px] font-extrabold uppercase tracking-wider text-[#f87171]">
+                      {detObj.ability_name || detObj.name}
+                    </span>
+                    <span className="gtk-mono text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-[#ef4444]/15 text-[#fca5a5] border border-[#ef4444]/30">
+                      {detObj.source || "AoS 4.0"}
+                    </span>
+                  </div>
+                  {detObj.timing && (
+                    <div className="gtk-mono text-[10px] text-[#94a3b8] mb-1">
+                      <strong>Timing:</strong> {detObj.timing}
+                    </div>
+                  )}
+                  {detObj.effect && (
+                    <div className="text-[11px] text-[#cbd5e1] leading-snug">
+                      {detObj.effect.replace(/\*\*\^\^|\^\^\*\*/g, "")}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("aos_open_armylist_modal", { detail: { role: "player2" } }));
+                }}
+                className="gtk-mono rounded-[10px] border px-3 py-2 text-[11px] font-bold uppercase tracking-wider transition-all hover:brightness-110"
+                style={{
+                  background: "rgba(239, 68, 68, 0.1)",
+                  borderColor: "rgba(239, 68, 68, 0.35)",
+                  color: "#fca5a5"
+                }}
+              >
+                📜 Attach / View P2 NewRecruit List
+              </button>
             </div>
           </section>
         )}

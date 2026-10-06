@@ -107,11 +107,33 @@ def _resolve_user_id(request: Request) -> Optional[str]:
     return None
 
 
-@router.get("/api/nr/detachments", summary="Get live 40k 11th Edition detachments, DP, Force Dispositions, and UNIQUE tags from NewRecruit")
+@router.get("/api/nr/detachments", summary="Get live 40k 11th Edition detachments or AoS 4.0 Battle Formations from NewRecruit")
 @router.get("/api/armylists/nr_detachments", include_in_schema=False)
-async def api_get_nr_detachments():
+async def api_get_nr_detachments(game_system: Optional[str] = None):
+    if str(game_system or "").strip().lower() == "aos":
+        from newrecruit_integration import get_nr_aos_formations_catalog
+        return await asyncio.to_thread(get_nr_aos_formations_catalog)
     from newrecruit_integration import get_nr_detachments_catalog
     return await asyncio.to_thread(get_nr_detachments_catalog)
+
+
+@router.get("/api/nr/aos/battle_formations", summary="Get live Age of Sigmar 4.0 Battle Formations & Armies of Renown from NewRecruit")
+@router.get("/api/armylists/nr_aos_formations", include_in_schema=False)
+async def api_get_nr_aos_formations():
+    from newrecruit_integration import get_nr_aos_formations_catalog
+    return await asyncio.to_thread(get_nr_aos_formations_catalog)
+
+
+@router.get("/api/nr/bundle_status", summary="Get status of nr_offline_bundle.zip and last background refresh")
+async def api_get_nr_bundle_status():
+    from newrecruit_integration import get_nr_offline_bundle_refresh_status
+    return get_nr_offline_bundle_refresh_status()
+
+
+@router.post("/api/nr/refresh_bundle", summary="Refresh nr_offline_bundle.zip from live www.newrecruit.eu and hot-reload in memory")
+async def api_post_nr_refresh_bundle(force_books: bool = False):
+    from newrecruit_integration import refresh_nr_offline_bundle_if_needed
+    return await asyncio.to_thread(refresh_nr_offline_bundle_if_needed, force_books)
 
 
 @router.get("/api/armylists", summary="Get army lists for current user directly from NewRecruit Cloud (if connected)")

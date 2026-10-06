@@ -268,10 +268,25 @@ async def _prewarm_meta_intel_cache():
     except Exception as me:
         logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
 
+async def _periodic_nr_bundle_refresh():
+    """Background task to periodically check www.newrecruit.eu and refresh data/nr_offline_bundle.zip."""
+    interval_hours = float(os.environ.get("NR_BUNDLE_REFRESH_INTERVAL_HOURS", "12") or 12)
+    await asyncio.sleep(90)  # Wait 90s after startup before initial check
+    while True:
+        try:
+            from newrecruit_integration import refresh_nr_offline_bundle_if_needed
+            res = await asyncio.to_thread(refresh_nr_offline_bundle_if_needed, False)
+            if res.get("updated_books", 0) > 0:
+                logger.info(f"📦 Periodic NewRecruit bundle refresh updated {res.get('updated_books')} book(s).")
+        except Exception as e:
+            logger.warning(f"Notice during periodic NewRecruit bundle refresh: {e}")
+        await asyncio.sleep(max(3600.0, interval_hours * 3600.0))
+
 @app.on_event("startup")
 async def on_server_startup():
     logger.info("Warhammer 40,000 Elo Backend online and ready.")
     asyncio.create_task(_periodic_firestore_cleanup())
+    asyncio.create_task(_periodic_nr_bundle_refresh())
 
     async def _deferred_startup_tasks():
         await asyncio.sleep(2)

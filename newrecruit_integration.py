@@ -11,6 +11,8 @@ import logging
 import mimetypes
 import os
 import re
+import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -306,6 +308,102 @@ def _ensure_nr_offline_bundle() -> Optional[zipfile.ZipFile]:
             return None
 
 
+_NR_BUNDLE_REFRESH_STATUS: Dict[str, Any] = {
+    "last_checked_ts": 0.0,
+    "last_updated_ts": 0.0,
+    "last_updated_books_count": 0,
+    "last_result": "not_run",
+}
+
+
+def reload_nr_offline_bundle_in_memory() -> bool:
+    """Closes and re-indexes data/nr_offline_bundle.zip in memory without restarting the server."""
+    global _NR_OFFLINE_ZIP, _NR_OFFLINE_NAMES, _NR_OFFLINE_BOOK_BY_ID, _NR_OFFLINE_CT_MAP
+    with _NR_OFFLINE_LOCK:
+        if _NR_OFFLINE_ZIP is not None:
+            try:
+                _NR_OFFLINE_ZIP.close()
+            except Exception:
+                pass
+        _NR_OFFLINE_ZIP = None
+        _NR_OFFLINE_NAMES = set()
+        _NR_OFFLINE_BOOK_BY_ID = {}
+        _NR_OFFLINE_CT_MAP = {}
+        _NR_OFFLINE_BOOK_VERSIONS.clear()
+        _NR_OFFLINE_BOOK_DATES.clear()
+        _NR_STATIC_CACHE.clear()
+    # Clear derived catalogue caches so next request re-reads the refreshed bundle
+    if "_NR_DETACHMENTS_CACHE" in globals():
+        _NR_DETACHMENTS_CACHE["payload"] = None
+    if "_NR_AOS_FORMATIONS_CACHE" in globals():
+        _NR_AOS_FORMATIONS_CACHE["payload"] = None
+    return _ensure_nr_offline_bundle() is not None
+
+
+def refresh_nr_offline_bundle_if_needed(force_books: bool = False) -> Dict[str, Any]:
+    """
+    Runs scripts/update_nr_offline_bundle.py to check live www.newrecruit.eu against
+    data/nr_offline_bundle.zip, downloads any updated 40k/AoS books, and hot-reloads
+    the in-memory zip archive.
+    """
+    script_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "scripts", "update_nr_offline_bundle.py"
+    )
+    now_ts = time.time()
+    _NR_BUNDLE_REFRESH_STATUS["last_checked_ts"] = now_ts
+    if not os.path.exists(script_path):
+        _NR_BUNDLE_REFRESH_STATUS["last_result"] = "script_missing"
+        return {"success": False, "error": "update_nr_offline_bundle.py not found"}
+    cmd = [sys.executable, script_path]
+    if force_books:
+        cmd.append("--force-books")
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        stdout = proc.stdout or ""
+        stderr = proc.stderr or ""
+        if proc.returncode != 0:
+            _NR_BUNDLE_REFRESH_STATUS["last_result"] = f"error:{proc.returncode}"
+            logger.warning("update_nr_offline_bundle.py exited %s: %s", proc.returncode, stderr[:400])
+            return {"success": False, "returncode": proc.returncode, "stderr": stderr[:800]}
+        updated_count = 0
+        m = re.search(r"\[2/3\]\s+(\d+)\s+book\(s\)\s+have\s+updated\s+versions", stdout)
+        if m:
+            updated_count = int(m.group(1))
+        reload_nr_offline_bundle_in_memory()
+        if updated_count > 0:
+            _NR_BUNDLE_REFRESH_STATUS["last_updated_ts"] = now_ts
+            _NR_BUNDLE_REFRESH_STATUS["last_updated_books_count"] = updated_count
+        _NR_BUNDLE_REFRESH_STATUS["last_result"] = "updated" if updated_count > 0 else "already_current"
+        return {
+            "success": True,
+            "updated_books": updated_count,
+            "status": _NR_BUNDLE_REFRESH_STATUS["last_result"],
+            "last_checked_ts": now_ts,
+            "output": stdout.strip(),
+        }
+    except Exception as e:
+        _NR_BUNDLE_REFRESH_STATUS["last_result"] = f"exception:{e}"
+        logger.warning("Failed to refresh nr_offline_bundle.zip: %s", e)
+        return {"success": False, "error": str(e)}
+
+
+def get_nr_offline_bundle_refresh_status() -> Dict[str, Any]:
+    """Returns metadata on the current nr_offline_bundle.zip and last background refresh."""
+    _ensure_nr_offline_bundle()
+    return {
+        "bundle_exists": os.path.exists(_NR_OFFLINE_BUNDLE_PATH),
+        "bundled_books_count": len(_NR_OFFLINE_BOOK_VERSIONS),
+        "live_tracked_books_count": len(_NR_LIVE_BOOK_VERSIONS),
+        **_NR_BUNDLE_REFRESH_STATUS,
+    }
+
+
 def _read_nr_offline_entry(arcname: str) -> Optional[bytes]:
     """Reads an entry from data/nr_offline_bundle.zip in a thread-safe manner."""
     zf = _ensure_nr_offline_bundle()
@@ -524,6 +622,16 @@ def detect_nr_game_system_and_edition(data: Dict[str, Any]) -> Tuple[str, str]:
     target_book_id = data.get("id_book")
     target_bsid_book = str(data.get("bsid_book") or "").strip()
     if target_book_id or target_bsid_book:
+        _ensure_nr_offline_bundle()
+        if target_book_id:
+            try:
+                bid_int = int(target_book_id)
+                if (NR_AOS_SYSTEM_ID, bid_int) in _NR_OFFLINE_BOOK_VERSIONS:
+                    return "aos", "AoS 4.0"
+                if (NR_40K_SYSTEM_ID, bid_int) in _NR_OFFLINE_BOOK_VERSIONS:
+                    return "40k", "11th Ed"
+            except Exception:
+                pass
         for _, (bid, bsid, _) in NR_AOS_FACTION_BOOKS.items():
             if (target_book_id and str(bid) == str(target_book_id)) or (target_bsid_book and bsid == target_bsid_book):
                 return "aos", "AoS 4.0"
@@ -538,8 +646,13 @@ def detect_nr_game_system_and_edition(data: Dict[str, Any]) -> Tuple[str, str]:
         return "40k", str(data.get("system_edition") or "11th Ed")
 
     fac_low = str(data.get("faction") or data.get("_omnitactica_book_name") or data.get("book_name") or "").strip().lower()
-    if fac_low and fac_low in NR_AOS_FACTION_BOOKS and fac_low not in NR_40K_FACTION_BOOKS:
-        return "aos", "AoS 4.0"
+    if fac_low:
+        fac_candidates = [fac_low, fac_low.replace("-", " ")]
+        if " - " in fac_low:
+            fac_candidates.extend([p.strip() for p in fac_low.split(" - ") if p.strip()])
+        for cand in fac_candidates:
+            if cand in NR_AOS_FACTION_BOOKS and cand not in NR_40K_FACTION_BOOKS:
+                return "aos", "AoS 4.0"
 
     return "40k", "11th Ed"
 
@@ -557,13 +670,51 @@ def resolve_nr_40k_book(faction: str) -> Tuple[int, str, str]:
 
 def resolve_nr_aos_book(faction: str) -> Tuple[int, str, str]:
     """Resolves a faction name to its NewRecruit Age of Sigmar 4.0 (id_book, bsid_book, book_name)."""
-    f_clean = (faction or "").strip().lower()
-    if " - " in f_clean:
-        f_clean = f_clean.split(" - ")[-1].strip()
+    f_raw = (faction or "").strip()
+    f_clean = f_raw.lower()
+    # 1. Check exact match in base NR_AOS_FACTION_BOOKS (and slug variant)
     if f_clean in NR_AOS_FACTION_BOOKS:
         return NR_AOS_FACTION_BOOKS[f_clean]
+    f_spaced = f_clean.replace("-", " ")
+    if f_spaced in NR_AOS_FACTION_BOOKS:
+        return NR_AOS_FACTION_BOOKS[f_spaced]
+
+    # 2. Check dynamic AoS 4.0 library books (including Armies of Renown like 'Stormcast Eternals - Ruination Brotherhood')
+    lib_bytes = _read_nr_offline_entry("rpc/get_library.json")
+    if lib_bytes:
+        try:
+            lib_data = json.loads(lib_bytes.decode("utf-8", errors="ignore"))
+            lib_arr = lib_data if isinstance(lib_data, list) else lib_data.get("array", [])
+            for sys_obj in lib_arr:
+                if isinstance(sys_obj, dict) and int(sys_obj.get("id") or 0) == NR_AOS_SYSTEM_ID:
+                    books = sys_obj.get("books")
+                    if isinstance(books, dict):
+                        books = books.get("array", [])
+                    for b in (books or []):
+                        if not isinstance(b, dict) or not b.get("playable", True):
+                            continue
+                        bname = str(b.get("name") or "").strip()
+                        bname_low = bname.lower()
+                        if bname_low == f_clean or (
+                            " - " in bname_low and bname_low.split(" - ", 1)[1].strip() == f_clean
+                        ):
+                            return (int(b["id"]), str(b.get("bsid") or ""), bname)
+        except Exception:
+            pass
+
+    # 3. Handle '<Grand Alliance> - <Faction>' or '<Faction> - <Army of Renown>'
+    if " - " in f_clean:
+        parts = [p.strip() for p in f_clean.split(" - ") if p.strip()]
+        # Prefer first part if it's an AoS faction (e.g. 'Stormcast Eternals - Ruination Brotherhood')
+        for p in parts:
+            if p in NR_AOS_FACTION_BOOKS:
+                return NR_AOS_FACTION_BOOKS[p]
+            p_spaced = p.replace("-", " ")
+            if p_spaced in NR_AOS_FACTION_BOOKS:
+                return NR_AOS_FACTION_BOOKS[p_spaced]
+
     for key, val in NR_AOS_FACTION_BOOKS.items():
-        if key in f_clean or f_clean in key:
+        if key in f_clean or f_clean in key or key in f_spaced:
             return val
     return NR_AOS_FACTION_BOOKS["stormcast eternals"]
 
@@ -5555,6 +5706,8 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
             row["_omnitactica_gw_text"] = roster["gw_text"]
         if roster.get("nr_text") and not row.get("_omnitactica_nr_text"):
             row["_omnitactica_nr_text"] = roster["nr_text"]
+        if roster.get("detachment") and not row.get("_omnitactica_detachment"):
+            row["_omnitactica_detachment"] = str(roster["detachment"])
         army_obj = row.get("army") if isinstance(row.get("army"), dict) else {}
         is_legacy_synthetic = (
             row.get("id_system") in (None, 1)
@@ -5674,6 +5827,7 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
         "_omnitactica_gw_text": str(roster.get("gw_text") or ""),
         "_omnitactica_nr_text": str(roster.get("nr_text") or ""),
         "_omnitactica_book_name": book_name,
+        "_omnitactica_detachment": det_name,
         "_expected_unit_count": expected_units,
         "_is_nr_compatible": bool(roster.get("is_newrecruit_compatible", True)),
         "_created_by_nr": bool(roster.get("created_by_newrecruit", False)),
@@ -6353,9 +6507,9 @@ def _parse_nr_detachment_upgrade_node(node: Dict[str, Any]) -> Optional[Tuple[Di
     return det_obj, (node.get("modifiers") or [])
 
 
-def _load_nr_book_json_via_proxy(book_id: int) -> Optional[Dict[str, Any]]:
+def _load_nr_book_json_via_proxy(book_id: int, sys_id: int = 827374861) -> Optional[Dict[str, Any]]:
     try:
-        body = json.dumps({"method": "books_get_book_row", "params": [827374861, int(book_id)]}).encode("utf-8")
+        body = json.dumps({"method": "books_get_book_row", "params": [int(sys_id), int(book_id)]}).encode("utf-8")
         status, resp_bytes, _ = proxy_nr_request(
             "/api/rpc?m=books_get_book_row",
             "POST",
@@ -6371,7 +6525,7 @@ def _load_nr_book_json_via_proxy(book_id: int) -> Optional[Dict[str, Any]]:
         if isinstance(raw_content, dict):
             return raw_content
     except Exception as e:
-        logger.warning("Failed to load NewRecruit book %s for detachments: %s", book_id, e)
+        logger.warning("Failed to load NewRecruit book %s (sys=%s): %s", book_id, sys_id, e)
     return None
 
 
@@ -6518,4 +6672,198 @@ def get_nr_detachments_catalog(force_refresh: bool = False) -> Dict[str, Any]:
     _NR_DETACHMENTS_CACHE["payload"] = payload
     _NR_DETACHMENTS_CACHE["ts"] = now_ts
     return payload
+
+
+_NR_AOS_FORMATIONS_CACHE: Dict[str, Any] = {
+    "version_signature": None,
+    "payload": None,
+    "ts": 0.0,
+}
+
+_NR_AOS_FACTION_BOOK_CATALOG: Dict[str, Tuple[int, str, str]] = {
+    "stormcast-eternals": (1531352143, "Stormcast Eternals", "Order"),
+    "cities-of-sigmar": (1760185752, "Cities of Sigmar", "Order"),
+    "daughters-of-khaine": (2065050843, "Daughters of Khaine", "Order"),
+    "fyreslayers": (2762353561, "Fyreslayers", "Order"),
+    "idoneth-deepkin": (3467102999, "Idoneth Deepkin", "Order"),
+    "kharadron-overlords": (1912747296, "Kharadron Overlords", "Order"),
+    "lumineth-realm-lords": (3664181305, "Lumineth Realm-lords", "Order"),
+    "seraphon": (2426044300, "Seraphon", "Order"),
+    "sylvaneth": (1920653173, "Sylvaneth", "Order"),
+    "blades-of-khorne": (2430265077, "Blades of Khorne", "Chaos"),
+    "disciples-of-tzeentch": (3079939502, "Disciples of Tzeentch", "Chaos"),
+    "hedonites-of-slaanesh": (2859114640, "Hedonites of Slaanesh", "Chaos"),
+    "maggotkin-of-nurgle": (3159505906, "Maggotkin of Nurgle", "Chaos"),
+    "skaven": (794864200, "Skaven", "Chaos"),
+    "slaves-to-darkness": (3504641722, "Slaves to Darkness", "Chaos"),
+    "helsmiths-of-hashut": (392328091, "Helsmiths of Hashut", "Chaos"),
+    "beasts-of-chaos": (62299914, "Beasts of Chaos", "Chaos"),
+    "flesh-eater-courts": (833854484, "Flesh-eater Courts", "Death"),
+    "nighthaunt": (250802668, "Nighthaunt", "Death"),
+    "ossiarch-bonereapers": (1475362429, "Ossiarch Bonereapers", "Death"),
+    "soulblight-gravelords": (2411478563, "Soulblight Gravelords", "Death"),
+    "gloomspite-gitz": (2962537137, "Gloomspite Gitz", "Destruction"),
+    "ironjawz": (207065146, "Ironjawz", "Destruction"),
+    "kruleboyz": (2752358123, "Kruleboyz", "Destruction"),
+    "ogor-mawtribes": (1060811875, "Ogor Mawtribes", "Destruction"),
+    "sons-of-behemat": (2684306298, "Sons of Behemat", "Destruction"),
+    "bonesplitterz": (2247251353, "Bonesplitterz", "Destruction"),
+}
+
+
+def _extract_aos_formation_profile(se: Dict[str, Any]) -> Dict[str, str]:
+    """Extracts ability name, timing, declare, and effect from an AoS 4.0 Battle Formation selectionEntry."""
+    profiles = se.get("profiles") or []
+    for p in profiles:
+        if not isinstance(p, dict):
+            continue
+        ability_name = str(p.get("name") or "").strip()
+        chars: Dict[str, str] = {}
+        for ch in (p.get("characteristics") or []):
+            if isinstance(ch, dict) and ch.get("name"):
+                chars[str(ch["name"])] = str(ch.get("$text") or "").replace("\u00a0", " ").strip()
+        return {
+            "ability_name": ability_name,
+            "timing": chars.get("Timing", "Passive"),
+            "declare": chars.get("Declare", ""),
+            "effect": chars.get("Effect", ""),
+        }
+    return {"ability_name": "", "timing": "", "declare": "", "effect": ""}
+
+
+def get_nr_aos_formations_catalog(force_refresh: bool = False) -> Dict[str, Any]:
+    """
+    Extracts all Age of Sigmar 4.0 (id_system = 4255553472) Battle Formations
+    (including General's Handbook 2025-26 / Scourge of Ghyran formations) and
+    Armies of Renown directly from NewRecruit's live/bundled catalogue books.
+    """
+    now_ts = time.time()
+    try:
+        proxy_nr_request(
+            "/api/rpc?m=get_library",
+            "POST",
+            b'{"method":"get_library","params":[]}',
+            {"Content-Type": "application/json"},
+        )
+    except Exception:
+        pass
+
+    ver_sig = tuple(sorted(_NR_LIVE_BOOK_VERSIONS.items()))
+    if (
+        not force_refresh
+        and _NR_AOS_FORMATIONS_CACHE["payload"] is not None
+        and _NR_AOS_FORMATIONS_CACHE["version_signature"] == ver_sig
+        and (now_ts - float(_NR_AOS_FORMATIONS_CACHE["ts"] or 0.0)) < 1800.0
+    ):
+        return _NR_AOS_FORMATIONS_CACHE["payload"]
+
+    # Gather all playable AoS 4.0 books for Army of Renown discovery
+    aos_lib_books: List[Dict[str, Any]] = []
+    lib_bytes = _read_nr_offline_entry("rpc/get_library.json")
+    if lib_bytes:
+        try:
+            lib_data = json.loads(lib_bytes.decode("utf-8", errors="ignore"))
+            lib_arr = lib_data if isinstance(lib_data, list) else lib_data.get("array", [])
+            for sys_obj in lib_arr:
+                if isinstance(sys_obj, dict) and int(sys_obj.get("id") or 0) == NR_AOS_SYSTEM_ID:
+                    books = sys_obj.get("books")
+                    aos_lib_books = (books.get("array", []) if isinstance(books, dict) else books) or []
+                    break
+        except Exception:
+            aos_lib_books = []
+
+    formations_by_faction: Dict[str, List[Dict[str, Any]]] = {}
+    subfactions_by_faction: Dict[str, List[str]] = {}
+    aor_to_faction: Dict[str, str] = {}
+
+    for slug, (bid, bname, alliance) in _NR_AOS_FACTION_BOOK_CATALOG.items():
+        bdata = _load_nr_book_json_via_proxy(bid, sys_id=NR_AOS_SYSTEM_ID)
+        cat = (bdata or {}).get("catalogue", bdata or {}) if isinstance(bdata, dict) else {}
+        base_list: List[Dict[str, Any]] = []
+        ghb_list: List[Dict[str, Any]] = []
+        seen_names: Set[str] = set()
+
+        for g in (cat.get("sharedSelectionEntryGroups") or []):
+            if not isinstance(g, dict) or "battle formation" not in str(g.get("name") or "").lower():
+                continue
+            for se in (g.get("selectionEntries") or []):
+                if not isinstance(se, dict):
+                    continue
+                nm = str(se.get("name") or "").replace("۞", "").strip()
+                if not nm or nm in seen_names:
+                    continue
+                prof = _extract_aos_formation_profile(se)
+                if not se.get("hidden"):
+                    seen_names.add(nm)
+                    base_list.append({
+                        "name": nm,
+                        "source": "Battletome",
+                        "type": "battle_formation",
+                        **prof,
+                    })
+                elif "f079-501a-2738-6845" in json.dumps(se.get("modifiers") or []):
+                    seen_names.add(nm)
+                    ghb_list.append({
+                        "name": nm,
+                        "source": "GHB 2025-26",
+                        "type": "battle_formation",
+                        **prof,
+                    })
+
+        # Discover playable Armies of Renown for this faction
+        aor_list: List[Dict[str, Any]] = []
+        prefix = f"{bname} - "
+        for b in aos_lib_books:
+            if not isinstance(b, dict) or not b.get("playable", True):
+                continue
+            full_name = str(b.get("name") or "").strip()
+            if full_name.startswith(prefix) and "[LEGENDS]" not in full_name:
+                aor_name = full_name[len(prefix):].strip()
+                if aor_name:
+                    aor_to_faction[aor_name.lower()] = bname
+                    if aor_name not in seen_names:
+                        seen_names.add(aor_name)
+                        aor_list.append({
+                            "name": aor_name,
+                            "source": "Army of Renown",
+                            "type": "army_of_renown",
+                            "book_id": int(b.get("id") or 0),
+                            "bsid": str(b.get("bsid") or ""),
+                            "ability_name": "Army of Renown",
+                            "timing": "Passive",
+                            "declare": "",
+                            "effect": f"{bname} Army of Renown ({full_name})",
+                        })
+
+        combined = base_list + ghb_list + aor_list
+        formations_by_faction[slug] = combined
+        subfactions_by_faction[slug] = [item["name"] for item in combined]
+
+    # Combine Ironjawz + Kruleboyz into 'orruk-warclans' alias for backwards compatibility
+    ij_forms = formations_by_faction.get("ironjawz", [])
+    kb_forms = formations_by_faction.get("kruleboyz", [])
+    ow_combined: List[Dict[str, Any]] = []
+    ow_seen: Set[str] = set()
+    for item in ij_forms + kb_forms:
+        if item["name"] not in ow_seen:
+            ow_seen.add(item["name"])
+            ow_combined.append(item)
+    formations_by_faction["orruk-warclans"] = ow_combined
+    subfactions_by_faction["orruk-warclans"] = [item["name"] for item in ow_combined]
+
+    payload = {
+        "success": True,
+        "source": "newrecruit_live_catalogue",
+        "system_id": NR_AOS_SYSTEM_ID,
+        "system_edition": "AoS 4.0",
+        "formations_by_faction": formations_by_faction,
+        "subfactions_by_faction": subfactions_by_faction,
+        "factions": formations_by_faction,
+        "aor_to_faction": aor_to_faction,
+    }
+    _NR_AOS_FORMATIONS_CACHE["version_signature"] = ver_sig
+    _NR_AOS_FORMATIONS_CACHE["payload"] = payload
+    _NR_AOS_FORMATIONS_CACHE["ts"] = now_ts
+    return payload
+
 

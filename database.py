@@ -6635,11 +6635,22 @@ class PostgresDatabase:
         current_round = int(state.get("round") or state.get("currentRound") or 1)
         started = bool(state.get("started"))
         
+        is_aos = (
+            str(state.get("game_system") or state.get("gameSystem") or "").lower() == "aos"
+            or match_id.startswith("AOS-")
+        )
+
         def calc_vp(p_obj):
             if not isinstance(p_obj, dict):
                 return 0
             
             rounds = [r for r in p_obj.get("rounds", []) if isinstance(r, dict)]
+            if is_aos:
+                pri_total = min(30, sum([int(r.get("primaryScore") or 0) for r in rounds]))
+                tac_total = min(20, sum([int(r.get("tacticScore") or r.get("secondaryScore") or 0) for r in rounds]))
+                tot = min(50, pri_total + tac_total)
+                return tot if tot > 0 else int(p_obj.get("score") or p_obj.get("totalScore") or 0)
+
             pri_total = min(50, sum([r.get("primaryScore", 0) for r in rounds]))
             
             sec_total = 0
@@ -6669,9 +6680,9 @@ class PostgresDatabase:
 
         p1_score = calc_vp(state.get("p1"))
         p2_score = calc_vp(state.get("p2"))
-        if p1_score == 0 and "p1Score" in state:
+        if (p1_score == 0 or state.get("imported_source")) and "p1Score" in state and state["p1Score"] is not None:
             p1_score = int(state["p1Score"])
-        if p2_score == 0 and "p2Score" in state:
+        if (p2_score == 0 or state.get("imported_source")) and "p2Score" in state and state["p2Score"] is not None:
             p2_score = int(state["p2Score"])
 
         is_finished = bool(
@@ -6710,6 +6721,14 @@ class PostgresDatabase:
         refs_list = list(refs) if isinstance(refs, (list, tuple)) else []
         refs_sql = "{" + ",".join([f'"{r}"' for r in refs_list]) + "}"
 
+        parsed_game_date = None
+        raw_game_date = state.get("game_date") or game_data.get("gameDate")
+        if raw_game_date and isinstance(raw_game_date, str):
+            try:
+                parsed_game_date = datetime.fromisoformat(raw_game_date.replace("Z", "+00:00")).isoformat()
+            except Exception:
+                parsed_game_date = None
+
         def do_insert():
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
@@ -6721,7 +6740,8 @@ class PostgresDatabase:
                         primary_mission, deployment, mission_rule,
                         current_round, started, is_finished, winner_name,
                         version, state_json, event_id, round_num, table_num,
-                        who_went_first, bcp_submitted, p1_army_list, p2_army_list, updated_at
+                        who_went_first, bcp_submitted, p1_army_list, p2_army_list,
+                        created_at, updated_at
                     ) VALUES (
                         %s, %s, %s, %s, %s,
                         %s, %s, %s, %s,
@@ -6729,7 +6749,8 @@ class PostgresDatabase:
                         %s, %s, %s,
                         %s, %s, %s, %s,
                         %s, %s::jsonb, %s, %s, %s,
-                        %s, %s, %s::jsonb, %s::jsonb, NOW()
+                        %s, %s, %s::jsonb, %s::jsonb,
+                        COALESCE(%s::timestamptz, NOW()), COALESCE(%s::timestamptz, NOW())
                     )
                     ON CONFLICT (match_id) DO UPDATE SET
                         p1_name = EXCLUDED.p1_name,
@@ -6759,7 +6780,7 @@ class PostgresDatabase:
                         bcp_submitted = COALESCE(EXCLUDED.bcp_submitted, tracker_games.bcp_submitted),
                         p1_army_list = COALESCE(EXCLUDED.p1_army_list, tracker_games.p1_army_list),
                         p2_army_list = COALESCE(EXCLUDED.p2_army_list, tracker_games.p2_army_list),
-                        updated_at = NOW();
+                        updated_at = COALESCE(%s::timestamptz, NOW());
                     """, (
                         match_id, p1_name, p1_faction, p1_detachment, p1_score,
                         p2_name, p2_faction, p2_detachment, p2_score,
@@ -6771,7 +6792,8 @@ class PostgresDatabase:
                         version, json.dumps(state),
                         str(event_id) if event_id else None,
                         round_num, table_num, who_went_first, bcp_submitted,
-                        p1_army_json, p2_army_json
+                        p1_army_json, p2_army_json,
+                        parsed_game_date, parsed_game_date, parsed_game_date
                     ))
                 conn.commit()
             return True
@@ -6917,7 +6939,11 @@ class PostgresDatabase:
                            user_id_p1, user_id_p2,
                            primary_mission, deployment, mission_rule,
                            current_round, started, is_finished, winner_name,
-                           version, created_at, updated_at
+                           version, created_at, updated_at,
+                           state_json->>'game_system' AS game_system,
+                           state_json->>'imported_source' AS imported_source,
+                           state_json->>'imported_app' AS imported_app,
+                           state_json->>'game_date' AS game_date
                     FROM tracker_games
                     """
                     conditions = []
@@ -6948,8 +6974,16 @@ class PostgresDatabase:
                     res = []
                     for r in rows:
                         d = dict(r)
-                        if d.get("updated_at"):
+                        if not d.get("game_system"):
+                            d["game_system"] = "aos" if str(d.get("match_id") or "").upper().startswith("AOS-") else "40k"
+                        if d.get("updated_at") and hasattr(d["updated_at"], "strftime"):
                             d["date"] = d["updated_at"].strftime("%b %d, %Y")
+                        elif d.get("game_date"):
+                            try:
+                                dt = datetime.fromisoformat(str(d["game_date"]).replace("Z", "+00:00"))
+                                d["date"] = dt.strftime("%b %d, %Y")
+                            except Exception:
+                                d["date"] = str(d["game_date"])[:10]
                         res.append(d)
                     return res
 

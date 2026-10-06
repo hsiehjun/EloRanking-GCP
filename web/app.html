@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=3f1b2435d4">
+  <link rel="manifest" href="/manifest.json?v=f906e22dfa">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=3f1b2435d4">
-  <link rel="stylesheet" href="/css/styles.min.css?v=3f1b2435d4">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=3f1b2435d4">
-  <link rel="preload" href="/js/app.bundle.min.js?v=3f1b2435d4" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=f906e22dfa">
+  <link rel="stylesheet" href="/css/styles.min.css?v=f906e22dfa">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=f906e22dfa">
+  <link rel="preload" href="/js/app.bundle.min.js?v=f906e22dfa" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "3f1b2435d4";</script>
+  <script>window.APP_VERSION = "f906e22dfa";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -3337,6 +3337,10 @@
             📺 Score HUD: ON
           </button>
 
+          <button type="button" id="modal-stream-fullscreen-btn" onclick="toggleStreamStageFullscreen('modal')" class="btn btn-outline" style="height: 32px; font-size: 0.75rem; padding: 0 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; border-color: rgba(168, 85, 247, 0.5); background: rgba(168, 85, 247, 0.16); color: #e9d5ff; font-weight: 700; cursor: pointer;" title="Enter Fullscreen with Live Score HUD Overlay (Shortcut: F)">
+            ⛶ Fullscreen
+          </button>
+
           <a id="modal-stream-external-link" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; text-decoration: none;">
             <span>Watch on Channel</span> ↗
           </a>
@@ -3345,18 +3349,34 @@
       </div>
 
       <div class="modal-body" style="padding: 1.15rem 1.35rem; display: flex; flex-direction: column; gap: 1rem;">
-        <!-- 16:9 Video Frame Player -->
-        <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+        <!-- 16:9 Video Frame Player + Fullscreen Stage Wrapper -->
+        <div id="modal-stream-stage-wrap" class="stream-stage-fullscreen-wrap" style="position: relative; width: 100%; padding-top: 56.25%; background: #000; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
           <iframe 
             id="modal-stream-iframe"
             src="" 
             title="Live Tournament Broadcast"
             style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;" 
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen" 
             allowfullscreen>
           </iframe>
-          <!-- In-App Live Score Lower-Third HUD Overlay (on OUR screen) -->
-          <div id="modal-stream-hud-overlay" style="position: absolute; bottom: 0; left: 0; right: 0; pointer-events: none; z-index: 10; padding: 0.65rem 0.85rem; background: linear-gradient(0deg, rgba(2, 6, 23, 0.92) 0%, rgba(2, 6, 23, 0.45) 70%, transparent 100%);"></div>
+
+          <!-- Floating Top-Right Stage Controls (Visible on hover & in Fullscreen so HUD stays controllable) -->
+          <div class="stream-stage-floating-controls">
+            <button type="button" id="modal-stream-fs-hud-btn" onclick="toggleStreamHudOverlay()" class="stream-stage-ctrl-btn stream-stage-ctrl-hud active" title="Toggle Live Score HUD Overlay">
+              📺 Score HUD: ON
+            </button>
+            <button type="button" id="modal-stream-stage-fs-btn" onclick="toggleStreamStageFullscreen('modal')" class="stream-stage-ctrl-btn stream-stage-ctrl-fs" title="Toggle Fullscreen with Score HUD (F)">
+              ⛶ Fullscreen
+            </button>
+          </div>
+
+          <!-- In-App Live Score Lower-Third HUD Overlay (stays visible in Fullscreen!) -->
+          <div id="modal-stream-hud-overlay" class="stream-hud-overlay-container" style="position: absolute; bottom: 42px; left: 0; right: 0; pointer-events: none; z-index: 20; padding: 0.5rem 0.85rem;"></div>
+
+          <!-- Bottom-Right Native Player Fullscreen Click Interceptor (routes player fullscreen clicks to stage fullscreen so HUD never disappears) -->
+          <button type="button" class="stream-stage-fs-hotspot" onclick="toggleStreamStageFullscreen('modal')" title="Toggle Fullscreen with Live Score HUD (F)" aria-label="Toggle Fullscreen with Live Score HUD">
+            <span class="stream-stage-fs-hotspot-icon">⛶</span>
+          </button>
         </div>
 
         <!-- Matchup Tale of the Tape Strip -->
@@ -3471,8 +3491,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "3f1b2435d4";</script>
-  <script src="/js/app.bundle.min.js?v=3f1b2435d4"></script>
+  <script>window.APP_VERSION = "f906e22dfa";</script>
+  <script src="/js/app.bundle.min.js?v=f906e22dfa"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

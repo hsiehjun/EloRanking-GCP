@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=3f1b2435d4">
+  <link rel="manifest" href="/manifest.json?v=f906e22dfa">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "3f1b2435d4";</script>
+  <script>window.APP_VERSION = "f906e22dfa";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -1088,11 +1088,17 @@
 
       const statusBadgeContainer = document.getElementById('sc-status-badges');
       if (statusBadgeContainer) {
+        const impSource = st.imported_source || rec.imported_source || (String(data.match_id || '').includes('-GW-') ? 'gw_app' : (String(data.match_id || '').includes('-TTB-') ? 'tabletop_battles' : ''));
+        const impAppLabel = st.imported_app || rec.imported_app || (impSource === 'gw_app' ? 'GW 40k App' : 'Tabletop Battles');
+        const impBadgeHtml = impSource
+          ? `<span class="sc-badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35);">📥 Imported • ${escapeHtml(impAppLabel)}</span>`
+          : '';
         if (isFinished) {
           statusBadgeContainer.innerHTML = `
             <span class="sc-badge">
               ✓ Verified Scorecard
             </span>
+            ${impBadgeHtml}
           `;
         } else {
           statusBadgeContainer.innerHTML = `
@@ -1142,7 +1148,8 @@
       document.getElementById('sc-mission-name').innerText = isAos
         ? `🎯 Battleplan: ${game.battleplan?.name || st.battleplan?.name || rec.primary_mission || 'Border War'}`
         : `🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'}`;
-      document.getElementById('sc-date-time').innerText = `⏱️ ${new Date(rec.updated_at || Date.now()).toLocaleDateString()}`;
+      const rawDateVal = st.game_date || rec.game_date || rec.updated_at || Date.now();
+      document.getElementById('sc-date-time').innerText = `⏱️ ${new Date(rawDateVal).toLocaleDateString()}`;
 
       // Build Matrix Rows
       const tbody = document.getElementById('sc-matrix-body');

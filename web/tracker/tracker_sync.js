@@ -1600,10 +1600,13 @@
           </div>
 
           <div id="gt-history-section" style="margin:20px 0 40px; width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
               <div style="font-size:14px; font-weight:800; color:var(--text-primary, #f0f4fc); font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">
                 ${isAosMode ? 'AOS MATCH HISTORY' : 'GAME HISTORY'} <span id="gt-history-count" style="font-size:12px; color:var(--accent, #38bdf8); font-weight:700; margin-left:4px;"></span>
               </div>
+              <button id="gt-btn-import-games" type="button" onclick="window.openTrackerImportModal && window.openTrackerImportModal()" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.35); color:#38bdf8; font-size:11px; font-weight:800; padding:6px 12px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:5px;">
+                📥 IMPORT GAMES
+              </button>
             </div>
             <div id="gt-history-list" style="display:flex; flex-direction:column; gap:10px;">
               <div style="color:var(--text-muted, #64748b); font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:var(--bg-secondary, #12161f); border-radius:14px; border:1px solid var(--border, #273042);">
@@ -1975,19 +1978,31 @@
               const p2S = item.p2Score ?? item.p2_score ?? 0;
               const mid = item.match_id || item.id || '';
               const shortId = String(mid).replace('WH40K-', '').replace('AOS-', '');
-              const dateStr = item.date ? new Date(item.date).toLocaleDateString() : 'Completed';
+              const rawDate = item.game_date || item.date || item.updated_at;
+              let dateStr = 'Completed';
+              if (rawDate) {
+                try {
+                  const dObj = new Date(rawDate);
+                  dateStr = !isNaN(dObj.getTime()) ? dObj.toLocaleDateString() : String(rawDate);
+                } catch (e) { dateStr = String(rawDate); }
+              }
               const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:var(--text-secondary, #94a3b8); margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
+              const impSrc = item.imported_source || (String(mid).includes('-GW-') ? 'gw_app' : (String(mid).includes('-TTB-') ? 'tabletop_battles' : ''));
+              const impBadge = impSrc === 'gw_app'
+                ? `<span style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">📥 GW App</span>`
+                : (impSrc ? `<span style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35); font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">📥 Tabletop Battles</span>` : '');
 
               return `
                 <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/scorecard/${encodeURIComponent(mid)}'" style="background:var(--bg-secondary, #12161f); border:1px solid var(--border, #273042); border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative;" onmouseover="this.style.borderColor='var(--accent, #38bdf8)'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='var(--border, #273042)'; this.style.transform='none'">
                   <div style="min-width:0; flex:1;">
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px; flex-wrap:wrap;">
                       <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:var(--accent-glow, rgba(56,189,248,0.1)); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(shortId)} ↗</span>
+                      ${impBadge}
                       <b style="color:var(--text-primary, #f0f4fc); font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:var(--text-muted, #64748b); font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
                     </div>
                     ${factionSubtitle}
                     <div style="font-size:11px; color:var(--text-muted, #64748b); margin-top:4px;">
-                      <span>${dateStr}</span>
+                      <span>${escapeHtml(dateStr)}</span>
                     </div>
                   </div>
                   <div style="display:flex; align-items:center; gap:12px; margin-left:14px;">
@@ -2171,11 +2186,21 @@
                 try { s = JSON.parse(item.state_json); } catch (e) {}
               } else if (typeof item.state_json === 'object') {
                 s = item.state_json || {};
+              } else if (typeof item.state === 'object') {
+                s = item.state || {};
               }
               return {
                 id: item.match_id,
                 match_id: item.match_id,
-                date: new Date(item.updated_at || item.created_at || Date.now()).getTime(),
+                game_system: item.game_system || s.gameSystem || (String(item.match_id || '').startsWith('AOS-') ? 'aos' : '40k'),
+                imported_source: item.imported_source || s.imported_source || null,
+                imported_app: item.imported_app || s.imported_app || null,
+                game_date: item.game_date || s.game_date || item.updated_at || null,
+                date: new Date(item.game_date || item.updated_at || item.created_at || Date.now()).getTime(),
+                p1_name: item.p1_name || s.game?.p1Name || 'Player 1',
+                p2_name: item.p2_name || s.game?.p2Name || 'Player 2',
+                p1_faction: item.p1_faction || s.game?.p1Faction || '',
+                p2_faction: item.p2_faction || s.game?.p2Faction || '',
                 game: s.game || {
                   p1Name: item.p1_name || 'Player 1',
                   p2Name: item.p2_name || 'Player 2',
@@ -2189,8 +2214,8 @@
                 p1: s.p1 || { score: item.p1_score || 0 },
                 p2: s.p2 || { score: item.p2_score || 0 },
                 round: item.current_round || s.round || 1,
-                p1Score: item.p1_score || 0,
-                p2Score: item.p2_score || 0,
+                p1Score: item.p1_score ?? item.p1Score ?? 0,
+                p2Score: item.p2_score ?? item.p2Score ?? 0,
                 started: item.started,
                 isFinished: item.is_finished,
                 winner: item.winner_name,
@@ -5927,6 +5952,371 @@ Space Marines - Gladius Task Force (2000 pts)
       }
     }
   };
+
+  window.__refreshTrackerHistoryAfterImport = async function () {
+    syncHistoryInFlight = null;
+    await syncHistoryFromDatabase();
+    renderHistoryList(dbHistoryCache);
+  };
+
+  if (typeof window.openTrackerImportModal !== 'function') {
+    window.openTrackerImportModal = function (defaultTab = 'ttb-sync') {
+      const existing = document.getElementById('tracker-import-modal-overlay');
+      if (existing) existing.remove();
+
+      const overlay = document.createElement('div');
+      overlay.id = 'tracker-import-modal-overlay';
+      overlay.style.cssText = "position:fixed; inset:0; z-index:999999; background:rgba(2,6,23,0.88); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; padding:12px; font-family:'Inter', sans-serif;";
+      overlay.onclick = (e) => { if (e.target === overlay) window.closeTrackerImportModal(); };
+
+      overlay.innerHTML = `
+        <div id="tracker-import-modal-card" style="background:#0f172a; border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:100%; max-width:680px; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 25px 70px rgba(0,0,0,0.85); overflow:hidden; color:#f8fafc;">
+          <div style="padding:16px 20px; background:linear-gradient(135deg, rgba(15,23,42,0.98), rgba(30,41,59,0.92)); border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+            <div>
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span style="font-size:1.15rem; font-weight:800; color:#fff;">📥 Import Completed Games</span>
+                <span style="font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:999px; background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.35); font-family:monospace;">PostgreSQL tracker_games</span>
+              </div>
+              <div style="font-size:0.78rem; color:#94a3b8; margin-top:4px; line-height:1.4;">
+                Migrate completed 40k &amp; Age of Sigmar scorecards from <b>Tabletop Battles</b> (Goonhammer) or <b>Warhammer 40,000: The App</b> into your permanent match history.
+              </div>
+            </div>
+            <button type="button" onclick="window.closeTrackerImportModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:0.95rem; flex-shrink:0;">✕</button>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; padding:10px 16px; background:#090d16; border-bottom:1px solid rgba(255,255,255,0.07);">
+            <button type="button" id="imp-tab-btn-ttb-sync" onclick="window.switchTrackerImportTab('ttb-sync')" style="padding:8px 6px; border-radius:8px; font-size:0.74rem; font-weight:800; cursor:pointer; border:1px solid rgba(56,189,248,0.45); background:rgba(56,189,248,0.16); color:#38bdf8; text-align:center;">
+              ☁️ TTB Cloud Sync
+            </button>
+            <button type="button" id="imp-tab-btn-ttb-code" onclick="window.switchTrackerImportTab('ttb-code')" style="padding:8px 6px; border-radius:8px; font-size:0.74rem; font-weight:800; cursor:pointer; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); color:#94a3b8; text-align:center;">
+              🔗 Observer Code
+            </button>
+            <button type="button" id="imp-tab-btn-parse" onclick="window.switchTrackerImportTab('parse')" style="padding:8px 6px; border-radius:8px; font-size:0.74rem; font-weight:800; cursor:pointer; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); color:#94a3b8; text-align:center;">
+              📋 Paste / GW App
+            </button>
+          </div>
+
+          <div style="padding:18px 20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:14px;">
+            <div id="imp-panel-ttb-sync" style="display:flex; flex-direction:column; gap:12px;">
+              <div style="background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:10px 12px; font-size:0.76rem; color:#cbd5e1; line-height:1.45;">
+                <b style="color:#38bdf8;">☁️ Tabletop Battles Cloud Sync (Administratum API):</b> Authenticate via AWS Cognito SRP (<code>us-east-1_mn7BKd0lb</code>) to pull your synced 40k &amp; AoS games directly from <code>api.administratum.net/ttb/games/list</code>.
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div>
+                  <label style="display:block; font-size:0.72rem; font-weight:700; color:#94a3b8; margin-bottom:4px;">TTB / Goonhammer Email</label>
+                  <input id="imp-ttb-email" type="email" placeholder="you@example.com" style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 11px; color:#fff; font-size:0.82rem; outline:none;" />
+                </div>
+                <div>
+                  <label style="display:block; font-size:0.72rem; font-weight:700; color:#94a3b8; margin-bottom:4px;">Password</label>
+                  <input id="imp-ttb-password" type="password" placeholder="••••••••" style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 11px; color:#fff; font-size:0.82rem; outline:none;" />
+                </div>
+              </div>
+              <div>
+                <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:4px;">Optional: Administratum Bearer / Identity Token</label>
+                <input id="imp-ttb-token" type="text" placeholder="eyJraWQiOi..." style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #1e293b; border-radius:8px; padding:7px 10px; color:#94a3b8; font-family:monospace; font-size:0.75rem; outline:none;" />
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-top:2px;">
+                <button type="button" id="btn-imp-demo-sync" onclick="window.fillTrackerImportDemo('ttb-sync')" style="background:rgba(168,85,247,0.14); border:1px solid rgba(168,85,247,0.35); color:#c084fc; font-size:0.73rem; font-weight:700; padding:7px 12px; border-radius:8px; cursor:pointer;">
+                  🧪 Load Demo Cloud Account (40k + AoS)
+                </button>
+                <button type="button" id="btn-imp-submit-sync" onclick="window.submitTrackerImport('ttb-sync')" style="background:#0284c7; border:none; color:#fff; font-size:0.82rem; font-weight:800; padding:9px 18px; border-radius:8px; cursor:pointer;">
+                  ☁️ Sync &amp; Import Games
+                </button>
+              </div>
+            </div>
+
+            <div id="imp-panel-ttb-code" style="display:none; flex-direction:column; gap:12px;">
+              <div style="background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:10px 12px; font-size:0.76rem; color:#cbd5e1; line-height:1.45;">
+                <b style="color:#38bdf8;">🔗 Tabletop Battles Observer / Game Link Code:</b> Enter a 6-character Observer Code or Game Link URL to fetch the full turn-by-turn scorecard via Tabletop Battles' Observer WebSocket.
+              </div>
+              <div>
+                <label style="display:block; font-size:0.72rem; font-weight:700; color:#94a3b8; margin-bottom:4px;">Observer Code or Game Link URL</label>
+                <input id="imp-ttb-code" type="text" placeholder="e.g. DEMO40K, DEMOAOS, or 6-char code" style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; color:#fff; font-family:monospace; font-size:0.88rem; text-transform:uppercase; outline:none;" />
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <button type="button" id="btn-imp-demo-code-40k" onclick="window.fillTrackerImportDemo('code-40k')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-size:0.72rem; font-weight:700; padding:6px 10px; border-radius:7px; cursor:pointer;">
+                    🎲 Demo 40k (DEMO40K)
+                  </button>
+                  <button type="button" id="btn-imp-demo-code-aos" onclick="window.fillTrackerImportDemo('code-aos')" style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#fbbf24; font-size:0.72rem; font-weight:700; padding:6px 10px; border-radius:7px; cursor:pointer;">
+                    ⚡ Demo AoS (DEMOAOS)
+                  </button>
+                </div>
+                <button type="button" id="btn-imp-submit-code" onclick="window.submitTrackerImport('ttb-code')" style="background:#0284c7; border:none; color:#fff; font-size:0.82rem; font-weight:800; padding:9px 18px; border-radius:8px; cursor:pointer;">
+                  🔗 Fetch &amp; Import Game
+                </button>
+              </div>
+            </div>
+
+            <div id="imp-panel-parse" style="display:none; flex-direction:column; gap:12px;">
+              <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.28); border-radius:10px; padding:10px 12px; font-size:0.76rem; color:#cbd5e1; line-height:1.45;">
+                <b style="color:#fbbf24;">📋 Universal Scorecard Parser (TTB &amp; Official GW 40k App):</b> Paste a <b>GW War Journal text summary</b>, <b>Tabletop Battles Share Text</b>, or <b>TTB / ITCBA JSON export</b> below.
+              </div>
+              <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                <span style="font-size:0.7rem; color:#94a3b8; font-weight:700;">Load Sample:</span>
+                <button type="button" id="btn-imp-sample-ttb40k" onclick="window.fillTrackerImportDemo('sample-ttb-40k')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-size:0.7rem; font-weight:700; padding:4px 9px; border-radius:6px; cursor:pointer;">
+                  🎲 TTB 40k JSON
+                </button>
+                <button type="button" id="btn-imp-sample-ttbaos" onclick="window.fillTrackerImportDemo('sample-ttb-aos')" style="background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.3); color:#c084fc; font-size:0.7rem; font-weight:700; padding:4px 9px; border-radius:6px; cursor:pointer;">
+                  ⚡ TTB AoS 4.0 JSON
+                </button>
+                <button type="button" id="btn-imp-sample-gw40k" onclick="window.fillTrackerImportDemo('sample-gw-40k')" style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#fbbf24; font-size:0.7rem; font-weight:700; padding:4px 9px; border-radius:6px; cursor:pointer;">
+                  🦅 GW 40k War Journal Text
+                </button>
+              </div>
+              <textarea id="imp-parse-text" rows="7" placeholder="Paste Tabletop Battles JSON, Tabletop Battles Share Text, or Warhammer 40,000: The App War Journal summary here..." style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:10px; padding:10px 12px; color:#f8fafc; font-family:monospace; font-size:0.76rem; line-height:1.4; outline:none; resize:vertical;"></textarea>
+              <div style="display:flex; justify-content:flex-end;">
+                <button type="button" id="btn-imp-submit-parse" onclick="window.submitTrackerImport('parse')" style="background:#059669; border:none; color:#fff; font-size:0.82rem; font-weight:800; padding:9px 18px; border-radius:8px; cursor:pointer;">
+                  📥 Parse &amp; Import Scorecard
+                </button>
+              </div>
+            </div>
+
+            <div id="imp-result-box" style="display:none; border-radius:12px; padding:12px 14px; font-size:0.8rem;"></div>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(overlay);
+      window.switchTrackerImportTab(defaultTab);
+    };
+
+    window.closeTrackerImportModal = function () {
+      const existing = document.getElementById('tracker-import-modal-overlay');
+      if (existing) existing.remove();
+    };
+
+    window.switchTrackerImportTab = function (tabId) {
+      ['ttb-sync', 'ttb-code', 'parse'].forEach(t => {
+        const panel = document.getElementById(`imp-panel-${t}`);
+        const btn = document.getElementById(`imp-tab-btn-${t}`);
+        if (panel) panel.style.display = (t === tabId) ? 'flex' : 'none';
+        if (btn) {
+          if (t === tabId) {
+            btn.style.background = 'rgba(56,189,248,0.16)';
+            btn.style.borderColor = 'rgba(56,189,248,0.45)';
+            btn.style.color = '#38bdf8';
+          } else {
+            btn.style.background = 'rgba(255,255,255,0.03)';
+            btn.style.borderColor = 'rgba(255,255,255,0.1)';
+            btn.style.color = '#94a3b8';
+          }
+        }
+      });
+    };
+
+    window.fillTrackerImportDemo = function (kind) {
+      if (kind === 'ttb-sync') {
+        const em = document.getElementById('imp-ttb-email');
+        const pw = document.getElementById('imp-ttb-password');
+        if (em) em.value = 'demo@tabletopbattles.com';
+        if (pw) pw.value = 'demo1234';
+      } else if (kind === 'code-40k') {
+        const cd = document.getElementById('imp-ttb-code');
+        if (cd) cd.value = 'DEMO40K';
+      } else if (kind === 'code-aos') {
+        const cd = document.getElementById('imp-ttb-code');
+        if (cd) cd.value = 'DEMOAOS';
+      } else if (kind === 'sample-ttb-40k') {
+        const ta = document.getElementById('imp-parse-text');
+        if (ta) {
+          ta.value = JSON.stringify({
+            uuid: 'ttb-sample-40k-901',
+            gameType: 'wh40k10e',
+            gameDate: '2026-10-04T19:15:00Z',
+            mission: { pack: 'Chapter Approved: Pariah Nexus', primary: 'Scorched Earth', deployment: 'Crucible of Battle', rules: ['Swift Action'] },
+            wentFirstRollOff: { winner: 0, choice: 'first' },
+            players: [
+              {
+                name: 'John Hsieh',
+                faction: { name: 'Aeldari', subtitle: 'Battle Host' },
+                isBattleReady: true,
+                primaries: [{ points: [0, 10, 10, 15, 10] }],
+                secondaries: [
+                  { name: 'Behind Enemy Lines', points: [4, 0, 5, 0, 4] },
+                  { name: 'Cleanse', points: [0, 5, 4, 5, 4] }
+                ],
+                commandPoints: [1, 2, 1, 2, 1]
+              },
+              {
+                name: 'Marcus Vance',
+                faction: { name: 'World Eaters', subtitle: 'Berzerker Warband' },
+                isBattleReady: true,
+                primaries: [{ points: [0, 5, 10, 10, 10] }],
+                secondaries: [
+                  { name: 'Bring It Down', points: [0, 4, 6, 4, 0] },
+                  { name: 'Storm Hostile Objective', points: [5, 0, 5, 5, 0] }
+                ],
+                commandPoints: [1, 1, 2, 1, 0]
+              }
+            ]
+          }, null, 2);
+        }
+      } else if (kind === 'sample-ttb-aos') {
+        const ta = document.getElementById('imp-parse-text');
+        if (ta) {
+          ta.value = JSON.stringify({
+            uuid: 'ttb-sample-aos-402',
+            gameType: 'aos4e',
+            gameDate: '2026-10-03T16:00:00Z',
+            mission: { pack: "General's Handbook 2025-26", primary: 'Focal Points', deployment: 'Standard' },
+            priorityRollOffs: [
+              { winner: 0, choice: 'first' },
+              { winner: 1, choice: 'first' },
+              { winner: 1, choice: 'first' },
+              { winner: 0, choice: 'first' },
+              { winner: 0, choice: 'first' }
+            ],
+            players: [
+              {
+                name: 'John Hsieh',
+                faction: { name: 'Slaves to Darkness', subtitle: 'Legion of Chaos' },
+                primaries: [{ points: [6, 6, 6, 5, 6] }],
+                battleTactics: [
+                  { name: 'Seize the Centre', points: [4, 0, 0, 0, 0] },
+                  { name: 'Take the Flanks', points: [0, 4, 0, 0, 0] },
+                  { name: 'Slay the Entourage', points: [0, 0, 0, 4, 0] },
+                  { name: 'Do Not Waver', points: [0, 0, 0, 0, 4] }
+                ]
+              },
+              {
+                name: 'Elena Rostova',
+                faction: { name: 'Sylvaneth', subtitle: 'Outcasts' },
+                primaries: [{ points: [4, 6, 5, 5, 4] }],
+                battleTactics: [
+                  { name: 'Take the Flanks', points: [4, 0, 0, 0, 0] },
+                  { name: 'Seize the Centre', points: [0, 4, 0, 0, 0] },
+                  { name: 'Attack on Two Fronts', points: [0, 0, 0, 4, 0] }
+                ]
+              }
+            ]
+          }, null, 2);
+        }
+      } else if (kind === 'sample-gw-40k') {
+        const ta = document.getElementById('imp-parse-text');
+        if (ta) {
+          ta.value = [
+            'Warhammer 40,000: The App — Command Bunker / War Journal',
+            'Date: 2026-10-05',
+            'Primary Mission: Take and Hold',
+            'Deployment: Tipping Point',
+            'Player 1: John Hsieh (Space Marines - Gladius Task Force) - 91 VP',
+            '  Round 1: Primary 0, Secondary 5 (Area Denial)',
+            '  Round 2: Primary 10, Secondary 9 (Cleanse, Assassination)',
+            '  Round 3: Primary 15, Secondary 8 (Bring It Down)',
+            '  Round 4: Primary 15, Secondary 10 (Behind Enemy Lines)',
+            '  Round 5: Primary 10, Secondary 9 (Extend Battle Lines)',
+            '  Battle Ready: 10',
+            'Player 2: Viktor Krax (Death Guard - Plague Company) - 74 VP',
+            '  Round 1: Primary 0, Secondary 4 (Cleanse)',
+            '  Round 2: Primary 10, Secondary 6 (Engage on All Fronts)',
+            '  Round 3: Primary 10, Secondary 8 (Storm Hostile Objective)',
+            '  Round 4: Primary 10, Secondary 8 (No Prisoners)',
+            '  Round 5: Primary 10, Secondary 8 (Defend Stronghold)',
+            '  Battle Ready: 10'
+          ].join('\n');
+        }
+      }
+    };
+
+    window.submitTrackerImport = async function (mode) {
+      const resBox = document.getElementById('imp-result-box');
+      if (resBox) {
+        resBox.style.display = 'block';
+        resBox.style.background = 'rgba(56,189,248,0.1)';
+        resBox.style.border = '1px solid rgba(56,189,248,0.3)';
+        resBox.style.color = '#38bdf8';
+        resBox.innerHTML = '⏳ Connecting &amp; importing completed game(s) into PostgreSQL <code>tracker_games</code>...';
+      }
+
+      const token = getAuthToken();
+      let endpoint = '/api/tracker/import/parse';
+      let bodyObj = {};
+
+      if (mode === 'ttb-sync') {
+        endpoint = '/api/tracker/import/ttb-sync';
+        bodyObj = {
+          username: (document.getElementById('imp-ttb-email')?.value || '').trim(),
+          password: (document.getElementById('imp-ttb-password')?.value || '').trim(),
+          id_token: (document.getElementById('imp-ttb-token')?.value || '').trim()
+        };
+      } else if (mode === 'ttb-code') {
+        endpoint = '/api/tracker/import/ttb-code';
+        bodyObj = {
+          code: (document.getElementById('imp-ttb-code')?.value || '').trim()
+        };
+      } else {
+        endpoint = '/api/tracker/import/parse';
+        bodyObj = {
+          payload: (document.getElementById('imp-parse-text')?.value || '').trim()
+        };
+      }
+
+      try {
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(bodyObj)
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.success) {
+          throw new Error(data.detail || data.error || 'Import failed');
+        }
+
+        const games = data.games || [];
+        if (resBox) {
+          resBox.style.background = 'rgba(16,185,129,0.12)';
+          resBox.style.border = '1px solid rgba(16,185,129,0.4)';
+          resBox.style.color = '#f8fafc';
+          resBox.innerHTML = `
+            <div style="font-weight:800; color:#34d399; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+              <span>✅ Imported ${games.length} Completed Game${games.length === 1 ? '' : 's'} to PostgreSQL tracker_games!</span>
+              <span style="font-size:0.7rem; color:#94a3b8; font-family:monospace;">is_finished = true</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              ${games.map(g => {
+                const mid = g.match_id || g.id || '';
+                const sysBadge = (g.game_system === 'aos' || String(mid).startsWith('AOS-'))
+                  ? '<span style="background:rgba(245,158,11,0.2); color:#fbbf24; font-size:0.65rem; font-weight:800; padding:1px 6px; border-radius:4px;">AoS 4.0</span>'
+                  : '<span style="background:rgba(56,189,248,0.2); color:#38bdf8; font-size:0.65rem; font-weight:800; padding:1px 6px; border-radius:4px;">40k</span>';
+                return `
+                  <div style="background:#070b14; border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:8px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                    <div>
+                      <div style="display:flex; align-items:center; gap:6px;">
+                        ${sysBadge}
+                        <span style="font-family:monospace; font-size:0.74rem; color:#38bdf8; font-weight:700;">#${escapeHtml(mid)}</span>
+                        <b style="font-size:0.82rem; color:#fff;">${escapeHtml(g.p1_name)} (${g.p1_score}) vs ${escapeHtml(g.p2_name)} (${g.p2_score})</b>
+                      </div>
+                      <div style="font-size:0.7rem; color:#94a3b8; margin-top:2px;">
+                        ${escapeHtml(g.p1_faction || 'Army 1')} vs ${escapeHtml(g.p2_faction || 'Army 2')} • 🎯 ${escapeHtml(g.primary_mission || 'Matched Play')}
+                      </div>
+                    </div>
+                    <a href="/scorecard/${encodeURIComponent(mid)}" target="_blank" style="background:rgba(16,185,129,0.2); border:1px solid rgba(16,185,129,0.45); color:#34d399; font-size:0.74rem; font-weight:800; padding:5px 10px; border-radius:6px; text-decoration:none; white-space:nowrap;">
+                      📄 Open Scorecard ↗
+                    </a>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `;
+        }
+
+        if (typeof window.__refreshTrackerHistoryAfterImport === 'function') {
+          await window.__refreshTrackerHistoryAfterImport();
+        }
+      } catch (err) {
+        if (resBox) {
+          resBox.style.background = 'rgba(239,68,68,0.14)';
+          resBox.style.border = '1px solid rgba(239,68,68,0.4)';
+          resBox.style.color = '#f87171';
+          resBox.innerHTML = `❌ <b>Import Error:</b> ${escapeHtml(err.message || String(err))}`;
+        }
+      }
+    };
+  }
 
   // Real-time Armory Dice Skin Sync Listener
   if (typeof window !== 'undefined') {

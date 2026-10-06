@@ -2225,9 +2225,16 @@ async def api_get_scorecard(match_id: str):
     )
     if game_rec and is_rec_finished:
         state = game_rec.get("state") or game_rec.get("state_json") or {}
+        sys_id = (
+            game_rec.get("game_system")
+            or (state.get("game_system") if isinstance(state, dict) else None)
+            or (state.get("gameSystem") if isinstance(state, dict) else None)
+            or ("aos" if str(match_id).upper().startswith("AOS-") else "40k")
+        )
         return {
             "success": True,
             "match_id": match_id,
+            "game_system": sys_id,
             "game_record": game_rec,
             "state": state,
             "is_finished": True,
@@ -2288,6 +2295,217 @@ async def view_scorecard_page(match_id: str):
     if scorecard_file.exists():
         return FileResponse(scorecard_file)
     return RedirectResponse(f"/?scorecard={match_id}")
+
+
+# =========================================================================
+# COMPLETED GAME HISTORY IMPORTER (TABLETOP BATTLES & OFFICIAL GW APP)
+# =========================================================================
+
+class TrackerImportSyncPayload(BaseModel):
+    email: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    token: Optional[str] = None
+    id_token: Optional[str] = None
+    access_token: Optional[str] = None
+    game_system: Optional[str] = "40k"
+    dry_run: Optional[bool] = False
+
+class TrackerImportCodePayload(BaseModel):
+    code: str
+    token: Optional[str] = None
+    id_token: Optional[str] = None
+    game_system: Optional[str] = "40k"
+    dry_run: Optional[bool] = False
+
+class TrackerImportParsePayload(BaseModel):
+    payload: Optional[str] = None
+    text: Optional[str] = None
+    game_system: Optional[str] = "40k"
+    source_hint: Optional[str] = None
+    dry_run: Optional[bool] = False
+
+def _resolve_importing_user(request: Request) -> Optional[Dict[str, Any]]:
+    user = getattr(request, "_mock_user", None) if request else None
+    if user is None and request:
+        try:
+            auth_mgr = get_auth_manager()
+            auth_header = request.headers.get("Authorization", "") if hasattr(request, "headers") else ""
+            session_token = (auth_header[7:] if auth_header.startswith("Bearer ") else None) or (request.cookies.get("session_token") if hasattr(request, "cookies") else None)
+            user = auth_mgr.get_session(session_token) if session_token else None
+        except Exception:
+            pass
+    return user
+
+def _persist_imported_games_to_db(
+    converted_games: List[Dict[str, Any]],
+    user: Optional[Dict[str, Any]],
+    dry_run: bool = False,
+) -> List[Dict[str, Any]]:
+    """
+    Persists imported completed games strictly into PostgreSQL `tracker_games`
+    (NEVER into Firestore, because imported games are completed historical games).
+    """
+    db = None
+    if not dry_run:
+        try:
+            db = get_database()
+        except Exception:
+            db = None
+
+    uid = user.get("id") if isinstance(user, dict) else None
+    saved_items = []
+    for item in converted_games:
+        if not isinstance(item, dict) or not item.get("match_id"):
+            continue
+        mid = item["match_id"]
+        st = item.get("state") or {}
+        st["is_finished"] = True
+        st["isFinished"] = True
+        st["status"] = "completed"
+        st["started"] = True
+        u_p1 = item.get("user_id_p1") or uid
+        u_p2 = item.get("user_id_p2")
+
+        if not dry_run and db and hasattr(db, "save_tracker_game"):
+            db.save_tracker_game(
+                mid,
+                st,
+                version=1,
+                user_id_p1=u_p1,
+                user_id_p2=u_p2,
+            )
+
+        saved_items.append({
+            "match_id": mid,
+            "game_system": item.get("game_system", "40k"),
+            "p1_name": item.get("p1_name"),
+            "p2_name": item.get("p2_name"),
+            "p1_faction": item.get("p1_faction"),
+            "p2_faction": item.get("p2_faction"),
+            "p1_detachment": item.get("p1_detachment"),
+            "p2_detachment": item.get("p2_detachment"),
+            "p1_score": item.get("p1_score"),
+            "p2_score": item.get("p2_score"),
+            "primary_mission": item.get("primary_mission"),
+            "deployment": item.get("deployment"),
+            "game_date": item.get("game_date"),
+            "imported_source": item.get("imported_source", "tabletop_battles"),
+            "imported_app": st.get("imported_app", "Tabletop Battles"),
+            "is_finished": True,
+            "status": "completed",
+            "scorecard_url": f"/scorecard/{urllib.parse.quote(mid)}",
+        })
+    return saved_items
+
+@router.post("/api/tracker/import/ttb-sync", summary="Download and import completed games from Tabletop Battles Cloud Sync")
+async def api_tracker_import_ttb_sync(request: Request, body: TrackerImportSyncPayload):
+    from tracker_importer import (
+        authenticate_ttb_cognito,
+        fetch_ttb_cloud_games,
+        convert_ttb_game_to_omnitactica,
+    )
+    user = _resolve_importing_user(request)
+    id_tok = (body.id_token or body.token or "").strip()
+    acc_tok = (body.access_token or "").strip()
+    email_or_user = (body.email or body.username or "").strip()
+
+    try:
+        if not id_tok and not acc_tok:
+            auth_res = authenticate_ttb_cognito(email_or_user, body.password or "")
+            id_tok = auth_res.get("id_token") or ""
+            acc_tok = auth_res.get("access_token") or ""
+
+        raw_games = fetch_ttb_cloud_games(id_token=id_tok, access_token=acc_tok)
+        converted = []
+        for rg in raw_games:
+            c = convert_ttb_game_to_omnitactica(
+                rg,
+                importing_user=user,
+                default_system=body.game_system or "40k",
+                source_label="tabletop_battles",
+            )
+            if c:
+                converted.append(c)
+
+        saved = _persist_imported_games_to_db(converted, user, dry_run=bool(body.dry_run))
+        return {
+            "success": True,
+            "source": "tabletop_battles_cloud",
+            "storage_target": "tracker_games",
+            "dry_run": bool(body.dry_run),
+            "imported_count": len(saved),
+            "games": saved,
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error in /api/tracker/import/ttb-sync: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to sync Tabletop Battles games: {e}")
+
+@router.post("/api/tracker/import/ttb-code", summary="Download and import a Tabletop Battles game by Observer or Link Code")
+async def api_tracker_import_ttb_code(request: Request, body: TrackerImportCodePayload):
+    from tracker_importer import (
+        fetch_ttb_game_by_code,
+        convert_ttb_game_to_omnitactica,
+    )
+    user = _resolve_importing_user(request)
+    try:
+        raw_game = fetch_ttb_game_by_code(
+            body.code,
+            id_token=(body.id_token or body.token or None),
+        )
+        conv = convert_ttb_game_to_omnitactica(
+            raw_game,
+            importing_user=user,
+            default_system=body.game_system or "40k",
+            source_label="tabletop_battles",
+        )
+        if not conv:
+            raise ValueError("Unable to parse Tabletop Battles game from the provided code.")
+
+        saved = _persist_imported_games_to_db([conv], user, dry_run=bool(body.dry_run))
+        return {
+            "success": True,
+            "source": "tabletop_battles_code",
+            "storage_target": "tracker_games",
+            "dry_run": bool(body.dry_run),
+            "imported_count": len(saved),
+            "games": saved,
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error in /api/tracker/import/ttb-code: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to import game by code: {e}")
+
+@router.post("/api/tracker/import/parse", summary="Parse and import completed games from TTB JSON/text or GW App War Journal")
+async def api_tracker_import_parse(request: Request, body: TrackerImportParsePayload):
+    from tracker_importer import parse_imported_games_payload
+    user = _resolve_importing_user(request)
+    raw_text = (body.payload or body.text or "").strip()
+    try:
+        converted = parse_imported_games_payload(
+            raw_text,
+            importing_user=user,
+            default_system=body.game_system or "40k",
+            source_hint=body.source_hint,
+        )
+        saved = _persist_imported_games_to_db(converted, user, dry_run=bool(body.dry_run))
+        return {
+            "success": True,
+            "source": body.source_hint or "parsed_import",
+            "storage_target": "tracker_games",
+            "dry_run": bool(body.dry_run),
+            "imported_count": len(saved),
+            "games": saved,
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error in /api/tracker/import/parse: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to parse and import games: {e}")
+
 
 
 @router.get("/api/tracker/debug/test_save", summary="Diagnostics endpoint to test DB writes to tracker_games")
@@ -2383,8 +2601,14 @@ async def api_tracker_attach_armylist(match_id: str, request: Request):
         }
 
     room = TRACKER_ROOMS[match_id]
+    if user_id:
+        if role == "player1" and not room.get("user_id_p1"):
+            room["user_id_p1"] = user_id
+        elif role == "player2" and not room.get("user_id_p2"):
+            room["user_id_p2"] = user_id
     is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
     is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
+    has_assigned_players = bool(room.get("user_id_p1") or room.get("user_id_p2"))
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
@@ -2398,7 +2622,7 @@ async def api_tracker_attach_armylist(match_id: str, request: Request):
         is_tournament_staff = check_user_is_tournament_staff(user, room, match_id=match_id)
         if not (is_p1 or is_p2 or is_tournament_staff):
             raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot attach army lists.")
-    else:
+    elif has_assigned_players and match_id not in ("MATCH", "AOS-LOCAL"):
         is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
         if not (is_p1 or is_p2 or is_ref):
             raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot attach army lists.")

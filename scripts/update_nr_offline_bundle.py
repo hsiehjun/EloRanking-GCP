@@ -150,7 +150,7 @@ def main() -> int:
         live_ver = meta.get("nrversion")
         old_meta = old_books.get((sys_id, book_id)) or {}
         old_ver = old_meta.get("nrversion")
-        if args.force_books or (arcname not in existing_names) or (live_ver != old_ver):
+        if args.force_books or (live_ver != old_ver) or (arcname not in existing_names and old_ver is None):
             to_download.append((sys_id, book_id, meta, old_ver))
 
     print(f"[2/3] {len(to_download)} book(s) have updated versions compared to {BUNDLE_PATH.name}:")
