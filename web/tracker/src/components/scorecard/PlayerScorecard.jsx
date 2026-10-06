@@ -375,7 +375,10 @@ export function PlayerScorecard({ player }) {
             activeSecondaryCard.recurring
               ? null
               : instId => {
-                  discardSecondary(player, instId);
+                  discardSecondary(
+                    player,
+                    typeof instId === "string" ? instId : activeSecondaryCard.instanceId
+                  );
                   setActiveSecondaryCard(null);
                 }
           }
@@ -383,7 +386,10 @@ export function PlayerScorecard({ player }) {
             activeSecondaryCard.recurring || activeSecondaryCard.scoredRound != null
               ? null
               : instId => {
-                  returnToDeck(player, instId);
+                  returnToDeck(
+                    player,
+                    typeof instId === "string" ? instId : activeSecondaryCard.instanceId
+                  );
                   setActiveSecondaryCard(null);
                 }
           }

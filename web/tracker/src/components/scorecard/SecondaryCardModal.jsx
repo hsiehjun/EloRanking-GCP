@@ -17,12 +17,15 @@ export function SecondaryCardModal({ card, mode = "tactical", onRestore, onClose
     const original = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const handleKeyDown = e => {
-      if (e.key === "Escape" && onClose) onClose();
+      if (e.key === "Escape" && onClose) {
+        e.stopImmediatePropagation();
+        onClose();
+      }
     };
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
     return () => {
       document.body.style.overflow = original;
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [onClose]);
 
@@ -31,7 +34,12 @@ export function SecondaryCardModal({ card, mode = "tactical", onRestore, onClose
     if (!el) return;
     const updateScale = () => {
       const width = el.clientWidth;
-      if (width > 0) {
+      const height = el.clientHeight;
+      if (width > 0 && height > 0) {
+        const wScale = (width - 24) / 580;
+        const hScale = (height - 76) / 994;
+        setScale(Math.max(0.38, Math.min(wScale, hScale, 0.85)));
+      } else if (width > 0) {
         setScale(Math.min((width - 24) / 580, 0.85));
       }
     };
@@ -39,7 +47,7 @@ export function SecondaryCardModal({ card, mode = "tactical", onRestore, onClose
     const observer = new ResizeObserver(updateScale);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [mounted]);
 
   if (!mounted) return null;
 
@@ -55,7 +63,15 @@ export function SecondaryCardModal({ card, mode = "tactical", onRestore, onClose
       role="dialog"
       aria-modal="true"
       aria-label={`${cardName} card`}
+      onClick={onClose}
       className="fixed inset-0 z-[70] flex flex-col bg-black/85 backdrop-blur-sm"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 100060,
+        background: "rgba(4, 6, 10, 0.92)",
+        backdropFilter: "blur(8px)"
+      }}
     >
       {/* Header status */}
       <div className="flex flex-none items-center justify-center px-4 py-3">
@@ -70,6 +86,7 @@ export function SecondaryCardModal({ card, mode = "tactical", onRestore, onClose
         className="flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto px-3 pb-4"
       >
         <div
+          onClick={e => e.stopPropagation()}
           style={{ width: scale * 580, height: scale * 994 }}
           className="flex-none shadow-2xl rounded-[16px] overflow-hidden"
         >
@@ -87,7 +104,10 @@ export function SecondaryCardModal({ card, mode = "tactical", onRestore, onClose
         </div>
 
         {/* Footer actions */}
-        <div className="flex flex-none items-center gap-3 pb-4">
+        <div
+          onClick={e => e.stopPropagation()}
+          className="flex flex-none items-center gap-3 pb-4"
+        >
           {onRestore && card.status === "discarded" && (
             <button
               type="button"

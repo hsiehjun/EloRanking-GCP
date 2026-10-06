@@ -93,8 +93,8 @@ export function SecondaryScoreModal({
         currentTotal={currentTotal}
         initialSelection={initialSelection}
         onConfirm={(points, selection) => onScore(card.instanceId, points, selection)}
-        onDiscard={onDiscard}
-        onReturnToDeck={onReturnToDeck}
+        onDiscard={onDiscard ? () => onDiscard(card.instanceId) : null}
+        onReturnToDeck={onReturnToDeck ? () => onReturnToDeck(card.instanceId) : null}
         reshuffleNote={reshuffleNote}
         onShowCard={() => setViewingFullCard(true)}
         showCardLabel="Full card"

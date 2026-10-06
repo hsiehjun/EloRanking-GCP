@@ -22,12 +22,15 @@ export function CardImageModal({
     const original = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const handleKeyDown = e => {
-      if (e.key === "Escape" && onClose) onClose();
+      if (e.key === "Escape" && onClose) {
+        e.stopImmediatePropagation();
+        onClose();
+      }
     };
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
     return () => {
       document.body.style.overflow = original;
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [onClose]);
 
