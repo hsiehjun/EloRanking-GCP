@@ -164,6 +164,23 @@ class TestJourneyPlacings(unittest.TestCase):
         self.assertLess(h2h_idx, fac_3mo_idx)
         self.assertLess(fac_3mo_idx, dossiers_idx)
 
+    def test_stream_modal_renders_inline_scorecard_without_button(self):
+        with open("web/js/tournaments.js", "r", encoding="utf-8") as f:
+            js_code = f.read()
+
+        # Verify buildInlineStreamScorecardHtml exists and is used in updateEventStreamModalContent
+        self.assertIn("function buildInlineStreamScorecardHtml(", js_code)
+        self.assertIn("Match Scorecard", js_code)
+        self.assertIn("matchupContainer.innerHTML = buildInlineStreamScorecardHtml(", js_code)
+
+        # Extract updateEventStreamModalContent body and verify no redundant "View Scorecard" button or stream-modal-versus-strip is rendered inside it
+        fn_start = js_code.index("function updateEventStreamModalContent()")
+        fn_end = js_code.index("window.updateEventStreamModalContent = updateEventStreamModalContent;")
+        fn_body = js_code[fn_start:fn_end]
+        self.assertNotIn("View Scorecard", fn_body)
+        self.assertNotIn("stream-modal-versus-strip", fn_body)
+
 
 if __name__ == "__main__":
     unittest.main()
+

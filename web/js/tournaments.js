@@ -5540,6 +5540,7 @@ let selectedCasterTable = 1;
 let creatorActiveStreamIndex = 0;
 let streamHudOverlayEnabled = true;
 let streamLiveTrackerScoreCache = {};
+let streamScorecardDataCache = {};
 let _syncStreamBackendTimer = null;
 
 function normalizeStreamRecord(s) {
@@ -5839,6 +5840,232 @@ if (!window._streamFullscreenListenersBound) {
   });
 }
 
+function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlayData, scData) {
+  const tableNum = overlayData?.tableNum || Number(match?.table_number || match?.table || 1);
+  const curRound = overlayData?.roundNum || Number(match?.round || 1);
+  const p1Name = overlayData?.p1Name || match?.player1_name || 'Player 1';
+  const p2Name = overlayData?.p2Name || match?.player2_name || 'Player 2';
+  const p1Fac = overlayData?.p1Fac || match?.player1_faction || p1?.faction || 'Army';
+  const p2Fac = overlayData?.p2Fac || match?.player2_faction || p2?.faction || 'Army';
+  const p1Det = p1?.detachment || match?.player1_detachment || 'Standard Detachment';
+  const p2Det = p2?.detachment || match?.player2_detachment || 'Standard Detachment';
+  const p1Elo = Number(overlayData?.p1Elo || match?.player1_elo || p1?.current_elo || 1500);
+  const p2Elo = Number(overlayData?.p2Elo || match?.player2_elo || p2?.current_elo || 1500);
+
+  const sc = scData && (scData.scorecard || scData);
+  const isSubmittedDbScorecard = Boolean(
+    sc && !sc.is_mock && (sc.source === 'tracker_games' || (Array.isArray(sc.p1_primary) && sc.p1_primary.length > 0))
+  );
+
+  const rawS1 = sc?.player1_score ?? sc?.p1_total ?? match?.player1_score;
+  const rawS2 = sc?.player2_score ?? sc?.p2_total ?? match?.player2_score;
+  const hasScore = (rawS1 !== null && rawS1 !== undefined && rawS2 !== null && rawS2 !== undefined)
+    || (overlayData?.scoreStr && overlayData.scoreStr !== '0 - 0' && overlayData.scoreStr !== 'LIVE');
+
+  let s1 = Number(rawS1 ?? 0);
+  let s2 = Number(rawS2 ?? 0);
+  if ((rawS1 === null || rawS1 === undefined) && hasScore && overlayData?.scoreStr) {
+    const parts = String(overlayData.scoreStr).split('-').map(x => Number(x.trim()));
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      s1 = parts[0];
+      s2 = parts[1];
+    }
+  }
+
+  const p1Won = hasScore && s1 > s2;
+  const p2Won = hasScore && s2 > s1;
+  const isDraw = hasScore && s1 === s2;
+
+  const missionText = (sc && sc.primary_mission && sc.primary_mission !== 'Unknown Mission')
+    ? `${sc.primary_mission}${sc.deployment && sc.deployment !== 'Standard Deployment' ? ` • ${sc.deployment}` : ''}`
+    : (match?.mission || '');
+
+  let tableBodyHtml = '';
+
+  if (isSubmittedDbScorecard) {
+    const p1Prim = Array.isArray(sc.p1_primary) ? sc.p1_primary : [0, 0, 0, 0, 0];
+    const p1Sec = Array.isArray(sc.p1_secondary) ? sc.p1_secondary : [0, 0, 0, 0, 0];
+    const p2Prim = Array.isArray(sc.p2_primary) ? sc.p2_primary : [0, 0, 0, 0, 0];
+    const p2Sec = Array.isArray(sc.p2_secondary) ? sc.p2_secondary : [0, 0, 0, 0, 0];
+
+    const p1PrimTotal = sc.p1_primary_total ?? p1Prim.reduce((a, b) => a + Number(b || 0), 0);
+    const p1SecTotal = sc.p1_secondary_total ?? p1Sec.reduce((a, b) => a + Number(b || 0), 0);
+    const p2PrimTotal = sc.p2_primary_total ?? p2Prim.reduce((a, b) => a + Number(b || 0), 0);
+    const p2SecTotal = sc.p2_secondary_total ?? p2Sec.reduce((a, b) => a + Number(b || 0), 0);
+    const p1Br = sc.p1_battle_ready !== undefined ? Number(sc.p1_battle_ready) : 10;
+    const p2Br = sc.p2_battle_ready !== undefined ? Number(sc.p2_battle_ready) : 10;
+
+    const renderRoundCells = (arr, color) => [0, 1, 2, 3, 4].map(i => {
+      const val = Number(arr[i] || 0);
+      return `<td style="text-align:center; font-family:var(--font-mono); color:${val > 0 ? color : 'var(--text-muted)'}; font-weight:${val > 0 ? '700' : '400'}; padding:0.35rem 0.4rem;">${val}</td>`;
+    }).join('');
+
+    tableBodyHtml = `
+      <div style="overflow-x: auto;">
+        <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.78rem;">
+          <thead>
+            <tr style="background: rgba(15, 23, 42, 0.85); border-bottom: 1px solid rgba(255,255,255,0.1);">
+              <th style="text-align: left; padding: 0.45rem 0.65rem;">Player / Scoring Category</th>
+              <th style="text-align: center; width: 44px; padding: 0.45rem 0.3rem;">R1</th>
+              <th style="text-align: center; width: 44px; padding: 0.45rem 0.3rem;">R2</th>
+              <th style="text-align: center; width: 44px; padding: 0.45rem 0.3rem;">R3</th>
+              <th style="text-align: center; width: 44px; padding: 0.45rem 0.3rem;">R4</th>
+              <th style="text-align: center; width: 44px; padding: 0.45rem 0.3rem;">R5</th>
+              <th style="text-align: right; width: 90px; padding: 0.45rem 0.65rem;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Player 1 Header -->
+            <tr style="background: rgba(56, 189, 248, 0.1); border-top: 1px solid rgba(56, 189, 248, 0.25);">
+              <td colspan="6" style="padding: 0.45rem 0.65rem; font-weight: 800; color: #fff;">
+                <span style="color: #38bdf8;">${escapeHtml(p1Name)}</span>
+                <span style="font-size: 0.72rem; color: var(--text-secondary); font-weight: 600; margin-left: 0.4rem;">(${escapeHtml(p1Fac)} • ${escapeHtml(p1Det)})</span>
+                ${p1Won ? '<span class="badge" style="background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); margin-left:0.4rem; font-size:0.64rem;">VICTORY</span>' : ''}
+              </td>
+              <td style="text-align: right; padding: 0.45rem 0.65rem; font-family: var(--font-mono); font-size: 0.95rem; font-weight: 900; color: ${p1Won ? '#10b981' : '#fff'};">
+                ${s1} <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 500;">/ 100</span>
+              </td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+              <td style="padding: 0.35rem 0.65rem 0.35rem 1.25rem; color: var(--text-secondary);">Primary Mission</td>
+              ${renderRoundCells(p1Prim, '#38bdf8')}
+              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p1PrimTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ 50</span></td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+              <td style="padding: 0.35rem 0.65rem 0.35rem 1.25rem; color: var(--text-secondary);">Secondary Objectives</td>
+              ${renderRoundCells(p1Sec, '#a855f7')}
+              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p1SecTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ 40</span></td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">
+              <td style="padding: 0.3rem 0.65rem 0.3rem 1.25rem; color: var(--text-muted); font-size: 0.72rem;">Battle Ready Bonus</td>
+              <td colspan="5" style="text-align: center; color: var(--text-muted); font-size: 0.7rem;">Painted Army Standard</td>
+              <td style="text-align: right; padding: 0.3rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #10b981;">+${p1Br}</td>
+            </tr>
+
+            <!-- Player 2 Header -->
+            <tr style="background: rgba(244, 63, 94, 0.1); border-top: 1px solid rgba(244, 63, 94, 0.25);">
+              <td colspan="6" style="padding: 0.45rem 0.65rem; font-weight: 800; color: #fff;">
+                <span style="color: #fb7185;">${escapeHtml(p2Name)}</span>
+                <span style="font-size: 0.72rem; color: var(--text-secondary); font-weight: 600; margin-left: 0.4rem;">(${escapeHtml(p2Fac)} • ${escapeHtml(p2Det)})</span>
+                ${p2Won ? '<span class="badge" style="background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); margin-left:0.4rem; font-size:0.64rem;">VICTORY</span>' : ''}
+              </td>
+              <td style="text-align: right; padding: 0.45rem 0.65rem; font-family: var(--font-mono); font-size: 0.95rem; font-weight: 900; color: ${p2Won ? '#10b981' : '#fff'};">
+                ${s2} <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 500;">/ 100</span>
+              </td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+              <td style="padding: 0.35rem 0.65rem 0.35rem 1.25rem; color: var(--text-secondary);">Primary Mission</td>
+              ${renderRoundCells(p2Prim, '#fb7185')}
+              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p2PrimTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ 50</span></td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+              <td style="padding: 0.35rem 0.65rem 0.35rem 1.25rem; color: var(--text-secondary);">Secondary Objectives</td>
+              ${renderRoundCells(p2Sec, '#f59e0b')}
+              <td style="text-align: right; padding: 0.35rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #e2e8f0;">${p2SecTotal} <span style="font-size:0.66rem; color:var(--text-muted);">/ 40</span></td>
+            </tr>
+            <tr>
+              <td style="padding: 0.3rem 0.65rem 0.3rem 1.25rem; color: var(--text-muted); font-size: 0.72rem;">Battle Ready Bonus</td>
+              <td colspan="5" style="text-align: center; color: var(--text-muted); font-size: 0.7rem;">Painted Army Standard</td>
+              <td style="text-align: right; padding: 0.3rem 0.65rem; font-family: var(--font-mono); font-weight: 700; color: #10b981;">+${p2Br}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+  } else {
+    const p1Badge = !hasScore
+      ? '<span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.66rem;">LIVE</span>'
+      : (p1Won
+        ? '<span class="badge" style="background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-size:0.66rem;">VICTORY</span>'
+        : (isDraw
+          ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); font-size:0.66rem;">DRAW</span>'
+          : '<span class="badge" style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.3); font-size:0.66rem;">DEFEAT</span>'));
+
+    const p2Badge = !hasScore
+      ? '<span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.66rem;">LIVE</span>'
+      : (p2Won
+        ? '<span class="badge" style="background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-size:0.66rem;">VICTORY</span>'
+        : (isDraw
+          ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); font-size:0.66rem;">DRAW</span>'
+          : '<span class="badge" style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.3); font-size:0.66rem;">DEFEAT</span>'));
+
+    tableBodyHtml = `
+      <div style="overflow-x: auto;">
+        <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+          <thead>
+            <tr style="background: rgba(15, 23, 42, 0.85); border-bottom: 1px solid rgba(255,255,255,0.08);">
+              <th style="text-align: left; padding: 0.45rem 0.75rem;">Player</th>
+              <th style="text-align: left; padding: 0.45rem 0.75rem;">Faction & Detachment</th>
+              <th style="text-align: center; padding: 0.45rem 0.5rem;">Pre-Game Elo</th>
+              <th style="text-align: center; padding: 0.45rem 0.5rem;">Outcome</th>
+              <th style="text-align: right; padding: 0.45rem 0.75rem;">Battle Points</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: ${p1Won ? 'rgba(16, 185, 129, 0.06)' : 'transparent'};">
+              <td style="padding: 0.55rem 0.75rem; font-weight: 800; color: #fff; border-left: 3px solid #38bdf8;">
+                ${escapeHtml(p1Name)}
+              </td>
+              <td style="padding: 0.55rem 0.75rem; color: #7dd3fc; font-weight: 600;">
+                ${escapeHtml(p1Fac)} <span style="color: var(--text-muted); font-weight: 400; font-size: 0.74rem;">• ${escapeHtml(p1Det)}</span>
+              </td>
+              <td style="padding: 0.55rem 0.5rem; text-align: center; font-family: var(--font-mono); color: var(--text-secondary);">
+                ${p1Elo.toFixed(0)}
+              </td>
+              <td style="padding: 0.55rem 0.5rem; text-align: center;">
+                ${p1Badge}
+              </td>
+              <td style="padding: 0.55rem 0.75rem; text-align: right; font-family: var(--font-mono); font-size: 1rem; font-weight: 900; color: ${p1Won ? '#10b981' : '#fff'};">
+                ${hasScore ? `${s1} <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 400;">/ 100</span>` : '<span style="font-size:0.78rem; color:#38bdf8;">In Progress</span>'}
+              </td>
+            </tr>
+            <tr style="background: ${p2Won ? 'rgba(16, 185, 129, 0.06)' : 'transparent'};">
+              <td style="padding: 0.55rem 0.75rem; font-weight: 800; color: #fff; border-left: 3px solid #f43f5e;">
+                ${escapeHtml(p2Name)}
+              </td>
+              <td style="padding: 0.55rem 0.75rem; color: #fda4af; font-weight: 600;">
+                ${escapeHtml(p2Fac)} <span style="color: var(--text-muted); font-weight: 400; font-size: 0.74rem;">• ${escapeHtml(p2Det)}</span>
+              </td>
+              <td style="padding: 0.55rem 0.5rem; text-align: center; font-family: var(--font-mono); color: var(--text-secondary);">
+                ${p2Elo.toFixed(0)}
+              </td>
+              <td style="padding: 0.55rem 0.5rem; text-align: center;">
+                ${p2Badge}
+              </td>
+              <td style="padding: 0.55rem 0.75rem; text-align: right; font-family: var(--font-mono); font-size: 1rem; font-weight: 900; color: ${p2Won ? '#10b981' : '#fff'};">
+                ${hasScore ? `${s2} <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 400;">/ 100</span>` : '<span style="font-size:0.78rem; color:#38bdf8;">In Progress</span>'}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.45rem; flex-wrap: wrap; gap: 0.5rem;">
+      <div style="font-size: 0.86rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+        <span>📋 Table ${tableNum} • Round ${curRound} Match Scorecard</span>
+        <span class="badge" style="background: rgba(56, 189, 248, 0.14); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-size: 0.66rem;">Synced with Caster Desk</span>
+        ${missionText ? `<span style="font-size: 0.74rem; color: var(--text-secondary); font-weight: 600;">• ${escapeHtml(missionText)}</span>` : ''}
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        ${isSubmittedDbScorecard ? `
+          <span style="font-size: 0.7rem; color: #10b981; font-weight: 700;">✓ Turn-by-Turn Tracker Breakdown</span>
+        ` : (hasScore ? `
+          <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600;">✓ Official BCP Scorecard</span>
+        ` : `
+          <button type="button" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 3px 8px; color: #a5b4fc; border-color: #6366f1; background: rgba(99,102,241,0.1); cursor: pointer;" onclick="spectateTournamentTracker('${eventId}', ${curRound}, ${tableNum}, '${escapeHtml(match?.player1_name || 'P1')}', '${escapeHtml(match?.player2_name || 'P2')}', '${match?.player1_id || ''}', '${match?.player2_id || ''}', '${match?.id || ''}')">
+            👁️ Spectate Live Tracker
+          </button>
+        `)}
+      </div>
+    </div>
+    ${tableBodyHtml}
+  `;
+}
+window.buildInlineStreamScorecardHtml = buildInlineStreamScorecardHtml;
+
 function hydrateStreamTrackerScoreAsync(eventId, overlayData) {
   if (!eventId || !overlayData || !overlayData.tableNum || overlayData.tableNum <= 0) return;
   const matchId = `BCP-${eventId}-R${overlayData.roundNum}-T${overlayData.tableNum}`;
@@ -5848,15 +6075,16 @@ function hydrateStreamTrackerScoreAsync(eventId, overlayData) {
   fetch(`/api/scorecard/${encodeURIComponent(matchId)}`)
     .then(r => r.ok ? r.json() : null)
     .then(scData => {
+      streamScorecardDataCache[matchId] = scData || { found: false };
       const sc = scData && (scData.scorecard || scData);
+      const ev = currentEventData || {};
+      const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (ev.players || []);
+      const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (ev.matches || []);
       if (sc && (sc.player1_score !== undefined || sc.p1_total !== undefined)) {
         const s1 = sc.player1_score ?? sc.p1_total ?? 0;
         const s2 = sc.player2_score ?? sc.p2_total ?? 0;
         streamLiveTrackerScoreCache[matchId] = `${s1} - ${s2}`;
         // Refresh HUDs if still viewing this table
-        const ev = currentEventData || {};
-        const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (ev.players || []);
-        const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (ev.matches || []);
         const updatedOverlay = resolveStreamTableMatchData(ev, players, matches, overlayData.tableNum, overlayData.roundNum);
         const modalHud = document.getElementById('modal-stream-hud-overlay');
         if (modalHud) modalHud.innerHTML = buildInAppStreamHudHtml(updatedOverlay);
@@ -5864,6 +6092,16 @@ function hydrateStreamTrackerScoreAsync(eventId, overlayData) {
         if (monitorHud) monitorHud.innerHTML = buildInAppStreamHudHtml(updatedOverlay);
         const previewContainer = document.getElementById('obs-overlay-preview-container');
         if (previewContainer) previewContainer.innerHTML = buildObsOverlayPreviewStripHtml(updatedOverlay);
+      }
+      const matchupContainer = document.getElementById('modal-stream-matchup-container');
+      if (matchupContainer && matchupContainer.getAttribute('data-match-id') === matchId) {
+        const updatedOverlay = resolveStreamTableMatchData(ev, players, matches, overlayData.tableNum, overlayData.roundNum);
+        const m = updatedOverlay.match;
+        if (m) {
+          const p1 = players.find(p => String(p.player_id || p.id) === String(m.player1_id) || p.full_name === m.player1_name);
+          const p2 = players.find(p => String(p.player_id || p.id) === String(m.player2_id) || p.full_name === m.player2_name);
+          matchupContainer.innerHTML = buildInlineStreamScorecardHtml(eventId, matchId, m, p1, p2, updatedOverlay, scData);
+        }
       }
     })
     .catch(() => {});
@@ -5972,6 +6210,7 @@ function updateEventStreamModalContent() {
       modalHud.innerHTML = buildInAppStreamHudHtml(overlayData);
     }
     if (matchupContainer) {
+      matchupContainer.removeAttribute('data-match-id');
       matchupContainer.innerHTML = '<div style="color:var(--text-muted); padding:1rem; text-align:center;">No active broadcasts linked for this event.</div>';
     }
     return;
@@ -6051,6 +6290,7 @@ function updateEventStreamModalContent() {
   if (!matchupContainer) return;
 
   if (Number(tableNum) === 0 && !overlayData.match) {
+    matchupContainer.removeAttribute('data-match-id');
     matchupContainer.innerHTML = `
       <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 1rem; text-align: center;">
         <div style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">🎙️ Main Desk & Tournament-Wide Coverage</div>
@@ -6064,6 +6304,7 @@ function updateEventStreamModalContent() {
 
   const match = overlayData.match;
   if (!match) {
+    matchupContainer.removeAttribute('data-match-id');
     matchupContainer.innerHTML = `
       <div style="text-align:center; color:var(--text-muted); font-size:0.85rem; padding:0.5rem;">
         No active pairing found for Table ${tableNum} in Round ${curRound}.
@@ -6075,68 +6316,10 @@ function updateEventStreamModalContent() {
   const p1 = players.find(p => String(p.player_id || p.id) === String(match.player1_id) || p.full_name === match.player1_name);
   const p2 = players.find(p => String(p.player_id || p.id) === String(match.player2_id) || p.full_name === match.player2_name);
 
-  const p1Elo = Number(overlayData.p1Elo || match.player1_elo || p1?.current_elo || 1500);
-  const p2Elo = Number(overlayData.p2Elo || match.player2_elo || p2?.current_elo || 1500);
-
-  const p1Prob = match._p1_win_prob !== undefined ? match._p1_win_prob : Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, (p2Elo - p1Elo) / 400)))));
-  const p2Prob = 100 - p1Prob;
-
-  const hasScore = (match.player1_score !== null && match.player1_score !== undefined && match.player2_score !== null && match.player2_score !== undefined)
-    || (overlayData.scoreStr && overlayData.scoreStr !== '0 - 0' && overlayData.scoreStr !== 'LIVE');
-  const scoreText = hasScore ? overlayData.scoreStr : 'LIVE IN PROGRESS';
-  const scoreColor = hasScore ? '#f59e0b' : '#38bdf8';
-
   const matchId = `BCP-${eventId}-R${curRound}-T${tableNum}`;
-
-  matchupContainer.innerHTML = `
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
-      <div style="font-size: 0.88rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
-        <span>⚔️ Table ${tableNum} • Round ${curRound} Headline Clash</span>
-        <span class="badge" style="background: rgba(56, 189, 248, 0.14); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-size: 0.68rem;">Synced with Caster Desk</span>
-      </div>
-      <div style="display: flex; align-items: center; gap: 0.5rem;">
-        ${hasScore ? `
-          <button type="button" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 3px 8px; color: #38bdf8; border-color: rgba(56,189,248,0.3); cursor: pointer;" onclick="openScorecardModal('${matchId}')">
-            📄 View Scorecard
-          </button>
-        ` : `
-          <button type="button" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 3px 8px; color: #a5b4fc; border-color: #6366f1; background: rgba(99,102,241,0.1); cursor: pointer;" onclick="spectateTournamentTracker('${eventId}', ${curRound}, ${tableNum}, '${escapeHtml(match.player1_name || 'P1')}', '${escapeHtml(match.player2_name || 'P2')}', '${match.player1_id || ''}', '${match.player2_id || ''}', '${match.id || ''}')">
-            👁️ Spectate Live Tracker
-          </button>
-        `}
-      </div>
-    </div>
-
-    <!-- P1 vs P2 Strip -->
-    <div class="stream-modal-versus-strip">
-      <!-- P1 -->
-      <div>
-        <div style="font-size: 0.72rem; text-transform: uppercase; color: #38bdf8; font-weight: 700;">PLAYER 1 (${p1Prob}%)</div>
-        <div style="font-size: 1.05rem; font-weight: 800; color: #fff;">${escapeHtml(overlayData.p1Name)}</div>
-        <div style="font-size: 0.78rem; color: var(--text-secondary);">${escapeHtml(overlayData.p1Fac)} • ${p1Elo.toFixed(0)} Elo</div>
-        <div style="font-size: 0.72rem; color: #7dd3fc; margin-top: 2px;">${escapeHtml(p1?.detachment || 'Standard Detachment')}</div>
-      </div>
-
-      <!-- Center Score / Status -->
-      <div style="text-align: center; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.5rem 1rem; min-width: 140px;">
-        <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 2px;">Match Status</div>
-        <div style="font-family: var(--font-mono); font-weight: 900; font-size: ${hasScore ? '1.4rem' : '0.95rem'}; color: ${scoreColor};">
-          ${escapeHtml(scoreText)}
-        </div>
-        <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 3px;">
-          ${Math.abs(p1Elo - p2Elo).toFixed(0)} Elo Differential
-        </div>
-      </div>
-
-      <!-- P2 -->
-      <div class="p2-side" style="text-align: right;">
-        <div style="font-size: 0.72rem; text-transform: uppercase; color: #f43f5e; font-weight: 700;">PLAYER 2 (${p2Prob}%)</div>
-        <div style="font-size: 1.05rem; font-weight: 800; color: #fff;">${escapeHtml(overlayData.p2Name)}</div>
-        <div style="font-size: 0.78rem; color: var(--text-secondary);">${escapeHtml(overlayData.p2Fac)} • ${p2Elo.toFixed(0)} Elo</div>
-        <div style="font-size: 0.72rem; color: #fda4af; margin-top: 2px;">${escapeHtml(p2?.detachment || 'Standard Detachment')}</div>
-      </div>
-    </div>
-  `;
+  matchupContainer.setAttribute('data-match-id', matchId);
+  const cachedScData = streamScorecardDataCache[matchId] || null;
+  matchupContainer.innerHTML = buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlayData, cachedScData);
 }
 window.updateEventStreamModalContent = updateEventStreamModalContent;
 
