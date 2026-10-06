@@ -151,27 +151,6 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-function togglePlayerEloChart() {
-  const container = document.getElementById('chart-collapsible-content');
-  const btn = document.getElementById('toggle-chart-btn');
-  const arrow = document.getElementById('toggle-chart-arrow');
-  if (!container) return;
-
-  isChartExpanded = !isChartExpanded;
-  if (isChartExpanded) {
-    container.style.display = 'block';
-    if (arrow) arrow.innerText = '▲';
-    if (btn) btn.querySelector('span').innerText = '📉 Hide Elo Progression Graph';
-    if (currentPlayerTrajectory && currentPlayerTrajectory.length > 0) {
-      renderTrajectoryChart(currentPlayerTrajectory);
-    }
-  } else {
-    container.style.display = 'none';
-    if (arrow) arrow.innerText = '▼';
-    if (btn) btn.querySelector('span').innerText = '📈 View Elo Progression Graph';
-  }
-}
-
 let currentModalPlayerId = null;
 let currentModalPlayerName = '';
 window.currentModalPlayerId = currentModalPlayerId;

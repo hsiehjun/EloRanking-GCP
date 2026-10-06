@@ -167,26 +167,6 @@ def generate_round_robin_pairings(
     return rounds_pairings
 
 
-def distribute_players_into_pods(players: List[Any], min_size: int = 6, max_size: int = 8) -> List[List[Any]]:
-    """Distributes N players into tiered pods of 6–8 players as evenly as possible."""
-    import math
-    n = len(players)
-    if n == 0:
-        return []
-    if n <= max_size:
-        return [list(players)]
-    num_pods = max(1, math.ceil(n / max_size))
-    base_size = n // num_pods
-    remainder = n % num_pods
-    pods = []
-    idx = 0
-    for i in range(num_pods):
-        size = base_size + (1 if i < remainder else 0)
-        pods.append(list(players[idx:idx + size]))
-        idx += size
-    return pods
-
-
 class LeaguesHubService:
     """100% PostgreSQL-backed Community Leagues Service."""
 

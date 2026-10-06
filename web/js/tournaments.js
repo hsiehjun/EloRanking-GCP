@@ -122,14 +122,6 @@ if (typeof window !== 'undefined') {
   window.renderBcpLinkRequiredCard = renderBcpLinkRequiredCard;
 }
 
-function debounceEventSearch() {
-  clearTimeout(eventSearchTimeout);
-  eventSearchTimeout = setTimeout(() => {
-    eventsPagination.page = 1;
-    loadEvents();
-  }, 250);
-}
-
 function setEventsPage(newPage) {
   eventsPagination.page = newPage;
   loadEvents();

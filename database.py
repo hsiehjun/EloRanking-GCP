@@ -7825,6 +7825,7 @@ class PostgresDatabase:
         postal_code = event_data.get("postal_code") or event_data.get("postalCode") or ""
         latitude = event_data.get("latitude") if event_data.get("latitude") is not None else event_data.get("lat")
         longitude = event_data.get("longitude") if event_data.get("longitude") is not None else event_data.get("lng")
+        place_id = event_data.get("place_id") or event_data.get("placeId")
         raw_json_dict = event_data.get("raw_json") or {}
         if isinstance(raw_json_dict, str):
             try: raw_json_dict = json.loads(raw_json_dict)

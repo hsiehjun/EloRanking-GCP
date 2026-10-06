@@ -4188,19 +4188,6 @@ function onGameSystemChange() {
   }
 }
 
-function escapeHtml(str) {
-  if (typeof window !== 'undefined' && typeof window.escapeHtml === 'function' && window.escapeHtml !== escapeHtml) {
-    return window.escapeHtml(str);
-  }
-  if (str === null || str === undefined) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
 // Global window bindings for Event Studio
 window.initStudio = initStudio;
 window.loadStudioEvents = loadStudioEvents;
@@ -4904,67 +4891,14 @@ function initGooglePlaces() {
 
 window.initGooglePlaces = initGooglePlaces;
 
-let _mapsSdkLoadingPromise = null;
-
-async function loadGoogleMapsSdk(callback) {
-  if (typeof google !== "undefined" && google.maps && google.maps.places) {
-    if (typeof initGooglePlaces === "function") initGooglePlaces();
-    if (typeof attachAllPlacesAutocompletes === "function") attachAllPlacesAutocompletes();
-    if (typeof callback === "function") callback();
-    return;
-  }
-  if (_mapsSdkLoadingPromise) {
-    if (typeof callback === "function") {
-      _mapsSdkLoadingPromise.then(() => callback());
-    }
-    return _mapsSdkLoadingPromise;
-  }
-
-  _mapsSdkLoadingPromise = (async () => {
-    try {
-      const res = await fetch("/api/config/maps-key");
-      if (!res.ok) return;
-      const data = await res.json();
-      const apiKey = (data && data.key) ? data.key.trim() : "";
-      if (!apiKey) return;
-      if (document.querySelector('script[src*="maps.googleapis.com"]')) return;
-
-      await new Promise((resolve) => {
-        window.__onGoogleMapsSdkReady = () => {
-          if (typeof initGooglePlaces === "function") initGooglePlaces();
-          if (typeof attachAllPlacesAutocompletes === "function") attachAllPlacesAutocompletes();
-          if (typeof initStoresGoogleMap === "function" && document.getElementById("comm-stores-map")) {
-            initStoresGoogleMap();
-          }
-          if (typeof callback === "function") callback();
-          resolve();
-        };
-
-        const script = document.createElement("script");
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&libraries=places&callback=__onGoogleMapsSdkReady`;
-        script.async = true;
-        script.defer = true;
-        script.onerror = () => resolve();
-        document.head.appendChild(script);
-      });
-    } catch (err) {
-      console.warn("Notice loading Google Maps SDK:", err);
-    }
-  })();
-
-  return _mapsSdkLoadingPromise;
-}
-
-window.loadGoogleMapsSdk = loadGoogleMapsSdk;
-
-// Automatically load Google Maps SDK
+// Automatically load Google Maps SDK and sync Commissioner card
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
-    loadGoogleMapsSdk();
+    if (typeof loadGoogleMapsSdk === "function") loadGoogleMapsSdk();
     syncStudioLeagueCommissionerCard();
   });
 } else {
-  loadGoogleMapsSdk();
+  if (typeof loadGoogleMapsSdk === "function") loadGoogleMapsSdk();
   syncStudioLeagueCommissionerCard();
 }
 

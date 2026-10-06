@@ -642,23 +642,6 @@ function switchSearchSubtab(subtab) {
   }
 }
 
-function filterByFaction(faction) {
-  switchTab('meta-intel');
-  if (typeof switchMetaSubtab === 'function') {
-    switchMetaSubtab('factions');
-  }
-}
-
-function filterByTeam(team) {
-  switchTab('search');
-  switchSearchSubtab('teams');
-  const input = document.getElementById('teams-search-input');
-  if (input) {
-    input.value = team;
-    loadTeamsDirectory();
-  }
-}
-
 async function loadGlobalStats() {
   try {
     const currentSys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');

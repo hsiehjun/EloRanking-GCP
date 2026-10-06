@@ -448,18 +448,3 @@ function renderLeaderboardTeamsRows() {
   });
 }
 window.renderLeaderboardTeamsRows = renderLeaderboardTeamsRows;
-
-function handlePlayerChatClick(playerId, playerName, accountUserId) {
-  const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
-  if (!token) {
-    alert('Please log in or create an account to send chat requests.');
-    window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.hash);
-    return;
-  }
-  if (typeof openSendChatRequestModal === 'function') {
-    openSendChatRequestModal(playerId, playerName, accountUserId);
-  } else if (typeof openProposeMatchModal === 'function') {
-    openProposeMatchModal(accountUserId || playerId, playerName);
-  }
-}
-window.handlePlayerChatClick = handlePlayerChatClick;

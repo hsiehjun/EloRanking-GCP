@@ -440,18 +440,6 @@ function renderFactionTrendChart(trends) {
   }
 }
 
-function openDatePicker(id) {
-  const el = typeof id === 'string' ? document.getElementById(id) : id;
-  if (!el) return;
-  try {
-    if (typeof el.showPicker === 'function') {
-      el.showPicker();
-      return;
-    }
-  } catch (e) {}
-  el.focus();
-}
-
 if (typeof window !== 'undefined') {
   window.setFactionTimeframe = setFactionTimeframe;
   window.applyCustomFactionDateFilter = applyCustomFactionDateFilter;

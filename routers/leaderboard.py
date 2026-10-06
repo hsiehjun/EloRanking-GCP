@@ -18,7 +18,7 @@ from core import (
     get_database, get_auth_manager, get_elo_engine, get_firestore_engine, get_army_parser,
     _get_user_session_or_401, _get_admin_session_or_403, _get_to_session_or_403,
     NO_CACHE_HEADERS, VERIFIED_TOURNAMENT_CITIES, web_dir, package_dir, logger,
-    BestCoastPairingsScraper, _decode_jwt_payload, init_tracker_room_from_chat, _roster_cache, extras,
+    BestCoastPairingsScraper, Database as PostgresDatabase, _decode_jwt_payload, init_tracker_room_from_chat, _roster_cache, extras,
     DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR, MIN_MATCHES_FOR_RANKING,
     BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT, GOOGLE_MAPS_API_KEY,
     TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id,
@@ -145,84 +145,88 @@ async def api_players_search(q: str = Query("", min_length=1), limit: int = Quer
 # API: Player Profile & Historical Win Path
 @router.get("/api/player/{player_id}", summary="Get player profile, win path, and Elo trajectory")
 async def api_player_profile(player_id: str, request: Request, game_system: Optional[str] = Query("40k"), name: Optional[str] = Query(None)):
-    auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    current_user = auth_mgr.get_session(session_token) if session_token else None
 
-    pid = player_id.strip()
-    data = get_elo_engine().get_player_win_path(pid, game_system=game_system, player_name=name)
+    def _fetch_profile():
+        auth_mgr = get_auth_manager()
+        current_user = auth_mgr.get_session(session_token) if session_token else None
 
-    # Check if this player is registered on OmniTactica
-    db = get_database()
-    actual_pid = str(data.get("player_id") or pid)
-    user_row = db.get_user_for_player(actual_pid, data.get("player_name"))
-    if user_row:
-        data["has_account"] = True
-        data["account_user_id"] = user_row["id"]
-        data["can_chat"] = True
-        data["is_self"] = bool(current_user and current_user["id"] == user_row["id"])
-        if current_user and not data["is_self"]:
-            req = db.get_existing_match_request(current_user["id"], user_row["id"])
-            if req:
-                data["existing_request_id"] = req["id"]
-                data["existing_request_status"] = req["status"]
+        pid = player_id.strip()
+        data = get_elo_engine().get_player_win_path(pid, game_system=game_system, player_name=name)
 
-        import armory_catalog
-        vault = armory_catalog.normalize_armory_vault(user_row.get("armory_vault"))
-        data["armory_vault"] = vault
-        data["equipped"] = vault.get("equipped", {})
-    else:
-        import armory_catalog
-        empty_vault = armory_catalog.normalize_armory_vault({})
-        data["has_account"] = False
-        data["account_user_id"] = None
-        data["can_chat"] = False
-        data["is_self"] = False
-        data["armory_vault"] = empty_vault
-        data["equipped"] = empty_vault.get("equipped", {})
+        # Check if this player is registered on OmniTactica
+        db = get_database()
+        actual_pid = str(data.get("player_id") or pid)
+        user_row = db.get_user_for_player(actual_pid, data.get("player_name"))
+        if user_row:
+            data["has_account"] = True
+            data["account_user_id"] = user_row["id"]
+            data["can_chat"] = True
+            data["is_self"] = bool(current_user and current_user["id"] == user_row["id"])
+            if current_user and not data["is_self"]:
+                req = db.get_existing_match_request(current_user["id"], user_row["id"])
+                if req:
+                    data["existing_request_id"] = req["id"]
+                    data["existing_request_status"] = req["status"]
 
-    if data.get("is_self") and current_user and current_user.get("armory_vault"):
-        import armory_catalog
-        norm_self_vault = armory_catalog.normalize_armory_vault(current_user.get("armory_vault", {}))
-        data["armory_vault"] = norm_self_vault
-        data["equipped"] = norm_self_vault.get("equipped", {})
+            import armory_catalog
+            vault = armory_catalog.normalize_armory_vault(user_row.get("armory_vault"))
+            data["armory_vault"] = vault
+            data["equipped"] = vault.get("equipped", {})
+        else:
+            import armory_catalog
+            empty_vault = armory_catalog.normalize_armory_vault({})
+            data["has_account"] = False
+            data["account_user_id"] = None
+            data["can_chat"] = False
+            data["is_self"] = False
+            data["armory_vault"] = empty_vault
+            data["equipped"] = empty_vault.get("equipped", {})
 
-    import badges
-    events_attended = db.get_player_tournaments(actual_pid, game_system=game_system)
-    if not events_attended and pid != actual_pid:
-        events_attended = db.get_player_tournaments(pid, game_system=game_system)
-    data["tournaments"] = events_attended or data.get("tournaments") or []
-    data["events_attended"] = data["tournaments"]
+        if data.get("is_self") and current_user and current_user.get("armory_vault"):
+            import armory_catalog
+            norm_self_vault = armory_catalog.normalize_armory_vault(current_user.get("armory_vault", {}))
+            data["armory_vault"] = norm_self_vault
+            data["equipped"] = norm_self_vault.get("equipped", {})
 
-    user_pinned = user_row.get("pinned_badges") if (user_row and user_row.get("pinned_badges")) else None
-    b_eval = badges.evaluate_player_badges(
-        player_data=data.get("player") or data,
-        history=data.get("history") or [],
-        tournaments=data["tournaments"],
-        faction_mastery=data.get("faction_mastery") or [],
-        matchup_matrix=data.get("matchup_matrix") or [],
-        user_pinned_ids=user_pinned,
-        game_system=game_system or "40k"
-    )
-    data["badge_count"] = b_eval["badge_count"]
-    data["total_badges"] = b_eval["total_badges"]
-    data["completion_pct"] = b_eval["completion_pct"]
-    data["glory_score"] = b_eval["glory_score"]
-    data["career_glory"] = b_eval.get("career_glory", b_eval.get("glory_score", 0))
-    data["seasonal_glory"] = b_eval.get("seasonal_glory", 0)
-    data["glory_balance"] = b_eval.get("glory_balance", b_eval.get("glory_score", 0))
-    data["seasonal"] = b_eval.get("seasonal", {})
-    data["active_season"] = b_eval.get("active_season", "2026")
-    data["rank"] = b_eval["rank"]
-    data["pinned_badges"] = b_eval["pinned_badges"]
-    data["badges"] = b_eval["badges"]
-    data["categories"] = b_eval["categories"]
-    data["championships"] = b_eval.get("championships", {})
-    data["championship_glory"] = b_eval.get("championship_glory", 0)
-    data["championship_pill"] = (b_eval.get("championships") or {}).get("championship_pill")
+        import badges
+        events_attended = db.get_player_tournaments(actual_pid, game_system=game_system)
+        if not events_attended and pid != actual_pid:
+            events_attended = db.get_player_tournaments(pid, game_system=game_system)
+        data["tournaments"] = events_attended or data.get("tournaments") or []
+        data["events_attended"] = data["tournaments"]
 
-    return data
+        user_pinned = user_row.get("pinned_badges") if (user_row and user_row.get("pinned_badges")) else None
+        b_eval = badges.evaluate_player_badges(
+            player_data=data.get("player") or data,
+            history=data.get("history") or [],
+            tournaments=data["tournaments"],
+            faction_mastery=data.get("faction_mastery") or [],
+            matchup_matrix=data.get("matchup_matrix") or [],
+            user_pinned_ids=user_pinned,
+            game_system=game_system or "40k"
+        )
+        data["badge_count"] = b_eval["badge_count"]
+        data["total_badges"] = b_eval["total_badges"]
+        data["completion_pct"] = b_eval["completion_pct"]
+        data["glory_score"] = b_eval["glory_score"]
+        data["career_glory"] = b_eval.get("career_glory", b_eval.get("glory_score", 0))
+        data["seasonal_glory"] = b_eval.get("seasonal_glory", 0)
+        data["glory_balance"] = b_eval.get("glory_balance", b_eval.get("glory_score", 0))
+        data["seasonal"] = b_eval.get("seasonal", {})
+        data["active_season"] = b_eval.get("active_season", "2026")
+        data["rank"] = b_eval["rank"]
+        data["pinned_badges"] = b_eval["pinned_badges"]
+        data["badges"] = b_eval["badges"]
+        data["categories"] = b_eval["categories"]
+        data["championships"] = b_eval.get("championships", {})
+        data["championship_glory"] = b_eval.get("championship_glory", 0)
+        data["championship_pill"] = (b_eval.get("championships") or {}).get("championship_pill")
+
+        return data
+
+    return await asyncio.to_thread(_fetch_profile)
 
 @router.get("/api/badges/catalog", summary="Get complete catalog of all master badges and military ranks")
 async def api_badges_catalog(game_system: Optional[str] = Query("40k")):
@@ -232,13 +236,14 @@ async def api_badges_catalog(game_system: Optional[str] = Query("40k")):
     is_aos = gs == "aos"
     seasonal_cat = seasonal_badges.SEASON_2026_CATALOG_AOS if is_aos else seasonal_badges.SEASON_2026_CATALOG_40K
     seasonal_cats = seasonal_badges.SEASONAL_CATEGORIES_AOS if is_aos else seasonal_badges.SEASONAL_CATEGORIES_40K
+    all_badges = badges.get_all_badges_catalog(gs)
     return {
         "success": True,
         "game_system": gs,
-        "total": len(badges.get_all_badges_catalog(gs)),
+        "total": len(all_badges),
         "categories": badges.get_categories(gs),
         "ranks": badges.get_ranks(gs),
-        "badges": badges.get_all_badges_catalog(gs),
+        "badges": all_badges,
         "seasonal_catalog": seasonal_cat,
         "seasonal_categories": seasonal_cats,
         "active_season": "2026"
@@ -256,16 +261,18 @@ async def api_events(
     order: str = Query("DESC"),
     game_system: Optional[str] = Query("40k")
 ):
-    return get_database().get_events_list(
-        page=page,
-        page_size=page_size,
-        limit=limit,
-        query=query.strip() if query else None,
-        status=status,
-        sort_by=sort_by,
-        order=order,
-        game_system=game_system
-    )
+    def _fetch_events():
+        return get_database().get_events_list(
+            page=page,
+            page_size=page_size,
+            limit=limit,
+            query=query.strip() if query else None,
+            status=status,
+            sort_by=sort_by,
+            order=order,
+            game_system=game_system
+        )
+    return await asyncio.to_thread(_fetch_events)
 
 # API: Recommended & Upcoming Events for Competitor Hub (100% Live from BCP)
 @router.get("/api/events/recommended", summary="Get real-time live upcoming events from BCP")
@@ -827,8 +834,6 @@ async def api_events_recommended(
         "total": len(sorted_events)
     }
     return res
-
-_active_event_syncs: set = set()
 
 def sanitize_event_faction(fac: Optional[str]) -> str:
     """Extracts a single registered tournament faction from raw or comma-separated factions."""

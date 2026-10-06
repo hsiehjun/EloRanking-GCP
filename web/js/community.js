@@ -2556,10 +2556,6 @@ function renderCommunityChat() {
   }
 }
 
-function renderCurrentChatView() {
-  renderCommunityChat();
-}
-
 function setCommunityChatMode(mode) {
   // Retained as safe no-op for backward compatibility
 }

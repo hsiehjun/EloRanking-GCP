@@ -33,6 +33,7 @@ BUNDLE_MODULES = [
     "connect.js",
     "community.js",
     "league.js",
+    "eventstudio.js",
     "app.js"
 ]
 
@@ -114,7 +115,7 @@ def build_bundle():
         print(f"  ✓ Minified web/css/styles.css ({css_raw / 1024:.1f} KB -> {css_out / 1024:.1f} KB, -{(1 - (css_out / css_raw)) * 100:.1f}%)")
 
     # 2. Bundle and minify Event Studio standalone bundle (eventstudio.bundle.min.js)
-    es_modules = ["api.js", "auth.js", "connect.js", "eventstudio.js"]
+    es_modules = ["utils.js", "api.js", "auth.js", "connect.js", "eventstudio.js"]
     es_parts = []
     es_raw_bytes = 0
     for mod_name in es_modules:

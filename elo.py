@@ -7,7 +7,7 @@ import logging
 import math
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
 
 PLACEHOLDER_REGEX_STR = r'^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)'

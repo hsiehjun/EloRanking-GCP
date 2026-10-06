@@ -797,22 +797,7 @@ async function resolveLocationFromCoordinates(lat, lng) {
     }
   }
 
-  // 4. Secondary backend check if Google Geocoder could not resolve
-  if (!formatted && typeof window !== 'undefined' && typeof window.api?.reverseGeocode === 'function') {
-    try {
-      const rev = await window.api.reverseGeocode(numLat, numLng);
-      if (rev && rev.formatted && !rev.formatted.startsWith('GPS (')) {
-        formatted = rev.formatted;
-        resolvedCity = rev.city || (rev.formatted.split(',')[0]?.trim()) || '';
-        resolvedState = rev.state || (rev.formatted.split(',')[1]?.trim()) || '';
-        resolvedCountry = rev.country || 'United States';
-      }
-    } catch (e) {
-      console.warn('Backend reverse-geocode fallback notice:', e);
-    }
-  }
-
-  // 5. Final fallback
+  // 4. Final fallback
   if (!formatted) {
     formatted = resolvedCity ? (resolvedState ? `${resolvedCity}, ${resolvedState}` : resolvedCity) : `GPS (${numLat.toFixed(4)}, ${numLng.toFixed(4)})`;
   }
@@ -950,6 +935,7 @@ async function loadGoogleMapsSdk(callback) {
 
 if (typeof window !== 'undefined') {
   window.GLOBAL_CITY_COORDS = GLOBAL_CITY_COORDS;
+  window.CITY_COORDS_MAP = GLOBAL_CITY_COORDS;
   window.lookupCityCoordinates = lookupCityCoordinates;
   window.findClosestKnownCity = findClosestKnownCity;
   window.resolveLocationFromCoordinates = resolveLocationFromCoordinates;

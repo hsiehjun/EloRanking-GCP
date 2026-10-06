@@ -6414,20 +6414,6 @@ def handle_nr_cloud_connect(
         return {"success": False, "error": f"Failed to sync lists from NewRecruit Cloud: {e}"}
 
 
-def sync_nr_cloud_lists_if_connected(
-    user_key: str,
-    save_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-    delete_fn: Optional[Callable[[str], bool]] = None,
-    list_fn: Optional[Callable[[], List[Dict[str, Any]]]] = None,
-    cooldown_sec: float = 15.0,
-) -> List[Dict[str, Any]]:
-    """
-    Fetches lists directly from NewRecruit Cloud if the user has a connected NewRecruit Cloud account.
-    Does not save any army lists to our backend database.
-    """
-    return fetch_nr_cloud_lists_for_user(user_key)
-
-
 _NR_DETACHMENTS_CACHE: Dict[str, Any] = {
     "version_signature": None,
     "payload": None,
