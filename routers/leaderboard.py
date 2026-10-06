@@ -707,31 +707,32 @@ async def api_events_recommended(
             except Exception:
                 pass
 
-        # Tier strictly based on number of rounds: <=3 RTT/Local, 4-6 GT, >=7 Major
+        # Tier strictly based on number of rounds: <=3 RTT/Local, >3 GT (or Major when large player count / 6+ rounds)
         rounds = int(ev.get("num_rounds") or ev.get("numberOfRounds") or ev.get("numRounds") or ev.get("numberOf_rounds") or ev.get("rounds") or 0)
         if rounds == 0:
             name_lower = ev_name.lower()
-            if "major" in name_lower or "super major" in name_lower or "championship" in name_lower:
+            if "rtt" in name_lower:
+                rounds = 3
+            elif "major" in name_lower or "super major" in name_lower or "championship" in name_lower:
                 rounds = 7
             elif "gt" in name_lower or "grand tournament" in name_lower or "open" in name_lower:
                 rounds = 5
             else:
                 rounds = 3
 
-        # Tier strictly based on number of rounds: <=3 RTT/Local, 4-6 GT, >=7 Major, with capacity sanity check
         tp = max(enrolled, cap)
-        if rounds >= 7 or tp >= 60:
-            tier = "Major"
-            tier_badge = "tier-S"
-            tier_baseline = 1720.0
-        elif rounds >= 4 or tp >= 28:
-            tier = "Grand Tournament"
-            tier_badge = "tier-A"
-            tier_baseline = 1620.0
-        else:
+        if rounds <= 3:
             tier = "RTT / Local"
             tier_badge = "tier-B"
             tier_baseline = 1530.0
+        elif rounds >= 6 or tp >= 60:
+            tier = "Major"
+            tier_badge = "tier-S"
+            tier_baseline = 1720.0
+        else:
+            tier = "Grand Tournament"
+            tier_badge = "tier-A"
+            tier_baseline = 1620.0
 
         # Dynamic Field Avg Elo from Enrolled Roster in PostgreSQL / BCP
         stats_entry = field_stats.get(str(ev_id)) or field_stats.get(ev_id)

@@ -4532,26 +4532,29 @@ class PostgresDatabase:
                         except Exception:
                             pass
 
-                    # Tier strictly based on number of rounds: <=3 RTT/Local, 4-6 GT, >=7 Major
+                    # Tier strictly based on number of rounds: <=3 RTT/Local, >3 GT (or Major when large player count / 6+ rounds)
                     rounds = int(r.get("num_rounds") or r.get("numberOfRounds") or r.get("numRounds") or 0)
                     if rounds == 0:
                         name_lower = (r.get("name") or "").lower()
-                        if "major" in name_lower or "super major" in name_lower or "championship" in name_lower:
+                        if "rtt" in name_lower:
+                            rounds = 3
+                        elif "major" in name_lower or "super major" in name_lower or "championship" in name_lower:
                             rounds = 7
                         elif "gt" in name_lower or "grand tournament" in name_lower or "open" in name_lower:
                             rounds = 5
                         else:
                             rounds = 3
 
-                    if rounds >= 7:
-                        r["tier"] = "Major"
-                        r["tier_badge"] = "tier-S"
-                    elif rounds >= 4:
-                        r["tier"] = "Grand Tournament"
-                        r["tier_badge"] = "tier-A"
-                    else:
+                    tp_est = int(r.get("total_players") or r.get("num_tickets") or 0)
+                    if rounds <= 3:
                         r["tier"] = "RTT / Local"
                         r["tier_badge"] = "tier-B"
+                    elif rounds >= 6 or tp_est >= 60:
+                        r["tier"] = "Major"
+                        r["tier_badge"] = "tier-S"
+                    else:
+                        r["tier"] = "Grand Tournament"
+                        r["tier_badge"] = "tier-A"
 
                     # Field Average Elo & Compatibility Matching
                     avg_elo_val = float(r.get("avg_field_elo") or 1550.0)
@@ -7717,7 +7720,8 @@ class PostgresDatabase:
                     checked_in = bool(ev.get("checked_in") or ev.get("checkedIn") or False)
                     dropped = bool(ev.get("dropped") or False)
                     points_limit = int(ev.get("points_limit") or ev.get("points") or 2000)
-                    rounds = int(ev.get("numberOfRounds") or ev.get("numRounds") or ev.get("rounds") or ev.get("num_rounds") or 5)
+                    explicit_rounds = int(ev.get("numberOfRounds") or ev.get("numRounds") or ev.get("rounds") or ev.get("num_rounds") or 0)
+                    rounds = explicit_rounds if explicit_rounds > 0 else (3 if "rtt" in event_name.lower() else 5)
                     total_players = int(ev.get("total_players") or ev.get("totalPlayers") or ev.get("capacity") or 0)
                     player_id_to_use = str(ev.get("player_id") or target_pid or user_id).strip()
                     bcp_pid_cand = str(ev.get("bcp_player_id") or ev.get("player_id") or "").strip()
@@ -7733,7 +7737,7 @@ class PostgresDatabase:
                         %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (id) DO UPDATE SET
-                        num_rounds = GREATEST(COALESCE(events.num_rounds, 0), EXCLUDED.num_rounds),
+                        num_rounds = COALESCE(NULLIF(events.num_rounds, 0), EXCLUDED.num_rounds),
                         total_players = GREATEST(COALESCE(events.total_players, 0), EXCLUDED.total_players),
                         name = COALESCE(NULLIF(EXCLUDED.name, ''), events.name);
                     """, (
@@ -7863,7 +7867,8 @@ class PostgresDatabase:
         checked_in = bool(event_data.get("checked_in") or event_data.get("checkedIn") or False)
         dropped = bool(event_data.get("dropped") or False)
         points_limit = int(event_data.get("points_limit") or event_data.get("points") or 2000)
-        rounds = int(event_data.get("numberOfRounds") or event_data.get("numRounds") or event_data.get("rounds") or event_data.get("num_rounds") or 5)
+        explicit_rounds = int(event_data.get("numberOfRounds") or event_data.get("numRounds") or event_data.get("rounds") or event_data.get("num_rounds") or 0)
+        rounds = explicit_rounds if explicit_rounds > 0 else (3 if "rtt" in event_name.lower() else 5)
         total_players = int(event_data.get("total_players") or event_data.get("totalPlayers") or event_data.get("capacity") or 0)
         player_id_to_use = str(event_data.get("player_id") or target_pid or user_id).strip()
         bcp_pid_cand = str(event_data.get("bcp_player_id") or event_data.get("player_id") or "").strip()
@@ -7880,7 +7885,7 @@ class PostgresDatabase:
                     %s, %s, %s, %s, %s
                 )
                 ON CONFLICT (id) DO UPDATE SET
-                    num_rounds = GREATEST(COALESCE(events.num_rounds, 0), EXCLUDED.num_rounds),
+                    num_rounds = COALESCE(NULLIF(events.num_rounds, 0), EXCLUDED.num_rounds),
                     total_players = GREATEST(COALESCE(events.total_players, 0), EXCLUDED.total_players),
                     name = COALESCE(NULLIF(EXCLUDED.name, ''), events.name);
                 """, (

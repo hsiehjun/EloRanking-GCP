@@ -1618,9 +1618,54 @@
     return '<svg width="54" height="54" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="champ-svg-trophy svg-rtt"><circle cx="32" cy="32" r="24" fill="#b45309" stroke="#f59e0b" stroke-width="2"/><circle cx="32" cy="32" r="18" fill="#78350f"/><path d="M26 34L32 24L38 34L32 30Z" fill="#fbbf24"/><path d="M18 28C16 36 22 44 32 46C24 44 20 36 20 28Z" fill="#d97706"/><path d="M46 28C48 36 42 44 32 46C40 44 44 36 44 28Z" fill="#d97706"/></svg>';
   }
 
+  function normalizeChampionshipItem(c) {
+    if (!c) return c;
+    var rec = String(c.record || '');
+    var winsFromRec = parseInt(rec.split('-')[0], 10) || 0;
+    var wins = Number(c.wins || winsFromRec || 0);
+    var numRounds = Number(c.num_rounds || 0);
+    var effRounds = wins > 0 ? (wins <= 3 ? wins : Math.max(numRounds, wins)) : numRounds;
+    var totalPlayers = Number(c.total_players || 0);
+    var nameLower = String(c.event_name || '').toLowerCase();
+
+    var copy = Object.assign({}, c);
+    if (effRounds <= 3) {
+      copy.tier = 'rtt';
+      copy.tier_title = 'Rogue Trader Tournament';
+      copy.trophy_type = 'bronze_laurel_plaque';
+      copy.icon = '🥉';
+      copy.glory_bonus = 150;
+      copy.num_rounds = effRounds > 0 ? effRounds : 3;
+    } else {
+      var isSuper = totalPlayers >= 200 || nameLower.indexOf('super major') !== -1 || nameLower.indexOf('lvo') !== -1 || nameLower.indexOf('adepticon') !== -1 || nameLower.indexOf('world championship') !== -1 || nameLower.indexOf('team championships') !== -1;
+      var isMajor = !isSuper && (totalPlayers >= 100 || effRounds >= 6 || nameLower.indexOf('major') !== -1 || nameLower.indexOf('us open') !== -1);
+      if (isSuper) {
+        copy.tier = 'super_major';
+        copy.tier_title = 'Super Major / Worlds';
+        copy.trophy_type = 'astral_obsidian_crown';
+        copy.icon = '👑';
+        copy.glory_bonus = 3000;
+      } else if (isMajor) {
+        copy.tier = 'major';
+        copy.tier_title = 'Major Championship';
+        copy.trophy_type = 'aquila_relic_sword';
+        copy.icon = '🥇';
+        copy.glory_bonus = 1250;
+      } else {
+        copy.tier = 'gt';
+        copy.tier_title = 'Grand Tournament';
+        copy.trophy_type = 'silver_winged_chalice';
+        copy.icon = '🥈';
+        copy.glory_bonus = 500;
+      }
+    }
+    return copy;
+  }
+
   function renderHallOfChampions(championships, isSelf, isPublic, customId) {
     championships = championships || { total: 0, items: [] };
     var rawItems = championships.items || [];
+    var tierWeights = { 'super_major': 4, 'major': 3, 'gt': 2, 'rtt': 1 };
     // Strict qualification: ONLY undefeated runs with zero draws qualify
     var items = rawItems.filter(function(c) {
       var d = Number(c.draws || 0);
@@ -1630,6 +1675,14 @@
       if (rec.includes('-0-1') || rec.includes('-0-2') || rec.includes('-1-') || rec.includes('-2-')) return false;
       if (c.undefeated === false) return false;
       return true;
+    }).map(normalizeChampionshipItem).sort(function(a, b) {
+      var wa = tierWeights[a.tier] || 0;
+      var wb = tierWeights[b.tier] || 0;
+      if (wb !== wa) return wb - wa;
+      var pa = Number(a.total_players || 0);
+      var pb = Number(b.total_players || 0);
+      if (pb !== pa) return pb - pa;
+      return String(b.event_date || '').localeCompare(String(a.event_date || ''));
     });
     var total = items.length;
     var showcaseId = customId || 'hall-of-champions-showcase';
@@ -1854,6 +1907,7 @@
     renderPinnedMedals: renderPinnedMedals,
     renderTrophyRoom: renderTrophyRoom,
     renderHallOfChampions: renderHallOfChampions,
+    normalizeChampionshipItem: normalizeChampionshipItem,
     openVictoryChronicle: openVictoryChronicle,
     openVictoryChronicleFromElement: openVictoryChronicleFromElement,
     closeVictoryChronicle: closeVictoryChronicle,

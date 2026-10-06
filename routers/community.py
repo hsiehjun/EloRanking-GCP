@@ -101,8 +101,13 @@ async def api_community_bcp_upcoming(
 
 _bcp_majors_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 
-def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int = 0, circuits: Optional[List[Any]] = None) -> Dict[str, Any]:
-    """Classifies an event into Super Major, Major, GT, or RTT with badges and styling."""
+def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int = 0, circuits: Optional[List[Any]] = None, num_rounds: int = 0) -> Dict[str, Any]:
+    """Classifies an event into Super Major, Major, GT, or RTT with badges and styling.
+    
+    Strict rule:
+    - <= 3 rounds (or RTT when rounds <= 3) is always an RTT.
+    - > 3 rounds (4+ rounds) is a GT, or Major / Super Major when a GT has large attendance.
+    """
     n_lower = (name or "").lower()
     circuits_list = circuits or []
     try:
@@ -113,6 +118,14 @@ def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int
         num_t = int(num_tickets or 0)
     except (ValueError, TypeError):
         num_t = 0
+    try:
+        rounds = int(num_rounds or 0)
+    except (ValueError, TypeError):
+        rounds = 0
+
+    if (rounds > 0 and rounds <= 3) or (rounds <= 3 and (" rtt" in f" {n_lower} " or "rtt " in f" {n_lower} ")):
+        return {"tier": "rtt", "badge": "⚔️ RTT", "color": "#94a3b8", "weight": 1}
+
     is_super = (
         tot_p >= 200 or num_t >= 350 or
         any(k in n_lower for k in [
@@ -124,7 +137,7 @@ def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int
         return {"tier": "super_major", "badge": "👑 SUPER MAJOR", "color": "#a855f7", "weight": 4}
 
     is_major = (
-        tot_p >= 70 or num_t >= 90 or
+        tot_p >= 70 or num_t >= 90 or rounds >= 6 or
         any(k in n_lower for k in [
             "us open", "open", "major", "armadillo cup", "championship", "california cup", "bfs gt", "trials gx"
         ]) or
@@ -134,7 +147,7 @@ def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int
         return {"tier": "major", "badge": "🌟 MAJOR", "color": "#38bdf8", "weight": 3}
 
     is_gt = (
-        tot_p >= 28 or num_t >= 32 or
+        rounds > 3 or tot_p >= 28 or num_t >= 32 or
         any(k in n_lower for k in ["gt", "grand tournament", "cup", "brawl", "clash"])
     )
     if is_gt:
@@ -403,7 +416,12 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
 
         name = ev.get("name") or "Tournament"
         circuits = ev.get("circuits") or []
-        tier_info = classify_tournament_tier(name, total_players, num_tickets, circuits)
+        num_rounds = 0
+        try:
+            num_rounds = int(ev.get("numberOfRounds") or ev.get("numRounds") or ev.get("num_rounds") or ev.get("rounds") or 0)
+        except Exception:
+            num_rounds = 0
+        tier_info = classify_tournament_tier(name, total_players, num_tickets, circuits, num_rounds=num_rounds)
 
         # Compute countdown
         countdown_label = ""

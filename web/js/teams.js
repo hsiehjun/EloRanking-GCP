@@ -1451,6 +1451,52 @@ function filterTeamSilverwareGrid() {
   renderTeamReliquaryGridAndPagination();
 }
 
+function normalizeTeamChampionshipItem(c) {
+  if (window.BadgesUI && typeof window.BadgesUI.normalizeChampionshipItem === 'function') {
+    return window.BadgesUI.normalizeChampionshipItem(c);
+  }
+  if (!c) return c;
+  const rec = String(c.record || '');
+  const winsFromRec = parseInt(rec.split('-')[0], 10) || 0;
+  const wins = Number(c.wins || winsFromRec || 0);
+  const numRounds = Number(c.num_rounds || 0);
+  const effRounds = wins > 0 ? (wins <= 3 ? wins : Math.max(numRounds, wins)) : numRounds;
+  const totalPlayers = Number(c.total_players || 0);
+  const nameLower = String(c.event_name || '').toLowerCase();
+  const copy = Object.assign({}, c);
+  if (effRounds <= 3) {
+    copy.tier = 'rtt';
+    copy.tier_title = 'Rogue Trader Tournament';
+    copy.trophy_type = 'bronze_laurel_plaque';
+    copy.icon = '🥉';
+    copy.glory_bonus = 150;
+    copy.num_rounds = effRounds > 0 ? effRounds : 3;
+  } else {
+    const isSuper = totalPlayers >= 200 || nameLower.includes('super major') || nameLower.includes('lvo') || nameLower.includes('adepticon') || nameLower.includes('world championship') || nameLower.includes('team championships');
+    const isMajor = !isSuper && (totalPlayers >= 100 || effRounds >= 6 || nameLower.includes('major') || nameLower.includes('us open'));
+    if (isSuper) {
+      copy.tier = 'super_major';
+      copy.tier_title = 'Super Major / Worlds';
+      copy.trophy_type = 'astral_obsidian_crown';
+      copy.icon = '👑';
+      copy.glory_bonus = 3000;
+    } else if (isMajor) {
+      copy.tier = 'major';
+      copy.tier_title = 'Major Championship';
+      copy.trophy_type = 'aquila_relic_sword';
+      copy.icon = '🥇';
+      copy.glory_bonus = 1250;
+    } else {
+      copy.tier = 'gt';
+      copy.tier_title = 'Grand Tournament';
+      copy.trophy_type = 'silver_winged_chalice';
+      copy.icon = '🥈';
+      copy.glory_bonus = 500;
+    }
+  }
+  return copy;
+}
+
 function getFilteredAndSortedTeamSilverware(items) {
   let list = Array.isArray(items) ? items.slice() : [];
 
@@ -1463,7 +1509,7 @@ function getFilteredAndSortedTeamSilverware(items) {
     if (rec.includes('-0-1') || rec.includes('-0-2') || rec.includes('-1-') || rec.includes('-2-')) return false;
     if (c.undefeated === false) return false;
     return true;
-  });
+  }).map(normalizeTeamChampionshipItem);
 
   // 1. Tier filter
   if (teamReliquaryState.filter === 'major') {
@@ -1680,7 +1726,7 @@ function renderTeamTrophiesPanel(data, sys) {
     if (rec.includes('-0-1') || rec.includes('-0-2') || rec.includes('-1-') || rec.includes('-2-')) return false;
     if (c.undefeated === false) return false;
     return true;
-  });
+  }).map(normalizeTeamChampionshipItem);
   const topChamps = Array.isArray(championships.top_champions) ? championships.top_champions : [];
   const factionsDist = Array.isArray(championships.factions_distribution) ? championships.factions_distribution : [];
 

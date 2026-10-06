@@ -624,8 +624,11 @@ def evaluate_player_seasonal_badges(
         w = int(t.get("wins", 0))
         l = int(t.get("losses", 0))
 
-        if rds >= 5 or t_type == "GT" or "GRAND" in str(t.get("name", "")).upper():
-            gt_5_round_count += 1
+        # <= 3 rounds is strictly an RTT; > 3 rounds (or unknown rounds with GT designation) is a GT
+        is_gt_event = (rds > 3) or (rds == 0 and (t_type == "GT" or "GRAND" in str(t.get("name", "")).upper()))
+        if is_gt_event:
+            if rds >= 5 or rds == 0:
+                gt_5_round_count += 1
             if w >= 4:
                 gt_4_1_count += 1
             if w >= 5 and l == 0:

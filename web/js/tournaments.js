@@ -3456,14 +3456,18 @@ function isEventEnded(ev, regData = null) {
 }
 window.isEventEnded = isEventEnded;
 
-function getEventTierBadgeHtml(totalPlayers, eventName = '') {
+function getEventTierBadgeHtml(totalPlayers, eventName = '', numRounds = 0) {
   const count = Number(totalPlayers || 0);
+  const rounds = Number(numRounds || 0);
   const nameLower = String(eventName || '').toLowerCase();
+  if ((rounds > 0 && rounds <= 3) || (rounds <= 3 && (/\brtt\b/.test(nameLower) || nameLower.includes('rogue trader')))) {
+    return `<span class="badge" style="background:rgba(148,163,184,0.16); color:#cbd5e1; border:1px solid rgba(148,163,184,0.35); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">🛡️ RTT</span>`;
+  }
   if (count >= 100 || nameLower.includes('super major') || nameLower.includes('lvo') || nameLower.includes('adepticon') || nameLower.includes('nova open')) {
     return `<span class="badge" style="background:rgba(234,179,8,0.18); color:#facc15; border:1px solid rgba(234,179,8,0.4); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">👑 SUPER MAJOR</span>`;
-  } else if (count >= 60 || nameLower.includes('major') || nameLower.includes(' open')) {
+  } else if (rounds >= 6 || count >= 60 || nameLower.includes('major') || nameLower.includes(' open')) {
     return `<span class="badge" style="background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.4); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">🏆 MAJOR</span>`;
-  } else if (count >= 28 || /\bgt\b/.test(nameLower) || nameLower.includes('grand tournament')) {
+  } else if (rounds > 3 || count >= 28 || /\bgt\b/.test(nameLower) || nameLower.includes('grand tournament')) {
     return `<span class="badge" style="background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">⚔️ GT</span>`;
   }
   return `<span class="badge" style="background:rgba(148,163,184,0.16); color:#cbd5e1; border:1px solid rgba(148,163,184,0.35); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">🛡️ RTT</span>`;
@@ -3744,7 +3748,7 @@ function renderQuickEventModal(ev, userRegData) {
 
   const badgesEl = document.getElementById('modal-event-badges');
   if (badgesEl) {
-    badgesEl.innerHTML = `${getEventTierBadgeHtml(kpi.totalPlayers, ev.name || ev.event_name || '')} ${sysBadge} ${statusBadge} ${formatBadge}`;
+    badgesEl.innerHTML = `${getEventTierBadgeHtml(kpi.totalPlayers, ev.name || ev.event_name || '', kpi.numRounds)} ${sysBadge} ${statusBadge} ${formatBadge}`;
   }
 
   // Personal Registration Status Banner
@@ -4289,7 +4293,7 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
           </div>
           <div class="profile-name-meta">
             <div class="profile-badges-row" style="margin-bottom: 0.35rem;">
-              ${getEventTierBadgeHtml(kpi.totalPlayers, eventName)}
+              ${getEventTierBadgeHtml(kpi.totalPlayers, eventName, kpi.numRounds)}
               ${sysBadge}
               ${statusBadge}
               ${formatBadge}

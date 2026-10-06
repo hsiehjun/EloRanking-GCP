@@ -140,6 +140,49 @@ class TestBcpEventRoundsResolution(unittest.TestCase):
         # 5. Stored num_rounds when no BCP metadata
         self.assertEqual(get_event_num_rounds({"num_rounds": 3, "total_players": 16}), 3)
 
+    def test_rtt_vs_gt_determined_strictly_by_rounds(self):
+        """Verify <= 3 rounds is always RTT (even with 32 players) and > 3 rounds is GT / Major / Super Major."""
+        from badges import extract_tournament_championships
+        from routers.community import classify_tournament_tier
+
+        tournaments = [
+            # 32-player 3-round event (3-0): must be RTT (+150 Glory), never GT
+            {"event_id": "ld_2024_apr", "event_name": "Laughing Dragon 2024 April RTT", "event_date": "2024-04-20", "placement": 1, "wins": 3, "losses": 0, "draws": 0, "registered_faction": "Blood Angels", "total_players": 32, "num_rounds": 3},
+            # Even if DB num_rounds was polluted to 5, a 3-0 undefeated run played 3 rounds -> must be RTT
+            {"event_id": "ld_apr_polluted", "event_name": "Laughing Dragon April RTT", "event_date": "2025-04-19", "placement": 1, "wins": 3, "losses": 0, "draws": 0, "registered_faction": "Aeldari", "total_players": 32, "num_rounds": 5},
+            # 5-round 28-player event (5-0): > 3 rounds -> GT (+500 Glory)
+            {"event_id": "gt_5r", "event_name": "Summer Showdown GT", "event_date": "2025-07-12", "placement": 1, "wins": 5, "losses": 0, "draws": 0, "registered_faction": "Necrons", "total_players": 28, "num_rounds": 5},
+            # 6-round 120-player event (6-0): > 3 rounds + large field -> Major (+1000 Glory)
+            {"event_id": "major_6r", "event_name": "Pacific Northwest Open", "event_date": "2025-09-10", "placement": 1, "wins": 6, "losses": 0, "draws": 0, "registered_faction": "Necrons", "total_players": 120, "num_rounds": 6},
+        ]
+
+        res = extract_tournament_championships(tournaments, [])
+        by_id = {c["event_id"]: c for c in res["items"]}
+
+        self.assertEqual(by_id["ld_2024_apr"]["tier"], "rtt")
+        self.assertEqual(by_id["ld_2024_apr"]["tier_title"], "Rogue Trader Tournament")
+        self.assertEqual(by_id["ld_2024_apr"]["glory_bonus"], 150)
+
+        self.assertEqual(by_id["ld_apr_polluted"]["tier"], "rtt")
+        self.assertEqual(by_id["ld_apr_polluted"]["tier_title"], "Rogue Trader Tournament")
+        self.assertEqual(by_id["ld_apr_polluted"]["glory_bonus"], 150)
+
+        self.assertEqual(by_id["gt_5r"]["tier"], "gt")
+        self.assertEqual(by_id["gt_5r"]["tier_title"], "Grand Tournament")
+        self.assertEqual(by_id["gt_5r"]["glory_bonus"], 500)
+
+        self.assertEqual(by_id["major_6r"]["tier"], "major")
+        self.assertEqual(by_id["major_6r"]["tier_title"], "Major Championship")
+        self.assertEqual(by_id["major_6r"]["glory_bonus"], 1250)
+
+        # Community tier classifier also strictly respects num_rounds <= 3 -> RTT
+        self.assertEqual(classify_tournament_tier("Laughing Dragon 2024 April RTT", 32, num_rounds=3)["tier"], "rtt")
+        self.assertEqual(classify_tournament_tier("Spring Brawl", 32, num_rounds=3)["tier"], "rtt")
+        self.assertEqual(classify_tournament_tier("Spring GT", 32, num_rounds=5)["tier"], "gt")
+        self.assertEqual(classify_tournament_tier("Regional Major", 80, num_rounds=6)["tier"], "major")
+        self.assertEqual(classify_tournament_tier("Super Major", 200, num_rounds=8)["tier"], "super_major")
+
 
 if __name__ == "__main__":
     unittest.main()
+

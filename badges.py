@@ -353,8 +353,9 @@ def extract_tournament_championships(
 ) -> Dict[str, Any]:
     """Extracts verified 1st place tournament victories from career BCP history.
     
-    Classifies events into RTT (3 rounds, >=8 players), GT (5+ rounds, >=28 players),
-    Major (100+ players or 6+ rounds), or Super Major (200+ players / Worlds),
+    Classifies events strictly by round count first:
+    - <= 3 rounds: Always RTT (Rogue Trader Tournament), regardless of player count.
+    - > 3 rounds: GT (Grand Tournament), or Major (100+ players / 6+ rounds) / Super Major (200+ players / Worlds),
     calculating Glory bounties, silverware models, and undefeated badges.
     """
     tournaments = tournaments or []
@@ -446,11 +447,38 @@ def extract_tournament_championships(
         seen_event_ids.add(dedup_key)
 
         ename_lower = ename.lower()
-        is_super = total_p >= 200 or "lvo" in ename_lower or "adepticon" in ename_lower or "world championship" in ename_lower or "super major" in ename_lower or "team championships" in ename_lower
-        is_major = not is_super and (total_p >= 100 or num_r >= 6 or "major" in ename_lower or "us open" in ename_lower)
-        is_gt = not is_super and not is_major and (num_r >= 5 or wins >= 5 or total_p >= 28 or " gt" in ename_lower or "grand tournament" in ename_lower)
-        is_rtt = not is_super and not is_major and not is_gt
+        # For an undefeated tournament champion, wins is the actual number of rounds won.
+        # If wins <= 3 (e.g. 3-0), the event had <= 3 rounds (an RTT), even if a default 5 was stored.
+        if wins > 0:
+            effective_rounds = wins if wins <= 3 else max(num_r, wins)
+        else:
+            effective_rounds = num_r
 
+        # Strict round-based gating:
+        # <= 3 rounds is ALWAYS an RTT (Rogue Trader Tournament), regardless of player count.
+        # > 3 rounds (4+ rounds) is a GT, or Major / Super Major when a GT has large attendance.
+        if effective_rounds <= 3:
+            is_rtt = True
+            is_gt = False
+            is_major = False
+            is_super = False
+        else:
+            is_super = (
+                total_p >= 200
+                or "lvo" in ename_lower
+                or "adepticon" in ename_lower
+                or "world championship" in ename_lower
+                or "super major" in ename_lower
+                or "team championships" in ename_lower
+            )
+            is_major = not is_super and (
+                total_p >= 100
+                or effective_rounds >= 6
+                or "major" in ename_lower
+                or "us open" in ename_lower
+            )
+            is_gt = not is_super and not is_major
+            is_rtt = False
 
         if is_super:
             tier = "super_major"
@@ -491,7 +519,7 @@ def extract_tournament_championships(
             "trophy_type": trophy_type,
             "icon": icon,
             "total_players": total_p,
-            "num_rounds": num_r,
+            "num_rounds": effective_rounds,
             "faction": faction,
             "record": record_str,
             "undefeated": undefeated,
