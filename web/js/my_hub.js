@@ -6094,12 +6094,9 @@ function openTrackerImportModal(defaultTab = 'ttb-sync') {
       </div>
 
       <!-- Tabs -->
-      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; padding:10px 16px; background:#090d16; border-bottom:1px solid rgba(255,255,255,0.07);">
+      <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; padding:10px 16px; background:#090d16; border-bottom:1px solid rgba(255,255,255,0.07);">
         <button type="button" id="imp-tab-btn-ttb-sync" onclick="switchTrackerImportTab('ttb-sync')" style="padding:8px 6px; border-radius:8px; font-size:0.74rem; font-weight:800; cursor:pointer; border:1px solid rgba(56,189,248,0.45); background:rgba(56,189,248,0.16); color:#38bdf8; text-align:center;">
           ☁️ TTB Cloud Sync
-        </button>
-        <button type="button" id="imp-tab-btn-ttb-code" onclick="switchTrackerImportTab('ttb-code')" style="padding:8px 6px; border-radius:8px; font-size:0.74rem; font-weight:800; cursor:pointer; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); color:#94a3b8; text-align:center;">
-          🔗 Observer Code
         </button>
         <button type="button" id="imp-tab-btn-parse" onclick="switchTrackerImportTab('parse')" style="padding:8px 6px; border-radius:8px; font-size:0.74rem; font-weight:800; cursor:pointer; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); color:#94a3b8; text-align:center;">
           📋 Paste / GW App
@@ -6111,7 +6108,7 @@ function openTrackerImportModal(defaultTab = 'ttb-sync') {
         <!-- Panel 1: TTB Cloud Sync -->
         <div id="imp-panel-ttb-sync" style="display:flex; flex-direction:column; gap:12px;">
           <div style="background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:10px 12px; font-size:0.76rem; color:#cbd5e1; line-height:1.45;">
-            <b style="color:#38bdf8;">☁️ Tabletop Battles Cloud Sync (Administratum API):</b> Authenticate via AWS Cognito SRP (<code>us-east-1_mn7BKd0lb</code>) to pull your synced 40k &amp; AoS games directly from <code>api.administratum.net/ttb/games/list</code>. Credentials are used one-time and never stored.
+            <b style="color:#38bdf8;">☁️ Tabletop Battles Cloud Sync:</b> Sign in with your Tabletop Battles / Goonhammer account to pull your synced 40k &amp; AoS games directly into your match history. Credentials are used one-time and never stored.
           </div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
             <div>
@@ -6123,48 +6120,17 @@ function openTrackerImportModal(defaultTab = 'ttb-sync') {
               <input id="imp-ttb-password" type="password" placeholder="••••••••" style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 11px; color:#fff; font-size:0.82rem; outline:none;" />
             </div>
           </div>
-          <div>
-            <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:4px;">Optional: Administratum Bearer / Identity Token (overrides Email/Password)</label>
-            <input id="imp-ttb-token" type="text" placeholder="eyJraWQiOi..." style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #1e293b; border-radius:8px; padding:7px 10px; color:#94a3b8; font-family:monospace; font-size:0.75rem; outline:none;" />
-          </div>
-          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-top:2px;">
-            <button type="button" id="btn-imp-demo-sync" onclick="fillTrackerImportDemo('ttb-sync')" style="background:rgba(168,85,247,0.14); border:1px solid rgba(168,85,247,0.35); color:#c084fc; font-size:0.73rem; font-weight:700; padding:7px 12px; border-radius:8px; cursor:pointer;">
-              🧪 Load Demo Cloud Account (40k + AoS)
-            </button>
+          <div style="display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px; margin-top:2px;">
             <button type="button" id="btn-imp-submit-sync" onclick="submitTrackerImport('ttb-sync')" style="background:#0284c7; border:none; color:#fff; font-size:0.82rem; font-weight:800; padding:9px 18px; border-radius:8px; cursor:pointer;">
               ☁️ Sync &amp; Import Games
             </button>
           </div>
         </div>
 
-        <!-- Panel 2: Observer / Game Link Code -->
-        <div id="imp-panel-ttb-code" style="display:none; flex-direction:column; gap:12px;">
-          <div style="background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:10px 12px; font-size:0.76rem; color:#cbd5e1; line-height:1.45;">
-            <b style="color:#38bdf8;">🔗 Tabletop Battles Observer / Game Link Code:</b> Enter a 6-character Observer Code or Game Link URL to fetch the full turn-by-turn scorecard via Tabletop Battles' Observer WebSocket (<code>wss://cpu46vdwg0.execute-api.us-east-1.amazonaws.com/default</code>).
-          </div>
-          <div>
-            <label style="display:block; font-size:0.72rem; font-weight:700; color:#94a3b8; margin-bottom:4px;">Observer Code or Game Link URL</label>
-            <input id="imp-ttb-code" type="text" placeholder="e.g. DEMO40K, DEMOAOS, or 6-char code" style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; color:#fff; font-family:monospace; font-size:0.88rem; text-transform:uppercase; outline:none;" />
-          </div>
-          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-            <div style="display:flex; gap:6px; flex-wrap:wrap;">
-              <button type="button" id="btn-imp-demo-code-40k" onclick="fillTrackerImportDemo('code-40k')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-size:0.72rem; font-weight:700; padding:6px 10px; border-radius:7px; cursor:pointer;">
-                🎲 Demo 40k (DEMO40K)
-              </button>
-              <button type="button" id="btn-imp-demo-code-aos" onclick="fillTrackerImportDemo('code-aos')" style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#fbbf24; font-size:0.72rem; font-weight:700; padding:6px 10px; border-radius:7px; cursor:pointer;">
-                ⚡ Demo AoS (DEMOAOS)
-              </button>
-            </div>
-            <button type="button" id="btn-imp-submit-code" onclick="submitTrackerImport('ttb-code')" style="background:#0284c7; border:none; color:#fff; font-size:0.82rem; font-weight:800; padding:9px 18px; border-radius:8px; cursor:pointer;">
-              🔗 Fetch &amp; Import Game
-            </button>
-          </div>
-        </div>
-
-        <!-- Panel 3: Paste Scorecard / GW War Journal / JSON -->
+        <!-- Panel 2: Paste Scorecard / GW War Journal / JSON -->
         <div id="imp-panel-parse" style="display:none; flex-direction:column; gap:12px;">
           <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.28); border-radius:10px; padding:10px 12px; font-size:0.76rem; color:#cbd5e1; line-height:1.45;">
-            <b style="color:#fbbf24;">📋 Universal Scorecard Parser (TTB &amp; Official GW 40k App):</b> Because Games Workshop's <i>Warhammer 40,000: The App</i> (Command Bunker / War Journal) stores battle logs locally on-device with no cloud API, you can paste a <b>GW War Journal text summary</b>, <b>Tabletop Battles Share Text</b>, or <b>TTB / ITCBA JSON export</b> below.
+            <b style="color:#fbbf24;">📋 Universal Scorecard Parser (TTB &amp; Official GW 40k App):</b> Paste a <b>Tabletop Battles Share Text</b>, <b>TTB / ITCBA JSON export</b>, or <b>GW 40k summary</b> below.
           </div>
           <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
             <span style="font-size:0.7rem; color:#94a3b8; font-weight:700;">Load Sample:</span>
@@ -6193,7 +6159,7 @@ function openTrackerImportModal(defaultTab = 'ttb-sync') {
   `;
 
   document.body.appendChild(overlay);
-  switchTrackerImportTab(defaultTab);
+  switchTrackerImportTab(defaultTab === 'ttb-code' ? 'ttb-sync' : defaultTab);
 }
 
 function closeTrackerImportModal() {
@@ -6202,12 +6168,13 @@ function closeTrackerImportModal() {
 }
 
 function switchTrackerImportTab(tabId) {
-  ['ttb-sync', 'ttb-code', 'parse'].forEach(t => {
+  const targetTab = (tabId === 'parse') ? 'parse' : 'ttb-sync';
+  ['ttb-sync', 'parse'].forEach(t => {
     const panel = document.getElementById(`imp-panel-${t}`);
     const btn = document.getElementById(`imp-tab-btn-${t}`);
-    if (panel) panel.style.display = (t === tabId) ? 'flex' : 'none';
+    if (panel) panel.style.display = (t === targetTab) ? 'flex' : 'none';
     if (btn) {
-      if (t === tabId) {
+      if (t === targetTab) {
         btn.style.background = 'rgba(56,189,248,0.16)';
         btn.style.borderColor = 'rgba(56,189,248,0.45)';
         btn.style.color = '#38bdf8';
