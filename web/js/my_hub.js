@@ -4606,76 +4606,104 @@ async function openNewRecruitCloudModal() {
   const connectedLogin = (hubNrCloudAccount && hubNrCloudAccount.login) || '';
 
   modal.innerHTML = `
-    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:100%; max-width:540px; box-shadow:0 25px 70px rgba(0,0,0,0.9); display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
-      <!-- Header -->
-      <div style="padding:16px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
-        <div style="display:flex; align-items:center; gap:10px;">
-          <span style="font-size:22px;">🔗</span>
-          <div>
-            <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">NewRecruit Cloud Sync</h3>
-            <div style="font-size:11.5px; color:#38bdf8; margin-top:2px;">Sync your rosters directly from your newrecruit.eu account or share link</div>
+    <div style="background:#0b1120; border:1px solid rgba(200,30,60,0.4); border-radius:18px; width:100%; max-width:480px; box-shadow:0 28px 80px rgba(0,0,0,0.92), 0 0 40px rgba(200,30,60,0.12); display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+      <!-- Authentic NewRecruit Branded Top Banner -->
+      <div style="padding:20px 22px 16px; background:linear-gradient(145deg, #162a45 0%, #0f1c2e 65%, #1f1224 100%); border-bottom:1px solid rgba(255,255,255,0.1); position:relative;">
+        <button onclick="closeNewRecruitCloudModal()" style="position:absolute; top:14px; right:14px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.14); color:#cbd5e1; width:30px; height:30px; border-radius:8px; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+
+        <!-- OAuth App Handshake Row -->
+        <div style="display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:12px;">
+          <div style="width:52px; height:52px; border-radius:14px; background:#1b3556; border:2px solid rgba(225,29,72,0.55); box-shadow:0 8px 20px rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; overflow:hidden;">
+            <img src="/assets/integrations/nr_icon.png" alt="NewRecruit" style="width:44px; height:44px; object-fit:contain;" />
+          </div>
+          <div style="display:flex; flex-direction:column; align-items:center; color:#94a3b8; font-size:11px; font-weight:800;">
+            <span style="color:#fb7185; font-size:15px; line-height:1;">⇄</span>
+            <span style="font-size:9px; letter-spacing:0.08em; text-transform:uppercase; color:#64748b; margin-top:2px;">SYNC</span>
+          </div>
+          <div style="width:48px; height:48px; border-radius:13px; background:#0f172a; border:1px solid rgba(56,189,248,0.4); box-shadow:0 8px 20px rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; overflow:hidden;">
+            <img src="/assets/logo-192.png" alt="OmniTactica" style="width:36px; height:36px; object-fit:contain;" />
           </div>
         </div>
-        <button onclick="closeNewRecruitCloudModal()" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;">✕</button>
+
+        <div style="text-align:center;">
+          <h3 style="font-size:1.12rem; font-weight:800; color:#fff; margin:0; letter-spacing:-0.01em;">Sign in with NewRecruit</h3>
+          <div style="font-size:0.76rem; color:#cbd5e1; margin-top:3px;">Authorize OmniTactica to sync your cloud army lists &amp; folders</div>
+          <div style="display:inline-flex; align-items:center; gap:5px; margin-top:9px; padding:3px 10px; border-radius:999px; background:rgba(2,6,23,0.65); border:1px solid rgba(16,185,129,0.35); font-family:monospace; font-size:0.69rem; color:#34d399;">
+            <span>🔒</span> <span>https://www.newrecruit.eu</span>
+          </div>
+        </div>
       </div>
 
-      <div style="padding:20px; display:flex; flex-direction:column; gap:16px; overflow-y:auto; max-height:80vh;">
+      <div style="padding:18px 22px 20px; display:flex; flex-direction:column; gap:15px; overflow-y:auto; max-height:78vh;">
         ${isConnected ? `
-          <div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.35); border-radius:10px; padding:12px 14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-            <div>
-              <div style="font-size:12.5px; font-weight:800; color:#10b981;">🟢 Connected as ${escapeHtml(connectedLogin)}</div>
-              <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Cloud rosters automatically sync with My Hub & NewRecruit Studio.</div>
+          <div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.35); border-radius:12px; padding:12px 14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <img src="/assets/integrations/nr_icon.png" alt="" style="width:30px; height:30px; border-radius:7px; background:#1b3556; padding:2px;" />
+              <div>
+                <div style="font-size:12.5px; font-weight:800; color:#10b981;">🟢 Linked as ${escapeHtml(connectedLogin)}</div>
+                <div style="font-size:11px; color:#94a3b8; margin-top:1px;">Cloud rosters automatically sync with My Hub &amp; Studio</div>
+              </div>
             </div>
-            <div style="display:flex; gap:8px;">
-              <button id="hub-btn-nr-cloud-resync" onclick="triggerNewRecruitCloudSync()" style="background:#10b981; color:#0f172a; border:none; font-weight:800; font-size:11.5px; padding:7px 13px; border-radius:7px; cursor:pointer;">
+            <div style="display:flex; gap:7px;">
+              <button id="hub-btn-nr-cloud-resync" onclick="triggerNewRecruitCloudSync()" style="background:#10b981; color:#052e16; border:none; font-weight:800; font-size:11.5px; padding:7px 12px; border-radius:8px; cursor:pointer;">
                 🔄 Sync Now
               </button>
-              <button onclick="disconnectNewRecruitCloud()" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); font-weight:700; font-size:11.5px; padding:7px 11px; border-radius:7px; cursor:pointer;">
-                Disconnect
+              <button onclick="disconnectNewRecruitCloud()" style="background:rgba(239,68,68,0.14); color:#f87171; border:1px solid rgba(239,68,68,0.3); font-weight:700; font-size:11.5px; padding:7px 10px; border-radius:8px; cursor:pointer;">
+                Unlink
               </button>
             </div>
           </div>
         ` : ''}
 
-        <!-- Section 1: Link NewRecruit Cloud Credentials -->
-        <div style="background:rgba(15,23,42,0.65); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:14px 16px;">
-          <div style="font-size:12.5px; font-weight:800; color:#e2e8f0; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
-            <span>☁️</span> ${isConnected ? 'Update Linked NewRecruit Account' : 'Link NewRecruit.eu Account'}
+        <!-- Authentic NewRecruit Sign-In Form Card -->
+        <div style="background:#111c2d; border:1px solid rgba(148,163,184,0.18); border-radius:14px; padding:16px; box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; gap:7px;">
+              <img src="/assets/integrations/nr_icon.png" alt="" style="width:18px; height:18px; object-fit:contain;" />
+              <span style="font-size:0.76rem; font-weight:800; color:#e2e8f0; text-transform:uppercase; letter-spacing:0.04em;">${isConnected ? 'Switch NewRecruit Account' : 'NewRecruit.eu Credentials'}</span>
+            </div>
+            <span style="font-size:0.66rem; color:#94a3b8; background:rgba(255,255,255,0.06); padding:2px 7px; border-radius:4px;">Direct Auth</span>
           </div>
-          <div style="display:flex; flex-direction:column; gap:10px;">
+
+          <div style="display:flex; flex-direction:column; gap:11px;">
             <div>
-              <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px;">NewRecruit Username or Email</label>
-              <input id="hub-nr-cloud-login" type="text" value="${escapeHtml(connectedLogin)}" placeholder="e.g. CommanderDante or email@example.com" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px; box-sizing:border-box; outline:none;" />
+              <label for="hub-nr-cloud-login" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">NewRecruit Login or Email</label>
+              <div style="position:relative; display:flex; align-items:center;">
+                <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">👤</span>
+                <input id="hub-nr-cloud-login" type="text" value="${escapeHtml(connectedLogin)}" placeholder="Username or email" autocomplete="username" style="width:100%; background:#080f1a; border:1px solid #2e4361; border-radius:9px; padding:10px 12px 10px 34px; color:#fff; font-size:0.84rem; box-sizing:border-box; outline:none;" />
+              </div>
             </div>
             <div>
-              <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px;">NewRecruit Password</label>
-              <input id="hub-nr-cloud-password" type="password" placeholder="Enter your NewRecruit password" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 12px; color:#fff; font-size:12.5px; box-sizing:border-box; outline:none;" />
+              <label for="hub-nr-cloud-password" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Password</label>
+              <div style="position:relative; display:flex; align-items:center;">
+                <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">🔑</span>
+                <input id="hub-nr-cloud-password" type="password" placeholder="Enter your NewRecruit password" autocomplete="current-password" style="width:100%; background:#080f1a; border:1px solid #2e4361; border-radius:9px; padding:10px 38px 10px 34px; color:#fff; font-size:0.84rem; box-sizing:border-box; outline:none;" onkeydown="if(event.key==='Enter')submitNewRecruitCloudConnect()" />
+                <button type="button" onclick="const p=document.getElementById('hub-nr-cloud-password'); if(p){p.type=p.type==='password'?'text':'password'; this.textContent=p.type==='password'?'👁️':'🙈';}" style="position:absolute; right:8px; background:none; border:none; color:#94a3b8; cursor:pointer; font-size:0.85rem; padding:4px;" title="Toggle password visibility">👁️</button>
+              </div>
             </div>
             <div id="hub-nr-cloud-status-msg" style="font-size:11.5px; display:none;"></div>
-            <button id="hub-btn-nr-cloud-submit" onclick="submitNewRecruitCloudConnect()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12.5px; border:none; padding:10px 16px; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px;">
-              🔗 Connect & Sync Cloud Lists
+            <button id="hub-btn-nr-cloud-submit" onclick="submitNewRecruitCloudConnect()" style="margin-top:2px; background:linear-gradient(135deg, #be123c 0%, #e11d48 100%); color:#fff; font-weight:800; font-size:0.84rem; border:1px solid rgba(251,113,133,0.4); padding:11px 16px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 6px 18px rgba(225,29,72,0.3);">
+              <img src="/assets/integrations/nr_icon.png" alt="" style="width:18px; height:18px; object-fit:contain;" />
+              <span>Sign In with NewRecruit &amp; Sync Lists</span>
             </button>
           </div>
         </div>
 
         <!-- Section 2: Quick Sync by NewRecruit Share Link / List ID -->
-        <div style="background:rgba(15,23,42,0.65); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:14px 16px;">
-          <div style="font-size:12.5px; font-weight:800; color:#e2e8f0; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
-            <span>⚡</span> Quick Sync via NewRecruit Share Link
+        <div style="background:rgba(15,23,42,0.65); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:12px 14px;">
+          <div style="font-size:12px; font-weight:800; color:#e2e8f0; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+            <span>⚡</span> Or Import via NewRecruit Share URL
           </div>
-          <div style="font-size:11px; color:#94a3b8; margin-bottom:8px;">
-            Have a NewRecruit share URL (<code>https://www.newrecruit.eu/app/list/...</code>)? Sync it straight into your Studio & Hub:
-          </div>
-          <div style="display:flex; gap:8px;">
-            <input id="hub-nr-share-url-input" type="text" placeholder="https://www.newrecruit.eu/app/list/..." style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 12px; color:#fff; font-size:12px; box-sizing:border-box; outline:none;" />
+          <div style="display:flex; gap:8px; margin-top:6px;">
+            <input id="hub-nr-share-url-input" type="text" placeholder="https://www.newrecruit.eu/app/list/..." style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 11px; color:#fff; font-size:12px; box-sizing:border-box; outline:none;" />
             <button id="hub-btn-nr-share-sync" onclick="handleNewRecruitShareUrlSync()" style="background:var(--accent); color:#0f172a; font-weight:800; font-size:12px; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; white-space:nowrap;">
               Sync Link
             </button>
           </div>
         </div>
 
-        <div style="display:flex; justify-content:space-between; align-items:center; padding-top:4px; border-top:1px solid rgba(255,255,255,0.06); font-size:11px; color:#64748b;">
-          <span>Want to build or import inside NewRecruit directly?</span>
+        <div style="display:flex; justify-content:space-between; align-items:center; padding-top:2px; font-size:11px; color:#64748b;">
+          <span>🛡️ Direct encrypted session with newrecruit.eu</span>
           <button onclick="closeNewRecruitCloudModal(); openNewRecruitStudioDrawer('/nr/app/Lists');" style="background:transparent; border:none; color:#38bdf8; font-size:11.5px; font-weight:700; cursor:pointer; text-decoration:underline;">
             Open NewRecruit Studio →
           </button>
@@ -6078,59 +6106,92 @@ function openTrackerImportModal(defaultTab = 'ttb-sync') {
   overlay.onclick = (e) => { if (e.target === overlay) closeTrackerImportModal(); };
 
   overlay.innerHTML = `
-    <div id="tracker-import-modal-card" style="background:#0f172a; border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:100%; max-width:680px; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 25px 70px rgba(0,0,0,0.85); overflow:hidden; color:#f8fafc;">
+    <div id="tracker-import-modal-card" style="background:#0b1120; border:1px solid rgba(58,193,139,0.4); border-radius:18px; width:100%; max-width:520px; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 28px 80px rgba(0,0,0,0.9), 0 0 40px rgba(58,193,139,0.1); overflow:hidden; color:#f8fafc;">
       <!-- Header -->
-      <div style="padding:16px 20px; background:linear-gradient(135deg, rgba(15,23,42,0.98), rgba(30,41,59,0.92)); border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
-        <div>
-          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <span style="font-size:1.15rem; font-weight:800; color:#fff;">📥 Import Completed Games</span>
-            <span style="font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:999px; background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.35); font-family:monospace;">PostgreSQL tracker_games</span>
-          </div>
-          <div style="font-size:0.78rem; color:#94a3b8; margin-top:4px; line-height:1.4;">
-            Migrate completed 40k &amp; Age of Sigmar scorecards from <b>Tabletop Battles</b> (Goonhammer) or <b>Warhammer 40,000: The App</b> into your permanent match history.
+      <div style="padding:16px 20px; background:linear-gradient(135deg, #0d1f1d 0%, #0f172a 100%); border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <img src="/assets/integrations/ttb_icon.png" alt="Tabletop Battles" style="width:34px; height:34px; border-radius:9px; box-shadow:0 4px 12px rgba(0,0,0,0.4);" />
+          <div>
+            <div style="font-size:1.05rem; font-weight:800; color:#fff; line-height:1.2;">Import Completed Games</div>
+            <div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">Sync your 40k &amp; Age of Sigmar match history</div>
           </div>
         </div>
-        <button type="button" onclick="closeTrackerImportModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:0.95rem; flex-shrink:0;">✕</button>
+        <button type="button" onclick="closeTrackerImportModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:0.9rem; flex-shrink:0;">✕</button>
       </div>
 
       <!-- Tabs -->
-      <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; padding:10px 16px; background:#090d16; border-bottom:1px solid rgba(255,255,255,0.07);">
-        <button type="button" id="imp-tab-btn-ttb-sync" onclick="switchTrackerImportTab('ttb-sync')" style="padding:8px 6px; border-radius:8px; font-size:0.74rem; font-weight:800; cursor:pointer; border:1px solid rgba(56,189,248,0.45); background:rgba(56,189,248,0.16); color:#38bdf8; text-align:center;">
-          ☁️ TTB Cloud Sync
+      <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; padding:9px 16px; background:#070b14; border-bottom:1px solid rgba(255,255,255,0.07);">
+        <button type="button" id="imp-tab-btn-ttb-sync" onclick="switchTrackerImportTab('ttb-sync')" style="padding:8px 8px; border-radius:8px; font-size:0.75rem; font-weight:800; cursor:pointer; border:1px solid rgba(58,193,139,0.5); background:rgba(58,193,139,0.16); color:#34d399; display:flex; align-items:center; justify-content:center; gap:6px;">
+          <img src="/assets/integrations/ttb_icon.png" alt="" style="width:16px; height:16px; border-radius:4px;" />
+          <span>Tabletop Battles Login</span>
         </button>
-        <button type="button" id="imp-tab-btn-parse" onclick="switchTrackerImportTab('parse')" style="padding:8px 6px; border-radius:8px; font-size:0.74rem; font-weight:800; cursor:pointer; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); color:#94a3b8; text-align:center;">
-          📋 Paste / GW App
+        <button type="button" id="imp-tab-btn-parse" onclick="switchTrackerImportTab('parse')" style="padding:8px 8px; border-radius:8px; font-size:0.75rem; font-weight:800; cursor:pointer; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); color:#94a3b8; display:flex; align-items:center; justify-content:center; gap:6px;">
+          <span>📋</span>
+          <span>Paste / Export Text</span>
         </button>
       </div>
 
       <!-- Body -->
-      <div style="padding:18px 20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:14px;">
-        <!-- Panel 1: TTB Cloud Sync -->
-        <div id="imp-panel-ttb-sync" style="display:flex; flex-direction:column; gap:12px;">
-          <div style="background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:10px 12px; font-size:0.76rem; color:#cbd5e1; line-height:1.45;">
-            <b style="color:#38bdf8;">☁️ Tabletop Battles Cloud Sync:</b> Sign in with your Tabletop Battles / Goonhammer account to pull your synced 40k &amp; AoS games directly into your match history. Credentials are used one-time and never stored.
-          </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-            <div>
-              <label style="display:block; font-size:0.72rem; font-weight:700; color:#94a3b8; margin-bottom:4px;">TTB / Goonhammer Email</label>
-              <input id="imp-ttb-email" type="email" placeholder="you@example.com" style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 11px; color:#fff; font-size:0.82rem; outline:none;" />
+      <div style="padding:18px 20px 20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:14px;">
+        <!-- Panel 1: Authentic Tabletop Battles / Goonhammer Administratum Sign-In Card -->
+        <div id="imp-panel-ttb-sync" style="display:flex; flex-direction:column; gap:14px;">
+          <div style="background:linear-gradient(160deg, #132226 0%, #0f172a 60%, #111827 100%); border:1px solid rgba(58,193,139,0.32); border-radius:14px; padding:18px; box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);">
+            <!-- App Handshake Logos -->
+            <div style="display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:12px;">
+              <div style="position:relative; width:52px; height:52px; border-radius:14px; background:#3ac18b; border:2px solid rgba(255,255,255,0.2); box-shadow:0 8px 20px rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center;">
+                <img src="/assets/integrations/ttb_icon.png" alt="Tabletop Battles" style="width:48px; height:48px; border-radius:12px; object-fit:cover;" />
+                <img src="/assets/integrations/gh_logo.png" alt="Goonhammer" title="Powered by Goonhammer" style="position:absolute; bottom:-5px; right:-5px; width:22px; height:22px; border-radius:50%; border:2px solid #0f172a; object-fit:cover;" />
+              </div>
+              <div style="display:flex; flex-direction:column; align-items:center;">
+                <span style="color:#34d399; font-size:15px; font-weight:800; line-height:1;">⇄</span>
+                <span style="font-size:9px; letter-spacing:0.08em; text-transform:uppercase; color:#64748b; font-weight:800; margin-top:2px;">SYNC</span>
+              </div>
+              <div style="width:48px; height:48px; border-radius:13px; background:#0f172a; border:1px solid rgba(56,189,248,0.4); box-shadow:0 8px 20px rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; overflow:hidden;">
+                <img src="/assets/logo-192.png" alt="OmniTactica" style="width:36px; height:36px; object-fit:contain;" />
+              </div>
             </div>
-            <div>
-              <label style="display:block; font-size:0.72rem; font-weight:700; color:#94a3b8; margin-bottom:4px;">Password</label>
-              <input id="imp-ttb-password" type="password" placeholder="••••••••" style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 11px; color:#fff; font-size:0.82rem; outline:none;" />
+
+            <div style="text-align:center; margin-bottom:14px;">
+              <div style="font-size:1.05rem; font-weight:800; color:#fff; letter-spacing:-0.01em;">Sign in to Tabletop Battles</div>
+              <div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">Use your Goonhammer / Administratum account to import completed games</div>
+              <div style="display:inline-flex; align-items:center; gap:5px; margin-top:8px; padding:3px 10px; border-radius:999px; background:rgba(2,6,23,0.7); border:1px solid rgba(58,193,139,0.35); font-family:monospace; font-size:0.68rem; color:#34d399;">
+                <span>🔒</span> <span>https://administratum.tabletopbattles.com</span>
+              </div>
             </div>
-          </div>
-          <div style="display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px; margin-top:2px;">
-            <button type="button" id="btn-imp-submit-sync" onclick="submitTrackerImport('ttb-sync')" style="background:#0284c7; border:none; color:#fff; font-size:0.82rem; font-weight:800; padding:9px 18px; border-radius:8px; cursor:pointer;">
-              ☁️ Sync &amp; Import Games
-            </button>
+
+            <div style="display:flex; flex-direction:column; gap:11px;">
+              <div>
+                <label for="imp-ttb-email" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Email Address</label>
+                <div style="position:relative; display:flex; align-items:center;">
+                  <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">✉️</span>
+                  <input id="imp-ttb-email" type="email" placeholder="name@example.com" autocomplete="username" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(58,193,139,0.35); border-radius:9px; padding:10px 12px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" />
+                </div>
+              </div>
+              <div>
+                <label for="imp-ttb-password" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Password</label>
+                <div style="position:relative; display:flex; align-items:center;">
+                  <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">🔑</span>
+                  <input id="imp-ttb-password" type="password" placeholder="Enter your Tabletop Battles password" autocomplete="current-password" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(58,193,139,0.35); border-radius:9px; padding:10px 38px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" onkeydown="if(event.key==='Enter')submitTrackerImport('ttb-sync')" />
+                  <button type="button" onclick="const p=document.getElementById('imp-ttb-password'); if(p){p.type=p.type==='password'?'text':'password'; this.textContent=p.type==='password'?'👁️':'🙈';}" style="position:absolute; right:8px; background:none; border:none; color:#94a3b8; cursor:pointer; font-size:0.85rem; padding:4px;" title="Show/Hide Password">👁️</button>
+                </div>
+              </div>
+
+              <button type="button" id="btn-imp-submit-sync" onclick="submitTrackerImport('ttb-sync')" style="margin-top:4px; width:100%; background:linear-gradient(135deg, #2eb87e 0%, #1f9d68 100%); border:1px solid rgba(110,231,183,0.4); color:#042f1e; font-size:0.86rem; font-weight:800; padding:11px 18px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 6px 18px rgba(46,184,126,0.28);">
+                <img src="/assets/integrations/ttb_icon.png" alt="" style="width:20px; height:20px; border-radius:5px;" />
+                <span style="color:#fff; text-shadow:0 1px 2px rgba(0,0,0,0.35);">Sign In with Tabletop Battles &amp; Sync</span>
+              </button>
+            </div>
+
+            <div style="font-size:0.7rem; color:#64748b; text-align:center; margin-top:11px; line-height:1.4;">
+              🛡️ Authenticates directly via Goonhammer Administratum SRP. Your credentials are used one-time and never stored.
+            </div>
           </div>
         </div>
 
-        <!-- Panel 2: Paste Scorecard / GW War Journal / JSON -->
+        <!-- Panel 2: Paste Scorecard / JSON -->
         <div id="imp-panel-parse" style="display:none; flex-direction:column; gap:12px;">
           <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.28); border-radius:10px; padding:10px 12px; font-size:0.76rem; color:#cbd5e1; line-height:1.45;">
-            <b style="color:#fbbf24;">📋 Universal Scorecard Parser (TTB &amp; Official GW 40k App):</b> Paste a <b>Tabletop Battles Share Text</b>, <b>TTB / ITCBA JSON export</b>, or <b>GW 40k summary</b> below.
+            <b style="color:#fbbf24;">📋 Universal Scorecard Parser:</b> Paste a <b>Tabletop Battles Share Text</b> or <b>JSON export</b> below.
           </div>
           <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
             <span style="font-size:0.7rem; color:#94a3b8; font-weight:700;">Load Sample:</span>
@@ -6140,11 +6201,8 @@ function openTrackerImportModal(defaultTab = 'ttb-sync') {
             <button type="button" id="btn-imp-sample-ttbaos" onclick="fillTrackerImportDemo('sample-ttb-aos')" style="background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.3); color:#c084fc; font-size:0.7rem; font-weight:700; padding:4px 9px; border-radius:6px; cursor:pointer;">
               ⚡ TTB AoS 4.0 JSON
             </button>
-            <button type="button" id="btn-imp-sample-gw40k" onclick="fillTrackerImportDemo('sample-gw-40k')" style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#fbbf24; font-size:0.7rem; font-weight:700; padding:4px 9px; border-radius:6px; cursor:pointer;">
-              🦅 GW 40k War Journal Text
-            </button>
           </div>
-          <textarea id="imp-parse-text" rows="7" placeholder="Paste Tabletop Battles JSON, Tabletop Battles Share Text, or Warhammer 40,000: The App War Journal summary here..." style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:10px; padding:10px 12px; color:#f8fafc; font-family:monospace; font-size:0.76rem; line-height:1.4; outline:none; resize:vertical;"></textarea>
+          <textarea id="imp-parse-text" rows="7" placeholder="Paste Tabletop Battles JSON or Share Text summary here..." style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:10px; padding:10px 12px; color:#f8fafc; font-family:monospace; font-size:0.76rem; line-height:1.4; outline:none; resize:vertical;"></textarea>
           <div style="display:flex; justify-content:flex-end;">
             <button type="button" id="btn-imp-submit-parse" onclick="submitTrackerImport('parse')" style="background:#059669; border:none; color:#fff; font-size:0.82rem; font-weight:800; padding:9px 18px; border-radius:8px; cursor:pointer;">
               📥 Parse &amp; Import Scorecard
@@ -6175,9 +6233,9 @@ function switchTrackerImportTab(tabId) {
     if (panel) panel.style.display = (t === targetTab) ? 'flex' : 'none';
     if (btn) {
       if (t === targetTab) {
-        btn.style.background = 'rgba(56,189,248,0.16)';
-        btn.style.borderColor = 'rgba(56,189,248,0.45)';
-        btn.style.color = '#38bdf8';
+        btn.style.background = 'rgba(58,193,139,0.16)';
+        btn.style.borderColor = 'rgba(58,193,139,0.5)';
+        btn.style.color = '#34d399';
       } else {
         btn.style.background = 'rgba(255,255,255,0.03)';
         btn.style.borderColor = 'rgba(255,255,255,0.1)';
