@@ -540,6 +540,9 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       computeEventPlayerEloStats(eventPlayersCache, eventMatchesCache);
     }
     invalidateEventSearchIndex();
+    if (typeof loadEventLivestreams === 'function') {
+      await loadEventLivestreams(eventId);
+    }
 
     const eventRounds = getEventNumRounds(ev, eventMatchesCache);
     const roundsPart = eventRounds > 0 ? ` • 🔄 ${eventRounds} Rounds` : '';
@@ -2076,16 +2079,23 @@ function renderEventPairingsRows() {
   const streamAlertWrap = document.getElementById('event-matches-stream-alert');
   if (streamAlertWrap) {
     if (typeof eventLiveStreams !== 'undefined' && eventLiveStreams.length > 0) {
+      const targetStreamTable = (eventLiveStreams[creatorActiveStreamIndex]?.tableNumber !== undefined)
+        ? eventLiveStreams[creatorActiveStreamIndex].tableNumber
+        : (selectedCasterTable !== undefined && selectedCasterTable !== null ? selectedCasterTable : (eventLiveStreams[0]?.tableNumber ?? 1));
       streamAlertWrap.style.display = 'flex';
       streamAlertWrap.innerHTML = `
         <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
           <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 8px #ef4444;"></span>
           <span style="font-size: 0.82rem; font-weight: 700; color: #fff;">🔴 Live Table Coverage:</span>
           <span style="font-size: 0.78rem; color: #fca5a5;">
-            ${eventLiveStreams.map(s => `<strong>Table ${s.tableNumber}</strong> (${escapeHtml(s.channel)})`).join(' • ')}
+            ${eventLiveStreams.map(s => {
+              const tLbl = Number(s.tableNumber) === 0 ? 'Main Desk' : `Table ${s.tableNumber}`;
+              const rLbl = s.roundNumber ? ` (R${s.roundNumber})` : '';
+              return `<strong>${tLbl}${rLbl}</strong> (${escapeHtml(s.channel)})`;
+            }).join(' • ')}
           </span>
         </div>
-        <button type="button" class="btn btn-primary" onclick="openEventStreamModal(${eventLiveStreams[0]?.tableNumber || 1})" style="font-size: 0.74rem; font-weight: 700; padding: 4px 10px; background: #ef4444; border-color: #dc2626; color: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
+        <button type="button" class="btn btn-primary" onclick="openEventStreamModal(${targetStreamTable})" style="font-size: 0.74rem; font-weight: 700; padding: 4px 10px; background: #ef4444; border-color: #dc2626; color: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
           📺 Watch Broadcast Theater (${eventLiveStreams.length})
         </button>
       `;
@@ -2218,7 +2228,10 @@ function renderEventPairingsRows() {
   }
 
   const safeEventId = String(eventId).replace(/'/g, "\\'");
-  const rowContextKey = `${safeEventId}:${isStaff ? 1 : 0}:${u ? (u.id || u.email || '') : ''}:${typeof eventLiveStreams !== 'undefined' && Array.isArray(eventLiveStreams) ? eventLiveStreams.length : 0}`;
+  const streamsSig = (typeof eventLiveStreams !== 'undefined' && Array.isArray(eventLiveStreams))
+    ? eventLiveStreams.map(s => `${s.tableNumber}:${s.roundNumber || ''}`).join(',')
+    : '';
+  const rowContextKey = `${safeEventId}:${isStaff ? 1 : 0}:${u ? (u.id || u.email || '') : ''}:${streamsSig}`;
   const rowsHtml = [];
 
   for (let i = 0; i < matchesToRender.length; i++) {
@@ -5521,6 +5534,9 @@ let creatorHubActiveMode = 'caster'; // 'caster' | 'stream' | 'storylines' | 'me
 let selectedCasterRound = null;
 let selectedCasterTable = 1;
 let creatorActiveStreamIndex = 0;
+let streamHudOverlayEnabled = true;
+let streamLiveTrackerScoreCache = {};
+let _syncStreamBackendTimer = null;
 
 function normalizeStreamRecord(s) {
   if (!s) return s;
@@ -5528,6 +5544,10 @@ function normalizeStreamRecord(s) {
     ? s.table_number
     : ((s.tableNumber !== undefined && s.tableNumber !== null) ? s.tableNumber : 1);
   const tNum = Number(rawTable);
+  const rawRound = (s.round_number !== undefined && s.round_number !== null)
+    ? s.round_number
+    : ((s.roundNumber !== undefined && s.roundNumber !== null) ? s.roundNumber : null);
+  const rNum = rawRound !== null && !isNaN(Number(rawRound)) && Number(rawRound) > 0 ? Number(rawRound) : null;
   const defaultTitle = tNum === 0
     ? `${s.channel || 'Live'} - Main Desk Coverage`
     : `${s.channel || 'Live'} - Table ${tNum} Coverage`;
@@ -5536,6 +5556,8 @@ function normalizeStreamRecord(s) {
     id: s.id || `stream-${Date.now()}`,
     tableNumber: tNum,
     table_number: tNum,
+    roundNumber: rNum,
+    round_number: rNum,
     streamUrl: s.stream_url || s.streamUrl || '',
     stream_url: s.stream_url || s.streamUrl || '',
     embedUrl: s.embed_url || s.embedUrl || '',
@@ -5562,6 +5584,16 @@ async function loadEventLivestreams(eventId) {
       if (Array.isArray(rawStreams)) {
         eventLiveStreams = rawStreams.map(normalizeStreamRecord);
         window.eventLiveStreams = eventLiveStreams;
+        const primary = eventLiveStreams[creatorActiveStreamIndex] || eventLiveStreams[0];
+        if (primary) {
+          if (primary.tableNumber !== undefined && primary.tableNumber !== null) {
+            selectedCasterTable = Number(primary.tableNumber);
+            currentModalStreamTable = selectedCasterTable;
+          }
+          if (primary.roundNumber && !selectedCasterRound) {
+            selectedCasterRound = Number(primary.roundNumber);
+          }
+        }
         return eventLiveStreams;
       }
     }
@@ -5573,13 +5605,171 @@ async function loadEventLivestreams(eventId) {
 }
 window.loadEventLivestreams = loadEventLivestreams;
 
+function syncActiveStreamToCasterDesk(tableNum, roundNum, persistBackend = true) {
+  if (tableNum !== undefined && tableNum !== null && !isNaN(Number(tableNum))) {
+    selectedCasterTable = Number(tableNum);
+    currentModalStreamTable = selectedCasterTable;
+  }
+  if (roundNum !== undefined && roundNum !== null && !isNaN(Number(roundNum)) && Number(roundNum) > 0) {
+    selectedCasterRound = Number(roundNum);
+  }
+
+  if (Array.isArray(eventLiveStreams) && eventLiveStreams.length > 0) {
+    const idx = (creatorActiveStreamIndex >= 0 && creatorActiveStreamIndex < eventLiveStreams.length) ? creatorActiveStreamIndex : 0;
+    const activeStream = eventLiveStreams[idx];
+    if (activeStream) {
+      activeStream.tableNumber = selectedCasterTable;
+      activeStream.table_number = selectedCasterTable;
+      if (selectedCasterRound) {
+        activeStream.roundNumber = selectedCasterRound;
+        activeStream.round_number = selectedCasterRound;
+      }
+      const ch = activeStream.channel || 'Live';
+      if (!activeStream.title || /Table\s+\d+\s+Coverage|Main\s+Desk/i.test(activeStream.title)) {
+        activeStream.title = selectedCasterTable === 0
+          ? `${ch} - Main Desk Coverage`
+          : `${ch} - Table ${selectedCasterTable} Coverage`;
+      }
+
+      if (persistBackend && window.api && typeof window.api.saveEventLivestream === 'function') {
+        const evId = currentOpenEventId || currentEventData?.id || '';
+        if (evId && activeStream.streamUrl) {
+          if (_syncStreamBackendTimer) clearTimeout(_syncStreamBackendTimer);
+          _syncStreamBackendTimer = setTimeout(() => {
+            window.api.saveEventLivestream(evId, {
+              id: activeStream.id,
+              channel: activeStream.channel,
+              stream_url: activeStream.streamUrl,
+              table_number: activeStream.tableNumber,
+              round_number: activeStream.roundNumber || selectedCasterRound || null,
+              platform: activeStream.platform || 'youtube',
+              title: activeStream.title,
+              is_live: activeStream.isLive !== false
+            }).catch(err => console.debug('Stream table sync notice:', err));
+          }, 250);
+        }
+      }
+    }
+  }
+
+  // Keep Pairings tab live coverage banner and table badges in sync
+  if (typeof renderEventPairingsRows === 'function' && document.getElementById('event-matches-tbody')) {
+    renderEventPairingsRows();
+  }
+}
+window.syncActiveStreamToCasterDesk = syncActiveStreamToCasterDesk;
+
 let currentModalStreamTable = 1;
+
+function buildInAppStreamHudHtml(overlayData) {
+  if (!overlayData) return '';
+  const { tableNum, tableBadge, roundNum, p1Name, p2Name, p1Fac, p2Fac, p1Elo, p2Elo, scoreStr, isLiveProgress } = overlayData;
+  const p1Prob = Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, ((p2Elo || 1500) - (p1Elo || 1500)) / 400)))));
+  const p2Prob = 100 - p1Prob;
+
+  return `
+    <div style="display: flex; align-items: stretch; justify-content: space-between; background: linear-gradient(90deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 41, 59, 0.96) 50%, rgba(15, 23, 42, 0.96) 100%); border: 1px solid rgba(56, 189, 248, 0.45); border-radius: 8px; overflow: hidden; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px);">
+      <!-- Player 1 Wing (Cyan) -->
+      <div style="flex: 1; min-width: 0; padding: 0.45rem 0.75rem; border-left: 4px solid #38bdf8; display: flex; flex-direction: column; justify-content: center;">
+        <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 0;">
+          <span style="font-weight: 800; color: #fff; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p1Name)}</span>
+          <span style="font-size: 0.66rem; font-weight: 800; padding: 1px 5px; border-radius: 4px; background: rgba(56, 189, 248, 0.18); color: #38bdf8; font-family: var(--font-mono); flex-shrink: 0;">${Number(p1Elo || 1500).toFixed(0)} (${p1Prob}%)</span>
+        </div>
+        <div style="font-size: 0.7rem; color: #7dd3fc; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          🛡️ ${escapeHtml(p1Fac)}
+        </div>
+      </div>
+
+      <!-- Center Scoreboard Box -->
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(2, 6, 23, 0.92); border-left: 1px solid rgba(255,255,255,0.1); border-right: 1px solid rgba(255,255,255,0.1); padding: 0.35rem 0.85rem; min-width: 135px; flex-shrink: 0;">
+        <div style="font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #f59e0b; display: flex; align-items: center; gap: 4px;">
+          <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 6px #ef4444;"></span>
+          <span>${escapeHtml(tableBadge)} • R${roundNum}</span>
+        </div>
+        <div style="font-family: var(--font-mono); font-weight: 900; font-size: 1.15rem; color: #fff; line-height: 1.15; margin-top: 1px;">
+          ${escapeHtml(scoreStr)}
+        </div>
+      </div>
+
+      <!-- Player 2 Wing (Rose) -->
+      <div style="flex: 1; min-width: 0; padding: 0.45rem 0.75rem; border-right: 4px solid #f43f5e; display: flex; flex-direction: column; justify-content: center; text-align: right;">
+        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 0.4rem; min-width: 0;">
+          <span style="font-size: 0.66rem; font-weight: 800; padding: 1px 5px; border-radius: 4px; background: rgba(244, 63, 94, 0.18); color: #fda4af; font-family: var(--font-mono); flex-shrink: 0;">(${p2Prob}%) ${Number(p2Elo || 1500).toFixed(0)}</span>
+          <span style="font-weight: 800; color: #fff; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p2Name)}</span>
+        </div>
+        <div style="font-size: 0.7rem; color: #fda4af; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          ${escapeHtml(p2Fac)} 🛡️
+        </div>
+      </div>
+    </div>
+  `;
+}
+window.buildInAppStreamHudHtml = buildInAppStreamHudHtml;
+
+function toggleStreamHudOverlay() {
+  streamHudOverlayEnabled = !streamHudOverlayEnabled;
+  const modalHud = document.getElementById('modal-stream-hud-overlay');
+  const monitorHud = document.getElementById('live-monitor-hud-overlay');
+  const modalBtn = document.getElementById('modal-stream-hud-toggle-btn');
+  const monitorBtn = document.getElementById('monitor-stream-hud-toggle-btn');
+
+  if (modalHud) modalHud.style.display = streamHudOverlayEnabled ? 'block' : 'none';
+  if (monitorHud) monitorHud.style.display = streamHudOverlayEnabled ? 'block' : 'none';
+
+  const applyBtnState = (btn) => {
+    if (!btn) return;
+    btn.innerHTML = streamHudOverlayEnabled ? '📺 Score HUD: ON' : '📺 Score HUD: OFF';
+    btn.style.background = streamHudOverlayEnabled ? 'rgba(56, 189, 248, 0.14)' : 'rgba(255, 255, 255, 0.05)';
+    btn.style.color = streamHudOverlayEnabled ? '#38bdf8' : 'var(--text-muted)';
+    btn.style.borderColor = streamHudOverlayEnabled ? 'rgba(56, 189, 248, 0.45)' : 'rgba(255, 255, 255, 0.15)';
+  };
+  applyBtnState(modalBtn);
+  applyBtnState(monitorBtn);
+}
+window.toggleStreamHudOverlay = toggleStreamHudOverlay;
+
+function hydrateStreamTrackerScoreAsync(eventId, overlayData) {
+  if (!eventId || !overlayData || !overlayData.tableNum || overlayData.tableNum <= 0) return;
+  const matchId = `BCP-${eventId}-R${overlayData.roundNum}-T${overlayData.tableNum}`;
+  if (streamLiveTrackerScoreCache[matchId] !== undefined) return;
+  streamLiveTrackerScoreCache[matchId] = null; // mark in-flight
+
+  fetch(`/api/scorecard/${encodeURIComponent(matchId)}`)
+    .then(r => r.ok ? r.json() : null)
+    .then(scData => {
+      const sc = scData && (scData.scorecard || scData);
+      if (sc && (sc.player1_score !== undefined || sc.p1_total !== undefined)) {
+        const s1 = sc.player1_score ?? sc.p1_total ?? 0;
+        const s2 = sc.player2_score ?? sc.p2_total ?? 0;
+        streamLiveTrackerScoreCache[matchId] = `${s1} - ${s2}`;
+        // Refresh HUDs if still viewing this table
+        const ev = currentEventData || {};
+        const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (ev.players || []);
+        const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (ev.matches || []);
+        const updatedOverlay = resolveStreamTableMatchData(ev, players, matches, overlayData.tableNum, overlayData.roundNum);
+        const modalHud = document.getElementById('modal-stream-hud-overlay');
+        if (modalHud) modalHud.innerHTML = buildInAppStreamHudHtml(updatedOverlay);
+        const monitorHud = document.getElementById('live-monitor-hud-overlay');
+        if (monitorHud) monitorHud.innerHTML = buildInAppStreamHudHtml(updatedOverlay);
+        const previewContainer = document.getElementById('obs-overlay-preview-container');
+        if (previewContainer) previewContainer.innerHTML = buildObsOverlayPreviewStripHtml(updatedOverlay);
+      }
+    })
+    .catch(() => {});
+}
 
 function openEventStreamModal(tableNum) {
   const modal = document.getElementById('event-stream-modal');
   if (!modal) return;
 
-  currentModalStreamTable = Number(tableNum) || (eventLiveStreams[0]?.tableNumber || 1);
+  if (tableNum !== undefined && tableNum !== null && !isNaN(Number(tableNum))) {
+    currentModalStreamTable = Number(tableNum);
+  } else if (selectedCasterTable !== undefined && selectedCasterTable !== null && !isNaN(Number(selectedCasterTable))) {
+    currentModalStreamTable = Number(selectedCasterTable);
+  } else {
+    const activeStream = eventLiveStreams[creatorActiveStreamIndex] || eventLiveStreams[0];
+    currentModalStreamTable = activeStream?.tableNumber !== undefined ? Number(activeStream.tableNumber) : 1;
+  }
 
   if (typeof bringModalToFront === 'function') {
     bringModalToFront(modal);
@@ -5610,7 +5800,11 @@ window.closeEventStreamModal = closeEventStreamModal;
 
 function onModalStreamTableChange(tableNum) {
   currentModalStreamTable = Number(tableNum);
+  syncActiveStreamToCasterDesk(currentModalStreamTable, selectedCasterRound, true);
   updateEventStreamModalContent();
+  if (currentEventData && creatorHubActiveMode === 'stream') {
+    renderEventCreatorHub(currentEventData);
+  }
 }
 window.onModalStreamTableChange = onModalStreamTableChange;
 
@@ -5621,39 +5815,75 @@ function updateEventStreamModalContent() {
   const subtitleEl = document.getElementById('modal-stream-subtitle');
   const extLink = document.getElementById('modal-stream-external-link');
   const matchupContainer = document.getElementById('modal-stream-matchup-container');
+  const modalHud = document.getElementById('modal-stream-hud-overlay');
+
+  const ev = currentEventData || {};
+  const matches = (eventMatchesCache && eventMatchesCache.length > 0) ? eventMatchesCache : (ev.matches || []);
+  const players = (eventPlayersCache && eventPlayersCache.length > 0) ? eventPlayersCache : (ev.players || []);
 
   if (!eventLiveStreams || eventLiveStreams.length === 0) {
     if (matchupContainer) {
       matchupContainer.innerHTML = '<div style="color:var(--text-muted); padding:1rem; text-align:center;">No active broadcasts linked for this event.</div>';
     }
+    if (modalHud) modalHud.innerHTML = '';
     return;
   }
 
-  // Populate select options
+  // Find active stream (either matching currentModalStreamTable or the active broadcaster stream)
+  const activeStream = eventLiveStreams.find(s => Number(s.tableNumber) === Number(currentModalStreamTable))
+    || eventLiveStreams[creatorActiveStreamIndex]
+    || eventLiveStreams[0];
+
+  const tableNum = (currentModalStreamTable !== undefined && currentModalStreamTable !== null && !isNaN(Number(currentModalStreamTable)))
+    ? Number(currentModalStreamTable)
+    : (activeStream?.tableNumber !== undefined ? Number(activeStream.tableNumber) : 1);
+
+  const preferredRound = selectedCasterRound || activeStream?.roundNumber || ev.current_round || 1;
+  const overlayData = resolveStreamTableMatchData(ev, players, matches, tableNum, preferredRound);
+  const curRound = overlayData.roundNum;
+
+  // Build table switcher options: include all configured streams + tables from current/selected round
   if (select) {
-    select.innerHTML = eventLiveStreams.map(s => {
-      const isMainDesk = Number(s.tableNumber) === 0;
-      const label = isMainDesk ? 'Main Desk / All Tables' : `Table ${s.tableNumber}`;
-      return `
-        <option value="${s.tableNumber}" ${Number(s.tableNumber) === Number(currentModalStreamTable) ? 'selected' : ''}>
-          ${label}: ${escapeHtml(s.channel)} (${s.platform === 'twitch' ? 'Twitch' : 'YouTube'})
-        </option>
-      `;
-    }).join('');
+    const optionTables = new Map();
+    eventLiveStreams.forEach(s => {
+      const t = Number(s.tableNumber);
+      const isMain = t === 0;
+      const lbl = isMain ? 'Main Desk / All Tables' : `Table ${t}`;
+      optionTables.set(t, `${lbl}: ${s.channel} (${s.platform === 'twitch' ? 'Twitch' : 'YouTube'})`);
+    });
+    if (!optionTables.has(tableNum)) {
+      const isMain = tableNum === 0;
+      const lbl = isMain ? 'Main Desk / All Tables' : `Table ${tableNum} (Caster Desk)`;
+      optionTables.set(tableNum, `${lbl}: ${activeStream?.channel || 'Live'}`);
+    }
+    // Also add active round tables so viewers/casters can switch to any table
+    const roundMatchesForSelect = matches.filter(m => Number(m.round) === Number(curRound));
+    roundMatchesForSelect.slice(0, 25).forEach(m => {
+      const t = Number(m.table_number || m.table);
+      if (t && !optionTables.has(t)) {
+        const p1Short = (m.player1_name || 'P1').split(' ')[0];
+        const p2Short = (m.player2_name || 'P2').split(' ')[0];
+        optionTables.set(t, `Table ${t}: ${p1Short} vs ${p2Short} (R${curRound})`);
+      }
+    });
+
+    select.innerHTML = Array.from(optionTables.entries()).map(([tVal, labelText]) => `
+      <option value="${tVal}" ${Number(tVal) === Number(tableNum) ? 'selected' : ''}>
+        ${escapeHtml(labelText)}
+      </option>
+    `).join('');
   }
 
-  // Find active stream for current table
-  const activeStream = eventLiveStreams.find(s => Number(s.tableNumber) === Number(currentModalStreamTable)) || eventLiveStreams[0];
-  const tableNum = activeStream?.tableNumber !== undefined ? activeStream.tableNumber : (currentModalStreamTable !== undefined ? currentModalStreamTable : 1);
-
   if (iframe && activeStream) {
-    iframe.src = activeStream.embedUrl;
+    if (iframe.getAttribute('src') !== activeStream.embedUrl) {
+      iframe.src = activeStream.embedUrl;
+    }
   }
 
   if (titleEl && activeStream) {
     const isMainDesk = Number(tableNum) === 0;
     titleEl.innerHTML = `
-      <span>🔴 ${isMainDesk ? 'Main Desk Broadcast' : `Table ${tableNum} Live Broadcast`}</span>
+      <span>🔴 ${isMainDesk ? 'Main Desk Broadcast' : `Table ${tableNum} • Round ${curRound} Live Broadcast`}</span>
       <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; font-size: 0.72rem; padding: 2px 7px;">
         ${escapeHtml(activeStream.channel)} • ${activeStream.platform.toUpperCase()}
       </span>
@@ -5661,8 +5891,11 @@ function updateEventStreamModalContent() {
   }
 
   if (subtitleEl && activeStream) {
+    const streamTitle = Number(tableNum) === 0
+      ? `${activeStream.channel} - Main Desk Coverage`
+      : `${activeStream.channel} - Table ${tableNum} Coverage (Round ${curRound})`;
     subtitleEl.innerHTML = `
-      <span>${escapeHtml(activeStream.title)}</span> • <span style="color:#4ade80;">👁️ ~${activeStream.viewers.toLocaleString()} watching live</span>
+      <span>${escapeHtml(streamTitle)}</span> • <span style="color:#4ade80;">👁️ ~${(activeStream.viewers || 100).toLocaleString()} watching live</span>
     `;
   }
 
@@ -5671,9 +5904,18 @@ function updateEventStreamModalContent() {
     extLink.title = `Watch directly on ${activeStream.channel}'s ${activeStream.platform} stream`;
   }
 
+  // Render In-App Live Score HUD Overlay directly on top of the video player
+  if (modalHud) {
+    modalHud.style.display = streamHudOverlayEnabled ? 'block' : 'none';
+    modalHud.innerHTML = buildInAppStreamHudHtml(overlayData);
+  }
+
+  const eventId = currentOpenEventId || ev.id || '';
+  hydrateStreamTrackerScoreAsync(eventId, overlayData);
+
   if (!matchupContainer) return;
 
-  if (Number(tableNum) === 0) {
+  if (Number(tableNum) === 0 && !overlayData.match) {
     matchupContainer.innerHTML = `
       <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 1rem; text-align: center;">
         <div style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">🎙️ Main Desk & Tournament-Wide Coverage</div>
@@ -5685,16 +5927,7 @@ function updateEventStreamModalContent() {
     return;
   }
 
-  // Find active round & matchup for this table
-  const matches = (eventMatchesCache && eventMatchesCache.length > 0) ? eventMatchesCache : (currentEventData?.matches || []);
-  const players = (eventPlayersCache && eventPlayersCache.length > 0) ? eventPlayersCache : (currentEventData?.players || []);
-  const curRound = selectedCasterRound || (currentEventData?.current_round > 0 ? currentEventData.current_round : (matches.length > 0 ? Math.min(...matches.map(m => Number(m.round) || 1)) : 1));
-
-  const roundMatches = matches.filter(m => Number(m.round) === curRound);
-  const match = roundMatches.find(m => Number(m.table_number || m.table) === Number(tableNum)) || matches.find(m => Number(m.table_number || m.table) === Number(tableNum));
-
-  if (!matchupContainer) return;
-
+  const match = overlayData.match;
   if (!match) {
     matchupContainer.innerHTML = `
       <div style="text-align:center; color:var(--text-muted); font-size:0.85rem; padding:0.5rem;">
@@ -5704,26 +5937,27 @@ function updateEventStreamModalContent() {
     return;
   }
 
-  const p1 = players.find(p => String(p.player_id) === String(match.player1_id) || p.full_name === match.player1_name);
-  const p2 = players.find(p => String(p.player_id) === String(match.player2_id) || p.full_name === match.player2_name);
+  const p1 = players.find(p => String(p.player_id || p.id) === String(match.player1_id) || p.full_name === match.player1_name);
+  const p2 = players.find(p => String(p.player_id || p.id) === String(match.player2_id) || p.full_name === match.player2_name);
 
-  const p1Elo = Number(match.player1_elo || p1?.current_elo || 1500);
-  const p2Elo = Number(match.player2_elo || p2?.current_elo || 1500);
+  const p1Elo = Number(overlayData.p1Elo || match.player1_elo || p1?.current_elo || 1500);
+  const p2Elo = Number(overlayData.p2Elo || match.player2_elo || p2?.current_elo || 1500);
 
   const p1Prob = match._p1_win_prob !== undefined ? match._p1_win_prob : Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, (p2Elo - p1Elo) / 400)))));
   const p2Prob = 100 - p1Prob;
 
-  const hasScore = match.player1_score !== null && match.player1_score !== undefined && match.player2_score !== null && match.player2_score !== undefined;
-  const scoreText = hasScore ? `${match.player1_score} - ${match.player2_score}` : 'LIVE IN PROGRESS';
+  const hasScore = (match.player1_score !== null && match.player1_score !== undefined && match.player2_score !== null && match.player2_score !== undefined)
+    || (overlayData.scoreStr && overlayData.scoreStr !== '0 - 0' && overlayData.scoreStr !== 'LIVE');
+  const scoreText = hasScore ? overlayData.scoreStr : 'LIVE IN PROGRESS';
   const scoreColor = hasScore ? '#f59e0b' : '#38bdf8';
 
-  const eventId = currentOpenEventId || currentEventData?.id || '';
   const matchId = `BCP-${eventId}-R${curRound}-T${tableNum}`;
 
   matchupContainer.innerHTML = `
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
       <div style="font-size: 0.88rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
         <span>⚔️ Table ${tableNum} • Round ${curRound} Headline Clash</span>
+        <span class="badge" style="background: rgba(56, 189, 248, 0.14); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-size: 0.68rem;">Synced with Caster Desk</span>
       </div>
       <div style="display: flex; align-items: center; gap: 0.5rem;">
         ${hasScore ? `
@@ -5743,8 +5977,8 @@ function updateEventStreamModalContent() {
       <!-- P1 -->
       <div>
         <div style="font-size: 0.72rem; text-transform: uppercase; color: #38bdf8; font-weight: 700;">PLAYER 1 (${p1Prob}%)</div>
-        <div style="font-size: 1.05rem; font-weight: 800; color: #fff;">${escapeHtml(match.player1_name || 'Player 1')}</div>
-        <div style="font-size: 0.78rem; color: var(--text-secondary);">${escapeHtml(p1?.faction || match.player1_faction || 'Army')} • ${p1Elo.toFixed(0)} Elo</div>
+        <div style="font-size: 1.05rem; font-weight: 800; color: #fff;">${escapeHtml(overlayData.p1Name)}</div>
+        <div style="font-size: 0.78rem; color: var(--text-secondary);">${escapeHtml(overlayData.p1Fac)} • ${p1Elo.toFixed(0)} Elo</div>
         <div style="font-size: 0.72rem; color: #7dd3fc; margin-top: 2px;">${escapeHtml(p1?.detachment || 'Standard Detachment')}</div>
       </div>
 
@@ -5752,7 +5986,7 @@ function updateEventStreamModalContent() {
       <div style="text-align: center; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.5rem 1rem; min-width: 140px;">
         <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 2px;">Match Status</div>
         <div style="font-family: var(--font-mono); font-weight: 900; font-size: ${hasScore ? '1.4rem' : '0.95rem'}; color: ${scoreColor};">
-          ${scoreText}
+          ${escapeHtml(scoreText)}
         </div>
         <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 3px;">
           ${Math.abs(p1Elo - p2Elo).toFixed(0)} Elo Differential
@@ -5762,8 +5996,8 @@ function updateEventStreamModalContent() {
       <!-- P2 -->
       <div class="p2-side" style="text-align: right;">
         <div style="font-size: 0.72rem; text-transform: uppercase; color: #f43f5e; font-weight: 700;">PLAYER 2 (${p2Prob}%)</div>
-        <div style="font-size: 1.05rem; font-weight: 800; color: #fff;">${escapeHtml(match.player2_name || 'Player 2')}</div>
-        <div style="font-size: 0.78rem; color: var(--text-secondary);">${escapeHtml(p2?.faction || match.player2_faction || 'Army')} • ${p2Elo.toFixed(0)} Elo</div>
+        <div style="font-size: 1.05rem; font-weight: 800; color: #fff;">${escapeHtml(overlayData.p2Name)}</div>
+        <div style="font-size: 0.78rem; color: var(--text-secondary);">${escapeHtml(overlayData.p2Fac)} • ${p2Elo.toFixed(0)} Elo</div>
         <div style="font-size: 0.72rem; color: #fda4af; margin-top: 2px;">${escapeHtml(p2?.detachment || 'Standard Detachment')}</div>
       </div>
     </div>
@@ -5782,8 +6016,7 @@ function switchCreatorHubMode(mode) {
 window.switchCreatorHubMode = switchCreatorHubMode;
 
 function selectCasterMatch(tableNum, roundNum) {
-  if (tableNum !== undefined && tableNum !== null) selectedCasterTable = Number(tableNum);
-  if (roundNum !== undefined && roundNum !== null) selectedCasterRound = Number(roundNum);
+  syncActiveStreamToCasterDesk(tableNum, roundNum, true);
   if (currentEventData) {
     renderEventCreatorHub(currentEventData);
   }
@@ -5808,6 +6041,7 @@ function resolveStreamTableMatchData(ev, players, matches, tableVal, curRound) {
   const findPlayer = (pid, pname) => {
     return (players || []).find(p => (pid && String(p.player_id || p.id) === String(pid)) || (pname && p.full_name === pname)) || null;
   };
+  const evId = ev?.id || currentOpenEventId || currentEventData?.id || '';
 
   if (tNum === 0) {
     const featureMatch = curRoundMatches.find(m => Number(m.table_number || m.table) === 1) || curRoundMatches[0] || null;
@@ -5815,6 +6049,8 @@ function resolveStreamTableMatchData(ev, players, matches, tableVal, curRound) {
       const p1 = findPlayer(featureMatch.player1_id, featureMatch.player1_name);
       const p2 = findPlayer(featureMatch.player2_id, featureMatch.player2_name);
       const hasScore = featureMatch.player1_score !== null && featureMatch.player1_score !== undefined && featureMatch.player2_score !== null && featureMatch.player2_score !== undefined;
+      const fTable = Number(featureMatch.table_number || featureMatch.table || 1);
+      const trackerScore = evId ? streamLiveTrackerScoreCache[`BCP-${evId}-R${rNum}-T${fTable}`] : null;
       return {
         tableNum: 0,
         tableBadge: 'MAIN DESK',
@@ -5826,7 +6062,7 @@ function resolveStreamTableMatchData(ev, players, matches, tableVal, curRound) {
         p2Fac: p2?.faction || featureMatch.player2_faction || 'Army',
         p1Elo: Number(featureMatch.player1_elo || p1?.current_elo || 1500),
         p2Elo: Number(featureMatch.player2_elo || p2?.current_elo || 1500),
-        scoreStr: hasScore ? `${featureMatch.player1_score} - ${featureMatch.player2_score}` : '0 - 0'
+        scoreStr: trackerScore || (hasScore ? `${featureMatch.player1_score} - ${featureMatch.player2_score}` : '0 - 0')
       };
     }
     return {
@@ -5844,11 +6080,25 @@ function resolveStreamTableMatchData(ev, players, matches, tableVal, curRound) {
     };
   }
 
-  const exactMatch = curRoundMatches.find(m => Number(m.table_number || m.table) === tNum) || null;
+  let exactMatch = curRoundMatches.find(m => Number(m.table_number || m.table) === tNum) || null;
+  if (!exactMatch) {
+    // Smart round fallback: if Table tNum didn't play in rNum (e.g. Top 8 cut in R10 vs Swiss Table 208 in R2),
+    // find the latest round where Table tNum actually played!
+    const tableHistory = (matches || [])
+      .filter(m => Number(m.table_number || m.table) === tNum)
+      .sort((a, b) => Number(b.round || 0) - Number(a.round || 0));
+    if (tableHistory.length > 0) {
+      const withScores = tableHistory.find(m => m.player1_score !== null && m.player1_score !== undefined);
+      exactMatch = withScores || tableHistory[0];
+      rNum = Number(exactMatch.round || rNum);
+    }
+  }
+
   if (exactMatch) {
     const p1 = findPlayer(exactMatch.player1_id, exactMatch.player1_name);
     const p2 = findPlayer(exactMatch.player2_id, exactMatch.player2_name);
     const hasScore = exactMatch.player1_score !== null && exactMatch.player1_score !== undefined && exactMatch.player2_score !== null && exactMatch.player2_score !== undefined;
+    const trackerScore = evId ? streamLiveTrackerScoreCache[`BCP-${evId}-R${rNum}-T${tNum}`] : null;
     return {
       tableNum: tNum,
       tableBadge: `TABLE ${tNum}`,
@@ -5860,7 +6110,7 @@ function resolveStreamTableMatchData(ev, players, matches, tableVal, curRound) {
       p2Fac: p2?.faction || exactMatch.player2_faction || 'Army',
       p1Elo: Number(exactMatch.player1_elo || p1?.current_elo || 1500),
       p2Elo: Number(exactMatch.player2_elo || p2?.current_elo || 1500),
-      scoreStr: hasScore ? `${exactMatch.player1_score} - ${exactMatch.player2_score}` : '0 - 0'
+      scoreStr: trackerScore || (hasScore ? `${exactMatch.player1_score} - ${exactMatch.player2_score}` : '0 - 0')
     };
   }
 
@@ -5910,20 +6160,45 @@ function buildObsOverlayPreviewStripHtml(overlayData) {
 }
 window.buildObsOverlayPreviewStripHtml = buildObsOverlayPreviewStripHtml;
 
+function buildObsOverlayUrlString(overlayType) {
+  const ev = currentEventData || {};
+  const evId = ev.id || currentOpenEventId || 'ev_ongoing_gt_live';
+  const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (ev.players || []);
+  const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (ev.matches || []);
+  const overlayData = resolveStreamTableMatchData(ev, players, matches, selectedCasterTable, selectedCasterRound);
+  const effectiveRound = overlayData?.roundNum || selectedCasterRound || ev.current_round || 1;
+  return `${window.location.origin}/overlay?event=${encodeURIComponent(evId)}&table=${selectedCasterTable}&round=${encodeURIComponent(effectiveRound)}&type=${overlayType || 'lower_third'}&follow=caster`;
+}
+window.buildObsOverlayUrlString = buildObsOverlayUrlString;
+
 function refreshStreamTableSelection(tableVal, sourceId) {
   const parsed = parseInt(tableVal, 10);
   if (isNaN(parsed) || parsed < 0) return;
-  selectedCasterTable = parsed;
 
   const ev = currentEventData || {};
   const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (ev.players || []);
   const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (ev.matches || []);
-  const overlayData = resolveStreamTableMatchData(ev, players, matches, selectedCasterTable, selectedCasterRound);
+  const overlayData = resolveStreamTableMatchData(ev, players, matches, parsed, selectedCasterRound);
+
+  syncActiveStreamToCasterDesk(parsed, overlayData.roundNum, true);
 
   const previewContainer = document.getElementById('obs-overlay-preview-container');
   if (previewContainer) {
     previewContainer.innerHTML = buildObsOverlayPreviewStripHtml(overlayData);
   }
+
+  const monitorHud = document.getElementById('live-monitor-hud-overlay');
+  if (monitorHud) {
+    monitorHud.innerHTML = buildInAppStreamHudHtml(overlayData);
+  }
+
+  const urlInputEl = document.getElementById('obs-overlay-url-input');
+  if (urlInputEl) {
+    urlInputEl.value = buildObsOverlayUrlString('lower_third');
+  }
+
+  const evId = ev.id || currentOpenEventId || '';
+  hydrateStreamTrackerScoreAsync(evId, overlayData);
 
   const streamSelect = document.getElementById('new-stream-table');
   const obsSelect = document.getElementById('obs-overlay-table-select');
@@ -5952,9 +6227,19 @@ function refreshStreamTableSelection(tableVal, sourceId) {
     }
   }
 
+  const activeStream = eventLiveStreams[creatorActiveStreamIndex] || eventLiveStreams[0];
+  const tableStr = selectedCasterTable === 0 ? 'Main Desk / All Tables' : `Table ${selectedCasterTable} (R${overlayData.roundNum})`;
   const monitorLabelEl = document.getElementById('live-monitor-table-label');
-  if (monitorLabelEl && eventLiveStreams.length === 0) {
-    monitorLabelEl.textContent = `Stream • ${selectedCasterTable === 0 ? 'Main Desk / All Tables' : `Table ${selectedCasterTable}`}`;
+  if (monitorLabelEl) {
+    monitorLabelEl.textContent = `${activeStream?.channel || 'Stream'} • ${tableStr}`;
+  }
+  const activeChannelBadgeEl = document.getElementById(`broadcaster-table-badge-${creatorActiveStreamIndex}`);
+  if (activeChannelBadgeEl) {
+    activeChannelBadgeEl.textContent = `(${selectedCasterTable === 0 ? 'Main Desk' : `Table ${selectedCasterTable}`})`;
+  }
+  const activeChannelTitleEl = document.getElementById(`broadcaster-title-${creatorActiveStreamIndex}`);
+  if (activeChannelTitleEl && activeStream) {
+    activeChannelTitleEl.textContent = activeStream.title;
   }
 }
 window.refreshStreamTableSelection = refreshStreamTableSelection;
@@ -5964,6 +6249,10 @@ function selectActiveStream(idx) {
   const stream = eventLiveStreams[creatorActiveStreamIndex];
   if (stream && stream.tableNumber !== undefined && stream.tableNumber !== null) {
     selectedCasterTable = Number(stream.tableNumber);
+    currentModalStreamTable = selectedCasterTable;
+  }
+  if (stream && stream.roundNumber) {
+    selectedCasterRound = Number(stream.roundNumber);
   }
   if (currentEventData) {
     renderEventCreatorHub(currentEventData);
@@ -6036,7 +6325,7 @@ async function addCreatorLiveStream(e) {
   const url = (urlEl?.value || '').trim();
   const platform = platformEl?.value || 'youtube';
 
-  let table = 1;
+  let table = selectedCasterTable || 1;
   if (tableEl?.value === 'custom') {
     const parsed = parseInt(customTableEl?.value, 10);
     if (isNaN(parsed) || parsed < 0) {
@@ -6055,6 +6344,8 @@ async function addCreatorLiveStream(e) {
     return;
   }
 
+  selectedCasterTable = table;
+  currentModalStreamTable = table;
   const isMainDesk = table === 0;
   const defaultStreamTitle = isMainDesk ? `${channel} - Main Desk Broadcast` : `${channel} - Table ${table} Coverage`;
 
@@ -6063,6 +6354,7 @@ async function addCreatorLiveStream(e) {
     channel: channel,
     stream_url: url,
     table_number: table,
+    round_number: selectedCasterRound || currentEventData?.current_round || null,
     platform: platform,
     title: defaultStreamTitle,
     is_live: true
@@ -6092,6 +6384,7 @@ async function addCreatorLiveStream(e) {
         stream_url: url,
         embed_url: embed,
         table_number: table,
+        round_number: selectedCasterRound || null,
         is_live: true,
         viewers: 100
       }));
@@ -6104,9 +6397,8 @@ async function addCreatorLiveStream(e) {
     }
     if (currentEventData) {
       renderEventCreatorHub(currentEventData);
-      const pairingsTab = document.getElementById('tab-event-pairings');
-      if (pairingsTab && typeof renderEventPairingsTab === 'function') {
-        renderEventPairingsTab(currentEventData);
+      if (typeof renderEventPairingsRows === 'function' && document.getElementById('event-matches-tbody')) {
+        renderEventPairingsRows();
       }
     }
   } catch (err) {
@@ -6133,9 +6425,8 @@ async function removeCreatorLiveStream(idxOrId) {
     }
     if (currentEventData) {
       renderEventCreatorHub(currentEventData);
-      const pairingsTab = document.getElementById('tab-event-pairings');
-      if (pairingsTab && typeof renderEventPairingsTab === 'function') {
-        renderEventPairingsTab(currentEventData);
+      if (typeof renderEventPairingsRows === 'function' && document.getElementById('event-matches-tbody')) {
+        renderEventPairingsRows();
       }
     }
   } catch (err) {
@@ -6171,19 +6462,66 @@ function copyDiscordSummary() {
 }
 window.copyDiscordSummary = copyDiscordSummary;
 
-function copyObsOverlayUrl(overlayType) {
-  const evId = currentEventData?.id || 'ev_ongoing_gt_live';
-  const roundParam = selectedCasterRound ? `&round=${encodeURIComponent(selectedCasterRound)}` : '';
-  const url = `${window.location.origin}/overlay?event=${encodeURIComponent(evId)}&table=${selectedCasterTable}${roundParam}&type=${overlayType || 'lower_third'}`;
+function fallbackCopyTextToClipboard(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-9999px';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+function copyObsOverlayUrl(overlayType, btnEl) {
+  const url = buildObsOverlayUrlString(overlayType || 'lower_third');
   const tableLabel = Number(selectedCasterTable) === 0 ? 'Main Desk' : `Table ${selectedCasterTable}`;
+
+  const urlInputEl = document.getElementById('obs-overlay-url-input');
+  if (urlInputEl) {
+    urlInputEl.value = url;
+  }
+
+  const onCopied = () => {
+    if (btnEl) {
+      const origHtml = btnEl.dataset.origHtml || btnEl.innerHTML;
+      btnEl.dataset.origHtml = origHtml;
+      btnEl.innerHTML = `✓ Copied (${tableLabel})!`;
+      setTimeout(() => {
+        if (btnEl.dataset.origHtml) btnEl.innerHTML = btnEl.dataset.origHtml;
+      }, 2200);
+    }
+    if (typeof showProfileToast === 'function') {
+      showProfileToast(`✓ OBS ${overlayType === 'tale_of_tape' ? 'Matchup Card' : 'Lower-Third HUD'} URL copied (${tableLabel})!`);
+    } else if (typeof showToast === 'function') {
+      showToast(`OBS URL copied (${tableLabel})!`, 'success');
+    }
+  };
+
   if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-    navigator.clipboard.writeText(url).then(() => {
-      if (typeof showProfileToast === 'function') showProfileToast(`✓ OBS ${overlayType} URL copied (${tableLabel})!`);
-      else alert(`OBS URL copied (${tableLabel}): ${url}`);
-    }).catch(() => {});
+    navigator.clipboard.writeText(url).then(onCopied).catch(() => {
+      fallbackCopyTextToClipboard(url);
+      onCopied();
+    });
+  } else {
+    fallbackCopyTextToClipboard(url);
+    onCopied();
   }
 }
 window.copyObsOverlayUrl = copyObsOverlayUrl;
+
+function openObsOverlayPreview(overlayType) {
+  const url = buildObsOverlayUrlString(overlayType || 'lower_third');
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+window.openObsOverlayPreview = openObsOverlayPreview;
 
 var casterPlayerProfileCache = (typeof window !== 'undefined' && window.__casterPlayerProfileCache) || {};
 var casterArmyListCache = (typeof window !== 'undefined' && window.__casterArmyListCache) || {};
@@ -6523,7 +6861,7 @@ function renderEventCreatorHub(ev) {
     }
   }
 
-  const roundMatches = matches.filter(m => Number(m.round) === curRound);
+  let roundMatches = matches.filter(m => Number(m.round) === curRound);
   let selectedMatch = null;
   let p1 = null;
   let p2 = null;
@@ -6533,12 +6871,26 @@ function renderEventCreatorHub(ev) {
   let p2WinProb = 50;
 
   if (roundMatches.length > 0) {
-    const exactMatch = roundMatches.find(m => Number(m.table_number || m.table) === Number(selectedCasterTable));
+    let exactMatch = roundMatches.find(m => Number(m.table_number || m.table) === Number(selectedCasterTable));
+    if (!exactMatch && Number(selectedCasterTable) > 0 && !selectedCasterRound) {
+      // If selectedCasterTable (e.g. Table 208) played in an earlier round while default curRound is Top Cut (R10),
+      // automatically resolve to the latest round where selectedCasterTable played
+      const tableHist = matches
+        .filter(m => Number(m.table_number || m.table) === Number(selectedCasterTable))
+        .sort((a, b) => Number(b.round || 0) - Number(a.round || 0));
+      if (tableHist.length > 0) {
+        exactMatch = tableHist.find(m => m.player1_score !== null && m.player1_score !== undefined) || tableHist[0];
+        curRound = Number(exactMatch.round || curRound);
+        selectedCasterRound = curRound;
+        roundMatches = matches.filter(m => Number(m.round) === curRound);
+      }
+    }
     if (exactMatch) {
       selectedMatch = exactMatch;
     } else if (creatorHubActiveMode === 'caster') {
       selectedMatch = roundMatches[0];
       selectedCasterTable = Number(selectedMatch?.table_number || selectedMatch?.table || 1);
+      syncActiveStreamToCasterDesk(selectedCasterTable, curRound, true);
     } else if (Number(selectedCasterTable) === 0) {
       selectedMatch = roundMatches[0] || null;
     }
@@ -7481,7 +7833,21 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
    ========================================================================== */
 function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, curRound) {
   curRound = curRound || selectedCasterRound || ev.current_round || 1;
+  const curTable = (selectedCasterTable !== undefined && selectedCasterTable !== null && !isNaN(Number(selectedCasterTable))) ? Number(selectedCasterTable) : 1;
+  const overlayData = resolveStreamTableMatchData(ev, players, matches, curTable, curRound);
+  const effectiveRound = overlayData.roundNum || curRound;
+
   const activeStream = eventLiveStreams[creatorActiveStreamIndex] || eventLiveStreams[0];
+  if (activeStream) {
+    activeStream.tableNumber = curTable;
+    activeStream.table_number = curTable;
+    activeStream.roundNumber = effectiveRound;
+    activeStream.round_number = effectiveRound;
+    if (!activeStream.title || /Table\s+\d+\s+Coverage|Main\s+Desk/i.test(activeStream.title)) {
+      const ch = activeStream.channel || 'Live';
+      activeStream.title = curTable === 0 ? `${ch} - Main Desk Coverage` : `${ch} - Table ${curTable} Coverage`;
+    }
+  }
 
   const playersCount = Number(ev.players_count || ev.registered_players_count || (players ? players.length : 0)) || 0;
   const matchTables = Array.from(new Set((matches || []).map(m => Number(m.table_number || m.table)).filter(n => !isNaN(n) && n > 0))).sort((a, b) => a - b);
@@ -7489,14 +7855,13 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
   const estTablesFromPlayers = Math.ceil(playersCount / 2);
   const totalTables = Math.max(maxMatchTable, estTablesFromPlayers, 8);
 
-  const curRoundMatches = (matches || []).filter(m => Number(m.round || 1) === Number(curRound));
+  const curRoundMatches = (matches || []).filter(m => Number(m.round || 1) === Number(effectiveRound));
   const curRoundTableMap = new Map();
   curRoundMatches.forEach(m => {
     const t = Number(m.table_number || m.table);
     if (t) curRoundTableMap.set(t, m);
   });
 
-  const curTable = (selectedCasterTable !== undefined && selectedCasterTable !== null && !isNaN(Number(selectedCasterTable))) ? Number(selectedCasterTable) : 1;
   const isCustomTable = curTable > totalTables;
 
   const tableOptions = [];
@@ -7514,16 +7879,17 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
 
   const streamListHtml = eventLiveStreams.map((s, idx) => {
     const isAct = idx === creatorActiveStreamIndex;
-    const isMainDesk = Number(s.tableNumber) === 0;
+    const sTable = isAct ? curTable : Number(s.tableNumber);
+    const isMainDesk = sTable === 0;
     return `
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.65rem 0.85rem; background: ${isAct ? 'rgba(168, 85, 247, 0.15)' : 'rgba(15, 23, 42, 0.6)'}; border: 1px solid ${isAct ? 'rgba(168, 85, 247, 0.4)' : 'rgba(255,255,255,0.06)'}; border-radius: 8px;">
         <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0; flex: 1;">
           <span style="font-size: 1.2rem;">${s.platform === 'twitch' ? '🟣' : '🔴'}</span>
           <div style="min-width: 0; flex: 1;">
             <div style="font-weight: 700; color: #fff; font-size: 0.84rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
-              ${escapeHtml(s.channel)} <span style="color: var(--text-muted); font-size: 0.74rem;">(${isMainDesk ? 'Main Desk' : `Table ${s.tableNumber}`})</span>
+              ${escapeHtml(s.channel)} <span id="broadcaster-table-badge-${idx}" style="color: var(--text-muted); font-size: 0.74rem;">(${isMainDesk ? 'Main Desk' : `Table ${sTable}`})</span>
             </div>
-            <div style="font-size: 0.72rem; color: var(--text-secondary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+            <div id="broadcaster-title-${idx}" style="font-size: 0.72rem; color: var(--text-secondary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
               ${escapeHtml(s.title)}
             </div>
           </div>
@@ -7543,9 +7909,10 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
     `;
   }).join('');
 
-  const overlayData = resolveStreamTableMatchData(ev, players, matches, curTable, curRound);
-  const monitorTableNum = activeStream ? Number(activeStream.tableNumber) : curTable;
-  const monitorTableStr = monitorTableNum === 0 ? 'Main Desk / All Tables' : `Table ${monitorTableNum || 1}`;
+  const monitorTableStr = curTable === 0 ? 'Main Desk / All Tables' : `Table ${curTable} (R${effectiveRound})`;
+  const currentObsUrl = buildObsOverlayUrlString('lower_third');
+  const evId = ev?.id || currentOpenEventId || '';
+  setTimeout(() => hydrateStreamTrackerScoreAsync(evId, overlayData), 15);
 
   return `
     <!-- Stream Control Header & Active Channels -->
@@ -7611,17 +7978,25 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
       <div style="display: flex; flex-direction: column; gap: 1rem;">
         <!-- Live Stream Preview Window -->
         <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.4rem;">
             <div style="font-weight: 700; color: #fff; font-size: 0.92rem; display: flex; align-items: center; gap: 0.45rem;">
               <span>🔴 Live Broadcast Monitor</span>
               <span class="badge" style="background: #ef4444; color: #fff; font-size: 0.65rem; padding: 2px 6px;">ON AIR</span>
             </div>
-            <span id="live-monitor-table-label" style="font-size: 0.74rem; color: var(--text-muted);">
-              ${escapeHtml(activeStream?.channel || 'Stream')} • ${monitorTableStr}
-            </span>
+            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              <span id="live-monitor-table-label" style="font-size: 0.74rem; color: #38bdf8; font-weight: 700;">
+                ${escapeHtml(activeStream?.channel || 'Stream')} • ${monitorTableStr}
+              </span>
+              <button type="button" id="monitor-stream-hud-toggle-btn" onclick="toggleStreamHudOverlay()" class="btn-xs btn-outline" style="font-size: 0.68rem; padding: 2px 7px; border-radius: 5px; border-color: ${streamHudOverlayEnabled ? 'rgba(56, 189, 248, 0.45)' : 'rgba(255, 255, 255, 0.15)'}; background: ${streamHudOverlayEnabled ? 'rgba(56, 189, 248, 0.14)' : 'rgba(255, 255, 255, 0.05)'}; color: ${streamHudOverlayEnabled ? '#38bdf8' : 'var(--text-muted)'}; font-weight: 700; cursor: pointer;" title="Toggle In-App Live Score HUD on our screen">
+                📺 Score HUD: ${streamHudOverlayEnabled ? 'ON' : 'OFF'}
+              </button>
+              <button type="button" onclick="openEventStreamModal(${curTable})" class="btn-xs btn-outline" style="font-size: 0.68rem; padding: 2px 7px; border-radius: 5px; border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.14); color: #fca5a5; font-weight: 700; cursor: pointer;">
+                ⛶ Theater Modal
+              </button>
+            </div>
           </div>
 
-          <!-- Video Embed Frame -->
+          <!-- Video Embed Frame + In-App Live Score HUD Overlay -->
           <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
             <iframe 
               src="${escapeHtml(activeStream?.embedUrl || 'https://www.youtube-nocookie.com/embed/jfKfPfyJRdk')}" 
@@ -7630,9 +8005,13 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
               allowfullscreen>
             </iframe>
+            <!-- In-App Live Score Lower-Third HUD Overlay (rendered on OUR screen over the stream) -->
+            <div id="live-monitor-hud-overlay" style="position: absolute; bottom: 0; left: 0; right: 0; pointer-events: none; z-index: 10; padding: 0.5rem 0.65rem; background: linear-gradient(0deg, rgba(2, 6, 23, 0.92) 0%, rgba(2, 6, 23, 0.45) 70%, transparent 100%); display: ${streamHudOverlayEnabled ? 'block' : 'none'};">
+              ${buildInAppStreamHudHtml(overlayData)}
+            </div>
           </div>
           <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.65rem; font-size: 0.75rem; color: var(--text-muted);">
-            <span>👁️ ~${activeStream?.viewers || 1200} concurrent viewers</span>
+            <span>👁️ ~${activeStream?.viewers || 1200} concurrent viewers • In-App Score HUD active</span>
             <a href="${escapeHtml(activeStream?.streamUrl || '#')}" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: none; font-weight: 600;">
               Open Stream Page ↗
             </a>
@@ -7653,20 +8032,30 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
               <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; font-size: 0.7rem;">TRANSPARENT HUD</span>
             </div>
           </div>
-          <p style="font-size: 0.78rem; color: var(--text-secondary); margin: 0 0 0.85rem 0; line-height: 1.4;">
-            Paste these URLs directly into OBS as a Browser Source (Width: 1920, Height: 250) for auto-updating live scoreboards!
+          <p style="font-size: 0.76rem; color: var(--text-secondary); margin: 0 0 0.75rem 0; line-height: 1.45;">
+            <strong>Two Ways to Overlay Scores:</strong><br/>
+            1️⃣ <strong>On Our App Screen:</strong> Viewers watching inside OmniTactica automatically see the live Score HUD overlaid on the video above.<br/>
+            2️⃣ <strong>On Caster's Stream (OBS):</strong> Paste the URL below into OBS as a <em>Browser Source</em> (<code>1920x250</code>) to burn the scoreboard into your YouTube/Twitch feed. Includes <code>follow=caster</code> so switching tables on the Caster Desk updates OBS automatically!
           </p>
 
           <!-- Interactive OBS Overlay Preview Strip -->
-          <div id="obs-overlay-preview-container" style="background: rgba(0, 0, 0, 0.7); border: 1px dashed rgba(56, 189, 248, 0.5); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.85rem;">
+          <div id="obs-overlay-preview-container" style="background: rgba(0, 0, 0, 0.7); border: 1px dashed rgba(56, 189, 248, 0.5); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.75rem;">
             ${buildObsOverlayPreviewStripHtml(overlayData)}
           </div>
 
+          <!-- Direct OBS URL Input Box -->
+          <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.65rem;">
+            <input type="text" id="obs-overlay-url-input" readonly onclick="this.select()" value="${escapeHtml(currentObsUrl)}" style="flex: 1; height: 30px; padding: 0 0.6rem; background: rgba(2, 6, 23, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 6px; color: #7dd3fc; font-family: var(--font-mono); font-size: 0.72rem;" title="OBS Browser Source URL (click to select)" />
+            <button type="button" onclick="openObsOverlayPreview('lower_third')" class="btn-sm btn-outline" style="height: 30px; font-size: 0.73rem; font-weight: 700; padding: 0 0.65rem; color: #38bdf8; border-color: rgba(56, 189, 248, 0.4); white-space: nowrap; cursor: pointer;" title="Open overlay in a new browser tab to preview">
+              ↗ Preview Overlay
+            </button>
+          </div>
+
           <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-            <button type="button" onclick="copyObsOverlayUrl('lower_third')" class="btn btn-primary" style="flex: 1; min-width: 140px; font-size: 0.78rem; font-weight: 700; padding: 0.45rem 0.85rem; background: linear-gradient(135deg, #0284c7, #2563eb); border: none; cursor: pointer;">
+            <button type="button" onclick="copyObsOverlayUrl('lower_third', this)" class="btn btn-primary" style="flex: 1; min-width: 140px; font-size: 0.78rem; font-weight: 700; padding: 0.45rem 0.85rem; background: linear-gradient(135deg, #0284c7, #2563eb); border: none; cursor: pointer;">
               📋 Copy Lower-Third HUD URL
             </button>
-            <button type="button" onclick="copyObsOverlayUrl('tale_of_tape')" class="btn btn-outline" style="flex: 1; min-width: 140px; font-size: 0.78rem; font-weight: 700; padding: 0.45rem 0.85rem; color: #c084fc; border-color: rgba(168, 85, 247, 0.4); cursor: pointer;">
+            <button type="button" onclick="copyObsOverlayUrl('tale_of_tape', this)" class="btn btn-outline" style="flex: 1; min-width: 140px; font-size: 0.78rem; font-weight: 700; padding: 0.45rem 0.85rem; color: #c084fc; border-color: rgba(168, 85, 247, 0.4); cursor: pointer;">
               📋 Copy Matchup Card URL
             </button>
           </div>

@@ -52,6 +52,7 @@ window.api = {
     for (const p of noCachePrefixes) {
       if (url.startsWith(p)) return false;
     }
+    if (url.includes('/livestreams') || url.startsWith('/api/scorecard')) return false;
     return url.startsWith('/api/');
   },
 
@@ -1197,7 +1198,7 @@ window.api = {
   // Event Broadcast: Get Event Livestreams
   async getEventLivestreams(eventId) {
     if (!eventId) return { success: false, livestreams: [] };
-    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/livestreams`);
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/livestreams`, { forceRefresh: true });
   },
 
   // Event Broadcast: Save/Add Event Livestream (CC, TO, Admin)

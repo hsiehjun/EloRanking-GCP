@@ -53,7 +53,8 @@ export function PlayerScorecard({ player }) {
   const playerName = (isP1 ? game.p1Name : game.p2Name) || `Player ${player}`;
   const factionDisposition = isP1 ? game.p1Disposition : game.p2Disposition;
   const primaryMissionName = isP1 ? game.p1Primary : game.p2Primary;
-  const missionType = (isP1 ? game.p1MissionType : game.p2MissionType) || "tactical";
+  const rawMissionType = (isP1 ? game.p1MissionType : game.p2MissionType) || "tactical";
+  const missionType = rawMissionType === "manual" ? "tactical" : rawMissionType;
   const playerColor = PLAYER_COLORS[player];
 
   const dispositionObj = FORCE_DISPOSITIONS.find(d => d.key === factionDisposition);
@@ -325,7 +326,7 @@ export function PlayerScorecard({ player }) {
                 })}
               </div>
             </div>
-          ) : missionType === "manual" ? (
+          ) : (
             <button
               type="button"
               disabled={playerState.deck.available.length === 0}
@@ -335,17 +336,6 @@ export function PlayerScorecard({ player }) {
             >
               <PlusIcon className="h-4 w-4" />
               Select Secondary ({playerState.deck.available.length})
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={playerState.deck.available.length === 0}
-              onClick={() => drawSecondary(player)}
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] font-mono text-[12px] font-bold uppercase tracking-[0.12em] text-white transition-[filter] disabled:opacity-40"
-              style={{ background: playerColor }}
-            >
-              <PlusIcon className="h-4 w-4" />
-              Draw Secondary ({playerState.deck.available.length})
             </button>
           )}
         </div>
@@ -414,13 +404,14 @@ export function PlayerScorecard({ player }) {
         />
       )}
 
-      {/* Manual Secondary Selection Modal */}
+      {/* Tactical Secondary Selection Modal (Manual pick or Random draw) */}
       {selectingManualSecondary && (
         <ManualSecondaryPickerModal
           player={player}
           available={playerState.deck.available}
           round={currentRound}
           onSelect={cardId => selectManualSecondary(player, cardId)}
+          onDrawRandom={() => drawSecondary(player)}
           onClose={() => setSelectingManualSecondary(false)}
         />
       )}

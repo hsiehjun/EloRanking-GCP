@@ -18,7 +18,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 5174))
+PORT = int(sys.argv[2]) if (len(sys.argv) > 2 and sys.argv[1] in ("--port", "-p")) else (int(sys.argv[1]) if (len(sys.argv) > 1 and sys.argv[1].isdigit()) else int(os.environ.get("PORT", 5174)))
 HOST = "0.0.0.0"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -1117,11 +1117,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             if raw_t is None:
                 raw_t = p_data.get("tableNumber")
             t_num = int(raw_t) if raw_t is not None else 1
+            raw_r = p_data.get("round_number")
+            if raw_r is None:
+                raw_r = p_data.get("roundNumber")
+            r_num = int(raw_r) if (raw_r is not None and str(raw_r).isdigit() and int(raw_r) > 0) else None
             default_t_title = "Main Desk Live Broadcast" if t_num == 0 else f"Table {t_num} Live Broadcast"
             record = {
                 "id": s_id,
                 "event_id": ev_id,
                 "table_number": t_num,
+                "round_number": r_num,
                 "channel": p_data.get("channel") or "Feature Stream",
                 "platform": plat,
                 "title": p_data.get("title") or default_t_title,

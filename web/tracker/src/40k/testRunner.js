@@ -157,16 +157,22 @@ export async function runAutomatedTests() {
     const finalState = window.__gdmGetTrackerState();
     log(`Game started! started=${finalState.started}, round=${finalState.round}`);
 
-    // Draw secondary for P1
-    const drawBtn = [...document.querySelectorAll("button")].find(b =>
-      b.textContent.includes("Draw Secondary")
+    // Select secondary for P1 (via Select Secondary modal -> Random Secondary)
+    const selectSecBtn = [...document.querySelectorAll("button")].find(b =>
+      b.textContent.includes("Select Secondary")
     );
-    if (drawBtn) {
-      drawBtn.click();
+    if (selectSecBtn) {
+      selectSecBtn.click();
+      await sleep(250);
+      const randomBtn = [...document.querySelectorAll("button")].find(b =>
+        b.textContent.includes("Random Secondary")
+      );
+      if (!randomBtn) throw new Error("Random Secondary button not found in Select Secondary modal");
+      randomBtn.click();
       await sleep(300);
       const stateWithCard = window.__gdmGetTrackerState();
       log(
-        `P1 Drew Secondary: "${stateWithCard.p1.hand[0]?.cardId}". Hand size: ${stateWithCard.p1.hand.length}`
+        `P1 Drew Random Secondary: "${stateWithCard.p1.hand[0]?.cardId}". Hand size: ${stateWithCard.p1.hand.length}`
       );
     }
 

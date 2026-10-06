@@ -3873,6 +3873,8 @@ class EventLivestreamPayload(BaseModel):
     id: Optional[str] = None
     table_number: Optional[int] = 1
     tableNumber: Optional[int] = None
+    round_number: Optional[int] = None
+    roundNumber: Optional[int] = None
     channel: str = "Feature Stream"
     platform: Optional[str] = None
     title: Optional[str] = None
@@ -3898,6 +3900,8 @@ async def api_save_event_livestream(event_id: str, payload: EventLivestreamPaylo
     data = payload.dict()
     if payload.tableNumber is not None:
         data["table_number"] = payload.tableNumber
+    if payload.roundNumber is not None:
+        data["round_number"] = payload.roundNumber
     if payload.streamUrl is not None:
         data["stream_url"] = payload.streamUrl
     if payload.embedUrl is not None:

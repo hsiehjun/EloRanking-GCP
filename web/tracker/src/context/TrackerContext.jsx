@@ -96,6 +96,10 @@ function sanitizeLoadedState(raw) {
     if (!state.game.p2Primary) state.game.p2Primary = getPrimaryMissionName(d2, d1);
   }
 
+  // Normalize legacy "manual" secondary mission type to "tactical"
+  if (state.game.p1MissionType === "manual") state.game.p1MissionType = "tactical";
+  if (state.game.p2MissionType === "manual") state.game.p2MissionType = "tactical";
+
   // Ensure sides on cards
   if (Array.isArray(state.p1.hand)) {
     state.p1.hand.forEach(c => {
@@ -328,11 +332,12 @@ export function TrackerProvider({ children }) {
   }, []);
 
   const selectMissionType = useCallback((playerNum, missionType) => {
+    const normalized = missionType === "manual" ? "tactical" : missionType;
     setState(prev => ({
       ...prev,
       game: {
         ...prev.game,
-        [playerNum === 1 ? "p1MissionType" : "p2MissionType"]: missionType
+        [playerNum === 1 ? "p1MissionType" : "p2MissionType"]: normalized
       }
     }));
   }, []);

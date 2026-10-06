@@ -22,6 +22,40 @@
       font-family: var(--font-sans);
       color: #fff;
     }
+    body.browser-preview-bg {
+      background: radial-gradient(circle at 50% 35%, #0f172a 0%, #020617 100%) !important;
+    }
+    .preview-helper-bar {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(168, 85, 247, 0.45);
+      border-radius: 999px;
+      padding: 8px 18px;
+      font-size: 0.8rem;
+      color: #e2e8f0;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+      white-space: nowrap;
+    }
+    .preview-helper-btn {
+      background: rgba(56, 189, 248, 0.16);
+      border: 1px solid rgba(56, 189, 248, 0.45);
+      color: #38bdf8;
+      border-radius: 999px;
+      padding: 4px 12px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .preview-helper-btn:hover {
+      background: rgba(56, 189, 248, 0.28);
+    }
     .overlay-wrapper {
       width: 100%;
       height: 100%;
@@ -96,6 +130,19 @@
       border: 1px solid rgba(245, 158, 11, 0.4);
       border-radius: 10px;
       white-space: nowrap;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      line-height: 1.1;
+    }
+    .score-sub {
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      font-weight: 800;
+      color: #38bdf8;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-top: 3px;
     }
     .tale-card {
       width: 100%;
@@ -135,6 +182,12 @@
   </style>
 </head>
 <body>
+  <div id="preview-helper-bar" class="preview-helper-bar">
+    <span>📺 <strong>OBS Browser Source Overlay</strong> — Add this URL in OBS Studio as a <strong>Browser Source</strong> (Width: <code>1920</code>, Height: <code>250</code>)</span>
+    <button type="button" class="preview-helper-btn" onclick="copyCurrentOverlayUrl(this)">📋 Copy URL</button>
+    <button type="button" class="preview-helper-btn" onclick="togglePreviewBg()">🌗 Toggle Backdrop</button>
+    <button type="button" class="preview-helper-btn" onclick="hidePreviewBar()" style="border-color:rgba(255,255,255,0.2); color:#94a3b8; background:transparent;">✕ Hide</button>
+  </div>
   <div id="overlay-root" class="overlay-wrapper"></div>
   <script>
     function escapeHtml(str) {
@@ -146,16 +199,96 @@
         .replace(/'/g, '&#39;');
     }
 
+    function initBrowserPreviewMode() {
+      const params = new URLSearchParams(window.location.search);
+      const isObs = Boolean(window.obsstudio) || params.get('obs') === '1' || params.get('clean') === '1' || window.self !== window.top;
+      if (!isObs) {
+        document.body.classList.add('browser-preview-bg');
+        const bar = document.getElementById('preview-helper-bar');
+        if (bar) bar.style.display = 'flex';
+      }
+    }
+
+    function togglePreviewBg() {
+      document.body.classList.toggle('browser-preview-bg');
+    }
+
+    function hidePreviewBar() {
+      document.body.classList.remove('browser-preview-bg');
+      const bar = document.getElementById('preview-helper-bar');
+      if (bar) bar.style.display = 'none';
+    }
+
+    function copyCurrentOverlayUrl(btn) {
+      const url = window.location.href;
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(url).then(() => {
+          if (btn) {
+            const orig = btn.textContent;
+            btn.textContent = '✓ Copied!';
+            setTimeout(() => { btn.textContent = orig; }, 2000);
+          }
+        }).catch(() => {});
+      }
+    }
+
     async function refreshOverlay() {
       const params = new URLSearchParams(window.location.search);
       const eventId = params.get('event') || 'ev_ongoing_gt_live';
-      const tableNum = parseInt(params.get('table') ?? '1', 10);
-      const reqRound = parseInt(params.get('round') ?? '0', 10);
+      let tableNum = parseInt(params.get('table') ?? '1', 10);
+      let reqRound = parseInt(params.get('round') ?? '0', 10);
+      const followCaster = params.get('follow') === 'caster' || params.get('sync') === '1';
       const overlayType = (params.get('type') || 'lower_third').toLowerCase();
 
+      const rootEl = document.getElementById('overlay-root');
+      if (rootEl && !rootEl.innerHTML.trim()) {
+        const initBadge = tableNum === 0 ? 'MAIN DESK' : `TABLE ${isNaN(tableNum) ? 1 : tableNum}`;
+        rootEl.innerHTML = `
+          <div class="lower-third-bar" style="opacity:0.85;">
+            <div class="player-side">
+              <span class="table-badge p1">${escapeHtml(initBadge)}</span>
+              <div>
+                <div class="player-name">Syncing Live Telemetry...</div>
+                <div class="player-meta p1">Connecting to Tournament Feed</div>
+              </div>
+            </div>
+            <div class="score-box"><span>LIVE</span></div>
+            <div class="player-side right">
+              <div>
+                <div class="player-name">OmniTactica Broadcast HUD</div>
+                <div class="player-meta p2">${escapeHtml(eventId)}</div>
+              </div>
+              <span class="table-badge p2">${escapeHtml(initBadge)}</span>
+            </div>
+          </div>
+        `;
+      }
+
       try {
-        const res = await fetch(`/api/event/${encodeURIComponent(eventId)}`, { cache: 'no-store' });
-        const ev = res.ok ? await res.json() : {};
+        const [evRes, streamRes] = await Promise.all([
+          fetch(`/api/event/${encodeURIComponent(eventId)}`, { cache: 'no-store' }),
+          fetch(`/api/events/${encodeURIComponent(eventId)}/livestreams`, { cache: 'no-store' }).catch(() => null)
+        ]);
+        const ev = evRes && evRes.ok ? await evRes.json() : {};
+        const streamsPayload = (streamRes && streamRes.ok) ? await streamRes.json().catch(() => ({})) : {};
+        const streams = Array.isArray(streamsPayload) ? streamsPayload : (Array.isArray(streamsPayload.livestreams) ? streamsPayload.livestreams : []);
+
+        // If follow=caster is enabled (or stream sync), sync table & round from the active broadcaster stream if available
+        if (followCaster && streams.length > 0) {
+          const activeStream = streams[0];
+          if (activeStream.table_number !== undefined && activeStream.table_number !== null) {
+            tableNum = parseInt(activeStream.table_number, 10);
+          }
+          if (activeStream.round_number && parseInt(activeStream.round_number, 10) > 0) {
+            reqRound = parseInt(activeStream.round_number, 10);
+          }
+        } else if (!reqRound && streams.length > 0) {
+          const matchingStream = streams.find(s => Number(s.table_number) === tableNum);
+          if (matchingStream && matchingStream.round_number && parseInt(matchingStream.round_number, 10) > 0) {
+            reqRound = parseInt(matchingStream.round_number, 10);
+          }
+        }
+
         const players = Array.isArray(ev.players) ? ev.players : [];
         const matches = Array.isArray(ev.matches) ? ev.matches : [];
         const matchRounds = [...new Set(matches.map(m => Number(m.round)).filter(r => r > 0))].sort((a, b) => a - b);
@@ -172,9 +305,46 @@
         }
 
         const roundMatches = matches.filter(m => Number(m.round || 1) === curRound);
-        const match = tableNum === 0
+        let match = tableNum === 0
           ? (roundMatches.find(m => Number(m.table_number || m.table) === 1) || roundMatches[0] || null)
           : (roundMatches.find(m => Number(m.table_number || m.table) === tableNum) || null);
+
+        // Smart fallback: if the requested table didn't play in curRound (e.g., Top Cut pod round 10 only uses Tables 1-8, while Table 208 played in Swiss Rounds 1-6),
+        // find the match on tableNum from the latest round where tableNum was active
+        if (!match && tableNum > 0) {
+          const tableHistory = matches
+            .filter(m => Number(m.table_number || m.table) === tableNum)
+            .sort((a, b) => Number(b.round || 1) - Number(a.round || 1));
+          if (tableHistory.length > 0) {
+            match = tableHistory.find(m => m.player1_score !== null && m.player1_score !== undefined) || tableHistory[0];
+            curRound = Number(match.round || curRound || 1);
+          }
+        }
+
+        // Check live Game Tracker scorecard for real-time turn-by-turn scores on this table
+        let trackerStatusLabel = '';
+        let liveP1Score = match ? match.player1_score : null;
+        let liveP2Score = match ? match.player2_score : null;
+        const effectiveTable = tableNum === 0 ? (match ? Number(match.table_number || match.table || 1) : 1) : tableNum;
+        if (effectiveTable > 0 && curRound > 0) {
+          try {
+            const matchId = `BCP-${eventId}-R${curRound}-T${effectiveTable}`;
+            const scRes = await fetch(`/api/scorecard/${encodeURIComponent(matchId)}`, { cache: 'no-store' });
+            if (scRes.ok) {
+              const scData = await scRes.json();
+              const sc = scData.scorecard || scData;
+              if (sc && (sc.has_tracker_data || sc.source === 'tracker_db' || sc.source === 'live_room')) {
+                if (sc.p1_score !== undefined && sc.p1_score !== null) liveP1Score = sc.p1_score;
+                if (sc.p2_score !== undefined && sc.p2_score !== null) liveP2Score = sc.p2_score;
+                if (sc.current_round) {
+                  trackerStatusLabel = sc.is_finished ? 'FINAL (TRACKER)' : `BATTLE ROUND ${sc.current_round}/5`;
+                }
+              }
+            }
+          } catch (scErr) {
+            // Ignore scorecard lookup error
+          }
+        }
 
         const findPlayer = (pid, pname) =>
           players.find(p => (pid && String(p.player_id || p.id) === String(pid)) || (pname && p.full_name === pname)) || null;
@@ -189,8 +359,8 @@
         const p2Fac = match ? (p2?.faction || match.player2_faction || 'Army') : (tableNum === 0 ? 'Coverage' : 'TBD');
         const p1Elo = match ? Number(match.player1_elo || p1?.current_elo || 1500) : 1500;
         const p2Elo = match ? Number(match.player2_elo || p2?.current_elo || 1500) : 1500;
-        const hasScore = match && match.player1_score !== null && match.player1_score !== undefined && match.player2_score !== null && match.player2_score !== undefined;
-        const scoreStr = hasScore ? `${match.player1_score} - ${match.player2_score}` : (tableNum === 0 && !match ? 'LIVE' : '0 - 0');
+        const hasScore = liveP1Score !== null && liveP1Score !== undefined && liveP2Score !== null && liveP2Score !== undefined;
+        const scoreStr = hasScore ? `${liveP1Score} - ${liveP2Score}` : (tableNum === 0 && !match ? 'LIVE' : '0 - 0');
 
         const eloDiff = p2Elo - p1Elo;
         const p1WinProb = Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, eloDiff / 400)))));
@@ -203,21 +373,24 @@
           root.innerHTML = `
             <div class="tale-card">
               <div class="tale-header">
-                <span>⚔️ ${escapeHtml(ev.name || 'Tournament Broadcast')} • ${escapeHtml(tableBadge)}</span>
-                <span>ROUND ${curRound} • WIN PROBABILITY ${p1WinProb}% - ${p2WinProb}%</span>
+                <span id="lt-table-badge">⚔️ ${escapeHtml(ev.name || 'Tournament Broadcast')} • ${escapeHtml(tableBadge)}</span>
+                <span id="lt-round">ROUND ${curRound} • WIN PROBABILITY ${p1WinProb}% - ${p2WinProb}%</span>
               </div>
               <div style="display:flex; align-items:center; justify-content:space-between; gap:20px;">
                 <div class="player-side">
                   <span class="table-badge p1">${escapeHtml(tableBadge)}</span>
                   <div>
-                    <div class="player-name">${escapeHtml(p1Name)} (${escapeHtml(p1Fac)})</div>
+                    <div id="lt-p1-name" class="player-name">${escapeHtml(p1Name)} (${escapeHtml(p1Fac)})</div>
                     <div class="player-meta p1">${p1Elo.toFixed(1)} Elo • ${p1WinProb}% Win Prob</div>
                   </div>
                 </div>
-                <div class="score-box">${escapeHtml(scoreStr)}</div>
+                <div class="score-box">
+                  <span id="lt-score">${escapeHtml(scoreStr)}</span>
+                  ${trackerStatusLabel ? `<span class="score-sub">${escapeHtml(trackerStatusLabel)}</span>` : ''}
+                </div>
                 <div class="player-side right">
                   <div>
-                    <div class="player-name">${escapeHtml(p2Name)} (${escapeHtml(p2Fac)})</div>
+                    <div id="lt-p2-name" class="player-name">${escapeHtml(p2Name)} (${escapeHtml(p2Fac)})</div>
                     <div class="player-meta p2">${p2Elo.toFixed(1)} Elo • ${p2WinProb}% Win Prob</div>
                   </div>
                   <span class="table-badge p2">${escapeHtml(tableBadge)}</span>
@@ -232,16 +405,19 @@
           root.innerHTML = `
             <div class="lower-third-bar">
               <div class="player-side">
-                <span class="table-badge p1">${escapeHtml(tableBadge)}</span>
+                <span id="lt-table-badge" class="table-badge p1">${escapeHtml(tableBadge)}</span>
                 <div>
-                  <div class="player-name">${escapeHtml(p1Name)} (${escapeHtml(p1Fac)})</div>
-                  <div class="player-meta p1">${p1Elo.toFixed(1)} Elo • Round ${curRound}</div>
+                  <div id="lt-p1-name" class="player-name">${escapeHtml(p1Name)} (${escapeHtml(p1Fac)})</div>
+                  <div id="lt-round" class="player-meta p1">${p1Elo.toFixed(1)} Elo • Round ${curRound}</div>
                 </div>
               </div>
-              <div class="score-box">${escapeHtml(scoreStr)}</div>
+              <div class="score-box">
+                <span id="lt-score">${escapeHtml(scoreStr)}</span>
+                ${trackerStatusLabel ? `<span class="score-sub">${escapeHtml(trackerStatusLabel)}</span>` : ''}
+              </div>
               <div class="player-side right">
                 <div>
-                  <div class="player-name">${escapeHtml(p2Name)} (${escapeHtml(p2Fac)})</div>
+                  <div id="lt-p2-name" class="player-name">${escapeHtml(p2Name)} (${escapeHtml(p2Fac)})</div>
                   <div class="player-meta p2">${p2Elo.toFixed(1)} Elo • Round ${curRound}</div>
                 </div>
                 <span class="table-badge p2">${escapeHtml(tableBadge)}</span>
@@ -254,8 +430,9 @@
       }
     }
 
+    initBrowserPreviewMode();
     refreshOverlay();
-    setInterval(refreshOverlay, 15000);
+    setInterval(refreshOverlay, 10000);
   </script>
 </body>
 </html>

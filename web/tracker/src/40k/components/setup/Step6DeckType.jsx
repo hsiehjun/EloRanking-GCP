@@ -3,9 +3,8 @@ import { useTracker } from "../../context/TrackerContext.jsx";
 import { PLAYER_COLORS } from "../../data/constants.js";
 
 const MISSION_TYPES = [
-  { key: "tactical", name: "Tactical", desc: "Draw random secondaries" },
-  { key: "fixed", name: "Fixed", desc: "Select two fixed secondaries" },
-  { key: "manual", name: "Manual", desc: "You select tactical secondaries" }
+  { key: "tactical", name: "Tactical", desc: "Select or draw random secondaries" },
+  { key: "fixed", name: "Fixed", desc: "Select two fixed secondaries" }
 ];
 
 export function Step6DeckType() {
@@ -17,7 +16,8 @@ export function Step6DeckType() {
       {[1, 2].map(playerNum => {
         const isP1 = playerNum === 1;
         const name = (isP1 ? game.p1Name : game.p2Name) || `Player ${playerNum}`;
-        const currentType = isP1 ? game.p1MissionType : game.p2MissionType;
+        const rawType = isP1 ? game.p1MissionType : game.p2MissionType;
+        const currentType = rawType === "manual" ? "tactical" : rawType;
         const playerColor = PLAYER_COLORS[playerNum];
 
         return (
@@ -29,7 +29,7 @@ export function Step6DeckType() {
               {name}
             </span>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {MISSION_TYPES.map(type => {
                 const isActive = currentType === type.key;
                 return (

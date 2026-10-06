@@ -142,7 +142,8 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
     response = await call_next(request)
 
     # 2. Baseline Security Headers (OWASP)
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    if not path.startswith("/overlay") and not path.endswith("/overlay") and not path.endswith("/overlay.html"):
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(self)"
@@ -747,6 +748,8 @@ async def serve_eventstudio(request: Request, token: Optional[str] = Query(None)
 
 @app.get("/overlay", include_in_schema=False)
 @app.get("/overlay.html", include_in_schema=False)
+@app.get("/40k/overlay", include_in_schema=False)
+@app.get("/aos/overlay", include_in_schema=False)
 async def serve_obs_overlay():
     ov_file = web_dir / "overlay.html"
     if ov_file.exists():

@@ -1046,21 +1046,39 @@ class FirestoreRoomEngine:
         event_id = str(event_id).strip()
         existing = self.get_event_livestreams(event_id)
         
-        stream_id = stream_data.get("id") or f"stream_{int(datetime.now(timezone.utc).timestamp())}_{_uuid.uuid4().hex[:6]}"
+        channel = str(stream_data.get("channel") or "Feature Stream").strip()
+        existing_match = next(
+            (
+                s for s in existing
+                if (stream_data.get("id") and str(s.get("id")) == str(stream_data.get("id")))
+                or str(s.get("channel") or "").strip().lower() == channel.lower()
+            ),
+            None,
+        )
+        stream_id = (
+            stream_data.get("id")
+            or (existing_match.get("id") if existing_match else None)
+            or f"stream_{int(datetime.now(timezone.utc).timestamp())}_{_uuid.uuid4().hex[:6]}"
+        )
         raw_t = stream_data.get("table_number")
         if raw_t is None:
             raw_t = stream_data.get("tableNumber")
         table_num = int(raw_t) if raw_t is not None else 1
-        channel = str(stream_data.get("channel") or "Feature Stream").strip()
+        raw_r = stream_data.get("round_number")
+        if raw_r is None:
+            raw_r = stream_data.get("roundNumber")
+        round_num = int(raw_r) if (raw_r is not None and str(raw_r).isdigit() and int(raw_r) > 0) else None
         default_title = "Main Desk Live Broadcast" if table_num == 0 else f"Table {table_num} Live Broadcast"
         title = str(stream_data.get("title") or default_title).strip()
         url = str(stream_data.get("stream_url") or stream_data.get("streamUrl") or "").strip()
         platform, embed_url = self._parse_stream_embed(url, stream_data.get("platform"))
+        now_iso = datetime.now(timezone.utc).isoformat()
         
         record = {
             "id": stream_id,
             "event_id": event_id,
             "table_number": table_num,
+            "round_number": round_num,
             "channel": channel,
             "platform": platform,
             "title": title,
@@ -1068,13 +1086,18 @@ class FirestoreRoomEngine:
             "embed_url": stream_data.get("embed_url") or embed_url,
             "is_live": bool(stream_data.get("is_live", True)),
             "viewers": int(stream_data.get("viewers") or 250),
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": (existing_match.get("created_at") if existing_match else None) or now_iso,
+            "updated_at": now_iso,
         }
         
-        # Replace if table_number or id already exists
-        updated = [s for s in existing if str(s.get("id")) != str(stream_id) and int(s.get("table_number", 0)) != table_num]
-        updated.append(record)
-        updated.sort(key=lambda s: int(s.get("table_number", 1)))
+        # Replace if id, channel, or table_number already exists, and place active stream first
+        updated = [
+            s for s in existing
+            if str(s.get("id")) != str(stream_id)
+            and str(s.get("channel") or "").strip().lower() != channel.lower()
+            and int(s.get("table_number", -1)) != table_num
+        ]
+        updated.insert(0, record)
         
         self.set_event_livestreams(event_id, updated)
         return record
