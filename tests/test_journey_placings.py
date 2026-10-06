@@ -121,6 +121,49 @@ class TestJourneyPlacings(unittest.TestCase):
         self.assertEqual(tournaments[0]["placement"], 9)
         self.assertEqual(tournaments[1]["placement"], 38)
 
+    def test_get_faction_details_3mo_timeframe(self):
+        PostgresDatabase._faction_details_cache_dict.clear()
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_cursor.__enter__.return_value = mock_cursor
+        db.get_connection = MagicMock(return_value=mock_conn)
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch.object(db, "_query_faction_top_players", return_value=[]) as mock_tp, \
+             patch.object(db, "_query_faction_recent_matches", return_value=[]) as mock_rm, \
+             patch.object(db, "_query_faction_matchups", return_value=[
+                 {"opponent_faction": "Genestealer Cults", "total_matches": 24, "wins": 14, "losses": 9, "draws": 1, "win_rate": 58.3}
+             ]) as mock_mu:
+            res = db.get_faction_details("Chaos Space Marines", limit=25, game_system="40k", timeframe="3mo")
+
+        self.assertEqual(res["timeframe"], "3mo")
+        self.assertEqual(res["stats"]["total_matches"], 24)
+        self.assertEqual(res["stats"]["total_wins"], 14)
+        self.assertEqual(res["stats"]["win_rate"], 58.3)
+        self.assertEqual(len(res["matchups"]), 1)
+        # Verify 92-day date clause and parameter were passed
+        _, kwargs = mock_mu.call_args
+        self.assertEqual(len(kwargs["date_params"]), 1)
+        self.assertIn("matches.match_date >= %s", mock_mu.call_args[0][3])
+
+    def test_caster_desk_removed_roster_section_and_added_3mo_matchup(self):
+        with open("web/js/tournaments.js", "r", encoding="utf-8") as f:
+            js_code = f.read()
+
+        # Verify "📋 Submitted Army Roster & Key Units" is completely removed
+        self.assertNotIn("Submitted Army Roster & Key Units", js_code)
+        self.assertNotIn("caster-dossier-roster-box-", js_code)
+
+        # Verify Global Faction Matchup (Past 3 Months) is placed right underneath Past Head-to-Head Encounters
+        self.assertIn("buildCasterFaction3MoMatchupCardHtml", js_code)
+        h2h_idx = js_code.index('id="caster-past-h2h-container"')
+        fac_3mo_idx = js_code.index('id="caster-faction-3mo-container"')
+        dossiers_idx = js_code.index("Commander Dossiers: Faction Mastery, Army Rosters & Match History")
+        self.assertLess(h2h_idx, fac_3mo_idx)
+        self.assertLess(fac_3mo_idx, dossiers_idx)
+
 
 if __name__ == "__main__":
     unittest.main()

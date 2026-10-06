@@ -6661,10 +6661,12 @@ window.openObsOverlayPreview = openObsOverlayPreview;
 var casterPlayerProfileCache = (typeof window !== 'undefined' && window.__casterPlayerProfileCache) || {};
 var casterArmyListCache = (typeof window !== 'undefined' && window.__casterArmyListCache) || {};
 var casterHeadToHeadCache = (typeof window !== 'undefined' && window.__casterHeadToHeadCache) || {};
+var casterFaction3MoCache = (typeof window !== 'undefined' && window.__casterFaction3MoCache) || {};
 if (typeof window !== 'undefined') {
   window.__casterPlayerProfileCache = casterPlayerProfileCache;
   window.__casterArmyListCache = casterArmyListCache;
   window.__casterHeadToHeadCache = casterHeadToHeadCache;
+  window.__casterFaction3MoCache = casterFaction3MoCache;
 }
 
 function getCasterH2hCacheKey(sys, p1Pid, p2Pid, p1Name, p2Name) {
@@ -6872,6 +6874,255 @@ function buildCasterPastH2hCardHtml(pastMatches, p1Pid, p2Pid, p1Name, p2Name, i
           ${isLoading ? 'Loading past head-to-head encounters...' : `🤝 No previous head-to-head tournament matches recorded between <strong>${escapeHtml(p1Name)}</strong> and <strong>${escapeHtml(p2Name)}</strong>.`}
         </div>
       `}
+    </div>
+  `;
+}
+
+function computeCasterFaction3MoMetrics(fac1Raw, fac2Raw, matches, sys = '40k') {
+  const fac1 = formatEventPlayerFaction(fac1Raw || 'Faction 1');
+  const fac2 = formatEventPlayerFaction(fac2Raw || 'Faction 2');
+  const isMirror = Boolean(fac1 && fac2 && isSameCasterFaction(fac1, fac2));
+
+  // 1. In-event matchup record between fac1 and fac2
+  let evF1Wins = 0;
+  let evF2Wins = 0;
+  let evDraws = 0;
+  (Array.isArray(matches) ? matches : []).forEach(m => {
+    if (!m || m.is_bye) return;
+    if (m.player1_score === null || m.player1_score === undefined || m.player2_score === null || m.player2_score === undefined) return;
+    const s1 = Number(m.player1_score);
+    const s2 = Number(m.player2_score);
+    if (isNaN(s1) || isNaN(s2)) return;
+    const mf1 = m.player1_faction || '';
+    const mf2 = m.player2_faction || '';
+    if (isMirror) {
+      if (isSameCasterFaction(mf1, fac1) && isSameCasterFaction(mf2, fac1)) {
+        if (s1 === s2 || m.is_draw) evDraws++;
+        else evF1Wins++;
+      }
+    } else if (isSameCasterFaction(mf1, fac1) && isSameCasterFaction(mf2, fac2)) {
+      if (s1 > s2) evF1Wins++;
+      else if (s2 > s1) evF2Wins++;
+      else evDraws++;
+    } else if (isSameCasterFaction(mf1, fac2) && isSameCasterFaction(mf2, fac1)) {
+      if (s2 > s1) evF1Wins++;
+      else if (s1 > s2) evF2Wins++;
+      else evDraws++;
+    }
+  });
+  const evTotal = evF1Wins + evF2Wins + evDraws;
+
+  // 2. Global 3-month faction details from cache
+  const k1 = `${sys || '40k'}:${String(fac1 || '').trim().toLowerCase()}`;
+  const k2 = `${sys || '40k'}:${String(fac2 || '').trim().toLowerCase()}`;
+  const f1Details = casterFaction3MoCache[k1] || null;
+  const f2Details = casterFaction3MoCache[k2] || null;
+
+  let h2hF1Wins = 0;
+  let h2hF2Wins = 0;
+  let h2hDraws = 0;
+
+  if (!isMirror) {
+    const f1Matchups = Array.isArray(f1Details?.matchups) ? f1Details.matchups : [];
+    const matchedFromF1 = f1Matchups.filter(m => isSameCasterFaction(m.opponent_faction, fac2));
+    if (matchedFromF1.length > 0) {
+      matchedFromF1.forEach(m => {
+        h2hF1Wins += Number(m.wins || 0);
+        h2hF2Wins += Number(m.losses || 0);
+        h2hDraws += Number(m.draws || 0);
+      });
+    } else {
+      const f2Matchups = Array.isArray(f2Details?.matchups) ? f2Details.matchups : [];
+      const matchedFromF2 = f2Matchups.filter(m => isSameCasterFaction(m.opponent_faction, fac1));
+      matchedFromF2.forEach(m => {
+        h2hF1Wins += Number(m.losses || 0);
+        h2hF2Wins += Number(m.wins || 0);
+        h2hDraws += Number(m.draws || 0);
+      });
+    }
+  }
+
+  const h2hTotal = h2hF1Wins + h2hF2Wins + h2hDraws;
+  const f1GlobalGames = Number(f1Details?.stats?.total_matches || f1Details?.total_matches || 0);
+  const f1GlobalWins = Number(f1Details?.stats?.total_wins || 0);
+  const f1GlobalLosses = Number(f1Details?.stats?.total_losses || 0);
+  const f1GlobalWr = Number(f1Details?.stats?.win_rate || 0);
+
+  const f2GlobalGames = Number(f2Details?.stats?.total_matches || f2Details?.total_matches || 0);
+  const f2GlobalWins = Number(f2Details?.stats?.total_wins || 0);
+  const f2GlobalLosses = Number(f2Details?.stats?.total_losses || 0);
+  const f2GlobalWr = Number(f2Details?.stats?.win_rate || 0);
+
+  return {
+    fac1,
+    fac2,
+    isMirror,
+    hasLoadedF1: Boolean(f1Details),
+    hasLoadedF2: Boolean(f2Details),
+    h2hF1Wins,
+    h2hF2Wins,
+    h2hDraws,
+    h2hTotal,
+    evF1Wins,
+    evF2Wins,
+    evDraws,
+    evTotal,
+    f1GlobalGames,
+    f1GlobalWins,
+    f1GlobalLosses,
+    f1GlobalWr,
+    f2GlobalGames,
+    f2GlobalWins,
+    f2GlobalLosses,
+    f2GlobalWr
+  };
+}
+
+function buildCasterFaction3MoMatchupCardHtml(fac1Raw, fac2Raw, matches, sys = '40k', isLoading = false) {
+  const m = computeCasterFaction3MoMetrics(fac1Raw, fac2Raw, matches, sys);
+  const {
+    fac1, fac2, isMirror,
+    h2hF1Wins, h2hF2Wins, h2hDraws, h2hTotal,
+    evF1Wins, evF2Wins, evDraws, evTotal,
+    f1GlobalGames, f1GlobalWins, f1GlobalLosses, f1GlobalWr,
+    f2GlobalGames, f2GlobalWins, f2GlobalLosses, f2GlobalWr
+  } = m;
+
+  // Use global 3mo head-to-head when available; fallback to in-event head-to-head if 0 global games
+  const useGlobalH2h = h2hTotal > 0;
+  const activeF1W = useGlobalH2h ? h2hF1Wins : evF1Wins;
+  const activeF2W = useGlobalH2h ? h2hF2Wins : evF2Wins;
+  const activeD = useGlobalH2h ? h2hDraws : evDraws;
+  const activeTotal = activeF1W + activeF2W + activeD;
+
+  const f1Wr = activeTotal > 0 ? (activeF1W / activeTotal) * 100 : 50;
+  const f2Wr = activeTotal > 0 ? (activeF2W / activeTotal) * 100 : 50;
+  const dPct = activeTotal > 0 ? (activeD / activeTotal) * 100 : 0;
+  const f1WrStr = activeTotal > 0 ? f1Wr.toFixed(1) : '50.0';
+  const f2WrStr = activeTotal > 0 ? f2Wr.toFixed(1) : '50.0';
+
+  let headerBadgeText = '';
+  let headerBadgeStyle = 'background: rgba(168, 85, 247, 0.14); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.32);';
+  if (isMirror) {
+    headerBadgeText = f1GlobalGames > 0
+      ? `🪞 Mirror Clash • ${f1GlobalWr.toFixed(1)}% Global 3-Mo Meta WR (${f1GlobalGames} Games)`
+      : (isLoading ? '⏳ Analyzing Past 3 Months Meta...' : '🪞 Same-Faction Mirror Matchup');
+  } else if (activeTotal > 0) {
+    const scopeLabel = useGlobalH2h ? 'Past 3 Months' : 'In-Event';
+    if (f1Wr >= 53) {
+      headerBadgeText = `🔥 Favors ${fac1} (${f1WrStr}% WR • ${activeTotal} Games, ${scopeLabel})`;
+      headerBadgeStyle = 'background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.38);';
+    } else if (f2Wr >= 53) {
+      headerBadgeText = `🔥 Favors ${fac2} (${f2WrStr}% WR • ${activeTotal} Games, ${scopeLabel})`;
+      headerBadgeStyle = 'background: rgba(244, 63, 94, 0.15); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.38);';
+    } else {
+      headerBadgeText = `⚖️ Balanced Matchup (${f1WrStr}% vs ${f2WrStr}% • ${activeTotal} Games, ${scopeLabel})`;
+      headerBadgeStyle = 'background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35);';
+    }
+  } else if (isLoading) {
+    headerBadgeText = '⏳ Loading Past 3 Months Faction Telemetry...';
+  } else {
+    headerBadgeText = '📊 90-Day Global Faction Telemetry';
+  }
+
+  return `
+    <div style="background: rgba(15, 23, 42, 0.72); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 0.95rem 1.1rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.7rem; flex-wrap: wrap;">
+        <div>
+          <h4 style="margin: 0; font-size: 0.92rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
+            <span>⚔️ Global Faction Matchup (Past 3 Months): ${escapeHtml(fac1)} vs ${escapeHtml(fac2)}</span>
+          </h4>
+          <div style="font-size: 0.73rem; color: var(--text-secondary); margin-top: 2px;">
+            How well <strong>${escapeHtml(fac1)}</strong> and <strong>${escapeHtml(fac2)}</strong> perform against each other and in the broader tournament meta over the last 90 days.
+          </div>
+        </div>
+        <span class="badge" style="${headerBadgeStyle} font-size: 0.7rem; font-weight: 700;">
+          ${escapeHtml(headerBadgeText)}
+        </span>
+      </div>
+
+      ${(!isMirror && activeTotal > 0) ? `
+        <!-- Head-to-Head Faction Tug-of-War Box -->
+        <div style="background: rgba(9, 14, 26, 0.78); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 0.75rem 0.9rem; margin-bottom: 0.65rem;">
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <!-- Faction 1 -->
+            <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+              <div style="font-size: 0.8rem; font-weight: 800; color: #38bdf8; overflow-wrap: break-word;">
+                🛡️ ${escapeHtml(fac1)}
+              </div>
+              <div style="font-family: var(--font-mono); font-size: 0.95rem; font-weight: 900; color: #fff;">
+                ${f1WrStr}% <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-secondary);">(${activeF1W}W-${activeF2W}L${activeD > 0 ? `-${activeD}D` : ''})</span>
+              </div>
+            </div>
+
+            <!-- Center Sample Pill -->
+            <div style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.22rem 0.55rem; font-family: var(--font-mono); font-size: 0.7rem; font-weight: 800; color: #cbd5e1; text-align: center; white-space: nowrap;">
+              ${activeTotal} ${activeTotal === 1 ? 'Game' : 'Games'} (${useGlobalH2h ? 'Past 3 Mo' : 'This Event'})
+            </div>
+
+            <!-- Faction 2 -->
+            <div style="display: flex; flex-direction: column; align-items: flex-end; text-align: right; gap: 2px; min-width: 0;">
+              <div style="font-size: 0.8rem; font-weight: 800; color: #f43f5e; overflow-wrap: break-word;">
+                🛡️ ${escapeHtml(fac2)}
+              </div>
+              <div style="font-family: var(--font-mono); font-size: 0.95rem; font-weight: 900; color: #fff;">
+                ${f2WrStr}% <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-secondary);">(${activeF2W}W-${activeF1W}L${activeD > 0 ? `-${activeD}D` : ''})</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dual-Color Matchup Bar -->
+          <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; display: flex;">
+            <div style="width: ${f1Wr}%; height: 100%; background: linear-gradient(90deg, #0284c7, #38bdf8);"></div>
+            ${dPct > 0 ? `<div style="width: ${dPct}%; height: 100%; background: #64748b;"></div>` : ''}
+            <div style="width: ${f2Wr}%; height: 100%; background: linear-gradient(90deg, #f43f5e, #e11d48);"></div>
+          </div>
+        </div>
+      ` : (!isMirror ? `
+        <div style="background: rgba(9, 14, 26, 0.55); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 0.65rem 0.85rem; text-align: center; color: var(--text-muted); font-size: 0.77rem; margin-bottom: 0.65rem;">
+          ${isLoading
+            ? `⏳ Querying past 3 months of global tournament games between <strong>${escapeHtml(fac1)}</strong> and <strong>${escapeHtml(fac2)}</strong>...`
+            : `📊 No direct global tournament games recorded between <strong>${escapeHtml(fac1)}</strong> and <strong>${escapeHtml(fac2)}</strong> in the past 3 months — see each faction's 90-day overall meta standing below.`}
+        </div>
+      ` : '')}
+
+      <!-- 3-Column 90-Day Meta & Event Context Grid -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 0.55rem;">
+        <div style="background: rgba(9, 14, 26, 0.65); border: 1px solid rgba(56, 189, 248, 0.22); border-radius: 8px; padding: 0.55rem 0.7rem;">
+          <div style="font-size: 0.65rem; font-weight: 800; text-transform: uppercase; color: #38bdf8; letter-spacing: 0.03em;">
+            🛡️ ${escapeHtml(fac1)} • 3-Mo Meta Form
+          </div>
+          <div style="font-family: var(--font-mono); font-size: 0.82rem; font-weight: 800; color: #fff; margin-top: 2px;">
+            ${f1GlobalGames > 0
+              ? `<span style="color: ${f1GlobalWr >= 52 ? '#4ade80' : (f1GlobalWr <= 45 ? '#f87171' : '#fbbf24')};">${f1GlobalWr.toFixed(1)}% WR</span> <span style="font-size: 0.72rem; color: var(--text-secondary);">(${f1GlobalWins}W-${f1GlobalLosses}L • ${f1GlobalGames}G)</span>`
+              : (isLoading ? '<span style="color:var(--text-muted);">Loading 90d stats...</span>' : '<span style="color:var(--text-muted);">No 90d global games</span>')}
+          </div>
+        </div>
+
+        <div style="background: rgba(9, 14, 26, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.55rem 0.7rem;">
+          <div style="font-size: 0.65rem; font-weight: 800; text-transform: uppercase; color: #c084fc; letter-spacing: 0.03em;">
+            🏟️ In-Event Faction Clash
+          </div>
+          <div style="font-family: var(--font-mono); font-size: 0.8rem; font-weight: 800; color: #fff; margin-top: 2px;">
+            ${isMirror
+              ? `${evTotal} Mirror ${evTotal === 1 ? 'Match' : 'Matches'} in Event`
+              : (evTotal > 0
+                ? `${evF1Wins}W - ${evF2Wins}L${evDraws > 0 ? ` - ${evDraws}D` : ''} <span style="font-size:0.71rem; color:var(--text-secondary);">(${Math.round((evF1Wins / evTotal) * 100)}% ${escapeHtml(fac1)})</span>`
+                : '<span style="color:var(--text-muted); font-weight:600;">First clash in this event</span>')}
+          </div>
+        </div>
+
+        <div style="background: rgba(9, 14, 26, 0.65); border: 1px solid rgba(244, 63, 94, 0.22); border-radius: 8px; padding: 0.55rem 0.7rem;">
+          <div style="font-size: 0.65rem; font-weight: 800; text-transform: uppercase; color: #f43f5e; letter-spacing: 0.03em;">
+            🛡️ ${escapeHtml(fac2)} • 3-Mo Meta Form
+          </div>
+          <div style="font-family: var(--font-mono); font-size: 0.82rem; font-weight: 800; color: #fff; margin-top: 2px;">
+            ${f2GlobalGames > 0
+              ? `<span style="color: ${f2GlobalWr >= 52 ? '#4ade80' : (f2GlobalWr <= 45 ? '#f87171' : '#fbbf24')};">${f2GlobalWr.toFixed(1)}% WR</span> <span style="font-size: 0.72rem; color: var(--text-secondary);">(${f2GlobalWins}W-${f2GlobalLosses}L • ${f2GlobalGames}G)</span>`
+              : (isLoading ? '<span style="color:var(--text-muted);">Loading 90d stats...</span>' : '<span style="color:var(--text-muted);">No 90d global games</span>')}
+          </div>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -7456,6 +7707,54 @@ async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
     }
   }
 
+  // Hydrate Global Faction Matchup (Past 3 Months)
+  const fac1Clean = formatEventPlayerFaction(p1?.faction || selectedMatch?.player1_faction || 'Army');
+  const fac2Clean = formatEventPlayerFaction(p2?.faction || selectedMatch?.player2_faction || 'Army');
+  const applyFaction3MoToDom = (stillLoading = false) => {
+    const fac3MoEl = document.getElementById('caster-faction-3mo-container');
+    if (fac3MoEl) {
+      fac3MoEl.innerHTML = buildCasterFaction3MoMatchupCardHtml(fac1Clean, fac2Clean, evMatches, sys, stillLoading);
+    }
+    const facSummaryEl = document.getElementById('caster-fac-matchup-summary');
+    if (facSummaryEl) {
+      const m = computeCasterFaction3MoMetrics(fac1Clean, fac2Clean, evMatches, sys);
+      if (!m.isMirror && m.h2hTotal > 0) {
+        const wr = Math.round((m.h2hF1Wins / m.h2hTotal) * 100);
+        facSummaryEl.innerHTML = `📊 <strong>Faction Matchup (3-Mo):</strong> ${escapeHtml(m.fac1)} ${wr}% WR vs ${escapeHtml(m.fac2)} (${m.h2hF1Wins}W-${m.h2hF2Wins}L${m.h2hDraws > 0 ? `-${m.h2hDraws}D` : ''})`;
+      } else if (!m.isMirror && m.evTotal > 0) {
+        const wr = Math.round((m.evF1Wins / m.evTotal) * 100);
+        facSummaryEl.innerHTML = `📊 <strong>Faction Matchup (Event):</strong> ${escapeHtml(m.fac1)} ${wr}% WR vs ${escapeHtml(m.fac2)} (${m.evF1Wins}W-${m.evF2Wins}L)`;
+      }
+    }
+  };
+
+  if (window.api && typeof window.api.getFactionDetails === 'function') {
+    const uniqueFacs = [...new Set([fac1Clean, fac2Clean].filter(f => f && f !== '-' && f !== 'Army' && f !== 'Unknown' && f !== 'Various'))];
+    const pendingPromises = [];
+    uniqueFacs.forEach(facName => {
+      const fKey = `${sys}:${facName.trim().toLowerCase()}`;
+      if (!casterFaction3MoCache[fKey]) {
+        const p = window.api.getFactionDetails(facName, 25, sys, '3mo').then(res => {
+          if (res && !res.error) {
+            casterFaction3MoCache[fKey] = res;
+          } else {
+            casterFaction3MoCache[fKey] = { faction: facName, stats: {}, matchups: [] };
+          }
+        }).catch(() => {
+          casterFaction3MoCache[fKey] = { faction: facName, stats: {}, matchups: [] };
+        });
+        pendingPromises.push(p);
+      }
+    });
+    if (pendingPromises.length === 0) {
+      applyFaction3MoToDom(false);
+    } else {
+      Promise.allSettled(pendingPromises).then(() => {
+        applyFaction3MoToDom(false);
+      });
+    }
+  }
+
   for (const item of pairs) {
     const pid = String(item.obj?.player_id || item.obj?.id || item.matchPid || '').trim();
     const pname = String(item.obj?.full_name || item.matchName || '').trim();
@@ -7508,37 +7807,15 @@ async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
 }
 
 function updateCasterRosterPreviewDom(side, playerObj, rosterText, listId) {
-  const rosterBoxEl = document.getElementById(`caster-dossier-roster-box-${side}`);
-  const unitsEl = document.getElementById(`caster-dossier-units-${side}`);
   const fighterUnitsRowEl = document.getElementById(`caster-fighter-units-row-${side}`);
   const fighterUnitsEl = document.getElementById(`caster-fighter-units-${side}`);
-  const previewEl = document.getElementById(`caster-dossier-roster-preview-${side}`);
   const units = extractKeyListUnits(rosterText, playerObj?.faction, playerObj?.detachment);
 
   if (units.length > 0) {
     if (fighterUnitsRowEl) fighterUnitsRowEl.style.display = '';
     if (fighterUnitsEl) fighterUnitsEl.innerHTML = escapeHtml(units.slice(0, 4).join(', '));
-    if (rosterBoxEl) rosterBoxEl.style.display = '';
-    if (unitsEl) {
-      unitsEl.innerHTML = units.slice(0, 8).map(u => `
-        <span class="badge" style="background: rgba(255,255,255,0.07); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.12); font-size: 0.7rem; padding: 2px 7px;">
-          ⚔️ ${escapeHtml(u)}
-        </span>
-      `).join('');
-    }
   } else {
     if (fighterUnitsRowEl) fighterUnitsRowEl.style.display = 'none';
-    if (rosterBoxEl) rosterBoxEl.style.display = 'none';
-  }
-  if (previewEl && rosterText && units.length > 0) {
-    previewEl.innerHTML = `
-      <details style="margin-top: 0.45rem; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.45rem 0.65rem;">
-        <summary style="cursor: pointer; font-size: 0.74rem; font-weight: 700; color: #38bdf8; user-select: none;">
-          📜 Expand Inline Army List Text (${rosterText.split('\n').filter(Boolean).length} lines)
-        </summary>
-        <pre style="margin: 0.5rem 0 0 0; max-height: 220px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.72rem; color: #cbd5e1; white-space: pre-wrap; line-height: 1.4;">${escapeHtml(rosterText)}</pre>
-      </details>
-    `;
   }
 }
 
@@ -7644,34 +7921,19 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
     // Faction matchup stats
     const fac1 = p1?.faction || 'Army';
     const fac2 = p2?.faction || 'Army';
+    const fac3MoMetrics = computeCasterFaction3MoMetrics(fac1, fac2, matches, sysH2h);
+    const isFac3MoLoading = (!fac3MoMetrics.hasLoadedF1 || !fac3MoMetrics.hasLoadedF2) && Boolean(window.api && typeof window.api.getFactionDetails === 'function');
     let facMatchupText = '';
-    if (fac1 && fac2 && fac1 !== fac2 && fac1 !== 'Unknown' && fac2 !== 'Unknown') {
-      let f1Wins = 0;
-      let f2Wins = 0;
-      matches.forEach(m => {
-        const mf1 = m.player1_faction;
-        const mf2 = m.player2_faction;
-        if (m.player1_score !== null && m.player2_score !== null && m.player1_score !== undefined && m.player2_score !== undefined) {
-          const s1 = Number(m.player1_score);
-          const s2 = Number(m.player2_score);
-          if (mf1 === fac1 && mf2 === fac2) {
-            if (s1 > s2) f1Wins++;
-            else if (s2 > s1) f2Wins++;
-          } else if (mf1 === fac2 && mf2 === fac1) {
-            if (s2 > s1) f1Wins++;
-            else if (s1 > s2) f2Wins++;
-          }
-        }
-      });
-      const totalFacGames = f1Wins + f2Wins;
-      if (totalFacGames > 0) {
-        const wr = Math.round((f1Wins / totalFacGames) * 100);
-        facMatchupText = `${escapeHtml(fac1)} has a ${wr}% win rate vs ${escapeHtml(fac2)} in this event (${f1Wins}-${f2Wins})`;
-      } else {
-        facMatchupText = `${escapeHtml(fac1)} vs ${escapeHtml(fac2)} Matchup`;
-      }
+    if (!fac3MoMetrics.isMirror && fac3MoMetrics.h2hTotal > 0) {
+      const wr = Math.round((fac3MoMetrics.h2hF1Wins / fac3MoMetrics.h2hTotal) * 100);
+      facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} ${wr}% WR vs ${escapeHtml(fac3MoMetrics.fac2)} (${fac3MoMetrics.h2hF1Wins}W-${fac3MoMetrics.h2hF2Wins}L${fac3MoMetrics.h2hDraws > 0 ? `-${fac3MoMetrics.h2hDraws}D` : ''}, Past 3 Mo)`;
+    } else if (!fac3MoMetrics.isMirror && fac3MoMetrics.evTotal > 0) {
+      const wr = Math.round((fac3MoMetrics.evF1Wins / fac3MoMetrics.evTotal) * 100);
+      facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} has a ${wr}% win rate vs ${escapeHtml(fac3MoMetrics.fac2)} in this event (${fac3MoMetrics.evF1Wins}-${fac3MoMetrics.evF2Wins})`;
+    } else if (!fac3MoMetrics.isMirror) {
+      facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} vs ${escapeHtml(fac3MoMetrics.fac2)} Matchup`;
     } else {
-      facMatchupText = `${escapeHtml(fac1)} Mirror Match`;
+      facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} Mirror Match`;
     }
 
     // Dynamic Elo stakes
@@ -7770,35 +8032,6 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
           <!-- Career & Faction Mastery Telemetry (Async Enriched) -->
           <div id="caster-dossier-mastery-${side}">
             ${masteryHtml}
-          </div>
-
-          <!-- Submitted Army Roster & Key Tech (Only shown when real units are extracted) -->
-          <div id="caster-dossier-roster-box-${side}" style="display: ${units.length > 0 ? 'block' : 'none'}; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem 0.75rem;">
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; margin-bottom: 0.45rem; flex-wrap: wrap;">
-              <span style="font-size: 0.73rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">
-                📋 Submitted Army Roster & Key Units
-              </span>
-              <button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(safePid || safeName)}', '${escapeHtml(safeListId)}')" style="font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.1); cursor: pointer; font-weight: 700;">
-                📋 Open Full List Modal ↗
-              </button>
-            </div>
-            <div id="caster-dossier-units-${side}" style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-              ${units.slice(0, 8).map(u => `
-                <span class="badge" style="background: rgba(255,255,255,0.07); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.12); font-size: 0.7rem; padding: 2px 7px;">
-                  ⚔️ ${escapeHtml(u)}
-                </span>
-              `).join('')}
-            </div>
-            <div id="caster-dossier-roster-preview-${side}">
-              ${(rosterText && units.length > 0) ? `
-                <details style="margin-top: 0.45rem; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.45rem 0.65rem;">
-                  <summary style="cursor: pointer; font-size: 0.74rem; font-weight: 700; color: #38bdf8; user-select: none;">
-                    📜 Expand Inline Army List Text (${rosterText.split('\n').filter(Boolean).length} lines)
-                  </summary>
-                  <pre style="margin: 0.5rem 0 0 0; max-height: 220px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.72rem; color: #cbd5e1; white-space: pre-wrap; line-height: 1.4;">${escapeHtml(rosterText)}</pre>
-                </details>
-              ` : ''}
-            </div>
           </div>
 
           <!-- Tournament Run & Round-by-Round Scorecards -->
@@ -7943,7 +8176,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
         <!-- Matchup Context & History Sub-strip -->
         <div style="margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: var(--text-secondary);">
           <div id="caster-h2h-summary">⚔️ <strong>Past Head-to-Head:</strong> ${h2hText}</div>
-          <div>📊 <strong>Faction Matchup:</strong> ${facMatchupText}</div>
+          <div id="caster-fac-matchup-summary">📊 <strong>Faction Matchup:</strong> ${facMatchupText}</div>
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span>🏆 <strong>Table Score:</strong> <span style="font-family:var(--font-mono); font-weight:800; color:#fff;">${scoreDisplay}</span></span>
             <button type="button" class="btn-xs btn-outline" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" style="font-size: 0.7rem; padding: 2px 7px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.35); cursor: pointer;">
@@ -7955,6 +8188,9 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
 
       <!-- PAST HEAD-TO-HEAD ENCOUNTERS CARD -->
       <div id="caster-past-h2h-container">${buildCasterPastH2hCardHtml(pastH2hMatches, p1Pid, p2Pid, p1Name, p2Name, isH2hLoading)}</div>
+
+      <!-- GLOBAL FACTION MATCHUP (PAST 3 MONTHS) CARD -->
+      <div id="caster-faction-3mo-container">${buildCasterFaction3MoMatchupCardHtml(fac1, fac2, matches, sysH2h, isFac3MoLoading)}</div>
 
       <!-- SIDE-BY-SIDE COMMANDER DOSSIERS: FACTION MASTERY, ROSTERS & TOURNAMENT PATH -->
       <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 1.15rem;">

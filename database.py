@@ -6947,7 +6947,7 @@ class PostgresDatabase:
             GROUP BY opp_faction
             HAVING COUNT(*) >= 1
             ORDER BY win_rate DESC, total_matches DESC
-            LIMIT 35;
+            LIMIT 100;
             """, (
                 fac_lower, fac_lower, *sys_params, *d_params,
                 fac_lower, fac_lower, *sys_params, *d_params
@@ -6988,9 +6988,13 @@ class PostgresDatabase:
         date_params = []
         now_dt = datetime.now(timezone.utc)
         # Parameterized date strings replace dynamic PostgreSQL runtime expressions:
+        # matches.match_date >= (CURRENT_DATE - INTERVAL '3 months')
         # matches.match_date >= (CURRENT_DATE - INTERVAL '6 months')
         # matches.match_date >= (CURRENT_DATE - INTERVAL '12 months')
-        if tf == "6mo":
+        if tf in ("3mo", "3m", "90d"):
+            date_clause = " AND matches.match_date >= %s"
+            date_params = [(now_dt - timedelta(days=92)).strftime("%Y-%m-%d")]
+        elif tf == "6mo":
             date_clause = " AND matches.match_date >= %s"
             date_params = [(now_dt - timedelta(days=183)).strftime("%Y-%m-%d")]
         elif tf == "1yr" or not tf:
