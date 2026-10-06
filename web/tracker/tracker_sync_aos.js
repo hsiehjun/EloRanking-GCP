@@ -1498,7 +1498,7 @@
           applyAttachedAosListToGameState('player2', updated);
           if (!isP1) myMatched = true;
         }
-        if (myMatched && matchId) {
+        if (myMatched && matchId && aosListState.rosterViewMode === 'edit') {
           const myRole = isP1 ? 'player1' : 'player2';
           fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/armylist`, {
             method: 'POST',
@@ -1780,8 +1780,6 @@ General's Regiment
         };
         iframe.addEventListener('load', () => {
           sendPlayCmd();
-          setTimeout(sendPlayCmd, 600);
-          setTimeout(sendPlayCmd, 1600);
         });
       }
     }

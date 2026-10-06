@@ -6537,6 +6537,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 class ThreadedHTTPServer(http.server.ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
+    request_queue_size = 256
 
 def main():
     print(f"--> Starting OmniTactica Game Tracker dev server on http://{HOST}:{PORT}")

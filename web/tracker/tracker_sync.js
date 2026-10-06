@@ -3349,19 +3349,28 @@
             const modal = document.getElementById('gt-army-list-modal');
             if (modal && modal.style.display !== 'none') {
               const myRole = clientState.role === 'player2' ? 'player2' : 'player1';
-              const isEditingOwnList = (
-                clientState.rosterViewMode === 'edit' &&
-                clientState.activeListTab === 'my' &&
-                msg.role === myRole &&
-                !!document.getElementById('gt-nr-play-mode-iframe')
-              );
-              if (isEditingOwnList && msg.army_list) {
-                const titleEl = document.getElementById('gt-active-roster-title');
-                const metaEl = document.getElementById('gt-active-roster-meta');
-                if (titleEl) titleEl.textContent = msg.army_list.name || 'Army Roster';
-                if (metaEl) metaEl.textContent = `${msg.army_list.faction || 'Warhammer 40,000'} • ${msg.army_list.detachment || 'Core Detachment'} • ${msg.army_list.points || 2000} PTS`;
+              const oppRole = myRole === 'player1' ? 'player2' : 'player1';
+              const activeTabRole = clientState.activeListTab === 'opponent' ? oppRole : (clientState.activeListTab === 'my' ? myRole : null);
+              if (!activeTabRole || msg.role !== activeTabRole) {
+                const oppTabBtn = modal.querySelector('button[onclick*="gtSetListTab(\'opponent\')"]');
+                const myTabBtn = modal.querySelector('button[onclick*="gtSetListTab(\'my\')"]');
+                const isP1Now = clientState.role !== 'player2';
+                const myNow = isP1Now ? clientState.p1ArmyList : clientState.p2ArmyList;
+                const oppNow = isP1Now ? clientState.p2ArmyList : clientState.p1ArmyList;
+                if (oppTabBtn) oppTabBtn.innerHTML = `📜 Opp${oppNow ? ' 🟢' : ''}`;
+                if (myTabBtn) myTabBtn.innerHTML = `📋 Mine${myNow ? ' 🟢' : ''}`;
               } else {
-                renderArmyListModal();
+                const existingIframe = document.getElementById('gt-nr-play-mode-iframe');
+                const existingKey = existingIframe ? existingIframe.getAttribute('data-list-key') : null;
+                const incomingKey = msg.army_list ? resolveTrackerNrListKey(msg.army_list) : null;
+                if (existingIframe && msg.army_list && (existingKey === incomingKey || (clientState.rosterViewMode === 'edit' && clientState.activeListTab === 'my'))) {
+                  const titleEl = document.getElementById('gt-active-roster-title');
+                  const metaEl = document.getElementById('gt-active-roster-meta');
+                  if (titleEl) titleEl.textContent = msg.army_list.name || 'Army Roster';
+                  if (metaEl) metaEl.textContent = `${msg.army_list.faction || 'Warhammer 40,000'} • ${msg.army_list.detachment || 'Core Detachment'} • ${msg.army_list.points || 2000} PTS`;
+                } else {
+                  renderArmyListModal();
+                }
               }
             }
           }
@@ -4114,7 +4123,7 @@
           clientState.p2ArmyList = updated;
           if (!isP1) myMatched = true;
         }
-        if (myMatched && clientState.matchId) {
+        if (myMatched && clientState.matchId && clientState.rosterViewMode === 'edit') {
           const role = isP1 ? 'player1' : 'player2';
           fetch(`/api/tracker/room/${clientState.matchId}/armylist`, {
             method: 'POST',
@@ -4367,8 +4376,6 @@ Space Marines - Gladius Task Force (2000 pts)
         };
         iframe.addEventListener('load', () => {
           sendPlayCmd();
-          setTimeout(sendPlayCmd, 600);
-          setTimeout(sendPlayCmd, 1600);
         });
       }
     }

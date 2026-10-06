@@ -1595,6 +1595,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
 
   var requestedListKeyFromUrl = null;
+  var lastParentRequestedKey = null;
   var requestedListNameFromUrl = '';
   var mNameQuery = initialSearch.match(/[?&]name=([^&#]+)/i);
   if (mNameQuery && mNameQuery[1]) {
@@ -1609,6 +1610,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       requestedListKeyFromUrl = decodeURIComponent(mQueryList[1]);
     }
   }
+  lastParentRequestedKey = requestedListKeyFromUrl;
 
   var directListLoaderTimer = null;
   var directListLookupRetries = 0;
@@ -1672,7 +1674,12 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     );
     try {
       ['/_nuxt/DzWbm3in.js', '/_nuxt/DGlI0FuJ.js', '/_nuxt/dclw41pw.js', '/_nuxt/D7n9-sfm.js'].forEach(function(modPath) {
-        import(modPath).catch(function() {});
+        if (document.head) {
+          var link = document.createElement('link');
+          link.rel = 'modulepreload';
+          link.href = modPath;
+          document.head.appendChild(link);
+        }
       });
     } catch (e) {}
   }
@@ -1833,6 +1840,26 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     if (!s || !s.system || !s.user) return null;
     try {
       s.user.isSupporter = function() { return true; };
+    } catch (e) {}
+    try {
+      if (s.system && !s.system.__omniPatchedApplyLib && typeof s.system.applyLibraryRows === 'function') {
+        s.system.__omniPatchedApplyLib = true;
+        var origApplyLibraryRows = s.system.applyLibraryRows.bind(s.system);
+        s.system.applyLibraryRows = function(rows) {
+          var hasPopulatedLib = Boolean(this.library && Array.isArray(this.library.array) && this.library.array.length > 0);
+          var isViewingOrActivatingList = Boolean(
+            requestedListKeyFromUrl ||
+            activatingPlayMode ||
+            playModeActivatedForKey ||
+            (window.location.pathname || '').indexOf('/Lists/') !== -1
+          );
+          if (hasPopulatedLib && isViewingOrActivatingList) {
+            this.libraryUpdatePending = true;
+            return;
+          }
+          return origApplyLibraryRows(rows);
+        };
+      }
     } catch (e) {}
     var pMap = (s.system._p && s.system._p._s) ? s.system._p._s : null;
     var listsStore = s.lists || s.list || (pMap ? pMap.get('lists') : null);
@@ -2640,7 +2667,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   }
 
   async function syncUpsertRow(row, explicitArmy, explicitBook) {
-    if (isHydrating || isEphemeralViewer || !row || row._ephemeral_view || isTombstonedNrRow(row)) return;
+    if (isHydrating || isEphemeralViewer || (isEmbeddedViewer && wantPlayModeFromUrl) || !row || row._ephemeral_view || isTombstonedNrRow(row)) return;
     var rKey = String(row.list_key || row._id || '');
     if (rKey && syncInFlight[rKey]) {
       pendingSyncRow[rKey] = { row: row, explicitArmy: explicitArmy, explicitBook: explicitBook };
@@ -2982,21 +3009,73 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
       } catch (e) {}
 
-      // Fast-path for ephemeral competitor/opponent viewers: seed pendingNrRowFromParent directly and activate Play Mode immediately
-      // without waiting on tombstone purges or /api/armylists/nr_state!
-      if (isEphemeralViewer && !force && requestedListKeyFromUrl) {
-        if (pendingNrRowFromParent && pendingNrRowFromParent.list_key) {
-          var ephRow = Object.assign({}, pendingNrRowFromParent);
-          ephRow._ephemeral_view = true;
-          ephRow.synced = 0;
-          ephRow.metadata = Object.assign(
+      // Fast-path for embedded Play Mode & ephemeral competitor/opponent viewers:
+      // if the target list already exists locally in Pinia/IndexedDB or was passed via pendingNrRowFromParent,
+      // set play_mode immediately and return without waiting on tombstone purges or /api/armylists/nr_state!
+      if ((isEphemeralViewer || (isEmbeddedViewer && wantPlayModeFromUrl)) && !force && requestedListKeyFromUrl) {
+        if (isEphemeralViewer) {
+          if (pendingNrRowFromParent && pendingNrRowFromParent.list_key) {
+            var ephRow = Object.assign({}, pendingNrRowFromParent);
+            ephRow._ephemeral_view = true;
+            ephRow.synced = 0;
+            ephRow.metadata = Object.assign(
+              { builder_settings: {}, custom_categories: [], custom_view: false },
+              ephRow.metadata || {},
+              { play_mode: Boolean(wantPlayModeFromUrl) }
+            );
+            await upsertSingleRowToIdb(ephRow);
+          }
+          return;
+        }
+        var fastListArr = Array.isArray(stores.list && stores.list.listData) ? stores.list.listData : [];
+        var fastTargetName = String(requestedListNameFromUrl || (pendingNrRowFromParent && pendingNrRowFromParent.name) || '').trim().toLowerCase();
+        var fastLocalRow = fastListArr.find(function(r) {
+          return r && !r._ephemeral_view && r.list_key === requestedListKeyFromUrl;
+        }) || null;
+        if (!fastLocalRow && fastTargetName) {
+          var fastNameMatches = fastListArr.filter(function(r) {
+            return r && !r._ephemeral_view && String(r.name || '').trim().toLowerCase() === fastTargetName;
+          });
+          if (fastNameMatches.length > 0) {
+            fastNameMatches.sort(function(a, b) {
+              var aReal = a._synthetic_text ? 0 : 1;
+              var bReal = b._synthetic_text ? 0 : 1;
+              if (aReal !== bReal) return bReal - aReal;
+              var a11e = (a.id_system == 827374861) ? 1 : 0;
+              var b11e = (b.id_system == 827374861) ? 1 : 0;
+              if (a11e !== b11e) return b11e - a11e;
+              return String(b.date_mod || '').localeCompare(String(a.date_mod || ''));
+            });
+            fastLocalRow = fastNameMatches[0];
+          }
+        }
+        if (fastLocalRow) {
+          fastLocalRow.metadata = Object.assign(
             { builder_settings: {}, custom_categories: [], custom_view: false },
-            ephRow.metadata || {},
+            fastLocalRow.metadata || {},
             { play_mode: Boolean(wantPlayModeFromUrl) }
           );
-          await upsertSingleRowToIdb(ephRow);
+          if (pendingNrRowFromParent) {
+            if (!fastLocalRow._synthetic_text && pendingNrRowFromParent._synthetic_text) {
+              fastLocalRow._synthetic_text = pendingNrRowFromParent._synthetic_text;
+            }
+            if (!fastLocalRow._raw_text && pendingNrRowFromParent._raw_text) {
+              fastLocalRow._raw_text = pendingNrRowFromParent._raw_text;
+            }
+          }
+          requestedListKeyFromUrl = fastLocalRow.list_key;
+          return;
         }
-        return;
+        if (pendingNrRowFromParent && pendingNrRowFromParent.list_key) {
+          var fastSeedRow = Object.assign({}, pendingNrRowFromParent);
+          fastSeedRow.metadata = Object.assign(
+            { builder_settings: {}, custom_categories: [], custom_view: false },
+            fastSeedRow.metadata || {},
+            { play_mode: Boolean(wantPlayModeFromUrl) }
+          );
+          await upsertSingleRowToIdb(fastSeedRow);
+          return;
+        }
       }
 
       await purgeTombstonedRowsFromPiniaAndCloud(stores);
@@ -3799,7 +3878,13 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     if (!stores || !stores.user || !stores.list || !stores.system) return;
 
     try {
-      if (stores.system.libraryUpdatePending && typeof stores.system.applyPendingLibrary === 'function') {
+      var isListOpenOrActivating = Boolean(
+        requestedListKeyFromUrl ||
+        activatingPlayMode ||
+        playModeActivatedForKey ||
+        (window.location.pathname || '').indexOf('/Lists/') !== -1
+      );
+      if (!isListOpenOrActivating && stores.system.libraryUpdatePending && typeof stores.system.applyPendingLibrary === 'function') {
         await stores.system.applyPendingLibrary();
       }
     } catch (e) {}
@@ -4617,6 +4702,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           sAfter.listsPage.addUnitCollapsed = Boolean(wantPlay);
           sAfter.listsPage.editedList = loadedListObj;
         }
+        if (wantPlay && targetRow) {
+          targetRow.metadata = Object.assign({}, targetRow.metadata || {}, { play_mode: true });
+        }
         var hasPlayDom = Boolean(document.querySelector('.tableList, .listControls, .armyList'));
         if (!hasPlayDom && finishReadyRetries < 100) {
           setTimeout(finishWhenDomMounted, 5);
@@ -4648,7 +4736,9 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
                 cleanWithExp._omnitactica_gw_text = targetRow._omnitactica_gw_text || '';
                 cleanWithExp._omnitactica_nr_text = targetRow._omnitactica_nr_text || '';
                 knownListsMap[targetKey] = computeSignature(cleanWithExp);
-                postSyncAction('upsert', { list: cleanWithExp });
+                if (!(isEmbeddedViewer && wantPlayModeFromUrl)) {
+                  postSyncAction('upsert', { list: cleanWithExp });
+                }
               }
             }
           } catch (e) {}
@@ -4678,7 +4768,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
   // Note: Deletions are handled explicitly by stores.list.removeList and deleteHubArmyList, never by polling diff!
   async function pollListsDiff() {
     await ensurePlayModeAndStoreHooks();
-    if (!initialHydrationDone || isHydrating || isEphemeralViewer) return;
+    if (!initialHydrationDone || isHydrating || isEphemeralViewer || (isEmbeddedViewer && wantPlayModeFromUrl)) return;
     var rows = await readAllNrLists();
     if (!rows) return;
 
@@ -4893,6 +4983,11 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
       var nextKey = String(msg.list_key);
       var nextPlay = msg.play !== false;
       var nextToken = nextKey + ':' + (nextPlay ? 'play' : 'edit');
+      var resolvedActiveToken = requestedListKeyFromUrl ? (requestedListKeyFromUrl + ':' + (nextPlay ? 'play' : 'edit')) : nextToken;
+      var isSameTargetKey = Boolean(
+        nextKey === requestedListKeyFromUrl ||
+        (lastParentRequestedKey && nextKey === lastParentRequestedKey)
+      );
       if (msg.ephemeral || (msg.nr_row && msg.nr_row._ephemeral_view)) {
         isEphemeralViewer = true;
         if (msg.nr_row) {
@@ -4904,7 +4999,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         msg.nr_row.synced = 0;
       }
       var stOpen = getNrStores();
-      if (window.__omniCompileFailedForKey === nextKey) {
+      if (window.__omniCompileFailedForKey === nextKey || (isSameTargetKey && requestedListKeyFromUrl && window.__omniCompileFailedForKey === requestedListKeyFromUrl)) {
         hideDirectListLoader();
         notifyParent({
           action: 'compile_failed',
@@ -4913,12 +5008,28 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         });
         return;
       }
-      if (playModeActivatedForKey === nextToken && stOpen && stOpen.list && stOpen.list.currentList && stOpen.list.currentList.row && stOpen.list.currentList.row.list_key === nextKey) {
+      if (
+        (playModeActivatedForKey === nextToken || (isSameTargetKey && playModeActivatedForKey === resolvedActiveToken)) &&
+        stOpen &&
+        stOpen.list &&
+        stOpen.list.currentList &&
+        stOpen.list.currentList.row &&
+        (stOpen.list.currentList.row.list_key === nextKey || stOpen.list.currentList.row.list_key === requestedListKeyFromUrl)
+      ) {
+        stOpen.list.currentList.row.metadata = Object.assign(
+          {},
+          stOpen.list.currentList.row.metadata || {},
+          { play_mode: Boolean(nextPlay) }
+        );
         hideDirectListLoader();
-        notifyParent({ action: 'ready', list_key: nextKey });
+        notifyParent({ action: 'ready', list_key: stOpen.list.currentList.row.list_key });
         return;
       }
-      if ((activatingPlayMode || compilingKeys[nextKey] || !initialHydrationDone) && requestedListKeyFromUrl === nextKey && wantPlayModeFromUrl === nextPlay) {
+      if (
+        (activatingPlayMode || compilingKeys[nextKey] || (requestedListKeyFromUrl && compilingKeys[requestedListKeyFromUrl]) || !initialHydrationDone) &&
+        isSameTargetKey &&
+        wantPlayModeFromUrl === nextPlay
+      ) {
         if (msg.nr_row && msg.nr_row.list_key && !pendingNrRowFromParent) {
           pendingNrRowFromParent = Object.assign({}, msg.nr_row);
           if (isEphemeralViewer) {
@@ -4928,7 +5039,19 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
         return;
       }
+      if (isSameTargetKey && wantPlayModeFromUrl === nextPlay) {
+        if (msg.nr_row && msg.nr_row.list_key && !pendingNrRowFromParent) {
+          pendingNrRowFromParent = Object.assign({}, msg.nr_row);
+          if (isEphemeralViewer) {
+            pendingNrRowFromParent._ephemeral_view = true;
+            pendingNrRowFromParent.synced = 0;
+          }
+        }
+        await ensurePlayModeAndStoreHooks();
+        return;
+      }
       navGeneration++;
+      lastParentRequestedKey = nextKey;
       requestedListKeyFromUrl = nextKey;
       if (msg.list_name) {
         requestedListNameFromUrl = String(msg.list_name).trim();

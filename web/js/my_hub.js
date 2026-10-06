@@ -5619,7 +5619,6 @@ function attachHubPlayModeIframeLifecycle(list, containerEl = null, options = {}
 
   iframe.addEventListener('load', () => {
     sendPlayCmd();
-    setTimeout(sendPlayCmd, 400);
   });
 }
 window.attachHubPlayModeIframeLifecycle = attachHubPlayModeIframeLifecycle;
