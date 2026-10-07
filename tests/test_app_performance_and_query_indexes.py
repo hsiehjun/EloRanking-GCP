@@ -22,11 +22,17 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
         self.assertIn("SELECT current_elo, matches_played AS total_matches FROM player_ratings", es_src)
 
     def test_get_events_field_stats_avoids_or_lower_join_scan(self):
-        """Ensure get_events_field_stats uses indexed player_id join + LATERAL name fallback instead of OR LOWER(pr.player_name) = LOWER(ep.full_name)."""
+        """Ensure get_events_field_stats uses indexed player_id join instead of OR LOWER(pr.player_name) = LOWER(ep.full_name)."""
         src = inspect.getsource(PostgresDatabase.get_events_field_stats)
         self.assertNotIn("OR (pr.player_name IS NOT NULL AND LOWER(pr.player_name) = LOWER(ep.full_name))", src)
         self.assertIn("ON ep.player_id = pr.player_id", src)
+
+    def test_get_community_overview_paginates_before_users_join(self):
+        """Ensure get_community_overview groups and limits top_comp before joining users via LATERAL."""
+        src = inspect.getsource(PostgresDatabase.get_community_overview)
+        self.assertIn("WITH top_comp AS", src)
         self.assertIn("LEFT JOIN LATERAL", src)
+        self.assertNotIn("GROUP BY e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country, e.total_players, e.num_rounds, e.current_round, e.is_ended, e.raw_json", inspect.getsource(PostgresDatabase.get_recommended_events))
 
     def test_batch_player_ratings_lookups_use_indexed_player_name(self):
         """Ensure leaderboard, community, and leagues_hub_service avoid unindexed OR LOWER(player_name) = ANY(%s) full table scans."""

@@ -4460,7 +4460,7 @@ class PostgresDatabase:
     ) -> Dict[str, Any]:
         """Returns personalized upcoming event recommendations with Haversine distance calculations, Average Field Elo, and capacity metrics (instant cached)."""
         cache_key = f"{player_id}:{query}:{state}:{city}:{lat}:{lng}:{radius_miles}:{limit}:{sort_by}"
-        cached = PostgresDatabase.get_cached(PostgresDatabase._recommended_events_cache_dict, cache_key, ttl=300)
+        cached = PostgresDatabase.get_cached(PostgresDatabase._recommended_events_cache_dict, cache_key, ttl=600)
         if cached:
             return cached
 
@@ -4556,23 +4556,37 @@ class PostgresDatabase:
                 where_sql = " AND ".join(where_clauses)
 
                 cursor.execute(f"""
+                WITH upcoming_events AS (
+                    SELECT 
+                        e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                        e.total_players, e.num_rounds, e.current_round, e.is_ended,
+                        COALESCE(e.raw_json->>'locationName', e.raw_json->>'gameStoreName', '') as venue_name,
+                        COALESCE(e.raw_json->>'formatted_address', '') as full_address,
+                        e.raw_json->'coordinate' as coordinate,
+                        COALESCE(NULLIF(e.raw_json->>'numTickets', '')::int, NULLIF(e.raw_json->>'queryNumPlayers', '')::int, NULLIF(e.raw_json->>'maxPlayers', '')::int, NULLIF(e.raw_json->>'capacity', '')::int, e.total_players) as max_capacity,
+                        (NULLIF(e.raw_json->>'numTickets', '') IS NOT NULL OR NULLIF(e.raw_json->>'queryNumPlayers', '') IS NOT NULL OR NULLIF(e.raw_json->>'maxPlayers', '') IS NOT NULL OR NULLIF(e.raw_json->>'capacity', '') IS NOT NULL) as has_ticket_cap,
+                        COALESCE(NULLIF(e.raw_json->>'checkedInPlayers', '')::int, 0) as checked_in_players
+                    FROM events e
+                    WHERE {where_sql}
+                ),
+                ep_stats AS (
+                    SELECT 
+                        ep.event_id,
+                        ROUND(AVG(pr.current_elo)::numeric, 1) as avg_field_elo,
+                        MAX(pr.current_elo) as top_seed_elo,
+                        COUNT(pr.player_id) as rated_players_count
+                    FROM event_participants ep
+                    LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                    WHERE ep.event_id IN (SELECT id FROM upcoming_events)
+                    GROUP BY ep.event_id
+                )
                 SELECT 
-                    e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
-                    e.total_players, e.num_rounds, e.current_round, e.is_ended,
-                    COALESCE(e.raw_json->>'locationName', e.raw_json->>'gameStoreName', '') as venue_name,
-                    COALESCE(e.raw_json->>'formatted_address', '') as full_address,
-                    e.raw_json->'coordinate' as coordinate,
-                    COALESCE(NULLIF(e.raw_json->>'numTickets', '')::int, NULLIF(e.raw_json->>'queryNumPlayers', '')::int, NULLIF(e.raw_json->>'maxPlayers', '')::int, NULLIF(e.raw_json->>'capacity', '')::int, e.total_players) as max_capacity,
-                    (NULLIF(e.raw_json->>'numTickets', '') IS NOT NULL OR NULLIF(e.raw_json->>'queryNumPlayers', '') IS NOT NULL OR NULLIF(e.raw_json->>'maxPlayers', '') IS NOT NULL OR NULLIF(e.raw_json->>'capacity', '') IS NOT NULL) as has_ticket_cap,
-                    COALESCE(NULLIF(e.raw_json->>'checkedInPlayers', '')::int, 0) as checked_in_players,
-                    ROUND(AVG(pr.current_elo)::numeric, 1) as avg_field_elo,
-                    MAX(pr.current_elo) as top_seed_elo,
-                    COUNT(pr.player_id) as rated_players_count
-                FROM events e
-                LEFT JOIN event_participants ep ON e.id = ep.event_id
-                LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
-                WHERE {where_sql}
-                GROUP BY e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country, e.total_players, e.num_rounds, e.current_round, e.is_ended, e.raw_json;
+                    ue.*,
+                    es.avg_field_elo,
+                    es.top_seed_elo,
+                    COALESCE(es.rated_players_count, 0) as rated_players_count
+                FROM upcoming_events ue
+                LEFT JOIN ep_stats es ON ue.id = es.event_id;
                 """, params)
                 
                 rows = [dict(r) for r in cursor.fetchall()]
@@ -4744,27 +4758,17 @@ class PostgresDatabase:
                 cursor.execute("""
                 SELECT 
                     ep.event_id,
-                    ROUND(AVG(COALESCE(pr.current_elo, pr_nm.current_elo, 1500.0))::numeric, 1) as avg_field_elo,
-                    COALESCE(MAX(COALESCE(pr.current_elo, pr_nm.current_elo)), 1500.0) as top_seed_elo,
+                    ROUND(AVG(COALESCE(pr.current_elo, 1500.0))::numeric, 1) as avg_field_elo,
+                    COALESCE(MAX(pr.current_elo), 1500.0) as top_seed_elo,
                     COUNT(DISTINCT ep.player_id) as total_enrolled,
-                    COUNT(DISTINCT CASE WHEN COALESCE(pr.current_elo, pr_nm.current_elo) IS NOT NULL THEN ep.player_id ELSE NULL END) as rated_players_count
+                    COUNT(DISTINCT CASE WHEN pr.current_elo IS NOT NULL THEN ep.player_id ELSE NULL END) as rated_players_count
                 FROM event_participants ep
                 LEFT JOIN player_ratings pr
                     ON ep.player_id = pr.player_id
                    AND COALESCE(pr.game_system, '40k') = %s
-                LEFT JOIN LATERAL (
-                    SELECT current_elo
-                    FROM player_ratings
-                    WHERE pr.player_id IS NULL
-                      AND ep.full_name IS NOT NULL AND ep.full_name != ''
-                      AND player_name IN (TRIM(ep.full_name), INITCAP(TRIM(ep.full_name)))
-                      AND COALESCE(game_system, '40k') = %s
-                    ORDER BY matches_played DESC NULLS LAST
-                    LIMIT 1
-                ) pr_nm ON TRUE
                 WHERE ep.event_id = ANY(%s) AND ep.player_id IS NOT NULL AND ep.player_id != ''
                 GROUP BY ep.event_id;
-                """, (target_sys, target_sys, missing_ids,))
+                """, (target_sys, missing_ids,))
                 rows = cursor.fetchall()
                 fetched_map = {r["event_id"]: dict(r) for r in rows}
                 for eid in missing_ids:
@@ -10324,7 +10328,7 @@ class PostgresDatabase:
                     bool(include_bcp),
                     target_sys
                 )
-                cached = PostgresDatabase.get_cached(PostgresDatabase._community_overview_cache_dict, cache_key, ttl=90)
+                cached = PostgresDatabase.get_cached(PostgresDatabase._community_overview_cache_dict, cache_key, ttl=600)
                 if cached is not None:
                     return cached
 
@@ -10342,20 +10346,11 @@ class PostgresDatabase:
                     WITH events_filtered AS (
                         SELECT 
                             e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
-                            COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') as venue,
+                            COALESCE(e.venue, e.venue_name, e.city) as venue,
                             e.total_players, e.num_rounds, e.current_round, e.is_ended, e.circuits,
-                            e.raw_json,
+                            CASE WHEN e.event_date >= CURRENT_DATE - INTERVAL '1 day' THEN e.raw_json ELSE NULL END as raw_json,
                             COALESCE(
                                 e.latitude,
-                                CASE 
-                                    WHEN jsonb_typeof(e.raw_json->'coordinate') = 'array' 
-                                         AND jsonb_array_length(e.raw_json->'coordinate') = 2 
-                                    THEN (e.raw_json->'coordinate'->>1)::double precision 
-                                    WHEN jsonb_typeof(e.raw_json->'location'->'coordinate') = 'array'
-                                         AND jsonb_array_length(e.raw_json->'location'->'coordinate') = 2
-                                    THEN (e.raw_json->'location'->'coordinate'->>1)::double precision
-                                    ELSE NULL 
-                                END,
                                 CASE LOWER(TRIM(COALESCE(e.city, '')))
                                     WHEN 'san diego' THEN 32.7157
                                     WHEN 'los angeles' THEN 34.0522
@@ -10397,15 +10392,6 @@ class PostgresDatabase:
                             ) AS ev_lat,
                             COALESCE(
                                 e.longitude,
-                                CASE 
-                                    WHEN jsonb_typeof(e.raw_json->'coordinate') = 'array' 
-                                         AND jsonb_array_length(e.raw_json->'coordinate') = 2 
-                                    THEN (e.raw_json->'coordinate'->>0)::double precision 
-                                    WHEN jsonb_typeof(e.raw_json->'location'->'coordinate') = 'array'
-                                         AND jsonb_array_length(e.raw_json->'location'->'coordinate') = 2
-                                    THEN (e.raw_json->'location'->'coordinate'->>0)::double precision
-                                    ELSE NULL 
-                                END,
                                 CASE LOWER(TRIM(COALESCE(e.city, '')))
                                     WHEN 'san diego' THEN -117.1611
                                     WHEN 'los angeles' THEN -118.2437
@@ -10448,7 +10434,7 @@ class PostgresDatabase:
                         FROM events e
                         WHERE (
                             (e.latitude BETWEEN %s AND %s AND e.longitude BETWEEN %s AND %s)
-                            OR (e.latitude IS NULL)
+                            OR (e.latitude IS NULL AND e.city IS NOT NULL AND e.city != '')
                         )
                           AND COALESCE(e.game_system, '40k') = %s
                     ),
@@ -10481,7 +10467,7 @@ class PostgresDatabase:
                     UNION ALL
                     (
                         SELECT id, name, event_date, end_date, city, state, country,
-                               venue, total_players, num_rounds, current_round, is_ended, circuits, raw_json,
+                               venue, total_players, num_rounds, current_round, is_ended, circuits, NULL::jsonb as raw_json,
                                ROUND(distance_miles::numeric, 1) as distance_miles,
                                'recent' as event_group
                         FROM events_dist
@@ -10802,33 +10788,42 @@ class PostgresDatabase:
                         player_local_stats[p2]["matches"] += 1
 
                     cursor.execute("""
-                        SELECT 
-                            ep.player_id,
-                            COUNT(DISTINCT ep.event_id) as regional_events_count,
-                            ARRAY_AGG(DISTINCT ep.event_id) as event_ids,
-                            COALESCE(pr.player_name, MAX(ep.full_name), 'Competitor') as player_name,
-                            COALESCE(pr.current_elo, 1500.0) as current_elo,
-                            COALESCE(pr.peak_elo, 1500.0) as peak_elo,
-                            COALESCE(pr.top_faction, MAX(ep.faction), 'Unknown Faction') as top_faction,
-                            COALESCE(pr.team, MAX(ep.team)) as team,
-                            COALESCE(pr.matches_played, 0) as matches_played,
-                            COALESCE(pr.wins, 0) as wins,
-                            COALESCE(pr.losses, 0) as losses,
-                            COALESCE(pr.win_rate, 0.0) as win_rate,
-                            MAX(u.id) as account_user_id,
-                            MAX(u.display_name) as account_display_name,
-                            CASE WHEN MAX(u.id) IS NOT NULL THEN TRUE ELSE FALSE END as has_account
-                        FROM event_participants ep
-                        LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id AND COALESCE(pr.game_system, '40k') = %s
-                        LEFT JOIN users u ON (
-                            (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND (u.player_id = ep.player_id OR u.bcp_user_id = ep.player_id))
-                            OR u.id = ep.player_id
+                        WITH top_comp AS (
+                            SELECT 
+                                ep.player_id,
+                                COUNT(DISTINCT ep.event_id) as regional_events_count,
+                                ARRAY_AGG(DISTINCT ep.event_id) as event_ids,
+                                COALESCE(pr.player_name, MAX(ep.full_name), 'Competitor') as player_name,
+                                COALESCE(pr.current_elo, 1500.0) as current_elo,
+                                COALESCE(pr.peak_elo, 1500.0) as peak_elo,
+                                COALESCE(pr.top_faction, MAX(ep.faction), 'Unknown Faction') as top_faction,
+                                COALESCE(pr.team, MAX(ep.team)) as team,
+                                COALESCE(pr.matches_played, 0) as matches_played,
+                                COALESCE(pr.wins, 0) as wins,
+                                COALESCE(pr.losses, 0) as losses,
+                                COALESCE(pr.win_rate, 0.0) as win_rate
+                            FROM event_participants ep
+                            LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id AND COALESCE(pr.game_system, '40k') = %s
+                            WHERE ep.event_id = ANY(%s) AND ep.player_id IS NOT NULL AND ep.player_id != ''
+                            GROUP BY ep.player_id, pr.player_name, pr.current_elo, pr.peak_elo, pr.top_faction,
+                                     pr.team, pr.matches_played, pr.wins, pr.losses, pr.win_rate
+                            ORDER BY current_elo DESC
+                            LIMIT 500
                         )
-                        WHERE ep.event_id = ANY(%s) AND ep.player_id IS NOT NULL AND ep.player_id != ''
-                        GROUP BY ep.player_id, pr.player_name, pr.current_elo, pr.peak_elo, pr.top_faction,
-                                 pr.team, pr.matches_played, pr.wins, pr.losses, pr.win_rate
-                        ORDER BY current_elo DESC
-                        LIMIT 500;
+                        SELECT 
+                            tc.*,
+                            u.id as account_user_id,
+                            u.display_name as account_display_name,
+                            CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account
+                        FROM top_comp tc
+                        LEFT JOIN LATERAL (
+                            SELECT u_in.id, u_in.display_name
+                            FROM users u_in
+                            WHERE (u_in.bcp_user_id IS NOT NULL AND u_in.bcp_user_id != '' AND (u_in.player_id = tc.player_id OR u_in.bcp_user_id = tc.player_id))
+                               OR u_in.id = tc.player_id
+                            LIMIT 1
+                        ) u ON TRUE
+                        ORDER BY tc.current_elo DESC;
                     """, (target_sys, all_event_ids,))
                     comp_rows = cursor.fetchall()
 
@@ -10852,10 +10847,13 @@ class PostgresDatabase:
                                 u.display_name as account_display_name,
                                 CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account
                             FROM player_ratings pr
-                            LEFT JOIN users u ON (
-                                (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND (u.player_id = pr.player_id OR u.bcp_user_id = pr.player_id))
-                                OR u.id = pr.player_id
-                            )
+                            LEFT JOIN LATERAL (
+                                SELECT u_in.id, u_in.display_name
+                                FROM users u_in
+                                WHERE (u_in.bcp_user_id IS NOT NULL AND u_in.bcp_user_id != '' AND (u_in.player_id = pr.player_id OR u_in.bcp_user_id = pr.player_id))
+                                   OR u_in.id = pr.player_id
+                                LIMIT 1
+                            ) u ON TRUE
                             WHERE pr.player_id = ANY(%s) AND COALESCE(pr.game_system, '40k') = %s;
                         """, (missing_pids, target_sys))
                         for mr in cursor.fetchall():

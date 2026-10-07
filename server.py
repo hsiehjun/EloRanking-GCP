@@ -297,21 +297,22 @@ async def on_server_startup():
 
     async def _deferred_startup_tasks():
         try:
+            db = await asyncio.to_thread(get_database)
+            await asyncio.to_thread(db.get_summary_stats, "40k")
+            await asyncio.to_thread(db.get_top_ranked_players, 1, 25, "40k", None, None, None, None, "elo", "DESC", True, "40k")
+            await asyncio.to_thread(db.get_events_list, 1, 20, None, None, None, "event_date", "DESC", "40k")
+            await asyncio.to_thread(db._get_all_teams_list, "40k")
+            await asyncio.to_thread(db.get_community_overview, None, None, 50.0, None, None, None, None, False, "40k")
+            logger.info("🔥 Core leaderboard, stats, events, teams & community caches pre-warmed")
+        except Exception as cw_err:
+            logger.warning(f"Notice during core cache pre-warming: {cw_err}")
+        try:
             from newrecruit_integration import get_nr_detachments_catalog, get_nr_aos_formations_catalog
             await asyncio.to_thread(get_nr_detachments_catalog, False)
             await asyncio.to_thread(get_nr_aos_formations_catalog, False)
             logger.info("🔥 NewRecruit detachments & AoS formations catalogs pre-warmed from local bundle")
         except Exception as nr_err:
             logger.warning(f"Notice during NR detachments pre-warming: {nr_err}")
-        try:
-            db = await asyncio.to_thread(get_database)
-            await asyncio.to_thread(db.get_summary_stats, "40k")
-            await asyncio.to_thread(db.get_top_ranked_players, 1, 25, "40k", None, None, None, None, "elo", "DESC", True, "40k")
-            await asyncio.to_thread(db.get_events_list, 1, 20, None, None, None, "event_date", "DESC", "40k")
-            await asyncio.to_thread(db._get_all_teams_list, "40k")
-            logger.info("🔥 Core leaderboard, stats, events & teams caches pre-warmed")
-        except Exception as cw_err:
-            logger.warning(f"Notice during core cache pre-warming: {cw_err}")
         await asyncio.sleep(30)
         try:
             db = await asyncio.to_thread(get_database)
