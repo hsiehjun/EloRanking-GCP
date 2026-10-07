@@ -1169,6 +1169,9 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
 .gt-history-main {
   min-width: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .gt-history-players {
@@ -1179,15 +1182,23 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
   line-height: 1.3;
   display: flex;
   align-items: baseline;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gt-history-vs {
+  color: var(--text-muted, #64748b);
+  font-weight: 600;
+  font-size: 12px;
 }
 
 .gt-history-factions {
   font-size: 11.5px;
   color: #7dd3fc;
   font-weight: 600;
-  margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1196,12 +1207,109 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
 .gt-history-meta {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
-  margin-top: 5px;
+  margin-top: 3px;
+  height: 19px;
   font-size: 11px;
   color: var(--text-muted, #64748b);
   font-family: 'JetBrains Mono', monospace;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.gt-history-date {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 10.5px;
+  line-height: 1;
+}
+
+.gt-history-ed-badge {
+  font-weight: 800;
+  font-size: 10px;
+  height: 19px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.gt-history-event-badge {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  font-weight: 700;
+  font-size: 10.5px;
+  height: 19px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.gt-history-event-icon {
+  flex-shrink: 0;
+  font-size: 10px;
+}
+
+.gt-history-event-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gt-history-event-round {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 800;
+  font-size: 10px;
+  color: #fde68a;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 2px 5px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.gt-history-map-pill {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  color: #fbbf24;
+  font-size: 10px;
+  font-weight: 800;
+  height: 19px;
+  padding: 0 7px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1;
+  box-sizing: border-box;
+  transition: all 0.15s ease;
+}
+
+.gt-history-map-pill:hover {
+  background: rgba(245, 158, 11, 0.26);
+  border-color: rgba(245, 158, 11, 0.65);
+  color: #fde68a;
 }
 
 .gt-history-right {
@@ -1219,11 +1327,27 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
   font-family: 'JetBrains Mono', monospace;
   font-size: 14px;
   font-weight: 900;
-  display: inline-flex;
+  display: inline-grid;
+  grid-template-columns: 3ch auto 3ch;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   white-space: nowrap;
   flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.gt-score-p1 {
+  text-align: right;
+}
+
+.gt-score-sep {
+  color: #64748b;
+  font-weight: 700;
+  text-align: center;
+}
+
+.gt-score-p2 {
+  text-align: left;
 }
 
 .gt-history-actions {
@@ -1231,6 +1355,26 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+
+.gt-history-scorecard-btn {
+  background: var(--accent-glow, rgba(56, 189, 248, 0.12));
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  color: var(--accent, #38bdf8);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.gt-history-scorecard-btn:hover {
+  background: rgba(56, 189, 248, 0.22);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #fff;
 }
 
 @media (max-width: 640px) {

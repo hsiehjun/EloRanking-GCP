@@ -2051,7 +2051,7 @@
                   dateStr = !isNaN(dObj.getTime()) ? dObj.toLocaleDateString() : sRaw;
                 } catch (e) { dateStr = String(rawDate); }
               }
-              const factionSubtitle = (p1F || p2F) ? `<div class="gt-history-factions">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
+              const factionSubtitle = `<div class="gt-history-factions">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>`;
               const edCode = normalizeTrackerEditionCode(item);
               const edShort = edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : '')))));
               const edStyleMap = {
@@ -2064,13 +2064,15 @@
               };
               const edCss = edStyleMap[edCode] || edStyleMap['10th'];
               const edBadge = edShort
-                ? `<span style="${edCss} font-weight:800; font-size:10px; padding:1px 6px; border-radius:5px; font-family:'JetBrains Mono',monospace;">${escapeHtml(edShort)}</span>`
+                ? `<span class="gt-history-ed-badge" style="${edCss}">${escapeHtml(edShort)}</span>`
                 : '';
               const isLockedEvent = Boolean(item.event_match_locked || item.event_id);
-              const lockBadge = isLockedEvent
-                ? `<span style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.4); font-weight:800; font-size:10px; padding:1px 6px; border-radius:5px; font-family:'JetBrains Mono',monospace;">🏆 ${escapeHtml(item.mapped_event_name || 'Tournament')} R${item.round_num || 1}${item.table_num ? ' T' + item.table_num : ''}</span>`
-                : '';
               const sysStr = item.game_system || (String(mid).startsWith('AOS-') || isAosMode ? 'aos' : '40k');
+              const evTitleText = item.mapped_event_name || 'Tournament';
+              const evRoundText = `R${item.round_num || 1}${item.table_num ? ' T' + item.table_num : ''}`;
+              const eventMetaSlot = isLockedEvent
+                ? `<span class="gt-history-event-badge" title="🏆 ${escapeHtml(evTitleText)} • ${escapeHtml(evRoundText)}"><span class="gt-history-event-icon">🏆</span><span class="gt-history-event-name">${escapeHtml(evTitleText)}</span><span class="gt-history-event-round">${escapeHtml(evRoundText)}</span></span>`
+                : `<button type="button" class="gt-history-map-pill" title="Map & Lock Scorecard to Official Tournament Pairing" onclick="event.stopPropagation(); window.openMapGameToEventModal('${escapeHtml(mid)}', '${escapeHtml(sysStr)}')">🏆 Map to Event</button>`;
 
               return `
                 <div class="gt-history-card" data-match-id="${escapeHtml(mid)}" data-edition="${escapeHtml(edCode)}" onclick="window.location.href='/scorecard/${encodeURIComponent(mid)}'">
@@ -2078,21 +2080,18 @@
                     <div class="gt-history-players">${escapeHtml(p1)} <span class="gt-history-vs">vs</span> ${escapeHtml(p2)}</div>
                     ${factionSubtitle}
                     <div class="gt-history-meta">
-                      <span>📅 ${escapeHtml(dateStr)}</span>
-                      ${edBadge}${lockBadge}
+                      <span class="gt-history-date">📅 ${escapeHtml(dateStr)}</span>
+                      ${edBadge}${eventMetaSlot}
                     </div>
                   </div>
                   <div class="gt-history-right">
                     <span class="gt-history-score-pill">
-                      ${p1S} - ${p2S}
+                      <span class="gt-score-val gt-score-p1">${p1S}</span>
+                      <span class="gt-score-sep">-</span>
+                      <span class="gt-score-val gt-score-p2">${p2S}</span>
                     </span>
                     <div class="gt-history-actions">
-                      ${!isLockedEvent ? `
-                        <button title="Map & Lock Scorecard to Official Tournament Pairing" onclick="event.stopPropagation(); window.openMapGameToEventModal('${escapeHtml(mid)}', '${escapeHtml(sysStr)}')" style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.38); color:#fbbf24; font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">
-                          🏆 Map
-                        </button>
-                      ` : ''}
-                      <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:var(--accent-glow, rgba(56,189,248,0.12)); border:1px solid rgba(56,189,248,0.28); color:var(--accent, #38bdf8); font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;">
+                      <button type="button" class="gt-history-scorecard-btn" title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')">
                         📄 Scorecard
                       </button>
                     </div>
