@@ -36,12 +36,12 @@ _community_field_stats_cache: Dict[str, Any] = {}
 # =========================================================================
 
 @router.get("/api/community/regions", summary="Get Available Community Hub Regions")
-async def api_community_regions():
+def api_community_regions():
     db = get_database()
     return {"success": True, "regions": db.get_community_regions()}
 
 @router.get("/api/community/reverse_geocode", summary="Reverse Geocode GPS Coordinates to City / Region")
-async def api_community_reverse_geocode(
+def api_community_reverse_geocode(
     lat: float = Query(..., description="Latitude"),
     lng: float = Query(..., description="Longitude")
 ):
@@ -50,7 +50,7 @@ async def api_community_reverse_geocode(
     return {"success": True, **res}
 
 @router.get("/api/community/overview", summary="Get Community Hub Overview, Events, and Competitors within Radius")
-async def api_community_overview(
+def api_community_overview(
     request: Request,
     lat: Optional[float] = Query(None),
     lng: Optional[float] = Query(None),
@@ -82,7 +82,7 @@ async def api_community_overview(
     )
 
 @router.get("/api/community/bcp_upcoming", summary="Fetch live BCP upcoming tournaments asynchronously")
-async def api_community_bcp_upcoming(
+def api_community_bcp_upcoming(
     lat: float = Query(...),
     lng: float = Query(...),
     radius_miles: float = Query(50.0),
@@ -476,7 +476,7 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
     return normalized
 
 @router.get("/api/community/bcp_majors", summary="Fetch live premier circuit & major tournaments (read-only RAM cache)")
-async def api_community_bcp_majors(
+def api_community_bcp_majors(
     game_system: Optional[str] = Query("40k"),
     days_ahead: int = Query(180)
 ):
@@ -715,7 +715,7 @@ async def api_community_events_field_stats(
     }
 
 @router.get("/api/community/stores", summary="Find local game stores and clubs for Warhammer 40k")
-async def api_community_stores(
+def api_community_stores(
     lat: Optional[float] = Query(None),
     lng: Optional[float] = Query(None),
     radius_miles: float = Query(50.0),
@@ -732,7 +732,7 @@ async def api_community_stores(
     )
 
 @router.get("/api/community/store/tournaments", summary="Get all tournaments hosted by a local game store")
-async def api_community_store_tournaments(
+def api_community_store_tournaments(
     name: str = Query(..., description="Store or venue name"),
     lat: Optional[float] = Query(None, description="Store latitude"),
     lng: Optional[float] = Query(None, description="Store longitude"),
@@ -747,14 +747,14 @@ async def api_community_store_tournaments(
     )
 
 @router.get("/api/community/store/details", summary="Get Google Place Details including store website")
-async def api_community_store_details(
+def api_community_store_details(
     place_id: str = Query(..., description="Google Place ID")
 ):
     db = get_database()
     return db.get_place_details(place_id=place_id)
 
 @router.get("/api/community/chat/messages", summary="Get Regional Community Chat Messages")
-async def api_community_chat_messages(
+def api_community_chat_messages(
     region: str = Query("socal"),
     limit: int = Query(50)
 ):
@@ -766,7 +766,7 @@ class CommunityChatMessagePayload(BaseModel):
     message: str
 
 @router.post("/api/community/chat/message", summary="Send Message in Regional Community Chat")
-async def api_community_chat_send(
+def api_community_chat_send(
     payload: CommunityChatMessagePayload,
     request: Request,
     token: Optional[str] = Query(None)
@@ -904,7 +904,7 @@ def _check_tournament_started_or_ended(ev: Dict[str, Any], rj: Optional[Dict[str
 
 
 @router.get("/api/community/events/{event_id}/registration", summary="Get Event Registration Metadata, User Status & Saved Army Lists")
-async def api_community_event_registration(
+def api_community_event_registration(
     event_id: str,
     request: Request,
     force_sync: bool = Query(False),
@@ -1275,7 +1275,7 @@ async def api_community_event_registration(
 
 
 @router.post("/api/community/events/{event_id}/register", summary="Register Competitor for Free Tournament")
-async def api_community_event_register(
+def api_community_event_register(
     event_id: str,
     payload: CommunityEventRegisterPayload,
     request: Request,
@@ -1675,7 +1675,7 @@ async def api_community_event_register(
 # =========================================================================
 
 @router.get("/api/community/gamesystems/{gamesystem_id}/factions", summary="Get Official Factions and Detachments for Gamesystem")
-async def api_community_gamesystem_factions(gamesystem_id: str):
+def api_community_gamesystem_factions(gamesystem_id: str):
     """
     Fetches the official list of factions and detachments (subfactions) for a gamesystem from BCP.
     """
@@ -1692,7 +1692,7 @@ async def api_community_gamesystem_factions(gamesystem_id: str):
 
 
 @router.post("/api/community/events/{event_id}/player", summary="Update Player Registration Details on BCP")
-async def api_community_update_player(
+def api_community_update_player(
     event_id: str,
     payload: UpdateEventPlayerPayload,
     request: Request,
@@ -1809,7 +1809,7 @@ async def api_community_update_player(
 
 
 @router.post("/api/community/events/{event_id}/armylist", summary="Submit Army List to BCP")
-async def api_community_submit_armylist(
+def api_community_submit_armylist(
     event_id: str,
     payload: SubmitArmylistPayload,
     request: Request,
@@ -1893,7 +1893,7 @@ async def api_community_submit_armylist(
 
 
 @router.post("/api/community/events/{event_id}/checkin", summary="Check-in Player to Tournament on BCP")
-async def api_community_checkin_player(
+def api_community_checkin_player(
     event_id: str,
     payload: CheckinPlayerPayload,
     request: Request,
@@ -1983,7 +1983,7 @@ async def api_community_checkin_player(
 
 
 @router.post("/api/community/events/{event_id}/drop", summary="Drop Player from Tournament on BCP")
-async def api_community_drop_player(
+def api_community_drop_player(
     event_id: str,
     payload: DropPlayerPayload,
     request: Request,

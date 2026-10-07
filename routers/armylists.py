@@ -125,7 +125,7 @@ async def api_get_nr_aos_formations():
 
 
 @router.get("/api/nr/bundle_status", summary="Get status of nr_offline_bundle.zip and last background refresh")
-async def api_get_nr_bundle_status():
+def api_get_nr_bundle_status():
     from newrecruit_integration import get_nr_offline_bundle_refresh_status
     return get_nr_offline_bundle_refresh_status()
 
@@ -256,7 +256,7 @@ async def api_save_armylist(request: Request):
     return {"success": True, "army_list": saved}
 
 @router.get("/api/armylists/nr_state", summary="Get NewRecruit cloud connection status (never injects backend DB lists)")
-async def api_get_nr_state(request: Request):
+def api_get_nr_state(request: Request):
     from newrecruit_integration import get_nr_state_payload
     user_id = _resolve_user_id(request)
     return get_nr_state_payload([], user_key=user_id or "default")
@@ -330,7 +330,7 @@ async def api_get_armylist(list_id: str, request: Request):
     raise HTTPException(status_code=404, detail="Army list not found")
 
 @router.get("/api/bcp/armylist/{list_id}", summary="Fetch official army list text from Best Coast Pairings")
-async def api_get_bcp_armylist(list_id: str, request: Request, bcp_token: Optional[str] = Query(None)):
+def api_get_bcp_armylist(list_id: str, request: Request, bcp_token: Optional[str] = Query(None)):
     """
     Fetches raw army list text from BCP via GET /v1/armylists/{list_id}.
     Requires user BCP authorization token. If unauthenticated, returns requires_bcp_link=True.
@@ -461,7 +461,7 @@ async def api_nr_studio_shell(request: Request, subpath: Optional[str] = None):
 @router.get("/nr/worker.js", include_in_schema=False)
 @router.get("/sw.js", include_in_schema=False)
 @router.get("/service-worker.js", include_in_schema=False)
-async def api_kill_stale_service_worker():
+def api_kill_stale_service_worker():
     """
     Serves a self-unregistering Service Worker script so NewRecruit's root-scoped /worker.js
     can never hijack OmniTactica's origin or cache stale HTML/JS in Browser or PWA mode.

@@ -35,7 +35,7 @@ class FeedbackPayload(BaseModel):
     token: Optional[str] = None
 
 @router.post("/api/feedback", summary="Submit user feedback or bug report")
-async def api_submit_feedback(payload: FeedbackPayload, request: Request):
+def api_submit_feedback(payload: FeedbackPayload, request: Request):
     if not payload.message or not payload.message.strip():
         raise HTTPException(status_code=400, detail="Feedback message cannot be empty.")
 
@@ -90,7 +90,7 @@ def _is_admin_feedback_request(request: Request, token: Optional[str] = None) ->
     )
 
 @router.get("/api/feedback", summary="Get recent user feedbacks (Admin)")
-async def api_get_feedbacks(request: Request, limit: int = Query(50), token: Optional[str] = Query(None)):
+def api_get_feedbacks(request: Request, limit: int = Query(50), token: Optional[str] = Query(None)):
     if not _is_admin_feedback_request(request, token=token):
         raise HTTPException(status_code=403, detail="Admin access restricted to authorized administrators.")
     db = get_database()
@@ -104,7 +104,7 @@ class FeedbackUpdatePayload(BaseModel):
     token: Optional[str] = None
 
 @router.get("/api/admin/feedback", summary="Get filtered user feedbacks (Admin)")
-async def api_admin_get_feedbacks(request: Request, limit: int = Query(100), status: Optional[str] = Query(None), feedback_type: Optional[str] = Query(None), token: Optional[str] = Query(None)):
+def api_admin_get_feedbacks(request: Request, limit: int = Query(100), status: Optional[str] = Query(None), feedback_type: Optional[str] = Query(None), token: Optional[str] = Query(None)):
     if not _is_admin_feedback_request(request, token=token):
         raise HTTPException(status_code=403, detail="Admin access restricted to authorized administrators.")
     db = get_database()
@@ -112,7 +112,7 @@ async def api_admin_get_feedbacks(request: Request, limit: int = Query(100), sta
     return {"success": True, "feedbacks": feedbacks}
 
 @router.post("/api/admin/feedback/{feedback_id}/update", summary="Update feedback status, admin notes, or message")
-async def api_admin_update_feedback(feedback_id: str, payload: FeedbackUpdatePayload, request: Request, token: Optional[str] = Query(None)):
+def api_admin_update_feedback(feedback_id: str, payload: FeedbackUpdatePayload, request: Request, token: Optional[str] = Query(None)):
     if not _is_admin_feedback_request(request, token=payload.token or token):
         raise HTTPException(status_code=403, detail="Admin access restricted to authorized administrators.")
     db = get_database()
@@ -128,7 +128,7 @@ async def api_admin_update_feedback(feedback_id: str, payload: FeedbackUpdatePay
     return {"success": True, "message": "Feedback updated successfully"}
 
 @router.delete("/api/admin/feedback/{feedback_id}", summary="Delete feedback entry from database")
-async def api_admin_delete_feedback(feedback_id: str, request: Request, token: Optional[str] = Query(None)):
+def api_admin_delete_feedback(feedback_id: str, request: Request, token: Optional[str] = Query(None)):
     if not _is_admin_feedback_request(request, token=token):
         raise HTTPException(status_code=403, detail="Admin access restricted to authorized administrators.")
     db = get_database()
@@ -170,13 +170,13 @@ def _get_user_session_or_401(request: Request, token: Optional[str] = None) -> D
     return session
 
 @router.get("/api/auth/invite/my-code", summary="Get or generate user's active 24-hour invitation code")
-async def api_auth_my_invite_code(request: Request, token: Optional[str] = Query(None)):
+def api_auth_my_invite_code(request: Request, token: Optional[str] = Query(None)):
     session = _get_user_session_or_401(request, token)
     auth_mgr = get_auth_manager()
     return auth_mgr.generate_user_invite_code(session["id"])
 
 @router.post("/api/auth/invite/generate", summary="Generate a fresh 24-hour invitation code")
-async def api_auth_generate_invite_code(request: Request, token: Optional[str] = Query(None)):
+def api_auth_generate_invite_code(request: Request, token: Optional[str] = Query(None)):
     session = _get_user_session_or_401(request, token)
     auth_mgr = get_auth_manager()
     return auth_mgr.generate_user_invite_code(session["id"])
@@ -194,12 +194,12 @@ class AdminToggleSystemInvitesPayload(BaseModel):
     enabled: bool
 
 @router.get("/api/admin/metrics", summary="Platform KPIs & Registration Metrics (Admin)")
-async def api_admin_metrics(request: Request, token: Optional[str] = Query(None)):
+def api_admin_metrics(request: Request, token: Optional[str] = Query(None)):
     _get_admin_session_or_403(request, token)
     return get_auth_manager().get_admin_dashboard_metrics()
 
 @router.get("/api/admin/settings", summary="Get System Settings (Admin)")
-async def api_admin_get_settings(request: Request, token: Optional[str] = Query(None)):
+def api_admin_get_settings(request: Request, token: Optional[str] = Query(None)):
     _get_admin_session_or_403(request, token)
     auth_mgr = get_auth_manager()
     return {
@@ -207,7 +207,7 @@ async def api_admin_get_settings(request: Request, token: Optional[str] = Query(
     }
 
 @router.post("/api/admin/settings/toggle-invites", summary="Global Master Kill Switch for Registrations (Admin)")
-async def api_admin_toggle_invites(payload: AdminToggleSystemInvitesPayload, request: Request, token: Optional[str] = Query(None)):
+def api_admin_toggle_invites(payload: AdminToggleSystemInvitesPayload, request: Request, token: Optional[str] = Query(None)):
     admin = _get_admin_session_or_403(request, token)
     auth_mgr = get_auth_manager()
     val_str = "true" if payload.enabled else "false"
@@ -217,12 +217,12 @@ async def api_admin_toggle_invites(payload: AdminToggleSystemInvitesPayload, req
     return {"success": True, "invites_enabled": auth_mgr.are_registrations_open()}
 
 @router.get("/api/admin/invites", summary="List All Invitation Codes (Admin)")
-async def api_admin_get_invites(request: Request, token: Optional[str] = Query(None)):
+def api_admin_get_invites(request: Request, token: Optional[str] = Query(None)):
     _get_admin_session_or_403(request, token)
     return {"codes": get_auth_manager().get_admin_invite_codes()}
 
 @router.post("/api/admin/invites/create", summary="Create Persistent / Custom Invitation Code (Admin)")
-async def api_admin_create_invite(payload: AdminCreateInvitePayload, request: Request, token: Optional[str] = Query(None)):
+def api_admin_create_invite(payload: AdminCreateInvitePayload, request: Request, token: Optional[str] = Query(None)):
     admin = _get_admin_session_or_403(request, token)
     res = get_auth_manager().create_admin_invite_code(
         admin_user_id=admin.get("id"),
@@ -235,22 +235,22 @@ async def api_admin_create_invite(payload: AdminCreateInvitePayload, request: Re
     return res
 
 @router.delete("/api/admin/invites/{code}", summary="Delete Invitation Code (Admin)")
-async def api_admin_delete_invite(code: str, request: Request, token: Optional[str] = Query(None)):
+def api_admin_delete_invite(code: str, request: Request, token: Optional[str] = Query(None)):
     _get_admin_session_or_403(request, token)
     return get_auth_manager().delete_admin_invite_code(code)
 
 @router.post("/api/admin/invites/{code}/toggle", summary="Toggle Active Status of Invitation Code (Admin)")
-async def api_admin_toggle_invite(code: str, payload: AdminToggleInvitePayload, request: Request, token: Optional[str] = Query(None)):
+def api_admin_toggle_invite(code: str, payload: AdminToggleInvitePayload, request: Request, token: Optional[str] = Query(None)):
     _get_admin_session_or_403(request, token)
     return get_auth_manager().toggle_invite_code(code, payload.is_active)
 
 @router.get("/api/admin/referrals", summary="Get Referral Audit Log & Who-Invited-Who (Admin)")
-async def api_admin_get_referrals(request: Request, token: Optional[str] = Query(None)):
+def api_admin_get_referrals(request: Request, token: Optional[str] = Query(None)):
     _get_admin_session_or_403(request, token)
     return {"referrals": get_auth_manager().get_admin_referrals()}
 
 @router.get("/api/admin/users", summary="Get User Directory with Inviter Lineage (Admin)")
-async def api_admin_get_users(request: Request, token: Optional[str] = Query(None)):
+def api_admin_get_users(request: Request, token: Optional[str] = Query(None)):
     _get_admin_session_or_403(request, token)
     return {"users": get_auth_manager().get_admin_users()}
 
@@ -262,7 +262,7 @@ class AdminSetUserRolePayload(BaseModel):
     role: str
 
 @router.post("/api/admin/users/{user_id}/role", summary="Update User Role (Admin)")
-async def api_admin_set_user_role(user_id: str, payload: AdminSetUserRolePayload, request: Request, token: Optional[str] = Query(None)):
+def api_admin_set_user_role(user_id: str, payload: AdminSetUserRolePayload, request: Request, token: Optional[str] = Query(None)):
     _get_admin_session_or_403(request, token)
     valid_roles = ("player", "creator", "cc", "content_creator", "to", "organizer", "admin", "referee")
     new_role = payload.role.strip().lower()
@@ -283,7 +283,7 @@ class RequestToPayload(BaseModel):
     details: Optional[str] = ""
 
 @router.post("/api/auth/request-to", summary="Request Tournament Organizer (TO) Status")
-async def api_auth_request_to(payload: RequestToPayload, request: Request, token: Optional[str] = Query(None)):
+def api_auth_request_to(payload: RequestToPayload, request: Request, token: Optional[str] = Query(None)):
     session = _get_user_session_or_401(request, token)
     db = get_database()
     user_id = session.get("id")
@@ -304,7 +304,7 @@ async def api_auth_request_to(payload: RequestToPayload, request: Request, token
     return {"success": True, "message": "TO verification request submitted successfully. An administrator will review your application."}
  
 @router.get("/api/system/db-status", summary="Public DB health and schema status check")
-async def api_system_db_status():
+def api_system_db_status():
     db = get_database()
     if hasattr(db, "get_db_status"):
         return db.get_db_status()
@@ -397,7 +397,7 @@ async def api_admin_repair_matches_elo(
     "/api/admin/repair-matches-elo/status",
     summary="Inspect status of the historical BCP match & Elo repair job (Admin/Cron)",
 )
-async def api_admin_repair_matches_elo_status(
+def api_admin_repair_matches_elo_status(
     request: Request,
     token: Optional[str] = Query(None),
     secret: Optional[str] = Query(None),

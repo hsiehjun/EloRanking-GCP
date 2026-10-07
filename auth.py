@@ -2672,8 +2672,8 @@ class AuthManager:
                 """, (target_pid, target_sys))
                 matchup_matrix = [dict(r) for r in cur.fetchall()]
 
-                # 5. Tournaments Attended & Performance Summary
-                events_attended = self.db.get_player_tournaments(target_pid, game_system=target_sys)
+        # 5. Tournaments Attended & Performance Summary (outside conn scope to avoid nested pool checkout)
+        events_attended = self.db.get_player_tournaments(target_pid, game_system=target_sys)
 
         ev_meta_by_id = {}
         ev_meta_by_name = {}

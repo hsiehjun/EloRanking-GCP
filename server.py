@@ -271,7 +271,7 @@ async def _prewarm_meta_intel_cache():
 async def _periodic_nr_bundle_refresh():
     """Background task to periodically check www.newrecruit.eu and refresh data/nr_offline_bundle.zip."""
     interval_hours = float(os.environ.get("NR_BUNDLE_REFRESH_INTERVAL_HOURS", "12") or 12)
-    await asyncio.sleep(90)  # Wait 90s after startup before initial check
+    await asyncio.sleep(600)  # Wait 10m after startup before initial check
     while True:
         try:
             from newrecruit_integration import refresh_nr_offline_bundle_if_needed
@@ -289,7 +289,14 @@ async def on_server_startup():
     asyncio.create_task(_periodic_nr_bundle_refresh())
 
     async def _deferred_startup_tasks():
-        await asyncio.sleep(2)
+        try:
+            from newrecruit_integration import get_nr_detachments_catalog, get_nr_aos_formations_catalog
+            await asyncio.to_thread(get_nr_detachments_catalog, False)
+            await asyncio.to_thread(get_nr_aos_formations_catalog, False)
+            logger.info("🔥 NewRecruit detachments & AoS formations catalogs pre-warmed from local bundle")
+        except Exception as nr_err:
+            logger.warning(f"Notice during NR detachments pre-warming: {nr_err}")
+        await asyncio.sleep(30)
         try:
             db = await asyncio.to_thread(get_database)
             try:
@@ -371,7 +378,7 @@ async def serve_tracker_html(path: str, request: Request) -> Response:
     """Serves local Tracker HTML page (play.html, aos.html, or lobby.html) with SSO authentication."""
     # Enforce SSO authentication on all Tracker routes
     if "tracker" in path.lower():
-        user = _get_request_user(request)
+        user = await asyncio.to_thread(_get_request_user, request)
         if not user:
             redirect_target = f"/{path}"
             if request.url.query:
@@ -447,7 +454,7 @@ def _get_request_user(request: Request, token: Optional[str] = None):
 # Root Landing Page
 @app.get("/", include_in_schema=False)
 @app.get("/index.html", include_in_schema=False)
-async def serve_index(request: Request, token: Optional[str] = Query(None)):
+def serve_index(request: Request, token: Optional[str] = Query(None)):
     user = _get_request_user(request, token)
     if user and not request.query_params.get("public"):
         return RedirectResponse(url="/app", status_code=307)
@@ -462,7 +469,7 @@ async def serve_index(request: Request, token: Optional[str] = Query(None)):
 
 @app.get("/api/version", include_in_schema=False)
 @app.get("/version.json", include_in_schema=False)
-async def api_version():
+def api_version():
     v_file = web_dir / "version.json"
     version_str = "1.0.0"
     updated_at = None
@@ -494,7 +501,7 @@ async def api_version():
 @app.get("/40k", include_in_schema=False)
 @app.get("/40k/", include_in_schema=False)
 @app.get("/40k/app", include_in_schema=False)
-async def serve_app(request: Request, token: Optional[str] = Query(None)):
+def serve_app(request: Request, token: Optional[str] = Query(None)):
     user = _get_request_user(request, token)
     if not user:
         target_path = _sanitize_redirect_target(request.url.path or "/app", default="/app")
@@ -578,7 +585,7 @@ async def serve_connect_page():
 
 @app.get("/my-hub", include_in_schema=False)
 @app.get("/hub", include_in_schema=False)
-async def serve_my_hub(request: Request, token: Optional[str] = Query(None)):
+def serve_my_hub(request: Request, token: Optional[str] = Query(None)):
     user = _get_request_user(request, token)
     if not user:
         return _clear_stale_auth_cookies(RedirectResponse(url="/login?redirect=/app#my-hub", status_code=303))
@@ -586,7 +593,7 @@ async def serve_my_hub(request: Request, token: Optional[str] = Query(None)):
 
 @app.get("/tracker", include_in_schema=False)
 @app.get("/tracker/", include_in_schema=False)
-async def serve_tracker_alias(request: Request, token: Optional[str] = Query(None)):
+def serve_tracker_alias(request: Request, token: Optional[str] = Query(None)):
     user = _get_request_user(request, token)
 
     qp = dict(request.query_params)
@@ -752,7 +759,7 @@ async def serve_favicon():
 
 @app.get("/eventstudio", include_in_schema=False)
 @app.get("/eventstudio.html", include_in_schema=False)
-async def serve_eventstudio(request: Request, token: Optional[str] = Query(None)):
+def serve_eventstudio(request: Request, token: Optional[str] = Query(None)):
     user = _get_request_user(request, token)
     if not user:
         return _clear_stale_auth_cookies(RedirectResponse(url="/login?redirect=/eventstudio", status_code=303))
@@ -779,7 +786,7 @@ NO_CACHE_HEADERS = {
 
 @app.get("/admin/feedback", include_in_schema=False)
 @app.get("/admin/feedback.html", include_in_schema=False)
-async def serve_admin_feedback(request: Request, token: Optional[str] = Query(None)):
+def serve_admin_feedback(request: Request, token: Optional[str] = Query(None)):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = token or request.cookies.get("session_token") or request.cookies.get("elo_auth_token") or request.cookies.get("native_session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
@@ -797,7 +804,7 @@ async def serve_admin_feedback(request: Request, token: Optional[str] = Query(No
 
 @app.get("/admin", include_in_schema=False)
 @app.get("/admin.html", include_in_schema=False)
-async def serve_admin_dashboard(request: Request, token: Optional[str] = Query(None)):
+def serve_admin_dashboard(request: Request, token: Optional[str] = Query(None)):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = token or request.cookies.get("session_token") or request.cookies.get("elo_auth_token") or request.cookies.get("native_session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)

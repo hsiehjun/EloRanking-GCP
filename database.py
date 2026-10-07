@@ -5475,7 +5475,7 @@ class PostgresDatabase:
                 url = f"https://newprod-api.bestcoastpairings.com/v1/events/{eid}/players?limit=2500&placings=true"
                 try:
                     req = urllib.request.Request(url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=3.5) as resp:
+                    with urllib.request.urlopen(req, timeout=1.8) as resp:
                         data = json.loads(resp.read().decode("utf-8"))
                     active = []
                     if isinstance(data, dict):
@@ -5517,9 +5517,12 @@ class PostgresDatabase:
                 except Exception:
                     return eid, None
 
+            sync_eids = missing_eids[:4]
+            bg_eids = missing_eids[4:]
+
             try:
-                with ThreadPoolExecutor(max_workers=min(12, len(missing_eids))) as pool:
-                    for eid, plc_payload in pool.map(_fetch_one_bcp_placing, missing_eids):
+                with ThreadPoolExecutor(max_workers=min(4, len(sync_eids))) as pool:
+                    for eid, plc_payload in pool.map(_fetch_one_bcp_placing, sync_eids):
                         if plc_payload is not None:
                             PostgresDatabase.set_cached(
                                 PostgresDatabase._bcp_event_placings_cache_dict,
@@ -5529,6 +5532,28 @@ class PostgresDatabase:
                             )
             except Exception as e:
                 logger.debug(f"BCP tournament placing enrichment notice: {e}")
+
+            if bg_eids:
+                def _bg_warm_bcp_placings(eids_to_warm: List[str], p_id: str):
+                    try:
+                        with ThreadPoolExecutor(max_workers=min(6, len(eids_to_warm))) as bg_pool:
+                            for b_eid, b_payload in bg_pool.map(_fetch_one_bcp_placing, eids_to_warm):
+                                PostgresDatabase.set_cached(
+                                    PostgresDatabase._bcp_event_placings_cache_dict,
+                                    b_eid,
+                                    b_payload if b_payload is not None else {"by_id": {}, "by_name": {}, "active_count": 0},
+                                    max_size=2000
+                                )
+                        for sys_k in ("40k", "aos", "all"):
+                            PostgresDatabase._player_tournaments_cache_dict.pop(f"{sys_k}:{p_id}", None)
+                    except Exception:
+                        pass
+
+                threading.Thread(
+                    target=_bg_warm_bcp_placings,
+                    args=(bg_eids, pid_clean),
+                    daemon=True
+                ).start()
 
         for t in tournaments:
             eid = str(t.get("event_id") or "").strip()
@@ -5575,9 +5600,32 @@ class PostgresDatabase:
                           AND LOWER(TRIM(full_name)) NOT IN ('player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye')
                         LIMIT 1
                     ),
+                    name_ep AS (
+                        SELECT
+                            ep.event_id,
+                            MIN(NULLIF(ep.placement, 0)) AS name_placement
+                        FROM event_participants ep
+                        JOIN raw_player_events rpe ON rpe.event_id = ep.event_id
+                        JOIN player_name_ref pnr ON LOWER(TRIM(ep.full_name)) = pnr.norm_name
+                        WHERE ep.placement IS NOT NULL AND ep.placement > 0
+                        GROUP BY ep.event_id
+                    ),
+                    direct_ep AS (
+                        SELECT
+                            ep.event_id,
+                            MIN(NULLIF(ep.placement, 0)) AS direct_placement
+                        FROM event_participants ep
+                        JOIN raw_player_events rpe ON rpe.event_id = ep.event_id
+                        WHERE ep.player_id = %(pid)s AND ep.placement IS NOT NULL AND ep.placement > 0
+                        GROUP BY ep.event_id
+                    ),
                     target_events AS (
                         SELECT
                             e.id AS event_id,
+                            (
+                                COALESCE(dep.direct_placement, nep.name_placement, 0) = 0
+                                AND COALESCE(e.total_players, 0) <= 250
+                            ) AS needs_full_rank,
                             GREATEST(
                                 COALESCE(
                                     CASE
@@ -5587,7 +5635,6 @@ class PostgresDatabase:
                                     NULLIF(e.num_rounds, 0),
                                     0
                                 ),
-                                COALESCE((SELECT MAX(m2.round) FROM matches m2 WHERE m2.event_id = e.id), 0),
                                 3
                             ) AS eff_rounds,
                             ARRAY(
@@ -5604,6 +5651,8 @@ class PostgresDatabase:
                             ) AS tb_metrics
                         FROM raw_player_events rpe
                         JOIN events e ON e.id = rpe.event_id
+                        LEFT JOIN direct_ep dep ON dep.event_id = e.id
+                        LEFT JOIN name_ep nep ON nep.event_id = e.id
                         WHERE COALESCE(e.game_system, '40k') = %(system)s
                     ),
                     event_match_outcomes AS (
@@ -5639,6 +5688,7 @@ class PostgresDatabase:
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
                         WHERE m.player1_id IS NOT NULL AND m.player1_id != ''
+                          AND (m.player1_id = %(pid)s OR te.needs_full_rank = TRUE)
                           AND (
                               m.winner_id IS NOT NULL
                               OR COALESCE(m.is_draw, FALSE) = TRUE
@@ -5677,6 +5727,7 @@ class PostgresDatabase:
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
                         WHERE m.player2_id IS NOT NULL AND m.player2_id != '' AND COALESCE(m.is_bye, FALSE) = FALSE
+                          AND (m.player2_id = %(pid)s OR te.needs_full_rank = TRUE)
                           AND (
                               m.winner_id IS NOT NULL
                               OR COALESCE(m.is_draw, FALSE) = TRUE
@@ -5689,7 +5740,6 @@ class PostgresDatabase:
                             emo.pid,
                             LOWER(TRIM(COALESCE(
                                 MAX(CASE WHEN emo.match_name IS NOT NULL AND LOWER(emo.match_name) NOT IN ('player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye') THEN emo.match_name END),
-                                (SELECT p.full_name FROM players p WHERE p.id = emo.pid LIMIT 1),
                                 ''
                             ))) AS norm_name,
                             COUNT(*)::int AS matches_played,
@@ -5732,20 +5782,28 @@ class PostgresDatabase:
                             COALESCE(ep.dropped, FALSE) AS dropped
                         FROM event_participants ep
                         JOIN target_events te ON te.event_id = ep.event_id
+                        WHERE ep.player_id = %(pid)s OR te.needs_full_rank = TRUE
                     ),
                     matched_ep AS (
                         SELECT
-                            amp.event_id,
-                            amp.pid,
-                            MIN(rep.ep_placement) AS ep_placement,
-                            MIN(rep.ep_pod_num) AS ep_pod_num,
-                            MAX(rep.ep_bp) AS ep_bp,
-                            MAX(rep.ep_faction) AS ep_faction,
-                            BOOL_OR(rep.dropped) AS dropped
-                        FROM agg_match_players amp
-                        JOIN raw_ep rep ON rep.event_id = amp.event_id
-                                       AND (rep.pid = amp.pid OR (amp.norm_name != '' AND rep.norm_name = amp.norm_name))
-                        GROUP BY amp.event_id, amp.pid
+                            event_id,
+                            pid,
+                            MIN(ep_placement) AS ep_placement,
+                            MIN(ep_pod_num) AS ep_pod_num,
+                            MAX(ep_bp) AS ep_bp,
+                            MAX(ep_faction) AS ep_faction,
+                            BOOL_OR(dropped) AS dropped
+                        FROM (
+                            SELECT amp.event_id, amp.pid, rep.ep_placement, rep.ep_pod_num, rep.ep_bp, rep.ep_faction, rep.dropped
+                            FROM agg_match_players amp
+                            JOIN raw_ep rep ON rep.event_id = amp.event_id AND rep.pid = amp.pid
+                            UNION ALL
+                            SELECT amp.event_id, amp.pid, rep.ep_placement, rep.ep_pod_num, rep.ep_bp, rep.ep_faction, rep.dropped
+                            FROM agg_match_players amp
+                            JOIN raw_ep rep ON rep.event_id = amp.event_id AND amp.norm_name != '' AND rep.norm_name = amp.norm_name
+                            WHERE rep.pid != amp.pid
+                        ) mep_u
+                        GROUP BY event_id, pid
                     ),
                     unmatched_ep AS (
                         SELECT
@@ -5757,22 +5815,10 @@ class PostgresDatabase:
                             MAX(rep.ep_faction) AS ep_faction,
                             BOOL_AND(rep.dropped) AS dropped
                         FROM raw_ep rep
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM agg_match_players amp
-                            WHERE amp.event_id = rep.event_id
-                              AND (amp.pid = rep.pid OR (amp.norm_name != '' AND amp.norm_name = rep.norm_name))
-                        )
+                        LEFT JOIN agg_match_players amp_id ON amp_id.event_id = rep.event_id AND amp_id.pid = rep.pid
+                        LEFT JOIN agg_match_players amp_nm ON amp_nm.event_id = rep.event_id AND rep.norm_name != '' AND amp_nm.norm_name = rep.norm_name
+                        WHERE amp_id.pid IS NULL AND amp_nm.pid IS NULL
                         GROUP BY rep.event_id, COALESCE(NULLIF(rep.norm_name, ''), rep.pid)
-                    ),
-                    name_ep AS (
-                        SELECT
-                            ep.event_id,
-                            MIN(NULLIF(ep.placement, 0)) AS name_placement
-                        FROM event_participants ep
-                        JOIN target_events te ON te.event_id = ep.event_id
-                        JOIN player_name_ref pnr ON LOWER(TRIM(ep.full_name)) = pnr.norm_name
-                        WHERE ep.placement IS NOT NULL AND ep.placement > 0
-                        GROUP BY ep.event_id
                     ),
                     combined_competitors AS (
                         SELECT
@@ -5999,7 +6045,6 @@ class PostgresDatabase:
                                     NULLIF(e.num_rounds, 0),
                                     0
                                 ),
-                                COALESCE((SELECT MAX(m2.round) FROM matches m2 WHERE m2.event_id = e.id), 0),
                                 3
                             ) AS eff_rounds,
                             ARRAY(
@@ -6050,7 +6095,7 @@ class PostgresDatabase:
                             m.match_date
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
-                        WHERE m.player1_id IS NOT NULL AND m.player1_id != ''
+                        WHERE m.player1_id = ANY(%(pids)s)
                           AND (
                               m.winner_id IS NOT NULL
                               OR COALESCE(m.is_draw, FALSE) = TRUE
@@ -6088,7 +6133,7 @@ class PostgresDatabase:
                             m.match_date
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
-                        WHERE m.player2_id IS NOT NULL AND m.player2_id != '' AND COALESCE(m.is_bye, FALSE) = FALSE
+                        WHERE m.player2_id = ANY(%(pids)s) AND COALESCE(m.is_bye, FALSE) = FALSE
                           AND (
                               m.winner_id IS NOT NULL
                               OR COALESCE(m.is_draw, FALSE) = TRUE
@@ -6101,7 +6146,6 @@ class PostgresDatabase:
                             emo.pid,
                             LOWER(TRIM(COALESCE(
                                 MAX(CASE WHEN emo.match_name IS NOT NULL AND LOWER(emo.match_name) NOT IN ('player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye') THEN emo.match_name END),
-                                (SELECT p.full_name FROM players p WHERE p.id = emo.pid LIMIT 1),
                                 ''
                             ))) AS norm_name,
                             COUNT(*)::int AS matches_played,
@@ -6115,17 +6159,6 @@ class PostgresDatabase:
                             MAX(emo.match_date) AS last_match_date
                         FROM event_match_outcomes emo
                         JOIN target_events te ON te.event_id = emo.event_id
-                        GROUP BY emo.event_id, emo.pid
-                    ),
-                    match_player_sos AS (
-                        SELECT
-                            emo.event_id,
-                            emo.pid,
-                            AVG(GREATEST(0.33, COALESCE(opp.win_pct, 0.33)))::numeric AS sos,
-                            AVG(COALESCE(opp.wins, 0)::numeric)::numeric AS wins_sos
-                        FROM event_match_outcomes emo
-                        JOIN agg_match_players opp ON opp.event_id = emo.event_id AND opp.pid = emo.opp_id
-                        WHERE emo.opp_id IS NOT NULL
                         GROUP BY emo.event_id, emo.pid
                     ),
                     raw_ep AS (
@@ -6143,7 +6176,7 @@ class PostgresDatabase:
                             NULLIF(ep.faction, '') AS ep_faction,
                             COALESCE(ep.dropped, FALSE) AS dropped
                         FROM event_participants ep
-                        JOIN target_events te ON te.event_id = ep.event_id
+                        WHERE ep.player_id = ANY(%(pids)s)
                     ),
                     matched_ep AS (
                         SELECT
@@ -6155,28 +6188,10 @@ class PostgresDatabase:
                             MAX(rep.ep_faction) AS ep_faction,
                             BOOL_OR(rep.dropped) AS dropped
                         FROM agg_match_players amp
-                        JOIN raw_ep rep ON rep.event_id = amp.event_id
-                                       AND (rep.pid = amp.pid OR (amp.norm_name != '' AND rep.norm_name = amp.norm_name))
+                        JOIN raw_ep rep ON rep.event_id = amp.event_id AND rep.pid = amp.pid
                         GROUP BY amp.event_id, amp.pid
                     ),
-                    unmatched_ep AS (
-                        SELECT
-                            rep.event_id,
-                            COALESCE(MAX(CASE WHEN rep.pid = ANY(%(pids)s) THEN rep.pid END), MIN(rep.pid)) AS pid,
-                            MIN(rep.ep_placement) AS ep_placement,
-                            MIN(rep.ep_pod_num) AS ep_pod_num,
-                            MAX(rep.ep_bp) AS ep_bp,
-                            MAX(rep.ep_faction) AS ep_faction,
-                            BOOL_AND(rep.dropped) AS dropped
-                        FROM raw_ep rep
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM agg_match_players amp
-                            WHERE amp.event_id = rep.event_id
-                              AND (amp.pid = rep.pid OR (amp.norm_name != '' AND amp.norm_name = rep.norm_name))
-                        )
-                        GROUP BY rep.event_id, COALESCE(NULLIF(rep.norm_name, ''), rep.pid)
-                    ),
-                    combined_competitors AS (
+                    ranked_competitors AS (
                         SELECT
                             amp.event_id,
                             amp.pid,
@@ -6187,74 +6202,20 @@ class PostgresDatabase:
                             amp.match_bp,
                             COALESCE(mep.ep_bp, amp.match_bp, 0) AS effective_bp,
                             amp.ptv,
-                            COALESCE(mps.sos, 0.0)::numeric AS sos,
-                            COALESCE(mps.wins_sos, 0.0)::numeric AS wins_sos,
+                            0.0::numeric AS sos,
+                            0.0::numeric AS wins_sos,
                             mep.ep_placement,
                             mep.ep_pod_num,
                             COALESCE(mep.ep_faction, amp.match_faction, 'Unknown') AS registered_faction,
-                            amp.last_match_date
+                            amp.last_match_date,
+                            CASE
+                                WHEN COALESCE(te.tb_metrics[1], 'Path to Victory') IN ('Oppt. Game Win %%', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN 0
+                                ELSE 0
+                            END AS computed_rank,
+                            0 AS computed_total_players
                         FROM agg_match_players amp
+                        JOIN target_events te ON te.event_id = amp.event_id
                         LEFT JOIN matched_ep mep ON mep.event_id = amp.event_id AND mep.pid = amp.pid
-                        LEFT JOIN match_player_sos mps ON mps.event_id = amp.event_id AND mps.pid = amp.pid
-                        UNION ALL
-                        SELECT
-                            uep.event_id,
-                            uep.pid,
-                            0 AS matches_played,
-                            0 AS wins,
-                            0 AS losses,
-                            0 AS draws,
-                            0 AS match_bp,
-                            COALESCE(uep.ep_bp, 0) AS effective_bp,
-                            0::numeric AS ptv,
-                            0::numeric AS sos,
-                            0::numeric AS wins_sos,
-                            uep.ep_placement,
-                            uep.ep_pod_num,
-                            COALESCE(uep.ep_faction, 'Unknown') AS registered_faction,
-                            NULL::timestamptz AS last_match_date
-                        FROM unmatched_ep uep
-                        WHERE uep.ep_placement IS NOT NULL OR COALESCE(uep.dropped, FALSE) = FALSE
-                    ),
-                    ranked_competitors AS (
-                        SELECT
-                            cc.*,
-                            ROW_NUMBER() OVER (
-                                PARTITION BY cc.event_id
-                                ORDER BY
-                                    COALESCE(cc.ep_placement, 999999) ASC,
-                                    COALESCE(cc.ep_pod_num, 9999) ASC,
-                                    (cc.wins + 0.5 * cc.draws) DESC,
-                                    CASE
-                                        WHEN COALESCE(te.tb_metrics[1], 'Path to Victory') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
-                                        WHEN te.tb_metrics[1] IN ('Oppt. Game Win %%', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
-                                        WHEN te.tb_metrics[1] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
-                                        WHEN te.tb_metrics[1] IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
-                                        ELSE cc.ptv
-                                    END DESC,
-                                    CASE
-                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %%') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
-                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %%') IN ('Oppt. Game Win %%', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
-                                        WHEN te.tb_metrics[2] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
-                                        WHEN te.tb_metrics[2] IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
-                                        ELSE ROUND(cc.sos, 4)
-                                    END DESC,
-                                    CASE
-                                        WHEN COALESCE(te.tb_metrics[3], 'Battle Points') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
-                                        WHEN te.tb_metrics[3] IN ('Oppt. Game Win %%', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
-                                        WHEN te.tb_metrics[3] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
-                                        WHEN COALESCE(te.tb_metrics[3], 'Battle Points') IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
-                                        ELSE cc.effective_bp::numeric
-                                    END DESC,
-                                    cc.effective_bp DESC,
-                                    ROUND(cc.sos, 4) DESC,
-                                    ROUND(cc.wins_sos, 4) DESC,
-                                    cc.matches_played DESC,
-                                    cc.pid ASC
-                            )::int AS computed_rank,
-                            COUNT(*) OVER (PARTITION BY cc.event_id)::int AS computed_total_players
-                        FROM combined_competitors cc
-                        JOIN target_events te ON te.event_id = cc.event_id
                     )
                     SELECT 
                         pe.player_id,
@@ -6274,14 +6235,7 @@ class PostgresDatabase:
                         ) AS total_players, 
                         COALESCE(e.num_rounds, 0) AS num_rounds,
                         COALESCE(rc.registered_faction, 'Unknown') AS registered_faction,
-                        CASE
-                            WHEN COALESCE(rc.ep_placement, 0) > 0 THEN rc.ep_placement
-                            WHEN COALESCE(rc.matches_played, 0) > 0 AND (
-                                COALESCE(e.is_ended, FALSE) = TRUE
-                                OR COALESCE(e.end_date, e.event_date, rc.last_match_date) < (NOW() - INTERVAL '12 hours')
-                            ) THEN COALESCE(rc.computed_rank, 0)
-                            ELSE 0
-                        END AS placement,
+                        COALESCE(rc.ep_placement, 0) AS placement,
                         COALESCE(rc.matches_played, 0) AS matches_played,
                         COALESCE(rc.wins, 0) AS wins,
                         COALESCE(rc.losses, 0) AS losses,

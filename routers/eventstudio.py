@@ -580,8 +580,11 @@ def _fetch_bcp_event_workspace(
         logger.warning(f"Error fetching live BCP event {event_id}: {err}")
         return None
 
+_EVENTSTUDIO_LIST_CACHE = {}
+_EVENTSTUDIO_LIST_TTL_SEC = 45.0
+
 @router.get("/api/eventstudio/events", summary="List organizer tournaments")
-async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str] = Query(None)):
+def api_eventstudio_list_events(request: Request, bcp_token: Optional[str] = Query(None), force_refresh: bool = Query(False)):
     user = _get_to_session_or_403(request)
     db = get_database()
     auth_mgr = get_auth_manager()
@@ -592,6 +595,17 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
 
     if not user_id and not bcp_user_id and not player_id:
         return {"success": True, "count": 0, "events": []}
+
+    cache_key = f"{user_id}:{bcp_user_id}:{player_id}:{bool(effective_bcp_token)}"
+    now_ts = time.time()
+    if not force_refresh and cache_key in _EVENTSTUDIO_LIST_CACHE:
+        cached_ts, cached_events = _EVENTSTUDIO_LIST_CACHE[cache_key]
+        if now_ts - cached_ts < _EVENTSTUDIO_LIST_TTL_SEC:
+            return {
+                "success": True,
+                "count": len(cached_events),
+                "events": cached_events,
+            }
 
     bcp_events = []
     seen_ids = set()
@@ -629,9 +643,10 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
                         "state": item.get("state") or loc.get("state"),
                         "country": item.get("country") or loc.get("country"),
                         "venue": item.get("venueName") or loc.get("venueName") or loc.get("name") or loc.get("venue"),
-                        "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
-                        "points": item.get("points") or 2000,
+                        "num_rounds": int(item.get("numberOfRounds") or item.get("numRounds") or 5),
+                        "points": int(item.get("points") or 2000),
                         "capacity": capacity,
+                        "num_tickets": capacity,
                         "total_players": reg_players,
                         "organizer_id": user_id,
                         "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id,
@@ -651,44 +666,7 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
     if not all_events:
         all_events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
 
-    # Enrich events with live BCP metadata (accurate date, rounds, capacity, registered competitors)
-    from scraper import BestCoastPairingsScraper
-    scraper = BestCoastPairingsScraper(db=db)
-    for ev in all_events:
-        eid = str(ev.get("id") or "").strip()
-        if not eid or eid.startswith("ES-"):
-            continue
-        try:
-            bcp_info = scraper.fetch_event_details(eid)
-            if bcp_info and isinstance(bcp_info, dict):
-                ev["name"] = bcp_info.get("name") or ev.get("name")
-                b_date = bcp_info.get("eventDate") or bcp_info.get("startDate") or bcp_info.get("eventStartDate")
-                if b_date:
-                    ev["event_date"] = b_date
-                b_end = bcp_info.get("endDate") or bcp_info.get("eventEndDate")
-                if b_end:
-                    ev["end_date"] = b_end
-                b_rounds = bcp_info.get("numberOfRounds") or bcp_info.get("numRounds")
-                if b_rounds is not None:
-                    ev["num_rounds"] = int(b_rounds)
-                b_pts = bcp_info.get("points")
-                if b_pts is not None:
-                    ev["points"] = int(b_pts)
-                b_cap = bcp_info.get("numTickets") or bcp_info.get("capacity")
-                if b_cap is not None:
-                    ev["capacity"] = int(b_cap)
-                    ev["num_tickets"] = int(b_cap)
-                b_tot = bcp_info.get("totalPlayers")
-                if b_tot is not None and int(b_tot) > 0:
-                    ev["total_players"] = int(b_tot)
-                elif not ev.get("total_players") or int(ev.get("total_players") or 0) == 0:
-                    raw_players = scraper.fetch_event_players(eid)
-                    if raw_players:
-                        ev["total_players"] = len(raw_players)
-                ev["bcp_synced"] = True
-                ev["bcp_status"] = "synced"
-        except Exception as enrich_err:
-            logger.debug(f"Notice enriching BCP event {eid} for directory list: {enrich_err}")
+    _EVENTSTUDIO_LIST_CACHE[cache_key] = (now_ts, all_events)
 
     return {
         "success": True,
@@ -697,7 +675,7 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
     }
 
 @router.get("/api/eventstudio/event/{event_id}", summary="Get tournament details, roster, and round pairings")
-async def api_eventstudio_get_event(event_id: str, request: Request):
+def api_eventstudio_get_event(event_id: str, request: Request):
     db = get_database()
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
@@ -758,7 +736,7 @@ async def api_eventstudio_get_event(event_id: str, request: Request):
     }
 
 @router.get("/api/eventstudio/event/{event_id}/round/{round_num}/pairings", summary="Get live pairings and scores for a specific tournament round (lightweight single-call)")
-async def api_eventstudio_get_round_pairings(
+def api_eventstudio_get_round_pairings(
     event_id: str,
     round_num: int,
     request: Request,
@@ -820,7 +798,7 @@ async def api_eventstudio_get_round_pairings(
     }
 
 @router.post("/api/eventstudio/event/create", summary="Create new tournament and register to BCP")
-async def api_eventstudio_create_event(payload: CreateEventPayload, request: Request):
+def api_eventstudio_create_event(payload: CreateEventPayload, request: Request):
     user = _get_to_session_or_403(request)
     db = get_database()
     auth_mgr = get_auth_manager()
@@ -1143,7 +1121,7 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
 
 
 @router.put("/api/eventstudio/event/{event_id}", summary="Modify tournament details and push to BCP")
-async def api_eventstudio_update_event(event_id: str, payload: Dict[str, Any], request: Request):
+def api_eventstudio_update_event(event_id: str, payload: Dict[str, Any], request: Request):
     user = _get_to_session_or_403(request)
     db = get_database()
     auth_mgr = get_auth_manager()
@@ -1369,7 +1347,7 @@ VERIFIED_TOURNAMENT_CITIES = [
 ]
 
 @router.get("/api/config/maps-key", summary="Get Maps client configuration")
-async def api_get_maps_key():
+def api_get_maps_key():
     # Supports separate GOOGLE_MAPS_CLIENT_KEY (restricted to omnitactica.com) or GOOGLE_MAPS_API_KEY
     key = os.environ.get("GOOGLE_MAPS_CLIENT_KEY", os.environ.get("GOOGLE_MAPS_API_KEY", GOOGLE_MAPS_API_KEY))
     clean_key = (key or "").strip()
@@ -1379,7 +1357,7 @@ async def api_get_maps_key():
 
 
 @router.get("/api/eventstudio/locations/search", summary="Search verified cities for event creation")
-async def api_eventstudio_search_locations(q: str = Query("")):
+def api_eventstudio_search_locations(q: str = Query("")):
     query = q.strip().lower()
     if not query or len(query) < 2:
         return {"results": VERIFIED_TOURNAMENT_CITIES[:8]}
@@ -1454,7 +1432,7 @@ async def api_eventstudio_search_locations(q: str = Query("")):
     return {"results": matches[:10]}
 
 @router.get("/api/eventstudio/circuits", summary="Get available Warhammer circuits from BCP")
-async def api_eventstudio_get_circuits(request: Request, game_system: Optional[str] = Query("40k")):
+def api_eventstudio_get_circuits(request: Request, game_system: Optional[str] = Query("40k")):
     target_sys = (game_system or "40k").strip().lower()
     bcp_sys_id = AOS_GAME_SYSTEM_ID if target_sys == "aos" else DEFAULT_GAME_SYSTEM_ID
     try:
@@ -1488,7 +1466,7 @@ async def api_eventstudio_get_circuits(request: Request, game_system: Optional[s
         ]}
 
 @router.get("/api/eventstudio/event/{event_id}/circuits", summary="Get circuits linked to this event")
-async def api_eventstudio_get_event_circuits(event_id: str, request: Request):
+def api_eventstudio_get_event_circuits(event_id: str, request: Request):
     db = get_database()
     ev = db.get_studio_event(event_id)
     local_circuits = ev.get("circuits", []) if ev else []
@@ -1524,7 +1502,7 @@ class SubmitCircuitPayload(BaseModel):
     circuit_name: Optional[str] = None
 
 @router.post("/api/eventstudio/event/{event_id}/circuits/submit", summary="Link tournament to circuit on BCP")
-async def api_eventstudio_submit_circuit(event_id: str, payload: SubmitCircuitPayload, request: Request):
+def api_eventstudio_submit_circuit(event_id: str, payload: SubmitCircuitPayload, request: Request):
     user = _get_to_session_or_403(request)
     db = get_database()
     auth_mgr = get_auth_manager()
@@ -1559,7 +1537,7 @@ async def api_eventstudio_submit_circuit(event_id: str, payload: SubmitCircuitPa
     return {"success": True, "bcp_synced": bcp_ok, "circuits": circuits}
 
 @router.delete("/api/eventstudio/event/{event_id}", summary="Delete tournament from Event Studio and BCP")
-async def api_eventstudio_delete_event(event_id: str, request: Request):
+def api_eventstudio_delete_event(event_id: str, request: Request):
     user = _get_to_session_or_403(request)
     db = get_database()
     auth_mgr = get_auth_manager()
@@ -1669,7 +1647,7 @@ async def api_eventstudio_delete_event(event_id: str, request: Request):
     }
 
 @router.post("/api/eventstudio/event/{event_id}/start", summary="Start tournament on OmniTactica and BCP")
-async def api_eventstudio_start_event(event_id: str, request: Request):
+def api_eventstudio_start_event(event_id: str, request: Request):
     user = _get_to_session_or_403(request)
     auth_mgr = get_auth_manager()
     user_id = user["id"]
@@ -1770,7 +1748,7 @@ async def api_eventstudio_start_event(event_id: str, request: Request):
     }
 
 @router.get("/api/eventstudio/event/{event_id}/pairings_status", summary="Get pairings generation status from BCP")
-async def api_eventstudio_get_pairings_status(event_id: str, request: Request):
+def api_eventstudio_get_pairings_status(event_id: str, request: Request):
     user = _get_to_session_or_403(request)
     auth_mgr = get_auth_manager()
     user_id = user["id"] if user else None
@@ -1798,7 +1776,7 @@ async def api_eventstudio_get_pairings_status(event_id: str, request: Request):
 @router.post("/api/eventstudio/event/{event_id}/register", summary="Register player for tournament on OmniTactica and BCP")
 @router.post("/api/tournaments/{event_id}/register", summary="Self-register player for tournament")
 @router.post("/api/event/{event_id}/register", summary="Register player for tournament")
-async def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayload, request: Request):
+def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayload, request: Request):
     db = get_database()
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
@@ -2036,7 +2014,7 @@ async def api_eventstudio_register_player(event_id: str, payload: RegisterPlayer
     }
 
 @router.post("/api/eventstudio/event/{event_id}/pairings", summary="Save round pairings and sync game rooms")
-async def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], request: Request):
     user = _get_to_session_or_403(request)
     db = get_database()
     auth_mgr = get_auth_manager()
@@ -2142,7 +2120,7 @@ async def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], 
     }
 
 @router.post("/api/eventstudio/event/{event_id}/roster", summary="Update event competitor roster")
-async def api_eventstudio_save_roster(event_id: str, payload: Dict[str, Any], request: Request):
+def api_eventstudio_save_roster(event_id: str, payload: Dict[str, Any], request: Request):
     _get_to_session_or_403(request)
     roster = payload.get("roster") or []
     if not event_id.startswith("ES-"):
@@ -2169,7 +2147,7 @@ async def api_eventstudio_save_roster(event_id: str, payload: Dict[str, Any], re
     }
 
 @router.delete("/api/eventstudio/event/{event_id}/player/{player_id}", summary="Remove competitor from tournament roster (OmniTactica & BCP)")
-async def api_eventstudio_remove_player(event_id: str, player_id: str, request: Request):
+def api_eventstudio_remove_player(event_id: str, player_id: str, request: Request):
     session = _get_to_session_or_403(request)
     user_id = session.get("id")
     auth_mgr = get_auth_manager()
@@ -2450,7 +2428,7 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
     return generated_pairings
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/generate", summary="Generate automated Swiss pairings for tournament round (staged locally)")
-async def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, Any], request: Request):
     user = _get_to_session_or_403(request)
     target_round = int(payload.get("round") or payload.get("round_num") or 1)
 
@@ -2514,7 +2492,7 @@ async def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, An
     }
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/quick_generate", summary="Quickly generate pairings (random, Swiss, or Elo balanced) without mutating DB")
-async def api_eventstudio_quick_generate(event_id: str, payload: QuickGeneratePairingsPayload, request: Request):
+def api_eventstudio_quick_generate(event_id: str, payload: QuickGeneratePairingsPayload, request: Request):
     user = _get_to_session_or_403(request)
     target_round = int(payload.round or 1)
     mode = str(payload.method or payload.mode or "random").lower()
@@ -2639,7 +2617,7 @@ async def api_eventstudio_quick_generate(event_id: str, payload: QuickGeneratePa
     }
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/reorder_tables", summary="Reorder table numbers for staged pairings (drag & drop reordering)")
-async def api_eventstudio_reorder_tables(event_id: str, payload: ReorderTablesPayload, request: Request):
+def api_eventstudio_reorder_tables(event_id: str, payload: ReorderTablesPayload, request: Request):
     _get_to_session_or_403(request)
     pairings = payload.pairings or []
     if not pairings:
@@ -2676,7 +2654,7 @@ async def api_eventstudio_reorder_tables(event_id: str, payload: ReorderTablesPa
     }
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/swap", summary="Dynamically swap two competitors between tables before applying to BCP")
-async def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPayload, request: Request):
+def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPayload, request: Request):
     user = _get_to_session_or_403(request)
     r_str = str(payload.round)
 
@@ -2749,7 +2727,7 @@ async def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPaylo
     }
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/push_to_bcp", summary="Two-step abstraction layer: reconcile and push staged pairings to BCP")
-async def api_eventstudio_push_pairings_bcp(event_id: str, payload: PushPairingsBcpPayload, request: Request):
+def api_eventstudio_push_pairings_bcp(event_id: str, payload: PushPairingsBcpPayload, request: Request):
     user = _get_to_session_or_403(request)
     auth_mgr = get_auth_manager()
     user_id = user["id"]
@@ -2861,7 +2839,7 @@ async def api_eventstudio_push_pairings_bcp(event_id: str, payload: PushPairings
     }
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/apply_bcp", summary="Apply staged tournament pairings to Best Coast Pairings")
-async def api_eventstudio_apply_pairings_bcp(event_id: str, payload: ApplyPairingsBcpPayload, request: Request):
+def api_eventstudio_apply_pairings_bcp(event_id: str, payload: ApplyPairingsBcpPayload, request: Request):
     user = _get_to_session_or_403(request)
     auth_mgr = get_auth_manager()
     user_id = user["id"]
@@ -2902,10 +2880,10 @@ async def api_eventstudio_apply_pairings_bcp(event_id: str, payload: ApplyPairin
         publish_immediately=False,
         pairings=pairings_list
     )
-    return await api_eventstudio_push_pairings_bcp(event_id, push_payload, request)
+    return api_eventstudio_push_pairings_bcp(event_id, push_payload, request)
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/publish", summary="Publish tournament round pairings on OmniTactica and BCP")
-async def api_eventstudio_publish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+def api_eventstudio_publish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
     user = _get_to_session_or_403(request)
     auth_mgr = get_auth_manager()
     user_id = user["id"]
@@ -2942,7 +2920,7 @@ async def api_eventstudio_publish_pairings(event_id: str, payload: Dict[str, Any
     }
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/unpublish", summary="Unpublish tournament round pairings on OmniTactica and BCP")
-async def api_eventstudio_unpublish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+def api_eventstudio_unpublish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
     user = _get_to_session_or_403(request)
     auth_mgr = get_auth_manager()
     user_id = user["id"]
@@ -2986,7 +2964,7 @@ async def api_eventstudio_unpublish_pairings(event_id: str, payload: Dict[str, A
     }
 
 @router.post("/api/eventstudio/event/{event_id}/round/finalize", summary="Finalize and lock round, advancing tournament round")
-async def api_eventstudio_finalize_round(event_id: str, payload: Dict[str, Any], request: Request):
+def api_eventstudio_finalize_round(event_id: str, payload: Dict[str, Any], request: Request):
     user = _get_to_session_or_403(request)
     db = get_database()
     auth_mgr = get_auth_manager()
@@ -3023,7 +3001,7 @@ async def api_eventstudio_finalize_round(event_id: str, payload: Dict[str, Any],
     }
 
 @router.post("/api/eventstudio/event/{event_id}/round/reset", summary="Reset a round for corrections")
-async def api_eventstudio_reset_round(event_id: str, payload: Dict[str, Any], request: Request):
+def api_eventstudio_reset_round(event_id: str, payload: Dict[str, Any], request: Request):
     user = _get_to_session_or_403(request)
     db = get_database()
     auth_mgr = get_auth_manager()
@@ -3055,7 +3033,7 @@ async def api_eventstudio_reset_round(event_id: str, payload: Dict[str, Any], re
     }
 
 @router.post("/api/eventstudio/event/{event_id}/end", summary="End and archive tournament on OmniTactica and BCP")
-async def api_eventstudio_end_tournament(event_id: str, request: Request):
+def api_eventstudio_end_tournament(event_id: str, request: Request):
     user = _get_to_session_or_403(request)
     db = get_database()
     auth_mgr = get_auth_manager()
@@ -3104,7 +3082,7 @@ async def api_eventstudio_end_tournament(event_id: str, request: Request):
     }
 
 @router.get("/api/eventstudio/event/{event_id}/standings", summary="Compute live Swiss standings and tiebreaker metrics")
-async def api_eventstudio_get_standings(event_id: str, request: Request):
+def api_eventstudio_get_standings(event_id: str, request: Request):
     db = get_database()
     ev = db.get_studio_event(event_id)
     if not ev:
@@ -3216,7 +3194,7 @@ async def api_eventstudio_get_standings(event_id: str, request: Request):
     }
 
 @router.post("/api/eventstudio/submit_score", summary="Submit table match score and sync with BCP")
-async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Request):
+def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Request):
     db = get_database()
     auth_mgr = get_auth_manager()
     
@@ -3621,7 +3599,7 @@ class StudioBroadcastPayload(BaseModel):
     round: Optional[int] = None
 
 @router.post("/api/eventstudio/judge_call", summary="Submit judge / TO floor assistance call from game room")
-async def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
+def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
     raw_t = payload.table_num if payload.table_num is not None else (payload.tableNum if payload.tableNum is not None else (payload.tableNumber if payload.tableNumber is not None else payload.table))
     t_num = None
     if raw_t is not None:
@@ -3697,14 +3675,14 @@ async def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
     return {"success": True, "call": res}
 
 @router.get("/api/eventstudio/judge_calls", summary="List active judge calls for a tournament")
-async def api_eventstudio_get_judge_calls(event_id: str, active_only: bool = False):
+def api_eventstudio_get_judge_calls(event_id: str, active_only: bool = False):
     fs_engine = get_firestore_engine()
     canonical_eid = _resolve_canonical_event_id(event_id) if event_id else event_id
     calls = fs_engine.list_judge_calls(event_id=canonical_eid or event_id, active_only=active_only)
     return {"success": True, "event_id": canonical_eid or event_id, "calls": calls}
 
 @router.post("/api/eventstudio/judge_call/resolve", summary="Update judge call status (en_route, resolved, cancelled)")
-async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
+def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
     fs_engine = get_firestore_engine()
     event_id = payload.event_id or payload.eventId or ""
     call_id = payload.call_id or payload.callId or payload.id or ""
@@ -3798,7 +3776,7 @@ async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
     return {"success": True, "call_id": call_id, "status": status, "assigned_judge": assigned}
 
 @router.post("/api/eventstudio/event/{event_id}/clock", summary="Update tournament round master clock")
-async def api_eventstudio_update_clock(event_id: str, payload: StudioMasterClockPayload):
+def api_eventstudio_update_clock(event_id: str, payload: StudioMasterClockPayload):
     fs_engine = get_firestore_engine()
     dur = payload.durationMinutes if payload.durationMinutes is not None else (payload.duration_minutes or 150)
     target_end = payload.targetEndTime if payload.targetEndTime is not None else payload.target_end_time
@@ -3841,13 +3819,13 @@ async def api_eventstudio_update_clock(event_id: str, payload: StudioMasterClock
     return {"success": True, "event_id": event_id, "masterClock": updated, "clock": updated}
 
 @router.get("/api/eventstudio/event/{event_id}/clock", summary="Get tournament round master clock")
-async def api_eventstudio_get_clock(event_id: str):
+def api_eventstudio_get_clock(event_id: str):
     fs_engine = get_firestore_engine()
     clock = fs_engine.get_tournament_master_clock(event_id) or {"status": "stopped", "round": 1, "remainingSeconds": 9000}
     return {"success": True, "event_id": event_id, "masterClock": clock, "clock": clock}
 
 @router.post("/api/eventstudio/event/{event_id}/broadcast", summary="Publish tournament live broadcast announcement")
-async def api_eventstudio_publish_broadcast(event_id: str, payload: StudioBroadcastPayload):
+def api_eventstudio_publish_broadcast(event_id: str, payload: StudioBroadcastPayload):
     fs_engine = get_firestore_engine()
     broadcast_data = {
         "message": payload.message,
@@ -3882,7 +3860,7 @@ async def api_eventstudio_publish_broadcast(event_id: str, payload: StudioBroadc
     return {"success": True, "event_id": event_id, "broadcast": res}
 
 @router.get("/api/eventstudio/event/{event_id}/broadcast", summary="Get tournament live broadcast announcement")
-async def api_eventstudio_get_broadcast(event_id: str):
+def api_eventstudio_get_broadcast(event_id: str):
     fs_engine = get_firestore_engine()
     b = fs_engine.get_tournament_broadcast(event_id)
     return {"success": True, "event_id": event_id, "broadcast": b}
@@ -3905,14 +3883,14 @@ class EventLivestreamPayload(BaseModel):
 
 @router.get("/api/events/{event_id}/livestreams", summary="Get tournament active livestreams")
 @router.get("/api/eventstudio/event/{event_id}/livestreams", summary="Get tournament active livestreams (studio alias)")
-async def api_get_event_livestreams(event_id: str):
+def api_get_event_livestreams(event_id: str):
     fs_engine = get_firestore_engine()
     streams = fs_engine.get_event_livestreams(event_id)
     return {"success": True, "event_id": event_id, "livestreams": streams}
 
 @router.post("/api/events/{event_id}/livestreams", summary="Save or update tournament livestream")
 @router.post("/api/eventstudio/event/{event_id}/livestreams", summary="Save or update tournament livestream (studio alias)")
-async def api_save_event_livestream(event_id: str, payload: EventLivestreamPayload, request: Request):
+def api_save_event_livestream(event_id: str, payload: EventLivestreamPayload, request: Request):
     user = _get_creator_or_to_session_or_403(request)
     fs_engine = get_firestore_engine()
     data = payload.dict()
@@ -3930,7 +3908,7 @@ async def api_save_event_livestream(event_id: str, payload: EventLivestreamPaylo
 
 @router.delete("/api/events/{event_id}/livestreams/{stream_id}", summary="Delete tournament livestream")
 @router.delete("/api/eventstudio/event/{event_id}/livestreams/{stream_id}", summary="Delete tournament livestream (studio alias)")
-async def api_delete_event_livestream(event_id: str, stream_id: str, request: Request):
+def api_delete_event_livestream(event_id: str, stream_id: str, request: Request):
     user = _get_creator_or_to_session_or_403(request)
     fs_engine = get_firestore_engine()
     ok = fs_engine.delete_event_livestream(event_id, stream_id)
@@ -3943,7 +3921,7 @@ class PodGeneratePayload(BaseModel):
     target_round: Optional[int] = None
 
 @router.post("/api/eventstudio/event/{event_id}/pods/generate", summary="Automate multi-day Pod & Bracket progression")
-async def api_eventstudio_generate_pods(event_id: str, payload: PodGeneratePayload):
+def api_eventstudio_generate_pods(event_id: str, payload: PodGeneratePayload):
     db = get_database()
     res = db.generate_day2_pod_brackets(
         event_id=event_id,
@@ -3954,7 +3932,7 @@ async def api_eventstudio_generate_pods(event_id: str, payload: PodGeneratePaylo
     return res
 
 @router.get("/api/eventstudio/match_predictor", summary="Predict tactical matchup outcome, win probability, and score differential")
-async def api_eventstudio_match_predictor(
+def api_eventstudio_match_predictor(
     p1_id: Optional[str] = None,
     p2_id: Optional[str] = None,
     p1_name: Optional[str] = "Player 1",
@@ -4095,7 +4073,7 @@ class WtcDraftSavePayload(BaseModel):
     draft_state: Dict[str, Any]
 
 @router.post("/api/eventstudio/wtc_draft", summary="Save active WTC team captain pairing draft state")
-async def api_eventstudio_save_wtc_draft(payload: WtcDraftSavePayload):
+def api_eventstudio_save_wtc_draft(payload: WtcDraftSavePayload):
     db = get_database()
     res = db.save_wtc_draft(
         event_id=payload.event_id,
@@ -4107,7 +4085,7 @@ async def api_eventstudio_save_wtc_draft(payload: WtcDraftSavePayload):
     return res
 
 @router.get("/api/eventstudio/wtc_draft", summary="Get WTC team captain pairing draft state")
-async def api_eventstudio_get_wtc_draft(event_id: str, round_num: int):
+def api_eventstudio_get_wtc_draft(event_id: str, round_num: int):
     db = get_database()
     res = db.get_wtc_draft(event_id=event_id, round_num=round_num)
     return {"success": True, "event_id": event_id, "round_num": round_num, "draft": res}

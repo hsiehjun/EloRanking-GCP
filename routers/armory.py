@@ -177,7 +177,7 @@ def _get_or_init_vault(user_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.get("/api/armory/catalog", summary="Get Retribution Armory catalog")
-async def get_catalog(request: Request):
+def get_catalog(request: Request):
     """Returns the full Armory catalog with ownership flags and equipped status."""
     auth_mgr = get_auth_manager()
     user_vault = armory_catalog.normalize_armory_vault({})
@@ -211,7 +211,7 @@ async def get_catalog(request: Request):
 
 
 @router.get("/api/armory/vault", summary="Get player's armory inventory and equipped loadout")
-async def get_vault(request: Request):
+def get_vault(request: Request):
     """Returns the authenticated user's inventory, active equipped items, and Glory balance."""
     session = _get_user_session_or_401(request)
     user_id = session.get("user_id") or session.get("id")
@@ -371,7 +371,7 @@ async def purchase_item(request: Request):
 
 @router.get("/api/glory/ledger", summary="Get user's immutable hash-chained Glory Honor transaction ledger")
 @router.get("/api/armory/ledger", summary="Get user's immutable hash-chained Glory Honor transaction ledger")
-async def get_user_glory_ledger(request: Request, limit: int = 50):
+def get_user_glory_ledger(request: Request, limit: int = 50):
     session = _get_user_session_or_401(request)
     user_id = str(session.get("user_id") or session.get("id") or "")
     auth_mgr = get_auth_manager()
@@ -397,7 +397,7 @@ async def get_user_glory_ledger(request: Request, limit: int = 50):
 
 @router.get("/api/glory/audit", summary="Run 5-point mathematical & SHA-256 cryptographic hash-chain audit on Glory wallet")
 @router.get("/api/armory/audit", summary="Run 5-point mathematical & SHA-256 cryptographic hash-chain audit on Glory wallet")
-async def run_user_glory_audit(request: Request, target_user_id: Optional[str] = None):
+def run_user_glory_audit(request: Request, target_user_id: Optional[str] = None):
     session = _get_user_session_or_401(request)
     caller_uid = str(session.get("user_id") or session.get("id") or "")
     is_admin = bool(session.get("is_admin") or str(session.get("role") or "").lower() in ("admin", "superuser", "developer", "owner"))
@@ -714,7 +714,7 @@ async def poke_player(request: Request):
 
 
 @router.get("/api/armory/pokes/active", summary="Get active pokes and hexes received by current player")
-async def get_active_pokes(request: Request):
+def get_active_pokes(request: Request):
     """Returns active, unexpired pokes received within the last 24 hours."""
     session = _get_user_session_or_401(request)
     user_id = session.get("user_id") or session.get("id")
@@ -776,7 +776,7 @@ async def acknowledge_poke(request: Request):
 
 
 @router.get("/api/armory/transactions", summary="Get auditable Glory transactions (earned and spent)")
-async def get_armory_transactions(request: Request):
+def get_armory_transactions(request: Request):
     """Returns detailed history of all Glory points earned and spent for verification and auditing."""
     auth_mgr = get_auth_manager()
     try:

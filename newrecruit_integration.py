@@ -5610,9 +5610,9 @@ def proxy_nr_request(
             if is_cacheable_rpc:
                 _NR_STATIC_CACHE[cache_key] = (now, b_data, b_ct)
             return 200, b_data, b_ct
-        cur_book = _lookup_nr_offline_book_if_version_current(body)
-        if cur_book is not None:
-            b_data, b_ct = cur_book
+        offline_rpc = _lookup_nr_offline_rpc(body)
+        if offline_rpc is not None:
+            b_data, b_ct = offline_rpc
             if is_cacheable_rpc:
                 _NR_STATIC_CACHE[cache_key] = (now, b_data, b_ct)
             return 200, b_data, b_ct
@@ -6619,14 +6619,22 @@ def _parse_nr_detachment_upgrade_node(node: Dict[str, Any]) -> Optional[Tuple[Di
 def _load_nr_book_json_via_proxy(book_id: int, sys_id: int = 827374861) -> Optional[Dict[str, Any]]:
     try:
         body = json.dumps({"method": "books_get_book_row", "params": [int(sys_id), int(book_id)]}).encode("utf-8")
-        status, resp_bytes, _ = proxy_nr_request(
-            "/api/rpc?m=books_get_book_row",
-            "POST",
-            body,
-            {"Content-Type": "application/json"},
-        )
-        if status >= 400 or not resp_bytes:
-            return None
+        resp_bytes: Optional[bytes] = None
+        live_ver = _NR_LIVE_BOOK_VERSIONS.get((int(sys_id), int(book_id)))
+        off_ver = _NR_OFFLINE_BOOK_VERSIONS.get((int(sys_id), int(book_id)))
+        if live_ver is None or (off_ver is not None and live_ver == off_ver):
+            offline_hit = _lookup_nr_offline_rpc(body)
+            if offline_hit is not None:
+                resp_bytes = offline_hit[0]
+        if not resp_bytes:
+            status, resp_bytes, _ = proxy_nr_request(
+                "/api/rpc?m=books_get_book_row",
+                "POST",
+                body,
+                {"Content-Type": "application/json"},
+            )
+            if status >= 400 or not resp_bytes:
+                return None
         row = json.loads(resp_bytes.decode("utf-8", errors="ignore"))
         raw_content = row.get("content") or row.get("data")
         if isinstance(raw_content, str):
@@ -6642,26 +6650,33 @@ def get_nr_detachments_catalog(force_refresh: bool = False) -> Dict[str, Any]:
     """
     Extracts all Warhammer 40,000 11th Edition detachments, Detachment Points (DP),
     Force Dispositions (including dual 3-DP dispositions), and UNIQUE tags directly
-    from NewRecruit's live catalogue books (cached by nrversion).
+    from NewRecruit's catalogue books (cached in memory).
     """
     now_ts = time.time()
-    # Ensure live library version index is populated
-    try:
-        proxy_nr_request(
-            "/api/rpc?m=get_library",
-            "POST",
-            b'{"method":"get_library","params":[]}',
-            {"Content-Type": "application/json"},
-        )
-    except Exception:
-        pass
+    if (
+        not force_refresh
+        and _NR_DETACHMENTS_CACHE["payload"] is not None
+        and (now_ts - float(_NR_DETACHMENTS_CACHE["ts"] or 0.0)) < 1800.0
+    ):
+        return _NR_DETACHMENTS_CACHE["payload"]
 
-    ver_sig = tuple(sorted(_NR_LIVE_BOOK_VERSIONS.items()))
+    _ensure_nr_offline_bundle()
+    if force_refresh:
+        try:
+            proxy_nr_request(
+                "/api/rpc?m=get_library",
+                "POST",
+                b'{"method":"get_library","params":[]}',
+                {"Content-Type": "application/json"},
+            )
+        except Exception:
+            pass
+
+    ver_sig = tuple(sorted((_NR_LIVE_BOOK_VERSIONS or _NR_OFFLINE_BOOK_VERSIONS).items()))
     if (
         not force_refresh
         and _NR_DETACHMENTS_CACHE["payload"] is not None
         and _NR_DETACHMENTS_CACHE["version_signature"] == ver_sig
-        and (now_ts - float(_NR_DETACHMENTS_CACHE["ts"] or 0.0)) < 1800.0
     ):
         return _NR_DETACHMENTS_CACHE["payload"]
 
@@ -6847,22 +6862,30 @@ def get_nr_aos_formations_catalog(force_refresh: bool = False) -> Dict[str, Any]
     Armies of Renown directly from NewRecruit's live/bundled catalogue books.
     """
     now_ts = time.time()
-    try:
-        proxy_nr_request(
-            "/api/rpc?m=get_library",
-            "POST",
-            b'{"method":"get_library","params":[]}',
-            {"Content-Type": "application/json"},
-        )
-    except Exception:
-        pass
+    if (
+        not force_refresh
+        and _NR_AOS_FORMATIONS_CACHE["payload"] is not None
+        and (now_ts - float(_NR_AOS_FORMATIONS_CACHE["ts"] or 0.0)) < 1800.0
+    ):
+        return _NR_AOS_FORMATIONS_CACHE["payload"]
 
-    ver_sig = tuple(sorted(_NR_LIVE_BOOK_VERSIONS.items()))
+    _ensure_nr_offline_bundle()
+    if force_refresh:
+        try:
+            proxy_nr_request(
+                "/api/rpc?m=get_library",
+                "POST",
+                b'{"method":"get_library","params":[]}',
+                {"Content-Type": "application/json"},
+            )
+        except Exception:
+            pass
+
+    ver_sig = tuple(sorted((_NR_LIVE_BOOK_VERSIONS or _NR_OFFLINE_BOOK_VERSIONS).items()))
     if (
         not force_refresh
         and _NR_AOS_FORMATIONS_CACHE["payload"] is not None
         and _NR_AOS_FORMATIONS_CACHE["version_signature"] == ver_sig
-        and (now_ts - float(_NR_AOS_FORMATIONS_CACHE["ts"] or 0.0)) < 1800.0
     ):
         return _NR_AOS_FORMATIONS_CACHE["payload"]
 

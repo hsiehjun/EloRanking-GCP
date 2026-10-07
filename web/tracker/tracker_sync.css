@@ -1135,3 +1135,141 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
 }
 
+/* ==========================================================================
+   GAME TRACKER LOBBY — CLEAN RESPONSIVE MATCH HISTORY CARDS (DESKTOP & MOBILE)
+   ========================================================================== */
+.gt-history-card {
+  background: var(--bg-secondary, #12161f);
+  border: 1px solid var(--border, #273042);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  box-sizing: border-box;
+}
+
+.gt-history-card:hover {
+  border-color: var(--accent, #38bdf8);
+  background: rgba(24, 29, 40, 0.9);
+}
+
+.gt-history-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.gt-history-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.gt-history-players {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--text-primary, #f0f4fc);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  line-height: 1.3;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.gt-history-factions {
+  font-size: 11.5px;
+  color: #7dd3fc;
+  font-weight: 600;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gt-history-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.gt-history-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.gt-history-score-pill {
+  background: #070b14;
+  border: 1px solid #273042;
+  border-radius: 9px;
+  padding: 5px 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.gt-history-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  #gt-lobby-wrapper {
+    padding: 8px !important;
+  }
+
+  #gt-lobby-hub-card {
+    padding: 12px !important;
+    margin: 8px 0 16px !important;
+    border-radius: 14px !important;
+  }
+
+  .gt-history-card {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .gt-history-players {
+    font-size: 13px;
+  }
+
+  .gt-history-factions {
+    font-size: 11px;
+  }
+
+  .gt-history-score-pill {
+    font-size: 13px;
+    padding: 4px 8px;
+  }
+
+  .gt-history-right {
+    width: 100%;
+    justify-content: space-between;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+}
+
+

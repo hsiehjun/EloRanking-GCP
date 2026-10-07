@@ -32,7 +32,7 @@ _active_event_syncs: set = set()
 # Ultra-fast Uptime / Health Checks (<1ms)
 @router.get("/health", include_in_schema=False)
 @router.get("/api/health", summary="Fast uptime health check")
-async def health_check():
+def health_check():
     return {"status": "ok"}
 
 # API: Summary Stats Ribbon
@@ -251,7 +251,7 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
     return await asyncio.to_thread(_fetch_profile)
 
 @router.get("/api/badges/catalog", summary="Get complete catalog of all master badges and military ranks")
-async def api_badges_catalog(game_system: Optional[str] = Query("40k")):
+def api_badges_catalog(game_system: Optional[str] = Query("40k")):
     import badges
     import seasonal_badges
     gs = (game_system or "40k").lower()
@@ -298,7 +298,7 @@ async def api_events(
 
 # API: Recommended & Upcoming Events for Competitor Hub (100% Live from BCP)
 @router.get("/api/events/recommended", summary="Get real-time live upcoming events from BCP")
-async def api_events_recommended(
+def api_events_recommended(
     request: Request,
     player_id: Optional[str] = Query(None),
     query: Optional[str] = Query(None),
@@ -1319,7 +1319,7 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
 _event_details_cache: Dict[str, Dict[str, Any]] = {}
 
 @router.get("/api/event/{event_id}", summary="Get tournament metadata, placings, and round pairings")
-async def api_event_details(event_id: str, force_sync: bool = False):
+def api_event_details(event_id: str, force_sync: bool = False):
     db = get_database()
     event_id_str = event_id.strip()
     now_ts = time.time()
@@ -2066,7 +2066,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
 
 
 @router.post("/api/event/{event_id}/sync-roster", summary="Quietly persist raw BCP roster to backend DB")
-async def api_sync_event_roster_payload(event_id: str, request: Request):
+def api_sync_event_roster_payload(event_id: str, request: Request):
     """No-op endpoint: roster is fetched live via BCP API and DB updates are strictly via scheduled scraping."""
     return {"success": True, "notice": "Roster is fetched live via BCP API"}
 
@@ -2078,7 +2078,7 @@ _cron_sync_lock = threading.Lock()
 # API: Cloud Scheduler Cron Sync
 @router.post("/api/cron/sync-tournaments", summary="Cloud Scheduler cron to scrape latest tournaments and update Elo")
 @router.get("/api/cron/sync-tournaments", summary="Manual trigger to scrape latest tournaments and update Elo")
-async def api_cron_sync_tournaments(
+def api_cron_sync_tournaments(
     request: Request,
     background_tasks: BackgroundTasks,
     game_system: Optional[str] = Query("all", description="Game system to sync: '40k', 'aos', or 'all'")
@@ -2197,7 +2197,7 @@ async def api_factions(game_system: Optional[str] = Query("40k"), grouped: Optio
 
 # API: Faction Meta & Balance Analytics
 @router.get("/api/factions/meta", summary="Get global faction win rates and balance tier ratings")
-async def api_faction_meta(
+def api_faction_meta(
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     timeframe: Optional[str] = Query(None, description="Timeframe preset: '30d', '60d', '90d', 'ytd', 'all'"),
@@ -2253,7 +2253,7 @@ async def api_faction_details(
 # API: Match Win Probability Predictor
 @router.get("/api/predict", summary="Calculate win odds and simulated Elo changes")
 @router.get("/api/predict/match", include_in_schema=False)
-async def api_predict(
+def api_predict(
     p1: Optional[str] = Query(None),
     p2: Optional[str] = Query(None),
     player1: Optional[str] = Query(None),

@@ -16412,3 +16412,66 @@ table.desktop-only,
 .stream-stage-fullscreen-wrap.is-pseudo-fullscreen .stream-hud-score-val {
   font-size: 1.45rem !important;
 }
+
+/* ==========================================================================
+   SCORECARD MODAL — COMPACT HEADER & HORIZONTAL TURN-BY-TURN TABLE ON MOBILE
+   ========================================================================== */
+@media (max-width: 768px) {
+  #scorecard-modal .modal-content {
+    width: 97vw !important;
+    max-width: 97vw !important;
+    margin: 0.35rem auto !important;
+    max-height: 95vh !important;
+    border-radius: 12px !important;
+  }
+
+  #modal-scorecard-matrix-table {
+    display: table !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+  }
+
+  #modal-scorecard-matrix-table thead {
+    display: table-header-group !important;
+  }
+
+  #modal-scorecard-matrix-table tbody {
+    display: table-row-group !important;
+  }
+
+  #modal-scorecard-matrix-table tr {
+    display: table-row !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  #modal-scorecard-matrix-table th,
+  #modal-scorecard-matrix-table td {
+    display: table-cell !important;
+    width: auto !important;
+    padding: 0.32rem 0.2rem !important;
+    font-size: 0.72rem !important;
+    line-height: 1.2 !important;
+    vertical-align: middle !important;
+  }
+
+  #modal-scorecard-matrix-table th:first-child,
+  #modal-scorecard-matrix-table td:first-child {
+    width: 36% !important;
+    padding-left: 0.45rem !important;
+    text-align: left !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  #modal-scorecard-matrix-table td::before,
+  #modal-scorecard-matrix-table th::before {
+    display: none !important;
+    content: none !important;
+  }
+}
+

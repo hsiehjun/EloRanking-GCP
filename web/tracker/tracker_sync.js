@@ -1932,7 +1932,7 @@
                       <span style="width:7px; height:7px; border-radius:50%; background:var(--win, #22c55e); display:inline-block;"></span>
                       Active Match (Round ${rNum})
                     </span>
-                    <span style="font-size:11px; color:var(--text-secondary, #94a3b8); font-family:'JetBrains Mono',monospace;">#${escapeHtml(shortId)} • 📅 Created ${dateLabel}</span>
+                    <span style="font-size:11px; color:var(--text-secondary, #94a3b8); font-family:'JetBrains Mono',monospace;">📅 Created ${dateLabel}</span>
                   </div>
                   <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                     <div>
@@ -1963,12 +1963,10 @@
 
     // 2. Completed Match History (All in Grey Cards with Edition Filter Bar)
     if (scopedCompleted.length > 0) {
-      if (!window.__gtSetEditionFilter) {
-        window.__gtSetEditionFilter = function(edKey) {
-          window.__gtHistoryEditionFilter = edKey || 'all';
-          renderCustomLobbySections();
-        };
-      }
+      window.__gtSetEditionFilter = function(edKey) {
+        window.__gtHistoryEditionFilter = edKey || 'all';
+        renderHistoryList(dbHistoryCache);
+      };
       const activeEdFilter = window.__gtHistoryEditionFilter || 'all';
       const edCounts = { all: scopedCompleted.length };
       scopedCompleted.forEach(item => {
@@ -2020,7 +2018,6 @@
               const p1S = item.p1Score ?? item.p1_score ?? 0;
               const p2S = item.p2Score ?? item.p2_score ?? 0;
               const mid = item.match_id || item.id || '';
-              const shortId = String(mid).replace('WH40K-', '').replace('AOS-', '');
               const rawDate = item.game_date || item.date || item.updated_at;
               let dateStr = 'Completed';
               if (rawDate) {
@@ -2036,29 +2033,7 @@
                   dateStr = !isNaN(dObj.getTime()) ? dObj.toLocaleDateString() : sRaw;
                 } catch (e) { dateStr = String(rawDate); }
               }
-              const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:var(--text-secondary, #94a3b8); margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
-              const impSrc = item.imported_source || (
-                String(mid).includes('-GW-') ? 'gw_app' :
-                String(mid).includes('-BB-') ? 'battlebase' :
-                String(mid).includes('-NR-') ? 'newrecruit' :
-                String(mid).includes('-CH-') ? 'championshub' :
-                String(mid).includes('-MLK-') ? 'milarki' :
-                String(mid).includes('-BCP-') ? 'bcp' :
-                String(mid).includes('-TTB-') ? 'tabletop_battles' : ''
-              );
-              const impBadgeMap = {
-                'tabletop_battles': { label: '📥 Tabletop Battles', css: 'background:rgba(58,193,139,0.16); color:#34d399; border:1px solid rgba(58,193,139,0.35);' },
-                'battlebase': { label: '📥 BattleBase', css: 'background:rgba(56,189,248,0.16); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);' },
-                'newrecruit': { label: '📥 NewRecruit', css: 'background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35);' },
-                'championshub': { label: '📥 ChampionsHub', css: 'background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35);' },
-                'milarki': { label: '📥 Milarki', css: 'background:rgba(244,63,94,0.16); color:#fb7185; border:1px solid rgba(244,63,94,0.35);' },
-                'bcp': { label: '📥 Best Coast Pairings', css: 'background:rgba(59,130,246,0.16); color:#60a5fa; border:1px solid rgba(59,130,246,0.35);' },
-                'gw_app': { label: '📥 GW App', css: 'background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35);' }
-              };
-              const impMeta = impBadgeMap[impSrc] || (impSrc ? impBadgeMap['tabletop_battles'] : null);
-              const impBadge = impMeta
-                ? `<span style="${impMeta.css} font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">${impMeta.label}</span>`
-                : '';
+              const factionSubtitle = (p1F || p2F) ? `<div class="gt-history-factions">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
               const edCode = String(item.edition || (isAosMode ? 'aos_4e' : '10th')).toLowerCase();
               const edShort = edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : '')))));
               const edStyleMap = {
@@ -2071,39 +2046,38 @@
               };
               const edCss = edStyleMap[edCode] || edStyleMap['10th'];
               const edBadge = edShort
-                ? `<span style="${edCss} font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">${escapeHtml(edShort)}</span>`
+                ? `<span style="${edCss} font-weight:800; font-size:10px; padding:1px 6px; border-radius:5px; font-family:'JetBrains Mono',monospace;">${escapeHtml(edShort)}</span>`
                 : '';
               const isLockedEvent = Boolean(item.event_match_locked || item.event_id);
               const lockBadge = isLockedEvent
-                ? `<span style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.4); font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">🔒 ${escapeHtml(item.mapped_event_name || item.event_id || 'Tournament')} R${item.round_num || 1}${item.table_num ? ' T' + item.table_num : ''}</span>`
+                ? `<span style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.4); font-weight:800; font-size:10px; padding:1px 6px; border-radius:5px; font-family:'JetBrains Mono',monospace;">🏆 ${escapeHtml(item.mapped_event_name || 'Tournament')} R${item.round_num || 1}${item.table_num ? ' T' + item.table_num : ''}</span>`
                 : '';
               const sysStr = item.game_system || (String(mid).startsWith('AOS-') || isAosMode ? 'aos' : '40k');
 
               return `
-                <div data-match-id="${escapeHtml(mid)}" data-edition="${escapeHtml(edCode)}" onclick="window.location.href='/scorecard/${encodeURIComponent(mid)}'" style="background:var(--bg-secondary, #12161f); border:1px solid var(--border, #273042); border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative; flex-wrap:wrap; gap:10px;" onmouseover="this.style.borderColor='var(--accent, #38bdf8)'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='var(--border, #273042)'; this.style.transform='none'">
-                  <div style="min-width:0; flex:1;">
-                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px; flex-wrap:wrap;">
-                      <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:var(--accent-glow, rgba(56,189,248,0.1)); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(shortId)} ↗</span>
-                      ${impBadge}${edBadge}${lockBadge}
-                      <b style="color:var(--text-primary, #f0f4fc); font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:var(--text-muted, #64748b); font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
-                    </div>
+                <div class="gt-history-card" data-match-id="${escapeHtml(mid)}" data-edition="${escapeHtml(edCode)}" onclick="window.location.href='/scorecard/${encodeURIComponent(mid)}'">
+                  <div class="gt-history-main">
+                    <div class="gt-history-players">${escapeHtml(p1)} <span class="gt-history-vs">vs</span> ${escapeHtml(p2)}</div>
                     ${factionSubtitle}
-                    <div style="font-size:11px; color:var(--text-muted, #64748b); margin-top:4px;">
-                      <span>${escapeHtml(dateStr)}</span>
+                    <div class="gt-history-meta">
+                      <span>📅 ${escapeHtml(dateStr)}</span>
+                      ${edBadge}${lockBadge}
                     </div>
                   </div>
-                  <div style="display:flex; align-items:center; gap:8px; margin-left:auto;">
-                    <span style="font-size:15px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8);">
+                  <div class="gt-history-right">
+                    <span class="gt-history-score-pill">
                       ${p1S} - ${p2S}
                     </span>
-                    ${!isLockedEvent ? `
-                      <button title="Map & Lock Scorecard to Official Tournament Pairing" onclick="event.stopPropagation(); window.openMapGameToEventModal('${escapeHtml(mid)}', '${escapeHtml(sysStr)}')" style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.38); color:#fbbf24; font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">
-                        🏆 Map to Event
+                    <div class="gt-history-actions">
+                      ${!isLockedEvent ? `
+                        <button title="Map & Lock Scorecard to Official Tournament Pairing" onclick="event.stopPropagation(); window.openMapGameToEventModal('${escapeHtml(mid)}', '${escapeHtml(sysStr)}')" style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.38); color:#fbbf24; font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">
+                          🏆 Map
+                        </button>
+                      ` : ''}
+                      <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:var(--accent-glow, rgba(56,189,248,0.12)); border:1px solid rgba(56,189,248,0.28); color:var(--accent, #38bdf8); font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;">
+                        📄 Scorecard
                       </button>
-                    ` : ''}
-                    <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:var(--accent-glow, rgba(56,189,248,0.12)); border:1px solid rgba(56,189,248,0.28); color:var(--accent, #38bdf8); font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='var(--accent-glow, rgba(56,189,248,0.12))'">
-                      📄 Scorecard
-                    </button>
+                    </div>
                   </div>
                 </div>
               `;
@@ -2343,6 +2317,7 @@
               dbHistoryCache = dbHistoryCache.filter(item => !hiddenSet.has(item.match_id || item.id));
             }
 
+            const wasLoading = isHistoryLoading;
             isHistoryLoading = false;
             originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
 
@@ -2352,7 +2327,11 @@
               storageArea: localStorage
             }));
 
-            renderHistoryList(dbHistoryCache);
+            const newFp = dbHistoryCache.map(x => `${x.match_id}:${x.p1Score}:${x.p2Score}:${x.round}:${x.isFinished}:${x.event_match_locked}:${x.edition}`).join('|');
+            if (wasLoading || newFp !== window.__gtLastHistoryFp || !document.getElementById('gdm-history-cards')) {
+              window.__gtLastHistoryFp = newFp;
+              renderHistoryList(dbHistoryCache);
+            }
             watchLobbyActiveMatches();
           }
         }
@@ -2370,7 +2349,7 @@
 
   window.__syncTrackerHistory = syncHistoryFromDatabase;
 
-  // Background Auto-Refresh Timer for Match History (10s fallback + real-time Firestore listeners on active matches)
+  // Background Auto-Refresh Timer for Match History (30s fallback + real-time Firestore listeners on active matches)
   let historyPollTimer = null;
   function startHistoryPolling() {
     if (historyPollTimer) clearInterval(historyPollTimer);
@@ -2379,7 +2358,7 @@
       if (!isPlay && document.visibilityState !== 'hidden') {
         syncHistoryFromDatabase();
       }
-    }, 10000);
+    }, 30000);
   }
 
   // Auto-refresh history immediately on tab focus or visibility return
@@ -6447,7 +6426,6 @@ Space Marines - Gladius Task Force (2000 pts)
                     <div>
                       <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                         ${sysBadge}
-                        <span style="font-family:monospace; font-size:0.74rem; color:#38bdf8; font-weight:700;">#${escapeHtml(mid)}</span>
                         <b style="font-size:0.82rem; color:#fff;">${escapeHtml(g.p1_name)} (${g.p1_score}) vs ${escapeHtml(g.p2_name)} (${g.p2_score})</b>
                       </div>
                       <div style="font-size:0.7rem; color:#94a3b8; margin-top:2px;">
@@ -6531,13 +6509,12 @@ Space Marines - Gladius Task Force (2000 pts)
       const p2Fac = sg.p2_faction || 'Army 2';
       const p1Score = sg.p1_score ?? 0;
       const p2Score = sg.p2_score ?? 0;
-      const mid = sg.match_id || _lobbyActiveMapMatchId;
       const mission = sg.primary_mission || '';
 
       bannerEl.innerHTML = `
         <div style="background:linear-gradient(135deg, rgba(15,23,42,0.96) 0%, rgba(30,41,59,0.92) 100%); border:1px solid rgba(245,158,11,0.45); border-radius:12px; padding:0.75rem 1rem; margin-bottom:0.85rem; box-shadow:0 8px 20px rgba(0,0,0,0.35);">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; margin-bottom:0.45rem; flex-wrap:wrap;">
-            <span style="font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#fbbf24;">📋 Scorecard Being Mapped • #${escapeHtml(mid)}</span>
+            <span style="font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#fbbf24;">📋 Scorecard Being Mapped</span>
             <span style="font-size:0.7rem; color:#94a3b8; font-family:monospace;">${escapeHtml(mission)}</span>
           </div>
           <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:0.75rem;">
@@ -6572,10 +6549,9 @@ Space Marines - Gladius Task Force (2000 pts)
 
         modal.innerHTML = `
           <div style="background:#0f172a; border:1px solid #334155; border-radius:16px; max-width:580px; width:100%; max-height:88vh; display:flex; flex-direction:column; box-shadow:0 25px 65px rgba(0,0,0,0.8); overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
-            <div style="padding:1rem 1.25rem; background:#1e293b; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+            <div style="padding:0.9rem 1.25rem; background:#1e293b; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
               <div>
                 <div style="font-weight:800; font-size:1.02rem; color:#fff;">🏆 Map Scorecard to Tournament Match</div>
-                <div style="font-size:0.75rem; color:#94a3b8; font-family:monospace; margin-top:2px;">Match #${escapeHtml(_lobbyActiveMapMatchId)}</div>
               </div>
               <button type="button" onclick="document.getElementById('omni-map-game-event-modal').style.display='none'" style="background:transparent; border:none; color:#94a3b8; font-size:1.25rem; cursor:pointer;">✕</button>
             </div>
@@ -6585,7 +6561,7 @@ Space Marines - Gladius Task Force (2000 pts)
                 🔒 <b>Participant-Only &amp; Auto-Aligned:</b> You can only map a scorecard to a tournament pairing you participated in. Player 1 and Player 2 columns are automatically aligned to the official pairing and locked once mapped.
               </div>
               <div style="display:flex; gap:0.5rem; margin-bottom:0.85rem;">
-                <input id="omni-map-event-search" type="text" placeholder="Search event name, opponent, or event ID..." style="flex:1; background:#020617; border:1px solid #334155; color:#fff; padding:0.55rem 0.75rem; border-radius:8px; font-size:0.84rem;" oninput="window.__filterLobbyMappableEventMatches()">
+                <input id="omni-map-event-search" type="text" placeholder="Search event name or opponent..." style="flex:1; background:#020617; border:1px solid #334155; color:#fff; padding:0.55rem 0.75rem; border-radius:8px; font-size:0.84rem;" oninput="window.__filterLobbyMappableEventMatches()">
               </div>
               <div id="omni-map-event-status" style="display:none; margin-bottom:0.75rem; padding:0.6rem 0.85rem; border-radius:8px; font-size:0.8rem;"></div>
               <div id="omni-map-event-list" style="display:flex; flex-direction:column; gap:0.55rem;">
@@ -6656,7 +6632,7 @@ Space Marines - Gladius Task Force (2000 pts)
                   🟦 ${escapeHtml(m.player1_name)} (${m.player1_score ?? '-'}) <span style="color:#64748b;">vs</span> 🟥 ${escapeHtml(m.player2_name)} (${m.player2_score ?? '-'})
                 </div>
                 <div style="font-size:0.7rem; color:#64748b; margin-top:0.15rem;">
-                  ${m.match_date ? new Date(m.match_date).toLocaleDateString() : '-'} • Event ID: ${escapeHtml(m.event_id)}
+                  📅 ${m.match_date ? new Date(m.match_date).toLocaleDateString() : '-'}
                 </div>
               </div>
               <div style="flex-shrink:0;">

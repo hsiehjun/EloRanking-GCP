@@ -1627,10 +1627,10 @@ async function openScorecardModal(matchId) {
     const initEventLabel = (evObj && evObj.name) || evMatch.event_name || parsedEventId || null;
     const initDate = evMatch.match_date || (evObj && evObj.event_date) || Date.now();
     if (titleEl) {
-      titleEl.innerHTML = `🏆 ${initEventLabel ? escapeHtml(initEventLabel) + ' • ' : ''}Round ${initRound}${initTable ? ' • Table ' + initTable : ''}`;
+      titleEl.innerHTML = `🏆 ${initEventLabel ? escapeHtml(initEventLabel) + ' • ' : ''}R${initRound}${initTable ? ' • T' + initTable : ''}`;
     }
     if (subEl) {
-      subEl.innerText = `📋 Official Best Coast Pairings (BCP) Scorecard • ⏱️ ${new Date(initDate).toLocaleDateString()}`;
+      subEl.innerText = `${new Date(initDate).toLocaleDateString()}`;
     }
     if (p1NameEl) p1NameEl.innerText = evMatch.player1_name || 'Player 1';
     if (p2NameEl) p2NameEl.innerText = evMatch.player2_name || 'Player 2';
@@ -1643,7 +1643,7 @@ async function openScorecardModal(matchId) {
     if (p2ScoreEl) p2ScoreEl.innerText = hasInitScore ? evMatch.player2_score : '-';
   } else {
     if (titleEl) titleEl.innerHTML = `🏆 Match Scorecard`;
-    if (subEl) subEl.innerText = `Loading tournament match details for ${matchId}...`;
+    if (subEl) subEl.innerText = `Loading match details...`;
     if (p1NameEl) p1NameEl.innerText = 'Loading...';
     if (p2NameEl) p2NameEl.innerText = 'Loading...';
     if (p1FacEl) p1FacEl.innerText = '-';
@@ -1699,8 +1699,8 @@ async function openScorecardModal(matchId) {
     if (p2NameEl) p2NameEl.innerText = p2Name;
     if (p1FacEl) p1FacEl.innerText = p1Fac;
     if (p2FacEl) p2FacEl.innerText = p2Fac;
-    if (p1DetEl) p1DetEl.innerText = p1Det;
-    if (p2DetEl) p2DetEl.innerText = p2Det;
+    if (p1DetEl) p1DetEl.innerText = p1Det ? `• ${p1Det}` : '';
+    if (p2DetEl) p2DetEl.innerText = p2Det ? `• ${p2Det}` : '';
 
     const isAosModal = Boolean(
       data.game_system === 'aos' ||
@@ -1734,7 +1734,7 @@ async function openScorecardModal(matchId) {
     const packId = String(missionObj.packId || '').toLowerCase();
 
     let edCode = isAosModal ? 'aos_4e' : '10th';
-    let edBadgeLabel = isAosModal ? '⚡ AoS 4e' : '🦅 WH40K 10th Ed';
+    let edBadgeLabel = isAosModal ? 'AoS 4e' : '10th Ed';
     let priCap = isAosModal ? 30 : 50;
     let secCap = isAosModal ? 20 : 40;
     let maxTot = isAosModal ? 50 : 100;
@@ -1744,23 +1744,23 @@ async function openScorecardModal(matchId) {
     if (isAosModal) {
       if (rawEd === 'aos_3e' || rawEd === '3e' || packId.includes('3e') || packId.includes('pitched') || p1Obj.grandStrategy || p2Obj.grandStrategy || Number(p1Obj.grandStrategyScore || 0) > 0 || Number(p2Obj.grandStrategyScore || 0) > 0) {
         edCode = 'aos_3e';
-        edBadgeLabel = '⚔️ AoS 3e (GHB + Grand Strategy)';
+        edBadgeLabel = 'AoS 3e';
         maxTot = 53;
         hasGrandStrategy = true;
       }
     } else if (rawEd === '8th_itc' || rawEd === '8th' || packId.includes('8th') || packId.includes('itc') || Number(p1Obj.primaryCap) === 36) {
       edCode = '8th_itc';
-      edBadgeLabel = '🏛️ WH40K 8th Ed • ITC';
+      edBadgeLabel = '8th ITC';
       priCap = 36;
       secCap = 12;
       maxTot = 48;
       hasPaint = false;
     } else if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th')) {
       edCode = '11th';
-      edBadgeLabel = '🚀 WH40K 11th Ed';
+      edBadgeLabel = '11th Ed';
     } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || Number(p1Obj.primaryCap) === 45 || Number(p1Obj.secondaryCap) === 45) {
       edCode = '9th';
-      edBadgeLabel = '📜 WH40K 9th Ed (45/45/10)';
+      edBadgeLabel = '9th Ed';
       priCap = 45;
       secCap = 45;
       maxTot = 100;
@@ -1815,86 +1815,68 @@ async function openScorecardModal(matchId) {
     if (p1ScoreEl) p1ScoreEl.innerText = (hasTurnData || hasBcpScore) ? p1Score : '-';
     if (p2ScoreEl) p2ScoreEl.innerText = (hasTurnData || hasBcpScore) ? p2Score : '-';
 
+    // Highlight winner directly on the compact player names
+    const n1Val = Number(p1Score || 0);
+    const n2Val = Number(p2Score || 0);
+    if (hasTurnData || hasBcpScore) {
+      if (n1Val > n2Val && p1NameEl) {
+        p1NameEl.innerText = `🏆 ${p1Name}`;
+      } else if (n2Val > n1Val && p2NameEl) {
+        p2NameEl.innerText = `🏆 ${p2Name}`;
+      }
+    }
+
     if (p1SubEl && p2SubEl) {
       if (hasTurnData && p1Break && p2Break) {
         p1SubEl.style.display = 'inline-block';
         p2SubEl.style.display = 'inline-block';
         if (isAosModal) {
           if (hasGrandStrategy) {
-            p1SubEl.innerHTML = `<span>PRI: ${p1Break.pri}/${priCap}</span> • <span>TAC: ${p1Break.sec}/${secCap}</span> • <span style="color:#fbbf24; font-weight:700;">GS: +${p1Break.gs}</span>`;
-            p2SubEl.innerHTML = `<span>PRI: ${p2Break.pri}/${priCap}</span> • <span>TAC: ${p2Break.sec}/${secCap}</span> • <span style="color:#fbbf24; font-weight:700;">GS: +${p2Break.gs}</span>`;
+            p1SubEl.innerHTML = `PRI ${p1Break.pri}/${priCap} • TAC ${p1Break.sec}/${secCap} • GS +${p1Break.gs}`;
+            p2SubEl.innerHTML = `PRI ${p2Break.pri}/${priCap} • TAC ${p2Break.sec}/${secCap} • GS +${p2Break.gs}`;
           } else {
-            p1SubEl.innerHTML = `<span>PRI: ${p1Break.pri}/${priCap}</span> • <span>TAC: ${p1Break.sec}/${secCap}</span> • <span style="color:#f59e0b; font-weight:700;">TACTICS: ${p1Break.tacticsCount}/5</span>`;
-            p2SubEl.innerHTML = `<span>PRI: ${p2Break.pri}/${priCap}</span> • <span>TAC: ${p2Break.sec}/${secCap}</span> • <span style="color:#f59e0b; font-weight:700;">TACTICS: ${p2Break.tacticsCount}/5</span>`;
+            p1SubEl.innerHTML = `PRI ${p1Break.pri}/${priCap} • TAC ${p1Break.sec}/${secCap} (${p1Break.tacticsCount}/5)`;
+            p2SubEl.innerHTML = `PRI ${p2Break.pri}/${priCap} • TAC ${p2Break.sec}/${secCap} (${p2Break.tacticsCount}/5)`;
           }
         } else if (!hasPaint) {
-          p1SubEl.innerHTML = `<span>PRI: ${p1Break.pri}/${priCap}</span> • <span>SEC: ${p1Break.sec}/${secCap}</span> • <span style="color:#fb923c;">ITC 8TH</span>`;
-          p2SubEl.innerHTML = `<span>PRI: ${p2Break.pri}/${priCap}</span> • <span>SEC: ${p2Break.sec}/${secCap}</span> • <span style="color:#fb923c;">ITC 8TH</span>`;
+          p1SubEl.innerHTML = `PRI ${p1Break.pri}/${priCap} • SEC ${p1Break.sec}/${secCap}`;
+          p2SubEl.innerHTML = `PRI ${p2Break.pri}/${priCap} • SEC ${p2Break.sec}/${secCap}`;
         } else {
-          p1SubEl.innerHTML = `<span>PRI: ${p1Break.pri}/${priCap}</span> • <span>SEC: ${p1Break.sec}/${secCap}</span> • <span>PAINT: +${p1Break.paint}</span>`;
-          p2SubEl.innerHTML = `<span>PRI: ${p2Break.pri}/${priCap}</span> • <span>SEC: ${p2Break.sec}/${secCap}</span> • <span>PAINT: +${p2Break.paint}</span>`;
+          p1SubEl.innerHTML = `PRI ${p1Break.pri}/${priCap} • SEC ${p1Break.sec}/${secCap} • PNT +${p1Break.paint}`;
+          p2SubEl.innerHTML = `PRI ${p2Break.pri}/${priCap} • SEC ${p2Break.sec}/${secCap} • PNT +${p2Break.paint}`;
         }
-      } else if (hasBcpScore) {
-        p1SubEl.style.display = 'inline-block';
-        p2SubEl.style.display = 'inline-block';
-        p1SubEl.innerHTML = `<span>Official BCP Battle Points</span>`;
-        p2SubEl.innerHTML = `<span>Official BCP Battle Points</span>`;
+      } else {
+        p1SubEl.style.display = 'none';
+        p2SubEl.style.display = 'none';
       }
     }
 
     const roundNum = (isTrackerScorecard && (rec.round_num || game.roundNum || st.round_num)) || bcpMatchRec?.round || parsedRound || 1;
     const tableNum = (isTrackerScorecard && (rec.table_num || game.tableNum || st.table_num)) || bcpMatchRec?.table_number || bcpMatchRec?.table || parsedTable || null;
-    const eventLabel = (currentEventData && currentEventData.name) || bcpMatchRec?.event_name || (isTrackerScorecard && (st.mapped_event_name || rec.mapped_event_name || rec.event_id || game.eventId)) || parsedEventId || null;
-    const isLockedMatch = Boolean(st.event_match_locked || rec.event_match_locked || (isTrackerScorecard && (rec.event_id || st.event_id)));
-    const impSource = st.imported_source || rec.imported_source || (String(resolvedMatchId || '').includes('-GW-') ? 'gw_app' : (String(resolvedMatchId || '').includes('-TTB-') ? 'tabletop_battles' : ''));
-    const impAppLabel = st.imported_app || rec.imported_app || (impSource === 'gw_app' ? 'GW 40k App' : 'Tabletop Battles');
+    const eventLabel = (currentEventData && currentEventData.name) || bcpMatchRec?.event_name || (isTrackerScorecard && (st.mapped_event_name || rec.mapped_event_name)) || null;
 
     if (badgesEl) {
-      if (hasTurnData) {
-        const verifiedBadge = `<span class="badge" style="background:rgba(16,185,129,0.14); color:#34d399; border:1px solid rgba(16,185,129,0.35); font-size:0.68rem;">✓ Verified Scorecard</span>`;
-        const edPill = `<span class="badge" style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.68rem;">${escapeHtml(edBadgeLabel)}</span>`;
-        const impPill = impSource
-          ? `<span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35); font-size:0.68rem;">📥 Imported • ${escapeHtml(impAppLabel)}</span>`
-          : '';
-        const lockPill = isLockedMatch
-          ? `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.4); font-size:0.68rem;">🔒 Locked • R${roundNum}${tableNum ? ' T' + tableNum : ''}</span>`
-          : '';
-        badgesEl.innerHTML = `${verifiedBadge}${edPill}${impPill}${lockPill}`;
-      } else {
-        badgesEl.innerHTML = `<span class="badge" style="background:rgba(148,163,184,0.15); color:#cbd5e1; border:1px solid rgba(148,163,184,0.35); font-size:0.68rem;">📋 Official BCP Scorecard</span>`;
-      }
+      badgesEl.innerHTML = '';
+      badgesEl.style.display = 'none';
     }
-
     if (winnerBannerEl) {
-      if (hasTurnData || hasBcpScore) {
-        const n1 = Number(p1Score || 0);
-        const n2 = Number(p2Score || 0);
-        if (n1 > n2) {
-          winnerBannerEl.style.display = 'flex';
-          winnerBannerEl.innerText = `🏆 ${p1Name.toUpperCase()} WINS • ${n1} to ${n2}`;
-        } else if (n2 > n1) {
-          winnerBannerEl.style.display = 'flex';
-          winnerBannerEl.innerText = `🏆 ${p2Name.toUpperCase()} WINS • ${n2} to ${n1}`;
-        } else if (n1 > 0 && n1 === n2) {
-          winnerBannerEl.style.display = 'flex';
-          winnerBannerEl.innerText = `🤝 TIED MATCH • ${n1} - ${n2}`;
-        }
-      }
+      winnerBannerEl.style.display = 'none';
+      winnerBannerEl.innerHTML = '';
     }
 
     if (titleEl) {
-      titleEl.innerHTML = `🏆 ${eventLabel ? escapeHtml(eventLabel) + ' • ' : ''}Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''}`;
+      titleEl.innerHTML = `🏆 ${eventLabel ? escapeHtml(eventLabel) + ' • ' : ''}R${roundNum}${tableNum ? ' • T' + tableNum : ''}`;
     }
     if (subEl) {
       const dateStr = (isTrackerScorecard && (st.game_date || rec.game_date || rec.updated_at || rec.updatedAt)) || bcpMatchRec?.match_date || (currentEventData && currentEventData.event_date) || Date.now();
       if (hasTurnData) {
-        const liveTag = (data.source === 'firestore' && !data.is_finished) ? '🔴 LIVE IN PROGRESS • ' : '';
+        const liveTag = (data.source === 'firestore' && !data.is_finished) ? '🔴 LIVE • ' : '';
         const missionLabel = isAosModal
-          ? `🎯 Battleplan: ${game.battleplan?.name || st.battleplan?.name || rec.primary_mission || 'Border War'}`
-          : `🎯 Primary: ${game.primary || game.p1Primary || st.mission?.primaryName || rec.primary_mission || 'Take & Hold'}`;
-        subEl.innerText = `${liveTag}${edBadgeLabel} • ${missionLabel} • ⏱️ ${new Date(dateStr).toLocaleDateString()}`;
+          ? `${game.battleplan?.name || st.battleplan?.name || rec.primary_mission || 'Border War'}`
+          : `${game.primary || game.p1Primary || st.mission?.primaryName || rec.primary_mission || 'Take & Hold'}`;
+        subEl.innerText = `${liveTag}${edBadgeLabel} • ${missionLabel} • ${new Date(dateStr).toLocaleDateString()}`;
       } else {
-        subEl.innerText = `📋 Official Best Coast Pairings (BCP) Scorecard • ⏱️ ${new Date(dateStr).toLocaleDateString()}`;
+        subEl.innerText = `${new Date(dateStr).toLocaleDateString()}`;
       }
     }
 

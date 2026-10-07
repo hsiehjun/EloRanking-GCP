@@ -65,7 +65,7 @@ class ChatMessagePayload(BaseModel):
 # =========================================================================
 
 @router.get("/api/connect/profile", summary="Get user LFG profile")
-async def api_get_connect_profile(request: Request):
+def api_get_connect_profile(request: Request):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
@@ -82,7 +82,7 @@ async def api_get_connect_profile(request: Request):
     return {"success": True, "profile": profile}
 
 @router.post("/api/connect/profile", summary="Update user LFG profile")
-async def api_save_connect_profile(request: Request, payload: LfgProfilePayload):
+def api_save_connect_profile(request: Request, payload: LfgProfilePayload):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
@@ -95,7 +95,7 @@ async def api_save_connect_profile(request: Request, payload: LfgProfilePayload)
     return {"success": ok}
 
 @router.get("/api/connect/players", summary="Search nearby LFG players")
-async def api_search_connect_players(
+def api_search_connect_players(
     request: Request,
     lat: Optional[float] = Query(None),
     lng: Optional[float] = Query(None),
@@ -130,7 +130,7 @@ async def api_search_connect_players(
     return {"success": True, "players": players}
 
 @router.get("/api/connect/requests", summary="Get user match requests and chats (including League & Pod seasonal group chats)")
-async def api_get_connect_requests(request: Request):
+def api_get_connect_requests(request: Request):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
@@ -173,7 +173,7 @@ async def api_get_connect_requests(request: Request):
     }
 
 @router.post("/api/connect/request", summary="Create sparring match request")
-async def api_create_connect_request(request: Request, payload: MatchRequestPayload):
+def api_create_connect_request(request: Request, payload: MatchRequestPayload):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
@@ -206,7 +206,7 @@ async def api_create_connect_request(request: Request, payload: MatchRequestPayl
     return res
 
 @router.post("/api/connect/request/{request_id}/respond", summary="Respond to match request")
-async def api_respond_connect_request(request_id: str, payload: MatchRespondPayload, request: Request):
+def api_respond_connect_request(request_id: str, payload: MatchRespondPayload, request: Request):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
@@ -238,7 +238,7 @@ async def api_respond_connect_request(request_id: str, payload: MatchRespondPayl
     return res
 
 @router.get("/api/connect/request/{request_id}/messages", summary="Get messages in request thread or seasonal group chat")
-async def api_get_connect_messages(request_id: str, request: Request):
+def api_get_connect_messages(request_id: str, request: Request):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = (
@@ -276,7 +276,7 @@ async def api_get_connect_messages(request_id: str, request: Request):
     return res
 
 @router.post("/api/connect/request/{request_id}/message", summary="Send message in request thread or seasonal group chat")
-async def api_send_connect_message(request_id: str, payload: ChatMessagePayload, request: Request):
+def api_send_connect_message(request_id: str, payload: ChatMessagePayload, request: Request):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
@@ -356,7 +356,7 @@ async def api_send_connect_message(request_id: str, payload: ChatMessagePayload,
     return res
 
 @router.get("/api/connect/unread-count", summary="Get total unread requests and messages count")
-async def api_get_connect_unread_count(request: Request):
+def api_get_connect_unread_count(request: Request):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)

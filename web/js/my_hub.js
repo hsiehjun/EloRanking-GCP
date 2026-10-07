@@ -6030,7 +6030,6 @@ async function submitTrackerImport(mode) {
                 <div>
                   <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                     ${sysBadge}
-                    <span style="font-family:monospace; font-size:0.74rem; color:#38bdf8; font-weight:700;">#${escapeHtml(mid)}</span>
                     <b style="font-size:0.82rem; color:#fff;">${escapeHtml(g.p1_name)} (${g.p1_score}) vs ${escapeHtml(g.p2_name)} (${g.p2_score})</b>
                   </div>
                   <div style="font-size:0.7rem; color:#94a3b8; margin-top:2px;">
@@ -6128,14 +6127,13 @@ function _renderHubMapSourceGameBanner(sg) {
   const p2Fac = sg.p2_faction || 'Army 2';
   const p1Score = sg.p1_score ?? 0;
   const p2Score = sg.p2_score ?? 0;
-  const mid = sg.match_id || _hubActiveMapMatchId;
   const mission = sg.primary_mission || '';
   const dateStr = sg.game_date && sg.game_date !== '-' ? sg.game_date : '';
 
   bannerEl.innerHTML = `
     <div style="background:linear-gradient(135deg, rgba(15,23,42,0.96) 0%, rgba(30,41,59,0.92) 100%); border:1px solid rgba(245,158,11,0.45); border-radius:12px; padding:0.75rem 1rem; margin-bottom:0.85rem; box-shadow:0 8px 20px rgba(0,0,0,0.35);">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; margin-bottom:0.45rem; flex-wrap:wrap;">
-        <span style="font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#fbbf24;">📋 Scorecard Being Mapped • #${escapeHtml(mid)}</span>
+        <span style="font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#fbbf24;">📋 Scorecard Being Mapped</span>
         <span style="font-size:0.7rem; color:#94a3b8; font-family:monospace;">${mission ? escapeHtml(mission) + (dateStr ? ' • ' : '') : ''}${escapeHtml(dateStr)}</span>
       </div>
       <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:0.75rem;">
@@ -6169,20 +6167,19 @@ async function openMapGameToEventModal(matchId, gameSystem) {
 
   modal.innerHTML = `
     <div style="background:#0f172a; border:1px solid #334155; border-radius:16px; max-width:580px; width:100%; max-height:88vh; display:flex; flex-direction:column; box-shadow:0 25px 65px rgba(0,0,0,0.8); overflow:hidden; font-family:inherit; color:#f8fafc;">
-      <div style="padding:1rem 1.25rem; background:#1e293b; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+      <div style="padding:0.85rem 1.15rem; background:#1e293b; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
         <div>
-          <div style="font-weight:800; font-size:1.02rem; color:#fff;">🏆 Map Scorecard to Tournament Match</div>
-          <div style="font-size:0.75rem; color:#94a3b8; font-family:monospace; margin-top:2px;">Match #${escapeHtml(_hubActiveMapMatchId)}</div>
+          <div style="font-weight:800; font-size:1rem; color:#fff;">🏆 Map Scorecard to Tournament Match</div>
         </div>
         <button type="button" onclick="closeMapGameToEventModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.25rem; cursor:pointer;">✕</button>
       </div>
-      <div style="padding:1.1rem 1.25rem; overflow-y:auto; flex:1;">
+      <div style="padding:1rem 1.15rem; overflow-y:auto; flex:1;">
         <div id="omni-map-source-banner"></div>
         <div style="font-size:0.78rem; color:#cbd5e1; line-height:1.45; margin-bottom:0.85rem; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.25); padding:0.65rem 0.85rem; border-radius:10px;">
           🔒 <b>Participant-Only &amp; Auto-Aligned:</b> You can only map a scorecard to a tournament pairing you participated in. Player 1 and Player 2 columns are automatically aligned to the official pairing and locked once mapped.
         </div>
         <div style="display:flex; gap:0.5rem; margin-bottom:0.85rem;">
-          <input id="omni-map-event-search" type="text" placeholder="Search event name, opponent, or event ID..." style="flex:1; background:#020617; border:1px solid #334155; color:#fff; padding:0.55rem 0.75rem; border-radius:8px; font-size:0.84rem;" oninput="filterHubMappableEventMatches()">
+          <input id="omni-map-event-search" type="text" placeholder="Search event name or opponent..." style="flex:1; background:#020617; border:1px solid #334155; color:#fff; padding:0.55rem 0.75rem; border-radius:8px; font-size:0.84rem;" oninput="filterHubMappableEventMatches()">
         </div>
         <div id="omni-map-event-status" style="display:none; margin-bottom:0.75rem; padding:0.6rem 0.85rem; border-radius:8px; font-size:0.8rem;"></div>
         <div id="omni-map-event-list" style="display:flex; flex-direction:column; gap:0.55rem;">
@@ -6251,7 +6248,7 @@ function renderHubMappableEventMatches(matches) {
       <div style="background:#090f1e; border:1px solid ${m.recommended ? '#10b981' : '#1e293b'}; border-radius:10px; padding:0.75rem 0.9rem; display:flex; justify-content:space-between; align-items:center; gap:0.75rem;">
         <div style="min-width:0;">
           <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
-            <span style="font-weight:800; color:#f8fafc; font-size:0.86rem;">🏆 ${escapeHtml(m.event_name || m.event_id)}</span>
+            <span style="font-weight:800; color:#f8fafc; font-size:0.86rem;">🏆 ${escapeHtml(m.event_name || 'Tournament')}</span>
             <span style="font-family:monospace; font-size:0.74rem; color:#38bdf8;">R${m.round || 1}${m.table_number ? ' • T' + m.table_number : ''}</span>
             ${recBadge}
           </div>
@@ -6259,7 +6256,7 @@ function renderHubMappableEventMatches(matches) {
             🟦 ${escapeHtml(m.player1_name)} (${m.player1_score ?? '-'}) <span style="color:#64748b;">vs</span> 🟥 ${escapeHtml(m.player2_name)} (${m.player2_score ?? '-'})
           </div>
           <div style="font-size:0.7rem; color:#64748b; margin-top:0.15rem;">
-            ${m.match_date ? new Date(m.match_date).toLocaleDateString() : '-'} • Event ID: ${escapeHtml(m.event_id)}
+            ${m.match_date ? new Date(m.match_date).toLocaleDateString() : '-'}
           </div>
         </div>
         <div style="flex-shrink:0;">

@@ -88,7 +88,7 @@ class ResendVerificationPayload(BaseModel):
     email: str
 
 @router.get("/api/auth/registration-status", summary="Public check if account registrations are currently open")
-async def api_auth_registration_status():
+def api_auth_registration_status():
     auth_mgr = get_auth_manager()
     is_open = auth_mgr.are_registrations_open()
     return {
@@ -97,7 +97,7 @@ async def api_auth_registration_status():
     }
 
 @router.get("/api/auth/invite/validate", summary="Validate invitation code status")
-async def api_auth_validate_invite(code: str):
+def api_auth_validate_invite(code: str):
     auth_mgr = get_auth_manager()
     if not auth_mgr.are_registrations_open():
         return {
@@ -115,7 +115,7 @@ async def api_auth_validate_invite(code: str):
     }
 
 @router.post("/api/auth/register", summary="Register a new native user account with 2FA email verification")
-async def api_auth_register(payload: RegisterPayload, response: Response):
+def api_auth_register(payload: RegisterPayload, response: Response):
     auth_mgr = get_auth_manager()
     if not auth_mgr.are_registrations_open():
         raise HTTPException(status_code=403, detail="Account registration is currently locked by the administrator. All invitation codes are suspended.")
@@ -130,7 +130,7 @@ async def api_auth_register(payload: RegisterPayload, response: Response):
     return res
 
 @router.post("/api/auth/verify-registration", summary="Verify 6-digit email code to activate account")
-async def api_auth_verify_registration(request: Request, payload: VerifyRegistrationPayload, response: Response):
+def api_auth_verify_registration(request: Request, payload: VerifyRegistrationPayload, response: Response):
     auth_mgr = get_auth_manager()
     if not auth_mgr.are_registrations_open():
         raise HTTPException(status_code=403, detail="Account registration is currently locked by the administrator. All invitation codes are suspended.")
@@ -151,7 +151,7 @@ async def api_auth_verify_registration(request: Request, payload: VerifyRegistra
     return res
 
 @router.post("/api/auth/resend-verification", summary="Resend 6-digit email verification code")
-async def api_auth_resend_verification(payload: ResendVerificationPayload):
+def api_auth_resend_verification(payload: ResendVerificationPayload):
     auth_mgr = get_auth_manager()
     res = auth_mgr.resend_registration_code(payload.email)
     if not res.get("success"):
@@ -159,7 +159,7 @@ async def api_auth_resend_verification(payload: ResendVerificationPayload):
     return res
 
 @router.post("/api/auth/login", summary="Login to native user account (with Email 2FA for unregistered devices)")
-async def api_auth_login(request: Request, payload: LoginPayload, response: Response):
+def api_auth_login(request: Request, payload: LoginPayload, response: Response):
     auth_mgr = get_auth_manager()
     ua = request.headers.get("User-Agent")
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
@@ -191,7 +191,7 @@ async def api_auth_login(request: Request, payload: LoginPayload, response: Resp
     return res
 
 @router.post("/api/auth/verify-login-2fa", summary="Verify 6-digit email 2FA code to register device as active session and login")
-async def api_auth_verify_login_2fa(request: Request, payload: VerifyLogin2FAPayload, response: Response):
+def api_auth_verify_login_2fa(request: Request, payload: VerifyLogin2FAPayload, response: Response):
     auth_mgr = get_auth_manager()
     ua = request.headers.get("User-Agent")
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
@@ -217,7 +217,7 @@ async def api_auth_verify_login_2fa(request: Request, payload: VerifyLogin2FAPay
     return res
 
 @router.post("/api/auth/resend-login-2fa", summary="Resend 6-digit email 2FA verification code for login")
-async def api_auth_resend_login_2fa(request: Request, payload: ResendLogin2FAPayload):
+def api_auth_resend_login_2fa(request: Request, payload: ResendLogin2FAPayload):
     auth_mgr = get_auth_manager()
     ua = request.headers.get("User-Agent")
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
@@ -234,19 +234,19 @@ async def api_auth_resend_login_2fa(request: Request, payload: ResendLogin2FAPay
     return res
 
 @router.post("/api/auth/forgot-password", summary="Request password reset link and verification code via email")
-async def api_auth_forgot_password(payload: ForgotPasswordPayload):
+def api_auth_forgot_password(payload: ForgotPasswordPayload):
     auth_mgr = get_auth_manager()
     res = auth_mgr.request_password_reset(payload.email)
     return res
 
 @router.get("/api/auth/reset-password/validate", summary="Validate password reset token or code")
-async def api_auth_validate_reset_token(token: Optional[str] = Query(None), code: Optional[str] = Query(None), email: Optional[str] = Query(None)):
+def api_auth_validate_reset_token(token: Optional[str] = Query(None), code: Optional[str] = Query(None), email: Optional[str] = Query(None)):
     auth_mgr = get_auth_manager()
     res = auth_mgr.validate_reset_token(token=token, code=code, email=email)
     return res
 
 @router.post("/api/auth/reset-password", summary="Reset account password using token or email & code")
-async def api_auth_reset_password(request: Request, payload: ResetPasswordPayload, response: Response):
+def api_auth_reset_password(request: Request, payload: ResetPasswordPayload, response: Response):
     auth_mgr = get_auth_manager()
     ua = request.headers.get("User-Agent")
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
@@ -273,7 +273,7 @@ async def api_auth_reset_password(request: Request, payload: ResetPasswordPayloa
     return res
 
 @router.get("/api/auth/me", summary="Check active user session and BCP link status")
-async def api_auth_me(request: Request, response: Response, token: Optional[str] = Query(None)):
+def api_auth_me(request: Request, response: Response, token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
     bearer_tok = auth_header[7:].strip() if auth_header.startswith("Bearer ") else None
     candidates = [
@@ -309,7 +309,7 @@ async def api_auth_me(request: Request, response: Response, token: Optional[str]
     return {"authenticated": False}
 
 @router.post("/api/auth/logout", summary="Logout current user session")
-async def api_auth_logout(request: Request, response: Response, token: Optional[str] = Query(None)):
+def api_auth_logout(request: Request, response: Response, token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
     session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     if session_token:
@@ -320,7 +320,7 @@ async def api_auth_logout(request: Request, response: Response, token: Optional[
     return {"success": True}
 
 @router.post("/api/auth/logout-all", summary="Sign out user from all active devices")
-async def api_auth_logout_all(request: Request, response: Response, keep_current: bool = Query(False), token: Optional[str] = Query(None)):
+def api_auth_logout_all(request: Request, response: Response, keep_current: bool = Query(False), token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
     session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     if not session_token:
@@ -345,7 +345,7 @@ async def api_auth_logout_all(request: Request, response: Response, keep_current
     }
 
 @router.get("/api/auth/sessions", summary="Get all active device sessions for current user")
-async def api_auth_get_sessions(request: Request, token: Optional[str] = Query(None)):
+def api_auth_get_sessions(request: Request, token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
     session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     if not session_token:
@@ -363,7 +363,7 @@ async def api_auth_get_sessions(request: Request, token: Optional[str] = Query(N
     }
 
 @router.delete("/api/auth/sessions/{target_token}", summary="Revoke specific device session")
-async def api_auth_revoke_session(target_token: str, request: Request, token: Optional[str] = Query(None)):
+def api_auth_revoke_session(target_token: str, request: Request, token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
     session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     if not session_token:
@@ -377,7 +377,7 @@ async def api_auth_revoke_session(target_token: str, request: Request, token: Op
     return {"success": revoked, "message": "Session revoked." if revoked else "Session not found."}
 
 @router.post("/api/user/settings", summary="Update user profile settings or change password")
-async def api_user_settings(request: Request, payload: UserSettingsPayload, token: Optional[str] = Query(None)):
+def api_user_settings(request: Request, payload: UserSettingsPayload, token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
     session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     if not session_token:
@@ -400,7 +400,7 @@ async def api_user_settings(request: Request, payload: UserSettingsPayload, toke
     return res
 
 @router.post("/api/user/pin_badges", summary="Update user's top 3 pinned showcase medals")
-async def api_user_pin_badges(request: Request, payload: PinBadgesPayload, token: Optional[str] = Query(None)):
+def api_user_pin_badges(request: Request, payload: PinBadgesPayload, token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
     session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     if not session_token:
@@ -418,7 +418,7 @@ async def api_user_pin_badges(request: Request, payload: PinBadgesPayload, token
     return res
 
 @router.post("/api/user/bcp/connect", summary="Connect and link Best Coast Pairings account")
-async def api_user_bcp_connect(request: Request, payload: BCPConnectPayload, token: Optional[str] = Query(None)):
+def api_user_bcp_connect(request: Request, payload: BCPConnectPayload, token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
     session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     if not session_token:
@@ -438,7 +438,7 @@ async def api_user_bcp_connect(request: Request, payload: BCPConnectPayload, tok
     return res
 
 @router.post("/api/user/bcp/disconnect", summary="Unlink Best Coast Pairings account")
-async def api_user_bcp_disconnect(request: Request, token: Optional[str] = Query(None)):
+def api_user_bcp_disconnect(request: Request, token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
     session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     if not session_token:
@@ -450,7 +450,7 @@ async def api_user_bcp_disconnect(request: Request, token: Optional[str] = Query
     return get_auth_manager().unlink_bcp_account(session["id"])
 
 @router.get("/api/user/dashboard", summary="Get personalized competitor hub analytics")
-async def api_user_dashboard(request: Request, player_id: Optional[str] = Query(None), token: Optional[str] = Query(None), game_system: Optional[str] = Query("40k")):
+def api_user_dashboard(request: Request, player_id: Optional[str] = Query(None), token: Optional[str] = Query(None), game_system: Optional[str] = Query("40k")):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
@@ -472,7 +472,7 @@ async def api_user_dashboard(request: Request, player_id: Optional[str] = Query(
 
 
 @router.get("/api/user/registered-tournaments", summary="Get tournaments registered on BCP for current user")
-async def api_user_registered_tournaments(
+def api_user_registered_tournaments(
     request: Request,
     force_sync: bool = Query(False),
     token: Optional[str] = Query(None),
@@ -648,11 +648,11 @@ async def api_user_registered_tournaments(
 
 
 @router.post("/api/user/registered-tournaments/sync", summary="Force sync tournaments registered on BCP for current user")
-async def api_user_sync_registered_tournaments(
+def api_user_sync_registered_tournaments(
     request: Request,
     token: Optional[str] = Query(None),
     game_system: Optional[str] = Query(None)
 ):
-    return await api_user_registered_tournaments(request, force_sync=True, token=token, game_system=game_system)
+    return api_user_registered_tournaments(request, force_sync=True, token=token, game_system=game_system)
 
 

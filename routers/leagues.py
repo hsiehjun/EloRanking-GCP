@@ -16,7 +16,7 @@ router = APIRouter(tags=["Community Leagues"])
 
 
 @router.get("/api/leagues", summary="Get list of active community leagues")
-async def get_leagues_list():
+def get_leagues_list():
     svc = leagues_hub_service.get_leagues_hub_service()
     leagues = svc.get_leagues_list()
     templates = svc.get_available_templates()
@@ -29,7 +29,7 @@ async def get_leagues_list():
 
 
 @router.get("/api/leagues/managed", summary="Get leagues owned or commissioned by the active Event Studio user")
-async def get_managed_leagues_for_user(
+def get_managed_leagues_for_user(
     user_id: Optional[str] = None,
     player_id: Optional[str] = None,
     email: Optional[str] = None,
@@ -72,7 +72,7 @@ async def assign_league_owner(league_id: str, request: Request):
 
 @router.get("/api/league/{league_id}", summary="Get full league data and active or historical season")
 @router.get("/api/leagues/{league_id}", summary="Get full league data and active or historical season")
-async def get_league_details(league_id: str, season: Optional[int] = None):
+def get_league_details(league_id: str, season: Optional[int] = None):
     norm_lid = leagues_hub_service._normalize_league_id(league_id)
     svc = leagues_hub_service.get_leagues_hub_service()
     league = svc.slim_league_for_api(svc.get_league(norm_lid, season_number=season))
@@ -87,7 +87,7 @@ async def get_league_details(league_id: str, season: Optional[int] = None):
 @router.post("/api/league/{league_id}/sync-participants", summary="Synchronize league participant DB identities and ownership")
 @router.get("/api/league/{league_id}/db-sync", summary="Synchronize league participant DB identities and ownership")
 @router.post("/api/league/{league_id}/db-sync", summary="Synchronize league participant DB identities and ownership")
-async def sync_and_audit_league_db(league_id: str, force_seed: bool = False):
+def sync_and_audit_league_db(league_id: str, force_seed: bool = False):
     from core import get_database
     db = get_database()
     norm_lid = leagues_hub_service._normalize_league_id(league_id)
@@ -137,7 +137,7 @@ async def sync_and_audit_league_db(league_id: str, force_seed: bool = False):
 
 
 @router.get("/api/league/{league_id}/seasons", summary="Get catalog of all historical seasons")
-async def get_league_seasons(league_id: str):
+def get_league_seasons(league_id: str):
     svc = leagues_hub_service.get_leagues_hub_service()
     seasons = svc.get_seasons_catalog(league_id)
     return {
@@ -149,7 +149,7 @@ async def get_league_seasons(league_id: str):
 
 
 @router.get("/api/league/{league_id}/season/{season_num}", summary="Get specific historical season")
-async def get_league_season(league_id: str, season_num: int):
+def get_league_season(league_id: str, season_num: int):
     svc = leagues_hub_service.get_leagues_hub_service()
     league = svc.slim_league_for_api(svc.get_league(league_id, season_number=season_num))
     if not league:
@@ -161,7 +161,7 @@ async def get_league_season(league_id: str, season_num: int):
 
 
 @router.get("/api/league/{league_id}/player/{player_name}/history", summary="Get player career history across all seasons")
-async def get_player_league_history(league_id: str, player_name: str):
+def get_player_league_history(league_id: str, player_name: str):
     svc = leagues_hub_service.get_leagues_hub_service()
     career = svc.get_player_career(league_id, player_name)
     return {
@@ -171,7 +171,7 @@ async def get_player_league_history(league_id: str, player_name: str):
 
 
 @router.get("/api/league/{league_id}/pod/{pod_num}", summary="Get specific pod data")
-async def get_pod_details(league_id: str, pod_num: int):
+def get_pod_details(league_id: str, pod_num: int):
     svc = leagues_hub_service.get_leagues_hub_service()
     pod = svc.get_pod(league_id, pod_num)
     if not pod:
@@ -183,7 +183,7 @@ async def get_pod_details(league_id: str, pod_num: int):
 
 
 @router.get("/api/league/player/{player_name}", summary="Get active league matches for a player")
-async def get_player_leagues(player_name: str):
+def get_player_leagues(player_name: str):
     svc = leagues_hub_service.get_leagues_hub_service()
     summary = svc.get_player_league_summary(player_name)
     return {
@@ -251,7 +251,7 @@ async def report_league_match(league_id: str, request: Request):
 
 
 @router.get("/api/league/{league_id}/rollover/preview", summary="Preview 2-up / 2-down promotion & relegation for the active season")
-async def get_league_rollover_preview(league_id: str, season: Optional[int] = None):
+def get_league_rollover_preview(league_id: str, season: Optional[int] = None):
     svc = leagues_hub_service.get_leagues_hub_service()
     try:
         preview = svc.calculate_promotion_relegation(league_id, season_number=season)
@@ -353,7 +353,7 @@ async def update_league_registration_window(league_id: str, request: Request):
 
 
 @router.get("/api/league/{league_id}/participants", summary="Get season/pod participants with user_id and bcp_player_id matching status")
-async def get_league_participants_endpoint(league_id: str, season: Optional[int] = None):
+def get_league_participants_endpoint(league_id: str, season: Optional[int] = None):
     svc = leagues_hub_service.get_leagues_hub_service()
     try:
         return svc.get_season_participants(league_id, season_number=season)
@@ -375,7 +375,7 @@ async def claim_league_participant_endpoint(league_id: str, request: Request):
 
 
 @router.get("/api/league/{league_id}/announcements", summary="Get official TO announcements for a league")
-async def get_league_announcements_endpoint(league_id: str):
+def get_league_announcements_endpoint(league_id: str):
     svc = leagues_hub_service.get_leagues_hub_service()
     league = svc.get_league(league_id)
     if not league:
@@ -402,7 +402,7 @@ async def save_league_announcement_endpoint(league_id: str, request: Request):
 
 
 @router.delete("/api/league/{league_id}/announcements/{announcement_id}", summary="Delete a league announcement by ID")
-async def delete_league_announcement_endpoint(league_id: str, announcement_id: str):
+def delete_league_announcement_endpoint(league_id: str, announcement_id: str):
     svc = leagues_hub_service.get_leagues_hub_service()
     res = svc.delete_league_announcement(league_id, announcement_id)
     if res.get("error"):
@@ -465,7 +465,7 @@ async def create_unified_event_endpoint(request: Request):
 
 
 @router.get("/api/eventstudio/ops/{entity_id}", summary="Get Unified Live Floor Operations (Clock, Table Flags, Broadcasts, Acks)")
-async def get_unified_ops_endpoint(entity_id: str):
+def get_unified_ops_endpoint(entity_id: str):
     svc = leagues_hub_service.get_leagues_hub_service()
     return svc.get_unified_floor_ops(entity_id)
 
@@ -521,7 +521,7 @@ async def ack_unified_broadcast_endpoint(entity_id: str, request: Request):
 
 
 @router.get("/api/league/{league_id}/chats", summary="Get active seasonal League Q&A and Pod group chats")
-async def get_league_group_chats_endpoint(league_id: str):
+def get_league_group_chats_endpoint(league_id: str):
     svc = leagues_hub_service.get_leagues_hub_service()
     return svc.get_league_group_chats(league_id)
 

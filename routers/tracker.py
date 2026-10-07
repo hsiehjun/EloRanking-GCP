@@ -685,7 +685,7 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
         return ("spectator" if (p1_id and p2_id) else "player1", None)
 
 @router.post("/api/tracker/room/create", summary="Create or connect to a multiplayer match room with host player")
-async def api_tracker_create_room(request: Request, payload: Optional[TrackerCreatePayload] = None):
+def api_tracker_create_room(request: Request, payload: Optional[TrackerCreatePayload] = None):
     db = get_database()
     user = getattr(request, "_mock_user", None) if request else None
     if user is None:
@@ -1052,7 +1052,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     }
 
 @router.get("/api/tracker/firestore/rooms/{match_id}", summary="Diagnostics: Verify and inspect raw document from Cloud Firestore")
-async def api_tracker_firestore_inspect(match_id: str):
+def api_tracker_firestore_inspect(match_id: str):
     match_id = normalize_tracker_match_id(match_id)
     fs = get_firestore_engine()
     doc = fs.get_room(match_id)
@@ -1064,7 +1064,7 @@ async def api_tracker_firestore_inspect(match_id: str):
     }
 
 @router.get("/api/tracker/room/{match_id}/check", summary="Check if room exists and check player slots")
-async def api_tracker_check_room(match_id: str, request: Request):
+def api_tracker_check_room(match_id: str, request: Request):
     match_id = normalize_tracker_match_id(match_id)
         
     db = None
@@ -1531,7 +1531,7 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
     return {"success": True, "match_id": match_id, "version": payload.version}
 
 @router.get("/api/tracker/room/{match_id}", summary="Get current match room state")
-async def api_tracker_get_state(match_id: str):
+def api_tracker_get_state(match_id: str):
     match_id = normalize_tracker_match_id(match_id)
     fs_engine = get_firestore_engine()
     db = get_database()
@@ -1689,7 +1689,7 @@ def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 @router.get("/api/tracker/history", summary="Get persistent history of tracker games")
-async def api_tracker_history(request: Request, limit: int = 500, search: Optional[str] = None, token: Optional[str] = Query(None), game_system: Optional[str] = Query(None)):
+def api_tracker_history(request: Request, limit: int = 500, search: Optional[str] = None, token: Optional[str] = Query(None), game_system: Optional[str] = Query(None)):
     try:
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "")
@@ -1720,7 +1720,7 @@ async def api_tracker_history(request: Request, limit: int = 500, search: Option
         return {"success": False, "history": []}
 
 @router.get("/api/tracker/sessions", summary="Get user's 3-tier active slot management (primary active, unfinished, completed)")
-async def api_tracker_user_sessions(
+def api_tracker_user_sessions(
     request: Request,
     token: Optional[str] = Query(None),
     game_system: Optional[str] = Query(None)
@@ -2160,7 +2160,7 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
     }
 
 @router.post("/api/tracker/room/{match_id}/hide", summary="Soft-delete/hide a game from the user's personal history")
-async def api_tracker_hide_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
+def api_tracker_hide_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
     match_id = normalize_tracker_match_id(match_id)
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
@@ -2174,7 +2174,7 @@ async def api_tracker_hide_game(match_id: str, request: Request, payload: Option
     return {"success": success, "match_id": match_id, "hidden_for_user": user["id"]}
 
 @router.post("/api/tracker/room/{match_id}/unhide", summary="Unhide a game in the user's personal history")
-async def api_tracker_unhide_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
+def api_tracker_unhide_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
     match_id = normalize_tracker_match_id(match_id)
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
@@ -2188,7 +2188,7 @@ async def api_tracker_unhide_game(match_id: str, request: Request, payload: Opti
     return {"success": success, "match_id": match_id, "unhidden_for_user": user["id"]}
 
 @router.get("/api/scorecard/{match_id}", summary="Get verified tournament digital scorecard data")
-async def api_get_scorecard(match_id: str):
+def api_get_scorecard(match_id: str):
     db = None
     try:
         db = get_database()
@@ -2454,7 +2454,7 @@ async def api_get_scorecard(match_id: str):
     raise HTTPException(status_code=404, detail="Scorecard not found")
 
 @router.get("/scorecard/{match_id}", summary="View digital scorecard page")
-async def view_scorecard_page(match_id: str):
+def view_scorecard_page(match_id: str):
     scorecard_file = web_dir / "scorecard.html"
     if scorecard_file.exists():
         return FileResponse(scorecard_file)
@@ -2652,7 +2652,7 @@ def _persist_imported_games_to_db(
     return saved_items
 
 @router.post("/api/tracker/import/ttb-sync", summary="Download and import completed games from Tabletop Battles Cloud Sync")
-async def api_tracker_import_ttb_sync(request: Request, body: TrackerImportSyncPayload):
+def api_tracker_import_ttb_sync(request: Request, body: TrackerImportSyncPayload):
     from tracker_importer import (
         authenticate_ttb_cognito,
         fetch_ttb_cloud_games,
@@ -2698,7 +2698,7 @@ async def api_tracker_import_ttb_sync(request: Request, body: TrackerImportSyncP
 
 
 @router.post("/api/tracker/import/battlebase-sync", summary="Download and import completed games from BattleBase (battlebase.app)")
-async def api_tracker_import_battlebase_sync(request: Request, body: TrackerImportSyncPayload):
+def api_tracker_import_battlebase_sync(request: Request, body: TrackerImportSyncPayload):
     from tracker_importer import sync_battlebase_account_games
     user = _resolve_importing_user(request)
     email_or_user = (body.email or body.username or "").strip()
@@ -2725,7 +2725,7 @@ async def api_tracker_import_battlebase_sync(request: Request, body: TrackerImpo
 
 
 @router.post("/api/tracker/import/newrecruit-sync", summary="Download and import completed games & battle reports from NewRecruit (newrecruit.eu)")
-async def api_tracker_import_newrecruit_sync(request: Request, body: TrackerImportSyncPayload):
+def api_tracker_import_newrecruit_sync(request: Request, body: TrackerImportSyncPayload):
     from tracker_importer import sync_newrecruit_account_games
     user = _resolve_importing_user(request)
     email_or_user = (body.email or body.username or "").strip()
@@ -2752,7 +2752,7 @@ async def api_tracker_import_newrecruit_sync(request: Request, body: TrackerImpo
 
 
 @router.post("/api/tracker/import/championshub-sync", summary="Download and import completed games from ChampionsHub (championshub.app)")
-async def api_tracker_import_championshub_sync(request: Request, body: TrackerImportSyncPayload):
+def api_tracker_import_championshub_sync(request: Request, body: TrackerImportSyncPayload):
     from tracker_importer import sync_championshub_account_games
     user = _resolve_importing_user(request)
     email_or_user = (body.email or body.username or "").strip()
@@ -2779,7 +2779,7 @@ async def api_tracker_import_championshub_sync(request: Request, body: TrackerIm
 
 
 @router.post("/api/tracker/import/milarki-sync", summary="Download and import completed Age of Sigmar battles from Milarki (milarki.com)")
-async def api_tracker_import_milarki_sync(request: Request, body: TrackerImportSyncPayload):
+def api_tracker_import_milarki_sync(request: Request, body: TrackerImportSyncPayload):
     from tracker_importer import sync_milarki_account_games
     user = _resolve_importing_user(request)
     pid = (body.player_id or body.username or body.email or "").strip()
@@ -2807,7 +2807,7 @@ async def api_tracker_import_milarki_sync(request: Request, body: TrackerImportS
 
 
 @router.post("/api/tracker/import/ttb-code", summary="Download and import a Tabletop Battles game by Observer or Link Code")
-async def api_tracker_import_ttb_code(request: Request, body: TrackerImportCodePayload):
+def api_tracker_import_ttb_code(request: Request, body: TrackerImportCodePayload):
     from tracker_importer import (
         fetch_ttb_game_by_code,
         convert_ttb_game_to_omnitactica,
@@ -2843,7 +2843,7 @@ async def api_tracker_import_ttb_code(request: Request, body: TrackerImportCodeP
         raise HTTPException(status_code=500, detail=f"Failed to import game by code: {e}")
 
 @router.post("/api/tracker/import/parse", summary="Parse and import completed games from TTB JSON/text or GW App War Journal")
-async def api_tracker_import_parse(request: Request, body: TrackerImportParsePayload):
+def api_tracker_import_parse(request: Request, body: TrackerImportParsePayload):
     from tracker_importer import parse_imported_games_payload
     user = _resolve_importing_user(request)
     raw_text = (body.payload or body.text or "").strip()
@@ -3066,7 +3066,7 @@ def _determine_p1_p2_alignment_swap(
 
 
 @router.get("/api/tracker/mappable_event_matches", summary="List tournament pairings where the authenticated user is a participant")
-async def api_get_mappable_event_matches(
+def api_get_mappable_event_matches(
     request: Request,
     match_id: Optional[str] = None,
     search: Optional[str] = None,
@@ -3276,7 +3276,7 @@ async def api_get_mappable_event_matches(
 
 
 @router.post("/api/tracker/games/{match_id}/map_event_match", summary="Map an imported or completed scorecard to a tournament match")
-async def api_map_tracker_game_to_event_match(
+def api_map_tracker_game_to_event_match(
     match_id: str,
     body: TrackerMapEventMatchPayload,
     request: Request,
@@ -3485,7 +3485,7 @@ async def api_map_tracker_game_to_event_match(
 
 
 @router.post("/api/tracker/games/{match_id}/unmap_event_match", summary="Unmap an imported scorecard (admin/organizer only once locked)")
-async def api_unmap_tracker_game_from_event_match(
+def api_unmap_tracker_game_from_event_match(
     match_id: str,
     request: Request,
 ):
@@ -3540,7 +3540,7 @@ async def api_unmap_tracker_game_from_event_match(
 
 
 @router.get("/api/tracker/debug/test_save", summary="Diagnostics endpoint to test DB writes to tracker_games")
-async def api_tracker_debug_test_save():
+def api_tracker_debug_test_save():
     import traceback
     db = get_database()
     
@@ -3698,7 +3698,7 @@ async def api_tracker_attach_armylist(match_id: str, request: Request):
     return {"success": True, "match_id": match_id, "role": role, "army_list": army_list}
 
 @router.get("/api/tracker/room/{match_id}/armylists", summary="Get attached army lists for Player 1 and Player 2")
-async def api_tracker_get_armylists(match_id: str):
+def api_tracker_get_armylists(match_id: str):
     from newrecruit_integration import build_synthetic_nr_row
     match_id = normalize_tracker_match_id(match_id)
     fs_engine = get_firestore_engine()
