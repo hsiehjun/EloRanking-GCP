@@ -11901,21 +11901,170 @@ table.desktop-only,
     max-width: 100% !important;
   }
   #event-results-body tr td:nth-child(3)::before { content: "Faction"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #event-results-body tr td:nth-child(4)::before { content: "Record (Pts)"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #event-results-body tr td:nth-child(5)::before { content: "Elo Rating"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #event-results-body tr td:nth-child(6)::before { content: "Event Net Elo Δ"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-results-body tr td:nth-child(4)::before { content: "Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-results-body tr td:nth-child(5)::before { content: "Battle Points"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-results-body tr td:nth-child(6)::before { content: "Elo Rating"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #event-results-body tr td:nth-child(7)::before { content: "Army Roster"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
 
-  /* Event Hub Pairings Table Mobile Card Labels */
-  #event-pairings-body tr td:nth-child(1)::before { content: "Round"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #event-pairings-body tr td:nth-child(2)::before { content: "Table"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #event-pairings-body tr td:nth-child(3) { border-top: 1px solid rgba(255,255,255,0.06) !important; padding-top: 0.4rem !important; }
-  #event-pairings-body tr td:nth-child(3)::before { content: "Player 1 (Win %)"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #event-pairings-body tr td:nth-child(4)::before { content: "P1 Score"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #event-pairings-body tr td:nth-child(5)::before { content: "P2 Score"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #event-pairings-body tr td:nth-child(6)::before { content: "Player 2 (Win %)"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #event-pairings-body tr td:nth-child(7) { border-top: 1px solid rgba(255,255,255,0.06) !important; padding-top: 0.4rem !important; margin-top: 0.15rem; }
-  #event-pairings-body tr td:nth-child(7)::before { content: "Outcome"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  /* Event Hub Pairings Table Mobile Head-to-Head Matchup Card */
+  #event-pairings-body tr:not(:has(.empty-state)) {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    grid-template-rows: auto auto auto auto !important;
+    align-items: stretch !important;
+    padding: 0.65rem 0.85rem !important;
+    gap: 0 !important;
+    border-radius: 12px !important;
+    margin-bottom: 0.65rem !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  #event-pairings-body tr td.empty-state {
+    grid-column: 1 / -1 !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    border: none !important;
+    margin: 0 !important;
+  }
+  /* Row 1: Round (left) & Table (right) header bar */
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(1) {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 0.35rem !important;
+    padding: 0 0 0.42rem 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    font-size: 0.82rem !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(1)::before {
+    content: "Round";
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(2) {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 0.35rem !important;
+    padding: 0 0 0.42rem 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    font-size: 0.82rem !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(2)::before {
+    content: "Table";
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  /* Row 2: Player 1 (left) & P1 Score (right) */
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(3) {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    text-align: left !important;
+    padding: 0.55rem 0.5rem 0.5rem 0 !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(3)::before {
+    display: none !important;
+    content: none !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(4) {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    padding: 0.55rem 0 0.5rem 0.5rem !important;
+    font-size: 1.15rem !important;
+    font-weight: 800 !important;
+    text-align: right !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(4)::before {
+    display: none !important;
+    content: none !important;
+  }
+  /* Row 3: Player 2 (left) & P2 Score (right) */
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(6) {
+    grid-column: 1 !important;
+    grid-row: 3 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    text-align: left !important;
+    padding: 0.5rem 0.5rem 0.55rem 0 !important;
+    border-top: 1px dashed rgba(255, 255, 255, 0.07) !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(6)::before {
+    display: none !important;
+    content: none !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(5) {
+    grid-column: 2 !important;
+    grid-row: 3 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    padding: 0.5rem 0 0.55rem 0.5rem !important;
+    border-top: 1px dashed rgba(255, 255, 255, 0.07) !important;
+    font-size: 1.15rem !important;
+    font-weight: 800 !important;
+    text-align: right !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(5)::before {
+    display: none !important;
+    content: none !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(3) .player-name-cell,
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(6) .player-name-cell {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    text-align: left !important;
+    gap: 2px !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(3) .player-name-cell > div,
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(6) .player-name-cell > div {
+    justify-content: flex-start !important;
+    text-align: left !important;
+  }
+  /* Row 4: Outcome badge (left) & Scorecard/Stream/Track buttons (right) */
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(7) {
+    grid-column: 1 / -1 !important;
+    grid-row: 4 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 0.45rem 0 0 0 !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(7)::before {
+    display: none !important;
+    content: none !important;
+  }
+  #event-pairings-body tr:not(:has(.empty-state)) td:nth-child(7) > div {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
 
   /* Event Hub Meta Table Mobile Card Labels */
   #event-meta-body tr td:nth-child(1) { border-bottom: 1px solid rgba(255,255,255,0.06) !important; padding-bottom: 0.45rem !important; margin-bottom: 0.25rem; }
