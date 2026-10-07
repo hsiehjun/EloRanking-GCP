@@ -417,6 +417,17 @@ def api_user_pin_badges(request: Request, payload: PinBadgesPayload, token: Opti
         raise HTTPException(status_code=400, detail=res.get("error", "Failed to update pinned medals"))
     return res
 
+_REG_TOURNAMENTS_CACHE: Dict[Tuple[str, str], Tuple[float, Dict[str, Any]]] = {}
+
+def _clear_reg_tournaments_cache(user_id: Optional[str] = None) -> None:
+    if not user_id:
+        _REG_TOURNAMENTS_CACHE.clear()
+        return
+    uid = str(user_id)
+    for k in list(_REG_TOURNAMENTS_CACHE.keys()):
+        if k[0] == uid:
+            _REG_TOURNAMENTS_CACHE.pop(k, None)
+
 @router.post("/api/user/bcp/connect", summary="Connect and link Best Coast Pairings account")
 def api_user_bcp_connect(request: Request, payload: BCPConnectPayload, token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
@@ -435,6 +446,7 @@ def api_user_bcp_connect(request: Request, payload: BCPConnectPayload, token: Op
         res = get_auth_manager().link_bcp_account(session["id"], payload.bcp_email, payload.bcp_password)
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error", "Failed to connect BCP account"))
+    _clear_reg_tournaments_cache(session["id"])
     return res
 
 @router.post("/api/user/bcp/disconnect", summary="Unlink Best Coast Pairings account")
@@ -447,6 +459,7 @@ def api_user_bcp_disconnect(request: Request, token: Optional[str] = Query(None)
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session")
 
+    _clear_reg_tournaments_cache(session["id"])
     return get_auth_manager().unlink_bcp_account(session["id"])
 
 @router.get("/api/user/dashboard", summary="Get personalized competitor hub analytics")
@@ -487,7 +500,13 @@ def api_user_registered_tournaments(
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session")
 
-    user_id = session["id"]
+    user_id = str(session["id"])
+    cache_key = (user_id, (game_system or "all").strip().lower())
+    if not force_sync:
+        cached_entry = _REG_TOURNAMENTS_CACHE.get(cache_key)
+        if cached_entry and (time.time() - cached_entry[0]) < 60.0:
+            return cached_entry[1]
+
     user_info = auth_mgr.get_user_by_id(user_id) or session
     x_bcp_token = request.headers.get("X-BCP-Token")
     bcp_connected = bool(user_info.get("bcp_connected") or user_info.get("bcp_user_id") or x_bcp_token)
@@ -513,13 +532,15 @@ def api_user_registered_tournaments(
         logger.debug(f"Error fetching user registered leagues: {e}")
 
     if not bcp_connected and not native_tournaments:
-        return {
+        res_empty = {
             "success": True,
             "bcp_connected": False,
             "count": 0,
             "tournaments": [],
             "message": "Player is not linked to Best Coast Pairings"
         }
+        _REG_TOURNAMENTS_CACHE[cache_key] = (time.time(), res_empty)
+        return res_empty
 
     bcp_tournaments = []
     bcp_fetch_ok = False
@@ -639,12 +660,14 @@ def api_user_registered_tournaments(
         target_sys = game_system.strip().lower()
         combined_tournaments = [t for t in combined_tournaments if t.get("game_system", "40k") == target_sys]
 
-    return {
+    result = {
         "success": True,
         "bcp_connected": bool(bcp_connected),
         "count": len(combined_tournaments),
         "tournaments": combined_tournaments
     }
+    _REG_TOURNAMENTS_CACHE[cache_key] = (time.time(), result)
+    return result
 
 
 @router.post("/api/user/registered-tournaments/sync", summary="Force sync tournaments registered on BCP for current user")

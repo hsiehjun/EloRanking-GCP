@@ -5,6 +5,7 @@
 window.api = {
   // Client-Side In-Memory Cache (sub-millisecond instant tab switching)
   _cache: new Map(),
+  _inflight: new Map(),
 
   _cacheTtls: {
     '/api/stats': 60000,
@@ -68,54 +69,70 @@ window.api = {
       }
     }
 
-    try {
-      const token = this.getAuthToken();
-      const headers = Object.assign({}, options.headers || {});
-      if (token && !headers['Authorization']) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      options.headers = headers;
-      options.credentials = options.credentials || 'include';
-
-      const res = await fetch(url, options);
-      const text = await res.text();
-      try {
-        const json = JSON.parse(text);
-        if (!res.ok) {
-          console.error(`API Error on ${url}:`, json);
-          return { error: json.detail || json.error || 'Server error' };
-        }
-
-        if (canCache && json && !json.error) {
-          let ttl = 30000;
-          for (const [prefix, customTtl] of Object.entries(this._cacheTtls)) {
-            if (url.startsWith(prefix)) {
-              ttl = customTtl;
-              break;
-            }
-          }
-          this._cache.set(url, { data: json, timestamp: Date.now(), ttl });
-          if (this._cache.size > 250) {
-            const keys = Array.from(this._cache.keys()).slice(0, 50);
-            for (const k of keys) this._cache.delete(k);
-          }
-        } else if (method !== 'GET') {
-          // Invalidate relevant cache on writes
-          this.clearCache();
-        }
-
-        return json;
-      } catch (parseErr) {
-        console.error(`Non-JSON response from ${url}:`, text);
-        return { error: `Server returned non-JSON response (${res.status})` };
-      }
-    } catch (netErr) {
-      if (netErr && netErr.name === 'AbortError') {
-        return { aborted: true };
-      }
-      console.error(`Network error on ${url}:`, netErr);
-      return { error: netErr.message };
+    const canDedupe = method === 'GET' && !options.signal && !options.forceRefresh;
+    if (canDedupe && this._inflight.has(url)) {
+      return this._inflight.get(url);
     }
+
+    const execPromise = (async () => {
+      try {
+        const token = this.getAuthToken();
+        const headers = Object.assign({}, options.headers || {});
+        if (token && !headers['Authorization']) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        options.headers = headers;
+        options.credentials = options.credentials || 'include';
+
+        const res = await fetch(url, options);
+        const text = await res.text();
+        try {
+          const json = JSON.parse(text);
+          if (!res.ok) {
+            console.error(`API Error on ${url}:`, json);
+            return { error: json.detail || json.error || 'Server error' };
+          }
+
+          if (canCache && json && !json.error) {
+            let ttl = 30000;
+            for (const [prefix, customTtl] of Object.entries(this._cacheTtls)) {
+              if (url.startsWith(prefix)) {
+                ttl = customTtl;
+                break;
+              }
+            }
+            this._cache.set(url, { data: json, timestamp: Date.now(), ttl });
+            if (this._cache.size > 250) {
+              const keys = Array.from(this._cache.keys()).slice(0, 50);
+              for (const k of keys) this._cache.delete(k);
+            }
+          } else if (method !== 'GET') {
+            // Invalidate relevant cache on writes
+            this.clearCache();
+          }
+
+          return json;
+        } catch (parseErr) {
+          console.error(`Non-JSON response from ${url}:`, text);
+          return { error: `Server returned non-JSON response (${res.status})` };
+        }
+      } catch (netErr) {
+        if (netErr && netErr.name === 'AbortError') {
+          return { aborted: true };
+        }
+        console.error(`Network error on ${url}:`, netErr);
+        return { error: netErr.message };
+      } finally {
+        if (canDedupe) {
+          this._inflight.delete(url);
+        }
+      }
+    })();
+
+    if (canDedupe) {
+      this._inflight.set(url, execPromise);
+    }
+    return execPromise;
   },
 
   // Session Token Helper

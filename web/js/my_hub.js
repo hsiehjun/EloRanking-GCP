@@ -245,7 +245,7 @@ async function loadMyHubDashboard() {
     if (!alreadyMounted) {
       renderMyHub(cachedData);
     }
-  } else if (currentUser && !bootSplashActive) {
+  } else if (currentUser) {
     const shell = buildMyHubShellData(currentUser);
     shell.active_sessions = localInitial.active;
     shell.primary_active = localInitial.active[0] || null;
@@ -267,14 +267,15 @@ async function loadMyHubDashboard() {
   // 2. Parallel async hydration of dashboard analytics and live tracker sessions
   try {
     const token = window.api ? window.api.getAuthToken() : '';
-    const [dashRes, sessRes, regRes] = await Promise.allSettled([
+    const regPromise = (window.api && typeof window.api.getUserRegisteredTournaments === 'function')
+      ? window.api.getUserRegisteredTournaments(false).catch(() => null)
+      : Promise.resolve(null);
+
+    const [dashRes, sessRes] = await Promise.allSettled([
       window.api.getUserDashboard(currentUser.player_id),
       fetch(`/api/tracker/sessions?token=${encodeURIComponent(token)}&game_system=${encodeURIComponent(gs)}`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      }).then(r => r.ok ? r.json() : null).catch(() => null),
-      (window.api && typeof window.api.getUserRegisteredTournaments === 'function')
-        ? window.api.getUserRegisteredTournaments(false)
-        : Promise.resolve(null)
+      }).then(r => r.ok ? r.json() : null).catch(() => null)
     ]);
 
     if (dashRes.status !== 'fulfilled' || !dashRes.value || dashRes.value.error) {
@@ -371,8 +372,8 @@ async function loadMyHubDashboard() {
     data.completed_history = Array.from(compMap.values());
     data.tracker_history = data.completed_history;
 
-    if (regRes.status === 'fulfilled' && regRes.value && Array.isArray(regRes.value.tournaments)) {
-      data.registered_tournaments = regRes.value.tournaments.filter(isValidRegisteredTournament);
+    if (Array.isArray(data.registered_tournaments)) {
+      data.registered_tournaments = data.registered_tournaments.filter(isValidRegisteredTournament);
     }
 
     data._gameSystem = gs;
@@ -394,6 +395,41 @@ async function loadMyHubDashboard() {
     if (window.Armory && typeof window.Armory.checkAndTriggerSignInPokeEffect === 'function') {
       window.Armory.checkAndTriggerSignInPokeEffect(data);
     }
+
+    // Background-hydrate live BCP tournament registrations without blocking dashboard render
+    regPromise.then(regVal => {
+      if (mySeq !== _myHubLoadSeq || !regVal || !Array.isArray(regVal.tournaments)) return;
+      const freshRegs = regVal.tournaments.filter(isValidRegisteredTournament);
+      data.registered_tournaments = freshRegs;
+      myHubData = data;
+      try {
+        localStorage.setItem(cacheStorageKey, JSON.stringify(data));
+        if (gs === '40k') {
+          localStorage.setItem('my_hub_cache', JSON.stringify(data));
+        }
+      } catch (e) {}
+      const isBcpConn = Boolean(regVal.bcp_connected || (currentUser && (currentUser.bcp_connected || currentUser.bcp_user_id || currentUser.bcp_token || currentUser.bcp_email)));
+      const cardEl = document.getElementById('hub-registered-tournaments-card');
+      if (cardEl) {
+        const searchEl = document.getElementById('hub-registered-events-search');
+        const activeFilter = searchEl ? searchEl.value : '';
+        cardEl.outerHTML = renderRegisteredTournamentsCard(freshRegs, isBcpConn);
+        if (activeFilter) {
+          const newSearchEl = document.getElementById('hub-registered-events-search');
+          if (newSearchEl) newSearchEl.value = activeFilter;
+          filterHubRegisteredEvents(activeFilter);
+        }
+      }
+      const previewEl = document.getElementById('hub-overview-events-preview');
+      if (previewEl) {
+        previewEl.outerHTML = renderNextEventOverviewPreview(freshRegs, isBcpConn);
+      }
+      const activeSubtabCountEl = document.querySelector('#hub-subtabs-bar .profile-subtab-btn[data-tab="active"] .profile-subtab-count');
+      if (activeSubtabCountEl) {
+        const actLen = (data.active_sessions && data.active_sessions.length) || 0;
+        activeSubtabCountEl.textContent = String(actLen + freshRegs.length);
+      }
+    }).catch(() => {});
   } catch (err) {
     console.warn("Notice updating competitor hub from server:", err);
     if (!cachedData) {
@@ -1893,7 +1929,7 @@ function renderMyHub(data) {
                 <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📋 Army Lists & Rosters</h3>
               </div>
               <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-                <button id="hub-btn-launch-nr-studio" class="bcp-login-btn" onclick="openNewRecruitStudioDrawer('/nr/app/Lists')" style="font-size: 0.75rem; padding: 0.32rem 0.8rem; background: var(--accent); color: #0f172a; font-weight: 800; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
+                <button id="hub-btn-launch-nr-studio" class="bcp-login-btn" onpointerenter="ensureBackgroundNrStudioWarmup()" ontouchstart="ensureBackgroundNrStudioWarmup()" onclick="openNewRecruitStudioDrawer('/nr/app/Lists')" style="font-size: 0.75rem; padding: 0.32rem 0.8rem; background: var(--accent); color: #0f172a; font-weight: 800; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
                   ⚔️ NewRecruit Studio
                 </button>
               </div>
@@ -2011,12 +2047,12 @@ function renderMyHub(data) {
     window.Armory.applyEquippedDecorations(sys, myEq, container);
   }
 
-  // Render SVG Trajectory & Load Army Lists
+  // Render SVG Trajectory & Load Army Lists asynchronously (non-blocking)
   renderHubTrajectory(history);
   if (Array.isArray(hubSavedLists) && hubSavedLists.length > 0) {
     renderHubArmyLists(hubSavedLists);
   }
-  const armyListsPromise = loadHubArmyLists();
+  loadHubArmyLists();
 
   // If trophies subtab is active, render Trophy Room immediately
   if (currentHubSubtab === 'trophies' && window.BadgesUI) {
@@ -2032,7 +2068,7 @@ function renderMyHub(data) {
     window.BadgesUI.checkFirstTimeCelebration(data, celebrantId);
   }
 
-  return armyListsPromise;
+  return Promise.resolve();
 }
 
 function renderHubTrajectory(history) {
@@ -3215,7 +3251,6 @@ async function loadHubArmyLists() {
     }
     updateHubNrSyncPill();
     renderHubArmyLists(lists);
-    setTimeout(ensureBackgroundNrStudioWarmup, 250);
   } catch(e) {
     container.innerHTML = `<div style="color:var(--loss); font-size:0.85rem; padding:1.5rem; text-align:center;">Error loading army lists: ${e.message}</div>`;
   }
@@ -3226,6 +3261,7 @@ function ensureBackgroundNrStudioWarmup() {
   if (!document.getElementById('hub-armylists-list-container')) return;
   openNewRecruitStudioDrawer('/nr/app/Lists', '', true);
 }
+window.ensureBackgroundNrStudioWarmup = ensureBackgroundNrStudioWarmup;
 
 function updateHubNrSyncPill() {
   const cloudBtn = document.getElementById('hub-btn-nr-cloud-sync');
@@ -3487,7 +3523,7 @@ function renderHubArmyLists(lists) {
           ${otherSysCount > 0 ? `<div style="margin-top: 0.45rem; color: #38bdf8; font-weight: 600;">💡 You also have ${otherSysCount} saved ${otherSysName} ${otherSysCount === 1 ? 'roster' : 'rosters'}.</div>` : ''}
         </div>
         <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; flex-wrap: wrap;">
-          <button id="hub-empty-launch-nr-studio" class="bcp-login-btn" onclick="openNewRecruitStudioDrawer('/nr/app/Lists')" style="font-size: 0.82rem; padding: 0.45rem 1rem; background: var(--accent); color: #0f172a; font-weight: 800; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+          <button id="hub-empty-launch-nr-studio" class="bcp-login-btn" onpointerenter="ensureBackgroundNrStudioWarmup()" ontouchstart="ensureBackgroundNrStudioWarmup()" onclick="openNewRecruitStudioDrawer('/nr/app/Lists')" style="font-size: 0.82rem; padding: 0.45rem 1rem; background: var(--accent); color: #0f172a; font-weight: 800; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
             ${activeSys === 'aos' ? '⚡' : '⚔️'} Launch NewRecruit Studio (${activeSys === 'aos' ? 'AoS 4.0' : '11th Ed'})
           </button>
         </div>

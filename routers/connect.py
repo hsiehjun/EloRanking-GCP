@@ -172,6 +172,16 @@ def api_get_connect_requests(request: Request):
         "current_user_id": user["id"]
     }
 
+_UNREAD_COUNT_CACHE: Dict[str, Tuple[float, int]] = {}
+
+def _invalidate_unread_count(user_ids: Optional[List[Any]] = None) -> None:
+    if not user_ids:
+        _UNREAD_COUNT_CACHE.clear()
+        return
+    for uid in user_ids:
+        if uid:
+            _UNREAD_COUNT_CACHE.pop(str(uid), None)
+
 @router.post("/api/connect/request", summary="Create sparring match request")
 def api_create_connect_request(request: Request, payload: MatchRequestPayload):
     auth_mgr = get_auth_manager()
@@ -192,6 +202,8 @@ def api_create_connect_request(request: Request, payload: MatchRequestPayload):
     )
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error", "Failed to create match request"))
+
+    _invalidate_unread_count([user["id"], payload.receiver_id])
 
     # Real-time Firestore notification
     try:
@@ -219,6 +231,8 @@ def api_respond_connect_request(request_id: str, payload: MatchRespondPayload, r
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error", "Failed to update match request"))
 
+    _invalidate_unread_count([user["id"]])
+
     # Real-time Firestore push for both participants
     try:
         fs_engine = get_firestore_engine()
@@ -227,6 +241,7 @@ def api_respond_connect_request(request_id: str, payload: MatchRespondPayload, r
         sender_id = req_info.get("sender_id")
         receiver_id = req_info.get("receiver_id")
         participants = [p for p in [sender_id, receiver_id] if p]
+        _invalidate_unread_count(participants)
         status = res.get("status") or ("accepted" if payload.action == "accept" else ("cancelled" if payload.action in ("revoke", "cancel") else "declined"))
         fs_engine.update_chat_status(request_id, status, participants=participants)
         fs_engine.notify_user_requests_updated(participants, reason=f"request_{payload.action}")
@@ -267,6 +282,7 @@ def api_get_connect_messages(request_id: str, request: Request):
 
     # Only sync into Firestore if messages were newly marked read to prevent infinite onSnapshot ping-pong loops
     if res.get("marked_read_count", 0) > 0:
+        _invalidate_unread_count([user["id"]])
         try:
             fs_engine = get_firestore_engine()
             fs_engine.sync_chat_history(request_id, res.get("messages", []), res.get("request"))
@@ -308,6 +324,8 @@ def api_send_connect_message(request_id: str, payload: ChatMessagePayload, reque
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error", "Failed to send message"))
 
+    _invalidate_unread_count([user["id"]])
+
     # Real-time Firestore synchronization
     try:
         fs_engine = get_firestore_engine()
@@ -328,6 +346,7 @@ def api_send_connect_message(request_id: str, payload: ChatMessagePayload, reque
         receiver_id = req_info.get("receiver_id")
         other_id = receiver_id if sender_id == user["id"] else sender_id
         if other_id:
+            _invalidate_unread_count([other_id])
             fs_engine.notify_user_requests_updated([other_id], reason="new_message")
 
         # Ensure live multiplayer tracker room exists if a room_key was posted
@@ -364,6 +383,13 @@ def api_get_connect_unread_count(request: Request):
     if not user:
         return {"unread_count": 0}
 
+    uid_str = str(user["id"])
+    now_ts = time.time()
+    cached = _UNREAD_COUNT_CACHE.get(uid_str)
+    if cached and (now_ts - cached[0]) < 10.0:
+        return {"unread_count": cached[1]}
+
     db = get_database()
     count = db.get_connect_unread_count(user["id"])
+    _UNREAD_COUNT_CACHE[uid_str] = (now_ts, int(count or 0))
     return {"unread_count": count}

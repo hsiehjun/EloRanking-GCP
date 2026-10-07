@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=74285356b2">
+  <link rel="manifest" href="/manifest.json?v=94c7213207">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "74285356b2";</script>
+  <script>window.APP_VERSION = "94c7213207";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -473,17 +473,28 @@
       }
       .sc-table {
         table-layout: fixed !important;
-        font-size: 0.72rem !important;
+        font-size: 0.7rem !important;
       }
       .sc-table th, .sc-table td {
-        padding: 0.35rem 0.2rem !important;
+        padding: 0.32rem 0.12rem !important;
       }
       .sc-table th:first-child, .sc-table td:first-child {
-        width: 36% !important;
+        width: 43% !important;
         padding-left: 0.35rem !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
+      }
+      .sc-table th:nth-child(n+2):nth-child(-n+6),
+      .sc-table td:nth-child(n+2):nth-child(-n+6) {
+        width: 8.2% !important;
+      }
+      .sc-table th:last-child, .sc-table td:last-child {
+        width: 16% !important;
+        white-space: nowrap !important;
+      }
+      .sc-table .btn-toggle-sec {
+        display: none !important;
       }
       .sc-section {
         padding: 0.55rem 0.6rem !important;
@@ -1392,7 +1403,7 @@
           <tr>
             <td style="color:#38bdf8; font-weight:700;">🟦 ${p1Name} Primaries</td>
             ${p1PriCells}
-            <td style="font-family:monospace; font-weight:800; color:#fff;">${p1PriTot} / ${edMeta.priCap}</td>
+            <td style="font-family:monospace; font-weight:800; color:#fff; white-space:nowrap;">${p1PriTot}/${edMeta.priCap}</td>
           </tr>
         `;
 
@@ -1405,13 +1416,13 @@
           p1TacCells += `<td style="font-family:monospace; font-weight:700; color:${col};">${val}</td>`;
         }
         tbody.innerHTML += `
-          <tr>
+          <tr onclick="togglePlayerSecondaries('p1-sec-sub')" style="cursor:pointer;">
             <td style="color:#7dd3fc; font-weight:700;">
               🟦 ${p1Name} Battle Tactics
-              <button class="btn-toggle-sec" onclick="togglePlayerSecondaries('p1-sec-sub')">▼ Details</button>
+              <button class="btn-toggle-sec" onclick="event.stopPropagation(); togglePlayerSecondaries('p1-sec-sub')">▼ Details</button>
             </td>
             ${p1TacCells}
-            <td style="font-family:monospace; font-weight:800; color:#fff;">${p1SecTot} / ${edMeta.secCap}</td>
+            <td style="font-family:monospace; font-weight:800; color:#fff; white-space:nowrap;">${p1SecTot}/${edMeta.secCap}</td>
           </tr>
         `;
         p1Rounds.forEach(r => {
@@ -1436,7 +1447,7 @@
           <tr>
             <td style="color:#f43f5e; font-weight:700;">🟥 ${p2Name} Primaries</td>
             ${p2PriCells}
-            <td style="font-family:monospace; font-weight:800; color:#fff;">${p2PriTot} / ${edMeta.priCap}</td>
+            <td style="font-family:monospace; font-weight:800; color:#fff; white-space:nowrap;">${p2PriTot}/${edMeta.priCap}</td>
           </tr>
         `;
 
@@ -1449,13 +1460,13 @@
           p2TacCells += `<td style="font-family:monospace; font-weight:700; color:${col};">${val}</td>`;
         }
         tbody.innerHTML += `
-          <tr>
+          <tr onclick="togglePlayerSecondaries('p2-sec-sub')" style="cursor:pointer;">
             <td style="color:#fda4af; font-weight:700;">
               🟥 ${p2Name} Battle Tactics
-              <button class="btn-toggle-sec" onclick="togglePlayerSecondaries('p2-sec-sub')">▼ Details</button>
+              <button class="btn-toggle-sec" onclick="event.stopPropagation(); togglePlayerSecondaries('p2-sec-sub')">▼ Details</button>
             </td>
             ${p2TacCells}
-            <td style="font-family:monospace; font-weight:800; color:#fff;">${p2SecTot} / ${edMeta.secCap}</td>
+            <td style="font-family:monospace; font-weight:800; color:#fff; white-space:nowrap;">${p2SecTot}/${edMeta.secCap}</td>
           </tr>
         `;
         p2Rounds.forEach(r => {
@@ -1502,7 +1513,7 @@
             <tr>
               <td style="color:${color}; font-weight:700;">${title}</td>
               ${cells}
-              <td style="font-family:monospace; font-weight:800; color:#fff;">${overrideTotal} / ${maxVal}</td>
+              <td style="font-family:monospace; font-weight:800; color:#fff; white-space:nowrap;">${overrideTotal}/${maxVal}</td>
             </tr>
           `;
         }
@@ -1517,13 +1528,13 @@
             cells += `<td style="font-family:monospace; font-weight:600; color:${cellColor};">${cellVal}</td>`;
           }
           return `
-            <tr>
+            <tr onclick="togglePlayerSecondaries('${subClass}')" style="cursor:pointer;">
               <td style="color:${color}; font-weight:700;">
                 ${title}
-                <button class="btn-toggle-sec" onclick="togglePlayerSecondaries('${subClass}')">▼ Details</button>
+                <button class="btn-toggle-sec" onclick="event.stopPropagation(); togglePlayerSecondaries('${subClass}')">▼ Details</button>
               </td>
               ${cells}
-              <td style="font-family:monospace; font-weight:800; color:#fff;">${overrideTotal} / ${maxVal}</td>
+              <td style="font-family:monospace; font-weight:800; color:#fff; white-space:nowrap;">${overrideTotal}/${maxVal}</td>
             </tr>
           `;
         }

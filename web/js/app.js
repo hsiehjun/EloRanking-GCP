@@ -293,6 +293,8 @@ function switchTab(tabName) {
   } else if (tabName === 'predictor' || tabName === 'match-predictor') {
     tabName = 'meta-intel';
     metaSubtab = 'predictor';
+  } else if (tabName === 'players' || tabName === 'rankings') {
+    tabName = 'leaderboard';
   }
   if (tabName === 'eventstudio') tabName = 'event-studio';
   if (tabName === 'myhub') tabName = 'my-hub';
@@ -1003,8 +1005,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (typeof initGameSystem === 'function') {
     initGameSystem();
   }
-  if (typeof initAuth === 'function') {
-    await initAuth();
+  const authPromise = (typeof initAuth === 'function') ? initAuth() : Promise.resolve();
+  if (!currentUser) {
+    await authPromise;
   }
   if (window.__omniUpdatingReloadInProgress) {
     return;

@@ -1828,10 +1828,11 @@
       window.location.search.includes('game_system=aos') ||
       window.location.search.includes('system=aos');
 
-    // 1. Authoritative Completed Matches from PostgreSQL
-    const completedHistory = (window.gtCompletedHistory && window.gtCompletedHistory.length > 0)
-      ? window.gtCompletedHistory
-      : list.filter(it => it.isFinished || it.is_finished);
+    // 1. Authoritative Completed Matches from PostgreSQL (prefer normalized dbHistoryCache items when available)
+    const normalizedFinished = list.filter(it => it && (it.isFinished || it.is_finished));
+    const completedHistory = normalizedFinished.length > 0
+      ? normalizedFinished
+      : ((window.gtCompletedHistory && window.gtCompletedHistory.length > 0) ? window.gtCompletedHistory : []);
 
     const completedIds = new Set(completedHistory.map(c => (c.match_id || c.id || '').trim().toUpperCase()));
 
@@ -1963,6 +1964,23 @@
 
     // 2. Completed Match History (All in Grey Cards with Edition Filter Bar)
     if (scopedCompleted.length > 0) {
+      const normalizeTrackerEditionCode = (item) => {
+        let rawEd = item.edition || item.edition_label || item.game?.edition || '';
+        if (!rawEd && item.state_json) {
+          try {
+            const st = typeof item.state_json === 'string' ? JSON.parse(item.state_json) : item.state_json;
+            rawEd = st?.edition || st?.edition_label || st?.game?.edition || '';
+          } catch (e) {}
+        }
+        const s = String(rawEd || (isAosMode ? 'aos_4e' : '10th')).toLowerCase().trim();
+        if (s.includes('8th') || s.includes('itc')) return '8th_itc';
+        if (s.includes('9th') || s === '9e') return '9th';
+        if (s.includes('11th') || s === '11e') return '11th';
+        if (s.includes('10th') || s === '10e') return '10th';
+        if (s.includes('aos') && (s.includes('3') || s.includes('3e'))) return 'aos_3e';
+        if (s.includes('aos') || s.includes('4e')) return 'aos_4e';
+        return s;
+      };
       window.__gtSetEditionFilter = function(edKey) {
         window.__gtHistoryEditionFilter = edKey || 'all';
         renderHistoryList(dbHistoryCache);
@@ -1970,7 +1988,7 @@
       const activeEdFilter = window.__gtHistoryEditionFilter || 'all';
       const edCounts = { all: scopedCompleted.length };
       scopedCompleted.forEach(item => {
-        const ec = String(item.edition || (isAosMode ? 'aos_4e' : '10th')).toLowerCase();
+        const ec = normalizeTrackerEditionCode(item);
         edCounts[ec] = (edCounts[ec] || 0) + 1;
       });
       const edDefs = isAosMode
@@ -1988,7 +2006,7 @@
           ];
       const filteredCompleted = activeEdFilter === 'all'
         ? scopedCompleted
-        : scopedCompleted.filter(item => String(item.edition || (isAosMode ? 'aos_4e' : '10th')).toLowerCase() === activeEdFilter);
+        : scopedCompleted.filter(item => normalizeTrackerEditionCode(item) === activeEdFilter);
 
       const filterPillsHtml = edDefs
         .filter(d => d.code === 'all' || (edCounts[d.code] || 0) > 0 || d.code === activeEdFilter)
@@ -2034,7 +2052,7 @@
                 } catch (e) { dateStr = String(rawDate); }
               }
               const factionSubtitle = (p1F || p2F) ? `<div class="gt-history-factions">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
-              const edCode = String(item.edition || (isAosMode ? 'aos_4e' : '10th')).toLowerCase();
+              const edCode = normalizeTrackerEditionCode(item);
               const edShort = edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : '')))));
               const edStyleMap = {
                 '11th': 'background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);',

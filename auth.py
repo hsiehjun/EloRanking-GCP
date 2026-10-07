@@ -1322,6 +1322,7 @@ class AuthManager:
                 """, (session_token, user_id, clean_device_id, user_agent, ip_address))
             conn.commit()
 
+        self.clear_user_hub_cache(user_id=user_id)
         updated_user = self.get_user_by_id(user_id)
         logger.info(f"✅ Password successfully reset for user {row.get('email')} ({user_id})")
 
@@ -1353,11 +1354,33 @@ class AuthManager:
             conn.commit()
         return session_token
 
+    _SESSION_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+    _USER_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+    def _invalidate_session_user_cache(self, user_id: Optional[str] = None, session_token: Optional[str] = None) -> None:
+        if not user_id and not session_token:
+            self._SESSION_CACHE.clear()
+            self._USER_CACHE.clear()
+            return
+        if session_token:
+            self._SESSION_CACHE.pop(session_token, None)
+        if user_id:
+            uid_str = str(user_id)
+            self._USER_CACHE.pop(uid_str, None)
+            for tok, (_, sess_data) in list(self._SESSION_CACHE.items()):
+                if str(sess_data.get("id") or "") == uid_str:
+                    self._SESSION_CACHE.pop(tok, None)
+
     def get_session(self, session_token: str, raise_on_db_error: bool = False) -> Optional[Dict[str, Any]]:
         """Retrieves user profile and BCP link status for active session token."""
         if not session_token:
             return None
         import time
+        now_ts = time.time()
+        cached = self._SESSION_CACHE.get(session_token)
+        if cached and (now_ts - cached[0]) < 15.0:
+            return dict(cached[1])
+
         from psycopg2 import extras
         import psycopg2.errors
 
@@ -1425,6 +1448,7 @@ class AuthManager:
                             except Exception:
                                 pass
 
+                            self._SESSION_CACHE[session_token] = (time.time(), dict(data))
                             return data
                 return None
             except (psycopg2.errors.DeadlockDetected, psycopg2.OperationalError) as exc:
@@ -1445,6 +1469,13 @@ class AuthManager:
         """Fetches user dict by user ID with resilient fallback and automatic schema self-healing."""
         if not user_id:
             return None
+        import time
+        uid_str = str(user_id)
+        now_ts = time.time()
+        cached_u = self._USER_CACHE.get(uid_str)
+        if cached_u and (now_ts - cached_u[0]) < 15.0:
+            return dict(cached_u[1])
+
         from psycopg2 import extras
         import json
 
@@ -1556,6 +1587,7 @@ class AuthManager:
             data["total_glory"] = int(data.get("total_glory") or 0)
             data["glory_balance"] = int(data.get("glory_balance") or 0)
 
+            self._USER_CACHE[uid_str] = (time.time(), dict(data))
             return data
         return None
 
@@ -1568,7 +1600,9 @@ class AuthManager:
                 WHERE LOWER(email) = LOWER(%s) OR id = %s;
                 """, (role.lower(), email_or_id, email_or_id))
                 conn.commit()
-                return cur.rowcount > 0
+                changed = cur.rowcount > 0
+        self._invalidate_session_user_cache()
+        return changed
 
     def update_settings(self, user_id: str, display_name: Optional[str] = None, old_password: Optional[str] = None, new_password: Optional[str] = None, pinned_badges: Optional[List[str]] = None, badges_celebrated: Optional[bool] = None, acknowledged_badge_ids: Optional[List[str]] = None) -> Dict[str, Any]:
         """Updates user display name, password, pinned badges, or acknowledged badges."""
@@ -1672,6 +1706,7 @@ class AuthManager:
         """Terminates active session."""
         if not session_token:
             return True
+        self._invalidate_session_user_cache(session_token=session_token)
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM user_sessions WHERE session_token = %s;", (session_token,))
@@ -1683,6 +1718,7 @@ class AuthManager:
         If keep_current_token is provided, only other device sessions are revoked."""
         if not user_id:
             return 0
+        self._invalidate_session_user_cache(user_id=user_id)
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 if keep_current_token:
@@ -1701,6 +1737,7 @@ class AuthManager:
         """Revokes a specific session for a user."""
         if not user_id or not target_token:
             return False
+        self._invalidate_session_user_cache(user_id=user_id, session_token=target_token)
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -2430,6 +2467,7 @@ class AuthManager:
 
     def clear_user_hub_cache(self, user_id: Optional[str] = None, player_id: Optional[str] = None) -> None:
         """Invalidates short-TTL Competitor Hub and Glory caches for a specific user/player or globally."""
+        self._invalidate_session_user_cache(user_id=user_id)
         if not user_id and not player_id:
             self._HUB_CACHE.clear()
             self._SYSTEM_GLORY_CACHE.clear()

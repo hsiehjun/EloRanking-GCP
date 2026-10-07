@@ -16417,12 +16417,34 @@ table.desktop-only,
    SCORECARD MODAL — COMPACT HEADER & HORIZONTAL TURN-BY-TURN TABLE ON MOBILE
    ========================================================================== */
 @media (max-width: 768px) {
+  #scorecard-modal .modal-window,
   #scorecard-modal .modal-content {
     width: 97vw !important;
     max-width: 97vw !important;
     margin: 0.35rem auto !important;
     max-height: 95vh !important;
     border-radius: 12px !important;
+  }
+
+  #scorecard-modal .scorecard-modal-body {
+    padding: 0.55rem 0.55rem 0.7rem !important;
+  }
+
+  #scorecard-modal .scorecard-versus-strip {
+    padding: 0.45rem 0.55rem !important;
+    gap: 0.35rem !important;
+    margin-bottom: 0.55rem !important;
+  }
+
+  #scorecard-modal .scorecard-sub-pill {
+    font-size: 0.58rem !important;
+    padding: 0.1rem 0.3rem !important;
+    white-space: normal !important;
+    line-height: 1.25 !important;
+  }
+
+  #scorecard-modal .btn-modal-toggle-sec {
+    display: none !important;
   }
 
   #modal-scorecard-matrix-table {
@@ -16451,21 +16473,40 @@ table.desktop-only,
   #modal-scorecard-matrix-table th,
   #modal-scorecard-matrix-table td {
     display: table-cell !important;
-    width: auto !important;
-    padding: 0.32rem 0.2rem !important;
-    font-size: 0.72rem !important;
+    padding: 0.3rem 0.12rem !important;
+    font-size: 0.7rem !important;
     line-height: 1.2 !important;
     vertical-align: middle !important;
   }
 
   #modal-scorecard-matrix-table th:first-child,
   #modal-scorecard-matrix-table td:first-child {
-    width: 36% !important;
-    padding-left: 0.45rem !important;
+    width: 43% !important;
+    padding-left: 0.38rem !important;
     text-align: left !important;
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
+  }
+
+  #modal-scorecard-matrix-table th:nth-child(n+2):nth-child(-n+6),
+  #modal-scorecard-matrix-table td:nth-child(n+2):nth-child(-n+6) {
+    width: 8.2% !important;
+    text-align: center !important;
+  }
+
+  #modal-scorecard-matrix-table th:last-child,
+  #modal-scorecard-matrix-table td:last-child {
+    width: 16% !important;
+    padding-right: 0.3rem !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+  }
+
+  #modal-scorecard-matrix-table td[colspan] {
+    white-space: normal !important;
+    font-size: 0.66rem !important;
+    line-height: 1.25 !important;
   }
 
   #modal-scorecard-matrix-table td::before,
@@ -16474,4 +16515,5 @@ table.desktop-only,
     content: none !important;
   }
 }
+
 

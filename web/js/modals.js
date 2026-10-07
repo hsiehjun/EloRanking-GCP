@@ -1942,7 +1942,7 @@ async function openScorecardModal(matchId) {
           <tr>
             <td style="color:${color}; font-weight:700; text-align:left;">${title}</td>
             ${cells}
-            <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center;">${cappedTotal} / ${capVal}</td>
+            <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center; white-space:nowrap;">${cappedTotal}/${capVal}</td>
           </tr>
         `;
       }
@@ -1976,13 +1976,13 @@ async function openScorecardModal(matchId) {
           }
           const cappedTotal = Math.min(capVal, total);
           const toggleBtn = hasSub
-            ? ` <button type="button" onclick="toggleModalPlayerSecondaries('${subClass}')" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:#94a3b8; font-size:0.65rem; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:6px;">▼ Details</button>`
+            ? ` <button type="button" class="btn-modal-toggle-sec" onclick="event.stopPropagation(); toggleModalPlayerSecondaries('${subClass}')" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:#94a3b8; font-size:0.65rem; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:6px;">▼ Details</button>`
             : '';
           let html = `
-            <tr>
+            <tr ${hasSub ? `onclick="toggleModalPlayerSecondaries('${subClass}')" style="cursor:pointer;"` : ''}>
               <td style="color:${subColor}; font-weight:700; text-align:left;">${pLabel} Battle Tactics${toggleBtn}</td>
               ${cells}
-              <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center;">${cappedTotal} / ${capVal}</td>
+              <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center; white-space:nowrap;">${cappedTotal}/${capVal}</td>
             </tr>
           `;
           roundsArr.forEach(r => {
@@ -2068,13 +2068,13 @@ async function openScorecardModal(matchId) {
           }
           const cappedTotal = Math.min(capVal, total);
           const toggleBtn = subRowsHtml
-            ? ` <button type="button" onclick="toggleModalPlayerSecondaries('${subClass}')" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:#94a3b8; font-size:0.65rem; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:6px;">▼ Details</button>`
+            ? ` <button type="button" class="btn-modal-toggle-sec" onclick="event.stopPropagation(); toggleModalPlayerSecondaries('${subClass}')" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:#94a3b8; font-size:0.65rem; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:6px;">▼ Details</button>`
             : '';
           return `
-            <tr>
+            <tr ${subRowsHtml ? `onclick="toggleModalPlayerSecondaries('${subClass}')" style="cursor:pointer;"` : ''}>
               <td style="color:${rowColor}; font-weight:700; text-align:left;">${title}${toggleBtn}</td>
               ${cells}
-              <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center;">${cappedTotal} / ${capVal}</td>
+              <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center; white-space:nowrap;">${cappedTotal}/${capVal}</td>
             </tr>
             ${subRowsHtml}
           `;
