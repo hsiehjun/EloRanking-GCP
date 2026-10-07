@@ -556,10 +556,9 @@ def serve_index(request: Request, token: Optional[str] = Query(None)):
         )
     raise HTTPException(status_code=404, detail="index.html not found")
 
-@app.get("/api/version", include_in_schema=False)
-@app.get("/version.json", include_in_schema=False)
-def api_version():
+def _sync_app_version_files() -> tuple[str, Optional[str]]:
     v_file = web_dir / "version.json"
+    app_file = web_dir / "app.html"
     version_str = "1.0.0"
     updated_at = None
     if v_file.exists():
@@ -569,6 +568,27 @@ def api_version():
             updated_at = v_data.get("updated_at")
         except Exception:
             pass
+    if app_file.exists() and version_str and version_str != "1.0.0":
+        try:
+            app_html = app_file.read_text(encoding="utf-8")
+            m = re.search(r'window\.APP_VERSION\s*=\s*["\']([^"\']+)["\']', app_html)
+            if m and m.group(1).strip() != version_str:
+                patched = re.sub(
+                    r'window\.APP_VERSION\s*=\s*["\'][^"\']*["\']',
+                    f'window.APP_VERSION = "{version_str}"',
+                    app_html,
+                )
+                app_file.write_text(patched, encoding="utf-8")
+        except Exception:
+            pass
+    return version_str, updated_at
+
+_sync_app_version_files()
+
+@app.get("/api/version", include_in_schema=False)
+@app.get("/version.json", include_in_schema=False)
+def api_version():
+    version_str, updated_at = _sync_app_version_files()
     return JSONResponse(
         content={
             "version": version_str,

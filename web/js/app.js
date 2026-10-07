@@ -816,12 +816,14 @@ function showIosPwaBanner() {
 // ==========================================
 // PWA & BROWSER LIVE UPDATE DETECTION
 // ==========================================
-let _pwaUpdateBannerActive = false;
 let _pwaLastVersionCheckTime = 0;
 
 async function checkAppVersionForUpdates(force = false) {
+  if (typeof window.verifyLiveServerVersion === 'function') {
+    window.verifyLiveServerVersion(force);
+    return;
+  }
   const now = Date.now();
-  // Throttle checks to at most once every 15 seconds unless forced
   if (!force && (now - _pwaLastVersionCheckTime < 15000)) {
     return;
   }
@@ -851,10 +853,7 @@ async function checkAppVersionForUpdates(force = false) {
           alreadyReloaded = sessionStorage.getItem('omnitactica_reloaded_ver');
         } catch (e) {}
         if (alreadyReloaded !== serverVersion) {
-          console.log(`[PWA Update] Client version (${currentVersion}) differs from server (${serverVersion}). Auto-refreshing to latest release.`);
           await applyAppUpdateNow(serverVersion);
-        } else {
-          showAppUpdateBanner(serverVersion);
         }
       }
     }
@@ -863,63 +862,15 @@ async function checkAppVersionForUpdates(force = false) {
   }
 }
 
-function showAppUpdateBanner(newVersion) {
-  if (document.getElementById('pwa-update-banner') || _pwaUpdateBannerActive) return;
-  const dismissedUntil = localStorage.getItem('pwa_update_dismissed_until');
-  if (dismissedUntil && Date.now() < Number(dismissedUntil)) {
-    return;
-  }
-
-  _pwaUpdateBannerActive = true;
-  const banner = document.createElement('div');
-  banner.id = 'pwa-update-banner';
-  banner.className = 'pwa-update-banner';
-  banner.setAttribute('role', 'alert');
-  banner.setAttribute('aria-live', 'assertive');
-
-  banner.innerHTML = `
-    <div class="pwa-update-content">
-      <span class="pwa-update-icon">🚀</span>
-      <div class="pwa-update-text">
-        <span class="pwa-update-title">Update Available</span>
-        <span class="pwa-update-subtitle">New release ready to load</span>
-      </div>
-    </div>
-    <div class="pwa-update-actions">
-      <button type="button" class="pwa-update-btn" id="btn-pwa-apply-update">Reload</button>
-      <button type="button" class="pwa-update-close" id="btn-pwa-dismiss-update" aria-label="Dismiss">✕</button>
-    </div>
-  `;
-
-  document.body.appendChild(banner);
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      banner.classList.add('visible');
-    });
-  });
-
-  const applyBtn = document.getElementById('btn-pwa-apply-update');
-  if (applyBtn) {
-    applyBtn.onclick = () => applyAppUpdateNow(newVersion);
-  }
-
-  const dismissBtn = document.getElementById('btn-pwa-dismiss-update');
-  if (dismissBtn) {
-    dismissBtn.onclick = () => dismissAppUpdateBanner();
-  }
+function showAppUpdateBanner() {
+  // No-op: App auto-updates automatically via verifyLiveServerVersion / applyAppUpdateNow
 }
 
 function dismissAppUpdateBanner() {
   const banner = document.getElementById('pwa-update-banner');
   if (banner) {
-    banner.classList.remove('visible');
-    setTimeout(() => {
-      banner.remove();
-      _pwaUpdateBannerActive = false;
-    }, 350);
+    banner.remove();
   }
-  // Snooze for 15 minutes
-  localStorage.setItem('pwa_update_dismissed_until', String(Date.now() + 15 * 60 * 1000));
 }
 
 async function applyAppUpdateNow(targetVersion = null) {
