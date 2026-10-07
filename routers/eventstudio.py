@@ -589,176 +589,161 @@ _EVENTSTUDIO_LIST_TTL_SEC = 45.0
 
 @router.get("/api/eventstudio/events", summary="List organizer tournaments")
 async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str] = Query(None), force_refresh: bool = Query(False)):
-    user = _get_to_session_or_403(request)
-    db = get_database()
-    auth_mgr = get_auth_manager()
-    user_id = user["id"]
-    bcp_user_id = user.get("bcp_user_id")
-    player_id = user.get("player_id")
-    effective_bcp_token = bcp_token or request.headers.get("X-BCP-Token") or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
+    def _sync_list():
+        user = _get_to_session_or_403(request)
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        user_id = user["id"]
+        bcp_user_id = user.get("bcp_user_id")
+        player_id = user.get("player_id")
+        effective_bcp_token = bcp_token or request.headers.get("X-BCP-Token") or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
 
-    if not user_id and not bcp_user_id and not player_id:
-        return {"success": True, "count": 0, "events": []}
+        if not user_id and not bcp_user_id and not player_id:
+            return {"success": True, "count": 0, "events": []}
 
-    is_mock_env = hasattr(db, "assert_called") or hasattr(auth_mgr, "assert_called")
-    cache_key = f"{user_id}:{bcp_user_id}:{player_id}:{bool(effective_bcp_token)}"
-    now_ts = time.time()
-    if not force_refresh and not is_mock_env and cache_key in _EVENTSTUDIO_LIST_CACHE:
-        cached_ts, cached_events = _EVENTSTUDIO_LIST_CACHE[cache_key]
-        if now_ts - cached_ts < _EVENTSTUDIO_LIST_TTL_SEC:
-            return {
-                "success": True,
-                "count": len(cached_events),
-                "events": cached_events,
-            }
+        is_mock_env = hasattr(db, "assert_called") or hasattr(auth_mgr, "assert_called")
+        cache_key = f"{user_id}:{bcp_user_id}:{player_id}:{bool(effective_bcp_token)}"
+        now_ts = time.time()
+        if not force_refresh and not is_mock_env and cache_key in _EVENTSTUDIO_LIST_CACHE:
+            cached_ts, cached_events = _EVENTSTUDIO_LIST_CACHE[cache_key]
+            if now_ts - cached_ts < _EVENTSTUDIO_LIST_TTL_SEC:
+                return {
+                    "success": True,
+                    "count": len(cached_events),
+                    "events": cached_events,
+                }
 
-    bcp_events = []
-    seen_ids = set()
+        bcp_events = []
+        seen_ids = set()
 
-    # Query BCP directly for tournaments hosted by this organizer (zero DB mutations)
-    if user_id or effective_bcp_token:
-        try:
-            start_range = "2025-09-01T07:00:00.000Z"
-            end_range = "2027-09-02T06:59:59.999Z"
-            sync_url = f"https://newprod-api.bestcoastpairings.com/v2/events?limit=50&eventSearchType=organizer&sortKey=eventDate&sortAscending=false&startDate={start_range}&endDate={end_range}"
-            bcp_raw, err = execute_bcp_api_call(sync_url, method="GET", user_id=user_id, explicit_token=effective_bcp_token)
+        # Query BCP directly for tournaments hosted by this organizer (zero DB mutations)
+        if user_id or effective_bcp_token:
+            try:
+                start_range = "2025-09-01T07:00:00.000Z"
+                end_range = "2027-09-02T06:59:59.999Z"
+                sync_url = f"https://newprod-api.bestcoastpairings.com/v2/events?limit=50&eventSearchType=organizer&sortKey=eventDate&sortAscending=false&startDate={start_range}&endDate={end_range}"
+                bcp_raw, err = execute_bcp_api_call(sync_url, method="GET", user_id=user_id, explicit_token=effective_bcp_token)
 
-            if not bcp_raw:
-                sync_url_v1 = f"{BCP_API_BASE}/events?limit=100&toEvents=true"
-                bcp_raw, err = execute_bcp_api_call(sync_url_v1, method="GET", user_id=user_id, explicit_token=effective_bcp_token)
+                if not bcp_raw:
+                    sync_url_v1 = f"{BCP_API_BASE}/events?limit=100&toEvents=true"
+                    bcp_raw, err = execute_bcp_api_call(sync_url_v1, method="GET", user_id=user_id, explicit_token=effective_bcp_token)
 
-            if bcp_raw:
-                items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
-                for item in (items if isinstance(items, list) else []):
-                    if not isinstance(item, dict): continue
-                    bcp_id = str(item.get("id") or item.get("_id") or "")
-                    if not bcp_id or bcp_id in seen_ids:
-                        continue
-                    seen_ids.add(bcp_id)
-                    loc = item.get("location") if isinstance(item.get("location"), dict) else {}
-                    capacity = int(item.get("numTickets") or item.get("capacity") or 32)
-                    reg_players = int(item.get("totalPlayers") if item.get("totalPlayers") is not None else (item.get("numPlayers") or item.get("checkedInPlayers") or 0))
-                    bcp_events.append({
-                        "id": bcp_id,
-                        "name": item.get("name", "BCP Tournament"),
-                        "tier": item.get("eventType") or item.get("tier") or "Grand Tournament",
-                        "event_date": item.get("eventDate") or item.get("startDate") or item.get("eventStartDate"),
-                        "end_date": item.get("endDate") or item.get("eventEndDate"),
-                        "city": item.get("city") or loc.get("city"),
-                        "state": item.get("state") or loc.get("state"),
-                        "country": item.get("country") or loc.get("country"),
-                        "venue": item.get("venueName") or loc.get("venueName") or loc.get("name") or loc.get("venue"),
-                        "num_rounds": int(item.get("numberOfRounds") or item.get("numRounds") or 5),
-                        "points": int(item.get("points") or 2000),
-                        "capacity": capacity,
-                        "num_tickets": capacity,
-                        "total_players": reg_players,
-                        "organizer_id": user_id,
-                        "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id,
-                        "bcp_synced": True,
-                        "bcp_status": "synced"
-                    })
-        except Exception as se:
-            logger.info(f"Notice querying BCP organizer events: {se}")
+                if bcp_raw:
+                    items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
+                    for item in (items if isinstance(items, list) else []):
+                        if not isinstance(item, dict): continue
+                        bcp_id = str(item.get("id") or item.get("_id") or "")
+                        if not bcp_id or bcp_id in seen_ids:
+                            continue
+                        seen_ids.add(bcp_id)
+                        loc = item.get("location") if isinstance(item.get("location"), dict) else {}
+                        capacity = int(item.get("numTickets") or item.get("capacity") or 32)
+                        reg_players = int(item.get("totalPlayers") if item.get("totalPlayers") is not None else (item.get("numPlayers") or item.get("checkedInPlayers") or 0))
+                        bcp_events.append({
+                            "id": bcp_id,
+                            "name": item.get("name", "BCP Tournament"),
+                            "tier": item.get("eventType") or item.get("tier") or "Grand Tournament",
+                            "event_date": item.get("eventDate") or item.get("startDate") or item.get("eventStartDate"),
+                            "end_date": item.get("endDate") or item.get("eventEndDate"),
+                            "city": item.get("city") or loc.get("city"),
+                            "state": item.get("state") or loc.get("state"),
+                            "country": item.get("country") or loc.get("country"),
+                            "venue": item.get("venueName") or loc.get("venueName") or loc.get("name") or loc.get("venue"),
+                            "num_rounds": int(item.get("numberOfRounds") or item.get("numRounds") or 5),
+                            "points": int(item.get("points") or 2000),
+                            "capacity": capacity,
+                            "num_tickets": capacity,
+                            "total_players": reg_players,
+                            "organizer_id": user_id,
+                            "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id,
+                            "bcp_synced": True,
+                            "bcp_status": "synced"
+                        })
+            except Exception as se:
+                logger.info(f"Notice querying BCP organizer events: {se}")
 
-    # Also include local ES- events (if any exist) or fallback to DB if BCP query didn't return events
-    local_events = [
-        ev for ev in db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
-        if str(ev.get("id", "")).startswith("ES-") and str(ev.get("id", "")) not in seen_ids
-    ]
-    all_events = bcp_events + local_events
+        # Also include local ES- events (if any exist) or fallback to DB if BCP query didn't return events
+        local_events = [
+            ev for ev in db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
+            if str(ev.get("id", "")).startswith("ES-") and str(ev.get("id", "")) not in seen_ids
+        ]
+        all_events = bcp_events + local_events
 
-    if not all_events:
-        all_events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
-        if all_events:
-            from scraper import BestCoastPairingsScraper
-            scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
-            for ev in all_events:
-                eid = str(ev.get("id") or "")
-                if eid and not eid.startswith("ES-"):
-                    try:
-                        bcp_det = scraper.fetch_event_details(eid)
-                        if isinstance(bcp_det, dict):
-                            if bcp_det.get("totalPlayers") is not None:
-                                ev["total_players"] = int(bcp_det["totalPlayers"])
-                            if bcp_det.get("numTickets") or bcp_det.get("capacity"):
-                                ev["capacity"] = int(bcp_det.get("numTickets") or bcp_det.get("capacity"))
-                            if bcp_det.get("numberOfRounds") or bcp_det.get("numRounds"):
-                                ev["num_rounds"] = int(bcp_det.get("numberOfRounds") or bcp_det.get("numRounds"))
-                            if bcp_det.get("eventDate") or bcp_det.get("startDate"):
-                                ev["event_date"] = bcp_det.get("eventDate") or bcp_det.get("startDate")
-                    except Exception:
-                        pass
+        if not all_events:
+            all_events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
 
-    if not is_mock_env:
-        _EVENTSTUDIO_LIST_CACHE[cache_key] = (now_ts, all_events)
+        if not is_mock_env:
+            _EVENTSTUDIO_LIST_CACHE[cache_key] = (now_ts, all_events)
 
-    return {
-        "success": True,
-        "count": len(all_events),
-        "events": all_events
-    }
+        return {
+            "success": True,
+            "count": len(all_events),
+            "events": all_events
+        }
+    return await asyncio.to_thread(_sync_list)
 
 @router.get("/api/eventstudio/event/{event_id}", summary="Get tournament details, roster, and round pairings")
 async def api_eventstudio_get_event(event_id: str, request: Request):
-    db = get_database()
-    auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    user = auth_mgr.get_session(session_token) if session_token else None
-    x_bcp_token = request.headers.get("X-BCP-Token") or request.query_params.get("bcp_token") or (auth_mgr.get_valid_bcp_token(user["id"]) if user else None)
+    def _sync_get_event():
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        x_bcp_token = request.headers.get("X-BCP-Token") or request.query_params.get("bcp_token") or (auth_mgr.get_valid_bcp_token(user["id"]) if user else None)
 
-    # For BCP events, query directly from BCP API without relying on or mutating backend DB
-    if not event_id.startswith("ES-"):
-        bcp_ev = _fetch_bcp_event_workspace(event_id, user, explicit_token=x_bcp_token)
-        if bcp_ev:
-            return {"success": True, "event": bcp_ev}
+        # For BCP events, query directly from BCP API without relying on or mutating backend DB
+        if not event_id.startswith("ES-"):
+            bcp_ev = _fetch_bcp_event_workspace(event_id, user, explicit_token=x_bcp_token)
+            if bcp_ev:
+                return {"success": True, "event": bcp_ev}
 
-    ev = db.get_studio_event(event_id)
-    if not ev:
-        # Fallback to standard event lookup
-        full_ev = db.get_tournament_details(event_id)
-        if full_ev:
-            return {"success": True, "event": full_ev}
-        raise HTTPException(status_code=404, detail=f"Tournament '{event_id}' not found")
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            # Fallback to standard event lookup
+            full_ev = db.get_tournament_details(event_id)
+            if full_ev:
+                return {"success": True, "event": full_ev}
+            raise HTTPException(status_code=404, detail=f"Tournament '{event_id}' not found")
 
-    if ev and isinstance(ev.get("raw_json"), dict):
-        rj = ev["raw_json"]
-        if "using_online_reg" not in ev:
-            ev["using_online_reg"] = rj.get("usingOnlineReg", True)
-        if "num_tickets" not in ev:
-            ev["num_tickets"] = rj.get("numTickets", ev.get("capacity", 32))
-        if "ticket_price" not in ev:
-            ev["ticket_price"] = rj.get("ticketPrice", 0.0)
-        if "ticket_currency" not in ev:
-            ev["ticket_currency"] = rj.get("ticketCurrency", "usd")
-        if "disable_checkin" not in ev:
-            ev["disable_checkin"] = rj.get("disableCheckin", False)
-        if "private_event" not in ev:
-            ev["private_event"] = rj.get("privateEvent", False)
-        if "shipping_details" not in ev:
-            ev["shipping_details"] = rj.get("shippingDetails", {"requested": False, "mandatory": False, "description": ""})
-        if "hide_lists" not in ev:
-            ev["hide_lists"] = rj.get("hideLists", False)
-        if "lists_at_checkin" not in ev:
-            ev["lists_at_checkin"] = rj.get("listsAtCheckin", False)
-        if "lists_locked" not in ev:
-            ev["lists_locked"] = rj.get("listsLocked", False)
-        if "factions_locked" not in ev:
-            ev["factions_locked"] = rj.get("factionsLocked", False)
-        if "hide_roster" not in ev:
-            ev["hide_roster"] = rj.get("hideRoster", False)
-        if "hide_placings" not in ev:
-            ev["hide_placings"] = rj.get("hidePlacings", False)
-        if "passwordless_scoring" not in ev:
-            ev["passwordless_scoring"] = rj.get("passwordlessScoring", True)
-        if "ranked_tables" not in ev:
-            ev["ranked_tables"] = rj.get("rankedTables", False)
+        if ev and isinstance(ev.get("raw_json"), dict):
+            rj = ev["raw_json"]
+            if "using_online_reg" not in ev:
+                ev["using_online_reg"] = rj.get("usingOnlineReg", True)
+            if "num_tickets" not in ev:
+                ev["num_tickets"] = rj.get("numTickets", ev.get("capacity", 32))
+            if "ticket_price" not in ev:
+                ev["ticket_price"] = rj.get("ticketPrice", 0.0)
+            if "ticket_currency" not in ev:
+                ev["ticket_currency"] = rj.get("ticketCurrency", "usd")
+            if "disable_checkin" not in ev:
+                ev["disable_checkin"] = rj.get("disableCheckin", False)
+            if "private_event" not in ev:
+                ev["private_event"] = rj.get("privateEvent", False)
+            if "shipping_details" not in ev:
+                ev["shipping_details"] = rj.get("shippingDetails", {"requested": False, "mandatory": False, "description": ""})
+            if "hide_lists" not in ev:
+                ev["hide_lists"] = rj.get("hideLists", False)
+            if "lists_at_checkin" not in ev:
+                ev["lists_at_checkin"] = rj.get("listsAtCheckin", False)
+            if "lists_locked" not in ev:
+                ev["lists_locked"] = rj.get("listsLocked", False)
+            if "factions_locked" not in ev:
+                ev["factions_locked"] = rj.get("factionsLocked", False)
+            if "hide_roster" not in ev:
+                ev["hide_roster"] = rj.get("hideRoster", False)
+            if "hide_placings" not in ev:
+                ev["hide_placings"] = rj.get("hidePlacings", False)
+            if "passwordless_scoring" not in ev:
+                ev["passwordless_scoring"] = rj.get("passwordlessScoring", True)
+            if "ranked_tables" not in ev:
+                ev["ranked_tables"] = rj.get("rankedTables", False)
 
-    return {
-        "success": True,
-        "event": ev
-    }
+        return {
+            "success": True,
+            "event": ev
+        }
+    return await asyncio.to_thread(_sync_get_event)
 
 @router.get("/api/eventstudio/event/{event_id}/round/{round_num}/pairings", summary="Get live pairings and scores for a specific tournament round (lightweight single-call)")
 async def api_eventstudio_get_round_pairings(
@@ -767,60 +752,62 @@ async def api_eventstudio_get_round_pairings(
     request: Request,
     bcp_token: Optional[str] = Query(None)
 ):
-    db = get_database()
-    auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    user = auth_mgr.get_session(session_token) if session_token else None
-    x_bcp_token = bcp_token or request.headers.get("X-BCP-Token") or request.query_params.get("bcp_token") or (auth_mgr.get_valid_bcp_token(user["id"]) if user else None)
+    def _sync_round_pairings():
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        x_bcp_token = bcp_token or request.headers.get("X-BCP-Token") or request.query_params.get("bcp_token") or (auth_mgr.get_valid_bcp_token(user["id"]) if user else None)
 
-    round_str = str(round_num)
+        round_str = str(round_num)
 
-    # 1. Local event (ES-...)
-    if event_id.startswith("ES-"):
-        ev = db.get_studio_event(event_id)
-        if not ev:
-            raise HTTPException(status_code=404, detail=f"Tournament '{event_id}' not found")
-        pairings_map = ev.get("pairings") or {}
-        round_pairings = pairings_map.get(round_str) or pairings_map.get(round_num) or []
+        # 1. Local event (ES-...)
+        if event_id.startswith("ES-"):
+            ev = db.get_studio_event(event_id)
+            if not ev:
+                raise HTTPException(status_code=404, detail=f"Tournament '{event_id}' not found")
+            pairings_map = ev.get("pairings") or {}
+            round_pairings = pairings_map.get(round_str) or pairings_map.get(round_num) or []
+            return {
+                "success": True,
+                "event_id": event_id,
+                "round": round_num,
+                "pairings": round_pairings,
+                "current_round": ev.get("current_round") or 1,
+                "is_ended": bool(ev.get("is_ended"))
+            }
+
+        # 2. BCP event - single fast call for this round
+        canonical_id = _resolve_canonical_event_id(event_id, user=user, explicit_token=x_bcp_token)
+        ok, p_err, raw_r_pairings = bcp_adapter.fetch_event_pairings(
+            event_id=canonical_id,
+            round_num=round_num,
+            pairing_type="Pairing",
+            user_id=user["id"] if user else None,
+            explicit_token=x_bcp_token
+        )
+        if not raw_r_pairings:
+            try:
+                from scraper import BestCoastPairingsScraper
+                scraper = BestCoastPairingsScraper(db=db)
+                raw_r_pairings = scraper.fetch_event_pairings_for_round(canonical_id, round_num)
+            except Exception as sc_err:
+                logger.debug(f"Notice fetching round pairings fallback for {canonical_id}: {sc_err}")
+
+        norm_pairings = []
+        if raw_r_pairings:
+            for idx, pairing in enumerate(raw_r_pairings):
+                norm = _normalize_bcp_pairing(pairing, default_table=idx + 1)
+                norm_pairings.append(norm)
+
         return {
             "success": True,
-            "event_id": event_id,
+            "event_id": canonical_id,
             "round": round_num,
-            "pairings": round_pairings,
-            "current_round": ev.get("current_round") or 1,
-            "is_ended": bool(ev.get("is_ended"))
+            "pairings": norm_pairings
         }
-
-    # 2. BCP event - single fast call for this round
-    canonical_id = _resolve_canonical_event_id(event_id, user=user, explicit_token=x_bcp_token)
-    ok, p_err, raw_r_pairings = bcp_adapter.fetch_event_pairings(
-        event_id=canonical_id,
-        round_num=round_num,
-        pairing_type="Pairing",
-        user_id=user["id"] if user else None,
-        explicit_token=x_bcp_token
-    )
-    if not raw_r_pairings:
-        try:
-            from scraper import BestCoastPairingsScraper
-            scraper = BestCoastPairingsScraper(db=db)
-            raw_r_pairings = scraper.fetch_event_pairings_for_round(canonical_id, round_num)
-        except Exception as sc_err:
-            logger.debug(f"Notice fetching round pairings fallback for {canonical_id}: {sc_err}")
-
-    norm_pairings = []
-    if raw_r_pairings:
-        for idx, pairing in enumerate(raw_r_pairings):
-            norm = _normalize_bcp_pairing(pairing, default_table=idx + 1)
-            norm_pairings.append(norm)
-
-    return {
-        "success": True,
-        "event_id": canonical_id,
-        "round": round_num,
-        "pairings": norm_pairings
-    }
+    return await asyncio.to_thread(_sync_round_pairings)
 
 @router.post("/api/eventstudio/event/create", summary="Create new tournament and register to BCP")
 async def api_eventstudio_create_event(payload: CreateEventPayload, request: Request):
@@ -3977,26 +3964,26 @@ def api_eventstudio_match_predictor(
         from psycopg2 import extras
         with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
             if p1_id:
-                cursor.execute("SELECT current_elo, total_matches FROM player_ratings WHERE player_id = %s;", (p1_id,))
+                cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s;", (p1_id,))
                 r1 = cursor.fetchone()
                 if r1:
                     p1_elo = float(r1["current_elo"] or 1500.0)
                     p1_matches = int(r1["total_matches"] or 0)
             elif p1_name:
-                cursor.execute("SELECT current_elo, total_matches FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p1_name}%",))
+                cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p1_name}%",))
                 r1 = cursor.fetchone()
                 if r1:
                     p1_elo = float(r1["current_elo"] or 1500.0)
                     p1_matches = int(r1["total_matches"] or 0)
 
             if p2_id:
-                cursor.execute("SELECT current_elo, total_matches FROM player_ratings WHERE player_id = %s;", (p2_id,))
+                cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s;", (p2_id,))
                 r2 = cursor.fetchone()
                 if r2:
                     p2_elo = float(r2["current_elo"] or 1500.0)
                     p2_matches = int(r2["total_matches"] or 0)
             elif p2_name:
-                cursor.execute("SELECT current_elo, total_matches FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p2_name}%",))
+                cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p2_name}%",))
                 r2 = cursor.fetchone()
                 if r2:
                     p2_elo = float(r2["current_elo"] or 1500.0)

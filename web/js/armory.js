@@ -268,6 +268,19 @@
 
     hydrateVaultFromGlobalSession();
 
+    if (!catalogBySystem[sys]) {
+      try {
+        var rawCachedCat = localStorage.getItem('omnitactica_armory_catalog_cache_' + sys);
+        if (rawCachedCat) {
+          var parsedCat = JSON.parse(rawCachedCat);
+          if (parsedCat && Array.isArray(parsedCat.items)) {
+            catalogBySystem[sys] = parsedCat;
+            if (!currentCatalog) currentCatalog = parsedCat;
+          }
+        }
+      } catch (e) {}
+    }
+
     if (!forceRefresh && catalogBySystem[sys] && (Date.now() - (lastCatalogLoadedAt[sys] || 0) < 10000)) {
       currentCatalog = catalogBySystem[sys];
       return currentCatalog;
@@ -278,15 +291,19 @@
     }
 
     inFlightCatalogPromise[sys] = (async function() {
+      var abortCtrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var timeoutId = abortCtrl ? setTimeout(function() { try { abortCtrl.abort(); } catch (e) {} }, 5500) : null;
       try {
         var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
         var headers = token ? { 'Authorization': 'Bearer ' + token } : {};
-
-        var catRes = await fetch('/api/armory/catalog?game_system=' + encodeURIComponent(sys) + '&_t=' + Date.now(), {
+        var fetchOpts = {
           headers: headers,
           credentials: 'include',
           cache: 'no-store'
-        });
+        };
+        if (abortCtrl) fetchOpts.signal = abortCtrl.signal;
+
+        var catRes = await fetch('/api/armory/catalog?game_system=' + encodeURIComponent(sys) + '&_t=' + Date.now(), fetchOpts);
 
         if (catRes && catRes.ok) {
           var data = await catRes.json();
@@ -295,6 +312,9 @@
           lastCatalogLoadedAt[sys] = Date.now();
           if (data.user_glory) currentGlory = data.user_glory;
           if (data.user_vault) currentVault = data.user_vault;
+          try {
+            localStorage.setItem('omnitactica_armory_catalog_cache_' + sys, JSON.stringify(data));
+          } catch (e) {}
         }
 
         // Strict per-system normalization: never write flat top-level slot keys
@@ -317,9 +337,10 @@
       } catch (e) {
         console.warn('Notice loading armory catalog:', e);
       } finally {
+        if (timeoutId) clearTimeout(timeoutId);
         delete inFlightCatalogPromise[sys];
       }
-      return currentCatalog || null;
+      return currentCatalog || catalogBySystem[sys] || null;
     })();
 
     return inFlightCatalogPromise[sys];
@@ -1643,7 +1664,20 @@
     modal.style.zIndex = '100005';
     document.body.appendChild(modal);
 
-    // Fast path: if catalog for this system is already loaded in memory, render the full interactive shell in 0ms!
+    if (!catalogBySystem[currentGameSystem]) {
+      try {
+        var rawCachedCat = localStorage.getItem('omnitactica_armory_catalog_cache_' + currentGameSystem);
+        if (rawCachedCat) {
+          var parsedCat = JSON.parse(rawCachedCat);
+          if (parsedCat && Array.isArray(parsedCat.items)) {
+            catalogBySystem[currentGameSystem] = parsedCat;
+            if (!currentCatalog) currentCatalog = parsedCat;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Fast path: if catalog for this system is already loaded in memory or localStorage, render the full interactive shell in 0ms!
     if (catalogBySystem[currentGameSystem] && Array.isArray(catalogBySystem[currentGameSystem].items)) {
       currentCatalog = catalogBySystem[currentGameSystem];
       renderArmoryModalShell();
@@ -1680,8 +1714,19 @@
       '</div>'
     ].join('\n');
 
-    await loadArmoryData(currentGameSystem);
-    renderArmoryModalShell();
+    var loadPromise = loadArmoryData(currentGameSystem);
+    await Promise.race([
+      loadPromise,
+      new Promise(function(resolve) { setTimeout(resolve, 1500); })
+    ]);
+    if (document.getElementById('retribution-armory-modal')) {
+      renderArmoryModalShell();
+    }
+    loadPromise.then(function() {
+      if (document.getElementById('retribution-armory-modal')) {
+        renderArmoryModalShell();
+      }
+    });
   }
 
   var currentLedgerData = null;

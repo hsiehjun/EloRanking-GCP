@@ -1067,14 +1067,15 @@ class LeaguesHubService:
                         pid = (s.get("bcp_player_id") or s.get("player_id") or "").strip()
                         if pid:
                             all_pids.append(pid)
-                        nm = (s.get("name") or s.get("player_name") or "").strip().lower()
+                        nm = (s.get("name") or s.get("player_name") or "").strip()
                         if nm:
                             all_names.append(nm)
+                            all_names.append(nm.title())
                 if all_pids or all_names:
                     cur.execute("""
                         SELECT player_id, LOWER(TRIM(player_name)), ROUND(current_elo)::int, ROUND(peak_elo)::int, matches_played
                         FROM player_ratings
-                        WHERE player_id = ANY(%s) OR LOWER(TRIM(player_name)) = ANY(%s);
+                        WHERE player_id = ANY(%s) OR player_name = ANY(%s);
                     """, (all_pids or [""], all_names or [""]))
                     for r_pid, r_nm, r_curr, r_peak, r_mp in cur.fetchall():
                         info = {

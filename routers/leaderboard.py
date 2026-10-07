@@ -32,7 +32,7 @@ _active_event_syncs: set = set()
 # Ultra-fast Uptime / Health Checks (<1ms)
 @router.get("/health", include_in_schema=False)
 @router.get("/api/health", summary="Fast uptime health check")
-def health_check():
+async def health_check():
     return {"status": "ok"}
 
 # API: Summary Stats Ribbon
@@ -594,7 +594,10 @@ def api_events_recommended(
                     if pid:
                         all_p_ids.add(str(pid))
                     if nm:
-                        all_p_names.add(str(nm).lower())
+                        raw_nm = str(nm).strip()
+                        if raw_nm:
+                            all_p_names.add(raw_nm)
+                            all_p_names.add(raw_nm.title())
 
         found_ratings = {}
         name_ratings = {}
@@ -605,7 +608,7 @@ def api_events_recommended(
                         cur.execute("""
                             SELECT player_id, LOWER(player_name) as player_name, current_elo
                             FROM player_ratings
-                            WHERE player_id = ANY(%s) OR LOWER(player_name) = ANY(%s);
+                            WHERE player_id = ANY(%s) OR player_name = ANY(%s);
                         """, (list(all_p_ids), list(all_p_names)))
                         rated_rows = cur.fetchall()
                         found_ratings = {str(r["player_id"]): float(r["current_elo"]) for r in rated_rows if r.get("player_id")}

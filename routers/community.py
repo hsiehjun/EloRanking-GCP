@@ -523,7 +523,10 @@ def compute_live_bcp_field_stats(eid: str, db, game_system: Optional[str] = "40k
             ln = u.get("lastName") or p.get("lastName") or ""
             name = f"{fn} {ln}".strip() or p.get("name")
             if name:
-                candidate_names.add(name.strip().lower())
+                raw_name = name.strip()
+                if raw_name:
+                    candidate_names.add(raw_name)
+                    candidate_names.add(raw_name.title())
 
         ratings_by_id = {}
         ratings_by_name = {}
@@ -536,7 +539,7 @@ def compute_live_bcp_field_stats(eid: str, db, game_system: Optional[str] = "40k
                         cursor.execute("""
                             SELECT player_id, player_name, current_elo
                             FROM player_ratings
-                            WHERE (player_id = ANY(%s) OR (player_name IS NOT NULL AND LOWER(player_name) = ANY(%s)))
+                            WHERE (player_id = ANY(%s) OR player_name = ANY(%s))
                               AND COALESCE(game_system, '40k') = %s;
                         """, (list(candidate_pids), list(candidate_names), target_sys))
                         for row in cursor.fetchall():

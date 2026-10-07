@@ -245,8 +245,8 @@ async def _periodic_firestore_cleanup():
     while True:
         try:
             await asyncio.sleep(60)  # Wait 60s after startup before first run
-            fs_engine = get_firestore_engine()
-            res = fs_engine.cleanup_expired_documents()
+            fs_engine = await asyncio.to_thread(get_firestore_engine)
+            res = await asyncio.to_thread(fs_engine.cleanup_expired_documents)
             if any(v > 0 for v in res.values()):
                 logger.info(f"🧹 Periodic Firestore cleanup pruned expired docs: {res}")
         except Exception as e:
@@ -284,6 +284,13 @@ async def _periodic_nr_bundle_refresh():
 
 @app.on_event("startup")
 async def on_server_startup():
+    try:
+        import concurrent.futures
+        asyncio.get_running_loop().set_default_executor(
+            concurrent.futures.ThreadPoolExecutor(max_workers=32, thread_name_prefix="omni_worker")
+        )
+    except Exception:
+        pass
     logger.info("Warhammer 40,000 Elo Backend online and ready.")
     asyncio.create_task(_periodic_firestore_cleanup())
     asyncio.create_task(_periodic_nr_bundle_refresh())
@@ -296,6 +303,15 @@ async def on_server_startup():
             logger.info("🔥 NewRecruit detachments & AoS formations catalogs pre-warmed from local bundle")
         except Exception as nr_err:
             logger.warning(f"Notice during NR detachments pre-warming: {nr_err}")
+        try:
+            db = await asyncio.to_thread(get_database)
+            await asyncio.to_thread(db.get_summary_stats, "40k")
+            await asyncio.to_thread(db.get_top_ranked_players, 1, 25, "40k", None, None, None, None, "elo", "DESC", True, "40k")
+            await asyncio.to_thread(db.get_events_list, 1, 20, None, None, None, "event_date", "DESC", "40k")
+            await asyncio.to_thread(db._get_all_teams_list, "40k")
+            logger.info("🔥 Core leaderboard, stats, events & teams caches pre-warmed")
+        except Exception as cw_err:
+            logger.warning(f"Notice during core cache pre-warming: {cw_err}")
         await asyncio.sleep(30)
         try:
             db = await asyncio.to_thread(get_database)

@@ -120,7 +120,7 @@ def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str
     )
     if target_uid and not is_mock_mgr:
         cached = _USER_GLORY_STATE_CACHE.get(target_uid)
-        if cached and (time.time() - cached[0]) < 60.0:
+        if cached and (time.time() - cached[0]) < 300.0:
             st = dict(cached[1])
             user_data["total_glory"] = st.get("total_glory", 0)
             user_data["glory_spent"] = st.get("glory_spent", 0)
