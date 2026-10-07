@@ -5598,7 +5598,8 @@ class PostgresDatabase:
                                         ELSE '[]'::jsonb
                                     END
                                 ) AS m_elem
-                                WHERE COALESCE((m_elem->>'isOn')::boolean, FALSE) = TRUE
+                                WHERE jsonb_typeof(m_elem) = 'object'
+                                  AND LOWER(COALESCE(m_elem->>'isOn', '')) = 'true'
                                   AND COALESCE(m_elem->>'name', m_elem->>'key', '') NOT IN ('Wins', 'wins', 'numWins', 'numGameWins', 'gameWins', 'gamesWon', 'teamMatchPoints')
                             ) AS tb_metrics
                         FROM raw_player_events rpe
@@ -5824,21 +5825,21 @@ class PostgresDatabase:
                                     (cc.wins + 0.5 * cc.draws) DESC,
                                     CASE
                                         WHEN COALESCE(te.tb_metrics[1], 'Path to Victory') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
-                                        WHEN te.tb_metrics[1] IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN te.tb_metrics[1] IN ('Oppt. Game Win %%', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
                                         WHEN te.tb_metrics[1] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
                                         WHEN te.tb_metrics[1] IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
                                         ELSE cc.ptv
                                     END DESC,
                                     CASE
-                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
-                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %') IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %%') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
+                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %%') IN ('Oppt. Game Win %%', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
                                         WHEN te.tb_metrics[2] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
                                         WHEN te.tb_metrics[2] IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
                                         ELSE ROUND(cc.sos, 4)
                                     END DESC,
                                     CASE
                                         WHEN COALESCE(te.tb_metrics[3], 'Battle Points') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
-                                        WHEN te.tb_metrics[3] IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN te.tb_metrics[3] IN ('Oppt. Game Win %%', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
                                         WHEN te.tb_metrics[3] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
                                         WHEN COALESCE(te.tb_metrics[3], 'Battle Points') IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
                                         ELSE cc.effective_bp::numeric
@@ -5860,11 +5861,14 @@ class PostgresDatabase:
                         e.city,
                         e.state,
                         e.country,
-                        CASE
-                            WHEN (e.raw_json->>'totalPlayers') ~ '^[0-9]+$' AND (e.raw_json->>'totalPlayers')::int > 0
-                            THEN (e.raw_json->>'totalPlayers')::int
-                            ELSE GREATEST(COALESCE(e.total_players, 0), COALESCE(rc.computed_total_players, 0))
-                        END AS total_players, 
+                        COALESCE(
+                            CASE
+                                WHEN (e.raw_json->>'totalPlayers') ~ '^[0-9]+$'
+                                THEN NULLIF((e.raw_json->>'totalPlayers')::int, 0)
+                                ELSE NULL
+                            END,
+                            GREATEST(COALESCE(e.total_players, 0), COALESCE(rc.computed_total_players, 0))
+                        ) AS total_players, 
                         COALESCE(e.num_rounds, 0) AS num_rounds,
                         COALESCE(rc.registered_faction, 'Unknown') AS registered_faction,
                         CASE
@@ -5902,7 +5906,48 @@ class PostgresDatabase:
                 except Exception as e:
                     conn.rollback()
                     logger.warning(f"Error in get_player_tournaments: {e}")
-                    return []
+                    try:
+                        cursor.execute("""
+                        SELECT
+                            e.id AS event_id,
+                            e.name AS event_name,
+                            e.event_date,
+                            e.city,
+                            e.state,
+                            e.country,
+                            COALESCE(e.total_players, 0) AS total_players,
+                            COALESCE(e.num_rounds, 0) AS num_rounds,
+                            COALESCE(MAX(NULLIF(ep.faction, '')), 'Unknown') AS registered_faction,
+                            COALESCE(MIN(NULLIF(ep.placement, 0)), 0) AS placement,
+                            COUNT(m.id)::int AS matches_played,
+                            SUM(CASE WHEN m.winner_id = %(pid)s THEN 1 ELSE 0 END)::int AS wins,
+                            SUM(CASE WHEN m.loser_id = %(pid)s THEN 1 ELSE 0 END)::int AS losses,
+                            SUM(CASE WHEN COALESCE(m.is_draw, FALSE) THEN 1 ELSE 0 END)::int AS draws,
+                            SUM(CASE WHEN m.player1_id = %(pid)s THEN COALESCE(m.player1_score, 0) ELSE COALESCE(m.player2_score, 0) END)::int AS total_battle_points,
+                            (SELECT LOWER(TRIM(full_name)) FROM players WHERE id = %(pid)s LIMIT 1) AS _player_norm_name
+                        FROM events e
+                        LEFT JOIN event_participants ep ON ep.event_id = e.id AND ep.player_id = %(pid)s
+                        LEFT JOIN matches m ON m.event_id = e.id AND (m.player1_id = %(pid)s OR m.player2_id = %(pid)s)
+                        WHERE COALESCE(e.game_system, '40k') = %(system)s
+                          AND (ep.player_id IS NOT NULL OR m.id IS NOT NULL)
+                        GROUP BY e.id, e.name, e.event_date, e.city, e.state, e.country, e.total_players, e.num_rounds
+                        ORDER BY e.event_date DESC NULLS LAST;
+                        """, {"pid": player_id, "system": system})
+                        fb_rows = cursor.fetchall()
+                        res = []
+                        player_norm_name = ""
+                        for r in fb_rows:
+                            row_dict = dict(r)
+                            p_norm = row_dict.pop("_player_norm_name", None)
+                            if p_norm and not player_norm_name:
+                                player_norm_name = str(p_norm)
+                            res.append(row_dict)
+                        self._enrich_tournaments_with_bcp_placings(res, player_id, player_norm_name)
+                        return res
+                    except Exception as fb_err:
+                        conn.rollback()
+                        logger.warning(f"Fallback get_player_tournaments error: {fb_err}")
+                        return []
 
     def get_multiple_players_tournaments(self, player_ids: List[str], game_system: Optional[str] = "40k") -> Dict[str, List[Dict[str, Any]]]:
         """Returns tournament history mapped by player_id for a list of competitors using a single batched query with caching."""
@@ -5965,7 +6010,8 @@ class PostgresDatabase:
                                         ELSE '[]'::jsonb
                                     END
                                 ) AS m_elem
-                                WHERE COALESCE((m_elem->>'isOn')::boolean, FALSE) = TRUE
+                                WHERE jsonb_typeof(m_elem) = 'object'
+                                  AND LOWER(COALESCE(m_elem->>'isOn', '')) = 'true'
                                   AND COALESCE(m_elem->>'name', m_elem->>'key', '') NOT IN ('Wins', 'wins', 'numWins', 'numGameWins', 'gameWins', 'gamesWon', 'teamMatchPoints')
                             ) AS tb_metrics
                         FROM (SELECT DISTINCT event_id FROM p_events) pe
@@ -6181,21 +6227,21 @@ class PostgresDatabase:
                                     (cc.wins + 0.5 * cc.draws) DESC,
                                     CASE
                                         WHEN COALESCE(te.tb_metrics[1], 'Path to Victory') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
-                                        WHEN te.tb_metrics[1] IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN te.tb_metrics[1] IN ('Oppt. Game Win %%', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
                                         WHEN te.tb_metrics[1] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
                                         WHEN te.tb_metrics[1] IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
                                         ELSE cc.ptv
                                     END DESC,
                                     CASE
-                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
-                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %') IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %%') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
+                                        WHEN COALESCE(te.tb_metrics[2], 'Oppt. Game Win %%') IN ('Oppt. Game Win %%', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
                                         WHEN te.tb_metrics[2] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
                                         WHEN te.tb_metrics[2] IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
                                         ELSE ROUND(cc.sos, 4)
                                     END DESC,
                                     CASE
                                         WHEN COALESCE(te.tb_metrics[3], 'Battle Points') IN ('Path to Victory', 'pathToVictory', 'ptv') THEN cc.ptv
-                                        WHEN te.tb_metrics[3] IN ('Oppt. Game Win %', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
+                                        WHEN te.tb_metrics[3] IN ('Oppt. Game Win %%', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN ROUND(cc.sos, 4)
                                         WHEN te.tb_metrics[3] IN ('Wins SoS', 'numWinsSoS') THEN ROUND(cc.wins_sos, 4)
                                         WHEN COALESCE(te.tb_metrics[3], 'Battle Points') IN ('Battle Points', 'battlePoints', 'points') THEN cc.effective_bp::numeric
                                         ELSE cc.effective_bp::numeric
@@ -6218,11 +6264,14 @@ class PostgresDatabase:
                         e.city,
                         e.state,
                         e.country,
-                        CASE
-                            WHEN (e.raw_json->>'totalPlayers') ~ '^[0-9]+$' AND (e.raw_json->>'totalPlayers')::int > 0
-                            THEN (e.raw_json->>'totalPlayers')::int
-                            ELSE GREATEST(COALESCE(e.total_players, 0), COALESCE(rc.computed_total_players, 0))
-                        END AS total_players, 
+                        COALESCE(
+                            CASE
+                                WHEN (e.raw_json->>'totalPlayers') ~ '^[0-9]+$'
+                                THEN NULLIF((e.raw_json->>'totalPlayers')::int, 0)
+                                ELSE NULL
+                            END,
+                            GREATEST(COALESCE(e.total_players, 0), COALESCE(rc.computed_total_players, 0))
+                        ) AS total_players, 
                         COALESCE(e.num_rounds, 0) AS num_rounds,
                         COALESCE(rc.registered_faction, 'Unknown') AS registered_faction,
                         CASE

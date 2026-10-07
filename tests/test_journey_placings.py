@@ -51,6 +51,10 @@ class TestJourneyPlacings(unittest.TestCase):
         mock_enrich.assert_called_once_with(res, "MEV83VFANA", "john hsieh")
 
         executed_sql = mock_cursor.execute.call_args[0][0]
+        executed_params = mock_cursor.execute.call_args[0][1]
+        # Verify psycopg2 % string formatting succeeds without raising TypeError from unescaped %
+        interpolated_sql = executed_sql % executed_params
+        self.assertIn("'Oppt. Game Win %'", interpolated_sql)
         # Verify name-based deduplication of event_participants against match players
         self.assertIn("matched_ep AS", executed_sql)
         self.assertIn("unmatched_ep AS", executed_sql)
@@ -61,6 +65,17 @@ class TestJourneyPlacings(unittest.TestCase):
         self.assertIn("placingMetrics", executed_sql)
         # Verify raw_json->>'totalPlayers' is prioritized over unmerged participant counts
         self.assertIn("e.raw_json->>'totalPlayers'", executed_sql)
+
+        # Also verify get_multiple_players_tournaments SQL escapes % properly for psycopg2
+        mock_cursor.reset_mock()
+        mock_cursor.fetchall.return_value = []
+        db.get_multiple_players_tournaments(["UNCACHED_PID_2"], game_system="40k")
+        multi_sql = mock_cursor.execute.call_args[0][0]
+        multi_params = mock_cursor.execute.call_args[0][1]
+        interpolated_multi_sql = multi_sql % multi_params
+        self.assertIn("'Oppt. Game Win %'", interpolated_multi_sql)
+
+
 
     def test_enrich_tournaments_with_bcp_placings_by_id_and_name(self):
         db = PostgresDatabase.__new__(PostgresDatabase)

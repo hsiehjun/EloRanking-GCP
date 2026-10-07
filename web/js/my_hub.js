@@ -193,7 +193,8 @@ async function loadMyHubDashboard() {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && (!parsed.player_id || parsed.player_id !== 'p_innes')) {
-          if (parsed.player && typeof parsed.player === 'object' && parsed._journeySchemaVer === 2) {
+          const hasValidJourneyPlacements = !Array.isArray(parsed.history) || parsed.history.length === 0 || (Array.isArray(parsed.events_attended) && parsed.events_attended.length > 0);
+          if (parsed.player && typeof parsed.player === 'object' && parsed._journeySchemaVer === 3 && hasValidJourneyPlacements) {
             cachedData = parsed;
           } else {
             localStorage.removeItem(cacheStorageKey);
@@ -375,7 +376,7 @@ async function loadMyHubDashboard() {
     }
 
     data._gameSystem = gs;
-    data._journeySchemaVer = 2;
+    data._journeySchemaVer = 3;
     myHubData = data;
     try {
       localStorage.setItem(cacheStorageKey, JSON.stringify(data));

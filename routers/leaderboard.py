@@ -197,6 +197,28 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
         data["tournaments"] = events_attended or data.get("tournaments") or []
         data["events_attended"] = data["tournaments"]
 
+        ev_meta_by_id = {}
+        ev_meta_by_name = {}
+        for ev in data["tournaments"]:
+            eid = str(ev.get("event_id") or ev.get("id") or "").strip()
+            if eid:
+                ev_meta_by_id[eid] = ev
+            ename = str(ev.get("event_name") or ev.get("name") or "").strip().lower()
+            if ename and ename not in ev_meta_by_name:
+                ev_meta_by_name[ename] = ev
+        for h_key in ("history", "win_path"):
+            for hp in (data.get(h_key) or []):
+                if not isinstance(hp, dict):
+                    continue
+                hid = str(hp.get("event_id") or "").strip()
+                hname = str(hp.get("event_name") or "").strip().lower()
+                t_meta = ev_meta_by_id.get(hid) or ev_meta_by_name.get(hname)
+                if t_meta:
+                    if int(t_meta.get("placement") or 0) > 0:
+                        hp["placement"] = int(t_meta["placement"])
+                    if int(t_meta.get("total_players") or 0) > 0:
+                        hp["total_players"] = int(t_meta["total_players"])
+
         user_pinned = user_row.get("pinned_badges") if (user_row and user_row.get("pinned_badges")) else None
         b_eval = badges.evaluate_player_badges(
             player_data=data.get("player") or data,
