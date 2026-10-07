@@ -834,7 +834,20 @@ def convert_ttb_game_to_omnitactica(
         raw_id = hashlib.sha256(sig.encode("utf-8")).hexdigest()[:12]
 
     short_hash = hashlib.sha256(raw_id.encode("utf-8")).hexdigest()[:8].upper()
-    prefix = "AOS-TTB" if is_aos else ("WH40K-GW" if source_label == "gw_app" else "WH40K-TTB")
+    _src_map = {
+        "tabletop_battles": ("WH40K-TTB", "AOS-TTB", "Tabletop Battles"),
+        "battlebase": ("WH40K-BB", "AOS-BB", "BattleBase"),
+        "newrecruit": ("WH40K-NR", "AOS-NR", "NewRecruit"),
+        "championshub": ("WH40K-CH", "AOS-CH", "ChampionsHub"),
+        "bcp": ("WH40K-BCP", "AOS-BCP", "Best Coast Pairings"),
+        "milarki": ("WH40K-MLK", "AOS-MLK", "Milarki"),
+        "gw_app": ("WH40K-GW", "AOS-GW", "GW App"),
+    }
+    p40k, paos, app_display_name = _src_map.get(
+        str(source_label or "tabletop_battles").lower(),
+        ("WH40K-TTB", "AOS-TTB", "Tabletop Battles"),
+    )
+    prefix = paos if is_aos else p40k
     match_id = f"{prefix}-{short_hash}"
 
     # Player names & user binding
@@ -916,10 +929,15 @@ def convert_ttb_game_to_omnitactica(
     )
 
     edition_code, edition_label = detect_game_edition(raw_game, is_aos=is_aos, game_date_iso=game_date_iso)
+    event_name = str(raw_game.get("eventName") or "").strip()
 
     if is_aos:
         p1_state, p1_total = _build_aos_player_state(p1_raw, p1_name, p1_fac, p1_det, edition=edition_code)
         p2_state, p2_total = _build_aos_player_state(p2_raw, p2_name, p2_fac, p2_det, edition=edition_code)
+        if p1_raw.get("armyListText"):
+            p1_state["armyListText"] = str(p1_raw["armyListText"])
+        if p2_raw.get("armyListText"):
+            p2_state["armyListText"] = str(p2_raw["armyListText"])
 
         priority_rolls = raw_game.get("priorityRollOffs") or []
         round_state = {}
@@ -947,8 +965,9 @@ def convert_ttb_game_to_omnitactica(
             "edition": edition_code,
             "edition_label": edition_label,
             "imported_source": source_label,
-            "imported_app": "GW App" if source_label == "gw_app" else "Tabletop Battles",
+            "imported_app": app_display_name,
             "imported_raw_id": raw_id,
+            "event_name": event_name,
             "game_date": game_date_iso,
             "started": True,
             "is_finished": True,
@@ -975,6 +994,7 @@ def convert_ttb_game_to_omnitactica(
                 "firstTurn": first_turn,
                 "edition": edition_code,
                 "editionLabel": edition_label,
+                "eventName": event_name,
                 "battleplan": {"name": mission_name, "pack": pack_name},
             },
             "p1": p1_state,
@@ -987,6 +1007,10 @@ def convert_ttb_game_to_omnitactica(
     else:
         p1_state, p1_total = _build_40k_player_state(p1_raw, p1_name, p1_fac, p1_det, edition=edition_code)
         p2_state, p2_total = _build_40k_player_state(p2_raw, p2_name, p2_fac, p2_det, edition=edition_code)
+        if p1_raw.get("armyListText"):
+            p1_state["armyListText"] = str(p1_raw["armyListText"])
+        if p2_raw.get("armyListText"):
+            p2_state["armyListText"] = str(p2_raw["armyListText"])
 
         state = {
             "id": raw_id,
@@ -996,8 +1020,9 @@ def convert_ttb_game_to_omnitactica(
             "edition": edition_code,
             "edition_label": edition_label,
             "imported_source": source_label,
-            "imported_app": "GW App" if source_label == "gw_app" else "Tabletop Battles",
+            "imported_app": app_display_name,
             "imported_raw_id": raw_id,
+            "event_name": event_name,
             "game_date": game_date_iso,
             "started": True,
             "is_finished": True,
@@ -1020,6 +1045,7 @@ def convert_ttb_game_to_omnitactica(
                 "missionPack": pack_name,
                 "edition": edition_code,
                 "editionLabel": edition_label,
+                "eventName": event_name,
                 "firstTurn": first_turn,
             },
             "p1": p1_state,
@@ -2270,3 +2296,1002 @@ def _parse_single_text_scorecard(
         default_system="aos" if is_aos else "40k",
         source_label=detected_source,
     )
+
+
+# ============================================================================
+# 4. BATTLEBASE (https://www.battlebase.app/graphql) LIVE GRAPHQL IMPORTER
+# ============================================================================
+
+BATTLEBASE_GRAPHQL_URL = "https://www.battlebase.app/graphql"
+
+
+def _clean_battlebase_slug(slug: str, kind: str = "", faction_slug: str = "") -> str:
+    """Converts BattleBase mission/faction/detachment slugs into clean human-readable titles."""
+    s = str(slug or "").strip()
+    if not s:
+        return ""
+    if "|" in s:
+        s = s.split("|")[0].strip()
+    # Strip known BattleBase prefixes
+    s = re.sub(
+        r"^(?:primary-mission|secondary-mission|secret-mission|challenger-card|deployment|mission-rule|mission-pack)-(?:chapter-approved-\d{4}-\d{2}-|pariah-nexus-|leviathan-|nachmund-gauntlet-|crusade-)?",
+        "",
+        s,
+        flags=re.IGNORECASE,
+    )
+    if kind == "detachment":
+        f_core = re.sub(r"^faction-", "", str(faction_slug or "").strip(), flags=re.IGNORECASE)
+        if f_core:
+            s = re.sub(rf"^detachment-{re.escape(f_core)}-", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"^detachment-[a-z0-9-]+?-", "", s, flags=re.IGNORECASE)
+    elif kind == "faction":
+        s = re.sub(r"^faction-", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"^(?:detachment|faction|mission-pack)-", "", s, flags=re.IGNORECASE)
+    human = _humanize_identifier(s)
+    # Restore apostrophes for known factions
+    human_map = {
+        "Emperors Children": "Emperor's Children",
+        "Tau Empire": "T'au Empire",
+        "Thousand Sons": "Thousand Sons",
+        "Chaos Daemons": "Chaos Daemons",
+    }
+    return human_map.get(human, human)
+
+
+def convert_battlebase_battle_to_omnitactica(
+    battle: Dict[str, Any],
+    importing_user: Optional[Dict[str, Any]] = None,
+    target_bb_username: str = "",
+) -> Optional[Dict[str, Any]]:
+    """
+    Converts a BattleBase GraphQL battle (`battleSetupJson` + `eventsJson`) into an OmniTactica scorecard
+    with full turn-by-turn Primary VP, Secondary card draws/scores/discards, paint bonus, and historical date.
+    """
+    if not isinstance(battle, dict):
+        return None
+    b_id = str(battle.get("id") or "").strip()
+    if not b_id:
+        return None
+
+    setup = battle.get("battleSetupJson") or {}
+    if isinstance(setup, str):
+        try:
+            setup = json.loads(setup)
+        except Exception:
+            setup = {}
+    if not isinstance(setup, dict):
+        setup = {}
+
+    events = battle.get("eventsJson") or []
+    if isinstance(events, str):
+        try:
+            events = json.loads(events)
+        except Exception:
+            events = []
+    if not isinstance(events, list):
+        events = []
+
+    created_by = battle.get("createdBy") if isinstance(battle.get("createdBy"), dict) else {}
+    opponent = battle.get("opponent") if isinstance(battle.get("opponent"), dict) else {}
+
+    pf = setup.get("playersAndFactions") if isinstance(setup.get("playersAndFactions"), dict) else {}
+    me_id = str(pf.get("meId") or created_by.get("id") or "1")
+    opp_id = str(pf.get("opponentId") or opponent.get("id") or "2")
+
+    me_name = str(created_by.get("username") or "Player 1").strip()
+    opp_name = str(opponent.get("username") or "Player 2").strip()
+
+    me_fac_slug = str(pf.get("meFactionId") or "")
+    opp_fac_slug = str(pf.get("opponentFactionId") or "")
+    me_fac = _clean_battlebase_slug(me_fac_slug, kind="faction") or "Warhammer 40k"
+    opp_fac = _clean_battlebase_slug(opp_fac_slug, kind="faction") or "Warhammer 40k"
+
+    me_dets = pf.get("meDetachmentIds") if isinstance(pf.get("meDetachmentIds"), list) else []
+    opp_dets = pf.get("opponentDetachmentIds") if isinstance(pf.get("opponentDetachmentIds"), list) else []
+    me_det = _clean_battlebase_slug(me_dets[0], kind="detachment", faction_slug=me_fac_slug) if me_dets else ""
+    opp_det = _clean_battlebase_slug(opp_dets[0], kind="detachment", faction_slug=opp_fac_slug) if opp_dets else ""
+    # Strip faction prefix if still present in detachment slug
+    for fac_lbl in (me_fac, opp_fac):
+        if fac_lbl and me_det.lower().startswith(fac_lbl.lower().replace("'", "") + " "):
+            me_det = me_det[len(fac_lbl):].strip()
+        if fac_lbl and opp_det.lower().startswith(fac_lbl.lower().replace("'", "") + " "):
+            opp_det = opp_det[len(fac_lbl):].strip()
+
+    me_paint = bool(pf.get("mePaintedArmy", True))
+    opp_paint = bool(pf.get("opponentPaintedArmy", True))
+
+    pack_id = str(setup.get("missionPackId") or "mission-pack-chapter-approved-2025-26")
+    pack_name = _clean_battlebase_slug(pack_id) or "Chapter Approved"
+    msel = setup.get("missionSelection") if isinstance(setup.get("missionSelection"), dict) else {}
+    mission_name = _clean_battlebase_slug(msel.get("missionId") or "") or "Take & Hold"
+    deployment_name = _clean_battlebase_slug(msel.get("deploymentId") or "") or "Search & Destroy"
+    rule_ids = msel.get("missionRuleIds") if isinstance(msel.get("missionRuleIds"), list) else []
+    mission_rule = _clean_battlebase_slug(rule_ids[0]) if rule_ids else "Matched Play"
+
+    is_first_turn_me = bool(setup.get("isFirstTurnMe", True))
+
+    # Replay eventsJson to reconstruct per-round Primary VP, Secondary cards, Paint VP, and timestamp
+    pri_by_actor: Dict[str, List[int]] = {me_id: [0, 0, 0, 0, 0], opp_id: [0, 0, 0, 0, 0]}
+    cards_by_actor: Dict[str, Dict[str, Dict[str, Any]]] = {me_id: {}, opp_id: {}}
+    paint_by_actor: Dict[str, bool] = {me_id: me_paint, opp_id: opp_paint}
+    cur_round = 1
+    first_ts: Optional[int] = None
+
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        ev_type = str(ev.get("type") or "")
+        actor = str(ev.get("actor") or "")
+        data = ev.get("data") if isinstance(ev.get("data"), dict) else {}
+        val = int(ev.get("value") or 0) if isinstance(ev.get("value"), (int, float)) else 0
+        ts = ev.get("timestamp")
+        if isinstance(ts, (int, float)) and ts > 1_000_000_000_000:
+            if first_ts is None or int(ts) < first_ts:
+                first_ts = int(ts)
+
+        if ev_type == "STARTED_TURN":
+            t_num = data.get("turnNumber")
+            if isinstance(t_num, (int, float)) and 1 <= int(t_num) <= 5:
+                cur_round = int(t_num)
+            continue
+
+        if actor not in (me_id, opp_id):
+            continue
+        r_idx = max(0, min(4, cur_round - 1))
+
+        if ev_type in (
+            "GAINED_PRIMARY_VICTORY_POINTS",
+            "GAINED_GAMBIT_VICTORY_POINTS",
+            "GAINED_SECRET_MISSION_VICTORY_POINTS",
+        ):
+            pri_by_actor[actor][r_idx] += val
+        elif ev_type == "GAINED_BONUS_VP_FOR_PAINTED_ARMY":
+            if val > 0:
+                paint_by_actor[actor] = True
+        elif ev_type == "DREW_SECONDARY_MISSION_CARD":
+            m_slug = str(data.get("missionId") or "").strip()
+            if m_slug:
+                c_title = _clean_battlebase_slug(m_slug)
+                c_map = cards_by_actor[actor]
+                if m_slug not in c_map:
+                    c_map[m_slug] = {
+                        "id": _clean_card_slug(c_title or m_slug),
+                        "name": c_title or "Secondary Mission",
+                        "scores": [0, 0, 0, 0, 0],
+                        "drawnInRound": r_idx,
+                        "discardedInRound": None,
+                        "categoryId": "tacticalMissions",
+                    }
+        elif ev_type in ("GAINED_SECONDARY_VICTORY_POINTS", "GAINED_CHALLENGER_CARD_MISSION_VICTORY_POINTS"):
+            m_slug = str(data.get("missionId") or "secondary-mission").strip()
+            c_title = _clean_battlebase_slug(m_slug) or "Secondary Mission"
+            c_map = cards_by_actor[actor]
+            if m_slug not in c_map:
+                c_map[m_slug] = {
+                    "id": _clean_card_slug(c_title),
+                    "name": c_title,
+                    "scores": [0, 0, 0, 0, 0],
+                    "drawnInRound": r_idx,
+                    "discardedInRound": None,
+                    "categoryId": "tacticalMissions",
+                }
+            c_map[m_slug]["scores"][r_idx] += val
+        elif ev_type in ("ACHIEVED_TACTICAL_SECONDARY_MISSION", "DISCARDED_TACTICAL_SECONDARY_MISSION"):
+            m_slug = str(data.get("missionId") or "").strip()
+            if m_slug and m_slug in cards_by_actor[actor]:
+                cards_by_actor[actor][m_slug]["discardedInRound"] = r_idx
+
+    me_player = {
+        "name": me_name,
+        "faction": {"name": me_fac, "subtitle": me_det},
+        "primaries": [{"name": mission_name, "scores": pri_by_actor[me_id]}],
+        "secondaries": list(cards_by_actor[me_id].values()),
+        "isBattleReady": paint_by_actor[me_id],
+    }
+    opp_player = {
+        "name": opp_name,
+        "faction": {"name": opp_fac, "subtitle": opp_det},
+        "primaries": [{"name": mission_name, "scores": pri_by_actor[opp_id]}],
+        "secondaries": list(cards_by_actor[opp_id].values()),
+        "isBattleReady": paint_by_actor[opp_id],
+    }
+
+    # Put the target BattleBase user in P1 slot if they were `opponent`
+    swap_p1_p2 = bool(
+        target_bb_username
+        and opp_name.lower() == target_bb_username.strip().lower()
+        and me_name.lower() != target_bb_username.strip().lower()
+    )
+    if swap_p1_p2:
+        players_arr = [opp_player, me_player]
+        went_first = "secondPlayer" if is_first_turn_me else "firstPlayer"
+    else:
+        players_arr = [me_player, opp_player]
+        went_first = "firstPlayer" if is_first_turn_me else "secondPlayer"
+
+    is_11e = "2026-27" in pack_id or "11e" in pack_id.lower() or "11th" in pack_id.lower()
+    ttb_equiv = {
+        "id": f"bb-{b_id}",
+        "gameType": "wh40k11e" if is_11e else "wh40k10e",
+        "edition": "11th" if is_11e else "10th",
+        "gameDate": first_ts or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "isFinished": True,
+        "wentFirstRollOff": went_first,
+        "mission": {
+            "missionName": mission_name,
+            "packName": pack_name,
+            "packId": pack_id,
+            "deploymentMapName": deployment_name,
+            "selectedMissionRules": [mission_rule],
+        },
+        "players": players_arr,
+    }
+    return convert_ttb_game_to_omnitactica(
+        ttb_equiv,
+        importing_user=importing_user,
+        default_system="40k",
+        source_label="battlebase",
+    )
+
+
+def _battlebase_graphql_request(query: str, variables: Optional[Dict[str, Any]] = None, token: Optional[str] = None) -> Dict[str, Any]:
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; OmniTacticaTrackerSync/1.0)",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    payload = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
+    req = urllib.request.Request(BATTLEBASE_GRAPHQL_URL, data=payload, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=18) as resp:
+        return json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+
+def sync_battlebase_account_games(
+    username: str,
+    password: str = "",
+    importing_user: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Authenticates with BattleBase (`https://www.battlebase.app/graphql`) using Email/Username + Password
+    (or fetches public user battles by BattleBase username) and converts all battles into OmniTactica scorecards.
+    """
+    clean_user = (username or "").strip()
+    clean_pass = password or ""
+    if not clean_user:
+        raise ValueError("BattleBase Email or Username is required.")
+
+    token: Optional[str] = None
+    resolved_username = clean_user
+    raw_battles: List[Dict[str, Any]] = []
+    seen_ids: set = set()
+
+    # 1. If password is provided, sign in via BattleBase GraphQL `signIn` mutation
+    if clean_pass:
+        login_query = """
+        mutation Login($email: String!, $password: String!) {
+          signIn(email: $email, password: $password) {
+            token
+            me { id email username }
+          }
+        }
+        """
+        res_login = _battlebase_graphql_request(login_query, {"email": clean_user, "password": clean_pass})
+        sign_in_data = (res_login.get("data") or {}).get("signIn")
+        if sign_in_data and sign_in_data.get("token"):
+            token = sign_in_data["token"]
+            me_obj = sign_in_data.get("me") or {}
+            if me_obj.get("username"):
+                resolved_username = str(me_obj["username"])
+        elif "@" in clean_user:
+            errs = res_login.get("errors") or []
+            err_msg = errs[0].get("message") if errs and isinstance(errs[0], dict) else "Invalid BattleBase email or password."
+            raise ValueError(f"BattleBase login failed: {err_msg}")
+
+    # 2. If authenticated with token, fetch `me.battles`
+    if token:
+        me_query = """
+        query MeBattles {
+          me {
+            id
+            username
+            battles {
+              id
+              isFinished
+              createdBy { id username }
+              opponent { id username }
+              battleSetupJson
+              eventsJson
+            }
+          }
+        }
+        """
+        res_me = _battlebase_graphql_request(me_query, {}, token=token)
+        me_node = (res_me.get("data") or {}).get("me") or {}
+        if me_node.get("username"):
+            resolved_username = str(me_node["username"])
+        for b in (me_node.get("battles") or []):
+            if isinstance(b, dict) and b.get("id") and b["id"] not in seen_ids:
+                seen_ids.add(b["id"])
+                raw_battles.append(b)
+
+    # 3. Also query `user(username: ...)` (supports syncing by BattleBase username or supplementing `me.battles`)
+    if resolved_username and "@" not in resolved_username:
+        user_query = """
+        query UserBattles($username: String!, $last: Int) {
+          user(username: $username) {
+            id
+            username
+            battles(last: $last) {
+              id
+              isFinished
+              createdBy { id username }
+              opponent { id username }
+              battleSetupJson
+              eventsJson
+            }
+          }
+        }
+        """
+        try:
+            res_u = _battlebase_graphql_request(user_query, {"username": resolved_username, "last": 200}, token=token)
+            u_node = (res_u.get("data") or {}).get("user")
+            if not u_node and not token:
+                raise ValueError(f"BattleBase user '{resolved_username}' not found. Check your username or sign in with your BattleBase email & password.")
+            if isinstance(u_node, dict):
+                for b in (u_node.get("battles") or []):
+                    if isinstance(b, dict) and b.get("id") and b["id"] not in seen_ids:
+                        seen_ids.add(b["id"])
+                        raw_battles.append(b)
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.warning(f"BattleBase user query warning for {resolved_username}: {e}")
+
+    imported_games: List[Dict[str, Any]] = []
+    for b in raw_battles:
+        conv = convert_battlebase_battle_to_omnitactica(
+            b,
+            importing_user=importing_user,
+            target_bb_username=resolved_username,
+        )
+        if conv:
+            imported_games.append(conv)
+
+    return {
+        "username": resolved_username,
+        "raw_count": len(raw_battles),
+        "games": imported_games,
+    }
+
+
+# ============================================================================
+# 5. NEWRECRUIT (https://www.newrecruit.eu/api/rpc) GAME & REPORT IMPORTER
+# ============================================================================
+
+def _parse_nr_exported_list_meta(exported_list: str, is_aos: bool = False) -> Tuple[str, str]:
+    """Extracts (faction, detachment/formation) from a NewRecruit WTC-Compact or GW exported_list string."""
+    text = str(exported_list or "").replace("\u00a0", " ")
+    if not text:
+        return ("", "")
+    fac = ""
+    det = ""
+    m_fac = re.search(r"\+\s*FACTION KEYWORD:\s*([^\r\n]+)", text, re.IGNORECASE)
+    if m_fac:
+        raw_f = m_fac.group(1).strip()
+        if " - " in raw_f:
+            raw_f = raw_f.split(" - ", 1)[1].strip()
+        fac = raw_f
+    m_det = re.search(r"\+\s*(?:DETACHMENT|BATTLE FORMATION|SUBFACTION):\s*([^\r\n]+)", text, re.IGNORECASE)
+    if m_det:
+        raw_d = m_det.group(1).strip()
+        raw_d = re.sub(r"\s*\([^)]*\)\s*$", "", raw_d).strip()
+        det = raw_d
+    return (fac, det)
+
+
+def convert_newrecruit_report_to_omnitactica(
+    report: Dict[str, Any],
+    importing_user: Optional[Dict[str, Any]] = None,
+    target_nr_user_id: str = "",
+    target_nr_login: str = "",
+) -> Optional[Dict[str, Any]]:
+    """Converts a NewRecruit `match_history` or `my_reports` game report into an OmniTactica scorecard."""
+    if not isinstance(report, dict):
+        return None
+    rep_id = str(report.get("_id") or report.get("id") or "").strip()
+    players = report.get("players") or []
+    scores = report.get("score") or []
+    if len(players) < 2 or len(scores) < 2:
+        return None
+
+    sys_id = int(report.get("id_game_system") or 827374861)
+    is_aos = sys_id == 4255553472
+
+    def _extract_nr_p(idx: int) -> Dict[str, Any]:
+        p = players[idx] if isinstance(players[idx], dict) else {}
+        sc = scores[idx] if isinstance(scores[idx], dict) else {}
+        vp = sc.get("vp")
+        if vp is None:
+            vp = sc.get("tp") if sc.get("tp") is not None else sc.get("score")
+        total_vp = int(vp or 0) if isinstance(vp, (int, float, str)) and str(vp).lstrip("-").isdigit() else 0
+        exp_list = str(p.get("exported_list") or "").strip()
+        fac, det = _parse_nr_exported_list_meta(exp_list, is_aos=is_aos)
+        if not fac:
+            fac = "Age of Sigmar" if is_aos else "Warhammer 40k"
+        p_name = str(p.get("name") or p.get("alias") or f"Player {idx + 1}").strip()
+
+        # Synthesize clean 5-round breakdown from total_vp
+        pri = [0, 0, 0, 0, 0]
+        secs = []
+        tactics = []
+        if is_aos:
+            pri_tot = min(30, int(round(total_vp * 0.6)))
+            tac_tot = max(0, min(20, total_vp - pri_tot))
+            for i in range(5):
+                pri[i] = pri_tot // 5 + (1 if i < (pri_tot % 5) else 0)
+                if tac_tot >= 4:
+                    tactics.append({"round": i + 1, "name": f"Round {i + 1} Battle Tactic", "score": 4, "completed": True})
+                    tac_tot -= 4
+        else:
+            paint = total_vp >= 10
+            rem = max(0, total_vp - (10 if paint else 0))
+            pri_tot = min(50, int(round(rem * 0.56)))
+            sec_tot = max(0, min(40, rem - pri_tot))
+            for i in range(1, 5):
+                pri[i] = pri_tot // 4 + (1 if (i - 1) < (pri_tot % 4) else 0)
+            if sec_tot > 0:
+                s_arr = [sec_tot // 5 + (1 if i < (sec_tot % 5) else 0) for i in range(5)]
+                secs.append({"name": "Secondary Objectives", "id": "secondary-objectives", "scores": s_arr, "categoryId": "tacticalMissions"})
+
+        return {
+            "id_member": str(p.get("id_member") or ""),
+            "name": p_name,
+            "faction": {"name": fac, "subtitle": det},
+            "primaries": [{"name": "Border War" if is_aos else "Take & Hold", "scores": pri}],
+            "secondaries": secs,
+            "battleTactics": tactics,
+            "isBattleReady": not is_aos and total_vp >= 10,
+            "totalScore": total_vp,
+            "armyListText": exp_list,
+        }
+
+    p0 = _extract_nr_p(0)
+    p1 = _extract_nr_p(1)
+
+    swap = False
+    if target_nr_user_id and p1["id_member"] == target_nr_user_id and p0["id_member"] != target_nr_user_id:
+        swap = True
+    elif target_nr_login and p1["name"].lower() == target_nr_login.lower() and p0["name"].lower() != target_nr_login.lower():
+        swap = True
+
+    first_turn_idx = int(report.get("first_turn") or 0)
+    if swap:
+        players_arr = [p1, p0]
+        went_first = "firstPlayer" if first_turn_idx == 1 else "secondPlayer"
+    else:
+        players_arr = [p0, p1]
+        went_first = "secondPlayer" if first_turn_idx == 1 else "firstPlayer"
+
+    ttb_equiv = {
+        "id": f"nr-{rep_id}",
+        "gameType": "aos4e" if is_aos else "wh40k10e",
+        "gameDate": report.get("date") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "isFinished": True,
+        "wentFirstRollOff": went_first,
+        "mission": {
+            "missionName": "Border War" if is_aos else "Take & Hold",
+            "packName": "General's Handbook" if is_aos else "Chapter Approved",
+            "deploymentMapName": "Standard Deployment" if is_aos else "Search & Destroy",
+            "selectedMissionRules": [f"Round {report.get('round')}" if report.get("round") else "Matched Play"],
+        },
+        "players": players_arr,
+    }
+    return convert_ttb_game_to_omnitactica(
+        ttb_equiv,
+        importing_user=importing_user,
+        default_system="aos" if is_aos else "40k",
+        source_label="newrecruit",
+    )
+
+
+def sync_newrecruit_account_games(
+    username: str,
+    password: str = "",
+    importing_user: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Authenticates with NewRecruit (`https://www.newrecruit.eu/api/rpc`) using login + password
+    and pulls all 40k & AoS match reports (`my_reports` + `match_history` for both friendly and tournament games).
+    """
+    from newrecruit_integration import _nr_rpc_call, hash_newrecruit_password
+
+    clean_user = (username or "").strip()
+    clean_pass = password or ""
+    if not clean_user:
+        raise ValueError("NewRecruit Username or Email is required.")
+    if not clean_pass:
+        raise ValueError("NewRecruit Password is required.")
+
+    hashed_pw = hash_newrecruit_password(clean_user, clean_pass)
+    login_res = _nr_rpc_call("login", [clean_user, hashed_pw])
+    if (not isinstance(login_res, dict) or login_res.get("error") or not login_res.get("access")) and "@" in clean_user:
+        login_res = _nr_rpc_call("login_from_email", [clean_user, clean_pass])
+
+    if not isinstance(login_res, dict) or login_res.get("error") or not login_res.get("access"):
+        err_msg = (login_res.get("message") or login_res.get("msg") or "Invalid NewRecruit username or password.") if isinstance(login_res, dict) else "Login failed."
+        raise ValueError(f"NewRecruit login failed: {err_msg}")
+
+    access_token = str(login_res["access"])
+    nr_user_id = str(login_res.get("_id") or login_res.get("id_user") or "")
+    nr_login_name = str(login_res.get("login") or clean_user)
+
+    if not nr_user_id:
+        try:
+            u_data = _nr_rpc_call("user_get_data", [], access_token=access_token)
+            if isinstance(u_data, dict):
+                u_obj = u_data.get("user") if isinstance(u_data.get("user"), dict) else u_data
+                nr_user_id = str(u_obj.get("_id") or "")
+                nr_login_name = str(u_obj.get("login") or nr_login_name)
+        except Exception:
+            pass
+
+    raw_reports: List[Dict[str, Any]] = []
+    seen_ids: set = set()
+
+    for sys_id in (827374861, 4255553472):
+        # 1. User's own reports
+        try:
+            my_reps = _nr_rpc_call("my_reports", [sys_id], access_token=access_token)
+            if isinstance(my_reps, list):
+                for r in my_reps:
+                    if isinstance(r, dict) and r.get("_id") and r["_id"] not in seen_ids:
+                        seen_ids.add(r["_id"])
+                        raw_reports.append(r)
+        except Exception as e:
+            logger.debug(f"NewRecruit my_reports({sys_id}) warning: {e}")
+
+        # 2. Match history (friendly + tourny)
+        if nr_user_id:
+            for p_type in ("friendly", "tourny"):
+                try:
+                    mh = _nr_rpc_call("match_history", [sys_id, p_type, nr_user_id], access_token=access_token)
+                    if isinstance(mh, list):
+                        for r in mh:
+                            if isinstance(r, dict) and r.get("_id") and r["_id"] not in seen_ids:
+                                seen_ids.add(r["_id"])
+                                raw_reports.append(r)
+                except Exception as e:
+                    logger.debug(f"NewRecruit match_history({sys_id}, {p_type}) warning: {e}")
+
+    imported_games: List[Dict[str, Any]] = []
+    for rep in raw_reports:
+        conv = convert_newrecruit_report_to_omnitactica(
+            rep,
+            importing_user=importing_user,
+            target_nr_user_id=nr_user_id,
+            target_nr_login=nr_login_name,
+        )
+        if conv:
+            imported_games.append(conv)
+
+    return {
+        "username": nr_login_name,
+        "raw_count": len(raw_reports),
+        "games": imported_games,
+    }
+
+
+# ============================================================================
+# 6. CHAMPIONSHUB (https://api.championshub.app/api) TOURNAMENT & HOME GAMES IMPORTER
+# ============================================================================
+
+CHAMPIONSHUB_API_BASE = "https://api.championshub.app/api"
+
+
+def _championshub_request(
+    path: str,
+    method: str = "GET",
+    payload: Optional[Dict[str, Any]] = None,
+    game_system: str = "wh40k",
+    cookie_header: str = "",
+) -> Tuple[Any, str]:
+    url = f"{CHAMPIONSHUB_API_BASE}/{path.lstrip('/')}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; OmniTacticaTrackerSync/1.0)",
+        "Accept": "application/json",
+        "game-system": game_system,
+        "locale": "en",
+    }
+    if cookie_header:
+        headers["Cookie"] = cookie_header
+    body = None
+    if payload is not None:
+        body = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=body, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        set_cookies = resp.headers.get_all("Set-Cookie") or []
+        cookie_str = "; ".join(c.split(";", 1)[0] for c in set_cookies if ";" in c)
+        raw = resp.read().decode("utf-8", errors="ignore")
+        return (json.loads(raw) if raw.strip() else {}, cookie_str)
+
+
+def sync_championshub_account_games(
+    username: str,
+    password: str = "",
+    importing_user: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Authenticates with ChampionsHub (`https://api.championshub.app/api`) using Email + Password
+    (or searches by ChampionsHub Display Name / User ID) and imports all 40k & AoS tournament + private games.
+    """
+    clean_user = (username or "").strip()
+    clean_pass = password or ""
+    if not clean_user:
+        raise ValueError("ChampionsHub Email or Username is required.")
+
+    cookie_hdr = ""
+    ch_user_id = ""
+    ch_display = clean_user
+
+    # 1. If password is provided, sign in via POST /api/auth/login
+    if clean_pass and "@" in clean_user:
+        try:
+            _, login_cookies = _championshub_request(
+                "auth/login",
+                method="POST",
+                payload={"email": clean_user, "password": clean_pass, "rememberMe": True},
+            )
+            cookie_hdr = login_cookies
+            prof, _ = _championshub_request("user/profile", method="GET", cookie_header=cookie_hdr)
+            if isinstance(prof, dict) and prof.get("id"):
+                ch_user_id = str(prof["id"])
+                ch_display = str(prof.get("displayName") or clean_user)
+        except urllib.error.HTTPError as he:
+            raise ValueError(f"ChampionsHub login failed (HTTP {he.code}). Check your email and password.")
+        except Exception as e:
+            raise ValueError(f"ChampionsHub login failed: {e}")
+
+    # 2. If ch_user_id not yet resolved, check if clean_user is a UUID or search ranking-elo/list
+    if not ch_user_id:
+        if re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", clean_user, re.I):
+            ch_user_id = clean_user
+        else:
+            q_low = clean_user.lower()
+            for sys_code in ("wh40k", "aos"):
+                try:
+                    search_res, _ = _championshub_request(
+                        "ranking-elo/list",
+                        method="POST",
+                        payload={"cityId": "", "search": clean_user, "seasonLabel": "CURRENT"},
+                        game_system=sys_code,
+                    )
+                    rows = (search_res.get("data") or []) if isinstance(search_res, dict) else []
+                    exact_match = None
+                    partial_match = None
+                    for r in rows:
+                        if not isinstance(r, dict) or not isinstance(r.get("user"), dict):
+                            continue
+                        dn = str(r["user"].get("displayName") or "").strip()
+                        if dn.lower() == q_low:
+                            exact_match = r["user"]
+                            break
+                        if not partial_match and q_low in dn.lower():
+                            partial_match = r["user"]
+                    picked = exact_match or partial_match
+                    if picked and picked.get("id"):
+                        ch_user_id = str(picked["id"])
+                        ch_display = str(picked.get("displayName") or clean_user)
+                        break
+                except Exception:
+                    pass
+
+    if not ch_user_id:
+        raise ValueError(f"Could not find ChampionsHub player '{clean_user}'. Sign in with your ChampionsHub email & password or enter your exact ChampionsHub display name.")
+
+    imported_games: List[Dict[str, Any]] = []
+    raw_count = 0
+
+    for sys_code, is_aos in (("wh40k", False), ("aos", True)):
+        # Load army dictionary for faction lookup
+        army_map: Dict[int, str] = {}
+        try:
+            armies_res, _ = _championshub_request("army/list", method="GET", game_system=sys_code)
+            if isinstance(armies_res, list):
+                for a in armies_res:
+                    if isinstance(a, dict) and a.get("id") and a.get("name"):
+                        army_map[int(a["id"])] = str(a["name"])
+        except Exception:
+            pass
+
+        # A. Fetch tournament history & detailed round pairings
+        try:
+            hist_res, _ = _championshub_request(
+                f"ranking-elo/user-history/{ch_user_id}?season=CURRENT",
+                method="GET",
+                game_system=sys_code,
+                cookie_header=cookie_hdr,
+            )
+            events_list = (hist_res.get("data") or []) if isinstance(hist_res, dict) else []
+        except Exception:
+            events_list = []
+
+        for ev in events_list[:30]:
+            if not isinstance(ev, dict) or not ev.get("id"):
+                continue
+            ev_id = str(ev["id"])
+            ev_name = str(ev.get("name") or "ChampionsHub Tournament")
+            ev_date = ev.get("startsAt") or ev.get("endsAt")
+
+            # Fetch detailed submission/list to get secondaryPoints (actual 0-100 Battle VP) & army list
+            sub_data = None
+            try:
+                sub_res, _ = _championshub_request(
+                    f"submission/list/{ev_id}/{ch_user_id}",
+                    method="GET",
+                    game_system=sys_code,
+                    cookie_header=cookie_hdr,
+                )
+                if isinstance(sub_res, dict) and sub_res.get("userPairings"):
+                    sub_data = sub_res
+            except Exception:
+                sub_data = None
+
+            pairings = (sub_data.get("userPairings") if sub_data else None) or ev.get("pairings") or []
+            my_list_text = str((sub_data or {}).get("list") or "").strip()
+            my_list_title = str((sub_data or {}).get("listTitle") or "").strip()
+
+            for p_idx, pr in enumerate(pairings):
+                if not isinstance(pr, dict):
+                    continue
+                u1 = pr.get("pairingUser1") or {}
+                u2 = pr.get("pairingUser2") or {}
+                if not u1 or not u2:
+                    continue
+                raw_count += 1
+
+                def _parse_ch_side(side: Dict[str, Any]) -> Dict[str, Any]:
+                    u_nested = side.get("user") if isinstance(side.get("user"), dict) else {}
+                    uid = str(side.get("userId") or u_nested.get("id") or "")
+                    dname = str(side.get("displayName") or u_nested.get("displayName") or "Player").strip()
+                    army_obj = side.get("army") if isinstance(side.get("army"), dict) else {}
+                    aid = side.get("armyId") or army_obj.get("id")
+                    fac_name = str(army_obj.get("name") or (army_map.get(int(aid)) if isinstance(aid, int) else "") or ("Age of Sigmar" if is_aos else "Warhammer 40k"))
+                    # In ChampionsHub, secondaryPoints is 0-100 Battle VP; primaryPoints is 0-20 WTC TP
+                    sec_pts = side.get("secondaryPoints")
+                    pri_pts = side.get("primaryPoints")
+                    vp = int(sec_pts) if isinstance(sec_pts, (int, float)) and int(sec_pts) > 0 else int(pri_pts or 0)
+                    is_me = uid == ch_user_id
+
+                    pri_arr = [0, 0, 0, 0, 0]
+                    secs_arr = []
+                    tactics_arr = []
+                    if is_aos:
+                        p_tot = min(30, int(round(vp * 0.6)))
+                        t_tot = max(0, min(20, vp - p_tot))
+                        for i in range(5):
+                            pri_arr[i] = p_tot // 5 + (1 if i < (p_tot % 5) else 0)
+                            if t_tot >= 4:
+                                tactics_arr.append({"round": i + 1, "name": f"Round {i + 1} Battle Tactic", "score": 4, "completed": True})
+                                t_tot -= 4
+                    else:
+                        paint = vp >= 10
+                        rem = max(0, vp - (10 if paint else 0))
+                        p_tot = min(50, int(round(rem * 0.56)))
+                        s_tot = max(0, min(40, rem - p_tot))
+                        for i in range(1, 5):
+                            pri_arr[i] = p_tot // 4 + (1 if (i - 1) < (p_tot % 4) else 0)
+                        if s_tot > 0:
+                            s_5 = [s_tot // 5 + (1 if i < (s_tot % 5) else 0) for i in range(5)]
+                            secs_arr.append({"name": "Secondary Objectives", "id": "secondary-objectives", "scores": s_5, "categoryId": "tacticalMissions"})
+
+                    return {
+                        "uid": uid,
+                        "name": dname,
+                        "faction": {"name": fac_name, "subtitle": my_list_title if is_me else ""},
+                        "primaries": [{"name": ev_name, "scores": pri_arr}],
+                        "secondaries": secs_arr,
+                        "battleTactics": tactics_arr,
+                        "isBattleReady": not is_aos and vp >= 10,
+                        "totalScore": vp,
+                        "armyListText": my_list_text if is_me else "",
+                    }
+
+                s1 = _parse_ch_side(u1)
+                s2 = _parse_ch_side(u2)
+                players_arr = [s2, s1] if (s2["uid"] == ch_user_id and s1["uid"] != ch_user_id) else [s1, s2]
+                round_id = str(pr.get("roundId") or f"{ev_id}-r{p_idx + 1}")
+                round_name = str(pr.get("roundName") or f"Round {p_idx + 1}")
+
+                ttb_equiv = {
+                    "id": f"ch-{ev_id}-{round_id}",
+                    "gameType": "aos4e" if is_aos else "wh40k10e",
+                    "gameDate": ev_date or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "eventName": ev_name,
+                    "isFinished": True,
+                    "mission": {
+                        "missionName": f"{ev_name} ({round_name})",
+                        "packName": "ChampionsHub",
+                        "deploymentMapName": "Tournament Pairing",
+                        "selectedMissionRules": [round_name],
+                    },
+                    "players": players_arr,
+                }
+                conv = convert_ttb_game_to_omnitactica(
+                    ttb_equiv,
+                    importing_user=importing_user,
+                    default_system="aos" if is_aos else "40k",
+                    source_label="championshub",
+                )
+                if conv:
+                    imported_games.append(conv)
+
+    return {
+        "username": ch_display,
+        "raw_count": raw_count,
+        "games": imported_games,
+    }
+
+
+# ============================================================================
+# 7. MILARKI (https://www.milarki.com/api/v1) AGE OF SIGMAR BATTLE IMPORTER
+# ============================================================================
+
+MILARKI_API_BASE = "https://www.milarki.com/api/v1"
+
+
+def convert_milarki_battle_to_omnitactica(
+    battle: Dict[str, Any],
+    importing_user: Optional[Dict[str, Any]] = None,
+    target_player_id: str = "",
+) -> Optional[Dict[str, Any]]:
+    """
+    Converts a Milarki API v1 Battle object (`/api/v1/users/{publicId}/battles`) into a full
+    round-by-round OmniTactica Age of Sigmar scorecard (`AOS-MLK-...`).
+    """
+    if not isinstance(battle, dict):
+        return None
+    b_id = str(battle.get("id") or "").strip()
+    players = battle.get("players") or []
+    if not b_id or len(players) < 2:
+        return None
+
+    scenario = str(battle.get("scenario") or "Border War").strip()
+    battle_pack = str(battle.get("battlePack") or "General's Handbook").strip()
+    b_date = battle.get("date") or datetime.datetime.now(datetime.timezone.utc).isoformat()
+    tourn_slug = str(battle.get("tournament") or "").strip()
+
+    def _map_mlk_player(p: Dict[str, Any], idx: int) -> Dict[str, Any]:
+        p_name = str(p.get("player") or f"Player {idx + 1}").strip()
+        p_id = str(p.get("playerId") or "").strip()
+        fac = str(p.get("faction") or "Age of Sigmar").strip()
+        sub_fac = str(p.get("subFaction") or "").strip()
+        vp = int(p.get("victoryPoints") or p.get("battlePoints") or 0)
+        gs_name = str(p.get("grandStrategy") or "").strip()
+        gs_scored = bool(p.get("grandStrategyScored"))
+
+        pri_scores = [0, 0, 0, 0, 0]
+        tactics_list = []
+        rounds_arr = p.get("rounds") if isinstance(p.get("rounds"), list) else []
+        if rounds_arr:
+            for r in rounds_arr:
+                if not isinstance(r, dict):
+                    continue
+                r_num = max(1, min(5, int(r.get("round") or 1)))
+                obj_pts = int(r.get("objectivePoints") if r.get("objectivePoints") is not None else max(0, int(r.get("victoryPoints") or 0) - (4 if r.get("battleTacticScored") else 0)))
+                pri_scores[r_num - 1] = obj_pts
+                bt_name = str(r.get("battleTactic") or "").strip()
+                bt_scored = bool(r.get("battleTacticScored"))
+                if bt_name or bt_scored:
+                    tactics_list.append({
+                        "round": r_num,
+                        "name": bt_name or f"Round {r_num} Battle Tactic",
+                        "score": 4 if bt_scored else 0,
+                        "completed": bt_scored,
+                    })
+        else:
+            obj_tot = int(p.get("objectivePoints") or min(30, int(round(vp * 0.6))))
+            bt_cnt = int(p.get("battleTacticsScored") or max(0, (vp - obj_tot) // 4))
+            for i in range(5):
+                pri_scores[i] = obj_tot // 5 + (1 if i < (obj_tot % 5) else 0)
+                if i < bt_cnt:
+                    tactics_list.append({
+                        "round": i + 1,
+                        "name": f"Round {i + 1} Battle Tactic",
+                        "score": 4,
+                        "completed": True,
+                    })
+
+        return {
+            "playerId": p_id,
+            "name": p_name,
+            "faction": {"name": fac, "subtitle": sub_fac},
+            "primaries": [{"name": scenario, "scores": pri_scores}],
+            "battleTactics": tactics_list,
+            "grandStrategy": {"name": gs_name, "points": 3 if gs_scored else 0, "achieved": gs_scored} if gs_name else None,
+            "totalScore": vp,
+        }
+
+    p0 = _map_mlk_player(players[0], 0)
+    p1 = _map_mlk_player(players[1], 1)
+    if target_player_id and p1["playerId"].upper() == target_player_id.strip().upper() and p0["playerId"].upper() != target_player_id.strip().upper():
+        players_arr = [p1, p0]
+    else:
+        players_arr = [p0, p1]
+
+    is_3e = any(k in battle_pack.lower() for k in ("2022", "2023", "23-24", "3rd", "3e")) or bool(players_arr[0].get("grandStrategy"))
+    ttb_equiv = {
+        "id": f"mlk-{b_id}",
+        "gameType": "aos3e" if is_3e else "aos4e",
+        "edition": "aos_3e" if is_3e else "aos_4e",
+        "gameDate": b_date,
+        "eventName": _humanize_identifier(tourn_slug) if tourn_slug else "",
+        "isFinished": True,
+        "mission": {
+            "missionName": scenario,
+            "packName": battle_pack,
+            "deploymentMapName": "Age of Sigmar Battleplan",
+            "selectedMissionRules": [battle_pack],
+        },
+        "players": players_arr,
+    }
+    return convert_ttb_game_to_omnitactica(
+        ttb_equiv,
+        importing_user=importing_user,
+        default_system="aos",
+        source_label="milarki",
+    )
+
+
+def sync_milarki_account_games(
+    player_id: str,
+    api_key: str,
+    importing_user: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Fetches a player's Age of Sigmar battles from Milarki's official REST API v1
+    (`GET https://www.milarki.com/api/v1/users/{publicId}/battles?limit=100` with `Bearer mlk_v1_...`).
+    """
+    clean_pid = (player_id or "").strip()
+    clean_key = (api_key or "").strip()
+    if not clean_pid:
+        raise ValueError("Milarki Player ID (e.g. L80MTI4R) is required.")
+    if not clean_key:
+        raise ValueError("Milarki API Key (mlk_v1_...) is required. Generate one in your Milarki Account Settings.")
+
+    url = f"{MILARKI_API_BASE}/users/{urllib.parse.quote(clean_pid)}/battles?limit=100"
+    headers = {
+        "Authorization": f"Bearer {clean_key}",
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; OmniTacticaTrackerSync/1.0)",
+    }
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+    except urllib.error.HTTPError as he:
+        if he.code == 401:
+            raise ValueError("Milarki authentication failed: Invalid API Key (must start with mlk_v1_).")
+        if he.code == 404:
+            raise ValueError(f"Milarki Player ID '{clean_pid}' not found.")
+        raise ValueError(f"Milarki API returned HTTP {he.code}.")
+
+    battles = (payload.get("data") if isinstance(payload, dict) else payload) or []
+    imported_games: List[Dict[str, Any]] = []
+    for b in battles:
+        conv = convert_milarki_battle_to_omnitactica(
+            b,
+            importing_user=importing_user,
+            target_player_id=clean_pid,
+        )
+        if conv:
+            imported_games.append(conv)
+
+    return {
+        "username": clean_pid,
+        "raw_count": len(battles),
+        "games": imported_games,
+    }
+

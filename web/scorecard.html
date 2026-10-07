@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=a4aecf30de">
+  <link rel="manifest" href="/manifest.json?v=742a63b41b">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "a4aecf30de";</script>
+  <script>window.APP_VERSION = "742a63b41b";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -1369,8 +1369,26 @@
 
       const statusBadgeContainer = document.getElementById('sc-status-badges');
       if (statusBadgeContainer) {
-        const impSource = st.imported_source || rec.imported_source || (String(data.match_id || '').includes('-GW-') ? 'gw_app' : (String(data.match_id || '').includes('-TTB-') ? 'tabletop_battles' : ''));
-        const impAppLabel = st.imported_app || rec.imported_app || (impSource === 'gw_app' ? 'GW 40k App' : 'Tabletop Battles');
+        const midStr = String(data.match_id || '');
+        const impSource = st.imported_source || rec.imported_source || (
+          midStr.includes('-GW-') ? 'gw_app' :
+          midStr.includes('-BB-') ? 'battlebase' :
+          midStr.includes('-NR-') ? 'newrecruit' :
+          midStr.includes('-CH-') ? 'championshub' :
+          midStr.includes('-MLK-') ? 'milarki' :
+          midStr.includes('-BCP-') ? 'bcp' :
+          midStr.includes('-TTB-') ? 'tabletop_battles' : ''
+        );
+        const appNameBySource = {
+          'tabletop_battles': 'Tabletop Battles',
+          'battlebase': 'BattleBase',
+          'newrecruit': 'NewRecruit',
+          'championshub': 'ChampionsHub',
+          'milarki': 'Milarki',
+          'bcp': 'Best Coast Pairings',
+          'gw_app': 'GW 40k App'
+        };
+        const impAppLabel = st.imported_app || rec.imported_app || appNameBySource[impSource] || 'Tabletop Battles';
         const impBadgeHtml = impSource
           ? `<span class="sc-badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35);">📥 Imported • ${escapeHtml(impAppLabel)}</span>`
           : '';

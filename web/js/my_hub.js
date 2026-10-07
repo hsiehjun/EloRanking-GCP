@@ -2063,10 +2063,28 @@ function renderMyHub(data) {
                     const matchId = th.match_id || th.id || '';
                     const shortId = matchId.replace('WH40K-', '').replace('AOS-', '');
                     const dateStr = formatHubMatchDate(th.game_date || th.date || th.updated_at, th);
-                    const impSrc = th.imported_source || (matchId.includes('-GW-') ? 'gw_app' : (matchId.includes('-TTB-') ? 'tabletop_battles' : ''));
-                    const impBadge = impSrc === 'gw_app'
-                      ? '<span style="display:inline-block; font-size:0.6rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); line-height:1.3;">📥 GW</span>'
-                      : (impSrc ? '<span style="display:inline-block; font-size:0.6rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.35); line-height:1.3;">📥 TTB</span>' : '');
+                    const impSrc = th.imported_source || (
+                      matchId.includes('-GW-') ? 'gw_app' :
+                      matchId.includes('-BB-') ? 'battlebase' :
+                      matchId.includes('-NR-') ? 'newrecruit' :
+                      matchId.includes('-CH-') ? 'championshub' :
+                      matchId.includes('-MLK-') ? 'milarki' :
+                      matchId.includes('-BCP-') ? 'bcp' :
+                      matchId.includes('-TTB-') ? 'tabletop_battles' : ''
+                    );
+                    const impBadgeMap = {
+                      'tabletop_battles': { label: '📥 TTB', css: 'background:rgba(58,193,139,0.18); color:#34d399; border:1px solid rgba(58,193,139,0.35);' },
+                      'battlebase': { label: '📥 BattleBase', css: 'background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);' },
+                      'newrecruit': { label: '📥 NewRecruit', css: 'background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.35);' },
+                      'championshub': { label: '📥 ChampionsHub', css: 'background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.35);' },
+                      'milarki': { label: '📥 Milarki', css: 'background:rgba(244,63,94,0.18); color:#fb7185; border:1px solid rgba(244,63,94,0.35);' },
+                      'bcp': { label: '📥 BCP', css: 'background:rgba(59,130,246,0.18); color:#60a5fa; border:1px solid rgba(59,130,246,0.35);' },
+                      'gw_app': { label: '📥 GW', css: 'background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.35);' }
+                    };
+                    const impMeta = impBadgeMap[impSrc] || (impSrc ? impBadgeMap['tabletop_battles'] : null);
+                    const impBadge = impMeta
+                      ? `<span style="display:inline-block; font-size:0.6rem; font-weight:800; padding:1px 5px; border-radius:4px; ${impMeta.css} line-height:1.3;">${impMeta.label}</span>`
+                      : '';
                     const edCode = String(th.edition || (isAosHub ? 'aos_4e' : '10th')).toLowerCase();
                     const edShort = edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : '')))));
                     const edStyleMap = {
@@ -5882,7 +5900,7 @@ function toggleHubCareerDetails(ev) {
 window.toggleHubCareerDetails = toggleHubCareerDetails;
 
 // ============================================================================
-// COMPLETED GAME IMPORTER MODAL (Tabletop Battles & GW 40k App -> tracker_games)
+// COMPLETED GAME IMPORTER MODAL (Tabletop Battles, BattleBase, NewRecruit, ChampionsHub, Milarki)
 // ============================================================================
 function openTrackerImportModal(defaultTab = 'ttb-sync') {
   const existing = document.getElementById('tracker-import-modal-overlay');
@@ -5890,43 +5908,56 @@ function openTrackerImportModal(defaultTab = 'ttb-sync') {
   const celeb = document.getElementById('badges-celebration-modal');
   if (celeb) celeb.remove();
 
+  const nrDefaultLogin = (typeof hubNrCloudAccount === 'object' && hubNrCloudAccount && hubNrCloudAccount.login) ? String(hubNrCloudAccount.login) : '';
+
   const overlay = document.createElement('div');
   overlay.id = 'tracker-import-modal-overlay';
   overlay.style.cssText = 'position:fixed; inset:0; z-index:999999; background:rgba(2,6,23,0.88); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; padding:12px; font-family:var(--font-sans, Inter, sans-serif);';
   overlay.onclick = (e) => { if (e.target === overlay) closeTrackerImportModal(); };
 
   overlay.innerHTML = `
-    <div id="tracker-import-modal-card" style="background:#0b1120; border:1px solid rgba(58,193,139,0.4); border-radius:18px; width:100%; max-width:520px; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 28px 80px rgba(0,0,0,0.9), 0 0 40px rgba(58,193,139,0.1); overflow:hidden; color:#f8fafc;">
+    <div id="tracker-import-modal-card" style="background:#0b1120; border:1px solid rgba(58,193,139,0.4); border-radius:18px; width:100%; max-width:560px; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 28px 80px rgba(0,0,0,0.9), 0 0 40px rgba(58,193,139,0.1); overflow:hidden; color:#f8fafc;">
       <!-- Header -->
       <div style="padding:16px 20px; background:linear-gradient(135deg, #0d1f1d 0%, #0f172a 100%); border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; gap:12px;">
         <div style="display:flex; align-items:center; gap:10px;">
-          <img src="/assets/integrations/ttb_icon.png" alt="Tabletop Battles" style="width:34px; height:34px; border-radius:9px; box-shadow:0 4px 12px rgba(0,0,0,0.4);" />
+          <img src="/assets/integrations/ttb_icon.png" alt="Import Games" style="width:34px; height:34px; border-radius:9px; box-shadow:0 4px 12px rgba(0,0,0,0.4);" />
           <div>
             <div style="font-size:1.05rem; font-weight:800; color:#fff; line-height:1.2;">Import Completed Games</div>
-            <div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">Sync your 40k &amp; Age of Sigmar match history</div>
+            <div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">Sync your 40k &amp; Age of Sigmar scorecards from your favorite tracker app</div>
           </div>
         </div>
         <button type="button" onclick="closeTrackerImportModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:0.9rem; flex-shrink:0;">✕</button>
       </div>
 
-      <!-- Tabs -->
-      <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; padding:9px 16px; background:#070b14; border-bottom:1px solid rgba(255,255,255,0.07);">
-        <button type="button" id="imp-tab-btn-ttb-sync" onclick="switchTrackerImportTab('ttb-sync')" style="padding:8px 8px; border-radius:8px; font-size:0.75rem; font-weight:800; cursor:pointer; border:1px solid rgba(58,193,139,0.5); background:rgba(58,193,139,0.16); color:#34d399; display:flex; align-items:center; justify-content:center; gap:6px;">
-          <img src="/assets/integrations/ttb_icon.png" alt="" style="width:16px; height:16px; border-radius:4px;" />
-          <span>Tabletop Battles Login</span>
+      <!-- Score Tracker App Tabs -->
+      <div style="display:flex; flex-wrap:wrap; gap:6px; padding:10px 16px; background:#070b14; border-bottom:1px solid rgba(255,255,255,0.07);">
+        <button type="button" id="imp-tab-btn-ttb-sync" onclick="switchTrackerImportTab('ttb-sync')" style="flex:1 1 auto; padding:7px 10px; border-radius:8px; font-size:0.73rem; font-weight:800; cursor:pointer; border:1px solid rgba(58,193,139,0.5); background:rgba(58,193,139,0.16); color:#34d399; display:flex; align-items:center; justify-content:center; gap:5px; white-space:nowrap;">
+          <img src="/assets/integrations/ttb_icon.png" alt="" style="width:15px; height:15px; border-radius:4px;" />
+          <span>Tabletop Battles</span>
         </button>
-        <button type="button" id="imp-tab-btn-parse" onclick="switchTrackerImportTab('parse')" style="padding:8px 8px; border-radius:8px; font-size:0.75rem; font-weight:800; cursor:pointer; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); color:#94a3b8; display:flex; align-items:center; justify-content:center; gap:6px;">
+        <button type="button" id="imp-tab-btn-battlebase" onclick="switchTrackerImportTab('battlebase')" style="flex:1 1 auto; padding:7px 10px; border-radius:8px; font-size:0.73rem; font-weight:800; cursor:pointer; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); color:#94a3b8; display:flex; align-items:center; justify-content:center; gap:5px; white-space:nowrap;">
+          <span>⚔️</span>
+          <span>BattleBase</span>
+        </button>
+        <button type="button" id="imp-tab-btn-newrecruit" onclick="switchTrackerImportTab('newrecruit')" style="flex:1 1 auto; padding:7px 10px; border-radius:8px; font-size:0.73rem; font-weight:800; cursor:pointer; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); color:#94a3b8; display:flex; align-items:center; justify-content:center; gap:5px; white-space:nowrap;">
           <span>📋</span>
-          <span>Paste / Export Text</span>
+          <span>NewRecruit</span>
+        </button>
+        <button type="button" id="imp-tab-btn-championshub" onclick="switchTrackerImportTab('championshub')" style="flex:1 1 auto; padding:7px 10px; border-radius:8px; font-size:0.73rem; font-weight:800; cursor:pointer; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); color:#94a3b8; display:flex; align-items:center; justify-content:center; gap:5px; white-space:nowrap;">
+          <span>🏆</span>
+          <span>ChampionsHub</span>
+        </button>
+        <button type="button" id="imp-tab-btn-milarki" onclick="switchTrackerImportTab('milarki')" style="flex:1 1 auto; padding:7px 10px; border-radius:8px; font-size:0.73rem; font-weight:800; cursor:pointer; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); color:#94a3b8; display:flex; align-items:center; justify-content:center; gap:5px; white-space:nowrap;">
+          <span>⚡</span>
+          <span>Milarki (AoS)</span>
         </button>
       </div>
 
       <!-- Body -->
       <div style="padding:18px 20px 20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:14px;">
-        <!-- Panel 1: Authentic Tabletop Battles / Goonhammer Administratum Sign-In Card -->
+        <!-- Panel 1: Tabletop Battles (Username/Email + Password only) -->
         <div id="imp-panel-ttb-sync" style="display:flex; flex-direction:column; gap:14px;">
           <div style="background:linear-gradient(160deg, #132226 0%, #0f172a 60%, #111827 100%); border:1px solid rgba(58,193,139,0.32); border-radius:14px; padding:18px; box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);">
-            <!-- App Handshake Logos -->
             <div style="display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:12px;">
               <div style="position:relative; width:52px; height:52px; border-radius:14px; background:#3ac18b; border:2px solid rgba(255,255,255,0.2); box-shadow:0 8px 20px rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center;">
                 <img src="/assets/integrations/ttb_icon.png" alt="Tabletop Battles" style="width:48px; height:48px; border-radius:12px; object-fit:cover;" />
@@ -5943,7 +5974,7 @@ function openTrackerImportModal(defaultTab = 'ttb-sync') {
 
             <div style="text-align:center; margin-bottom:14px;">
               <div style="font-size:1.05rem; font-weight:800; color:#fff; letter-spacing:-0.01em;">Sign in to Tabletop Battles</div>
-              <div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">Use your Goonhammer / Administratum account to import completed games</div>
+              <div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">Use your Goonhammer / Administratum account to import completed 40k &amp; AoS games</div>
               <div style="display:inline-flex; align-items:center; gap:5px; margin-top:8px; padding:3px 10px; border-radius:999px; background:rgba(2,6,23,0.7); border:1px solid rgba(58,193,139,0.35); font-family:monospace; font-size:0.68rem; color:#34d399;">
                 <span>🔒</span> <span>https://administratum.tabletopbattles.com</span>
               </div>
@@ -5951,10 +5982,10 @@ function openTrackerImportModal(defaultTab = 'ttb-sync') {
 
             <div style="display:flex; flex-direction:column; gap:11px;">
               <div>
-                <label for="imp-ttb-email" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Email Address</label>
+                <label for="imp-ttb-email" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Email or Username</label>
                 <div style="position:relative; display:flex; align-items:center;">
                   <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">✉️</span>
-                  <input id="imp-ttb-email" type="email" placeholder="name@example.com" autocomplete="username" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(58,193,139,0.35); border-radius:9px; padding:10px 12px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" />
+                  <input id="imp-ttb-email" type="text" placeholder="name@example.com" autocomplete="username" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(58,193,139,0.35); border-radius:9px; padding:10px 12px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" />
                 </div>
               </div>
               <div>
@@ -5978,25 +6009,143 @@ function openTrackerImportModal(defaultTab = 'ttb-sync') {
           </div>
         </div>
 
-        <!-- Panel 2: Paste Scorecard / JSON -->
-        <div id="imp-panel-parse" style="display:none; flex-direction:column; gap:12px;">
-          <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.28); border-radius:10px; padding:10px 12px; font-size:0.76rem; color:#cbd5e1; line-height:1.45;">
-            <b style="color:#fbbf24;">📋 Universal Scorecard Parser:</b> Paste a <b>Tabletop Battles Share Text</b> or <b>JSON export</b> below.
+        <!-- Panel 2: BattleBase (battlebase.app) -->
+        <div id="imp-panel-battlebase" style="display:none; flex-direction:column; gap:14px;">
+          <div style="background:linear-gradient(160deg, #0d1d2a 0%, #0f172a 60%, #111827 100%); border:1px solid rgba(56,189,248,0.35); border-radius:14px; padding:18px; box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);">
+            <div style="text-align:center; margin-bottom:14px;">
+              <div style="font-size:1.05rem; font-weight:800; color:#fff; letter-spacing:-0.01em;">⚔️ Sign in to BattleBase</div>
+              <div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">Import your Warhammer 40,000 turn-by-turn primary, secondary &amp; CP scorecards</div>
+              <div style="display:inline-flex; align-items:center; gap:5px; margin-top:8px; padding:3px 10px; border-radius:999px; background:rgba(2,6,23,0.7); border:1px solid rgba(56,189,248,0.35); font-family:monospace; font-size:0.68rem; color:#38bdf8;">
+                <span>🔒</span> <span>https://www.battlebase.app/graphql</span>
+              </div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:11px;">
+              <div>
+                <label for="imp-bb-username" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Email or BattleBase Username</label>
+                <div style="position:relative; display:flex; align-items:center;">
+                  <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">👤</span>
+                  <input id="imp-bb-username" type="text" placeholder="Email or BattleBase username" autocomplete="username" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(56,189,248,0.35); border-radius:9px; padding:10px 12px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" />
+                </div>
+              </div>
+              <div>
+                <label for="imp-bb-password" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Password <span style="color:#64748b; font-weight:500;">(optional if profile battles are public)</span></label>
+                <div style="position:relative; display:flex; align-items:center;">
+                  <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">🔑</span>
+                  <input id="imp-bb-password" type="password" placeholder="Enter your BattleBase password" autocomplete="current-password" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(56,189,248,0.35); border-radius:9px; padding:10px 38px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" onkeydown="if(event.key==='Enter')submitTrackerImport('battlebase')" />
+                </div>
+              </div>
+
+              <button type="button" id="btn-imp-submit-battlebase" onclick="submitTrackerImport('battlebase')" style="margin-top:4px; width:100%; background:linear-gradient(135deg, #0284c7 0%, #0369a1 100%); border:1px solid rgba(125,211,252,0.4); color:#fff; font-size:0.86rem; font-weight:800; padding:11px 18px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 6px 18px rgba(2,132,199,0.28);">
+                <span>⚔️</span>
+                <span>Sign In with BattleBase &amp; Sync</span>
+              </button>
+            </div>
           </div>
-          <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
-            <span style="font-size:0.7rem; color:#94a3b8; font-weight:700;">Load Sample:</span>
-            <button type="button" id="btn-imp-sample-ttb40k" onclick="fillTrackerImportDemo('sample-ttb-40k')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-size:0.7rem; font-weight:700; padding:4px 9px; border-radius:6px; cursor:pointer;">
-              🎲 TTB 40k JSON
-            </button>
-            <button type="button" id="btn-imp-sample-ttbaos" onclick="fillTrackerImportDemo('sample-ttb-aos')" style="background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.3); color:#c084fc; font-size:0.7rem; font-weight:700; padding:4px 9px; border-radius:6px; cursor:pointer;">
-              ⚡ TTB AoS 4.0 JSON
-            </button>
+        </div>
+
+        <!-- Panel 3: NewRecruit (newrecruit.eu) -->
+        <div id="imp-panel-newrecruit" style="display:none; flex-direction:column; gap:14px;">
+          <div style="background:linear-gradient(160deg, #241b0c 0%, #0f172a 60%, #111827 100%); border:1px solid rgba(245,158,11,0.35); border-radius:14px; padding:18px; box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);">
+            <div style="text-align:center; margin-bottom:14px;">
+              <div style="font-size:1.05rem; font-weight:800; color:#fff; letter-spacing:-0.01em;">📋 Sign in to NewRecruit</div>
+              <div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">Import your 40k &amp; Age of Sigmar Game Assistant match reports and tournament history</div>
+              <div style="display:inline-flex; align-items:center; gap:5px; margin-top:8px; padding:3px 10px; border-radius:999px; background:rgba(2,6,23,0.7); border:1px solid rgba(245,158,11,0.35); font-family:monospace; font-size:0.68rem; color:#fbbf24;">
+                <span>🔒</span> <span>https://www.newrecruit.eu/api/rpc</span>
+              </div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:11px;">
+              <div>
+                <label for="imp-nr-username" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">NewRecruit Username or Email</label>
+                <div style="position:relative; display:flex; align-items:center;">
+                  <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">👤</span>
+                  <input id="imp-nr-username" type="text" value="${escapeHtml(nrDefaultLogin)}" placeholder="NewRecruit username or email" autocomplete="username" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(245,158,11,0.35); border-radius:9px; padding:10px 12px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" />
+                </div>
+              </div>
+              <div>
+                <label for="imp-nr-password" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Password</label>
+                <div style="position:relative; display:flex; align-items:center;">
+                  <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">🔑</span>
+                  <input id="imp-nr-password" type="password" placeholder="Enter your NewRecruit password" autocomplete="current-password" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(245,158,11,0.35); border-radius:9px; padding:10px 38px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" onkeydown="if(event.key==='Enter')submitTrackerImport('newrecruit')" />
+                </div>
+              </div>
+
+              <button type="button" id="btn-imp-submit-newrecruit" onclick="submitTrackerImport('newrecruit')" style="margin-top:4px; width:100%; background:linear-gradient(135deg, #d97706 0%, #b45309 100%); border:1px solid rgba(251,191,36,0.4); color:#fff; font-size:0.86rem; font-weight:800; padding:11px 18px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 6px 18px rgba(217,119,6,0.28);">
+                <span>📋</span>
+                <span>Sign In with NewRecruit &amp; Sync</span>
+              </button>
+            </div>
           </div>
-          <textarea id="imp-parse-text" rows="7" placeholder="Paste Tabletop Battles JSON or Share Text summary here..." style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:10px; padding:10px 12px; color:#f8fafc; font-family:monospace; font-size:0.76rem; line-height:1.4; outline:none; resize:vertical;"></textarea>
-          <div style="display:flex; justify-content:flex-end;">
-            <button type="button" id="btn-imp-submit-parse" onclick="submitTrackerImport('parse')" style="background:#059669; border:none; color:#fff; font-size:0.82rem; font-weight:800; padding:9px 18px; border-radius:8px; cursor:pointer;">
-              📥 Parse &amp; Import Scorecard
-            </button>
+        </div>
+
+        <!-- Panel 4: ChampionsHub (championshub.app) -->
+        <div id="imp-panel-championshub" style="display:none; flex-direction:column; gap:14px;">
+          <div style="background:linear-gradient(160deg, #1f122b 0%, #0f172a 60%, #111827 100%); border:1px solid rgba(168,85,247,0.35); border-radius:14px; padding:18px; box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);">
+            <div style="text-align:center; margin-bottom:14px;">
+              <div style="font-size:1.05rem; font-weight:800; color:#fff; letter-spacing:-0.01em;">🏆 Sign in to ChampionsHub</div>
+              <div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">Import your 40k &amp; AoS tournament pairings, Battle VP, WTC points, and army lists</div>
+              <div style="display:inline-flex; align-items:center; gap:5px; margin-top:8px; padding:3px 10px; border-radius:999px; background:rgba(2,6,23,0.7); border:1px solid rgba(168,85,247,0.35); font-family:monospace; font-size:0.68rem; color:#c084fc;">
+                <span>🔒</span> <span>https://api.championshub.app</span>
+              </div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:11px;">
+              <div>
+                <label for="imp-ch-username" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Email or ChampionsHub Player Name</label>
+                <div style="position:relative; display:flex; align-items:center;">
+                  <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">👤</span>
+                  <input id="imp-ch-username" type="text" placeholder="Email or player display name" autocomplete="username" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(168,85,247,0.35); border-radius:9px; padding:10px 12px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" />
+                </div>
+              </div>
+              <div>
+                <label for="imp-ch-password" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Password <span style="color:#64748b; font-weight:500;">(optional for public tournament history)</span></label>
+                <div style="position:relative; display:flex; align-items:center;">
+                  <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">🔑</span>
+                  <input id="imp-ch-password" type="password" placeholder="Enter your ChampionsHub password" autocomplete="current-password" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(168,85,247,0.35); border-radius:9px; padding:10px 38px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" onkeydown="if(event.key==='Enter')submitTrackerImport('championshub')" />
+                </div>
+              </div>
+
+              <button type="button" id="btn-imp-submit-championshub" onclick="submitTrackerImport('championshub')" style="margin-top:4px; width:100%; background:linear-gradient(135deg, #9333ea 0%, #7e22ce 100%); border:1px solid rgba(216,180,254,0.4); color:#fff; font-size:0.86rem; font-weight:800; padding:11px 18px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 6px 18px rgba(147,51,234,0.28);">
+                <span>🏆</span>
+                <span>Sign In with ChampionsHub &amp; Sync</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 5: Milarki (milarki.com — Age of Sigmar) -->
+        <div id="imp-panel-milarki" style="display:none; flex-direction:column; gap:14px;">
+          <div style="background:linear-gradient(160deg, #28111b 0%, #0f172a 60%, #111827 100%); border:1px solid rgba(244,63,94,0.35); border-radius:14px; padding:18px; box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);">
+            <div style="text-align:center; margin-bottom:14px;">
+              <div style="font-size:1.05rem; font-weight:800; color:#fff; letter-spacing:-0.01em;">⚡ Sync Milarki (Age of Sigmar)</div>
+              <div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">Import round-by-round AoS 4.0 battle tactics, objective points &amp; tournament matches</div>
+              <div style="display:inline-flex; align-items:center; gap:5px; margin-top:8px; padding:3px 10px; border-radius:999px; background:rgba(2,6,23,0.7); border:1px solid rgba(244,63,94,0.35); font-family:monospace; font-size:0.68rem; color:#fb7185;">
+                <span>🔒</span> <span>https://www.milarki.com/api/v1</span>
+              </div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:11px;">
+              <div>
+                <label for="imp-mlk-player-id" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Milarki Player ID (6-character Public ID)</label>
+                <div style="position:relative; display:flex; align-items:center;">
+                  <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">🆔</span>
+                  <input id="imp-mlk-player-id" type="text" placeholder="e.g. a1B2c3 (from milarki.com/profile)" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(244,63,94,0.35); border-radius:9px; padding:10px 12px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" />
+                </div>
+              </div>
+              <div>
+                <label for="imp-mlk-api-key" style="display:block; font-size:0.73rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Milarki API Key (<code style="color:#fb7185;">mlk_v1_...</code>)</label>
+                <div style="position:relative; display:flex; align-items:center;">
+                  <span style="position:absolute; left:11px; color:#64748b; font-size:0.85rem; pointer-events:none;">🔑</span>
+                  <input id="imp-mlk-api-key" type="password" placeholder="mlk_v1_... (from milarki.com/developer)" style="width:100%; box-sizing:border-box; background:#070c16; border:1px solid rgba(244,63,94,0.35); border-radius:9px; padding:10px 38px 10px 34px; color:#fff; font-size:0.84rem; outline:none;" onkeydown="if(event.key==='Enter')submitTrackerImport('milarki')" />
+                </div>
+              </div>
+
+              <button type="button" id="btn-imp-submit-milarki" onclick="submitTrackerImport('milarki')" style="margin-top:4px; width:100%; background:linear-gradient(135deg, #e11d48 0%, #be123c 100%); border:1px solid rgba(251,113,133,0.4); color:#fff; font-size:0.86rem; font-weight:800; padding:11px 18px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 6px 18px rgba(225,29,72,0.28);">
+                <span>⚡</span>
+                <span>Sync Milarki Battles</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -6007,7 +6156,7 @@ function openTrackerImportModal(defaultTab = 'ttb-sync') {
   `;
 
   document.body.appendChild(overlay);
-  switchTrackerImportTab(defaultTab === 'ttb-code' ? 'ttb-sync' : defaultTab);
+  switchTrackerImportTab(defaultTab);
 }
 
 function closeTrackerImportModal() {
@@ -6016,16 +6165,25 @@ function closeTrackerImportModal() {
 }
 
 function switchTrackerImportTab(tabId) {
-  const targetTab = (tabId === 'parse') ? 'parse' : 'ttb-sync';
-  ['ttb-sync', 'parse'].forEach(t => {
+  const validTabs = ['ttb-sync', 'battlebase', 'newrecruit', 'championshub', 'milarki'];
+  const targetTab = validTabs.includes(tabId) ? tabId : 'ttb-sync';
+  const activeColors = {
+    'ttb-sync': { bg: 'rgba(58,193,139,0.16)', border: 'rgba(58,193,139,0.5)', color: '#34d399' },
+    'battlebase': { bg: 'rgba(56,189,248,0.16)', border: 'rgba(56,189,248,0.5)', color: '#38bdf8' },
+    'newrecruit': { bg: 'rgba(245,158,11,0.16)', border: 'rgba(245,158,11,0.5)', color: '#fbbf24' },
+    'championshub': { bg: 'rgba(168,85,247,0.16)', border: 'rgba(168,85,247,0.5)', color: '#c084fc' },
+    'milarki': { bg: 'rgba(244,63,94,0.16)', border: 'rgba(244,63,94,0.5)', color: '#fb7185' }
+  };
+  validTabs.forEach(t => {
     const panel = document.getElementById(`imp-panel-${t}`);
     const btn = document.getElementById(`imp-tab-btn-${t}`);
     if (panel) panel.style.display = (t === targetTab) ? 'flex' : 'none';
     if (btn) {
       if (t === targetTab) {
-        btn.style.background = 'rgba(58,193,139,0.16)';
-        btn.style.borderColor = 'rgba(58,193,139,0.5)';
-        btn.style.color = '#34d399';
+        const theme = activeColors[t] || activeColors['ttb-sync'];
+        btn.style.background = theme.bg;
+        btn.style.borderColor = theme.border;
+        btn.style.color = theme.color;
       } else {
         btn.style.background = 'rgba(255,255,255,0.03)';
         btn.style.borderColor = 'rgba(255,255,255,0.1)';
@@ -6041,111 +6199,6 @@ function fillTrackerImportDemo(kind) {
     const pw = document.getElementById('imp-ttb-password');
     if (em) em.value = 'demo@tabletopbattles.com';
     if (pw) pw.value = 'demo1234';
-  } else if (kind === 'code-40k') {
-    const cd = document.getElementById('imp-ttb-code');
-    if (cd) cd.value = 'DEMO40K';
-  } else if (kind === 'code-aos') {
-    const cd = document.getElementById('imp-ttb-code');
-    if (cd) cd.value = 'DEMOAOS';
-  } else if (kind === 'sample-ttb-40k') {
-    const ta = document.getElementById('imp-parse-text');
-    if (ta) {
-      ta.value = JSON.stringify({
-        uuid: 'ttb-sample-40k-901',
-        gameType: 'wh40k10e',
-        gameDate: '2026-10-04T19:15:00Z',
-        mission: { pack: 'Chapter Approved: Pariah Nexus', primary: 'Scorched Earth', deployment: 'Crucible of Battle', rules: ['Swift Action'] },
-        wentFirstRollOff: { winner: 0, choice: 'first' },
-        players: [
-          {
-            name: 'John Hsieh',
-            faction: { name: 'Aeldari', subtitle: 'Battle Host' },
-            isBattleReady: true,
-            primaries: [{ points: [0, 10, 10, 15, 10] }],
-            secondaries: [
-              { name: 'Behind Enemy Lines', points: [4, 0, 5, 0, 4] },
-              { name: 'Cleanse', points: [0, 5, 4, 5, 4] }
-            ],
-            commandPoints: [1, 2, 1, 2, 1]
-          },
-          {
-            name: 'Marcus Vance',
-            faction: { name: 'World Eaters', subtitle: 'Berzerker Warband' },
-            isBattleReady: true,
-            primaries: [{ points: [0, 5, 10, 10, 10] }],
-            secondaries: [
-              { name: 'Bring It Down', points: [0, 4, 6, 4, 0] },
-              { name: 'Storm Hostile Objective', points: [5, 0, 5, 5, 0] }
-            ],
-            commandPoints: [1, 1, 2, 1, 0]
-          }
-        ]
-      }, null, 2);
-    }
-  } else if (kind === 'sample-ttb-aos') {
-    const ta = document.getElementById('imp-parse-text');
-    if (ta) {
-      ta.value = JSON.stringify({
-        uuid: 'ttb-sample-aos-402',
-        gameType: 'aos4e',
-        gameDate: '2026-10-03T16:00:00Z',
-        mission: { pack: "General's Handbook 2025-26", primary: 'Focal Points', deployment: 'Standard' },
-        priorityRollOffs: [
-          { winner: 0, choice: 'first' },
-          { winner: 1, choice: 'first' },
-          { winner: 1, choice: 'first' },
-          { winner: 0, choice: 'first' },
-          { winner: 0, choice: 'first' }
-        ],
-        players: [
-          {
-            name: 'John Hsieh',
-            faction: { name: 'Slaves to Darkness', subtitle: 'Legion of Chaos' },
-            primaries: [{ points: [6, 6, 6, 5, 6] }],
-            battleTactics: [
-              { name: 'Seize the Centre', points: [4, 0, 0, 0, 0] },
-              { name: 'Take the Flanks', points: [0, 4, 0, 0, 0] },
-              { name: 'Slay the Entourage', points: [0, 0, 0, 4, 0] },
-              { name: 'Do Not Waver', points: [0, 0, 0, 0, 4] }
-            ]
-          },
-          {
-            name: 'Elena Rostova',
-            faction: { name: 'Sylvaneth', subtitle: 'Outcasts' },
-            primaries: [{ points: [4, 6, 5, 5, 4] }],
-            battleTactics: [
-              { name: 'Take the Flanks', points: [4, 0, 0, 0, 0] },
-              { name: 'Seize the Centre', points: [0, 4, 0, 0, 0] },
-              { name: 'Attack on Two Fronts', points: [0, 0, 0, 4, 0] }
-            ]
-          }
-        ]
-      }, null, 2);
-    }
-  } else if (kind === 'sample-gw-40k') {
-    const ta = document.getElementById('imp-parse-text');
-    if (ta) {
-      ta.value = [
-        'Warhammer 40,000: The App — Command Bunker / War Journal',
-        'Date: 2026-10-05',
-        'Primary Mission: Take and Hold',
-        'Deployment: Tipping Point',
-        'Player 1: John Hsieh (Space Marines - Gladius Task Force) - 91 VP',
-        '  Round 1: Primary 0, Secondary 5 (Area Denial)',
-        '  Round 2: Primary 10, Secondary 9 (Cleanse, Assassination)',
-        '  Round 3: Primary 15, Secondary 8 (Bring It Down)',
-        '  Round 4: Primary 15, Secondary 10 (Behind Enemy Lines)',
-        '  Round 5: Primary 10, Secondary 9 (Extend Battle Lines)',
-        '  Battle Ready: 10',
-        'Player 2: Viktor Krax (Death Guard - Plague Company) - 74 VP',
-        '  Round 1: Primary 0, Secondary 4 (Cleanse)',
-        '  Round 2: Primary 10, Secondary 6 (Engage on All Fronts)',
-        '  Round 3: Primary 10, Secondary 8 (Storm Hostile Objective)',
-        '  Round 4: Primary 10, Secondary 8 (No Prisoners)',
-        '  Round 5: Primary 10, Secondary 8 (Defend Stronghold)',
-        '  Battle Ready: 10'
-      ].join('\n');
-    }
   }
 }
 
@@ -6160,25 +6213,38 @@ async function submitTrackerImport(mode) {
   }
 
   const token = (window.api && typeof window.api.getAuthToken === 'function' ? window.api.getAuthToken() : '') || localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || '';
-  let endpoint = '/api/tracker/import/parse';
+  let endpoint = '/api/tracker/import/ttb-sync';
   let bodyObj = {};
 
-  if (mode === 'ttb-sync') {
+  if (mode === 'battlebase') {
+    endpoint = '/api/tracker/import/battlebase-sync';
+    bodyObj = {
+      username: (document.getElementById('imp-bb-username')?.value || '').trim(),
+      password: (document.getElementById('imp-bb-password')?.value || '').trim()
+    };
+  } else if (mode === 'newrecruit') {
+    endpoint = '/api/tracker/import/newrecruit-sync';
+    bodyObj = {
+      username: (document.getElementById('imp-nr-username')?.value || '').trim(),
+      password: (document.getElementById('imp-nr-password')?.value || '').trim()
+    };
+  } else if (mode === 'championshub') {
+    endpoint = '/api/tracker/import/championshub-sync';
+    bodyObj = {
+      username: (document.getElementById('imp-ch-username')?.value || '').trim(),
+      password: (document.getElementById('imp-ch-password')?.value || '').trim()
+    };
+  } else if (mode === 'milarki') {
+    endpoint = '/api/tracker/import/milarki-sync';
+    bodyObj = {
+      player_id: (document.getElementById('imp-mlk-player-id')?.value || '').trim(),
+      api_key: (document.getElementById('imp-mlk-api-key')?.value || '').trim()
+    };
+  } else {
     endpoint = '/api/tracker/import/ttb-sync';
     bodyObj = {
       username: (document.getElementById('imp-ttb-email')?.value || '').trim(),
-      password: (document.getElementById('imp-ttb-password')?.value || '').trim(),
-      id_token: (document.getElementById('imp-ttb-token')?.value || '').trim()
-    };
-  } else if (mode === 'ttb-code') {
-    endpoint = '/api/tracker/import/ttb-code';
-    bodyObj = {
-      code: (document.getElementById('imp-ttb-code')?.value || '').trim()
-    };
-  } else {
-    endpoint = '/api/tracker/import/parse';
-    bodyObj = {
-      payload: (document.getElementById('imp-parse-text')?.value || '').trim()
+      password: (document.getElementById('imp-ttb-password')?.value || '').trim()
     };
   }
 

@@ -2469,6 +2469,8 @@ class TrackerImportSyncPayload(BaseModel):
     email: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
+    player_id: Optional[str] = None
+    api_key: Optional[str] = None
     token: Optional[str] = None
     id_token: Optional[str] = None
     access_token: Optional[str] = None
@@ -2693,6 +2695,116 @@ async def api_tracker_import_ttb_sync(request: Request, body: TrackerImportSyncP
     except Exception as e:
         logger.error(f"Error in /api/tracker/import/ttb-sync: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to sync Tabletop Battles games: {e}")
+
+
+@router.post("/api/tracker/import/battlebase-sync", summary="Download and import completed games from BattleBase (battlebase.app)")
+async def api_tracker_import_battlebase_sync(request: Request, body: TrackerImportSyncPayload):
+    from tracker_importer import sync_battlebase_account_games
+    user = _resolve_importing_user(request)
+    email_or_user = (body.email or body.username or "").strip()
+    try:
+        res = sync_battlebase_account_games(
+            email_or_user,
+            body.password or "",
+            importing_user=user,
+        )
+        saved = _persist_imported_games_to_db(res.get("games") or [], user, dry_run=bool(body.dry_run))
+        return {
+            "success": True,
+            "source": "battlebase",
+            "storage_target": "tracker_games",
+            "dry_run": bool(body.dry_run),
+            "imported_count": len(saved),
+            "games": saved,
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error in /api/tracker/import/battlebase-sync: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to sync BattleBase games: {e}")
+
+
+@router.post("/api/tracker/import/newrecruit-sync", summary="Download and import completed games & battle reports from NewRecruit (newrecruit.eu)")
+async def api_tracker_import_newrecruit_sync(request: Request, body: TrackerImportSyncPayload):
+    from tracker_importer import sync_newrecruit_account_games
+    user = _resolve_importing_user(request)
+    email_or_user = (body.email or body.username or "").strip()
+    try:
+        res = sync_newrecruit_account_games(
+            email_or_user,
+            body.password or "",
+            importing_user=user,
+        )
+        saved = _persist_imported_games_to_db(res.get("games") or [], user, dry_run=bool(body.dry_run))
+        return {
+            "success": True,
+            "source": "newrecruit",
+            "storage_target": "tracker_games",
+            "dry_run": bool(body.dry_run),
+            "imported_count": len(saved),
+            "games": saved,
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error in /api/tracker/import/newrecruit-sync: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to sync NewRecruit games: {e}")
+
+
+@router.post("/api/tracker/import/championshub-sync", summary="Download and import completed games from ChampionsHub (championshub.app)")
+async def api_tracker_import_championshub_sync(request: Request, body: TrackerImportSyncPayload):
+    from tracker_importer import sync_championshub_account_games
+    user = _resolve_importing_user(request)
+    email_or_user = (body.email or body.username or "").strip()
+    try:
+        res = sync_championshub_account_games(
+            email_or_user,
+            body.password or "",
+            importing_user=user,
+        )
+        saved = _persist_imported_games_to_db(res.get("games") or [], user, dry_run=bool(body.dry_run))
+        return {
+            "success": True,
+            "source": "championshub",
+            "storage_target": "tracker_games",
+            "dry_run": bool(body.dry_run),
+            "imported_count": len(saved),
+            "games": saved,
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error in /api/tracker/import/championshub-sync: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to sync ChampionsHub games: {e}")
+
+
+@router.post("/api/tracker/import/milarki-sync", summary="Download and import completed Age of Sigmar battles from Milarki (milarki.com)")
+async def api_tracker_import_milarki_sync(request: Request, body: TrackerImportSyncPayload):
+    from tracker_importer import sync_milarki_account_games
+    user = _resolve_importing_user(request)
+    pid = (body.player_id or body.username or body.email or "").strip()
+    key = (body.api_key or body.password or body.token or "").strip()
+    try:
+        res = sync_milarki_account_games(
+            pid,
+            key,
+            importing_user=user,
+        )
+        saved = _persist_imported_games_to_db(res.get("games") or [], user, dry_run=bool(body.dry_run))
+        return {
+            "success": True,
+            "source": "milarki",
+            "storage_target": "tracker_games",
+            "dry_run": bool(body.dry_run),
+            "imported_count": len(saved),
+            "games": saved,
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error in /api/tracker/import/milarki-sync: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to sync Milarki games: {e}")
+
 
 @router.post("/api/tracker/import/ttb-code", summary="Download and import a Tabletop Battles game by Observer or Link Code")
 async def api_tracker_import_ttb_code(request: Request, body: TrackerImportCodePayload):
