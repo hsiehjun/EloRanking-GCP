@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=616085528c">
+  <link rel="manifest" href="/manifest.json?v=9cf45106e1">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "616085528c";</script>
+  <script>window.APP_VERSION = "9cf45106e1";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -725,8 +725,9 @@
         <button onclick="closeScorecardMapEventModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.25rem; cursor:pointer;">✕</button>
       </div>
       <div style="padding:1.15rem 1.35rem; overflow-y:auto; flex:1;">
+        <div id="sc-map-source-banner" style="margin-bottom:0.85rem;"></div>
         <div style="font-size:0.8rem; color:#94a3b8; line-height:1.45; margin-bottom:0.85rem; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.25); padding:0.65rem 0.85rem; border-radius:10px;">
-          🔒 <strong style="color:#e2e8f0;">Participant-Verified & Locked:</strong> Only a verified participant in the tournament pairing can map their scorecard. Player 1 / Player 2 columns are automatically aligned to the official tournament pairing and locked once mapped.
+          🔒 <strong style="color:#e2e8f0;">Participant-Verified &amp; Locked:</strong> Only a verified participant in the tournament pairing can map their scorecard. Player 1 / Player 2 columns are automatically aligned to the official tournament pairing and locked once mapped.
         </div>
         <div style="display:flex; gap:0.5rem; margin-bottom:0.85rem;">
           <input id="sc-map-search-input" type="text" placeholder="Filter by event name, opponent, or event ID..." style="flex:1; background:#020617; border:1px solid #334155; color:#fff; padding:0.55rem 0.75rem; border-radius:8px; font-size:0.85rem;" oninput="filterMappableMatchesList()">
@@ -847,41 +848,6 @@
         };
       }
 
-      const p1RawSecSum = (() => {
-        let s = 0;
-        for (let i = 1; i <= 5; i++) {
-          s += getPlayerRoundSecondaries(p1Obj, i).reduce((a, x) => a + (x.score || 0), 0);
-        }
-        return s;
-      })();
-      const p2RawSecSum = (() => {
-        let s = 0;
-        for (let i = 1; i <= 5; i++) {
-          s += getPlayerRoundSecondaries(p2Obj, i).reduce((a, x) => a + (x.score || 0), 0);
-        }
-        return s;
-      })();
-
-      if (
-        rawEd === '9th' || rawEd === '9e' ||
-        packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || packId.includes('nachmund') ||
-        Number(p1Obj.primaryCap) === 45 || Number(p1Obj.secondaryCap) === 45 ||
-        p1RawSecSum > 40 || p2RawSecSum > 40
-      ) {
-        return {
-          edition: '9th',
-          editionLabel: rawLabel || 'WH40K 9th Ed • Strike Force (45/45/10)',
-          shortBadge: '📜 WH40K 9th Ed (45 Pri / 45 Sec)',
-          badgeBg: 'rgba(234, 179, 8, 0.15)',
-          badgeColor: '#facc15',
-          badgeBorder: 'rgba(234, 179, 8, 0.4)',
-          priCap: 45,
-          secCap: 45,
-          maxTotal: 100,
-          hasPaint: true
-        };
-      }
-
       if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th')) {
         return {
           edition: '11th',
@@ -892,6 +858,30 @@
           badgeBorder: 'rgba(56, 189, 248, 0.35)',
           priCap: 50,
           secCap: 40,
+          maxTotal: 100,
+          hasPaint: true
+        };
+      }
+
+      const p1HandLen = Array.isArray(p1Obj.hand) ? p1Obj.hand.length : 0;
+      const p2HandLen = Array.isArray(p2Obj.hand) ? p2Obj.hand.length : 0;
+      const isExplicitModern = (rawEd === '10th' || rawEd === '10e' || packId.includes('10th') || packId.includes('leviathan') || packId.includes('pariah'));
+
+      if (
+        rawEd === '9th' || rawEd === '9e' ||
+        packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || packId.includes('nachmund') ||
+        Number(p1Obj.primaryCap) === 45 || Number(p1Obj.secondaryCap) === 45 ||
+        (!isExplicitModern && p1HandLen <= 3 && p2HandLen <= 3 && (Number(p1Obj.secondaryScore) > 40 || Number(p2Obj.secondaryScore) > 40))
+      ) {
+        return {
+          edition: '9th',
+          editionLabel: rawLabel || 'WH40K 9th Ed • Strike Force (45/45/10)',
+          shortBadge: '📜 WH40K 9th Ed (45 Pri / 45 Sec)',
+          badgeBg: 'rgba(234, 179, 8, 0.15)',
+          badgeColor: '#facc15',
+          badgeBorder: 'rgba(234, 179, 8, 0.4)',
+          priCap: 45,
+          secCap: 45,
           maxTotal: 100,
           hasPaint: true
         };
@@ -1771,9 +1761,49 @@
       }
     }
 
+    function renderScorecardMapSourceBanner(sg) {
+      const bannerEl = document.getElementById('sc-map-source-banner');
+      if (!bannerEl) return;
+      const st = (globalScorecardData && globalScorecardData.state) || {};
+      const rec = (globalScorecardData && globalScorecardData.game_record) || {};
+      const game = st.game || {};
+      const p1Name = (sg && sg.p1_name) || game.p1Name || rec.p1_name || 'Player 1';
+      const p2Name = (sg && sg.p2_name) || game.p2Name || rec.p2_name || 'Player 2';
+      const p1Fac = (sg && sg.p1_faction) || game.p1Faction || rec.p1_faction || 'Army 1';
+      const p2Fac = (sg && sg.p2_faction) || game.p2Faction || rec.p2_faction || 'Army 2';
+      const p1Score = (sg && sg.p1_score != null) ? sg.p1_score : (rec.p1_score ?? st.p1Score ?? (st.p1 && st.p1.score) ?? 0);
+      const p2Score = (sg && sg.p2_score != null) ? sg.p2_score : (rec.p2_score ?? st.p2Score ?? (st.p2 && st.p2.score) ?? 0);
+      const mid = (sg && sg.match_id) || (globalScorecardData && globalScorecardData.match_id) || getMatchIdFromPath();
+      const mission = (sg && sg.primary_mission) || game.primary || rec.primary_mission || '';
+      const dateStr = (sg && sg.game_date) || (st.game_date ? String(st.game_date).substring(0, 10) : '');
+
+      bannerEl.innerHTML = `
+        <div style="background:linear-gradient(135deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%); border:1px solid rgba(245,158,11,0.45); border-radius:12px; padding:0.75rem 1rem; box-shadow:0 8px 20px rgba(0,0,0,0.35);">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; margin-bottom:0.45rem; flex-wrap:wrap;">
+            <span style="font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#fbbf24;">📋 Scorecard Being Mapped • #${escapeHtml(mid)}</span>
+            <span style="font-size:0.7rem; color:#94a3b8; font-family:monospace;">${mission ? escapeHtml(mission) + (dateStr ? ' • ' : '') : ''}${escapeHtml(dateStr)}</span>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:0.75rem;">
+            <div style="min-width:0;">
+              <div style="font-size:0.92rem; font-weight:800; color:#38bdf8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🟦 ${escapeHtml(p1Name)}</div>
+              <div style="font-size:0.72rem; color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(p1Fac)}</div>
+            </div>
+            <div style="background:#020617; border:1px solid #334155; border-radius:10px; padding:0.3rem 0.75rem; font-family:'JetBrains Mono', monospace; font-size:1.1rem; font-weight:900; color:#fff; white-space:nowrap; box-shadow:inset 0 2px 6px rgba(0,0,0,0.5);">
+              <span style="color:#38bdf8;">${p1Score}</span> <span style="color:#64748b; font-weight:600;">-</span> <span style="color:#f43f5e;">${p2Score}</span>
+            </div>
+            <div style="min-width:0; text-align:right;">
+              <div style="font-size:0.92rem; font-weight:800; color:#f43f5e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🟥 ${escapeHtml(p2Name)}</div>
+              <div style="font-size:0.72rem; color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(p2Fac)}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     async function openScorecardMapEventModal() {
       const modal = document.getElementById('sc-map-event-modal');
       if (!modal) return;
+      renderScorecardMapSourceBanner(null);
       modal.style.display = 'flex';
       await loadMappableEventMatches();
     }
@@ -1794,7 +1824,7 @@
       const sys = isAos ? 'aos' : '40k';
       try {
         const headers = {};
-        const tok = localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
+        const tok = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
         if (tok) headers['Authorization'] = 'Bearer ' + tok;
         const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${sys}&match_id=${encodeURIComponent(matchId)}`, { headers });
         if (!resp.ok) {
@@ -1802,6 +1832,7 @@
           throw new Error(errJson.detail || 'Sign in with your OmniTactica account to map scorecards to your tournament pairings.');
         }
         const data = await resp.json();
+        if (data.source_game) renderScorecardMapSourceBanner(data.source_game);
         cachedMappableMatches = data.matches || [];
         renderMappableMatchesList(cachedMappableMatches);
       } catch (err) {
@@ -1842,7 +1873,7 @@
         const swapBadge = willSwap ? '<span style="background:rgba(56,189,248,0.16); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.68rem; font-weight:800; padding:1px 6px; border-radius:4px;">🔄 Auto-aligns P1/P2</span>' : '';
         const lockBadge = isLocked
           ? '<span style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.35); font-size:0.7rem; font-weight:800; padding:3px 8px; border-radius:6px;">🔒 Locked</span>'
-          : `<button class="btn-sc btn-sc-primary" style="padding:4px 10px; font-size:0.76rem;" onclick="confirmMapScorecardToEvent('${escapeHtml(m.event_id)}', ${rNum}, ${tNum !== null ? Number(tNum) : 'null'})">🔗 Map & Lock</button>`;
+          : `<button class="btn-sc btn-sc-primary" style="padding:4px 10px; font-size:0.76rem;" onclick="confirmMapScorecardToEvent('${escapeHtml(m.event_id)}', ${rNum}, ${tNum !== null ? Number(tNum) : 'null'})">🔗 Map &amp; Lock</button>`;
         return `
           <div style="background:#090f1e; border:1px solid ${isRec ? '#10b981' : '#1e293b'}; border-radius:10px; padding:0.75rem 0.9rem; display:flex; justify-content:space-between; align-items:center; gap:0.75rem;">
             <div style="min-width:0;">
@@ -1872,7 +1903,7 @@
       if (!matchId) return;
       try {
         const headers = { 'Content-Type': 'application/json' };
-        const tok = localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
+        const tok = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
         if (tok) headers['Authorization'] = 'Bearer ' + tok;
         const resp = await fetch(`/api/tracker/games/${encodeURIComponent(matchId)}/map_event_match`, {
           method: 'POST',
@@ -1884,6 +1915,32 @@
           alert('⚠️ Could not map scorecard: ' + (json.detail || resp.statusText));
           return;
         }
+        try {
+          localStorage.removeItem('my_hub_cache_40k');
+          localStorage.removeItem('my_hub_cache_aos');
+          localStorage.removeItem('my_hub_cache');
+          ['gdm-11e-tracker-history', 'omni-aos-tracker-history'].forEach(k => {
+            const raw = localStorage.getItem(k);
+            if (!raw) return;
+            const arr = JSON.parse(raw);
+            if (Array.isArray(arr)) {
+              arr.forEach(item => {
+                if (String(item.match_id || item.id || '').toUpperCase() === String(matchId).toUpperCase()) {
+                  item.event_id = json.event_id || eventId;
+                  item.round_num = json.round_num || roundNum;
+                  item.table_num = json.table_num || tableNum;
+                  item.mapped_event_name = json.event_name || eventId;
+                  item.event_match_locked = true;
+                  if (json.p1_name) item.p1_name = json.p1_name;
+                  if (json.p2_name) item.p2_name = json.p2_name;
+                  if (json.p1_score != null) { item.p1_score = json.p1_score; item.p1Score = json.p1_score; }
+                  if (json.p2_score != null) { item.p2_score = json.p2_score; item.p2Score = json.p2_score; }
+                }
+              });
+              localStorage.setItem(k, JSON.stringify(arr));
+            }
+          });
+        } catch (e) {}
         closeScorecardMapEventModal();
         await loadScorecard();
       } catch (err) {

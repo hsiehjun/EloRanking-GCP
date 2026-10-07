@@ -3889,7 +3889,11 @@ class PostgresDatabase:
                     WHERE LOWER(event_id) = LOWER(m.event_id)
                       AND round_num = m.round
                       AND table_num = m.table_number
-                    ORDER BY is_finished DESC, updated_at DESC
+                    ORDER BY
+                      COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
+                      CASE WHEN COALESCE(state_json->>'imported_source', '') != '' OR match_id LIKE '%%-TTB-%%' OR match_id LIKE '%%-GW-%%' THEN 1 ELSE 0 END DESC,
+                      is_finished DESC,
+                      updated_at DESC
                     LIMIT 1
                 ) tg ON TRUE
                 WHERE m.event_id = %s
@@ -7363,32 +7367,39 @@ class PostgresDatabase:
         def do_select():
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                    cursor.execute("""
-                    SELECT * FROM tracker_games WHERE match_id = %s;
-                    """, (match_id,))
-                    row = cursor.fetchone()
-                    if not row and not match_id.startswith("BCP-"):
-                        cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (f"BCP-{match_id}",))
+                    m_evt = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id, re.IGNORECASE)
+                    if m_evt:
+                        ev_id, r_num, t_num = m_evt.group(1), int(m_evt.group(2)), int(m_evt.group(3))
+                        alt_bcp = f"BCP-{ev_id.upper()}-R{r_num}-T{t_num}"
+                        alt_es = f"ES-{ev_id.upper()}-R{r_num}-T{t_num}"
+                        cursor.execute("""
+                        SELECT * FROM tracker_games
+                        WHERE (LOWER(event_id) = LOWER(%s) AND round_num = %s AND table_num = %s)
+                           OR match_id IN (%s, %s, %s)
+                        ORDER BY
+                          COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
+                          CASE WHEN COALESCE(state_json->>'imported_source', '') != '' OR match_id LIKE '%%-TTB-%%' OR match_id LIKE '%%-GW-%%' THEN 1 ELSE 0 END DESC,
+                          is_finished DESC,
+                          updated_at DESC
+                        LIMIT 1;
+                        """, (ev_id, r_num, t_num, match_id, alt_bcp, alt_es))
                         row = cursor.fetchone()
-                    if not row and not match_id.startswith("ES-"):
-                        cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (f"ES-{match_id}",))
+                    else:
+                        cursor.execute("""
+                        SELECT * FROM tracker_games WHERE match_id = %s;
+                        """, (match_id,))
                         row = cursor.fetchone()
-                    if not row and match_id.startswith("BCP-"):
-                        cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (match_id[4:],))
-                        row = cursor.fetchone()
-                    if not row and match_id.startswith("ES-"):
-                        cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (match_id[3:],))
-                        row = cursor.fetchone()
-                    if not row:
-                        m_evt = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id, re.IGNORECASE)
-                        if m_evt:
-                            ev_id, r_num, t_num = m_evt.group(1), int(m_evt.group(2)), int(m_evt.group(3))
-                            cursor.execute("""
-                            SELECT * FROM tracker_games
-                            WHERE LOWER(event_id) = LOWER(%s) AND round_num = %s AND table_num = %s
-                            ORDER BY is_finished DESC, updated_at DESC
-                            LIMIT 1;
-                            """, (ev_id, r_num, t_num))
+                        if not row and not match_id.startswith("BCP-"):
+                            cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (f"BCP-{match_id}",))
+                            row = cursor.fetchone()
+                        if not row and not match_id.startswith("ES-"):
+                            cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (f"ES-{match_id}",))
+                            row = cursor.fetchone()
+                        if not row and match_id.startswith("BCP-"):
+                            cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (match_id[4:],))
+                            row = cursor.fetchone()
+                        if not row and match_id.startswith("ES-"):
+                            cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (match_id[3:],))
                             row = cursor.fetchone()
                     if row:
                         d = dict(row)
@@ -7550,14 +7561,19 @@ class PostgresDatabase:
                                 "aos_4e": "AoS 4th Edition",
                             }
                             d["edition_label"] = ed_map.get(str(d["edition"]).lower(), "10th Edition")
-                        if d.get("updated_at") and hasattr(d["updated_at"], "strftime"):
-                            d["date"] = d["updated_at"].strftime("%b %d, %Y")
-                        elif d.get("game_date"):
+                        if d.get("game_date"):
                             try:
-                                dt = datetime.fromisoformat(str(d["game_date"]).replace("Z", "+00:00"))
+                                gd_str = str(d["game_date"]).strip()
+                                if gd_str.isdigit():
+                                    ts = int(gd_str) / 1000.0 if int(gd_str) > 1e11 else float(gd_str)
+                                    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                                else:
+                                    dt = datetime.fromisoformat(gd_str.replace("Z", "+00:00"))
                                 d["date"] = dt.strftime("%b %d, %Y")
                             except Exception:
                                 d["date"] = str(d["game_date"])[:10]
+                        elif d.get("updated_at") and hasattr(d["updated_at"], "strftime"):
+                            d["date"] = d["updated_at"].strftime("%b %d, %Y")
                         res.append(d)
                     return res
 

@@ -4217,6 +4217,8 @@ input, select, textarea {
   border-bottom: 1px solid var(--border-color);
   user-select: none;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hub-table td {
@@ -4224,6 +4226,7 @@ input, select, textarea {
   font-size: 0.8rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   vertical-align: middle;
+  overflow: hidden;
 }
 
 .hub-table tr:hover td {
@@ -4288,6 +4291,10 @@ input, select, textarea {
   margin-top: 1.25rem;
   width: 100%;
   box-sizing: border-box;
+}
+
+.hub-grid-2col.hub-row-prep {
+  align-items: start;
 }
 
 @media (max-width: 840px) {
@@ -4749,7 +4756,7 @@ input, select, textarea {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-  max-height: 480px;
+  max-height: 360px;
   overflow-y: auto;
   padding-right: 2px;
 }

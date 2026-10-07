@@ -498,6 +498,58 @@ def test_aos_championship_badge_parity_rtt_vs_gt():
     assert grand_champ_gt["unlocked"] is True
 
 
+def test_10th_11th_ed_tactical_over_40_raw_not_misclassified_as_9th():
+    # Verify an 11th/10th Edition game where a player scores >40 raw secondary points across 8 tactical cards
+    # (e.g. 5 + 10 + 5 + 10 + 15 = 45 raw -> 40 capped) is NOT misclassified as 9th Edition and preserves Turn 5 = 15.
+    raw_11th_over_40 = {
+        "id": "ttb-11th-50a4c798",
+        "packName": "Chapter Approved 2025-26",
+        "missionName": "Take and Hold",
+        "date": "2026-09-12T18:00:00Z",
+        "players": [
+            {
+                "name": "John Hsieh",
+                "faction": "Black Templars",
+                "detachment": "Wrathful Procession",
+                "battleReady": True,
+                "primaryScores": [0, 15, 10, 15, 15],  # 55 raw -> 50 capped
+                "secondaries": [
+                    {"name": "Secure No Man's Land", "round": 1, "points": 5},
+                    {"name": "Assassination", "round": 2, "points": 5},
+                    {"name": "Burden of Trust", "round": 2, "points": 5},
+                    {"name": "Centre Ground", "round": 3, "points": 5},
+                    {"name": "Defend Stronghold", "round": 4, "points": 5},
+                    {"name": "Forward Position", "round": 4, "points": 5},
+                    {"name": "Defend Stronghold", "round": 5, "points": 5},
+                    {"name": "A Tempting Target", "round": 5, "points": 10},
+                ],
+            },
+            {
+                "name": "Daniel Klenske",
+                "faction": "Emperor's Children",
+                "detachment": "Coterie of the Conceited",
+                "battleReady": True,
+                "primaryScores": [0, 5, 5, 5, 0],  # 15
+                "secondaries": [
+                    {"name": "Cleanse", "round": 1, "points": 4},
+                    {"name": "Bring It Down", "round": 3, "points": 8},
+                ],
+            },
+        ],
+    }
+    parsed = tracker_importer.parse_imported_games_payload(raw_11th_over_40, "tabletop_battles")[0]
+    assert parsed["edition"] in ("10th", "11th")
+    st = parsed["state"]
+    assert st["p1"]["primaryCap"] == 50
+    assert st["p1"]["secondaryCap"] == 40
+    # Turn 5 secondaryScore must remain 15 (not clipped to 10), while total secondaryScore is capped at 40
+    assert [r["secondaryScore"] for r in st["p1"]["rounds"]] == [5, 10, 5, 10, 15]
+    assert st["p1"]["secondaryScore"] == 40
+    assert st["p1"]["primaryScore"] == 50
+    assert parsed["p1_score"] == 100
+    assert parsed["p2_score"] == 37
+
+
 if __name__ == "__main__":
     test_edition_detection_and_unclipped_9th_ed_secondaries()
     print("✓ test_edition_detection_and_unclipped_9th_ed_secondaries passed")
@@ -509,6 +561,8 @@ if __name__ == "__main__":
     print("✓ test_event_match_mapping_participant_verification_alignment_and_locking passed")
     test_aos_championship_badge_parity_rtt_vs_gt()
     print("✓ test_aos_championship_badge_parity_rtt_vs_gt passed")
+    test_10th_11th_ed_tactical_over_40_raw_not_misclassified_as_9th()
+    print("✓ test_10th_11th_ed_tactical_over_40_raw_not_misclassified_as_9th passed")
     print("ALL TESTS PASSED!")
 
 

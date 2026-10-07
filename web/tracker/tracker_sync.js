@@ -6249,7 +6249,7 @@ Space Marines - Gladius Task Force (2000 pts)
         resBox.style.background = 'rgba(56,189,248,0.1)';
         resBox.style.border = '1px solid rgba(56,189,248,0.3)';
         resBox.style.color = '#38bdf8';
-        resBox.innerHTML = '⏳ Connecting &amp; importing completed game(s) into PostgreSQL <code>tracker_games</code>...';
+        resBox.innerHTML = '⏳ Importing completed games...';
       }
 
       const token = getAuthToken();
@@ -6296,8 +6296,7 @@ Space Marines - Gladius Task Force (2000 pts)
           resBox.style.color = '#f8fafc';
           resBox.innerHTML = `
             <div style="font-weight:800; color:#34d399; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
-              <span>✅ Imported ${games.length} Completed Game${games.length === 1 ? '' : 's'} to PostgreSQL tracker_games!</span>
-              <span style="font-size:0.7rem; color:#94a3b8; font-family:monospace;">is_finished = true</span>
+              <span>✅ Imported ${games.length} Completed Game${games.length === 1 ? '' : 's'}!</span>
             </div>
             <div style="display:flex; flex-direction:column; gap:6px;">
               ${games.map(g => {
@@ -6332,6 +6331,12 @@ Space Marines - Gladius Task Force (2000 pts)
           `;
         }
 
+        try {
+          originalRemoveItem('my_hub_cache_40k');
+          originalRemoveItem('my_hub_cache_aos');
+          originalRemoveItem('my_hub_cache');
+        } catch (e) {}
+
         if (typeof window.__refreshTrackerHistoryAfterImport === 'function') {
           await window.__refreshTrackerHistoryAfterImport();
         }
@@ -6348,6 +6353,71 @@ Space Marines - Gladius Task Force (2000 pts)
     let _lobbyMappableMatchesCache = [];
     let _lobbyActiveMapMatchId = '';
     let _lobbyActiveMapGameSystem = '40k';
+
+    function _findLobbySourceGame(matchId) {
+      const target = String(matchId || '').trim().toUpperCase();
+      if (!target) return null;
+      const pools = [
+        ...(Array.isArray(window.gtCompletedHistory) ? window.gtCompletedHistory : []),
+        ...(Array.isArray(dbHistoryCache) ? dbHistoryCache : [])
+      ];
+      for (const item of pools) {
+        if (!item) continue;
+        const mid = String(item.match_id || item.id || '').trim().toUpperCase();
+        if (mid === target) {
+          return {
+            match_id: item.match_id || item.id || matchId,
+            p1_name: item.p1_name || item.game?.p1Name || 'Player 1',
+            p2_name: item.p2_name || item.game?.p2Name || 'Player 2',
+            p1_faction: item.p1_faction || item.game?.p1Faction || 'Army 1',
+            p2_faction: item.p2_faction || item.game?.p2Faction || 'Army 2',
+            p1_score: item.p1_score ?? item.p1Score ?? 0,
+            p2_score: item.p2_score ?? item.p2Score ?? 0,
+            primary_mission: item.primary_mission || item.game?.primary || ''
+          };
+        }
+      }
+      return null;
+    }
+
+    function _renderLobbyMapSourceBanner(sg) {
+      const bannerEl = document.getElementById('omni-map-source-banner');
+      if (!bannerEl) return;
+      if (!sg) {
+        bannerEl.innerHTML = '';
+        return;
+      }
+      const p1Name = sg.p1_name || 'Player 1';
+      const p2Name = sg.p2_name || 'Player 2';
+      const p1Fac = sg.p1_faction || 'Army 1';
+      const p2Fac = sg.p2_faction || 'Army 2';
+      const p1Score = sg.p1_score ?? 0;
+      const p2Score = sg.p2_score ?? 0;
+      const mid = sg.match_id || _lobbyActiveMapMatchId;
+      const mission = sg.primary_mission || '';
+
+      bannerEl.innerHTML = `
+        <div style="background:linear-gradient(135deg, rgba(15,23,42,0.96) 0%, rgba(30,41,59,0.92) 100%); border:1px solid rgba(245,158,11,0.45); border-radius:12px; padding:0.75rem 1rem; margin-bottom:0.85rem; box-shadow:0 8px 20px rgba(0,0,0,0.35);">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; margin-bottom:0.45rem; flex-wrap:wrap;">
+            <span style="font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#fbbf24;">📋 Scorecard Being Mapped • #${escapeHtml(mid)}</span>
+            <span style="font-size:0.7rem; color:#94a3b8; font-family:monospace;">${escapeHtml(mission)}</span>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:0.75rem;">
+            <div style="min-width:0;">
+              <div style="font-size:0.9rem; font-weight:800; color:#38bdf8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🟦 ${escapeHtml(p1Name)}</div>
+              <div style="font-size:0.72rem; color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(p1Fac)}</div>
+            </div>
+            <div style="background:#020617; border:1px solid #334155; border-radius:10px; padding:0.28rem 0.75rem; font-family:'JetBrains Mono',monospace; font-size:1.05rem; font-weight:900; color:#fff; white-space:nowrap; box-shadow:inset 0 2px 6px rgba(0,0,0,0.5);">
+              <span style="color:#38bdf8;">${p1Score}</span> <span style="color:#64748b; font-weight:600;">-</span> <span style="color:#f43f5e;">${p2Score}</span>
+            </div>
+            <div style="min-width:0; text-align:right;">
+              <div style="font-size:0.9rem; font-weight:800; color:#f43f5e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🟥 ${escapeHtml(p2Name)}</div>
+              <div style="font-size:0.72rem; color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(p2Fac)}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
     if (typeof window.openMapGameToEventModal !== 'function') {
       window.openMapGameToEventModal = async function(matchId, gameSystem) {
@@ -6372,6 +6442,7 @@ Space Marines - Gladius Task Force (2000 pts)
               <button type="button" onclick="document.getElementById('omni-map-game-event-modal').style.display='none'" style="background:transparent; border:none; color:#94a3b8; font-size:1.25rem; cursor:pointer;">✕</button>
             </div>
             <div style="padding:1.1rem 1.25rem; overflow-y:auto; flex:1;">
+              <div id="omni-map-source-banner"></div>
               <div style="font-size:0.78rem; color:#cbd5e1; line-height:1.45; margin-bottom:0.85rem; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.25); padding:0.65rem 0.85rem; border-radius:10px;">
                 🔒 <b>Participant-Only &amp; Auto-Aligned:</b> You can only map a scorecard to a tournament pairing you participated in. Player 1 and Player 2 columns are automatically aligned to the official pairing and locked once mapped.
               </div>
@@ -6386,13 +6457,17 @@ Space Marines - Gladius Task Force (2000 pts)
           </div>
         `;
         modal.style.display = 'flex';
+        _renderLobbyMapSourceBanner(_findLobbySourceGame(_lobbyActiveMapMatchId));
 
         try {
-          const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(_lobbyActiveMapGameSystem)}&match_id=${encodeURIComponent(_lobbyActiveMapMatchId)}`, { headers: getAuthHeaders() });
+          const tok = originalGetItem('native_session_token') || originalGetItem('elo_auth_token') || originalGetItem('omnitactica_id_token') || originalGetItem('firebase_id_token') || '';
+          const headers = tok ? { 'Authorization': 'Bearer ' + tok } : {};
+          const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(_lobbyActiveMapGameSystem)}&match_id=${encodeURIComponent(_lobbyActiveMapMatchId)}`, { headers });
           const data = await resp.json().catch(() => ({}));
           if (!resp.ok) {
             throw new Error(data.detail || 'Please sign in to map scorecards to your tournament matches.');
           }
+          if (data.source_game) _renderLobbyMapSourceBanner(data.source_game);
           _lobbyMappableMatchesCache = data.matches || [];
           window.__renderLobbyMappableEventMatches(_lobbyMappableMatchesCache);
         } catch (err) {
@@ -6457,9 +6532,11 @@ Space Marines - Gladius Task Force (2000 pts)
       window.__confirmMapGameToEventFromLobby = async function(eventId, roundNum, tableNum) {
         const statusEl = document.getElementById('omni-map-event-status');
         try {
+          const tok = originalGetItem('native_session_token') || originalGetItem('elo_auth_token') || originalGetItem('omnitactica_id_token') || originalGetItem('firebase_id_token') || '';
+          const headers = Object.assign({ 'Content-Type': 'application/json' }, tok ? { 'Authorization': 'Bearer ' + tok } : {});
           const resp = await fetch(`/api/tracker/games/${encodeURIComponent(_lobbyActiveMapMatchId)}/map_event_match`, {
             method: 'POST',
-            headers: Object.assign({ 'Content-Type': 'application/json' }, getAuthHeaders()),
+            headers,
             body: JSON.stringify({ event_id: eventId, round_num: roundNum, table_num: tableNum })
           });
           const data = await resp.json().catch(() => ({}));
@@ -6473,6 +6550,11 @@ Space Marines - Gladius Task Force (2000 pts)
             statusEl.style.color = '#34d399';
             statusEl.innerHTML = `✅ Mapped &amp; locked to <b>${escapeHtml(data.event_name || eventId)}</b> (Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''})${data.swapped_p1_p2 ? ' • Auto-aligned Player 1 / Player 2 columns!' : '!'}`;
           }
+          try {
+            originalRemoveItem('my_hub_cache_40k');
+            originalRemoveItem('my_hub_cache_aos');
+            originalRemoveItem('my_hub_cache');
+          } catch (e) {}
           if (typeof window.__refreshTrackerHistoryAfterImport === 'function') {
             await window.__refreshTrackerHistoryAfterImport();
           }

@@ -2266,9 +2266,11 @@ async def api_get_scorecard(match_id: str):
             or (state.get("gameSystem") if isinstance(state, dict) else None)
             or ("aos" if str(match_id).upper().startswith("AOS-") else "40k")
         )
+        actual_mid = str(game_rec.get("match_id") or match_id).strip()
         return {
             "success": True,
-            "match_id": match_id,
+            "match_id": actual_mid,
+            "requested_match_id": match_id,
             "game_system": sys_id,
             "game_record": game_rec,
             "state": state,
@@ -2885,9 +2887,30 @@ async def api_get_mappable_event_matches(
 
     db = get_database()
     target_game = None
+    source_game_summary = None
     norm_mid = normalize_tracker_match_id(match_id) if match_id else None
     if norm_mid and hasattr(db, "get_tracker_game"):
         target_game = db.get_tracker_game(norm_mid)
+        if target_game:
+            t_st = target_game.get("state") if isinstance(target_game.get("state"), dict) else {}
+            t_g = t_st.get("game") if isinstance(t_st.get("game"), dict) else {}
+            t_p1 = t_st.get("p1") if isinstance(t_st.get("p1"), dict) else {}
+            t_p2 = t_st.get("p2") if isinstance(t_st.get("p2"), dict) else {}
+            raw_dt = t_st.get("game_date") or target_game.get("updated_at") or target_game.get("created_at")
+            dt_str = raw_dt.strftime("%b %d, %Y") if hasattr(raw_dt, "strftime") else (str(raw_dt)[:10] if raw_dt else "")
+            source_game_summary = {
+                "match_id": target_game.get("match_id") or norm_mid,
+                "p1_name": target_game.get("p1_name") or t_g.get("p1Name") or t_p1.get("name") or "Player 1",
+                "p2_name": target_game.get("p2_name") or t_g.get("p2Name") or t_p2.get("name") or "Player 2",
+                "p1_faction": target_game.get("p1_faction") or t_g.get("p1Faction") or t_p1.get("faction") or "",
+                "p2_faction": target_game.get("p2_faction") or t_g.get("p2Faction") or t_p2.get("faction") or "",
+                "p1_score": target_game.get("p1_score") if target_game.get("p1_score") is not None else (t_st.get("p1Score") or t_p1.get("score") or 0),
+                "p2_score": target_game.get("p2_score") if target_game.get("p2_score") is not None else (t_st.get("p2Score") or t_p2.get("score") or 0),
+                "primary_mission": target_game.get("primary_mission") or t_g.get("primary") or "",
+                "edition": t_st.get("edition") or "10th",
+                "edition_label": t_st.get("edition_label") or "",
+                "game_date": dt_str,
+            }
 
     u_ids = []
     for k in ("id", "user_id", "player_id", "bcp_user_id", "bcp_id"):
@@ -2924,7 +2947,7 @@ async def api_get_mappable_event_matches(
                     params.append(u_names)
 
                 if not part_clauses:
-                    return {"success": True, "matches": []}
+                    return {"success": True, "match_id": norm_mid, "source_game": source_game_summary, "matches": []}
 
                 where_parts.append("(" + " OR ".join(part_clauses) + ")")
 
@@ -2959,7 +2982,11 @@ async def api_get_mappable_event_matches(
                         WHERE LOWER(event_id) = LOWER(m.event_id)
                           AND round_num = m.round
                           AND table_num = m.table_number
-                        ORDER BY is_finished DESC, updated_at DESC
+                        ORDER BY
+                          COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
+                          CASE WHEN COALESCE(state_json->>'imported_source', '') != '' OR match_id LIKE '%%-TTB-%%' OR match_id LIKE '%%-GW-%%' THEN 1 ELSE 0 END DESC,
+                          is_finished DESC,
+                          updated_at DESC
                         LIMIT 1
                     ) tg ON TRUE
                     WHERE {" AND ".join(where_parts)}
@@ -3051,6 +3078,7 @@ async def api_get_mappable_event_matches(
     return {
         "success": True,
         "match_id": norm_mid,
+        "source_game": source_game_summary,
         "matches": candidates,
     }
 

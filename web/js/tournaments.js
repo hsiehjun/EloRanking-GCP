@@ -2236,7 +2236,7 @@ function renderEventPairingsRows() {
       const isP1Win = m.winner_id && m.winner_id === m.player1_id;
       const isP2Win = m.winner_id && m.winner_id === m.player2_id;
       const outcome = isP1Win ? 'Player 1 Win' : (isP2Win ? 'Player 2 Win' : (m.is_draw ? 'Draw' : (m.is_bye ? 'BYE' : 'Pending')));
-      const matchId = `BCP-${eventId}-R${m.round || 1}-T${m.table_number || 1}`;
+      const matchId = m.tracker_match_id || `BCP-${eventId}-R${m.round || 1}-T${m.table_number || 1}`;
 
       const isBye = Boolean(m.is_bye || m.player2_name === 'BYE' || !m.player2_id);
       const hasScore = (m.player1_score !== null && m.player2_score !== null);
@@ -4541,7 +4541,7 @@ function renderPersonalEventScorecard(ev, userRegData) {
 
     const roundNum = m.round || 1;
     const tableNum = m.table_number || m.table || 1;
-    const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`;
+    const matchId = m.tracker_match_id || `BCP-${eventId}-R${roundNum}-T${tableNum}`;
     const safeEventId = String(eventId).replace(/'/g, "\\'");
     const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
     const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
@@ -4847,7 +4847,7 @@ async function renderPlayerStation(ev, userRegData) {
       const safeP1Id = String(activeMatch.player1_id || '').replace(/'/g, "\\'");
       const safeP2Id = String(activeMatch.player2_id || '').replace(/'/g, "\\'");
       const safePairingId = String(activeMatch.id || activeMatch.pairing_id || activeMatch.bcp_pairing_id || '').replace(/'/g, "\\'");
-      const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`;
+      const matchId = activeMatch.tracker_match_id || `BCP-${eventId}-R${roundNum}-T${tableNum}`;
 
       activeHero.innerHTML = `
         <div class="card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 58, 138, 0.45)); border: 1.5px solid rgba(56, 189, 248, 0.45); box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5); border-radius: 12px; padding: 1.25rem;">
@@ -7076,7 +7076,7 @@ function buildCasterPastH2hCardHtml(pastMatches, p1Pid, p2Pid, p1Name, p2Name, i
     const safeEventId = eventId.replace(/'/g, "\\'");
     const rNum = Number(m.round || 1);
     const tNum = Number(m.table_number || m.table || 0);
-    const scMatchId = eventId && tNum > 0 ? `BCP-${eventId}-R${rNum}-T${tNum}` : '';
+    const scMatchId = m.tracker_match_id || (eventId && tNum > 0 ? `BCP-${eventId}-R${rNum}-T${tNum}` : '');
     const dateStr = String(m.match_date || '').slice(0, 10) || '-';
 
     return `
@@ -8141,7 +8141,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
   if (roundMatches && roundMatches.length > 0 && selectedMatch && p1 && p2) {
     const eventId = ev?.id || currentOpenEventId || currentEventData?.id || '';
     const activeTableNum = Number(selectedMatch?.table_number || selectedMatch?.table || selectedCasterTable || 1);
-    const activeMatchId = `BCP-${eventId}-R${curRound}-T${activeTableNum}`;
+    const activeMatchId = selectedMatch?.tracker_match_id || `BCP-${eventId}-R${curRound}-T${activeTableNum}`;
 
     const p1Info = resolveEventCompetitorRecord(
       selectedMatch?.player1_id || p1?.player_id || p1?.id || '',
@@ -8256,7 +8256,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
         const rNum = Number(m.round || 1);
         const tNum = Number(m.table_number || m.table || 1);
         const rMeta = getEventRoundMetadata(ev, matches, rNum, maxR);
-        const mId = `BCP-${eventId}-R${rNum}-T${tNum}`;
+        const mId = m.tracker_match_id || `BCP-${eventId}-R${rNum}-T${tNum}`;
         const mHasScore = mySc !== null && mySc !== undefined && opSc !== null && opSc !== undefined;
         let resPill = `<span class="badge" style="background:rgba(148,163,184,0.15); color:#94a3b8; font-size:0.66rem; white-space:nowrap; flex-shrink:0;">LIVE</span>`;
         if (m.is_bye || opName === 'BYE') {

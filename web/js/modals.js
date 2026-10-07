@@ -1339,6 +1339,103 @@ function copyCurrentScorecardLink() {
   alert(`📋 Scorecard Link copied to clipboard:\n${url}`);
 }
 
+const MODAL_CARD_NAMES = {
+  'cleanse': 'Cleanse',
+  'bring-it-down': 'Bring It Down',
+  'no-prisoners': 'No Prisoners',
+  'assassination': 'Assassination',
+  'outflank': 'Outflank',
+  'plunder': 'Plunder',
+  'centre-ground': 'Centre Ground',
+  'forward-position': 'Forward Position',
+  'overwhelming-force': 'Overwhelming Force',
+  'a-tempting-target': 'A Tempting Target',
+  'sabotage': 'Sabotage',
+  'recover-assets': 'Recover Assets',
+  'secure-no-mans-land': "Secure No Man's Land",
+  'defend-stronghold': 'Defend Stronghold',
+  'area-denial': 'Area Denial',
+  'behind-enemy-lines': 'Behind Enemy Lines',
+  'storm-hostile-objective': 'Storm Hostile Objective',
+  'extend-battle-lines': 'Extend Battle Lines',
+  'investigate-signals': 'Investigate Signals',
+  'engage-on-all-fronts': 'Engage on All Fronts',
+  'marked-for-death': 'Marked for Death',
+  'unshakable-will': 'Unshakable Will',
+  'cull-the-horde': 'Cull the Horde',
+  'beacon': 'Beacon',
+  'burden-of-trust': 'Burden of Trust'
+};
+
+function formatModalCardName(card) {
+  if (!card) return 'Secondary Mission';
+  if (typeof card === 'string') return MODAL_CARD_NAMES[card] || card;
+  const cId = String(card.cardId || card.id || '').toLowerCase();
+  if (MODAL_CARD_NAMES[cId]) return MODAL_CARD_NAMES[cId];
+  if (card.name) return card.name;
+  if (card.title) return card.title;
+  return cId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') || 'Secondary Mission';
+}
+
+function getModalPlayerRoundSecondaries(pObj, rNum) {
+  if (!pObj) return [];
+  const res = [];
+  const hand = pObj.hand || [];
+
+  if (Array.isArray(hand)) {
+    hand.forEach(card => {
+      if (!card || card.status === 'discarded') return;
+      let score = 0;
+      let isForThisRound = false;
+
+      if (card.recurring && card.roundScores) {
+        const rScore = card.roundScores[rNum] || card.roundScores[String(rNum)];
+        if (rScore) {
+          score = typeof rScore === 'object' ? (Number(rScore.points) || 0) : (Number(rScore) || 0);
+          isForThisRound = true;
+        }
+      } else if (Number(card.scoredRound) === rNum) {
+        score = Number(card.points) || 0;
+        isForThisRound = true;
+      }
+
+      if (isForThisRound && score > 0) {
+        res.push({
+          name: formatModalCardName(card),
+          cardId: card.cardId,
+          score: score,
+          status: card.status || 'scored'
+        });
+      }
+    });
+  }
+
+  if (res.length === 0 && Array.isArray(pObj.rounds) && pObj.rounds.length >= rNum) {
+    const r = pObj.rounds.find(x => (x.round === rNum || x.battleRound === rNum)) || pObj.rounds[rNum - 1];
+    if (r) {
+      if (Array.isArray(r.secondaries) && r.secondaries.length > 0) {
+        r.secondaries.forEach(s => {
+          if (typeof s === 'string') res.push({ name: formatModalCardName(s), score: Number(r.secondaryScore) || 0, status: 'achieved' });
+          else if (s && typeof s === 'object') res.push({ name: formatModalCardName(s), score: Number(s.score || s.points) || 0, status: s.status || 'achieved' });
+        });
+      } else if (r.secondaryScore && Number(r.secondaryScore) > 0) {
+        res.push({ name: 'Tactical / Fixed Secondaries', score: Number(r.secondaryScore), status: 'achieved' });
+      }
+    }
+  }
+
+  return res;
+}
+
+function toggleModalPlayerSecondaries(rowClass) {
+  const rows = document.querySelectorAll(`#modal-scorecard-matrix-body tr.${rowClass}`);
+  if (!rows.length) return;
+  const anyVisible = Array.from(rows).some(r => r.style.display !== 'none');
+  rows.forEach(r => {
+    r.style.display = anyVisible ? 'none' : 'table-row';
+  });
+}
+
 async function openScorecardModal(matchId) {
   if (!matchId) return;
   activeScorecardMatchId = matchId;
@@ -1352,8 +1449,11 @@ async function openScorecardModal(matchId) {
 
   const titleEl = document.getElementById('modal-scorecard-title');
   const subEl = document.getElementById('modal-scorecard-subtitle');
+  const badgesEl = document.getElementById('msc-status-badges');
+  const winnerBannerEl = document.getElementById('msc-winner-banner');
   const tbody = document.getElementById('modal-scorecard-matrix-body');
   const matchIdEl = document.getElementById('msc-match-id');
+  const fullPageLink = document.getElementById('msc-full-page-link');
   const liveLink = document.getElementById('msc-live-link');
   const p1NameEl = document.getElementById('msc-p1-name');
   const p2NameEl = document.getElementById('msc-p2-name');
@@ -1361,11 +1461,21 @@ async function openScorecardModal(matchId) {
   const p2FacEl = document.getElementById('msc-p2-faction');
   const p1DetEl = document.getElementById('msc-p1-det');
   const p2DetEl = document.getElementById('msc-p2-det');
+  const p1SubEl = document.getElementById('msc-p1-sub-breakdown');
+  const p2SubEl = document.getElementById('msc-p2-sub-breakdown');
   const p1ScoreEl = document.getElementById('msc-p1-score');
   const p2ScoreEl = document.getElementById('msc-p2-score');
 
   if (matchIdEl) matchIdEl.innerText = matchId;
+  if (fullPageLink) fullPageLink.href = `/scorecard/${encodeURIComponent(matchId)}`;
   if (liveLink) liveLink.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}`;
+  if (badgesEl) badgesEl.innerHTML = '';
+  if (winnerBannerEl) {
+    winnerBannerEl.style.display = 'none';
+    winnerBannerEl.innerHTML = '';
+  }
+  if (p1SubEl) { p1SubEl.innerHTML = ''; p1SubEl.style.display = 'none'; }
+  if (p2SubEl) { p2SubEl.innerHTML = ''; p2SubEl.style.display = 'none'; }
   if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Fetching verified battle records...</div></td></tr>';
 
   const bcpMatch = String(matchId).match(/^(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$/i);
@@ -1390,6 +1500,8 @@ async function openScorecardModal(matchId) {
 
   if (parsedRound !== null && parsedTable !== null && evMatches.length > 0) {
     evMatch = evMatches.find(m => Number(m.round || 1) === parsedRound && Number(m.table_number || m.table || 1) === parsedTable) || null;
+  } else if (evMatches.length > 0) {
+    evMatch = evMatches.find(m => String(m.tracker_match_id || '') === String(matchId)) || null;
   }
   if (evMatch && evPlayers.length > 0) {
     const p1Id = String(evMatch.player1_id || '').trim().toLowerCase();
@@ -1455,8 +1567,6 @@ async function openScorecardModal(matchId) {
 
     const eventEnded = (typeof isEventEnded === 'function' && evObj) ? Boolean(isEventEnded(evObj)) : false;
 
-    // For completed events: only show our turn-by-turn scorecard if saved in PostgreSQL (tracker_games); otherwise use BCP.
-    // For in-progress events (or standalone live games): also allow live Firestore rooms (source === 'firestore').
     const isTrackerScorecard = Boolean(
       data &&
       ((data.source === 'tracker_games' && data.is_finished === true) || (!eventEnded && data.source === 'firestore')) &&
@@ -1471,6 +1581,13 @@ async function openScorecardModal(matchId) {
     const rec = isTrackerScorecard ? (data.game_record || {}) : {};
     const st = isTrackerScorecard ? (data.state || {}) : {};
     const game = isTrackerScorecard ? (st.game || rec.state_json?.game || {}) : {};
+
+    const resolvedMatchId = String(
+      (isTrackerScorecard && (data.match_id || rec.match_id || st.match_id)) || matchId
+    ).trim();
+    activeScorecardMatchId = resolvedMatchId;
+    if (matchIdEl) matchIdEl.innerText = resolvedMatchId;
+    if (fullPageLink) fullPageLink.href = `/scorecard/${encodeURIComponent(resolvedMatchId)}`;
 
     const p1Name = (isTrackerScorecard && (game.p1Name || rec.p1_name || st.p1?.name)) || bcpMatchRec?.player1_name || 'Player 1';
     const p2Name = (isTrackerScorecard && (game.p2Name || rec.p2_name || st.p2?.name)) || bcpMatchRec?.player2_name || 'Player 2';
@@ -1489,9 +1606,12 @@ async function openScorecardModal(matchId) {
     const isAosModal = Boolean(
       data.game_system === 'aos' ||
       st.gameSystem === 'aos' ||
-      String(matchId || '').startsWith('AOS-') ||
+      String(resolvedMatchId || '').startsWith('AOS-') ||
       (window.currentGameSystem === 'aos' && !isTrackerScorecard)
     );
+    if (liveLink) {
+      liveLink.href = `/${isAosModal ? 'aos' : '11th'}/tracker/play?match_id=${encodeURIComponent(resolvedMatchId)}`;
+    }
 
     const p1Obj = isTrackerScorecard ? (st.p1 || {}) : {};
     const p2Obj = isTrackerScorecard ? (st.p2 || {}) : {};
@@ -1536,6 +1656,9 @@ async function openScorecardModal(matchId) {
       secCap = 12;
       maxTot = 48;
       hasPaint = false;
+    } else if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th')) {
+      edCode = '11th';
+      edBadgeLabel = '🚀 WH40K 11th Ed';
     } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || Number(p1Obj.primaryCap) === 45 || Number(p1Obj.secondaryCap) === 45) {
       edCode = '9th';
       edBadgeLabel = '📜 WH40K 9th Ed (45/45/10)';
@@ -1543,29 +1666,19 @@ async function openScorecardModal(matchId) {
       secCap = 45;
       maxTot = 100;
       hasPaint = true;
-    } else if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th')) {
-      edCode = '11th';
-      edBadgeLabel = '🚀 WH40K 11th Ed';
     }
 
     function getRoundSecScore(pObj, rObj, rNum) {
       if (isAosModal) return Number(rObj.tacticScore || 0);
+      const secs = getModalPlayerRoundSecondaries(pObj, rNum);
+      if (secs.length > 0) {
+        return secs.reduce((acc, s) => acc + (Number(s.score) || 0), 0);
+      }
       if (typeof rObj.secondaryScore === 'number' && rObj.secondaryScore > 0) return rObj.secondaryScore;
-      const hand = Array.isArray(pObj.hand) ? pObj.hand : [];
-      let sum = 0;
-      hand.forEach(c => {
-        if (!c || c.status === 'discarded') return;
-        if (c.recurring && c.roundScores) {
-          const rs = c.roundScores[rNum] || c.roundScores[String(rNum)];
-          if (rs) sum += (typeof rs === 'object' ? Number(rs.points || 0) : Number(rs || 0));
-        } else if (Number(c.scoredRound) === rNum) {
-          sum += Number(c.points || 0);
-        }
-      });
-      return sum;
+      return 0;
     }
 
-    function getVp(obj, rounds) {
+    function getBreakdown(obj, rounds) {
       const pri = Math.min(priCap, rounds.reduce((s, r) => s + Number(r.primaryScore || 0), 0));
       let secRaw = 0;
       for (let i = 1; i <= 5; i++) {
@@ -1575,10 +1688,11 @@ async function openScorecardModal(matchId) {
       const sec = Math.min(secCap, secRaw);
       if (isAosModal) {
         const gs = hasGrandStrategy ? Number(obj.grandStrategyScore || (obj.grandStrategyAchieved ? 3 : 0)) : 0;
-        return Math.min(maxTot, pri + sec + gs);
+        const tacticsCount = rounds.filter(r => r.tacticStatus === 'achieved').length;
+        return { pri, sec, paint: 0, gs, tacticsCount, total: Math.min(maxTot, pri + sec + gs) };
       }
       const paint = !hasPaint ? 0 : (typeof obj.paintScore === 'number' ? obj.paintScore : (obj.battleReady !== false ? 10 : 0));
-      return Math.min(maxTot, pri + sec + paint);
+      return { pri, sec, paint, gs: 0, tacticsCount: 0, total: Math.min(maxTot, pri + sec + paint) };
     }
 
     const hasBcpScore = Boolean(
@@ -1589,25 +1703,88 @@ async function openScorecardModal(matchId) {
       bcpMatchRec.player2_score !== undefined
     );
 
+    const p1Break = hasTurnData ? getBreakdown(p1Obj, p1Rounds) : null;
+    const p2Break = hasTurnData ? getBreakdown(p2Obj, p2Rounds) : null;
+
     const p1Score = hasTurnData
-      ? (getVp(p1Obj, p1Rounds) || rec.p1_score || 0)
+      ? (p1Break.total || rec.p1_score || 0)
       : (hasBcpScore ? bcpMatchRec.player1_score : 0);
     const p2Score = hasTurnData
-      ? (getVp(p2Obj, p2Rounds) || rec.p2_score || 0)
+      ? (p2Break.total || rec.p2_score || 0)
       : (hasBcpScore ? bcpMatchRec.player2_score : 0);
 
     if (p1ScoreEl) p1ScoreEl.innerText = (hasTurnData || hasBcpScore) ? p1Score : '-';
     if (p2ScoreEl) p2ScoreEl.innerText = (hasTurnData || hasBcpScore) ? p2Score : '-';
 
+    if (p1SubEl && p2SubEl) {
+      if (hasTurnData && p1Break && p2Break) {
+        p1SubEl.style.display = 'inline-block';
+        p2SubEl.style.display = 'inline-block';
+        if (isAosModal) {
+          if (hasGrandStrategy) {
+            p1SubEl.innerHTML = `<span>PRI: ${p1Break.pri}/${priCap}</span> • <span>TAC: ${p1Break.sec}/${secCap}</span> • <span style="color:#fbbf24; font-weight:700;">GS: +${p1Break.gs}</span>`;
+            p2SubEl.innerHTML = `<span>PRI: ${p2Break.pri}/${priCap}</span> • <span>TAC: ${p2Break.sec}/${secCap}</span> • <span style="color:#fbbf24; font-weight:700;">GS: +${p2Break.gs}</span>`;
+          } else {
+            p1SubEl.innerHTML = `<span>PRI: ${p1Break.pri}/${priCap}</span> • <span>TAC: ${p1Break.sec}/${secCap}</span> • <span style="color:#f59e0b; font-weight:700;">TACTICS: ${p1Break.tacticsCount}/5</span>`;
+            p2SubEl.innerHTML = `<span>PRI: ${p2Break.pri}/${priCap}</span> • <span>TAC: ${p2Break.sec}/${secCap}</span> • <span style="color:#f59e0b; font-weight:700;">TACTICS: ${p2Break.tacticsCount}/5</span>`;
+          }
+        } else if (!hasPaint) {
+          p1SubEl.innerHTML = `<span>PRI: ${p1Break.pri}/${priCap}</span> • <span>SEC: ${p1Break.sec}/${secCap}</span> • <span style="color:#fb923c;">ITC 8TH</span>`;
+          p2SubEl.innerHTML = `<span>PRI: ${p2Break.pri}/${priCap}</span> • <span>SEC: ${p2Break.sec}/${secCap}</span> • <span style="color:#fb923c;">ITC 8TH</span>`;
+        } else {
+          p1SubEl.innerHTML = `<span>PRI: ${p1Break.pri}/${priCap}</span> • <span>SEC: ${p1Break.sec}/${secCap}</span> • <span>PAINT: +${p1Break.paint}</span>`;
+          p2SubEl.innerHTML = `<span>PRI: ${p2Break.pri}/${priCap}</span> • <span>SEC: ${p2Break.sec}/${secCap}</span> • <span>PAINT: +${p2Break.paint}</span>`;
+        }
+      } else if (hasBcpScore) {
+        p1SubEl.style.display = 'inline-block';
+        p2SubEl.style.display = 'inline-block';
+        p1SubEl.innerHTML = `<span>Official BCP Battle Points</span>`;
+        p2SubEl.innerHTML = `<span>Official BCP Battle Points</span>`;
+      }
+    }
+
     const roundNum = (isTrackerScorecard && (rec.round_num || game.roundNum || st.round_num)) || bcpMatchRec?.round || parsedRound || 1;
     const tableNum = (isTrackerScorecard && (rec.table_num || game.tableNum || st.table_num)) || bcpMatchRec?.table_number || bcpMatchRec?.table || parsedTable || null;
     const eventLabel = (currentEventData && currentEventData.name) || bcpMatchRec?.event_name || (isTrackerScorecard && (st.mapped_event_name || rec.mapped_event_name || rec.event_id || game.eventId)) || parsedEventId || null;
     const isLockedMatch = Boolean(st.event_match_locked || rec.event_match_locked || (isTrackerScorecard && (rec.event_id || st.event_id)));
+    const impSource = st.imported_source || rec.imported_source || (String(resolvedMatchId || '').includes('-GW-') ? 'gw_app' : (String(resolvedMatchId || '').includes('-TTB-') ? 'tabletop_battles' : ''));
+    const impAppLabel = st.imported_app || rec.imported_app || (impSource === 'gw_app' ? 'GW 40k App' : 'Tabletop Battles');
+
+    if (badgesEl) {
+      if (hasTurnData) {
+        const verifiedBadge = `<span class="badge" style="background:rgba(16,185,129,0.14); color:#34d399; border:1px solid rgba(16,185,129,0.35); font-size:0.68rem;">✓ Verified Scorecard</span>`;
+        const edPill = `<span class="badge" style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.68rem;">${escapeHtml(edBadgeLabel)}</span>`;
+        const impPill = impSource
+          ? `<span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35); font-size:0.68rem;">📥 Imported • ${escapeHtml(impAppLabel)}</span>`
+          : '';
+        const lockPill = isLockedMatch
+          ? `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.4); font-size:0.68rem;">🔒 Locked • R${roundNum}${tableNum ? ' T' + tableNum : ''}</span>`
+          : '';
+        badgesEl.innerHTML = `${verifiedBadge}${edPill}${impPill}${lockPill}`;
+      } else {
+        badgesEl.innerHTML = `<span class="badge" style="background:rgba(148,163,184,0.15); color:#cbd5e1; border:1px solid rgba(148,163,184,0.35); font-size:0.68rem;">📋 Official BCP Scorecard</span>`;
+      }
+    }
+
+    if (winnerBannerEl) {
+      if (hasTurnData || hasBcpScore) {
+        const n1 = Number(p1Score || 0);
+        const n2 = Number(p2Score || 0);
+        if (n1 > n2) {
+          winnerBannerEl.style.display = 'flex';
+          winnerBannerEl.innerText = `🏆 ${p1Name.toUpperCase()} WINS • ${n1} to ${n2}`;
+        } else if (n2 > n1) {
+          winnerBannerEl.style.display = 'flex';
+          winnerBannerEl.innerText = `🏆 ${p2Name.toUpperCase()} WINS • ${n2} to ${n1}`;
+        } else if (n1 > 0 && n1 === n2) {
+          winnerBannerEl.style.display = 'flex';
+          winnerBannerEl.innerText = `🤝 TIED MATCH • ${n1} - ${n2}`;
+        }
+      }
+    }
 
     if (titleEl) {
-      const lockPill = isLockedMatch ? ` <span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.4); font-size:0.68rem; margin-left:6px;">🔒 Locked</span>` : '';
-      const edPill = hasTurnData ? ` <span class="badge" style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.68rem; margin-left:4px;">${escapeHtml(edBadgeLabel)}</span>` : '';
-      titleEl.innerHTML = `🏆 ${eventLabel ? escapeHtml(eventLabel) + ' • ' : ''}Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''}${edPill}${lockPill}`;
+      titleEl.innerHTML = `🏆 ${eventLabel ? escapeHtml(eventLabel) + ' • ' : ''}Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''}`;
     }
     if (subEl) {
       const dateStr = (isTrackerScorecard && (st.game_date || rec.game_date || rec.updated_at || rec.updatedAt)) || bcpMatchRec?.match_date || (currentEventData && currentEventData.event_date) || Date.now();
@@ -1675,7 +1852,7 @@ async function openScorecardModal(matchId) {
         let total = 0;
         for (let i = 1; i <= 5; i++) {
           const r = roundsArr.find(x => (x.round === i || x.battleRound === i)) || roundsArr[i - 1] || {};
-          const val = r.primaryScore !== undefined ? r.primaryScore : '-';
+          const val = typeof r.primaryScore === 'number' ? r.primaryScore : '-';
           if (typeof val === 'number') total += val;
           cells += `<td style="font-family:var(--font-mono); font-weight:600; text-align:center;">${val}</td>`;
         }
@@ -1689,59 +1866,148 @@ async function openScorecardModal(matchId) {
         `;
       }
 
-      function buildSecondaryRowModal(title, color, pObj, roundsArr, capVal) {
-        let cells = '';
-        let total = 0;
+      if (isAosModal) {
+        let priorityCells = '';
         for (let i = 1; i <= 5; i++) {
-          const r = roundsArr.find(x => (x.round === i || x.battleRound === i)) || roundsArr[i - 1] || {};
-          const val = getRoundSecScore(pObj, r, i);
-          total += val;
-          cells += `<td style="font-family:var(--font-mono); font-weight:600; text-align:center;">${val > 0 ? val : '-'}</td>`;
+          const rInfo = (st.roundState && st.roundState[i]) || {};
+          const winnerStr = rInfo.firstTurn === 'p1' ? 'P1' : (rInfo.firstTurn === 'p2' ? 'P2' : '-');
+          const dTurn = rInfo.isDoubleTurn ? '<br><span style="color:#ef4444; font-size:10px;">⚡Double</span>' : '';
+          priorityCells += `<td style="font-family:var(--font-mono); font-size:11px; text-align:center;">${winnerStr}${dTurn}</td>`;
         }
-        const cappedTotal = Math.min(capVal, total);
-        return `
-          <tr>
-            <td style="color:${color}; font-weight:700; text-align:left;">${title}</td>
-            ${cells}
-            <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center;">${cappedTotal} / ${capVal}</td>
-          </tr>
-        `;
-      }
-
-      const secLabel = isAosModal ? 'Battle Tactics' : 'Secondaries';
-      tbody.innerHTML += buildPrimaryRowModal(`🟦 ${escapeHtml(p1Name)} Primary`, '#38bdf8', p1Rounds, priCap);
-      tbody.innerHTML += buildPrimaryRowModal(`🟥 ${escapeHtml(p2Name)} Primary`, '#f43f5e', p2Rounds, priCap);
-      tbody.innerHTML += buildSecondaryRowModal(`🟦 ${escapeHtml(p1Name)} ${secLabel}`, '#7dd3fc', p1Obj, p1Rounds, secCap);
-      tbody.innerHTML += buildSecondaryRowModal(`🟥 ${escapeHtml(p2Name)} ${secLabel}`, '#fda4af', p2Obj, p2Rounds, secCap);
-
-      if (isAosModal && hasGrandStrategy) {
-        const gs1 = Number(p1Obj.grandStrategyScore || (p1Obj.grandStrategyAchieved ? 3 : 0));
-        const gs2 = Number(p2Obj.grandStrategyScore || (p2Obj.grandStrategyAchieved ? 3 : 0));
         tbody.innerHTML += `
-          <tr style="background: rgba(245,158,11,0.06);">
-            <td style="color:#fbbf24; font-weight:700; text-align:left;">👑 Grand Strategy (AoS 3e • +3 VP)</td>
-            <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:var(--text-secondary);">
-              ${escapeHtml(p1Name)}: ${gs1 > 0 ? '+' + gs1 : '0'} &nbsp;|&nbsp; ${escapeHtml(p2Name)}: ${gs2 > 0 ? '+' + gs2 : '0'}
-            </td>
-            <td style="font-family:var(--font-mono); font-weight:800; color:#fbbf24; text-align:center;">
-              +${gs1 + gs2}
-            </td>
+          <tr style="background:rgba(245,158,11,0.04);">
+            <td style="color:#f59e0b; font-weight:700; text-align:left;">🎲 Priority Roll &amp; Initiative</td>
+            ${priorityCells}
+            <td style="font-family:var(--font-mono); font-weight:800; color:#f59e0b; text-align:center;">-</td>
           </tr>
         `;
-      } else if (hasPaint) {
-        const p1Paint = typeof p1Obj.paintScore === 'number' ? p1Obj.paintScore : (p1Obj.battleReady !== false ? 10 : 0);
-        const p2Paint = typeof p2Obj.paintScore === 'number' ? p2Obj.paintScore : (p2Obj.battleReady !== false ? 10 : 0);
-        tbody.innerHTML += `
-          <tr style="background: rgba(255,255,255,0.02);">
-            <td style="color:#10b981; font-weight:700; text-align:left;">🎨 Battle Ready (+10)</td>
-            <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:var(--text-secondary);">
-              ${escapeHtml(p1Name)}: ${p1Paint > 0 ? '+' + p1Paint : '0'} &nbsp;|&nbsp; ${escapeHtml(p2Name)}: ${p2Paint > 0 ? '+' + p2Paint : '0'}
-            </td>
-            <td style="font-family:var(--font-mono); font-weight:800; color:#10b981; text-align:center;">
-              ${p1Paint + p2Paint}
-            </td>
-          </tr>
-        `;
+
+        function buildAosTacticsSection(pLabel, pColor, subColor, roundsArr, capVal, subClass) {
+          let cells = '';
+          let total = 0;
+          const hasSub = roundsArr.some(r => r.tacticId && r.tacticId !== 'none');
+          for (let i = 1; i <= 5; i++) {
+            const r = roundsArr.find(x => (x.round === i || x.battleRound === i)) || roundsArr[i - 1] || {};
+            const val = r.tacticStatus === 'achieved' ? `+${r.tacticScore || 4}` : (r.tacticStatus === 'failed' ? '0' : (r.tacticStatus === 'forfeited_double_turn' ? 'Forfeit' : (Number(r.tacticScore) > 0 ? `+${r.tacticScore}` : '-')));
+            const col = (r.tacticStatus === 'achieved' || Number(r.tacticScore) > 0) ? '#10b981' : (r.tacticStatus === 'failed' ? '#ef4444' : '#94a3b8');
+            total += Number(r.tacticScore || 0);
+            cells += `<td style="font-family:var(--font-mono); font-weight:700; color:${col}; text-align:center;">${val}</td>`;
+          }
+          const cappedTotal = Math.min(capVal, total);
+          const toggleBtn = hasSub
+            ? ` <button type="button" onclick="toggleModalPlayerSecondaries('${subClass}')" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:#94a3b8; font-size:0.65rem; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:6px;">▼ Details</button>`
+            : '';
+          let html = `
+            <tr>
+              <td style="color:${subColor}; font-weight:700; text-align:left;">${pLabel} Battle Tactics${toggleBtn}</td>
+              ${cells}
+              <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center;">${cappedTotal} / ${capVal}</td>
+            </tr>
+          `;
+          roundsArr.forEach(r => {
+            if (r.tacticId && r.tacticId !== 'none') {
+              html += `
+                <tr class="${subClass}" style="display:table-row; background:rgba(15,23,42,0.7); font-size:0.78rem;">
+                  <td style="padding-left:1.5rem; color:#cbd5e1; text-align:left;"><span style="color:${pColor}; font-weight:700;">R${r.round}:</span> ⚡ ${escapeHtml(r.tacticName || r.tacticId)}</td>
+                  <td colspan="5" style="color:#94a3b8; font-size:0.72rem; text-align:center;">Status: <strong style="color:${r.tacticStatus === 'achieved' ? '#10b981' : '#ef4444'}">${escapeHtml(r.tacticStatus || 'scored')}</strong></td>
+                  <td style="font-family:var(--font-mono); font-weight:700; color:#cbd5e1; text-align:center;">+${r.tacticScore || 0}</td>
+                </tr>
+              `;
+            }
+          });
+          return html;
+        }
+
+        tbody.innerHTML += buildPrimaryRowModal(`🟦 ${escapeHtml(p1Name)} Primary`, '#38bdf8', p1Rounds, priCap);
+        tbody.innerHTML += buildAosTacticsSection(`🟦 ${escapeHtml(p1Name)}`, '#38bdf8', '#7dd3fc', p1Rounds, secCap, 'msc-p1-sec-sub');
+        tbody.innerHTML += buildPrimaryRowModal(`🟥 ${escapeHtml(p2Name)} Primary`, '#f43f5e', p2Rounds, priCap);
+        tbody.innerHTML += buildAosTacticsSection(`🟥 ${escapeHtml(p2Name)}`, '#f43f5e', '#fda4af', p2Rounds, secCap, 'msc-p2-sec-sub');
+
+        if (hasGrandStrategy) {
+          const gs1 = Number(p1Obj.grandStrategyScore || (p1Obj.grandStrategyAchieved ? 3 : 0));
+          const gs2 = Number(p2Obj.grandStrategyScore || (p2Obj.grandStrategyAchieved ? 3 : 0));
+          tbody.innerHTML += `
+            <tr style="background: rgba(245,158,11,0.06);">
+              <td style="color:#fbbf24; font-weight:700; text-align:left;">👑 Grand Strategy (AoS 3e • +3 VP)</td>
+              <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:var(--text-secondary);">
+                ${escapeHtml(p1Name)}: ${gs1 > 0 ? '+' + gs1 : '0'} &nbsp;|&nbsp; ${escapeHtml(p2Name)}: ${gs2 > 0 ? '+' + gs2 : '0'}
+              </td>
+              <td style="font-family:var(--font-mono); font-weight:800; color:#fbbf24; text-align:center;">
+                +${gs1 + gs2}
+              </td>
+            </tr>
+          `;
+        }
+      } else {
+        function build40kSecondarySection(title, playerColor, rowColor, pObj, roundsArr, capVal, subClass) {
+          let cells = '';
+          let total = 0;
+          let subRowsHtml = '';
+          for (let i = 1; i <= 5; i++) {
+            const r = roundsArr.find(x => (x.round === i || x.battleRound === i)) || roundsArr[i - 1] || {};
+            const secs = getModalPlayerRoundSecondaries(pObj, i);
+            const val = secs.length > 0
+              ? secs.reduce((acc, s) => acc + (Number(s.score) || 0), 0)
+              : (Number(r.secondaryScore) || 0);
+            total += val;
+            cells += `<td style="font-family:var(--font-mono); font-weight:600; text-align:center;">${val > 0 ? val : '-'}</td>`;
+
+            if (secs.length > 0) {
+              secs.forEach(s => {
+                let roundCells = '';
+                for (let c = 1; c <= 5; c++) {
+                  if (c === i) {
+                    roundCells += `<td style="font-family:var(--font-mono); color:${playerColor}; font-weight:800; background:rgba(56,189,248,0.06); text-align:center;">+${s.score}</td>`;
+                  } else {
+                    roundCells += `<td style="color:#475569; text-align:center;">-</td>`;
+                  }
+                }
+                subRowsHtml += `
+                  <tr class="${subClass}" style="display:table-row; background:rgba(15,23,42,0.7); font-size:0.78rem;">
+                    <td style="padding-left:1.5rem; color:#cbd5e1; text-align:left;">
+                      <span style="color:${playerColor}; font-weight:700;">R${i}:</span> 🃏 ${escapeHtml(s.name)}
+                    </td>
+                    ${roundCells}
+                    <td style="font-family:var(--font-mono); font-weight:700; color:#cbd5e1; text-align:center;">+${s.score}</td>
+                  </tr>
+                `;
+              });
+            }
+          }
+          const cappedTotal = Math.min(capVal, total);
+          const toggleBtn = subRowsHtml
+            ? ` <button type="button" onclick="toggleModalPlayerSecondaries('${subClass}')" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:#94a3b8; font-size:0.65rem; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:6px;">▼ Details</button>`
+            : '';
+          return `
+            <tr>
+              <td style="color:${rowColor}; font-weight:700; text-align:left;">${title}${toggleBtn}</td>
+              ${cells}
+              <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center;">${cappedTotal} / ${capVal}</td>
+            </tr>
+            ${subRowsHtml}
+          `;
+        }
+
+        tbody.innerHTML += buildPrimaryRowModal(`🟦 ${escapeHtml(p1Name)} Primary`, '#38bdf8', p1Rounds, priCap);
+        tbody.innerHTML += build40kSecondarySection(`🟦 ${escapeHtml(p1Name)} Secondaries`, '#38bdf8', '#7dd3fc', p1Obj, p1Rounds, secCap, 'msc-p1-sec-sub');
+        tbody.innerHTML += buildPrimaryRowModal(`🟥 ${escapeHtml(p2Name)} Primary`, '#f43f5e', p2Rounds, priCap);
+        tbody.innerHTML += build40kSecondarySection(`🟥 ${escapeHtml(p2Name)} Secondaries`, '#f43f5e', '#fda4af', p2Obj, p2Rounds, secCap, 'msc-p2-sec-sub');
+
+        if (hasPaint) {
+          const p1Paint = typeof p1Obj.paintScore === 'number' ? p1Obj.paintScore : (p1Obj.battleReady !== false ? 10 : 0);
+          const p2Paint = typeof p2Obj.paintScore === 'number' ? p2Obj.paintScore : (p2Obj.battleReady !== false ? 10 : 0);
+          tbody.innerHTML += `
+            <tr style="background: rgba(255,255,255,0.02);">
+              <td style="color:#10b981; font-weight:700; text-align:left;">🎨 Battle Ready (+10)</td>
+              <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:var(--text-secondary);">
+                ${escapeHtml(p1Name)}: ${p1Paint > 0 ? '✓ +' + p1Paint : '0'} &nbsp;|&nbsp; ${escapeHtml(p2Name)}: ${p2Paint > 0 ? '✓ +' + p2Paint : '0'}
+              </td>
+              <td style="font-family:var(--font-mono); font-weight:800; color:#10b981; text-align:center;">
+                ${p1Paint + p2Paint}
+              </td>
+            </tr>
+          `;
+        }
       }
     }
   } catch (err) {

@@ -2123,6 +2123,15 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             game_rec["state"] = st
             game_rec["state_json"] = st
 
+            ev_cache_obj = DEV_EVENT_CACHE.get(pairing["event_id"])
+            if isinstance(ev_cache_obj, dict) and isinstance(ev_cache_obj.get("matches"), list):
+                for em in ev_cache_obj["matches"]:
+                    if int(em.get("round") or 0) == r_num and int(em.get("table_number") or em.get("table") or 0) == t_num:
+                        em["has_tracker_game"] = True
+                        em["tracker_is_done"] = True
+                        em["tracker_status"] = "completed"
+                        em["tracker_match_id"] = raw_mid
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -6220,6 +6229,24 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "recommended": bool(relevance >= 50),
                 })
 
+            source_game_summary = None
+            if isinstance(target_game, dict):
+                st_tg = target_game.get("state") or target_game.get("state_json") or {}
+                source_game_summary = {
+                    "match_id": target_game.get("match_id") or req_mid,
+                    "game_system": target_game.get("game_system") or "40k",
+                    "p1_name": target_game.get("p1_name") or "Player 1",
+                    "p2_name": target_game.get("p2_name") or "Player 2",
+                    "p1_faction": target_game.get("p1_faction") or "",
+                    "p2_faction": target_game.get("p2_faction") or "",
+                    "p1_score": int(target_game.get("p1_score") or 0),
+                    "p2_score": int(target_game.get("p2_score") or 0),
+                    "primary_mission": target_game.get("primary_mission") or "",
+                    "edition": st_tg.get("edition") or target_game.get("edition") or "",
+                    "edition_label": st_tg.get("edition_label") or target_game.get("edition_label") or "",
+                    "game_date": str(st_tg.get("game_date") or target_game.get("game_date") or "")[:10],
+                }
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -6227,32 +6254,41 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({
                     "success": True,
                     "match_id": req_mid,
+                    "source_game": source_game_summary,
                     "matches": candidates,
                 }, default=str).encode("utf-8"))
             return
 
         if clean_path.startswith("api/scorecard/"):
             match_id = urllib.parse.unquote(clean_path.replace("api/scorecard/", "").strip("/"))
-            room_data = (
-                TRACKER_GAMES_DB.get(match_id)
-                or TRACKER_GAMES_DB.get(match_id.upper())
-                or ROOMS_DB.get(match_id)
-                or ROOMS_DB.get(match_id.upper())
-            )
-            if not room_data:
-                ev_m = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", str(match_id), re.I)
-                if ev_m:
-                    ev_id_q, r_q, t_q = ev_m.group(1), int(ev_m.group(2)), int(ev_m.group(3))
-                    room_data = next(
-                        (
-                            g for g in TRACKER_GAMES_DB.values()
-                            if isinstance(g, dict)
-                            and str(g.get("event_id") or "").lower() == ev_id_q.lower()
-                            and int(g.get("round_num") or 0) == r_q
-                            and int(g.get("table_num") or 0) == t_q
+            room_data = None
+            ev_m = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", str(match_id), re.I)
+            if ev_m:
+                ev_id_q, r_q, t_q = ev_m.group(1), int(ev_m.group(2)), int(ev_m.group(3))
+                mapped_candidates = [
+                    g for g in TRACKER_GAMES_DB.values()
+                    if isinstance(g, dict)
+                    and str(g.get("event_id") or "").lower() == ev_id_q.lower()
+                    and int(g.get("round_num") or 0) == r_q
+                    and int(g.get("table_num") or 0) == t_q
+                ]
+                if mapped_candidates:
+                    mapped_candidates.sort(
+                        key=lambda g: (
+                            1 if g.get("event_match_locked") else 0,
+                            1 if ("-TTB-" in str(g.get("match_id") or "") or "-GW-" in str(g.get("match_id") or "") or g.get("imported_source")) else 0,
+                            1 if g.get("is_finished") else 0,
                         ),
-                        None,
+                        reverse=True,
                     )
+                    room_data = mapped_candidates[0]
+            if not room_data:
+                room_data = (
+                    TRACKER_GAMES_DB.get(match_id)
+                    or TRACKER_GAMES_DB.get(match_id.upper())
+                    or ROOMS_DB.get(match_id)
+                    or ROOMS_DB.get(match_id.upper())
+                )
             room_data = room_data or {}
             st = (room_data.get("state") or room_data.get("state_json")) if isinstance(room_data, dict) else None
             is_finished = bool(
@@ -6273,10 +6309,12 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                sys_id = (room_data.get("game_system") if isinstance(room_data, dict) else None) or (st.get("gameSystem") if isinstance(st, dict) else None) or ("aos" if match_id.startswith("AOS-") else "40k")
+                actual_mid = str(room_data.get("match_id") or match_id).strip()
+                sys_id = (room_data.get("game_system") if isinstance(room_data, dict) else None) or (st.get("gameSystem") if isinstance(st, dict) else None) or ("aos" if actual_mid.startswith("AOS-") else "40k")
                 self.wfile.write(json.dumps({
                     "success": True,
-                    "match_id": match_id,
+                    "match_id": actual_mid,
+                    "requested_match_id": match_id,
                     "game_system": sys_id,
                     "game_record": room_data,
                     "state": st,

@@ -49,6 +49,29 @@ function isValidRegisteredTournament(ev) {
   return true;
 }
 
+function formatHubMatchDate(rawVal, fallbackObj = null) {
+  let v = rawVal;
+  if ((v == null || v === '' || v === '-') && fallbackObj && typeof fallbackObj === 'object') {
+    v = fallbackObj.game_date || fallbackObj.date || fallbackObj.updated_at || fallbackObj.created_at;
+  }
+  if (v == null || v === '' || v === '-') return '-';
+  if (typeof v === 'string' && /^[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}$/.test(v.trim())) {
+    return v.trim();
+  }
+  const strV = String(v).trim();
+  let dObj = null;
+  if (/^\d{10,13}$/.test(strV)) {
+    const num = Number(strV);
+    dObj = new Date(num > 1e11 ? num : num * 1000);
+  } else {
+    dObj = new Date(strV);
+  }
+  if (dObj && !isNaN(dObj.getTime())) {
+    return dObj.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+  }
+  return strV.length >= 10 ? strV.substring(0, 10) : strV;
+}
+
 function getLocalTrackerSessions(gs = '40k') {
   const isAos = gs === 'aos';
   const historyKey = isAos ? 'omni-aos-tracker-history' : 'gdm-11e-tracker-history';
@@ -76,6 +99,15 @@ function getLocalTrackerSessions(gs = '40k') {
             id: mid,
             match_id: mid,
             game_system: itemSys,
+            edition: item.edition || item.game?.edition || null,
+            edition_label: item.edition_label || item.game?.editionLabel || null,
+            imported_source: item.imported_source || null,
+            imported_app: item.imported_app || null,
+            event_id: item.event_id || null,
+            round_num: item.round_num || null,
+            table_num: item.table_num || null,
+            mapped_event_name: item.mapped_event_name || null,
+            event_match_locked: Boolean(item.event_match_locked || item.event_id),
             p1_name: item.p1_name || item.game?.p1Name || 'Player 1',
             p2_name: item.p2_name || item.game?.p2Name || 'Player 2',
             p1_score: item.p1_score ?? item.p1Score ?? 0,
@@ -86,8 +118,9 @@ function getLocalTrackerSessions(gs = '40k') {
             current_round: item.current_round || item.round || 1,
             round: item.round || item.current_round || 1,
             is_finished: isFin,
+            game_date: item.game_date || null,
             created_at: item.created_at || item.date || Date.now(),
-            date: item.date || item.created_at
+            date: formatHubMatchDate(item.game_date || item.date || item.created_at, item)
           };
 
           if (!isFin) {
@@ -309,13 +342,29 @@ async function loadMyHubDashboard() {
     data.unfinished_sessions = data.active_sessions.slice(1);
 
     const compMap = new Map();
-    localFresh.completed.forEach(m => {
+    const dashCompleted = Array.isArray(data.tracker_history) ? data.tracker_history.filter(g => g && g.is_finished) : [];
+    const authoritativeCompleted = serverCompleted.length > 0 ? serverCompleted : dashCompleted;
+    authoritativeCompleted.forEach(m => {
       const mid = (m.match_id || m.id || '').trim();
       if (mid && !hiddenSet.has(mid) && !activeMap.has(mid)) compMap.set(mid, m);
     });
-    serverCompleted.forEach(m => {
+    localFresh.completed.forEach(m => {
       const mid = (m.match_id || m.id || '').trim();
-      if (mid && !hiddenSet.has(mid) && !activeMap.has(mid)) compMap.set(mid, m);
+      if (!mid || hiddenSet.has(mid) || activeMap.has(mid)) return;
+      if (compMap.has(mid)) {
+        const existing = compMap.get(mid);
+        if (m.event_match_locked && !existing.event_match_locked) {
+          existing.event_match_locked = true;
+          existing.event_id = m.event_id || existing.event_id;
+          existing.round_num = m.round_num || existing.round_num;
+          existing.table_num = m.table_num || existing.table_num;
+          existing.mapped_event_name = m.mapped_event_name || existing.mapped_event_name;
+        }
+        if (m.edition && !existing.edition) existing.edition = m.edition;
+        if (m.edition_label && !existing.edition_label) existing.edition_label = m.edition_label;
+      } else {
+        compMap.set(mid, m);
+      }
     });
 
     data.completed_history = Array.from(compMap.values());
@@ -1942,10 +1991,10 @@ function renderMyHub(data) {
               <table id="hub-tracker-history-table" class="hub-table">
                 <thead>
                   <tr>
-                    <th style="width: 75px;">Match</th>
-                    <th style="width: 48%;">Players / Armies</th>
-                    <th style="width: 65px; text-align: center;">Score</th>
-                    <th style="width: 80px; text-align: right;">Scorecard</th>
+                    <th style="width: 175px;">Match</th>
+                    <th style="width: auto;">Players / Armies</th>
+                    <th style="width: 80px; text-align: center;">Score</th>
+                    <th style="width: 150px; text-align: right;">Scorecard</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1956,45 +2005,51 @@ function renderMyHub(data) {
                     const p2Score = th.p2_score ?? th.p2Score ?? 0;
                     const matchId = th.match_id || th.id || '';
                     const shortId = matchId.replace('WH40K-', '').replace('AOS-', '');
-                    const dateStr = th.date || (th.game_date ? String(th.game_date).substring(0, 10) : (th.updated_at ? String(th.updated_at).substring(5, 10) : '-'));
+                    const dateStr = formatHubMatchDate(th.game_date || th.date || th.updated_at, th);
                     const impSrc = th.imported_source || (matchId.includes('-GW-') ? 'gw_app' : (matchId.includes('-TTB-') ? 'tabletop_battles' : ''));
                     const impBadge = impSrc === 'gw_app'
-                      ? '<span style="display:inline-block; margin-left:4px; font-size:0.62rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.35);">📥 GW</span>'
-                      : (impSrc ? '<span style="display:inline-block; margin-left:4px; font-size:0.62rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.35);">📥 TTB</span>' : '');
+                      ? '<span style="display:inline-block; font-size:0.6rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); line-height:1.3;">📥 GW</span>'
+                      : (impSrc ? '<span style="display:inline-block; font-size:0.6rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.35); line-height:1.3;">📥 TTB</span>' : '');
                     const edCode = String(th.edition || '').toLowerCase();
                     const edShort = edCode === '8th_itc' ? '8th ITC' : (edCode === '9th' ? '9th Ed' : (edCode === '11th' ? '11th Ed' : (edCode === 'aos_3e' ? 'AoS 3e' : (edCode === 'aos_4e' ? 'AoS 4e' : (edCode === '10th' ? '10th Ed' : '')))));
                     const edBadge = edShort
-                      ? `<span style="display:inline-block; margin-left:4px; font-size:0.6rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">${escapeHtml(edShort)}</span>`
+                      ? `<span style="display:inline-block; font-size:0.58rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); line-height:1.3;">${escapeHtml(edShort)}</span>`
                       : '';
                     const isLockedEvent = Boolean(th.event_match_locked || th.event_id);
                     const evTag = isLockedEvent
-                      ? `<div style="font-size:0.66rem; color:#fbbf24; font-weight:700; margin-top:2px;">🔒 ${escapeHtml(th.mapped_event_name || th.event_id || 'Tournament')} R${th.round_num || 1}${th.table_num ? ' T' + th.table_num : ''}</div>`
+                      ? `<div style="font-size:0.66rem; color:#fbbf24; font-weight:700; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🔒 ${escapeHtml(th.mapped_event_name || th.event_id || 'Tournament')} R${th.round_num || 1}${th.table_num ? ' T' + th.table_num : ''}</div>`
                       : '';
                     const sysStr = th.game_system || (String(matchId).startsWith('AOS-') ? 'aos' : '40k');
 
                     return `
                       <tr>
-                        <td style="white-space: nowrap;">
-                          <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="font-family:var(--font-mono); font-size:0.75rem; font-weight:700; color:var(--accent); text-decoration:none;">
-                            #${escapeHtml(shortId)} ↗
-                          </a>
-                          ${impBadge}${edBadge}
-                          <div style="font-size:0.7rem; color:var(--text-muted);">${escapeHtml(dateStr)}</div>
-                        </td>
-                        <td class="cell-ellipsis">
-                          <div style="color:#fff; font-size:0.8rem; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                            ${escapeHtml(p1)} <span style="color:var(--text-muted); font-weight:normal;">vs</span> ${escapeHtml(p2)}
+                        <td style="overflow: hidden; vertical-align: middle;">
+                          <div style="min-width:0;">
+                            <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                              <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="font-family:var(--font-mono); font-size:0.74rem; font-weight:700; color:var(--accent); text-decoration:none; white-space:nowrap;">
+                                #${escapeHtml(shortId)} ↗
+                              </a>
+                              ${impBadge}${edBadge}
+                            </div>
+                            <div style="font-size:0.68rem; color:var(--text-muted); margin-top:2px; white-space:nowrap;">${escapeHtml(dateStr)}</div>
                           </div>
-                          <div style="font-size:0.7rem; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                            ${escapeHtml(th.p1_faction || 'Army 1')} vs ${escapeHtml(th.p2_faction || 'Army 2')}
-                          </div>
-                          ${evTag}
                         </td>
-                        <td style="text-align: center;">
+                        <td class="cell-ellipsis" style="vertical-align: middle;">
+                          <div style="min-width:0;">
+                            <div style="color:#fff; font-size:0.8rem; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                              ${escapeHtml(p1)} <span style="color:var(--text-muted); font-weight:normal;">vs</span> ${escapeHtml(p2)}
+                            </div>
+                            <div style="font-size:0.7rem; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                              ${escapeHtml(th.p1_faction || 'Army 1')} vs ${escapeHtml(th.p2_faction || 'Army 2')}
+                            </div>
+                            ${evTag}
+                          </div>
+                        </td>
+                        <td style="text-align: center; vertical-align: middle; white-space: nowrap;">
                           <span style="font-weight:700; color:#38bdf8; font-family:var(--font-mono); font-size:0.85rem;">${p1Score} - ${p2Score}</span>
                         </td>
-                        <td style="text-align: right; white-space: nowrap;">
-                          <div style="display:inline-flex; align-items:center; gap:4px;">
+                        <td style="text-align: right; white-space: nowrap; vertical-align: middle;">
+                          <div style="display:inline-flex; align-items:center; gap:4px; justify-content:flex-end;">
                             ${!isLockedEvent ? `
                               <button type="button" onclick="openMapGameToEventModal('${escapeHtml(matchId)}', '${escapeHtml(sysStr)}')" title="Map & Lock Scorecard to Tournament Match" style="display:inline-flex; align-items:center; gap:3px; background:rgba(245,158,11,0.15); color:#fbbf24; font-size:0.68rem; font-weight:700; padding:0.2rem 0.45rem; border-radius:6px; border:1px solid rgba(245,158,11,0.35); cursor:pointer;">
                                 🏆 Map
@@ -6034,7 +6089,7 @@ async function submitTrackerImport(mode) {
     resBox.style.background = 'rgba(56,189,248,0.1)';
     resBox.style.border = '1px solid rgba(56,189,248,0.3)';
     resBox.style.color = '#38bdf8';
-    resBox.innerHTML = '⏳ Connecting &amp; importing completed game(s) into PostgreSQL <code>tracker_games</code>...';
+    resBox.innerHTML = '⏳ Importing completed games...';
   }
 
   const token = (window.api && typeof window.api.getAuthToken === 'function' ? window.api.getAuthToken() : '') || localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || '';
@@ -6081,8 +6136,7 @@ async function submitTrackerImport(mode) {
       resBox.style.color = '#f8fafc';
       resBox.innerHTML = `
         <div style="font-weight:800; color:#34d399; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
-          <span>✅ Imported ${games.length} Completed Game${games.length === 1 ? '' : 's'} to PostgreSQL tracker_games!</span>
-          <span style="font-size:0.7rem; color:#94a3b8; font-family:monospace;">is_finished = true</span>
+          <span>✅ Imported ${games.length} Completed Game${games.length === 1 ? '' : 's'}!</span>
         </div>
         <div style="display:flex; flex-direction:column; gap:6px;">
           ${games.map(g => {
@@ -6117,6 +6171,12 @@ async function submitTrackerImport(mode) {
       `;
     }
 
+    try {
+      localStorage.removeItem('my_hub_cache_40k');
+      localStorage.removeItem('my_hub_cache_aos');
+      localStorage.removeItem('my_hub_cache');
+    } catch (e) {}
+
     // Refresh My Hub and/or Tracker Lobby history immediately
     if (typeof loadMyHubDashboard === 'function' && document.getElementById('my-hub-content')) {
       myHubData = null;
@@ -6138,6 +6198,81 @@ async function submitTrackerImport(mode) {
 let _hubMappableMatchesCache = [];
 let _hubActiveMapMatchId = '';
 let _hubActiveMapGameSystem = '40k';
+
+function _findLocalSourceGameForMapModal(matchId) {
+  const target = String(matchId || '').trim().toUpperCase();
+  if (!target) return null;
+  const pools = [];
+  if (myHubData && Array.isArray(myHubData.completed_history)) pools.push(...myHubData.completed_history);
+  if (typeof window !== 'undefined' && Array.isArray(window.gtCompletedHistory)) pools.push(...window.gtCompletedHistory);
+  try {
+    ['gdm-11e-tracker-history', 'omni-aos-tracker-history'].forEach(k => {
+      const raw = localStorage.getItem(k);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) pools.push(...arr);
+      }
+    });
+  } catch (e) {}
+  for (const item of pools) {
+    if (!item) continue;
+    const mid = String(item.match_id || item.id || '').trim().toUpperCase();
+    if (mid === target) {
+      return {
+        match_id: item.match_id || item.id || matchId,
+        p1_name: item.p1_name || item.game?.p1Name || 'Player 1',
+        p2_name: item.p2_name || item.game?.p2Name || 'Player 2',
+        p1_faction: item.p1_faction || item.game?.p1Faction || 'Army 1',
+        p2_faction: item.p2_faction || item.game?.p2Faction || 'Army 2',
+        p1_score: item.p1_score ?? item.p1Score ?? 0,
+        p2_score: item.p2_score ?? item.p2Score ?? 0,
+        primary_mission: item.primary_mission || item.game?.primary || '',
+        game_date: formatHubMatchDate(item.game_date || item.date || item.updated_at, item)
+      };
+    }
+  }
+  return null;
+}
+
+function _renderHubMapSourceGameBanner(sg) {
+  const bannerEl = document.getElementById('omni-map-source-banner');
+  if (!bannerEl) return;
+  if (!sg) {
+    bannerEl.innerHTML = '';
+    return;
+  }
+  const p1Name = sg.p1_name || 'Player 1';
+  const p2Name = sg.p2_name || 'Player 2';
+  const p1Fac = sg.p1_faction || 'Army 1';
+  const p2Fac = sg.p2_faction || 'Army 2';
+  const p1Score = sg.p1_score ?? 0;
+  const p2Score = sg.p2_score ?? 0;
+  const mid = sg.match_id || _hubActiveMapMatchId;
+  const mission = sg.primary_mission || '';
+  const dateStr = sg.game_date && sg.game_date !== '-' ? sg.game_date : '';
+
+  bannerEl.innerHTML = `
+    <div style="background:linear-gradient(135deg, rgba(15,23,42,0.96) 0%, rgba(30,41,59,0.92) 100%); border:1px solid rgba(245,158,11,0.45); border-radius:12px; padding:0.75rem 1rem; margin-bottom:0.85rem; box-shadow:0 8px 20px rgba(0,0,0,0.35);">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; margin-bottom:0.45rem; flex-wrap:wrap;">
+        <span style="font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#fbbf24;">📋 Scorecard Being Mapped • #${escapeHtml(mid)}</span>
+        <span style="font-size:0.7rem; color:#94a3b8; font-family:monospace;">${mission ? escapeHtml(mission) + (dateStr ? ' • ' : '') : ''}${escapeHtml(dateStr)}</span>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:0.75rem;">
+        <div style="min-width:0;">
+          <div style="font-size:0.9rem; font-weight:800; color:#38bdf8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🟦 ${escapeHtml(p1Name)}</div>
+          <div style="font-size:0.72rem; color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(p1Fac)}</div>
+        </div>
+        <div style="background:#020617; border:1px solid #334155; border-radius:10px; padding:0.28rem 0.75rem; font-family:var(--font-mono, monospace); font-size:1.05rem; font-weight:900; color:#fff; white-space:nowrap; box-shadow:inset 0 2px 6px rgba(0,0,0,0.5);">
+          <span style="color:#38bdf8;">${p1Score}</span> <span style="color:#64748b; font-weight:600;">-</span> <span style="color:#f43f5e;">${p2Score}</span>
+        </div>
+        <div style="min-width:0; text-align:right;">
+          <div style="font-size:0.9rem; font-weight:800; color:#f43f5e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🟥 ${escapeHtml(p2Name)}</div>
+          <div style="font-size:0.72rem; color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(p2Fac)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
 
 async function openMapGameToEventModal(matchId, gameSystem) {
   _hubActiveMapMatchId = matchId || '';
@@ -6161,6 +6296,7 @@ async function openMapGameToEventModal(matchId, gameSystem) {
         <button type="button" onclick="closeMapGameToEventModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.25rem; cursor:pointer;">✕</button>
       </div>
       <div style="padding:1.1rem 1.25rem; overflow-y:auto; flex:1;">
+        <div id="omni-map-source-banner"></div>
         <div style="font-size:0.78rem; color:#cbd5e1; line-height:1.45; margin-bottom:0.85rem; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.25); padding:0.65rem 0.85rem; border-radius:10px;">
           🔒 <b>Participant-Only &amp; Auto-Aligned:</b> You can only map a scorecard to a tournament pairing you participated in. Player 1 and Player 2 columns are automatically aligned to the official pairing and locked once mapped.
         </div>
@@ -6175,16 +6311,18 @@ async function openMapGameToEventModal(matchId, gameSystem) {
     </div>
   `;
   modal.style.display = 'flex';
+  _renderHubMapSourceGameBanner(_findLocalSourceGameForMapModal(_hubActiveMapMatchId));
 
   try {
     const headers = {};
-    const tok = localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
+    const tok = (window.api && typeof window.api.getAuthToken === 'function' ? window.api.getAuthToken() : '') || localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
     if (tok) headers['Authorization'] = 'Bearer ' + tok;
     const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(_hubActiveMapGameSystem)}&match_id=${encodeURIComponent(_hubActiveMapMatchId)}`, { headers });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
       throw new Error(data.detail || 'Please sign in to map scorecards to your tournament matches.');
     }
+    if (data.source_game) _renderHubMapSourceGameBanner(data.source_game);
     _hubMappableMatchesCache = data.matches || [];
     renderHubMappableEventMatches(_hubMappableMatchesCache);
   } catch (err) {
@@ -6255,7 +6393,7 @@ async function confirmMapGameToEventFromHub(eventId, roundNum, tableNum) {
   const statusEl = document.getElementById('omni-map-event-status');
   try {
     const headers = { 'Content-Type': 'application/json' };
-    const tok = localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
+    const tok = (window.api && typeof window.api.getAuthToken === 'function' ? window.api.getAuthToken() : '') || localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
     if (tok) headers['Authorization'] = 'Bearer ' + tok;
     const resp = await fetch(`/api/tracker/games/${encodeURIComponent(_hubActiveMapMatchId)}/map_event_match`, {
       method: 'POST',
@@ -6272,6 +6410,38 @@ async function confirmMapGameToEventFromHub(eventId, roundNum, tableNum) {
       statusEl.style.border = '1px solid rgba(16,185,129,0.4)';
       statusEl.style.color = '#34d399';
       statusEl.innerHTML = `✅ Mapped &amp; locked to <b>${escapeHtml(data.event_name || eventId)}</b> (Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''})${data.swapped_p1_p2 ? ' • Auto-aligned Player 1 / Player 2 columns!' : '!'}`;
+    }
+    try {
+      localStorage.removeItem('my_hub_cache_40k');
+      localStorage.removeItem('my_hub_cache_aos');
+      localStorage.removeItem('my_hub_cache');
+      ['gdm-11e-tracker-history', 'omni-aos-tracker-history'].forEach(k => {
+        const raw = localStorage.getItem(k);
+        if (!raw) return;
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          arr.forEach(item => {
+            if (String(item.match_id || item.id || '').toUpperCase() === String(_hubActiveMapMatchId).toUpperCase()) {
+              item.event_id = data.event_id || eventId;
+              item.round_num = data.round_num || roundNum;
+              item.table_num = data.table_num || tableNum;
+              item.mapped_event_name = data.event_name || eventId;
+              item.event_match_locked = true;
+              if (data.p1_name) item.p1_name = data.p1_name;
+              if (data.p2_name) item.p2_name = data.p2_name;
+              if (data.p1_score != null) { item.p1_score = data.p1_score; item.p1Score = data.p1_score; }
+              if (data.p2_score != null) { item.p2_score = data.p2_score; item.p2Score = data.p2_score; }
+            }
+          });
+          localStorage.setItem(k, JSON.stringify(arr));
+        }
+      });
+    } catch (e) {}
+    if (typeof window !== 'undefined') {
+      window.currentEventData = null;
+      if (window.api && typeof window.api.clearCache === 'function') {
+        window.api.clearCache();
+      }
     }
     if (typeof loadMyHubDashboard === 'function' && document.getElementById('my-hub-content')) {
       myHubData = null;

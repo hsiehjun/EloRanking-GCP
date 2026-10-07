@@ -759,6 +759,7 @@ def convert_ttb_game_to_omnitactica(
     # Extract raw ID and generate deterministic match_id
     raw_id = str(
         raw_game.get("id")
+        or raw_game.get("uuid")
         or raw_game.get("gameId")
         or raw_game.get("match_id")
         or ""
@@ -1085,7 +1086,16 @@ def detect_game_edition(
             pts_arr = s.get("scores") if isinstance(s.get("scores"), list) else (s.get("points") if isinstance(s.get("points"), list) else [])
             s_tot = sum(int(x or 0) for x in pts_arr if isinstance(x, (int, float))) if pts_arr else int(s.get("totalScore") or (s.get("points") if isinstance(s.get("points"), (int, float)) else 0) or 0)
             sec_sum += s_tot
-        if sec_sum > 40 or int(p.get("secondaryScore") or 0) > 40:
+        pri_sum = 0
+        for pr in (p.get("primaries") or []):
+            if isinstance(pr, dict):
+                p_arr = pr.get("scores") if isinstance(pr.get("scores"), list) else (pr.get("points") if isinstance(pr.get("points"), list) else [])
+                pri_sum += sum(int(x or 0) for x in p_arr if isinstance(x, (int, float)))
+        is_modern_date = bool(game_date_iso and len(game_date_iso) >= 10 and game_date_iso[:10] >= "2023-06-20")
+        if (
+            int(p.get("secondaryScore") or 0) > 40
+            or (sec_sum > 40 and len(secs) <= 3 and pri_sum <= 45 and not is_modern_date)
+        ):
             return ("9th", "9th Edition")
 
     # Check historical date if not explicitly 10e
@@ -1119,9 +1129,10 @@ def _build_40k_player_state(
                         val = p_arr[idx]
                         if isinstance(val, (int, float)):
                             pri_scores[min(4, idx)] += int(val)
-    elif isinstance(p_raw.get("primaryScores"), list):
-        for idx in range(len(p_raw["primaryScores"])):
-            pri_scores[min(4, idx)] += int(p_raw["primaryScores"][idx] or 0)
+    elif isinstance(p_raw.get("primaryScores") or p_raw.get("primary"), list):
+        p_arr = p_raw.get("primaryScores") or p_raw.get("primary")
+        for idx in range(len(p_arr)):
+            pri_scores[min(4, idx)] += int(p_arr[idx] or 0)
 
     # Extract secondaries per round and build hand cards
     secondaries = p_raw.get("secondaries") or []
@@ -1162,7 +1173,10 @@ def _build_40k_player_state(
             # Handle flat secondary with totalScore/points but no per-round array
             if not scores_arr and (sec.get("totalScore") or isinstance(sec.get("points"), (int, float))):
                 pts = int(sec.get("totalScore") or sec.get("points") or 0)
-                r_num = int(sec.get("scoredRound") or sec.get("drawnInRound") or 0) + 1
+                if sec.get("round") is not None:
+                    r_num = int(sec.get("round"))
+                else:
+                    r_num = int(sec.get("scoredRound") or sec.get("drawnInRound") or 0) + 1
                 r_num = max(1, min(5, r_num))
                 if pts > 0:
                     round_scores_map[str(r_num)] = pts
@@ -1265,25 +1279,7 @@ def _build_40k_player_state(
         paint_pts = 10 if is_battle_ready else 0
 
     sec_total = min(sec_cap, sum(sec_round_totals))
-    if sum(sec_round_totals) > sec_cap:
-        sec_excess = sum(sec_round_totals) - sec_cap
-        for r_idx in range(4, -1, -1):
-            if sec_excess <= 0:
-                break
-            dec = min(sec_round_totals[r_idx], sec_excess)
-            sec_round_totals[r_idx] -= dec
-            sec_excess -= dec
-
     pri_total = min(pri_cap, sum(pri_scores))
-    if sum(pri_scores) > pri_cap:
-        pri_excess = sum(pri_scores) - pri_cap
-        for r_idx in range(4, -1, -1):
-            if pri_excess <= 0:
-                break
-            dec = min(pri_scores[r_idx], pri_excess)
-            pri_scores[r_idx] -= dec
-            pri_excess -= dec
-
     computed_total = min(max_total, pri_total + sec_total + paint_pts)
 
     if isinstance(p_raw.get("totalScore"), (int, float)) and int(p_raw["totalScore"]) > 0:

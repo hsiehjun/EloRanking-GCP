@@ -2641,7 +2641,7 @@ function openConfigureLeagueModal(leagueId = SD40K_CANONICAL_UUID) {
         <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
           <button type="button" onclick="document.getElementById('league-config-modal-backdrop').remove()" class="btn btn-outline">Cancel</button>
           <button type="button" onclick="submitLeagueConfiguration('${escapeHtml(canonicalUuid)}')" class="btn btn-primary" style="background: linear-gradient(135deg, #2563eb, #1d4ed8); border: none; font-weight: 700;">
-            ✓ Save League Configuration to PostgreSQL
+            ✓ Save League Configuration
           </button>
         </div>
       </div>
