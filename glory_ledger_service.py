@@ -1251,6 +1251,21 @@ class GloryLedgerService:
         }
 
 
+try:
+    from perf_telemetry import instrument_class_methods as _instrument_glory_methods
+    _exclude_gl = {
+        name for name in GloryLedgerService.__dict__
+        if name.startswith("_") or name == "compute_entry_hash"
+    }
+    _instrument_glory_methods(
+        GloryLedgerService,
+        class_label="GloryLedgerService",
+        exclude_methods=_exclude_gl,
+    )
+except Exception:
+    pass
+
+
 _ledger_instance: Optional[GloryLedgerService] = None
 
 

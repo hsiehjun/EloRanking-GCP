@@ -600,20 +600,32 @@ class AuthManager:
             logger.debug(f"clear_nr_credentials notice for {uid}: {e}")
             return False
 
+    _SYSTEM_SETTINGS_CACHE: Dict[str, Tuple[float, Optional[str]]] = {}
+
     def get_system_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        is_pg = getattr(getattr(self, "db", None).__class__, "__name__", "") == "PostgresDatabase"
+        now_ts = time.time()
+        if is_pg:
+            cached = self._SYSTEM_SETTINGS_CACHE.get(key)
+            if cached is not None and (now_ts - cached[0]) < 60.0:
+                return cached[1] if cached[1] is not None else default
         from psycopg2 import extras
         try:
             with self.db.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                     cur.execute("SELECT value FROM system_settings WHERE key = %s;", (key,))
                     row = cur.fetchone()
-                    return str(row["value"]) if (row and row.get("value") is not None) else default
+                    val = str(row["value"]) if (row and row.get("value") is not None) else None
+                    if is_pg:
+                        self._SYSTEM_SETTINGS_CACHE[key] = (now_ts, val)
+                    return val if val is not None else default
         except Exception:
             return default
 
     def set_system_setting(self, key: str, value: str, user_id: Optional[str] = None) -> bool:
         key = str(key).strip()
         val = str(value).strip().lower()
+        self._SYSTEM_SETTINGS_CACHE.pop(key, None)
         try:
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:
@@ -626,6 +638,7 @@ class AuthManager:
                         updated_by_user_id = EXCLUDED.updated_by_user_id;
                     """, (key, val, user_id))
                 conn.commit()
+            self._SYSTEM_SETTINGS_CACHE[key] = (time.time(), val)
             logger.info(f"⚙️ System setting updated: {key} = {val}")
             return True
         except Exception as e:
@@ -2516,26 +2529,31 @@ class AuthManager:
                         "win_rate": 0.0,
                         "game_system": game_system
                     }
-                    cur.execute("""
-                    SELECT rh.match_date, rh.round, rh.old_elo, rh.new_elo, rh.delta_elo,
-                           rh.result, rh.player_faction, rh.opponent_id, rh.opponent_name, rh.opponent_elo, rh.opponent_faction,
-                           rh.player_score, rh.opponent_score,
-                           e.name as event_name, e.id as event_id
-                    FROM rating_history rh
-                    LEFT JOIN events e ON rh.event_id = e.id
-                    WHERE rh.player_id = %s AND COALESCE(rh.game_system, '40k') = %s
-                    ORDER BY rh.match_date ASC NULLS FIRST, rh.id ASC;
-                    """, (target_pid, game_system))
-                    hist = [dict(r) for r in cur.fetchall()]
+                    is_pg_db = getattr(getattr(self, "db", None).__class__, "__name__", "") == "PostgresDatabase"
+                    if is_pg_db and int(p_stat.get("matches_played") or 0) == 0:
+                        hist = []
+                        events = []
+                    else:
+                        cur.execute("""
+                        SELECT rh.match_date, rh.round, rh.old_elo, rh.new_elo, rh.delta_elo,
+                               rh.result, rh.player_faction, rh.opponent_id, rh.opponent_name, rh.opponent_elo, rh.opponent_faction,
+                               rh.player_score, rh.opponent_score,
+                               e.name as event_name, e.id as event_id
+                        FROM rating_history rh
+                        LEFT JOIN events e ON rh.event_id = e.id
+                        WHERE rh.player_id = %s AND COALESCE(rh.game_system, '40k') = %s
+                        ORDER BY rh.match_date ASC NULLS FIRST, rh.id ASC;
+                        """, (target_pid, game_system))
+                        hist = [dict(r) for r in cur.fetchall()]
 
-                    cur.execute("""
-                    SELECT e.id as event_id, e.name as event_name, e.event_date,
-                           COALESCE(ep.faction, 'Unknown') as registered_faction
-                    FROM event_participants ep
-                    JOIN events e ON ep.event_id = e.id
-                    WHERE ep.player_id = %s AND COALESCE(e.game_system, '40k') = %s;
-                    """, (target_pid, game_system))
-                    events = [dict(r) for r in cur.fetchall()]
+                        cur.execute("""
+                        SELECT e.id as event_id, e.name as event_name, e.event_date,
+                               COALESCE(ep.faction, 'Unknown') as registered_faction
+                        FROM event_participants ep
+                        JOIN events e ON ep.event_id = e.id
+                        WHERE ep.player_id = %s AND COALESCE(e.game_system, '40k') = %s;
+                        """, (target_pid, game_system))
+                        events = [dict(r) for r in cur.fetchall()]
 
             import badges
             eval_res = badges.evaluate_player_badges(
@@ -2714,7 +2732,8 @@ class AuthManager:
                     FROM tracker_games
                     WHERE m.event_id IS NOT NULL
                       AND m.table_number IS NOT NULL
-                      AND event_id IN (m.event_id, LOWER(m.event_id), UPPER(m.event_id))
+                      AND event_id IS NOT NULL
+                      AND LOWER(event_id) = LOWER(m.event_id)
                       AND round_num = m.round
                       AND table_num = m.table_number
                     ORDER BY
@@ -2752,20 +2771,49 @@ class AuthManager:
                 faction_mastery = [dict(r) for r in cur.fetchall()]
 
                 # 4. Opponent Matchup Matrix (Computed directly from rating_history for 100% fidelity)
-                cur.execute("""
-                SELECT 
-                    COALESCE(NULLIF(TRIM(opponent_faction), ''), 'Unknown Faction') as enemy_faction,
-                    COUNT(*) as total_encounters,
-                    SUM(CASE WHEN result = 'W' THEN 1 ELSE 0 END) as wins,
-                    SUM(CASE WHEN result = 'L' THEN 1 ELSE 0 END) as losses,
-                    SUM(CASE WHEN result = 'D' THEN 1 ELSE 0 END) as draws,
-                    ROUND((SUM(CASE WHEN result = 'W' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate
-                FROM rating_history
-                WHERE player_id = %s AND opponent_faction IS NOT NULL AND TRIM(opponent_faction) != '' AND COALESCE(game_system, '40k') = %s
-                GROUP BY COALESCE(NULLIF(TRIM(opponent_faction), ''), 'Unknown Faction')
-                ORDER BY total_encounters DESC, win_rate DESC;
-                """, (target_pid, target_sys))
-                matchup_matrix = [dict(r) for r in cur.fetchall()]
+                if getattr(getattr(self, "db", None).__class__, "__name__", "") == "PostgresDatabase":
+                    mm_by_fac: Dict[str, Dict[str, int]] = {}
+                    for hp in history_points:
+                        opp_f = str(hp.get("opponent_faction") or "").strip()
+                        if not opp_f:
+                            continue
+                        bucket = mm_by_fac.setdefault(opp_f, {"total_encounters": 0, "wins": 0, "losses": 0, "draws": 0})
+                        bucket["total_encounters"] += 1
+                        res_code = str(hp.get("result") or "").upper()
+                        if res_code == "W":
+                            bucket["wins"] += 1
+                        elif res_code == "L":
+                            bucket["losses"] += 1
+                        elif res_code == "D":
+                            bucket["draws"] += 1
+                    matchup_matrix = []
+                    for ef, b in mm_by_fac.items():
+                        tot_e = b["total_encounters"]
+                        wr = round((b["wins"] * 100.0) / tot_e, 1) if tot_e > 0 else 0.0
+                        matchup_matrix.append({
+                            "enemy_faction": ef,
+                            "total_encounters": tot_e,
+                            "wins": b["wins"],
+                            "losses": b["losses"],
+                            "draws": b["draws"],
+                            "win_rate": wr,
+                        })
+                    matchup_matrix.sort(key=lambda x: (x["total_encounters"], x["win_rate"]), reverse=True)
+                else:
+                    cur.execute("""
+                    SELECT 
+                        COALESCE(NULLIF(TRIM(opponent_faction), ''), 'Unknown Faction') as enemy_faction,
+                        COUNT(*) as total_encounters,
+                        SUM(CASE WHEN result = 'W' THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN result = 'L' THEN 1 ELSE 0 END) as losses,
+                        SUM(CASE WHEN result = 'D' THEN 1 ELSE 0 END) as draws,
+                        ROUND((SUM(CASE WHEN result = 'W' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate
+                    FROM rating_history
+                    WHERE player_id = %s AND opponent_faction IS NOT NULL AND TRIM(opponent_faction) != '' AND COALESCE(game_system, '40k') = %s
+                    GROUP BY COALESCE(NULLIF(TRIM(opponent_faction), ''), 'Unknown Faction')
+                    ORDER BY total_encounters DESC, win_rate DESC;
+                    """, (target_pid, target_sys))
+                    matchup_matrix = [dict(r) for r in cur.fetchall()]
 
         # 5. Tournaments Attended & Performance Summary (outside conn scope to avoid nested pool checkout)
         events_attended = self.db.get_player_tournaments(target_pid, game_system=target_sys)
@@ -2925,6 +2973,27 @@ class AuthManager:
         }
         self._HUB_CACHE[hub_cache_key] = (now_ts, hub_payload)
         return hub_payload
+
+
+try:
+    from perf_telemetry import instrument_class_methods as _instrument_auth_methods
+    _instrument_auth_methods(
+        AuthManager,
+        class_label="AuthManager",
+        exclude_methods={
+            "_hash_password",
+            "_verify_password",
+            "_generate_code",
+            "_send_email",
+            "_send_verification_email",
+            "_send_2fa_email",
+            "_send_reset_email",
+            "_encrypt_secret",
+            "_decrypt_secret",
+        },
+    )
+except Exception as _perf_err:
+    logger.debug(f"Perf instrumentation notice on AuthManager: {_perf_err}")
 
 
 # Global singleton

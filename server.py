@@ -111,35 +111,65 @@ def _sanitize_redirect_target(target: Optional[str], default: str = "/app") -> s
         return default
     return cleaned
 
-# HTTP Caching, Security Headers, and Rate Limiting Middleware
+from perf_telemetry import PERF_REGISTRY, start_request_db_trace, end_request_db_trace
+
+# HTTP Caching, Security Headers, Rate Limiting, and Structured Performance Telemetry Middleware
 @app.middleware("http")
 async def add_security_cache_and_rate_limit(request: Request, call_next):
+    t0_req = time.perf_counter()
+    db_token, db_calls_list = start_request_db_trace()
     path = request.url.path
     client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "127.0.0.1")
     if client_ip and "," in client_ip:
         client_ip = client_ip.split(",")[0].strip()
 
-    # 1. Rate Limiting Check
-    if path in _AUTH_RATE_LIMITS:
-        max_requests, window_secs = _AUTH_RATE_LIMITS[path]
-        rate_key = f"{client_ip}:{path}"
-        now = time.time()
-        timestamps = _rate_limits_state.get(rate_key, [])
-        valid_timestamps = [t for t in timestamps if (now - t) < window_secs]
-        if len(valid_timestamps) >= max_requests:
-            retry_after = int(window_secs - (now - valid_timestamps[0])) + 1
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "Too many requests. Please slow down.", "error": "Rate limit exceeded. Please try again shortly."},
-                headers={"Retry-After": str(max(1, retry_after))}
-            )
-        valid_timestamps.append(now)
-        _rate_limits_state[rate_key] = valid_timestamps
-        if len(_rate_limits_state) > 10000:
-            for k in list(_rate_limits_state.keys())[:2000]:
-                _rate_limits_state.pop(k, None)
+    try:
+        # 1. Rate Limiting Check
+        if path in _AUTH_RATE_LIMITS:
+            max_requests, window_secs = _AUTH_RATE_LIMITS[path]
+            rate_key = f"{client_ip}:{path}"
+            now = time.time()
+            timestamps = _rate_limits_state.get(rate_key, [])
+            valid_timestamps = [t for t in timestamps if (now - t) < window_secs]
+            if len(valid_timestamps) >= max_requests:
+                retry_after = int(window_secs - (now - valid_timestamps[0])) + 1
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Too many requests. Please slow down.", "error": "Rate limit exceeded. Please try again shortly."},
+                    headers={"Retry-After": str(max(1, retry_after))}
+                )
+            valid_timestamps.append(now)
+            _rate_limits_state[rate_key] = valid_timestamps
+            if len(_rate_limits_state) > 10000:
+                for k in list(_rate_limits_state.keys())[:2000]:
+                    _rate_limits_state.pop(k, None)
 
-    response = await call_next(request)
+        response = await call_next(request)
+    finally:
+        end_request_db_trace(db_token)
+
+    req_duration_ms = (time.perf_counter() - t0_req) * 1000.0
+    route_obj = request.scope.get("route") if hasattr(request, "scope") else None
+    route_path = getattr(route_obj, "path", None) or path
+    try:
+        PERF_REGISTRY.record_api_call(
+            method=request.method,
+            route_path=route_path,
+            raw_path=path,
+            query_str=request.url.query if hasattr(request, "url") else "",
+            status_code=getattr(response, "status_code", 200),
+            duration_ms=req_duration_ms,
+            db_calls=db_calls_list,
+        )
+        response.headers["X-Response-Time-Ms"] = f"{req_duration_ms:.2f}"
+        response.headers["X-DB-Call-Count"] = str(len(db_calls_list))
+        response.headers["X-DB-Time-Ms"] = f"{sum(c[1] for c in db_calls_list):.2f}"
+        if db_calls_list:
+            response.headers["X-DB-Breakdown"] = ",".join(
+                f"{fn}:{ms:.1f}ms" for fn, ms, _ in db_calls_list[:12]
+            )[:512]
+    except Exception:
+        pass
 
     # 2. Baseline Security Headers (OWASP)
     if not path.startswith("/overlay") and not path.endswith("/overlay") and not path.endswith("/overlay.html"):
@@ -234,6 +264,10 @@ app.add_middleware(
 async def root_health_check():
     return {"status": "ok"}
 
+@app.get("/api/system/perf-telemetry", summary="Structured API and DB call latency telemetry snapshot")
+async def api_system_perf_telemetry():
+    return PERF_REGISTRY.snapshot()
+
 # Static Assets Mount (/assets is served by serve_tracker_media_assets with local + NewRecruit fallback)
 if (web_dir / "css").exists():
     app.mount("/css", StaticFiles(directory=str(web_dir / "css")), name="css")
@@ -254,9 +288,9 @@ async def _periodic_firestore_cleanup():
         await asyncio.sleep(12 * 3600)  # Run every 12 hours
 
 async def _prewarm_meta_intel_cache():
-    """Pre-warms the 90-day Meta Intel cache for 40k and AoS shortly after server startup."""
+    """Pre-warms the 90-day Meta Intel and Faction Details caches for 40k and AoS shortly after server startup."""
     try:
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
         now = datetime.now(timezone.utc)
         d90 = now - timedelta(days=90)
         start_str = d90.strftime("%Y-%m-%d")
@@ -264,7 +298,11 @@ async def _prewarm_meta_intel_cache():
         db = await asyncio.to_thread(get_database)
         await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k")
         await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos")
-        logger.info(f"🔥 Meta Intel 90-day cache pre-warmed for 40k and AoS ({start_str} to {end_str})")
+        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr")
+        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "6mo")
+        await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr")
+        await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo")
+        logger.info(f"🔥 Meta Intel & Faction Details caches pre-warmed for 40k and AoS ({start_str} to {end_str})")
     except Exception as me:
         logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
 
@@ -298,20 +336,39 @@ async def on_server_startup():
     async def _deferred_startup_tasks():
         try:
             db = await asyncio.to_thread(get_database)
+            from services.places_service import PlacesService
+            from leagues_hub_service import get_leagues_hub_service
+            lh_svc = get_leagues_hub_service(db)
             for fn in (
                 lambda: db.get_summary_stats(game_system="40k"),
+                lambda: db.get_summary_stats(game_system="aos"),
                 lambda: db.get_top_ranked_players(page=1, page_size=25, min_matches=3, faction="All", sort_by="current_elo", order="DESC", game_system="40k", active_only=True),
+                lambda: db.get_top_ranked_players(page=1, page_size=25, min_matches=3, faction="All", sort_by="current_elo", order="DESC", game_system="aos", active_only=True),
                 lambda: db.get_players_directory(page=1, page_size=25, min_matches=0, faction="All", sort_by="current_elo", order="DESC", game_system="40k", active_only=False),
                 lambda: db.get_events_list(page=1, page_size=25, status="all", sort_by="event_date", order="DESC", game_system="40k"),
                 lambda: db.get_events_list(page=1, page_size=25, status="completed", sort_by="event_date", order="DESC", game_system="40k"),
+                lambda: db.get_events_list(page=1, page_size=25, status="all", sort_by="event_date", order="DESC", game_system="aos"),
                 lambda: db._get_all_teams_list(game_system="40k"),
+                lambda: db._get_all_teams_list(game_system="aos"),
                 lambda: db.get_community_overview(lat=None, lng=None, radius_miles=50.0, include_bcp=False, game_system="40k"),
+                lambda: db.get_community_overview(lat=None, lng=None, radius_miles=50.0, include_bcp=False, game_system="aos"),
+                lambda: db.get_community_overview(lat=32.7157, lng=-117.1611, radius_miles=50.0, include_bcp=False, game_system="40k"),
+                lambda: db.get_community_overview(lat=32.7157, lng=-117.1611, radius_miles=50.0, include_bcp=False, game_system="aos"),
+                lambda: PlacesService.get_local_game_stores(db, lat=32.7157, lng=-117.1611, radius_miles=50.0, city=None, state=None, game_system="40k"),
+                lambda: PlacesService.get_local_game_stores(db, lat=32.7157, lng=-117.1611, radius_miles=50.0, city=None, state=None, game_system="aos"),
+                lambda: lh_svc.get_leagues_list(game_system=None, limit=50),
+                lambda: lh_svc.get_leagues_list(game_system="40k", limit=50),
+                lambda: lh_svc.get_leagues_list(game_system="aos", limit=50),
+                lambda: lh_svc.get_league("sd40k"),
+                lambda: lh_svc.get_league("the-gauntlet"),
+                lambda: lh_svc.get_seasons_catalog(game_system="40k"),
+                lambda: lh_svc.get_seasons_catalog(game_system=None),
             ):
                 try:
                     await asyncio.to_thread(fn)
                 except Exception as inner_cw_err:
                     logger.warning(f"Notice during individual cache pre-warm step: {inner_cw_err}")
-            logger.info("🔥 Core leaderboard, stats, events, teams & community caches pre-warmed")
+            logger.info("🔥 Core leaderboard, stats, events, teams, stores, leagues & community caches pre-warmed")
         except Exception as cw_err:
             logger.warning(f"Notice during core cache pre-warming: {cw_err}")
         try:
@@ -850,6 +907,24 @@ async def global_exception_handler(request: Request, exc: Exception):
         }
     )
 
+
+try:
+    for _r in getattr(app, "routes", []):
+        if isinstance(_r, tuple) and len(_r) == 3:
+            PERF_REGISTRY.registered_endpoints.append({
+                "method": _r[0],
+                "path": _r[1],
+                "handler": _r[2],
+            })
+        elif hasattr(_r, "path") and hasattr(_r, "methods"):
+            for _m in sorted(m for m in (_r.methods or []) if m not in ("HEAD", "OPTIONS")):
+                PERF_REGISTRY.registered_endpoints.append({
+                    "method": _m,
+                    "path": _r.path,
+                    "handler": getattr(getattr(_r, "endpoint", None), "__name__", "unknown"),
+                })
+except Exception:
+    pass
 
 
 def start_server(port: int = 8080, host: str = "0.0.0.0"):

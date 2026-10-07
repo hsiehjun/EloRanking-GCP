@@ -15,6 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application codebase
 COPY . .
 
+# Run pre-deployment latency instrumentation & index gate tests
+RUN python3 -m unittest tests/test_endpoint_and_db_latency_gate.py tests/test_app_performance_and_query_indexes.py
+
 # Cloud Run dynamic PORT injection
 ENV PORT=8080
 EXPOSE 8080

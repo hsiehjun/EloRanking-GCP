@@ -165,9 +165,6 @@ class PlacesService:
             user_lng = -117.1611
             if not location_name:
                 location_name = "San Diego, CA"
-        elif not location_name or location_name.strip().lower() in ["my location", "your location", "current location", "local tabletop"] or location_name.strip().lower().startswith("gps ("):
-            geo = db.reverse_geocode_coordinates(user_lat, user_lng)
-            location_name = geo.get("formatted") or f"{user_lat:.2f}, {user_lng:.2f}"
 
         clean_query = (query or "").strip()
         cache_key = (
@@ -177,9 +174,16 @@ class PlacesService:
             int(round(radius_miles)),
             clean_query.lower()
         )
-        cached = db.get_cached(db._stores_cache_dict, cache_key, ttl=1800)
+        cached = db.get_cached(db._stores_cache_dict, cache_key, ttl=3600)
         if cached is not None:
             return cached
+
+        if not location_name or location_name.strip().lower() in ["my location", "your location", "current location", "local tabletop"] or location_name.strip().lower().startswith("gps ("):
+            if abs(user_lat - 32.7157) < 0.08 and abs(user_lng - (-117.1611)) < 0.08:
+                location_name = "San Diego, CA"
+            else:
+                geo = db.reverse_geocode_coordinates(user_lat, user_lng)
+                location_name = geo.get("formatted") or f"{user_lat:.2f}, {user_lng:.2f}"
 
         stores = []
         seen_names = set()
@@ -205,7 +209,7 @@ class PlacesService:
             url = f"https://maps.googleapis.com/maps/api/place/textsearch/json?{urllib.parse.urlencode(params)}"
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": "EloRanking/1.0", "Accept": "application/json"})
-                with urllib.request.urlopen(req, timeout=3.5) as resp:
+                with urllib.request.urlopen(req, timeout=1.8) as resp:
                     p_data = json.loads(resp.read().decode("utf-8"))
                     results = p_data.get("results", [])
                     for place in results:
@@ -298,24 +302,18 @@ class PlacesService:
                     cursor.execute("""
                         WITH venues_filtered AS (
                             SELECT 
-                                COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') as venue_name,
+                                COALESCE(NULLIF(TRIM(e.venue), ''), NULLIF(TRIM(e.venue_name), '')) as venue_name,
                                 e.city, e.state, e.country,
-                                COALESCE(e.raw_json->>'address', e.raw_json->'location'->>'address', '') as address,
+                                COALESCE(NULLIF(TRIM(e.address), ''), '') as address,
                                 e.latitude as lat,
                                 e.longitude as lng,
                                 COUNT(*) as tournament_count,
                                 MAX(e.event_date) as last_tournament_date,
-                                MAX(COALESCE(
-                                    NULLIF(TRIM(e.raw_json->>'website'), ''),
-                                    NULLIF(TRIM(e.raw_json->'location'->>'website'), ''),
-                                    NULLIF(TRIM(e.raw_json->'location'->>'url'), ''),
-                                    NULLIF(TRIM(e.raw_json->>'facebook'), ''),
-                                    NULLIF(TRIM(e.raw_json->'location'->>'facebook'), '')
-                                )) as website
+                                NULL::text as website
                             FROM events e
                             WHERE e.latitude BETWEEN %s AND %s
                               AND e.longitude BETWEEN %s AND %s
-                              AND (e.venue IS NOT NULL OR e.venue_name IS NOT NULL OR e.raw_json->>'locationName' IS NOT NULL)
+                              AND (e.venue IS NOT NULL OR e.venue_name IS NOT NULL)
                             GROUP BY 1, 2, 3, 4, 5, 6, 7
                         ),
                         venues_dist AS (
@@ -450,6 +448,11 @@ class PlacesService:
                 p_lat = None
                 p_lng = None
 
+        st_cache_key = ("store_tournaments_v2", s_norm, round(p_lat, 3) if p_lat is not None else None, round(p_lng, 3) if p_lng is not None else None, (place_id or "").strip())
+        cached_st = db.get_cached(db._stores_cache_dict, st_cache_key, ttl=900)
+        if cached_st is not None:
+            return cached_st
+
         events = []
         try:
             try:
@@ -476,15 +479,9 @@ class PlacesService:
                         e.city,
                         e.state,
                         e.country,
-                        COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') as venue,
-                        COALESCE(e.address, e.raw_json->>'address', e.raw_json->'location'->>'address') as address,
-                        COALESCE(
-                            NULLIF(TRIM(e.raw_json->>'website'), ''),
-                            NULLIF(TRIM(e.raw_json->'location'->>'website'), ''),
-                            NULLIF(TRIM(e.raw_json->'location'->>'url'), ''),
-                            NULLIF(TRIM(e.raw_json->>'facebook'), ''),
-                            NULLIF(TRIM(e.raw_json->'location'->>'facebook'), '')
-                        ) as venue_website,
+                        COALESCE(e.venue, e.venue_name) as venue,
+                        e.address as address,
+                        NULL::text as venue_website,
                         COALESCE(e.total_players, 0) as total_players,
                         COALESCE(e.num_rounds, 0) as num_rounds,
                         COALESCE(e.current_round, 0) as current_round,
@@ -493,11 +490,7 @@ class PlacesService:
                         e.latitude,
                         e.longitude,
                         e.place_id,
-                        COALESCE(
-                            w.winner_name,
-                            e.raw_json->>'winnerName',
-                            e.raw_json->'winner'->>'name'
-                        ) as winner_name,
+                        w.winner_name,
                         w.winner_faction
                     FROM events e
                     LEFT JOIN LATERAL (
@@ -515,26 +508,25 @@ class PlacesService:
                         )
                         OR (
                             %s IS NOT NULL AND %s != ''
-                            AND (
-                                e.place_id = %s
-                                OR e.raw_json->>'place_id' = %s
-                                OR e.raw_json->'location'->>'placeId' = %s
-                            )
+                            AND e.place_id = %s
                         )
                         OR (
                             %s IS NOT NULL AND %s != ''
                             AND (
-                                COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') ILIKE %s
-                                OR COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') ILIKE %s
+                                e.venue ILIKE %s
+                                OR e.venue_name ILIKE %s
+                                OR e.venue ILIKE %s
+                                OR e.venue_name ILIKE %s
                             )
                         )
-                    ORDER BY e.event_date DESC NULLS LAST;
+                    ORDER BY e.event_date DESC NULLS LAST
+                    LIMIT 200;
                     """
 
                     params = (
                         min_lat, min_lng, min_lat, max_lat, min_lng, max_lng,
-                        place_id, place_id, place_id, place_id, place_id,
-                        clean_name, clean_name, like_name, like_core
+                        place_id, place_id, place_id,
+                        clean_name, clean_name, like_name, like_name, like_core, like_core
                     )
 
                     cursor.execute(sql, params)
@@ -604,13 +596,15 @@ class PlacesService:
             if cached_d and cached_d.get("website"):
                 found_website = cached_d.get("website")
 
-        return {
+        res_payload = {
             "success": True,
             "store_name": clean_name,
             "store_website": found_website,
             "total_tournaments": len(events),
             "tournaments": events
         }
+        db.set_cached(db._stores_cache_dict, st_cache_key, res_payload)
+        return res_payload
 
     @classmethod
     def get_place_details(cls, db: Any, place_id: str) -> Dict[str, Any]:

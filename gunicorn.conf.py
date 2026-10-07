@@ -9,9 +9,9 @@ port = os.environ.get("PORT", "8080")
 bind = os.environ.get("GUNICORN_BIND", f"0.0.0.0:{port}")
 backlog = 2048
 
-# Worker Processes: 1-2 async Uvicorn workers for Cloud Run memory efficiency
-cores = multiprocessing.cpu_count()
-workers = int(os.environ.get("GUNICORN_WORKERS", min(max(cores, 1), 2)))
+# Worker Processes: 1 async Uvicorn worker per Cloud Run instance so all in-memory caches,
+# WebSocket rooms, and PERF_REGISTRY telemetry are unified without split-worker cache misses.
+workers = int(os.environ.get("GUNICORN_WORKERS", "1"))
 worker_class = "uvicorn.workers.UvicornWorker"
 worker_connections = 1000
 timeout = 120

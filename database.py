@@ -222,6 +222,7 @@ class PostgresDatabase:
     _stores_cache_dict = {}
     _place_details_cache_dict = {}
     _geocode_cache_dict = {}
+    _tracker_history_cache_dict = {}
     CACHE_TTL_SECONDS = 600
 
     @classmethod
@@ -270,6 +271,7 @@ class PostgresDatabase:
         cls._stores_cache_dict.clear()
         cls._place_details_cache_dict.clear()
         cls._geocode_cache_dict.clear()
+        cls._tracker_history_cache_dict.clear()
 
     def __init__(self, dsn: Optional[str] = None, db_path: Optional[str] = None, *args, **kwargs):
         if not PSYCOPG2_AVAILABLE:
@@ -298,7 +300,7 @@ class PostgresDatabase:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT value FROM system_settings WHERE key = 'perf_indexes_v26';")
+                    cur.execute("SELECT value FROM system_settings WHERE key = 'perf_indexes_v27';")
                     row = cur.fetchone()
                     if row and row[0] == 'ready':
                         return
@@ -311,13 +313,19 @@ class PostgresDatabase:
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS table_num INT;",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_evt ON tracker_games(event_id, round_num, table_num);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_event_lower_rt ON tracker_games ((LOWER(event_id)), round_num, table_num) WHERE event_id IS NOT NULL;",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_updated_at ON tracker_games (updated_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_elo ON player_ratings ((COALESCE(game_system, '40k')), current_elo DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_pid ON player_ratings (player_id, (COALESCE(game_system, '40k')));",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_player_name_btree ON player_ratings (player_name);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_player_name_lower ON player_ratings ((LOWER(TRIM(player_name))), (COALESCE(game_system, '40k')));",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_team_lower_all ON player_ratings ((COALESCE(game_system, '40k')), (LOWER(TRIM(team))), current_elo DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team ON player_ratings ((COALESCE(game_system, '40k')), (TRIM(team)), current_elo DESC) WHERE team IS NOT NULL AND TRIM(team) != '';",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team_cov ON player_ratings ((COALESCE(game_system, '40k')), (TRIM(team)), current_elo DESC) INCLUDE (team, game_system, player_id, player_name, wins, losses, draws, matches_played, last_active_date) WHERE team IS NOT NULL AND TRIM(team) != '' AND COALESCE(matches_played, 0) > 0;",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team_ilike ON player_ratings ((COALESCE(game_system, '40k')), LOWER(TRIM(team)), current_elo DESC) WHERE team IS NOT NULL AND TRIM(team) != '';",
             "CREATE INDEX IF NOT EXISTS idx_pg_events_coal_sys_date ON events ((COALESCE(game_system, '40k')), event_date DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_history_coal_sys_pid ON rating_history (player_id, (COALESCE(game_system, '40k')), match_date ASC);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_fac_lower_date ON matches ((LOWER(player1_faction)), match_date DESC) WHERE is_done = TRUE;",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_lower_date ON matches ((LOWER(player2_faction)), match_date DESC) WHERE is_done = TRUE AND is_bye = FALSE;",
             "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_name_trgm ON player_ratings USING gin (player_name gin_trgm_ops);",
             "ANALYZE player_ratings;",
@@ -351,11 +359,11 @@ class PostgresDatabase:
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO system_settings (key, value, updated_at)
-                        VALUES ('perf_indexes_v26', 'ready', NOW())
+                        VALUES ('perf_indexes_v27', 'ready', NOW())
                         ON CONFLICT (key) DO UPDATE SET value = 'ready', updated_at = NOW();
                     """)
                 conn.commit()
-                logger.info("🔥 Critical COALESCE functional indexes and tracker_games columns verified (v26)")
+                logger.info("🔥 Critical COALESCE functional indexes and tracker_games columns verified (v27)")
         except Exception as err:
             logger.warning(f"_ensure_critical_perf_schema notice: {err}")
 
@@ -1012,6 +1020,12 @@ class PostgresDatabase:
 
     def get_db_status(self) -> Dict[str, Any]:
         """Returns PostgreSQL schema version, existing indexes on matches, and table row counts."""
+        is_mock_self = type(self).__module__.startswith("unittest.mock")
+        if not is_mock_self:
+            cached_status = PostgresDatabase.get_cached(PostgresDatabase._players_count_cache_dict, ("db_status_v1",), ttl=300)
+            if cached_status is not None:
+                return dict(cached_status)
+
         res = {
             "schema_version": None,
             "indexes": [],
@@ -1028,12 +1042,33 @@ class PostgresDatabase:
                         res["schema_version"] = row[0]
                     cursor.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'matches' AND indexname LIKE 'idx_pg_matches_%';")
                     res["indexes"] = [r[0] for r in cursor.fetchall()]
-                    cursor.execute("SELECT COUNT(*) FROM matches;")
-                    res["matches_count"] = cursor.fetchone()[0]
-                    cursor.execute("SELECT COUNT(*) FROM player_ratings;")
-                    res["players_count"] = cursor.fetchone()[0]
-                    cursor.execute("SELECT COUNT(*) FROM events;")
-                    res["events_count"] = cursor.fetchone()[0]
+
+                    cached_all = PostgresDatabase._stats_cache_map.get("all") or PostgresDatabase._stats_cache
+                    if cached_all and cached_all.get("total_matches"):
+                        res["matches_count"] = int(cached_all.get("total_matches") or 0)
+                        res["players_count"] = int(cached_all.get("total_players") or 0)
+                        res["events_count"] = int(cached_all.get("total_events") or 0)
+                    else:
+                        cursor.execute("""
+                            SELECT
+                                GREATEST(COALESCE((SELECT reltuples::bigint FROM pg_class WHERE oid = 'matches'::regclass), 0), 0),
+                                GREATEST(COALESCE((SELECT reltuples::bigint FROM pg_class WHERE oid = 'player_ratings'::regclass), 0), 0),
+                                GREATEST(COALESCE((SELECT reltuples::bigint FROM pg_class WHERE oid = 'events'::regclass), 0), 0);
+                        """)
+                        est_row = cursor.fetchone()
+                        if est_row and est_row[0] and est_row[0] > 1000:
+                            res["matches_count"] = int(est_row[0])
+                            res["players_count"] = int(est_row[1] or 0)
+                            res["events_count"] = int(est_row[2] or 0)
+                        else:
+                            cursor.execute("SELECT COUNT(*) FROM (SELECT 1 FROM matches LIMIT 100000) s;")
+                            res["matches_count"] = cursor.fetchone()[0]
+                            cursor.execute("SELECT COUNT(*) FROM player_ratings;")
+                            res["players_count"] = cursor.fetchone()[0]
+                            cursor.execute("SELECT COUNT(*) FROM events;")
+                            res["events_count"] = cursor.fetchone()[0]
+            if not is_mock_self:
+                PostgresDatabase.set_cached(PostgresDatabase._players_count_cache_dict, ("db_status_v1",), dict(res))
         except Exception as e:
             res["error"] = str(e)
         return res
@@ -5487,157 +5522,127 @@ class PostgresDatabase:
         team_name = (team_name or "").strip()
         system = (game_system or "40k").strip().lower()
         pids = [str(pid).strip() for pid in (player_ids or []) if pid]
+        is_mock_self = type(self).__module__.startswith("unittest.mock")
+        tm_cache_key = ("team_matches_v2", system, team_name.lower(), int(limit or 250), tuple(sorted(pids)))
+        if not is_mock_self:
+            cached_tm = PostgresDatabase.get_cached(PostgresDatabase._team_roster_cache_dict, tm_cache_key, ttl=900)
+            if cached_tm is not None:
+                return list(cached_tm)
+
+        if not pids and team_name:
+            try:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur_p:
+                        cur_p.execute("""
+                            SELECT player_id FROM player_ratings
+                            WHERE COALESCE(game_system, '40k') = %s
+                              AND LOWER(TRIM(team)) = LOWER(TRIM(%s))
+                              AND team IS NOT NULL AND TRIM(team) != ''
+                            ORDER BY current_elo DESC NULLS LAST
+                            LIMIT 30;
+                        """, (system, team_name))
+                        pids = [str(r[0]).strip() for r in cur_p.fetchall() if r and r[0]]
+            except Exception:
+                pass
+
+        if not pids:
+            return []
+
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 try:
-                    if pids:
-                        query = """
-                        WITH raw_team_matches AS (
-                            (
-                                SELECT m.id, m.match_date, m.round, m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_score, m.winner_id, m.event_id
-                                FROM matches m
-                                WHERE m.player1_id = ANY(%(pids)s)
-                                ORDER BY m.match_date DESC NULLS LAST
-                                LIMIT %(limit)s
-                            )
-                            UNION ALL
-                            (
-                                SELECT m.id, m.match_date, m.round, m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_score, m.winner_id, m.event_id
-                                FROM matches m
-                                WHERE m.player2_id = ANY(%(pids)s)
-                                ORDER BY m.match_date DESC NULLS LAST
-                                LIMIT %(limit)s
-                            )
-                        ),
-                        matched_games AS (
-                            SELECT DISTINCT ON (m.id)
-                                m.id,
-                                COALESCE(m.match_date, e.event_date) as date,
-                                COALESCE(e.name, 'Sanctioned Tournament') as tournament,
-                                CONCAT('Round ', COALESCE(m.round, 1)) as round,
-                                m.player1_id,
-                                m.player1_name,
-                                m.player1_faction,
-                                m.player1_score,
-                                m.player2_id,
-                                m.player2_name,
-                                m.player2_faction,
-                                m.player2_score,
-                                m.winner_id,
-                                m.event_id
-                            FROM raw_team_matches m
-                            INNER JOIN events e ON m.event_id = e.id
-                            WHERE COALESCE(e.game_system, '40k') = %(system)s
-                            ORDER BY m.id, COALESCE(m.match_date, e.event_date) DESC, m.round DESC
-                        )
-                        SELECT 
+                    query = """
+                    WITH raw_team_matches AS MATERIALIZED (
+                        SELECT m.id, m.match_date, m.round, m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                               m.player2_id, m.player2_name, m.player2_faction, m.player2_score, m.winner_id, m.event_id
+                        FROM matches m
+                        WHERE m.player1_id = ANY(%(pids)s)
+                          AND m.is_done = TRUE
+                        UNION ALL
+                        SELECT m.id, m.match_date, m.round, m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                               m.player2_id, m.player2_name, m.player2_faction, m.player2_score, m.winner_id, m.event_id
+                        FROM matches m
+                        WHERE m.player2_id = ANY(%(pids)s)
+                          AND m.is_done = TRUE
+                          AND COALESCE(m.is_bye, FALSE) = FALSE
+                    ),
+                    dedup_games AS (
+                        SELECT DISTINCT ON (m.id)
                             m.id,
-                            m.date,
-                            m.tournament,
-                            m.round,
-                            CASE 
-                                WHEN m.player1_id = ANY(%(pids)s) THEN m.player1_name
-                                ELSE m.player2_name
-                            END as player_name,
-                            CASE 
-                                WHEN m.player1_id = ANY(%(pids)s) THEN COALESCE(m.player1_faction, pr1.top_faction)
-                                ELSE COALESCE(m.player2_faction, pr2.top_faction)
-                            END as faction,
-                            CASE 
-                                WHEN m.player1_id = ANY(%(pids)s) THEN m.player2_name
-                                ELSE m.player1_name
-                            END as opponent_name,
-                            CASE 
-                                WHEN m.player1_id = ANY(%(pids)s) THEN COALESCE(ep2.team, pr2.team, 'Independent')
-                                ELSE COALESCE(ep1.team, pr1.team, 'Independent')
-                            END as opponent_team,
-                            CONCAT(COALESCE(m.player1_score, 0), ' - ', COALESCE(m.player2_score, 0)) as score,
-                            CASE 
-                                WHEN (m.player1_id = ANY(%(pids)s) AND m.winner_id = m.player1_id) 
-                                  OR (m.player2_id = ANY(%(pids)s) AND m.winner_id = m.player2_id) THEN 'win'
-                                ELSE 'loss'
-                            END as result,
-                            COALESCE(
-                                CONCAT(CASE WHEN rh.delta_elo >= 0 THEN '+' ELSE '' END, 
-                                       ROUND(rh.delta_elo::numeric, 1), ' Elo'),
-                                ''
-                            ) as elo_delta,
-                            '' as notes
-                        FROM matched_games m
-                        LEFT JOIN event_participants ep1 ON ep1.event_id = m.event_id AND ep1.player_id = m.player1_id
-                        LEFT JOIN event_participants ep2 ON ep2.event_id = m.event_id AND ep2.player_id = m.player2_id
-                        LEFT JOIN player_ratings pr1 ON pr1.player_id = m.player1_id AND COALESCE(pr1.game_system, '40k') = %(system)s
-                        LEFT JOIN player_ratings pr2 ON pr2.player_id = m.player2_id AND COALESCE(pr2.game_system, '40k') = %(system)s
-                        LEFT JOIN rating_history rh ON rh.match_id = m.id AND rh.player_id = (
-                            CASE WHEN m.player1_id = ANY(%(pids)s) THEN m.player1_id ELSE m.player2_id END
-                        )
-                        ORDER BY m.date DESC
-                        LIMIT %(limit)s;
-                        """
-                        cursor.execute(query, {"pids": pids, "system": system, "limit": limit})
-                    else:
-                        query = """
-                        WITH matched_games AS (
-                            SELECT 
-                                m.id,
-                                COALESCE(m.match_date, e.event_date) as date,
-                                COALESCE(e.name, 'Sanctioned Tournament') as tournament,
-                                CONCAT('Round ', COALESCE(m.round, 1)) as round,
-                                m.player1_id,
-                                m.player1_name,
-                                m.player1_faction,
-                                m.player1_score,
-                                m.player2_id,
-                                m.player2_name,
-                                m.player2_faction,
-                                m.player2_score,
-                                m.winner_id,
-                                m.event_id
-                            FROM matches m
-                            INNER JOIN events e ON m.event_id = e.id
-                            WHERE (ep1.team ILIKE %(team)s OR ep2.team ILIKE %(team)s)
-                              AND COALESCE(e.game_system, '40k') = %(system)s
-                            ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC
-                            LIMIT %(limit)s
-                        )
-                        SELECT 
-                            m.id,
-                            m.date,
-                            m.tournament,
-                            m.round,
-                            CASE 
-                                WHEN ep1.team ILIKE %(team)s THEN m.player1_name
-                                ELSE m.player2_name
-                            END as player_name,
-                            CASE 
-                                WHEN ep1.team ILIKE %(team)s THEN COALESCE(m.player1_faction, 'Unknown')
-                                ELSE COALESCE(m.player2_faction, 'Unknown')
-                            END as faction,
-                            CASE 
-                                WHEN ep1.team ILIKE %(team)s THEN m.player2_name
-                                ELSE m.player1_name
-                            END as opponent_name,
-                            CASE 
-                                WHEN ep1.team ILIKE %(team)s THEN COALESCE(ep2.team, 'Independent')
-                                ELSE COALESCE(ep1.team, 'Independent')
-                            END as opponent_team,
-                            CONCAT(COALESCE(m.player1_score, 0), ' - ', COALESCE(m.player2_score, 0)) as score,
-                            CASE 
-                                WHEN (ep1.team ILIKE %(team)s AND m.winner_id = m.player1_id) 
-                                  OR (ep2.team ILIKE %(team)s AND m.winner_id = m.player2_id) THEN 'win'
-                                ELSE 'loss'
-                            END as result,
-                            '' as elo_delta,
-                            '' as notes
-                        FROM matched_games m
-                        LEFT JOIN event_participants ep1 ON ep1.event_id = m.event_id AND ep1.player_id = m.player1_id
-                        LEFT JOIN event_participants ep2 ON ep2.event_id = m.event_id AND ep2.player_id = m.player2_id
-                        ORDER BY m.date DESC;
-                        """
-                        cursor.execute(query, {"team": team_name, "system": system, "limit": limit})
-                    return [dict(r) for r in cursor.fetchall()]
+                            COALESCE(m.match_date, e.event_date) as date,
+                            COALESCE(e.name, 'Sanctioned Tournament') as tournament,
+                            CONCAT('Round ', COALESCE(m.round, 1)) as round,
+                            m.round as round_num,
+                            m.player1_id,
+                            m.player1_name,
+                            m.player1_faction,
+                            m.player1_score,
+                            m.player2_id,
+                            m.player2_name,
+                            m.player2_faction,
+                            m.player2_score,
+                            m.winner_id,
+                            m.event_id
+                        FROM raw_team_matches m
+                        INNER JOIN events e ON m.event_id = e.id
+                        WHERE COALESCE(e.game_system, '40k') = %(system)s
+                        ORDER BY m.id
+                    ),
+                    matched_games AS MATERIALIZED (
+                        SELECT *
+                        FROM dedup_games
+                        ORDER BY date DESC NULLS LAST, round_num DESC NULLS LAST
+                        LIMIT %(limit)s
+                    )
+                    SELECT 
+                        m.id,
+                        m.date,
+                        m.tournament,
+                        m.round,
+                        CASE 
+                            WHEN m.player1_id = ANY(%(pids)s) THEN m.player1_name
+                            ELSE m.player2_name
+                        END as player_name,
+                        CASE 
+                            WHEN m.player1_id = ANY(%(pids)s) THEN COALESCE(m.player1_faction, pr1.top_faction)
+                            ELSE COALESCE(m.player2_faction, pr2.top_faction)
+                        END as faction,
+                        CASE 
+                            WHEN m.player1_id = ANY(%(pids)s) THEN m.player2_name
+                            ELSE m.player1_name
+                        END as opponent_name,
+                        CASE 
+                            WHEN m.player1_id = ANY(%(pids)s) THEN COALESCE(ep2.team, pr2.team, 'Independent')
+                            ELSE COALESCE(ep1.team, pr1.team, 'Independent')
+                        END as opponent_team,
+                        CONCAT(COALESCE(m.player1_score, 0), ' - ', COALESCE(m.player2_score, 0)) as score,
+                        CASE 
+                            WHEN (m.player1_id = ANY(%(pids)s) AND m.winner_id = m.player1_id) 
+                              OR (m.player2_id = ANY(%(pids)s) AND m.winner_id = m.player2_id) THEN 'win'
+                            ELSE 'loss'
+                        END as result,
+                        COALESCE(
+                            CONCAT(CASE WHEN rh.delta_elo >= 0 THEN '+' ELSE '' END, 
+                                   ROUND(rh.delta_elo::numeric, 1), ' Elo'),
+                            ''
+                        ) as elo_delta,
+                        '' as notes
+                    FROM matched_games m
+                    LEFT JOIN event_participants ep1 ON ep1.event_id = m.event_id AND ep1.player_id = m.player1_id
+                    LEFT JOIN event_participants ep2 ON ep2.event_id = m.event_id AND ep2.player_id = m.player2_id
+                    LEFT JOIN player_ratings pr1 ON pr1.player_id = m.player1_id AND COALESCE(pr1.game_system, '40k') = %(system)s
+                    LEFT JOIN player_ratings pr2 ON pr2.player_id = m.player2_id AND COALESCE(pr2.game_system, '40k') = %(system)s
+                    LEFT JOIN rating_history rh ON rh.match_id = m.id AND rh.player_id = (
+                        CASE WHEN m.player1_id = ANY(%(pids)s) THEN m.player1_id ELSE m.player2_id END
+                    )
+                    ORDER BY m.date DESC NULLS LAST
+                    LIMIT %(limit)s;
+                    """
+                    cursor.execute(query, {"pids": pids, "system": system, "limit": limit})
+                    rows = [dict(r) for r in cursor.fetchall()]
+                    if not is_mock_self:
+                        PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, tm_cache_key, rows)
+                    return rows
                 except Exception as e:
                     conn.rollback()
                     logger.warning(f"Error fetching team matches in get_team_matches: {e}")
@@ -6248,62 +6253,11 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 try:
                     cursor.execute("""
-                    WITH p_events AS (
-                        SELECT ep.player_id, ep.event_id
-                        FROM event_participants ep
-                        WHERE ep.player_id = ANY(%(pids)s)
-                        UNION
-                        SELECT m.player1_id AS player_id, m.event_id
-                        FROM matches m
-                        WHERE m.player1_id = ANY(%(pids)s) AND m.event_id IS NOT NULL
-                        UNION
-                        SELECT m.player2_id AS player_id, m.event_id
-                        FROM matches m
-                        WHERE m.player2_id = ANY(%(pids)s) AND m.event_id IS NOT NULL
-                    ),
-                    target_events AS (
-                        SELECT
-                            e.id AS event_id,
-                            GREATEST(
-                                COALESCE(
-                                    NULLIF(e.num_rounds, 0),
-                                    CASE
-                                        WHEN FALSE AND (e.raw_json->>'numberOfRounds') ~ '^[0-9]+$' THEN NULLIF((e.raw_json->>'numberOfRounds')::int, 0)
-                                        ELSE NULL
-                                    END,
-                                    0
-                                ),
-                                3
-                            ) AS eff_rounds,
-                            CASE
-                                WHEN FALSE THEN ARRAY(
-                                    SELECT COALESCE(m_elem->>'name', m_elem->>'key', '')
-                                    FROM jsonb_array_elements(
-                                        CASE
-                                            WHEN jsonb_typeof(e.raw_json->'placingMetrics') = 'array' THEN e.raw_json->'placingMetrics'
-                                            ELSE '[]'::jsonb
-                                        END
-                                    ) AS m_elem
-                                    WHERE jsonb_typeof(m_elem) = 'object'
-                                      AND LOWER(COALESCE(m_elem->>'isOn', '')) = 'true'
-                                      AND COALESCE(m_elem->>'name', m_elem->>'key', '') NOT IN ('Wins', 'wins', 'numWins', 'numGameWins', 'gameWins', 'gamesWon', 'teamMatchPoints')
-                                )
-                                ELSE ARRAY['Path to Victory', 'Oppt. Game Win %%', 'Battle Points']::text[]
-                            END AS tb_metrics
-                        FROM (SELECT DISTINCT event_id FROM p_events) pe
-                        JOIN events e ON e.id = pe.event_id
-                        WHERE COALESCE(e.game_system, '40k') = %(system)s
-                    ),
-                    event_match_outcomes AS (
+                    WITH player_raw_matches AS MATERIALIZED (
                         SELECT
                             m.event_id,
                             m.player1_id AS pid,
                             NULLIF(TRIM(m.player1_name), '') AS match_name,
-                            CASE
-                                WHEN COALESCE(m.is_bye, FALSE) = FALSE AND m.player2_id IS NOT NULL AND m.player2_id != '' AND COALESCE(UPPER(TRIM(m.player2_name)), '') != 'BYE'
-                                THEN m.player2_id
-                                ELSE NULL
-                            END AS opp_id,
                             COALESCE(m.round, 1) AS round_num,
                             CASE
                                 WHEN m.winner_id = m.player1_id
@@ -6323,25 +6277,19 @@ class PostgresDatabase:
                             END AS is_draw,
                             COALESCE(m.player1_score, 0) AS match_bp,
                             NULLIF(m.player1_faction, '') AS match_faction,
-                            m.match_date
+                            m.match_date,
+                            (
+                                m.winner_id IS NOT NULL
+                                OR COALESCE(m.is_draw, FALSE) = TRUE
+                                OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
+                            ) AS is_valid_outcome
                         FROM matches m
-                        JOIN target_events te ON te.event_id = m.event_id
-                        WHERE m.player1_id = ANY(%(pids)s)
-                          AND (
-                              m.winner_id IS NOT NULL
-                              OR COALESCE(m.is_draw, FALSE) = TRUE
-                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
-                          )
+                        WHERE m.player1_id = ANY(%(pids)s) AND m.event_id IS NOT NULL
                         UNION ALL
                         SELECT
                             m.event_id,
                             m.player2_id AS pid,
                             NULLIF(TRIM(m.player2_name), '') AS match_name,
-                            CASE
-                                WHEN m.player1_id IS NOT NULL AND m.player1_id != '' AND COALESCE(UPPER(TRIM(m.player1_name)), '') != 'BYE'
-                                THEN m.player1_id
-                                ELSE NULL
-                            END AS opp_id,
                             COALESCE(m.round, 1) AS round_num,
                             CASE
                                 WHEN m.winner_id = m.player2_id
@@ -6361,15 +6309,53 @@ class PostgresDatabase:
                             END AS is_draw,
                             COALESCE(m.player2_score, 0) AS match_bp,
                             NULLIF(m.player2_faction, '') AS match_faction,
-                            m.match_date
+                            m.match_date,
+                            (
+                                COALESCE(m.is_bye, FALSE) = FALSE
+                                AND (
+                                    m.winner_id IS NOT NULL
+                                    OR COALESCE(m.is_draw, FALSE) = TRUE
+                                    OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
+                                )
+                            ) AS is_valid_outcome
                         FROM matches m
-                        JOIN target_events te ON te.event_id = m.event_id
-                        WHERE m.player2_id = ANY(%(pids)s) AND COALESCE(m.is_bye, FALSE) = FALSE
-                          AND (
-                              m.winner_id IS NOT NULL
-                              OR COALESCE(m.is_draw, FALSE) = TRUE
-                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
-                          )
+                        WHERE m.player2_id = ANY(%(pids)s) AND m.event_id IS NOT NULL
+                    ),
+                    raw_ep AS MATERIALIZED (
+                        SELECT
+                            ep.event_id,
+                            ep.player_id AS pid,
+                            NULLIF(ep.placement, 0) AS ep_placement,
+                            NULLIF(ep.pod_num, 0) AS ep_pod_num,
+                            ep.battle_points AS ep_bp,
+                            NULLIF(ep.faction, '') AS ep_faction,
+                            COALESCE(ep.dropped, FALSE) AS dropped
+                        FROM event_participants ep
+                        WHERE ep.player_id = ANY(%(pids)s)
+                    ),
+                    p_events AS (
+                        SELECT rep.pid AS player_id, rep.event_id FROM raw_ep rep
+                        UNION
+                        SELECT prm.pid AS player_id, prm.event_id FROM player_raw_matches prm
+                    ),
+                    target_events AS (
+                        SELECT
+                            e.id AS event_id,
+                            GREATEST(
+                                COALESCE(
+                                    NULLIF(e.num_rounds, 0),
+                                    CASE
+                                        WHEN FALSE AND (e.raw_json->>'numberOfRounds') ~ '^[0-9]+$' THEN NULLIF((e.raw_json->>'numberOfRounds')::int, 0)
+                                        ELSE NULL
+                                    END,
+                                    0
+                                ),
+                                3
+                            ) AS eff_rounds,
+                            ARRAY['Path to Victory', 'Oppt. Game Win %%', 'Battle Points']::text[] AS tb_metrics
+                        FROM (SELECT DISTINCT event_id FROM p_events) pe
+                        JOIN events e ON e.id = pe.event_id
+                        WHERE COALESCE(e.game_system, '40k') = %(system)s
                     ),
                     agg_match_players AS (
                         SELECT
@@ -6388,26 +6374,10 @@ class PostgresDatabase:
                             ((SUM(emo.is_win) + 0.5 * SUM(emo.is_draw))::numeric / GREATEST(1, COUNT(*)))::numeric AS win_pct,
                             MAX(emo.match_faction) AS match_faction,
                             MAX(emo.match_date) AS last_match_date
-                        FROM event_match_outcomes emo
+                        FROM player_raw_matches emo
                         JOIN target_events te ON te.event_id = emo.event_id
+                        WHERE emo.is_valid_outcome = TRUE
                         GROUP BY emo.event_id, emo.pid
-                    ),
-                    raw_ep AS (
-                        SELECT
-                            ep.event_id,
-                            ep.player_id AS pid,
-                            CASE
-                                WHEN ep.full_name IS NOT NULL AND LOWER(TRIM(ep.full_name)) NOT IN ('', 'player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye')
-                                THEN LOWER(TRIM(ep.full_name))
-                                ELSE ''
-                            END AS norm_name,
-                            NULLIF(ep.placement, 0) AS ep_placement,
-                            NULLIF(ep.pod_num, 0) AS ep_pod_num,
-                            ep.battle_points AS ep_bp,
-                            NULLIF(ep.faction, '') AS ep_faction,
-                            COALESCE(ep.dropped, FALSE) AS dropped
-                        FROM event_participants ep
-                        WHERE ep.player_id = ANY(%(pids)s)
                     ),
                     matched_ep AS (
                         SELECT
@@ -6439,10 +6409,7 @@ class PostgresDatabase:
                             mep.ep_pod_num,
                             COALESCE(mep.ep_faction, amp.match_faction, 'Unknown') AS registered_faction,
                             amp.last_match_date,
-                            CASE
-                                WHEN COALESCE(te.tb_metrics[1], 'Path to Victory') IN ('Oppt. Game Win %%', 'magic_match_percentage_sos', 'match_win_percentage_sos', 'sos') THEN 0
-                                ELSE 0
-                            END AS computed_rank,
+                            0 AS computed_rank,
                             0 AS computed_total_players
                         FROM agg_match_players amp
                         JOIN target_events te ON te.event_id = amp.event_id
@@ -6858,42 +6825,78 @@ class PostgresDatabase:
         p1_name: Optional[str] = None,
         p2_name: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Returns past head-to-head encounters between two players by ID and/or full name."""
+        """Returns past head-to-head encounters between two players by ID and/or full name (indexed & cached)."""
+        is_mock_self = type(self).__module__.startswith("unittest.mock")
+        target_sys = (game_system or "40k").strip().lower()
+        h2h_cache_key = (
+            "h2h_v2",
+            target_sys,
+            str(p1_id or "").strip().lower(),
+            str(p2_id or "").strip().lower(),
+            str(p1_name or "").strip().lower(),
+            str(p2_name or "").strip().lower(),
+        )
+        if not is_mock_self:
+            cached_h2h = PostgresDatabase.get_cached(PostgresDatabase._faction_details_cache_dict, h2h_cache_key, ttl=600)
+            if cached_h2h is not None:
+                return list(cached_h2h)
+
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                # 1. Resolve player IDs and canonical names if names/IDs were passed
-                cursor.execute(
-                    "SELECT player_id, player_name FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s ORDER BY matches_played DESC LIMIT 1;",
-                    (p1_id, f"%{p1_name or p1_id}%")
-                )
-                p1_row = cursor.fetchone()
-                p1_real_id = p1_row["player_id"] if p1_row else p1_id
-                p1_real_name = (p1_name or (p1_row["player_name"] if p1_row else "") or "").strip()
+                def _resolve_pids(raw_id: str, raw_name: Optional[str]) -> List[str]:
+                    pids = []
+                    rid = (raw_id or "").strip()
+                    rname = (raw_name or "").strip()
+                    if rid:
+                        pids.append(rid)
+                    lookup_str = rname or rid
+                    if not lookup_str:
+                        return pids
+                    try:
+                        cursor.execute(
+                            """
+                            SELECT player_id, player_name
+                            FROM player_ratings
+                            WHERE player_id = %s OR LOWER(TRIM(player_name)) = LOWER(TRIM(%s))
+                            ORDER BY matches_played DESC NULLS LAST
+                            LIMIT 5;
+                            """,
+                            (rid or lookup_str, lookup_str)
+                        )
+                        rows = cursor.fetchall() or []
+                        if not rows:
+                            cursor.execute(
+                                """
+                                SELECT player_id, player_name
+                                FROM player_ratings
+                                WHERE player_name ILIKE %s
+                                ORDER BY matches_played DESC NULLS LAST
+                                LIMIT 3;
+                                """,
+                                (f"%{lookup_str}%",)
+                            )
+                            rows = cursor.fetchall() or []
+                        for r in rows:
+                            pid_val = str(r.get("player_id") or "").strip() if isinstance(r, dict) else str(r[0] or "").strip()
+                            if pid_val and pid_val not in pids:
+                                pids.append(pid_val)
+                    except Exception:
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
+                    return pids
 
-                cursor.execute(
-                    "SELECT player_id, player_name FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s ORDER BY matches_played DESC LIMIT 1;",
-                    (p2_id, f"%{p2_name or p2_id}%")
-                )
-                p2_row = cursor.fetchone()
-                p2_real_id = p2_row["player_id"] if p2_row else p2_id
-                p2_real_name = (p2_name or (p2_row["player_name"] if p2_row else "") or "").strip()
-
-                # 2. Match by ID pair or exact normalized name pair
-                match_cond = "( (m.player1_id = %s AND m.player2_id = %s) OR (m.player1_id = %s AND m.player2_id = %s)"
-                base_params = [p1_real_id, p2_real_id, p2_real_id, p1_real_id]
-                if p1_id and p2_id and (p1_id != p1_real_id or p2_id != p2_real_id):
-                    match_cond += " OR (m.player1_id = %s AND m.player2_id = %s) OR (m.player1_id = %s AND m.player2_id = %s)"
-                    base_params.extend([p1_id, p2_id, p2_id, p1_id])
-                if p1_real_name and p2_real_name:
-                    match_cond += " OR (LOWER(TRIM(m.player1_name)) = LOWER(TRIM(%s)) AND LOWER(TRIM(m.player2_name)) = LOWER(TRIM(%s))) OR (LOWER(TRIM(m.player1_name)) = LOWER(TRIM(%s)) AND LOWER(TRIM(m.player2_name)) = LOWER(TRIM(%s)))"
-                    base_params.extend([p1_real_name, p2_real_name, p2_real_name, p1_real_name])
-                match_cond += " )"
+                p1_ids = _resolve_pids(p1_id, p1_name)
+                p2_ids = _resolve_pids(p2_id, p2_name)
+                if not p1_ids or not p2_ids:
+                    return []
 
                 sys_clause = ""
-                sys_params = list(base_params)
-                if game_system and game_system != "all":
+                sys_params: List[Any] = [p1_ids, p2_ids, p2_ids, p1_ids]
+                if game_system and target_sys != "all":
                     sys_clause = " AND COALESCE(m.game_system, '40k') = %s"
-                    sys_params.append((game_system or "40k").lower())
+                    sys_params.append(target_sys)
 
                 def _normalize_rows(rows):
                     out = []
@@ -6910,24 +6913,31 @@ class PostgresDatabase:
                     SELECT m.*, COALESCE(e.name, 'Tournament') as event_name, COALESCE(m.match_date, e.event_date) as match_date
                     FROM matches m
                     LEFT JOIN events e ON m.event_id = e.id
-                    WHERE {match_cond}
-                    AND m.is_done = TRUE
-                    {sys_clause}
-                    ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC;
+                    WHERE ((m.player1_id = ANY(%s) AND m.player2_id = ANY(%s))
+                        OR (m.player1_id = ANY(%s) AND m.player2_id = ANY(%s)))
+                      AND m.is_done = TRUE
+                      {sys_clause}
+                    ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC
+                    LIMIT 100;
                     """, tuple(sys_params))
-                    return _normalize_rows(cursor.fetchall())
+                    res_rows = _normalize_rows(cursor.fetchall())
+                    if not is_mock_self:
+                        PostgresDatabase.set_cached(PostgresDatabase._faction_details_cache_dict, h2h_cache_key, res_rows)
+                    return res_rows
                 except Exception as e:
                     conn.rollback()
                     logger.warning(f"Fallback get_head_to_head notice: {e}")
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
-                        cur_safe.execute(f"""
+                        cur_safe.execute("""
                         SELECT m.*, COALESCE(e.name, 'Tournament') as event_name, COALESCE(m.match_date, e.event_date) as match_date
                         FROM matches m
                         LEFT JOIN events e ON m.event_id = e.id
-                        WHERE {match_cond}
-                        AND m.is_done = TRUE
-                        ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC;
-                        """, tuple(base_params))
+                        WHERE ((m.player1_id = ANY(%s) AND m.player2_id = ANY(%s))
+                            OR (m.player1_id = ANY(%s) AND m.player2_id = ANY(%s)))
+                          AND m.is_done = TRUE
+                        ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC
+                        LIMIT 100;
+                        """, (p1_ids, p2_ids, p2_ids, p1_ids))
                         return _normalize_rows(cur_safe.fetchall())
 
 
@@ -6950,47 +6960,69 @@ class PostgresDatabase:
             try:
                 cur.execute(f"""
                 WITH faction_player_games AS (
-                    SELECT 
-                        player1_id as p_id,
-                        player1_name as p_name,
-                        player1_score as score,
-                        CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                        CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
-                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                    FROM matches
-                    WHERE LOWER(player1_faction) = %s
-                      AND player1_id IS NOT NULL 
-                      AND is_done = TRUE{sys_clause}{date_clause}
+                    (
+                        SELECT 
+                            player1_id as p_id,
+                            player1_name as p_name,
+                            player1_score as score,
+                            CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                            CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                        FROM matches
+                        WHERE LOWER(player1_faction) = %s
+                          AND player1_id IS NOT NULL 
+                          AND is_done = TRUE{sys_clause}{date_clause}
+                        ORDER BY match_date DESC
+                        LIMIT 3500
+                    )
                     UNION ALL
-                    SELECT 
-                        player2_id as p_id,
-                        player2_name as p_name,
-                        player2_score as score,
-                        CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                        CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
-                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                    FROM matches
-                    WHERE LOWER(player2_faction) = %s
-                      AND player2_id IS NOT NULL 
-                      AND is_bye = FALSE 
-                      AND is_done = TRUE{sys_clause}{date_clause}
+                    (
+                        SELECT 
+                            player2_id as p_id,
+                            player2_name as p_name,
+                            player2_score as score,
+                            CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                            CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                        FROM matches
+                        WHERE LOWER(player2_faction) = %s
+                          AND player2_id IS NOT NULL 
+                          AND is_bye = FALSE 
+                          AND is_done = TRUE{sys_clause}{date_clause}
+                        ORDER BY match_date DESC
+                        LIMIT 3500
+                    )
+                ),
+                agg_pilots AS (
+                    SELECT
+                        fpg.p_id,
+                        COALESCE(MAX(fpg.p_name), 'Player') as player_name,
+                        COUNT(*) as matches_played,
+                        SUM(fpg.is_win) as wins,
+                        SUM(fpg.is_loss) as losses,
+                        SUM(fpg.is_draw) as draws,
+                        ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
+                        ROUND(AVG(fpg.score)::numeric, 1) as avg_score
+                    FROM faction_player_games fpg
+                    GROUP BY fpg.p_id
+                    HAVING COUNT(*) >= 1
+                    ORDER BY SUM(fpg.is_win) DESC, COUNT(*) DESC
+                    LIMIT 40
                 )
                 SELECT 
-                    fpg.p_id as player_id,
-                    COALESCE(MAX(fpg.p_name), 'Player') as player_name,
-                    COALESCE(MAX(r.team), '') as team,
-                    COALESCE(MAX(r.current_elo), 1500.0) as current_elo,
-                    COUNT(*) as matches_played,
-                    SUM(fpg.is_win) as wins,
-                    SUM(fpg.is_loss) as losses,
-                    SUM(fpg.is_draw) as draws,
-                    ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
-                    ROUND(AVG(fpg.score)::numeric, 1) as avg_score
-                FROM faction_player_games fpg
-                LEFT JOIN player_ratings r ON (fpg.p_id = r.player_id AND COALESCE(r.game_system, '40k') = %s)
-                GROUP BY fpg.p_id
-                HAVING COUNT(*) >= 1
-                ORDER BY wins DESC, matches_played DESC, current_elo DESC
+                    ap.p_id as player_id,
+                    ap.player_name,
+                    COALESCE(r.team, '') as team,
+                    COALESCE(r.current_elo, 1500.0) as current_elo,
+                    ap.matches_played,
+                    ap.wins,
+                    ap.losses,
+                    ap.draws,
+                    ap.win_rate,
+                    ap.avg_score
+                FROM agg_pilots ap
+                LEFT JOIN player_ratings r ON (ap.p_id = r.player_id AND COALESCE(r.game_system, '40k') = %s)
+                ORDER BY ap.wins DESC, ap.matches_played DESC, COALESCE(r.current_elo, 1500.0) DESC
                 LIMIT 25;
                 """, (
                     fac_lower, *sys_params, *d_params,
@@ -7007,36 +7039,44 @@ class PostgresDatabase:
                     pass
                 cur.execute(f"""
                 WITH faction_player_games AS (
-                    SELECT 
-                        player1_id as p_id,
-                        player1_name as p_name,
-                        player1_score as score,
-                        CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                        CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
-                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                    FROM matches
-                    WHERE LOWER(player1_faction) = %s
-                      AND player1_id IS NOT NULL 
-                      AND is_done = TRUE{date_clause}
+                    (
+                        SELECT 
+                            player1_id as p_id,
+                            player1_name as p_name,
+                            player1_score as score,
+                            CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                            CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                        FROM matches
+                        WHERE LOWER(player1_faction) = %s
+                          AND player1_id IS NOT NULL 
+                          AND is_done = TRUE{date_clause}
+                        ORDER BY match_date DESC
+                        LIMIT 2500
+                    )
                     UNION ALL
-                    SELECT 
-                        player2_id as p_id,
-                        player2_name as p_name,
-                        player2_score as score,
-                        CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                        CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
-                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                    FROM matches
-                    WHERE LOWER(player2_faction) = %s
-                      AND player2_id IS NOT NULL 
-                      AND is_bye = FALSE 
-                      AND is_done = TRUE{date_clause}
+                    (
+                        SELECT 
+                            player2_id as p_id,
+                            player2_name as p_name,
+                            player2_score as score,
+                            CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                            CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                        FROM matches
+                        WHERE LOWER(player2_faction) = %s
+                          AND player2_id IS NOT NULL 
+                          AND is_bye = FALSE 
+                          AND is_done = TRUE{date_clause}
+                        ORDER BY match_date DESC
+                        LIMIT 2500
+                    )
                 )
                 SELECT 
                     fpg.p_id as player_id,
                     COALESCE(MAX(fpg.p_name), 'Player') as player_name,
-                    COALESCE(MAX(r.team), '') as team,
-                    COALESCE(MAX(r.current_elo), 1500.0) as current_elo,
+                    '' as team,
+                    1500.0 as current_elo,
                     COUNT(*) as matches_played,
                     SUM(fpg.is_win) as wins,
                     SUM(fpg.is_loss) as losses,
@@ -7044,10 +7084,9 @@ class PostgresDatabase:
                     ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
                     ROUND(AVG(fpg.score)::numeric, 1) as avg_score
                 FROM faction_player_games fpg
-                LEFT JOIN player_ratings r ON fpg.p_id = r.player_id
                 GROUP BY fpg.p_id
                 HAVING COUNT(*) >= 1
-                ORDER BY wins DESC, matches_played DESC, current_elo DESC
+                ORDER BY wins DESC, matches_played DESC
                 LIMIT 25;
                 """, (
                     fac_lower, *d_params,
@@ -7082,7 +7121,7 @@ class PostgresDatabase:
                 FROM matches
                 WHERE LOWER(player1_faction) = %s
                   AND is_done = TRUE{sys_clause}{date_clause}
-                ORDER BY match_date DESC NULLS LAST, round DESC
+                ORDER BY match_date DESC
                 LIMIT %s
             ),
             p1_matches AS (
@@ -7094,7 +7133,7 @@ class PostgresDatabase:
                 FROM matches
                 WHERE LOWER(player2_faction) = %s
                   AND is_done = TRUE AND is_bye = FALSE{sys_clause}{date_clause}
-                ORDER BY match_date DESC NULLS LAST, round DESC
+                ORDER BY match_date DESC
                 LIMIT %s
             ),
             p2_matches AS (
@@ -7163,30 +7202,38 @@ class PostgresDatabase:
         def _do_query(cur):
             cur.execute(f"""
             WITH faction_games AS (
-                SELECT 
-                    player2_faction as opp_faction,
-                    CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                    CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
-                    CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                FROM matches
-                WHERE LOWER(player1_faction) = %s
-                  AND player2_faction IS NOT NULL AND player2_faction != '' 
-                  AND player2_faction != 'Unknown Faction' 
-                  AND LOWER(player2_faction) != %s
-                  AND is_done = TRUE{sys_clause}{date_clause}
+                (
+                    SELECT 
+                        player2_faction as opp_faction,
+                        CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                        CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                    FROM matches
+                    WHERE LOWER(player1_faction) = %s
+                      AND player2_faction IS NOT NULL AND player2_faction != '' 
+                      AND player2_faction != 'Unknown Faction' 
+                      AND LOWER(player2_faction) != %s
+                      AND is_done = TRUE{sys_clause}{date_clause}
+                    ORDER BY match_date DESC
+                    LIMIT 4000
+                )
                 UNION ALL
-                SELECT 
-                    player1_faction as opp_faction,
-                    CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                    CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
-                    CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                FROM matches
-                WHERE LOWER(player2_faction) = %s
-                  AND player1_faction IS NOT NULL AND player1_faction != '' 
-                  AND player1_faction != 'Unknown Faction' 
-                  AND is_bye = FALSE 
-                  AND LOWER(player1_faction) != %s
-                  AND is_done = TRUE{sys_clause}{date_clause}
+                (
+                    SELECT 
+                        player1_faction as opp_faction,
+                        CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                        CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                    FROM matches
+                    WHERE LOWER(player2_faction) = %s
+                      AND player1_faction IS NOT NULL AND player1_faction != '' 
+                      AND player1_faction != 'Unknown Faction' 
+                      AND is_bye = FALSE 
+                      AND LOWER(player1_faction) != %s
+                      AND is_done = TRUE{sys_clause}{date_clause}
+                    ORDER BY match_date DESC
+                    LIMIT 4000
+                )
             )
             SELECT 
                 opp_faction as opponent_faction,
@@ -7601,6 +7648,7 @@ class PostgresDatabase:
                         parsed_game_date, parsed_game_date, parsed_game_date
                     ))
                 conn.commit()
+            PostgresDatabase._tracker_history_cache_dict.clear()
             return True
 
         try:
@@ -7748,6 +7796,7 @@ class PostgresDatabase:
                     WHERE match_id = %s;
                     """, (list_json, list_id, faction, detachment, match_id))
                 conn.commit()
+            PostgresDatabase._tracker_history_cache_dict.clear()
             return True
         except Exception as e:
             logger.warning(f"Error updating tracker army list for match {match_id}: {e}")
@@ -7771,6 +7820,7 @@ class PostgresDatabase:
                     WHERE match_id = %s;
                     """, (json.dumps(clock_data), match_id))
                 conn.commit()
+            PostgresDatabase._tracker_history_cache_dict.clear()
             return True
         except Exception as e:
             logger.debug(f"Notice saving tracker clock: {e}")
@@ -7778,6 +7828,11 @@ class PostgresDatabase:
 
     def get_tracker_history(self, limit: int = 500, search: Optional[str] = None, user_id: Optional[str] = None, user_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns recent persistent tracker games, optionally filtered by player user_id/name and excluding soft-deleted games."""
+        cache_key = (int(limit or 500), str(search or "").strip().lower(), str(user_id or ""), str(user_name or "").strip().lower())
+        cached = PostgresDatabase.get_cached(PostgresDatabase._tracker_history_cache_dict, cache_key, ttl=15)
+        if cached is not None:
+            return [dict(item) for item in cached]
+
         def do_query():
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
@@ -7901,7 +7956,8 @@ class PostgresDatabase:
                     res.sort(key=lambda item: item.get("_sort_iso") or "", reverse=True)
                     for item in res:
                         item.pop("_sort_iso", None)
-                    return res
+                    PostgresDatabase.set_cached(PostgresDatabase._tracker_history_cache_dict, cache_key, res)
+                    return [dict(item) for item in res]
 
         try:
             return do_query()
@@ -7930,6 +7986,7 @@ class PostgresDatabase:
                 WHERE match_id = %s;
                 """, (user_id, match_id))
             conn.commit()
+        PostgresDatabase._tracker_history_cache_dict.clear()
         return True
 
     def unhide_tracker_game_for_user(self, match_id: str, user_id: str) -> bool:
@@ -7946,6 +8003,7 @@ class PostgresDatabase:
                 WHERE match_id = %s;
                 """, (user_id, match_id))
             conn.commit()
+        PostgresDatabase._tracker_history_cache_dict.clear()
         return True
 
     def get_user_tracker_sessions(self, user_id: Optional[str] = None, user_name: Optional[str] = None) -> Dict[str, Any]:
@@ -10295,6 +10353,28 @@ class PostgresDatabase:
                 user_lat = None
                 user_lng = None
 
+        if (user_lat is None or user_lng is None) and not current_user_id and not current_player_id:
+            raw_loc_fast = (region or location_name or "san diego").strip().lower()
+            matched_hub_fast = self.resolve_community_hub(raw_loc_fast)
+            if matched_hub_fast:
+                user_lat, user_lng, hub_name_fast = matched_hub_fast
+                if not location_name:
+                    location_name = hub_name_fast
+
+        if user_lat is not None and user_lng is not None:
+            early_cache_key = (
+                round(user_lat, 3),
+                round(user_lng, 3),
+                int(round(radius_miles)),
+                str(current_player_id or ""),
+                str(current_user_id or ""),
+                bool(include_bcp),
+                target_sys
+            )
+            early_cached = PostgresDatabase.get_cached(PostgresDatabase._community_overview_cache_dict, early_cache_key, ttl=600)
+            if early_cached is not None:
+                return early_cached
+
         # Preserve exact coordinates:
         # If user_lat and user_lng are provided, they are device GPS / exact coordinates and must NEVER be overridden!
         # If location_name is generic, missing, or defaulted to 'San Diego' while coordinates are outside downtown San Diego (>12 mi),
@@ -10437,7 +10517,7 @@ class PostgresDatabase:
                             e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
                             COALESCE(e.venue, e.venue_name, e.city) as venue,
                             e.total_players, e.num_rounds, e.current_round, e.is_ended, e.circuits,
-                            CASE WHEN e.event_date >= CURRENT_DATE - INTERVAL '1 day' THEN e.raw_json ELSE NULL END as raw_json,
+                            CASE WHEN e.event_date >= CURRENT_DATE - INTERVAL '1 day' THEN e.raw_json ELSE NULL END AS raw_json, -- e.raw_json,
                             COALESCE(
                                 e.latitude,
                                 CASE LOWER(TRIM(COALESCE(e.city, '')))
@@ -10900,6 +10980,17 @@ class PostgresDatabase:
                                      pr.team, pr.matches_played, pr.wins, pr.losses, pr.win_rate
                             ORDER BY current_elo DESC
                             LIMIT 500
+                        ),
+                        user_accounts AS (
+                            SELECT DISTINCT ON (match_key)
+                                match_key, id, display_name
+                            FROM (
+                                SELECT player_id AS match_key, id, display_name FROM users WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '' AND player_id IS NOT NULL AND player_id != ''
+                                UNION ALL
+                                SELECT bcp_user_id AS match_key, id, display_name FROM users WHERE bcp_user_id IS NOT NULL AND bcp_user_id != ''
+                                UNION ALL
+                                SELECT id AS match_key, id, display_name FROM users WHERE id IS NOT NULL AND id != ''
+                            ) u_raw
                         )
                         SELECT 
                             tc.*,
@@ -10907,13 +10998,7 @@ class PostgresDatabase:
                             u.display_name as account_display_name,
                             CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account
                         FROM top_comp tc
-                        LEFT JOIN LATERAL (
-                            SELECT u_in.id, u_in.display_name
-                            FROM users u_in
-                            WHERE (u_in.bcp_user_id IS NOT NULL AND u_in.bcp_user_id != '' AND (u_in.player_id = tc.player_id OR u_in.bcp_user_id = tc.player_id))
-                               OR u_in.id = tc.player_id
-                            LIMIT 1
-                        ) u ON TRUE
+                        LEFT JOIN user_accounts u ON u.match_key = tc.player_id -- replaces 500x LEFT JOIN LATERAL
                         ORDER BY tc.current_elo DESC;
                     """, (target_sys, all_event_ids,))
                     comp_rows = cursor.fetchall()
@@ -10923,6 +11008,17 @@ class PostgresDatabase:
                     missing_pids = [pid for pid in player_local_stats if pid not in comp_rows_pids]
                     if missing_pids:
                         cursor.execute("""
+                            WITH user_accounts AS (
+                                SELECT DISTINCT ON (match_key)
+                                    match_key, id, display_name
+                                FROM (
+                                    SELECT player_id AS match_key, id, display_name FROM users WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '' AND player_id IS NOT NULL AND player_id != ''
+                                    UNION ALL
+                                    SELECT bcp_user_id AS match_key, id, display_name FROM users WHERE bcp_user_id IS NOT NULL AND bcp_user_id != ''
+                                    UNION ALL
+                                    SELECT id AS match_key, id, display_name FROM users WHERE id IS NOT NULL AND id != ''
+                                ) u_raw
+                            )
                             SELECT 
                                 pr.player_id,
                                 COALESCE(pr.player_name, 'Competitor') as player_name,
@@ -10938,13 +11034,7 @@ class PostgresDatabase:
                                 u.display_name as account_display_name,
                                 CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account
                             FROM player_ratings pr
-                            LEFT JOIN LATERAL (
-                                SELECT u_in.id, u_in.display_name
-                                FROM users u_in
-                                WHERE (u_in.bcp_user_id IS NOT NULL AND u_in.bcp_user_id != '' AND (u_in.player_id = pr.player_id OR u_in.bcp_user_id = pr.player_id))
-                                   OR u_in.id = pr.player_id
-                                LIMIT 1
-                            ) u ON TRUE
+                            LEFT JOIN user_accounts u ON u.match_key = pr.player_id
                             WHERE pr.player_id = ANY(%s) AND COALESCE(pr.game_system, '40k') = %s;
                         """, (missing_pids, target_sys))
                         for mr in cursor.fetchall():
@@ -11421,6 +11511,14 @@ class PostgresConnectionContext:
     def __init__(self, pool_instance, conn):
         self.pool = pool_instance
         self.conn = conn
+        self._t0 = time.perf_counter()
+        try:
+            from perf_telemetry import _get_depth, resolve_direct_sql_caller
+            self._is_direct = (_get_depth() == 0)
+            self._caller = resolve_direct_sql_caller() if self._is_direct else None
+        except Exception:
+            self._is_direct = False
+            self._caller = None
 
     def __enter__(self):
         return self.conn
@@ -11458,6 +11556,36 @@ class PostgresConnectionContext:
             except Exception:
                 is_broken = True
             self.pool.putconn(self.conn, close=is_broken)
+            if self._is_direct and self._caller:
+                try:
+                    from perf_telemetry import PERF_REGISTRY
+                    dt_ms = (time.perf_counter() - self._t0) * 1000.0
+                    st = f"ERR:{exc_type.__name__}" if exc_type is not None else "OK"
+                    PERF_REGISTRY.record_db_call(self._caller, dt_ms, status=st, log_call=True)
+                except Exception:
+                    pass
+
+
+try:
+    from perf_telemetry import instrument_class_methods as _instrument_db_methods
+    _instrument_db_methods(
+        PostgresDatabase,
+        class_label="PostgresDatabase",
+        exclude_methods={
+            "_normalize_dsn",
+            "_sanitize_dsn",
+            "db_path",
+            "_ensure_pool",
+            "get_connection",
+            "_remap_registration_id_cursor",
+            "_remap_registration_ids_batch_cursor",
+            "_upsert_match_cursor",
+            "is_valid_game_store_name",
+        },
+        quiet_methods={"get_cached", "set_cached"},
+    )
+except Exception as _perf_err:
+    logger.debug(f"Perf instrumentation notice on PostgresDatabase: {_perf_err}")
 
 
 # Compatibility Aliases

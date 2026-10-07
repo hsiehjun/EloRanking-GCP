@@ -1634,25 +1634,47 @@ class EloEngine:
             try:
                 with self.db.get_connection() as conn:
                     with conn.cursor() as cur:
-                        cur.execute("""
-                            SELECT ep.player_id, ep.full_name, ep.faction, ep.team
-                            FROM event_participants ep
-                            LEFT JOIN events e ON ep.event_id = e.id
-                            WHERE (ep.player_id = %s OR ep.id::text = %s)
-                              AND COALESCE(e.game_system, '40k') = %s
-                            ORDER BY e.event_date DESC NULLS LAST
-                            LIMIT 1;
-                        """, (player_id, player_id, target_sys))
-                        ep_row = cur.fetchone()
-                        if not ep_row:
+                        pid_str = str(player_id or "").strip()
+                        if pid_str.isdigit():
                             cur.execute("""
                                 SELECT ep.player_id, ep.full_name, ep.faction, ep.team
                                 FROM event_participants ep
                                 LEFT JOIN events e ON ep.event_id = e.id
-                                WHERE (ep.player_id = %s OR ep.id::text = %s)
+                                WHERE (ep.player_id = %s OR ep.id = %s)
+                                  AND COALESCE(e.game_system, '40k') = %s
                                 ORDER BY e.event_date DESC NULLS LAST
                                 LIMIT 1;
-                            """, (player_id, player_id))
+                            """, (pid_str, int(pid_str), target_sys))
+                        else:
+                            cur.execute("""
+                                SELECT ep.player_id, ep.full_name, ep.faction, ep.team
+                                FROM event_participants ep
+                                LEFT JOIN events e ON ep.event_id = e.id
+                                WHERE ep.player_id = %s
+                                  AND COALESCE(e.game_system, '40k') = %s
+                                ORDER BY e.event_date DESC NULLS LAST
+                                LIMIT 1;
+                            """, (pid_str, target_sys))
+                        ep_row = cur.fetchone()
+                        if not ep_row:
+                            if pid_str.isdigit():
+                                cur.execute("""
+                                    SELECT ep.player_id, ep.full_name, ep.faction, ep.team
+                                    FROM event_participants ep
+                                    LEFT JOIN events e ON ep.event_id = e.id
+                                    WHERE (ep.player_id = %s OR ep.id = %s)
+                                    ORDER BY e.event_date DESC NULLS LAST
+                                    LIMIT 1;
+                                """, (pid_str, int(pid_str)))
+                            else:
+                                cur.execute("""
+                                    SELECT ep.player_id, ep.full_name, ep.faction, ep.team
+                                    FROM event_participants ep
+                                    LEFT JOIN events e ON ep.event_id = e.id
+                                    WHERE ep.player_id = %s
+                                    ORDER BY e.event_date DESC NULLS LAST
+                                    LIMIT 1;
+                                """, (pid_str,))
                             ep_row = cur.fetchone()
                         if ep_row:
                             ep_fallback = {
@@ -1844,6 +1866,21 @@ class EloEngine:
             self._player_win_path_cache_dict.clear()
         self._player_win_path_cache_dict[cache_key] = (res, time.time())
         return res
+
+
+try:
+    from perf_telemetry import instrument_class_methods as _instrument_elo_methods
+    _instrument_elo_methods(
+        EloEngine,
+        class_label="EloEngine",
+        exclude_methods={
+            "get_k_factor",
+            "expected_score",
+            "calculate_expected_score",
+        },
+    )
+except Exception as _perf_err:
+    logger.debug(f"Perf instrumentation notice on EloEngine: {_perf_err}")
 
 
 _elo_engine_instance = None

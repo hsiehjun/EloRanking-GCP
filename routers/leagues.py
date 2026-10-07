@@ -16,6 +16,7 @@ router = APIRouter(tags=["Community Leagues"])
 
 
 @router.get("/api/leagues", summary="Get list of active community leagues")
+@router.get("/api/leagues/list", summary="Get list of active community leagues")
 def get_leagues_list():
     svc = leagues_hub_service.get_leagues_hub_service()
     leagues = svc.get_leagues_list()
@@ -137,6 +138,7 @@ def sync_and_audit_league_db(league_id: str, force_seed: bool = False):
 
 
 @router.get("/api/league/{league_id}/seasons", summary="Get catalog of all historical seasons")
+@router.get("/api/leagues/{league_id}/seasons", summary="Get catalog of all historical seasons")
 def get_league_seasons(league_id: str):
     svc = leagues_hub_service.get_leagues_hub_service()
     seasons = svc.get_seasons_catalog(league_id)
@@ -465,6 +467,8 @@ async def create_unified_event_endpoint(request: Request):
 
 
 @router.get("/api/eventstudio/ops/{entity_id}", summary="Get Unified Live Floor Operations (Clock, Table Flags, Broadcasts, Acks)")
+@router.get("/api/league/{entity_id}/ops-overview", summary="Get Unified Live Floor Operations (Clock, Table Flags, Broadcasts, Acks)")
+@router.get("/api/leagues/{entity_id}/ops-overview", summary="Get Unified Live Floor Operations (Clock, Table Flags, Broadcasts, Acks)")
 def get_unified_ops_endpoint(entity_id: str):
     svc = leagues_hub_service.get_leagues_hub_service()
     return svc.get_unified_floor_ops(entity_id)

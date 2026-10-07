@@ -324,15 +324,29 @@ def api_events_recommended(
     detected_city = None
     user_elo = None
 
-    auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    auth_user = auth_mgr.get_session(session_token) if session_token else None
+    auth_header = request.headers.get("Authorization", "") if hasattr(request, "headers") and request.headers else ""
+    cookies_dict = request.cookies if hasattr(request, "cookies") and request.cookies else {}
+    session_token = cookies_dict.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    auth_user = get_auth_manager().get_session(session_token) if session_token else None
     if auth_user:
         if not player_id_clean and auth_user.get("player_id"):
             player_id_clean = auth_user.get("player_id")
         if user_elo is None and auth_user.get("current_elo") is not None:
             user_elo = float(auth_user["current_elo"])
+
+    now_ts = time.time()
+    if not hasattr(api_events_recommended, "_resp_cache"):
+        api_events_recommended._resp_cache = {}
+    resp_cache_key = (
+        f"{auth_user.get('id') if auth_user else ''}:{player_id_clean or ''}:"
+        f"{(query or '').strip().lower()}:{(tier or '').strip().lower()}:"
+        f"{(state or '').strip().lower()}:{(city or '').strip().lower()}:"
+        f"{round(lat, 2) if lat is not None else ''}:{round(lng, 2) if lng is not None else ''}:"
+        f"{radius_miles}:{months_ahead}:{sort_by}:{limit}:{(game_system or '40k').strip().lower()}"
+    )
+    cached_resp = api_events_recommended._resp_cache.get(resp_cache_key)
+    if cached_resp and (now_ts - cached_resp["timestamp"] < 300):
+        return cached_resp["data"]
     
     KNOWN_CITIES = {
         "san diego": (32.7157, -117.1611),
@@ -350,60 +364,61 @@ def api_events_recommended(
         "london": (51.5074, -0.1278)
     }
 
-    with db.get_connection() as conn:
-        with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-            # 1. First Priority: Check explicit user profile location (set in Account Settings / LFG)
-            lfg_loc = None
-            if auth_user and auth_user.get("id"):
-                cursor.execute("""
-                    SELECT latitude, longitude, city, state, country, home_venue_name
-                    FROM player_lfg_profiles
-                    WHERE player_id = %s;
-                """, (auth_user["id"],))
-                lfg_loc = cursor.fetchone()
+    if (auth_user and auth_user.get("id")) or player_id_clean:
+        with db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                # 1. First Priority: Check explicit user profile location (set in Account Settings / LFG)
+                lfg_loc = None
+                if auth_user and auth_user.get("id"):
+                    cursor.execute("""
+                        SELECT latitude, longitude, city, state, country, home_venue_name
+                        FROM player_lfg_profiles
+                        WHERE player_id = %s;
+                    """, (auth_user["id"],))
+                    lfg_loc = cursor.fetchone()
 
-            if not lfg_loc and player_id_clean:
-                cursor.execute("""
-                    SELECT p.latitude, p.longitude, p.city, p.state, p.country, p.home_venue_name
-                    FROM player_lfg_profiles p
-                    WHERE p.player_id = %s
-                    UNION ALL
-                    SELECT p.latitude, p.longitude, p.city, p.state, p.country, p.home_venue_name
-                    FROM player_lfg_profiles p
-                    JOIN users u ON u.id = p.player_id
-                    WHERE u.player_id = %s
+                if not lfg_loc and player_id_clean:
+                    cursor.execute("""
+                        SELECT p.latitude, p.longitude, p.city, p.state, p.country, p.home_venue_name
+                        FROM player_lfg_profiles p
+                        WHERE p.player_id = %s
+                        UNION ALL
+                        SELECT p.latitude, p.longitude, p.city, p.state, p.country, p.home_venue_name
+                        FROM player_lfg_profiles p
+                        JOIN users u ON u.id = p.player_id
+                        WHERE u.player_id = %s
+                        LIMIT 1;
+                    """, (player_id_clean, player_id_clean))
+                    lfg_loc = cursor.fetchone()
+
+                if lfg_loc and (lfg_loc.get("city") or lfg_loc.get("latitude") is not None):
+                    detected_city = lfg_loc.get("city")
+                    detected_state = lfg_loc.get("state")
+                    if not lat and lfg_loc.get("latitude") is not None:
+                        lat = float(lfg_loc["latitude"])
+                    if not lng and lfg_loc.get("longitude") is not None:
+                        lng = float(lfg_loc["longitude"])
+                elif player_id_clean:
+                    # 2. Fallback: only if explicit user location doesn't exist, check tournament history
+                    cursor.execute("""
+                    SELECT e.state, e.city, COUNT(*) as cnt
+                    FROM event_participants ep
+                    JOIN events e ON ep.event_id = e.id
+                    WHERE ep.player_id = %s AND e.state IS NOT NULL AND TRIM(e.state) != ''
+                    GROUP BY e.state, e.city
+                    ORDER BY cnt DESC, MAX(e.event_date) DESC
                     LIMIT 1;
-                """, (player_id_clean, player_id_clean))
-                lfg_loc = cursor.fetchone()
+                    """, (player_id_clean,))
+                    loc_row = cursor.fetchone()
+                    if loc_row:
+                        detected_state = loc_row.get("state")
+                        detected_city = loc_row.get("city")
 
-            if lfg_loc and (lfg_loc.get("city") or lfg_loc.get("latitude") is not None):
-                detected_city = lfg_loc.get("city")
-                detected_state = lfg_loc.get("state")
-                if not lat and lfg_loc.get("latitude") is not None:
-                    lat = float(lfg_loc["latitude"])
-                if not lng and lfg_loc.get("longitude") is not None:
-                    lng = float(lfg_loc["longitude"])
-            elif player_id_clean:
-                # 2. Fallback: only if explicit user location doesn't exist, check tournament history
-                cursor.execute("""
-                SELECT e.state, e.city, COUNT(*) as cnt
-                FROM event_participants ep
-                JOIN events e ON ep.event_id = e.id
-                WHERE ep.player_id = %s AND e.state IS NOT NULL AND TRIM(e.state) != ''
-                GROUP BY e.state, e.city
-                ORDER BY cnt DESC, MAX(e.event_date) DESC
-                LIMIT 1;
-                """, (player_id_clean,))
-                loc_row = cursor.fetchone()
-                if loc_row:
-                    detected_state = loc_row.get("state")
-                    detected_city = loc_row.get("city")
-
-            if player_id_clean:
-                cursor.execute("SELECT current_elo FROM player_ratings WHERE player_id = %s;", (player_id_clean,))
-                elo_row = cursor.fetchone()
-                if elo_row and user_elo is None:
-                    user_elo = float(elo_row.get("current_elo") or 1500.0)
+                if player_id_clean:
+                    cursor.execute("SELECT current_elo FROM player_ratings WHERE player_id = %s;", (player_id_clean,))
+                    elo_row = cursor.fetchone()
+                    if elo_row and user_elo is None:
+                        user_elo = float(elo_row.get("current_elo") or 1500.0)
 
     target_state = (state.strip() if state and state.strip() else detected_state)
     target_city = (city.strip() if city and city.strip() else detected_city)
@@ -459,7 +474,7 @@ def api_events_recommended(
                 url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
                 try:
                     req = urllib.request.Request(url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=2.5) as resp:
+                    with urllib.request.urlopen(req, timeout=1.2) as resp:
                         data = json.loads(resp.read().decode())
                         evs = data.get("data", [])
                         fetched_bcp.extend(evs)
@@ -488,7 +503,7 @@ def api_events_recommended(
                     url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
                     try:
                         req = urllib.request.Request(url, headers=headers)
-                        with urllib.request.urlopen(req, timeout=2.5) as resp:
+                        with urllib.request.urlopen(req, timeout=1.2) as resp:
                             data = json.loads(resp.read().decode())
                             evs = data.get("data", [])
                             fetched_bcp.extend(evs)
@@ -570,7 +585,7 @@ def api_events_recommended(
             try:
                 p_url = f"{BCP_API_BASE}/events/{target_eid}/players"
                 p_req = urllib.request.Request(p_url, headers=headers)
-                with urllib.request.urlopen(p_req, timeout=1.5) as p_resp:
+                with urllib.request.urlopen(p_req, timeout=0.8) as p_resp:
                     p_data = json.loads(p_resp.read().decode())
                     return target_eid, (p_data.get("active") or [])
             except Exception as pe:
@@ -862,6 +877,9 @@ def api_events_recommended(
         "events": sorted_events[:limit],
         "total": len(sorted_events)
     }
+    if len(api_events_recommended._resp_cache) > 500:
+        api_events_recommended._resp_cache.clear()
+    api_events_recommended._resp_cache[resp_cache_key] = {"timestamp": now_ts, "data": res}
     return res
 
 def sanitize_event_faction(fac: Optional[str]) -> str:

@@ -51,6 +51,17 @@ steps:
       - '--remove-env-vars'
       - 'NR_RELAY_URL'
 
+  # 3b. Run Sequential Production Endpoint & DB Latency Gate (<1000ms budget)
+  - name: 'python:3.11-slim'
+    id: 'verify-prod-performance'
+    entrypoint: python3
+    args:
+      - 'scripts/verify_prod_performance.py'
+      - '--base-url'
+      - 'https://omnitactica.com'
+      - '--max-ms'
+      - '1000'
+
   # 4. Update Cloud Run Job: elo-tournament-sync-job
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-tournament-job'

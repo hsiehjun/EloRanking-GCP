@@ -1368,24 +1368,31 @@ def api_get_maps_key():
 
 
 
+_LOCATION_SEARCH_CACHE: Dict[str, Any] = {}
+
 @router.get("/api/eventstudio/locations/search", summary="Search verified cities for event creation")
 def api_eventstudio_search_locations(q: str = Query("")):
     query = q.strip().lower()
     if not query or len(query) < 2:
         return {"results": VERIFIED_TOURNAMENT_CITIES[:8]}
+
+    now_ts = time.time()
+    cached = _LOCATION_SEARCH_CACHE.get(query)
+    if cached and (now_ts - cached[1]) < 3600:
+        return {"results": cached[0]}
     
     matches = [
         c for c in VERIFIED_TOURNAMENT_CITIES
         if query in c["city"].lower() or query in c["label"].lower()
     ]
     
-    # If fewer than 5 local matches, try geocoding API fallback
-    if len(matches) < 5:
+    # Only fall back to external geocoding API when no verified tournament city matches locally
+    if len(matches) == 0:
         try:
             import urllib.request, json
             url = f"https://photon.komoot.io/api/?q={urllib.parse.quote(q)}&limit=6&osm_tag=place:city&osm_tag=place:town"
             req = urllib.request.Request(url, headers={"User-Agent": "OmniTactica/1.0"})
-            with urllib.request.urlopen(req, timeout=2) as resp:
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
                 data = json.loads(resp.read().decode())
                 for f in data.get("features", []):
                     p = f.get("properties", {})
@@ -1410,12 +1417,12 @@ def api_eventstudio_search_locations(q: str = Query("")):
         except Exception:
             pass
 
-    if len(matches) < 3:
+    if len(matches) == 0:
         try:
             import urllib.request, json
             nom_url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(q)}&format=json&addressdetails=1&limit=6"
             req = urllib.request.Request(nom_url, headers={"User-Agent": "OmniTactica-Tournament-App/1.0"})
-            with urllib.request.urlopen(req, timeout=2) as resp:
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
                 items = json.loads(resp.read().decode())
                 for item in items:
                     addr = item.get("address", {})
@@ -1441,7 +1448,11 @@ def api_eventstudio_search_locations(q: str = Query("")):
         except Exception:
             pass
 
-    return {"results": matches[:10]}
+    res_list = matches[:10]
+    if len(_LOCATION_SEARCH_CACHE) > 500:
+        _LOCATION_SEARCH_CACHE.clear()
+    _LOCATION_SEARCH_CACHE[query] = (res_list, now_ts)
+    return {"results": res_list}
 
 @router.get("/api/eventstudio/circuits", summary="Get available Warhammer circuits from BCP")
 def api_eventstudio_get_circuits(request: Request, game_system: Optional[str] = Query("40k")):
@@ -3943,6 +3954,8 @@ def api_eventstudio_generate_pods(event_id: str, payload: PodGeneratePayload):
     )
     return res
 
+_MATCH_PREDICTOR_CACHE: Dict[str, Any] = {}
+
 @router.get("/api/eventstudio/match_predictor", summary="Predict tactical matchup outcome, win probability, and score differential")
 def api_eventstudio_match_predictor(
     p1_id: Optional[str] = None,
@@ -3952,6 +3965,12 @@ def api_eventstudio_match_predictor(
     p1_faction: Optional[str] = "Unknown",
     p2_faction: Optional[str] = "Unknown"
 ):
+    now_ts = time.time()
+    cache_key = f"{p1_id or ''}:{p2_id or ''}:{(p1_name or '').strip().lower()}:{(p2_name or '').strip().lower()}:{(p1_faction or '').strip().lower()}:{(p2_faction or '').strip().lower()}"
+    cached = _MATCH_PREDICTOR_CACHE.get(cache_key)
+    if cached and (now_ts - cached[1]) < 120:
+        return cached[0]
+
     db = get_database()
     
     # 1. Elo Ratings
@@ -3959,79 +3978,109 @@ def api_eventstudio_match_predictor(
     p2_elo = 1500.0
     p1_matches = 0
     p2_matches = 0
+    resolved_p1_id = (p1_id or "").strip() or None
+    resolved_p2_id = (p2_id or "").strip() or None
+    placeholder_names = {"", "player 1", "player 2", "player", "unknown", "unknown player", "bye"}
+    p1_name_clean = (p1_name or "").strip()
+    p2_name_clean = (p2_name or "").strip()
+    fac1 = (p1_faction or "Unknown").strip()
+    fac2 = (p2_faction or "Unknown").strip()
+    fac_p1_wins = 0
+    fac_total = 0
+    h2h_matches = []
 
-    with db.get_connection() as conn:
-        from psycopg2 import extras
-        with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-            if p1_id:
-                cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s;", (p1_id,))
-                r1 = cursor.fetchone()
-                if r1:
-                    p1_elo = float(r1["current_elo"] or 1500.0)
-                    p1_matches = int(r1["total_matches"] or 0)
-            elif p1_name:
-                cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p1_name}%",))
-                r1 = cursor.fetchone()
-                if r1:
-                    p1_elo = float(r1["current_elo"] or 1500.0)
-                    p1_matches = int(r1["total_matches"] or 0)
+    need_db = bool(
+        resolved_p1_id
+        or resolved_p2_id
+        or p1_name_clean.lower() not in placeholder_names
+        or p2_name_clean.lower() not in placeholder_names
+        or (fac1.lower() not in ("", "unknown") and fac2.lower() not in ("", "unknown"))
+    )
 
-            if p2_id:
-                cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s;", (p2_id,))
-                r2 = cursor.fetchone()
-                if r2:
-                    p2_elo = float(r2["current_elo"] or 1500.0)
-                    p2_matches = int(r2["total_matches"] or 0)
-            elif p2_name:
-                cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p2_name}%",))
-                r2 = cursor.fetchone()
-                if r2:
-                    p2_elo = float(r2["current_elo"] or 1500.0)
-                    p2_matches = int(r2["total_matches"] or 0)
+    if need_db:
+        with db.get_connection() as conn:
+            from psycopg2 import extras
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                if resolved_p1_id:
+                    cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s;", (resolved_p1_id,))
+                    r1 = cursor.fetchone()
+                    if r1:
+                        p1_elo = float(r1["current_elo"] or 1500.0)
+                        p1_matches = int(r1["total_matches"] or 0)
+                elif p1_name_clean.lower() not in placeholder_names:
+                    cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) ORDER BY current_elo DESC LIMIT 1;", (p1_name_clean,))
+                    r1 = cursor.fetchone()
+                    if not r1:
+                        cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p1_name_clean}%",))
+                        r1 = cursor.fetchone()
+                    if r1:
+                        resolved_p1_id = r1.get("player_id")
+                        p1_elo = float(r1["current_elo"] or 1500.0)
+                        p1_matches = int(r1["total_matches"] or 0)
 
-            # 2. Faction Matchup Win Rate
-            fac1 = p1_faction or "Unknown"
-            fac2 = p2_faction or "Unknown"
-            fac_p1_wins = 0
-            fac_total = 0
-            if fac1 != "Unknown" and fac2 != "Unknown":
-                cursor.execute("""
-                SELECT 
-                    COUNT(*) as total_games,
-                    SUM(CASE WHEN (winner_id = player1_id AND player1_faction = %s) OR (winner_id = player2_id AND player2_faction = %s) THEN 1 ELSE 0 END) as fac1_wins
-                FROM matches
-                WHERE is_done = TRUE AND (
-                    (player1_faction = %s AND player2_faction = %s) OR
-                    (player1_faction = %s AND player2_faction = %s)
-                );
-                """, (fac1, fac1, fac1, fac2, fac2, fac1))
-                fac_row = cursor.fetchone()
-                if fac_row and fac_row.get("total_games"):
-                    fac_total = int(fac_row["total_games"] or 0)
-                    fac_p1_wins = int(fac_row["fac1_wins"] or 0)
+                if resolved_p2_id:
+                    cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s;", (resolved_p2_id,))
+                    r2 = cursor.fetchone()
+                    if r2:
+                        p2_elo = float(r2["current_elo"] or 1500.0)
+                        p2_matches = int(r2["total_matches"] or 0)
+                elif p2_name_clean.lower() not in placeholder_names:
+                    cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) ORDER BY current_elo DESC LIMIT 1;", (p2_name_clean,))
+                    r2 = cursor.fetchone()
+                    if not r2:
+                        cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p2_name_clean}%",))
+                        r2 = cursor.fetchone()
+                    if r2:
+                        resolved_p2_id = r2.get("player_id")
+                        p2_elo = float(r2["current_elo"] or 1500.0)
+                        p2_matches = int(r2["total_matches"] or 0)
 
-            # 3. Head-to-Head History
-            h2h_matches = []
-            if (p1_id and p2_id) or (p1_name and p2_name):
-                cursor.execute("""
-                SELECT m.round, m.player1_name, m.player2_name, m.player1_score, m.player2_score, m.match_date, e.name as event_name
-                FROM matches m
-                LEFT JOIN events e ON m.event_id = e.id
-                WHERE is_done = TRUE AND (
-                    (m.player1_name ILIKE %s AND m.player2_name ILIKE %s) OR
-                    (m.player1_name ILIKE %s AND m.player2_name ILIKE %s)
-                )
-                ORDER BY m.match_date DESC LIMIT 5;
-                """, (f"%{p1_name}%", f"%{p2_name}%", f"%{p2_name}%", f"%{p1_name}%"))
-                h2h_rows = cursor.fetchall()
-                for hr in h2h_rows:
-                    h2h_matches.append({
-                        "event_name": hr.get("event_name") or "Tournament Match",
-                        "date": hr.get("match_date").isoformat() if hr.get("match_date") else None,
-                        "p1_name": hr.get("player1_name"),
-                        "p2_name": hr.get("player2_name"),
-                        "score": f"{hr.get('player1_score')} - {hr.get('player2_score')}"
-                    })
+                # 2. Faction Matchup Win Rate (uses idx_pg_matches_p1_fac_lower_date)
+                if fac1.lower() not in ("", "unknown") and fac2.lower() not in ("", "unknown"):
+                    cursor.execute("""
+                    WITH fac_pairs AS (
+                        SELECT winner_id, player1_id AS f1_pid
+                        FROM matches
+                        WHERE is_done = TRUE
+                          AND LOWER(player1_faction) = LOWER(%s)
+                          AND LOWER(player2_faction) = LOWER(%s)
+                        UNION ALL
+                        SELECT winner_id, player2_id AS f1_pid
+                        FROM matches
+                        WHERE is_done = TRUE
+                          AND LOWER(player1_faction) = LOWER(%s)
+                          AND LOWER(player2_faction) = LOWER(%s)
+                    )
+                    SELECT COUNT(*) AS total_games,
+                           COUNT(*) FILTER (WHERE winner_id = f1_pid) AS fac1_wins
+                    FROM fac_pairs;
+                    """, (fac1, fac2, fac2, fac1))
+                    fac_row = cursor.fetchone()
+                    if fac_row and fac_row.get("total_games"):
+                        fac_total = int(fac_row["total_games"] or 0)
+                        fac_p1_wins = int(fac_row["fac1_wins"] or 0)
+
+                # 3. Head-to-Head History (uses idx_matches_p1_p2)
+                if resolved_p1_id and resolved_p2_id:
+                    cursor.execute("""
+                    SELECT m.round, m.player1_name, m.player2_name, m.player1_score, m.player2_score, m.match_date, e.name as event_name
+                    FROM matches m
+                    LEFT JOIN events e ON m.event_id = e.id
+                    WHERE m.is_done = TRUE AND (
+                        (m.player1_id = %s AND m.player2_id = %s) OR
+                        (m.player1_id = %s AND m.player2_id = %s)
+                    )
+                    ORDER BY m.match_date DESC LIMIT 5;
+                    """, (resolved_p1_id, resolved_p2_id, resolved_p2_id, resolved_p1_id))
+                    h2h_rows = cursor.fetchall()
+                    for hr in h2h_rows:
+                        h2h_matches.append({
+                            "event_name": hr.get("event_name") or "Tournament Match",
+                            "date": hr.get("match_date").isoformat() if hr.get("match_date") else None,
+                            "p1_name": hr.get("player1_name"),
+                            "p2_name": hr.get("player2_name"),
+                            "score": f"{hr.get('player1_score')} - {hr.get('player2_score')}"
+                        })
 
     # Calculate Elo Win Probability: P(A) = 1 / (1 + 10^((R_B - R_A)/400))
     elo_diff = p1_elo - p2_elo
@@ -4052,7 +4101,7 @@ def api_eventstudio_match_predictor(
 
     favored = p1_name if p1_win_prob > 0.52 else (p2_name if p2_win_prob > 0.52 else "Even Matchup")
 
-    return {
+    res = {
         "player1": {
             "name": p1_name,
             "faction": p1_faction,
@@ -4076,6 +4125,10 @@ def api_eventstudio_match_predictor(
         },
         "h2h_history": h2h_matches
     }
+    if len(_MATCH_PREDICTOR_CACHE) > 500:
+        _MATCH_PREDICTOR_CACHE.clear()
+    _MATCH_PREDICTOR_CACHE[cache_key] = (res, now_ts)
+    return res
 
 class WtcDraftSavePayload(BaseModel):
     event_id: str

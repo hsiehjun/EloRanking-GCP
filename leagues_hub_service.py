@@ -170,6 +170,34 @@ def generate_round_robin_pairings(
 class LeaguesHubService:
     """100% PostgreSQL-backed Community Leagues Service."""
 
+    _leagues_db_cache_dict: Dict[Any, Tuple[Any, float]] = {}
+
+    @classmethod
+    def _get_cached_db(cls, db: Any, key: Any, ttl: int = 120) -> Optional[Any]:
+        if db is None or getattr(db.__class__, "__name__", "") != "PostgresDatabase":
+            return None
+        entry = cls._leagues_db_cache_dict.get(key)
+        if entry is not None:
+            val, ts = entry
+            if (time.time() - ts) < ttl:
+                import copy
+                return copy.deepcopy(val)
+            cls._leagues_db_cache_dict.pop(key, None)
+        return None
+
+    @classmethod
+    def _set_cached_db(cls, db: Any, key: Any, val: Any) -> None:
+        if db is None or getattr(db.__class__, "__name__", "") != "PostgresDatabase":
+            return
+        if len(cls._leagues_db_cache_dict) > 250:
+            cls._leagues_db_cache_dict.clear()
+        import copy
+        cls._leagues_db_cache_dict[key] = (copy.deepcopy(val), time.time())
+
+    @classmethod
+    def _invalidate_db_cache(cls) -> None:
+        cls._leagues_db_cache_dict.clear()
+
     def get_available_templates(self) -> List[Dict[str, Any]]:
         """Returns generic community league format presets analyzed from SD40K Big League and The Gauntlet."""
         return [
@@ -308,6 +336,11 @@ class LeaguesHubService:
     def get_leagues_list(self, region: Optional[str] = None, game_system: Optional[str] = None) -> List[Dict[str, Any]]:
         """Queries registered community leagues directly from PostgreSQL `native_leagues`."""
         db = self._get_db()
+        cache_key = ("leagues_list", str(region or "").strip().lower(), str(game_system or "").strip().lower())
+        cached = self._get_cached_db(db, cache_key, ttl=120)
+        if cached is not None:
+            return cached
+
         leagues: List[Dict[str, Any]] = []
         try:
             if db is not None and hasattr(db, "get_connection"):
@@ -318,16 +351,22 @@ class LeaguesHubService:
                                    l.total_players, l.total_pods, l.recurring_seasons, l.registration_open,
                                    l.config_json,
                                    (SELECT COUNT(*) FROM native_league_seasons s WHERE s.league_id = l.id) AS seasons_count,
-                                   (SELECT s.registration_start FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
-                                   (SELECT s.registration_end FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
+                                   s_act.registration_start,
+                                   s_act.registration_end,
                                    l.owner_user_id, l.owner_player_id, l.owner_email, l.owner_name,
                                    (SELECT COUNT(*) FROM native_league_participants p WHERE p.league_id = l.id AND p.season_num = l.active_season_num AND p.is_db_matched = TRUE) AS matched_p_cnt,
                                    (SELECT COUNT(*) FROM native_league_standings st WHERE st.league_id = l.id AND st.season_num = l.active_season_num AND st.is_db_matched = TRUE) AS matched_st_cnt,
-                                   (SELECT s.start_date FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
-                                   (SELECT s.end_date FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
-                                   (SELECT s.name FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1),
-                                   (SELECT s.duration_weeks FROM native_league_seasons s WHERE s.league_id = l.id AND s.season_num = l.active_season_num LIMIT 1)
+                                   s_act.start_date,
+                                   s_act.end_date,
+                                   s_act.name,
+                                   s_act.duration_weeks
                             FROM native_leagues l
+                            LEFT JOIN LATERAL (
+                                SELECT registration_start, registration_end, start_date, end_date, name, duration_weeks
+                                FROM native_league_seasons s
+                                WHERE s.league_id = l.id AND s.season_num = l.active_season_num
+                                LIMIT 1
+                            ) s_act ON TRUE
                             ORDER BY l.created_at ASC;
                         """)
                         rows = cur.fetchall()
@@ -341,15 +380,7 @@ class LeaguesHubService:
                             p_max = int(meth.get("pod_size_max", 8))
                             matched_cnt = max(int(matched_p_cnt or 0), int(matched_st_cnt or 0))
                             if matched_cnt == 0 and int(tot_p or 0) > 0:
-                                try:
-                                    if hasattr(db, "sync_league_participant_identities"):
-                                        sync_res = db.sync_league_participant_identities(lid, int(act_s or 1))
-                                        if isinstance(sync_res, dict) and sync_res.get("season_matched_count"):
-                                            matched_cnt = int(sync_res["season_matched_count"])
-                                except Exception:
-                                    pass
-                                if matched_cnt == 0:
-                                    matched_cnt = int(tot_p or 0)
+                                matched_cnt = int(tot_p or 0)
                             norm_lid = _normalize_league_id(lid)
                             ann_list = self._get_league_announcements(cur, lid, cfg)
                             is_g = "gauntlet" in str(slug or name or "").lower()
@@ -478,6 +509,7 @@ class LeaguesHubService:
                     continue
                 leagues.append(entry)
                 existing_lids.add(norm_seed_lid)
+        self._set_cached_db(db, cache_key, leagues)
         return leagues
 
     def get_managed_leagues(
@@ -703,6 +735,11 @@ class LeaguesHubService:
         lid, cand_ids, cand_slugs = _get_league_lookup_candidates(league_id_or_slug)
         if db is None or not hasattr(db, "get_connection"):
             return self._load_league_from_seed_json(lid, season_number)
+
+        cache_key = ("league", lid, int(season_number) if season_number is not None else -1)
+        cached = self._get_cached_db(db, cache_key, ttl=120)
+        if cached is not None:
+            return cached
 
         try:
             with db.get_connection() as conn:
@@ -973,7 +1010,7 @@ class LeaguesHubService:
                     hof_payload = self._build_league_hall_of_fame(cur, db_lid, cfg, participant_lookup)
                     ann_list = self._get_league_announcements(cur, db_lid, cfg)
 
-                    return {
+                    res_obj = {
                         "league_id": lid,
                         "id": lid,
                         "slug": slug,
@@ -1015,6 +1052,8 @@ class LeaguesHubService:
                         "available_seasons": available_seasons,
                         "active_season": active_season_obj
                     }
+                    self._set_cached_db(db, cache_key, res_obj)
+                    return res_obj
         except Exception as e:
             logger.error(f"get_league({league_id_or_slug}, season={season_number}) DB error: {e}")
             return self._load_league_from_seed_json(lid, season_number)
@@ -1925,6 +1964,10 @@ class LeaguesHubService:
         """Queries the full catalog of all seasons directly from PostgreSQL `native_league_seasons` with cache fallback."""
         db = _get_db()
         lid = _normalize_league_id(league_id_or_slug)
+        cache_key = ("seasons_catalog", lid)
+        cached = self._get_cached_db(db, cache_key, ttl=120)
+        if cached is not None:
+            return cached
         try:
             if db is not None:
                 with db.get_connection() as conn:
@@ -1937,7 +1980,7 @@ class LeaguesHubService:
                         """, (lid,))
                         rows = cur.fetchall()
                         if rows:
-                            return [
+                            res_list = [
                                 {
                                     "season_number": int(r[0]),
                                     "name": r[1] or f"Season {r[0]}",
@@ -1949,6 +1992,8 @@ class LeaguesHubService:
                                 }
                                 for r in rows
                             ]
+                            self._set_cached_db(db, cache_key, res_list)
+                            return res_list
         except Exception as e:
             logger.error(f"get_seasons_catalog DB error: {e}")
         lg = self.get_league(lid)
@@ -6883,6 +6928,41 @@ class LeaguesHubService:
             "created_at": now_iso,
             "message": msg_obj
         }
+
+
+try:
+    import functools as _lg_functools
+    for _m_name, _m_attr in list(LeaguesHubService.__dict__.items()):
+        if (
+            callable(_m_attr)
+            and not isinstance(_m_attr, (classmethod, staticmethod))
+            and not _m_name.startswith("_")
+            and not _m_name.startswith("get_")
+            and not _m_name.startswith("slim_")
+            and not _m_name.startswith("calculate_")
+        ):
+            def _make_invalidating_wrapper(fn):
+                @_lg_functools.wraps(fn)
+                def _wrapped(self, *args, **kwargs):
+                    try:
+                        return fn(self, *args, **kwargs)
+                    finally:
+                        LeaguesHubService._invalidate_db_cache()
+                return _wrapped
+            setattr(LeaguesHubService, _m_name, _make_invalidating_wrapper(_m_attr))
+
+    from perf_telemetry import instrument_class_methods as _instrument_leagues_methods
+    _exclude_lg = {
+        name for name in LeaguesHubService.__dict__
+        if name.startswith("_") and not name.startswith("_seed_")
+    }
+    _instrument_leagues_methods(
+        LeaguesHubService,
+        class_label="LeaguesHubService",
+        exclude_methods=_exclude_lg,
+    )
+except Exception:
+    pass
 
 
 _GLOBAL_LEAGUES_SERVICE: Optional[LeaguesHubService] = None
