@@ -1618,7 +1618,7 @@ class EloEngine:
         now = time.time()
         if cache_key in self._player_win_path_cache_dict:
             cached_val, cached_ts = self._player_win_path_cache_dict[cache_key]
-            if (now - cached_ts) < 180:
+            if (now - cached_ts) < 900:
                 return cached_val
             self._player_win_path_cache_dict.pop(cache_key, None)
 

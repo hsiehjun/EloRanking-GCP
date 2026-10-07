@@ -192,7 +192,7 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
 
         import badges
         events_attended = data.get("tournaments")
-        if not events_attended:
+        if events_attended is None:
             events_attended = db.get_player_tournaments(actual_pid, game_system=game_system)
         if not events_attended and pid != actual_pid:
             events_attended = db.get_player_tournaments(pid, game_system=game_system)

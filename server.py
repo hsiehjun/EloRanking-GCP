@@ -338,7 +338,9 @@ async def on_server_startup():
             db = await asyncio.to_thread(get_database)
             from services.places_service import PlacesService
             from leagues_hub_service import get_leagues_hub_service
-            lh_svc = get_leagues_hub_service(db)
+            lh_svc = get_leagues_hub_service()
+            elo_eng = get_elo_engine()
+            auth_mgr = get_auth_manager()
             for fn in (
                 lambda: db.get_summary_stats(game_system="40k"),
                 lambda: db.get_summary_stats(game_system="aos"),
@@ -350,6 +352,8 @@ async def on_server_startup():
                 lambda: db.get_events_list(page=1, page_size=25, status="all", sort_by="event_date", order="DESC", game_system="aos"),
                 lambda: db._get_all_teams_list(game_system="40k"),
                 lambda: db._get_all_teams_list(game_system="aos"),
+                lambda: db.get_team_roster("Art of War", game_system="40k"),
+                lambda: db.get_team_roster("Stat Check", game_system="40k"),
                 lambda: db.get_community_overview(lat=None, lng=None, radius_miles=50.0, include_bcp=False, game_system="40k"),
                 lambda: db.get_community_overview(lat=None, lng=None, radius_miles=50.0, include_bcp=False, game_system="aos"),
                 lambda: db.get_community_overview(lat=32.7157, lng=-117.1611, radius_miles=50.0, include_bcp=False, game_system="40k"),
@@ -361,8 +365,13 @@ async def on_server_startup():
                 lambda: lh_svc.get_leagues_list(game_system="aos", limit=50),
                 lambda: lh_svc.get_league("sd40k"),
                 lambda: lh_svc.get_league("the-gauntlet"),
-                lambda: lh_svc.get_seasons_catalog(game_system="40k"),
-                lambda: lh_svc.get_seasons_catalog(game_system=None),
+                lambda: lh_svc.get_league_seasons("sd40k"),
+                lambda: lh_svc.get_league_group_chats("sd40k"),
+                lambda: lh_svc.get_unified_floor_ops("sd40k"),
+                lambda: lh_svc.get_player_league_summary("Jun Hsieh"),
+                lambda: elo_eng.get_player_win_path("MEV83VFANA", game_system="40k"),
+                lambda: elo_eng.get_player_win_path("xcaFfMZt5b", game_system="40k"),
+                lambda: auth_mgr.get_user_competitor_hub(player_id="MEV83VFANA", user_id=None, game_system="40k"),
             ):
                 try:
                     await asyncio.to_thread(fn)

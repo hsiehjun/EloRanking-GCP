@@ -2506,7 +2506,7 @@ class AuthManager:
         cache_key = (str(target_pid), str(game_system or "40k").lower())
         now_ts = time.time()
         cached_g = self._SYSTEM_GLORY_CACHE.get(cache_key)
-        if cached_g and (now_ts - cached_g[0]) < 120.0:
+        if cached_g and (now_ts - cached_g[0]) < 900.0:
             return cached_g[1]
         try:
             from psycopg2 import extras
@@ -2614,7 +2614,7 @@ class AuthManager:
         now_ts = time.time()
         hub_cache_key = (str(user_id or ""), str(target_pid or ""), target_sys)
         cached_hub = self._HUB_CACHE.get(hub_cache_key)
-        if cached_hub and (now_ts - cached_hub[0]) < 120.0:
+        if cached_hub and (now_ts - cached_hub[0]) < 900.0:
             res_copy = copy.copy(cached_hub[1])
             if user_info:
                 res_copy["armory_vault"] = user_info.get("armory_vault") or {}
@@ -2630,7 +2630,7 @@ class AuthManager:
         with key_lock:
             now_ts = time.time()
             cached_hub = self._HUB_CACHE.get(hub_cache_key)
-            if cached_hub and (now_ts - cached_hub[0]) < 120.0:
+            if cached_hub and (now_ts - cached_hub[0]) < 900.0:
                 res_copy = copy.copy(cached_hub[1])
                 if user_info:
                     res_copy["armory_vault"] = user_info.get("armory_vault") or {}
@@ -2748,30 +2748,62 @@ class AuthManager:
                 history_points = [dict(r) for r in cur.fetchall()]
 
                 # 3. Faction Mastery Breakdown (Stats per army played)
-                cur.execute("""
-                WITH player_games AS (
-                    SELECT player1_faction as faction, (winner_id = player1_id) as is_win, is_draw, player1_score as score
-                    FROM matches WHERE player1_id = %s AND is_done = TRUE AND player1_faction IS NOT NULL AND TRIM(player1_faction) != '' AND COALESCE(game_system, '40k') = %s
-                    UNION ALL
-                    SELECT player2_faction as faction, (winner_id = player2_id) as is_win, is_draw, player2_score as score
-                    FROM matches WHERE player2_id = %s AND is_done = TRUE AND is_bye = FALSE AND player2_faction IS NOT NULL AND TRIM(player2_faction) != '' AND COALESCE(game_system, '40k') = %s
-                )
-                SELECT 
-                    faction,
-                    COUNT(*) as games,
-                    SUM(CASE WHEN is_win THEN 1 ELSE 0 END) as wins,
-                    SUM(CASE WHEN NOT is_win AND NOT is_draw THEN 1 ELSE 0 END) as losses,
-                    SUM(CASE WHEN is_draw THEN 1 ELSE 0 END) as draws,
-                    ROUND((SUM(CASE WHEN is_win THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
-                    ROUND(AVG(score)::numeric, 1) as avg_score
-                FROM player_games
-                GROUP BY faction
-                ORDER BY games DESC, win_rate DESC;
-                """, (target_pid, target_sys, target_pid, target_sys))
-                faction_mastery = [dict(r) for r in cur.fetchall()]
+                is_pg_db = getattr(getattr(self, "db", None).__class__, "__name__", "") == "PostgresDatabase"
+                if is_pg_db and history_points:
+                    fm_by_fac: Dict[str, Dict[str, float]] = {}
+                    for hp in history_points:
+                        pf = str(hp.get("player_faction") or "").strip()
+                        if not pf:
+                            continue
+                        bucket = fm_by_fac.setdefault(pf, {"games": 0, "wins": 0, "losses": 0, "draws": 0, "score_sum": 0.0})
+                        bucket["games"] += 1
+                        res_code = str(hp.get("result") or "").upper()
+                        if res_code == "W":
+                            bucket["wins"] += 1
+                        elif res_code == "L":
+                            bucket["losses"] += 1
+                        elif res_code == "D":
+                            bucket["draws"] += 1
+                        bucket["score_sum"] += float(hp.get("player_score") or 0.0)
+                    faction_mastery = []
+                    for fac_name, b in fm_by_fac.items():
+                        g_cnt = int(b["games"])
+                        w_cnt = int(b["wins"])
+                        faction_mastery.append({
+                            "faction": fac_name,
+                            "games": g_cnt,
+                            "wins": w_cnt,
+                            "losses": int(b["losses"]),
+                            "draws": int(b["draws"]),
+                            "win_rate": round((w_cnt * 100.0) / g_cnt, 1) if g_cnt > 0 else 0.0,
+                            "avg_score": round(b["score_sum"] / g_cnt, 1) if g_cnt > 0 else 0.0,
+                        })
+                    faction_mastery.sort(key=lambda x: (x["games"], x["win_rate"]), reverse=True)
+                else:
+                    cur.execute("""
+                    WITH player_games AS (
+                        SELECT player1_faction as faction, (winner_id = player1_id) as is_win, is_draw, player1_score as score
+                        FROM matches WHERE player1_id = %s AND is_done = TRUE AND player1_faction IS NOT NULL AND TRIM(player1_faction) != '' AND COALESCE(game_system, '40k') = %s
+                        UNION ALL
+                        SELECT player2_faction as faction, (winner_id = player2_id) as is_win, is_draw, player2_score as score
+                        FROM matches WHERE player2_id = %s AND is_done = TRUE AND is_bye = FALSE AND player2_faction IS NOT NULL AND TRIM(player2_faction) != '' AND COALESCE(game_system, '40k') = %s
+                    )
+                    SELECT 
+                        faction,
+                        COUNT(*) as games,
+                        SUM(CASE WHEN is_win THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN NOT is_win AND NOT is_draw THEN 1 ELSE 0 END) as losses,
+                        SUM(CASE WHEN is_draw THEN 1 ELSE 0 END) as draws,
+                        ROUND((SUM(CASE WHEN is_win THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
+                        ROUND(AVG(score)::numeric, 1) as avg_score
+                    FROM player_games
+                    GROUP BY faction
+                    ORDER BY games DESC, win_rate DESC;
+                    """, (target_pid, target_sys, target_pid, target_sys))
+                    faction_mastery = [dict(r) for r in cur.fetchall()]
 
                 # 4. Opponent Matchup Matrix (Computed directly from rating_history for 100% fidelity)
-                if getattr(getattr(self, "db", None).__class__, "__name__", "") == "PostgresDatabase":
+                if is_pg_db:
                     mm_by_fac: Dict[str, Dict[str, int]] = {}
                     for hp in history_points:
                         opp_f = str(hp.get("opponent_faction") or "").strip()
@@ -2846,7 +2878,7 @@ class AuthManager:
 
         # 5. Live Game Tracker Matches (11th Edition 40K tracker)
         tracker_history = []
-        if target_sys == "40k":
+        if target_sys == "40k" and (user_id or not is_pg_db):
             try:
                 tracker_history = self.db.get_tracker_history(limit=500, user_id=user_id)
             except Exception as e:
@@ -2862,7 +2894,7 @@ class AuthManager:
             try:
                 from leagues_hub_service import get_leagues_hub_service
                 lh_svc = get_leagues_hub_service()
-                p_name_lookup = (p_stat.get("full_name") or p_stat.get("name") or "") if isinstance(p_stat, dict) else ""
+                p_name_lookup = (p_stat.get("player_name") or p_stat.get("full_name") or p_stat.get("name") or "") if isinstance(p_stat, dict) else ""
                 if not p_name_lookup and user_info:
                     p_name_lookup = user_info.get("bcp_player_name") or user_info.get("display_name") or ""
                 native_leagues = lh_svc.get_user_registered_leagues(

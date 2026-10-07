@@ -138,18 +138,28 @@ class TestEndpointAndDbLatencyGate(unittest.TestCase):
         self.assertGreaterEqual(len(discovered_routes), 340)
 
     def test_critical_perf_indexes_and_no_unindexed_casts(self):
-        """Verify database.py defines v27 performance indexes and elo.py avoids ep.id::text sequential scans."""
+        """Verify database.py defines v28 performance indexes, materialized CTEs, and startup pre-warming is valid."""
         db_src = (ROOT_DIR / "database.py").read_text(encoding="utf-8")
         required_indexes = [
+            "perf_indexes_v28",
             "idx_tracker_games_updated_at",
             "idx_pg_ratings_player_name_btree",
             "idx_pg_ratings_player_name_lower",
             "idx_pg_ratings_team_lower_all",
             "idx_pg_matches_p1_fac_lower_date",
             "idx_pg_matches_p2_fac_lower_date",
+            "idx_pg_matches_p1",
+            "idx_pg_matches_p2",
+            "idx_pg_participants_event",
+            "idx_pg_participants_player",
+            "idx_users_player_id",
+            "idx_users_bcp_user_id",
         ]
         for idx_name in required_indexes:
             self.assertIn(idx_name, db_src, f"Missing critical performance index {idx_name} in database.py")
+
+        self.assertIn("raw_player_events AS MATERIALIZED", db_src)
+        self.assertIn("target_events AS MATERIALIZED", db_src)
 
         elo_src = (ROOT_DIR / "elo.py").read_text(encoding="utf-8")
         self.assertNotIn(
@@ -157,6 +167,12 @@ class TestEndpointAndDbLatencyGate(unittest.TestCase):
             elo_src,
             "elo.py must not cast ep.id::text in WHERE clause (causes full sequential scan on event_participants)",
         )
+
+        server_src = (ROOT_DIR / "server.py").read_text(encoding="utf-8")
+        self.assertNotIn("get_seasons_catalog", server_src)
+        self.assertIn("lh_svc.get_league_seasons", server_src)
+        self.assertIn("lh_svc.get_league_group_chats", server_src)
+        self.assertIn("lh_svc.get_unified_floor_ops", server_src)
 
     def test_perf_registry_records_api_and_db_metrics(self):
         """Verify PERF_REGISTRY records API and DB call durations and computes p95/max telemetry."""

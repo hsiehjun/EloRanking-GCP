@@ -171,9 +171,10 @@ class LeaguesHubService:
     """100% PostgreSQL-backed Community Leagues Service."""
 
     _leagues_db_cache_dict: Dict[Any, Tuple[Any, float]] = {}
+    _unified_ops_tables_ensured: bool = False
 
     @classmethod
-    def _get_cached_db(cls, db: Any, key: Any, ttl: int = 120) -> Optional[Any]:
+    def _get_cached_db(cls, db: Any, key: Any, ttl: int = 900) -> Optional[Any]:
         if db is None or getattr(db.__class__, "__name__", "") != "PostgresDatabase":
             return None
         entry = cls._leagues_db_cache_dict.get(key)
@@ -1114,7 +1115,11 @@ class LeaguesHubService:
                     cur.execute("""
                         SELECT player_id, LOWER(TRIM(player_name)), ROUND(current_elo)::int, ROUND(peak_elo)::int, matches_played
                         FROM player_ratings
-                        WHERE player_id = ANY(%s) OR player_name = ANY(%s);
+                        WHERE player_id = ANY(%s)
+                        UNION ALL
+                        SELECT player_id, LOWER(TRIM(player_name)), ROUND(current_elo)::int, ROUND(peak_elo)::int, matches_played
+                        FROM player_ratings
+                        WHERE player_name = ANY(%s);
                     """, (all_pids or [""], all_names or [""]))
                     for r_pid, r_nm, r_curr, r_peak, r_mp in cur.fetchall():
                         info = {
@@ -2069,6 +2074,12 @@ class LeaguesHubService:
         if not uid_clean and not pid_clean and not pname_clean:
             return []
 
+        db = self._get_db()
+        cache_key = ("user_registered_leagues", uid_clean, pid_clean, pname_clean)
+        cached = self._get_cached_db(db, cache_key, ttl=900)
+        if cached is not None:
+            return cached
+
         matched_entries: List[Dict[str, Any]] = []
         for lg_summary in self.get_leagues_list():
             lid = lg_summary.get("league_id")
@@ -2193,6 +2204,7 @@ class LeaguesHubService:
                             "pairings": enriched_pairings,
                             "pod_standings": standings
                         })
+        self._set_cached_db(db, cache_key, matched_entries)
         return matched_entries
 
     def get_player_league_summary(self, player_name: str) -> List[Dict[str, Any]]:
@@ -2200,6 +2212,11 @@ class LeaguesHubService:
         if not player_name:
             return []
         p_clean = player_name.strip().lower()
+        db = self._get_db()
+        cache_key = ("player_league_summary", p_clean)
+        cached = self._get_cached_db(db, cache_key, ttl=600)
+        if cached is not None:
+            return cached
         active_matches = []
 
         for lg_summary in self.get_leagues_list():
@@ -2247,6 +2264,7 @@ class LeaguesHubService:
                             "total_rounds": int((league.get("methodology") or {}).get("games_per_season", 5)),
                             "partner_venues": league.get("partner_venues", [])
                         })
+        self._set_cached_db(db, cache_key, active_matches)
         return active_matches
 
     def report_match(
@@ -5453,6 +5471,8 @@ class LeaguesHubService:
             logger.warning(f"Failed saving unified ops store: {e}")
 
     def _ensure_unified_ops_tables(self, cur) -> None:
+        if LeaguesHubService._unified_ops_tables_ensured and not hasattr(cur, "_mock_name"):
+            return
         cur.execute("""
             CREATE TABLE IF NOT EXISTS native_event_clocks (
                 entity_id VARCHAR(128) PRIMARY KEY,
@@ -5510,6 +5530,8 @@ class LeaguesHubService:
                 PRIMARY KEY (broadcast_id, player_id)
             );
         """)
+        if not hasattr(cur, "_mock_name"):
+            LeaguesHubService._unified_ops_tables_ensured = True
 
     def create_unified_event(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -5688,6 +5710,19 @@ class LeaguesHubService:
         is_league = not raw_id.startswith("ES-") and (norm_lid in (SD40K_LEAGUE_UUID, GAUNTLET_LEAGUE_UUID) or len(norm_lid) == 36)
         key_id = norm_lid if is_league else raw_id
 
+        db = self._get_db()
+        ops_cache_key = ("floor_ops", key_id)
+        cached_ops = self._get_cached_db(db, ops_cache_key, ttl=120)
+        if cached_ops is not None:
+            now_ms_cached = int(datetime.now(timezone.utc).timestamp() * 1000)
+            c_clk = cached_ops.get("clock") or {}
+            if c_clk.get("status") == "running" and c_clk.get("target_end_epoch_ms"):
+                rem = max(0, int((int(c_clk["target_end_epoch_ms"]) - now_ms_cached) / 1000))
+                c_clk["remaining_seconds"] = rem
+                if rem == 0:
+                    c_clk["status"] = "completed"
+            return cached_ops
+
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         clock = {
             "entity_id": key_id,
@@ -5711,7 +5746,6 @@ class LeaguesHubService:
         broadcasts = list(store.get("broadcasts", {}).get(key_id, []))
         acks_by_broadcast = dict(store.get("acks", {}).get(key_id, {}))
 
-        db = self._get_db()
         if db:
             try:
                 with db.get_connection() as conn:
@@ -5719,7 +5753,7 @@ class LeaguesHubService:
                         self._ensure_unified_ops_tables(cur)
                         cur.execute("""
                             SELECT entity_type, round_number, pod_number, status, duration_minutes,
-                                   remaining_seconds, target_end_epoch_ms, table_extensions_json
+                                    remaining_seconds, target_end_epoch_ms, table_extensions_json
                             FROM native_event_clocks
                             WHERE entity_id = %s
                             LIMIT 1;
@@ -5740,9 +5774,9 @@ class LeaguesHubService:
 
                         cur.execute("""
                             SELECT call_id, round_number, pod_number, table_number, match_id,
-                                   caller_name, caller_player_id, opponent_name, category, priority,
-                                   note, status, assigned_judge, resolution_note, time_extension_minutes,
-                                   created_at, resolved_at
+                                    caller_name, caller_player_id, opponent_name, category, priority,
+                                    note, status, assigned_judge, resolution_note, time_extension_minutes,
+                                    created_at, resolved_at
                             FROM native_event_judge_calls
                             WHERE entity_id = %s
                             ORDER BY CASE WHEN status IN ('pending', 'en_route') THEN 0 ELSE 1 END, created_at DESC;
@@ -5788,7 +5822,7 @@ class LeaguesHubService:
 
                         cur.execute("""
                             SELECT broadcast_id, title, message, category, priority,
-                                   target_scope, require_ack, is_pinned, author_name, created_at
+                                    target_scope, require_ack, is_pinned, author_name, created_at
                             FROM native_event_broadcasts
                             WHERE entity_id = %s
                             ORDER BY is_pinned DESC, created_at DESC;
@@ -5817,7 +5851,6 @@ class LeaguesHubService:
                             })
                         if db_broadcasts:
                             broadcasts = db_broadcasts
-                    conn.commit()
             except Exception as e:
                 logger.debug(f"get_unified_floor_ops DB read fallback: {e}")
 
@@ -5864,7 +5897,7 @@ class LeaguesHubService:
                         })
 
         active_flags = [f for f in flags if f.get("status") in ("pending", "en_route")]
-        return {
+        res_ops = {
             "success": True,
             "entity_id": key_id,
             "entity_type": "league" if is_league else "tournament",
@@ -5874,6 +5907,8 @@ class LeaguesHubService:
             "active_flags_count": len(active_flags),
             "broadcasts": broadcasts,
         }
+        self._set_cached_db(db, ops_cache_key, res_ops)
+        return res_ops
 
     def update_unified_clock(self, entity_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         raw_id = str(entity_id or "").strip()
@@ -5970,6 +6005,7 @@ class LeaguesHubService:
             except Exception as e:
                 logger.debug(f"update_unified_clock DB write fallback: {e}")
 
+        self._invalidate_db_cache()
         return self.get_unified_floor_ops(key_id)
 
     def create_unified_flag(self, entity_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -6038,6 +6074,7 @@ class LeaguesHubService:
             except Exception as e:
                 logger.debug(f"create_unified_flag DB write fallback: {e}")
 
+        self._invalidate_db_cache()
         ops = self.get_unified_floor_ops(key_id)
         ops["created_flag"] = flag_obj
         return ops
@@ -6101,6 +6138,7 @@ class LeaguesHubService:
                 "reason": res_note or f"Judge call {call_id} extension",
             })
 
+        self._invalidate_db_cache()
         return self.get_unified_floor_ops(key_id)
 
     def publish_unified_broadcast(self, entity_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -6185,6 +6223,7 @@ class LeaguesHubService:
             except Exception:
                 pass
 
+        self._invalidate_db_cache()
         return self.get_unified_floor_ops(key_id)
 
     def acknowledge_unified_broadcast(self, entity_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -6228,6 +6267,7 @@ class LeaguesHubService:
             except Exception as e:
                 logger.debug(f"acknowledge_unified_broadcast DB write fallback: {e}")
 
+        self._invalidate_db_cache()
         return self.get_unified_floor_ops(key_id)
 
     # =========================================================================
@@ -6518,6 +6558,11 @@ class LeaguesHubService:
     def get_league_group_chats(self, league_id: str) -> Dict[str, Any]:
         """Returns the active season's League Q&A Chat and all Pod #1..#N Group Chats for a league."""
         lid = _normalize_league_id(league_id)
+        db = self._get_db()
+        cache_key = ("league_group_chats", lid)
+        cached = self._get_cached_db(db, cache_key, ttl=600)
+        if cached is not None:
+            return cached
         league = self.get_league(lid)
         if not league:
             return {"error": f"League '{league_id}' not found"}
@@ -6527,7 +6572,7 @@ class LeaguesHubService:
         formatted = [self._format_group_chat_for_request_list(d, user_id="") for d in docs]
         league_chat = next((c for c in formatted if c.get("chat_type") == "league"), None)
         pod_chats = [c for c in formatted if c.get("chat_type") == "pod"]
-        return {
+        res = {
             "success": True,
             "league_id": lid,
             "league_name": league.get("name"),
@@ -6542,6 +6587,8 @@ class LeaguesHubService:
             "pod_chats": pod_chats,
             "chats": formatted
         }
+        self._set_cached_db(db, cache_key, res)
+        return res
 
     def reset_league_group_chats(
         self,
@@ -6940,6 +6987,7 @@ try:
             and not _m_name.startswith("get_")
             and not _m_name.startswith("slim_")
             and not _m_name.startswith("calculate_")
+            and not _m_name.startswith("sync_")
         ):
             def _make_invalidating_wrapper(fn):
                 @_lg_functools.wraps(fn)
@@ -6968,7 +7016,7 @@ except Exception:
 _GLOBAL_LEAGUES_SERVICE: Optional[LeaguesHubService] = None
 
 
-def get_leagues_hub_service() -> LeaguesHubService:
+def get_leagues_hub_service(db: Any = None) -> LeaguesHubService:
     global _GLOBAL_LEAGUES_SERVICE
     if _GLOBAL_LEAGUES_SERVICE is None:
         _GLOBAL_LEAGUES_SERVICE = LeaguesHubService()

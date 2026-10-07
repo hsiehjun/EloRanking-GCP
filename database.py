@@ -223,6 +223,8 @@ class PostgresDatabase:
     _place_details_cache_dict = {}
     _geocode_cache_dict = {}
     _tracker_history_cache_dict = {}
+    _user_for_player_cache_dict = {}
+    _player_history_cache_dict = {}
     CACHE_TTL_SECONDS = 600
 
     @classmethod
@@ -272,6 +274,8 @@ class PostgresDatabase:
         cls._place_details_cache_dict.clear()
         cls._geocode_cache_dict.clear()
         cls._tracker_history_cache_dict.clear()
+        cls._user_for_player_cache_dict.clear()
+        cls._player_history_cache_dict.clear()
 
     def __init__(self, dsn: Optional[str] = None, db_path: Optional[str] = None, *args, **kwargs):
         if not PSYCOPG2_AVAILABLE:
@@ -300,7 +304,7 @@ class PostgresDatabase:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT value FROM system_settings WHERE key = 'perf_indexes_v27';")
+                    cur.execute("SELECT value FROM system_settings WHERE key = 'perf_indexes_v28';")
                     row = cur.fetchone()
                     if row and row[0] == 'ready':
                         return
@@ -324,8 +328,14 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team_ilike ON player_ratings ((COALESCE(game_system, '40k')), LOWER(TRIM(team)), current_elo DESC) WHERE team IS NOT NULL AND TRIM(team) != '';",
             "CREATE INDEX IF NOT EXISTS idx_pg_events_coal_sys_date ON events ((COALESCE(game_system, '40k')), event_date DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_history_coal_sys_pid ON rating_history (player_id, (COALESCE(game_system, '40k')), match_date ASC);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_p1 ON matches(player1_id);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_p2 ON matches(player2_id);",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_fac_lower_date ON matches ((LOWER(player1_faction)), match_date DESC) WHERE is_done = TRUE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_lower_date ON matches ((LOWER(player2_faction)), match_date DESC) WHERE is_done = TRUE AND is_bye = FALSE;",
+            "CREATE INDEX IF NOT EXISTS idx_pg_participants_event ON event_participants(event_id);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_participants_player ON event_participants(player_id);",
+            "CREATE INDEX IF NOT EXISTS idx_users_player_id ON users(player_id);",
+            "CREATE INDEX IF NOT EXISTS idx_users_bcp_user_id ON users(bcp_user_id);",
             "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_name_trgm ON player_ratings USING gin (player_name gin_trgm_ops);",
             "ANALYZE player_ratings;",
@@ -359,11 +369,11 @@ class PostgresDatabase:
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO system_settings (key, value, updated_at)
-                        VALUES ('perf_indexes_v27', 'ready', NOW())
+                        VALUES ('perf_indexes_v28', 'ready', NOW())
                         ON CONFLICT (key) DO UPDATE SET value = 'ready', updated_at = NOW();
                     """)
                 conn.commit()
-                logger.info("🔥 Critical COALESCE functional indexes and tracker_games columns verified (v27)")
+                logger.info("🔥 Critical COALESCE functional indexes and tracker_games columns verified (v28)")
         except Exception as err:
             logger.warning(f"_ensure_critical_perf_schema notice: {err}")
 
@@ -5805,7 +5815,7 @@ class PostgresDatabase:
             return []
 
         cache_key = f"{system}:{player_id}"
-        cached = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, cache_key, ttl=600)
+        cached = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, cache_key, ttl=1800)
         if cached is not None:
             return cached
 
@@ -5813,21 +5823,21 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 try:
                     cursor.execute("""
-                    WITH raw_player_events AS (
+                    WITH raw_player_events AS MATERIALIZED (
                         SELECT ep.event_id FROM event_participants ep WHERE ep.player_id = %(pid)s
                         UNION
                         SELECT m.event_id FROM matches m WHERE m.player1_id = %(pid)s AND m.event_id IS NOT NULL
                         UNION
                         SELECT m.event_id FROM matches m WHERE m.player2_id = %(pid)s AND m.event_id IS NOT NULL
                     ),
-                    player_name_ref AS (
+                    player_name_ref AS MATERIALIZED (
                         SELECT LOWER(TRIM(full_name)) AS norm_name
                         FROM players
                         WHERE id = %(pid)s AND full_name IS NOT NULL AND TRIM(full_name) != ''
                           AND LOWER(TRIM(full_name)) NOT IN ('player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye')
                         LIMIT 1
                     ),
-                    direct_ep AS (
+                    direct_ep AS MATERIALIZED (
                         SELECT
                             ep.event_id,
                             MIN(NULLIF(ep.placement, 0)) AS direct_placement
@@ -5836,7 +5846,7 @@ class PostgresDatabase:
                         WHERE ep.player_id = %(pid)s AND ep.placement IS NOT NULL AND ep.placement > 0
                         GROUP BY ep.event_id
                     ),
-                    name_ep AS (
+                    name_ep AS MATERIALIZED (
                         SELECT
                             ep.event_id,
                             MIN(NULLIF(ep.placement, 0)) AS name_placement
@@ -5847,7 +5857,7 @@ class PostgresDatabase:
                         WHERE dep.direct_placement IS NULL AND ep.placement IS NOT NULL AND ep.placement > 0
                         GROUP BY ep.event_id
                     ),
-                    target_events AS (
+                    target_events AS MATERIALIZED (
                         SELECT
                             e.id AS event_id,
                             (
@@ -5886,7 +5896,7 @@ class PostgresDatabase:
                         LEFT JOIN name_ep nep ON nep.event_id = e.id
                         WHERE COALESCE(e.game_system, '40k') = %(system)s
                     ),
-                    event_match_outcomes AS (
+                    event_match_outcomes AS MATERIALIZED (
                         SELECT
                             m.event_id,
                             m.player1_id AS pid,
@@ -5965,7 +5975,7 @@ class PostgresDatabase:
                               OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
                           )
                     ),
-                    agg_match_players AS (
+                    agg_match_players AS MATERIALIZED (
                         SELECT
                             emo.event_id,
                             emo.pid,
@@ -5997,7 +6007,7 @@ class PostgresDatabase:
                         WHERE emo.opp_id IS NOT NULL
                         GROUP BY emo.event_id, emo.pid
                     ),
-                    raw_ep AS (
+                    raw_ep AS MATERIALIZED (
                         SELECT
                             ep.event_id,
                             ep.player_id AS pid,
@@ -6666,13 +6676,20 @@ class PostgresDatabase:
 
     def get_player_history(self, player_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Returns rating progression history for a player."""
+        is_mock_self = hasattr(self.get_connection, "_mock_name")
+        sys_norm = (game_system or "40k").strip().lower()
+        cache_key = (str(player_id or "").strip(), sys_norm)
+        if not is_mock_self:
+            cached = PostgresDatabase.get_cached(PostgresDatabase._player_history_cache_dict, cache_key, ttl=600)
+            if cached is not None:
+                return cached
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 where_sql = "WHERE h.player_id = %s"
                 params = [player_id]
                 if game_system and game_system != "all":
                     where_sql += " AND COALESCE(h.game_system, '40k') = %s"
-                    params.append((game_system or "40k").lower())
+                    params.append(sys_norm)
                 try:
                     cursor.execute(f"""
                     SELECT h.*, e.name as event_name,
@@ -6699,7 +6716,10 @@ class PostgresDatabase:
                     {where_sql}
                     ORDER BY h.match_date ASC, h.round ASC;
                     """, tuple(params))
-                    return [dict(r) for r in cursor.fetchall()]
+                    rows = [dict(r) for r in cursor.fetchall()]
+                    if not is_mock_self:
+                        PostgresDatabase.set_cached(PostgresDatabase._player_history_cache_dict, cache_key, rows, max_size=500)
+                    return rows
                 except Exception as e:
                     conn.rollback()
                     logger.warning(f"Fallback get_player_history notice: {e}")
@@ -6718,19 +6738,24 @@ class PostgresDatabase:
         """Returns all matches for a specific player."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                where_sql = "WHERE (m.player1_id = %s OR m.player2_id = %s)"
-                params = [player_id, player_id]
+                sys_clause = ""
+                params = [player_id]
                 if game_system and game_system != "all":
-                    where_sql += " AND COALESCE(m.game_system, '40k') = %s"
+                    sys_clause = " AND COALESCE(m.game_system, '40k') = %s"
                     params.append((game_system or "40k").lower())
+                full_params = tuple(params + params)
                 try:
                     cursor.execute(f"""
+                    WITH player_matches_union AS (
+                        SELECT m.* FROM matches m WHERE m.player1_id = %s{sys_clause}
+                        UNION ALL
+                        SELECT m.* FROM matches m WHERE m.player2_id = %s AND COALESCE(m.player1_id, '') != %s{sys_clause}
+                    )
                     SELECT m.*, e.name as event_name
-                    FROM matches m
+                    FROM player_matches_union m
                     LEFT JOIN events e ON m.event_id = e.id
-                    {where_sql}
                     ORDER BY COALESCE(m.match_date, e.event_date) ASC, m.round ASC;
-                    """, tuple(params))
+                    """, tuple(params + [player_id, player_id] + (params[1:] if len(params) > 1 else [])))
                     return [dict(r) for r in cursor.fetchall()]
                 except Exception as e:
                     conn.rollback()
@@ -7359,7 +7384,7 @@ class PostgresDatabase:
         self.set_cached(self._faction_details_cache_dict, cache_key, res)
         return res
 
-    def prewarm_faction_details_cache(self, game_system: str = "40k", timeframe: str = "1yr", max_factions: int = 25) -> int:
+    def prewarm_faction_details_cache(self, game_system: str = "40k", timeframe: str = "1yr", max_factions: int = 3) -> int:
         """Pre-populates the in-memory faction details cache for top competitive factions."""
         try:
             is_aos = (game_system or "").lower() in ("aos", "warhammer_aos")
@@ -7374,7 +7399,7 @@ class PostgresDatabase:
                 ]
             else:
                 priority_factions = [
-                    "Orks", "Space Marines", "Aeldari", "Necrons", "Tyranids",
+                    "Space Marines (Astartes)", "Orks", "Aeldari", "Space Marines", "Necrons", "Tyranids",
                     "Chaos Space Marines", "T'au Empire", "Death Guard", "Adeptus Custodes",
                     "Astra Militarum", "World Eaters", "Grey Knights", "Blood Angels",
                     "Dark Angels", "Black Templars", "Thousand Sons", "Adepta Sororitas",
@@ -9477,6 +9502,12 @@ class PostgresDatabase:
         """Finds if a player is registered as an OmniTactica user via verified link."""
         if not player_id:
             return None
+        pid_key = str(player_id).strip()
+        is_mock_self = hasattr(self.get_connection, "_mock_name")
+        if not is_mock_self:
+            cached = PostgresDatabase.get_cached(PostgresDatabase._user_for_player_cache_dict, pid_key, ttl=300)
+            if cached is not None:
+                return dict(cached) if cached is not False else None
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 # Strictly match by verified bcp_user_id, or internal user id (never assume by unverified player_id)
@@ -9491,7 +9522,12 @@ class PostgresDatabase:
                 """, (player_id, player_id, player_id))
                 user = cursor.fetchone()
                 if user:
-                    return dict(user)
+                    res = dict(user)
+                    if not is_mock_self:
+                        PostgresDatabase.set_cached(PostgresDatabase._user_for_player_cache_dict, pid_key, res, max_size=2000)
+                    return res
+        if not is_mock_self:
+            PostgresDatabase.set_cached(PostgresDatabase._user_for_player_cache_dict, pid_key, False, max_size=2000)
         return None
 
     def get_existing_match_request(self, user1_id: str, user2_id: str) -> Optional[Dict[str, Any]]:
