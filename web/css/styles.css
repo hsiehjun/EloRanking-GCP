@@ -10465,7 +10465,7 @@ body.is-authenticated #floating-chat-widget {
 }
 .profile-rounds-table .col-rnd { width: 55px; }
 .profile-rounds-table .col-res { width: 55px; }
-.profile-rounds-table .col-score { width: 75px; }
+.profile-rounds-table .col-score { width: 105px; }
 .profile-rounds-table .col-delta { width: 75px; text-align: right; }
 .profile-rounds-table tr:last-child td {
   border-bottom: none;
@@ -10482,6 +10482,66 @@ body.is-authenticated #floating-chat-widget {
   border-radius: 4px;
   font-size: 0.75rem;
   font-family: var(--font-mono);
+}
+
+.journey-action-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--font-sans, inherit);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+.journey-roster-pill {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #7dd3fc;
+}
+.journey-roster-pill:hover {
+  background: rgba(56, 189, 248, 0.24);
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #e0f2fe;
+}
+.journey-roster-pill-sm {
+  font-size: 0.67rem;
+  padding: 0.1rem 0.42rem;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  color: #7dd3fc;
+}
+.journey-roster-pill-sm:hover {
+  background: rgba(56, 189, 248, 0.22);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #e0f2fe;
+}
+.journey-scorecard-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.18rem 0.52rem;
+  border-radius: 5px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.32);
+  color: #6ee7b7;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.journey-scorecard-pill:hover {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: rgba(16, 185, 129, 0.6);
+  color: #d1fae5;
 }
 
 /* Toast Notification for Link Copy */
@@ -10665,12 +10725,21 @@ body.is-authenticated #floating-chat-widget {
     text-align: center;
   }
   .profile-rounds-table .col-score {
-    width: 48px;
+    width: 72px;
     text-align: center;
   }
   .profile-rounds-table .col-delta {
-    width: 52px;
+    width: 48px;
     text-align: right;
+  }
+  .journey-scorecard-pill {
+    font-size: 0.71rem;
+    padding: 0.14rem 0.36rem;
+    gap: 0.18rem;
+  }
+  .journey-roster-pill-sm {
+    font-size: 0.63rem;
+    padding: 0.08rem 0.34rem;
   }
 }
 

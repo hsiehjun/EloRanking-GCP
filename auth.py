@@ -2659,13 +2659,32 @@ class AuthManager:
                 # 2. Rating History Trajectory
                 cur.execute("""
                 SELECT 
+                    rh.player_id, rh.match_id,
                     rh.match_date, rh.round, rh.old_elo, rh.new_elo, rh.delta_elo,
                     rh.result, rh.player_faction, rh.opponent_id, rh.opponent_name, rh.opponent_elo, rh.opponent_faction,
                     rh.player_score, rh.opponent_score,
                     e.name as event_name, e.city, e.state, e.country, e.id as event_id,
-                    COALESCE(e.total_players, 0) as total_players
+                    COALESCE(e.total_players, 0) as total_players,
+                    m.table_number,
+                    tg.match_id AS tracker_match_id,
+                    COALESCE(tg.is_finished, FALSE) AS has_tracker_scorecard
                 FROM rating_history rh
                 LEFT JOIN events e ON rh.event_id = e.id
+                LEFT JOIN matches m ON rh.match_id = m.id
+                LEFT JOIN LATERAL (
+                    SELECT match_id, is_finished
+                    FROM tracker_games
+                    WHERE m.event_id IS NOT NULL
+                      AND m.table_number IS NOT NULL
+                      AND LOWER(event_id) = LOWER(m.event_id)
+                      AND round_num = m.round
+                      AND table_num = m.table_number
+                    ORDER BY
+                      COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
+                      is_finished DESC,
+                      updated_at DESC
+                    LIMIT 1
+                ) tg ON TRUE
                 WHERE rh.player_id = %s AND COALESCE(rh.game_system, '40k') = %s
                 ORDER BY rh.match_date ASC NULLS FIRST, rh.id ASC;
                 """, (target_pid, target_sys))

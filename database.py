@@ -6482,9 +6482,27 @@ class PostgresDatabase:
                     params.append((game_system or "40k").lower())
                 try:
                     cursor.execute(f"""
-                    SELECT h.*, e.name as event_name
+                    SELECT h.*, e.name as event_name,
+                           m.table_number,
+                           tg.match_id AS tracker_match_id,
+                           COALESCE(tg.is_finished, FALSE) AS has_tracker_scorecard
                     FROM rating_history h
                     LEFT JOIN events e ON h.event_id = e.id
+                    LEFT JOIN matches m ON h.match_id = m.id
+                    LEFT JOIN LATERAL (
+                        SELECT match_id, is_finished
+                        FROM tracker_games
+                        WHERE m.event_id IS NOT NULL
+                          AND m.table_number IS NOT NULL
+                          AND LOWER(event_id) = LOWER(m.event_id)
+                          AND round_num = m.round
+                          AND table_num = m.table_number
+                        ORDER BY
+                          COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
+                          is_finished DESC,
+                          updated_at DESC
+                        LIMIT 1
+                    ) tg ON TRUE
                     {where_sql}
                     ORDER BY h.match_date ASC, h.round ASC;
                     """, tuple(params))
@@ -6500,9 +6518,10 @@ class PostgresDatabase:
                         conn.rollback()
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
                         cur_safe.execute("""
-                        SELECT h.*, e.name as event_name
+                        SELECT h.*, e.name as event_name, m.table_number
                         FROM rating_history h
                         LEFT JOIN events e ON h.event_id = e.id
+                        LEFT JOIN matches m ON h.match_id = m.id
                         WHERE h.player_id = %s
                         ORDER BY h.match_date ASC, h.round ASC;
                         """, (player_id,))

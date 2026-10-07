@@ -1648,25 +1648,52 @@ function renderMyHub(data) {
         const delta = Number(r.delta_elo || 0);
         const deltaStr = delta > 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1);
         const deltaColor = delta > 0 ? 'var(--win)' : (delta < 0 ? 'var(--loss)' : 'var(--text-muted)');
-        const scoreStr = (r.player_score !== undefined && r.opponent_score !== undefined) ? `${r.player_score} - ${r.opponent_score}` : '-';
+        const hasScores = (r.player_score !== undefined && r.player_score !== null && r.opponent_score !== undefined && r.opponent_score !== null);
+        const scoreStr = hasScores ? `${r.player_score} - ${r.opponent_score}` : '-';
+        const roundNum = r.round || (ev.rounds.length - rIdx);
+        const tableNum = r.table_number || r.table || '';
+        const evId = ev.event_id || r.event_id || '';
+        const evName = ev.event_name || r.event_name || 'Tournament Match';
+        const matchDate = r.match_date || ev.date || '';
+        const myFac = r.player_faction || ev.faction || '';
+        const oppId = r.opponent_id || '';
+        const oppName = r.opponent_name || 'Opponent';
+        const oppFac = r.opponent_faction || '';
+        const scorecardMatchId = r.tracker_match_id
+          || (r.match_id ? String(r.match_id) : '')
+          || (evId && tableNum ? `BCP-${evId}-R${roundNum}-T${tableNum}` : (evId ? `BCP-${evId}-R${roundNum}-P-${playerIdForActions}` : `MATCH-R${roundNum}`));
+
         const oppBadge = !isBye && r.opponent_elo
           ? (typeof renderEloBadgePill === 'function' ? renderEloBadgePill(r.opponent_elo, null, { size: 'sm', gameSystem: sys }) : `<span class="badge">${Number(r.opponent_elo).toFixed(1)}</span>`)
           : '';
 
+        const scoreCellHtml = (!isBye && hasScores) ? `
+          <button type="button" class="journey-scorecard-pill" onclick="event.stopPropagation(); openJourneyScorecardModal('${escapeJsArg(scorecardMatchId)}', '${escapeJsArg(evId)}', '${escapeJsArg(evName)}', '${escapeJsArg(roundNum)}', '${escapeJsArg(tableNum)}', '${escapeJsArg(matchDate)}', '${escapeJsArg(playerIdForActions)}', '${escapeJsArg(competitorName)}', '${escapeJsArg(myFac)}', '${escapeJsArg(r.player_score)}', '${escapeJsArg(oppId)}', '${escapeJsArg(oppName)}', '${escapeJsArg(oppFac)}', '${escapeJsArg(r.opponent_score)}')" title="View match scorecard (${escapeHtml(competitorName)} vs ${escapeHtml(oppName)})">
+            <span>📊</span><span>${scoreStr}</span>
+          </button>
+        ` : scoreStr;
+
         return `
           <tr>
-            <td class="col-rnd" style="font-family: var(--font-mono); font-weight: 700; color: var(--text-secondary);">R${r.round || (ev.rounds.length - rIdx)}</td>
+            <td class="col-rnd" style="font-family: var(--font-mono); font-weight: 700; color: var(--text-secondary);">R${roundNum}</td>
             <td class="col-opp">
               ${isBye ? '<span class="bye-pill">🛡️ TOURNAMENT BYE</span>' : `
                 <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-                  <span class="player-link" style="font-weight: 600; color: #38bdf8; cursor: pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(r.opponent_id || '')}', '${escapeHtml(r.opponent_name || 'Opponent')}')" title="Quick scout ${escapeHtml(r.opponent_name || 'Opponent')}">${escapeHtml(r.opponent_name || 'Opponent')}</span>
+                  <span class="player-link" style="font-weight: 600; color: #38bdf8; cursor: pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeJsArg(oppId)}', '${escapeJsArg(oppName)}')" title="Quick scout ${escapeHtml(oppName)}">${escapeHtml(oppName)}</span>
                   ${oppBadge}
                 </div>
-                ${r.opponent_faction ? `<div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 1px;">${escapeHtml(r.opponent_faction)}</div>` : ''}
+                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 2px;">
+                  ${oppFac ? `<span style="font-size: 0.72rem; color: var(--text-muted);">${escapeHtml(oppFac)}</span>` : ''}
+                  ${evId ? `
+                    <button type="button" class="journey-action-pill journey-roster-pill-sm" onclick="event.stopPropagation(); openJourneyPlayerRosterModal('${escapeJsArg(evId)}', '${escapeJsArg(oppId)}', '${escapeJsArg(oppName)}', '${escapeJsArg(oppFac)}', '${escapeJsArg(evName)}')" title="View ${escapeHtml(oppName)}'s army roster">
+                      📋 Roster
+                    </button>
+                  ` : ''}
+                </div>
               `}
             </td>
             <td class="col-res" style="font-family: var(--font-mono); font-weight: 700; color: ${resColor};">${r.result || '-'}</td>
-            <td class="col-score" style="font-family: var(--font-mono); white-space: nowrap;">${scoreStr}</td>
+            <td class="col-score" style="font-family: var(--font-mono); white-space: nowrap;">${scoreCellHtml}</td>
             <td class="col-delta" style="font-family: var(--font-mono); font-weight: 700; color: ${deltaColor}; text-align: right; white-space: nowrap;">${deltaStr}</td>
           </tr>
         `;
@@ -1678,7 +1705,7 @@ function renderMyHub(data) {
             <div class="profile-event-title-group">
               <div class="profile-event-name">
                 ${ev.event_id ? `
-                  <span class="player-link" style="color: #38bdf8; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" onclick="event.stopPropagation(); openEventModal('${escapeHtml(ev.event_id)}')" title="Click to view Tournament Standings & Details">
+                  <span class="player-link" style="color: #38bdf8; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" onclick="event.stopPropagation(); openEventModal('${escapeJsArg(ev.event_id)}')" title="Click to view Tournament Standings & Details">
                     <span>${escapeHtml(ev.event_name)}</span>
                     <span style="font-size: 0.72rem; opacity: 0.85;">↗</span>
                   </span>
@@ -1688,6 +1715,11 @@ function renderMyHub(data) {
               <div class="profile-event-sub">
                 <span>${ev.date || 'Event Record'}</span>
                 ${ev.faction ? `<span>· 🛡️ ${escapeHtml(ev.faction)}</span>` : ''}
+                ${ev.event_id ? `
+                  <button type="button" class="journey-action-pill journey-roster-pill" onclick="event.stopPropagation(); openJourneyPlayerRosterModal('${escapeJsArg(ev.event_id)}', '${escapeJsArg(playerIdForActions)}', '${escapeJsArg(competitorName)}', '${escapeJsArg(ev.faction || '')}', '${escapeJsArg(ev.event_name)}')" title="View your army roster for ${escapeHtml(ev.event_name)}">
+                    📋 Roster
+                  </button>
+                ` : ''}
               </div>
             </div>
             <div class="profile-event-stats">

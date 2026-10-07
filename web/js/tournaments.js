@@ -5352,6 +5352,154 @@ function openEventPlayerListModal(playerIdentifier, directPlayerObj = null) {
   }
 }
 
+async function openJourneyPlayerRosterModal(eventId, playerId, playerName, faction = '', eventName = '') {
+  const cleanEvId = String(eventId || '').trim();
+  const cleanPid = String(playerId || '').trim();
+  const cleanName = String(playerName || '').trim();
+  const cleanFac = String(faction || '').trim();
+  const cleanEvName = String(eventName || '').trim();
+
+  const findPlayerInEventObj = (evObj) => {
+    if (!evObj || typeof evObj !== 'object') return null;
+    const pool = []
+      .concat(Array.isArray(evObj.players) ? evObj.players : [])
+      .concat(Array.isArray(evObj.roster) ? evObj.roster : []);
+    const pidLow = cleanPid.toLowerCase();
+    const nmLow = cleanName.toLowerCase();
+    let matched = null;
+    const mergeCandidate = (base, cand) => {
+      if (!base) return Object.assign({}, cand);
+      const out = Object.assign({}, base);
+      ['army_list', 'list_text', 'list', 'raw_list', 'list_id', 'listId', 'list_url', 'army_list_url', 'detachment', 'faction'].forEach(k => {
+        if ((!out[k] || out[k] === '-') && cand[k] && cand[k] !== '-') {
+          out[k] = cand[k];
+        }
+      });
+      if (cand.has_list) out.has_list = true;
+      return out;
+    };
+    for (const p of pool) {
+      if (!p || typeof p !== 'object') continue;
+      const candIds = [p.player_id, p.id, p.user_id, p.bcp_user_id, p.bcp_event_player_id]
+        .filter(Boolean)
+        .map(x => String(x).trim().toLowerCase());
+      const candName = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
+      if ((pidLow && candIds.includes(pidLow)) || (nmLow && candName === nmLow)) {
+        matched = mergeCandidate(matched, p);
+      }
+    }
+    if (!matched && nmLow && nmLow.includes(' ')) {
+      const partsA = nmLow.split(/\s+/);
+      for (const p of pool) {
+        if (!p || typeof p !== 'object') continue;
+        const candName = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
+        const partsB = candName.split(/\s+/);
+        if (partsA.length >= 2 && partsB.length >= 2 && partsA[0] === partsB[0] && partsA[partsA.length - 1] === partsB[partsB.length - 1]) {
+          matched = mergeCandidate(matched, p);
+        }
+      }
+    }
+    // Check matches for list_id if not on player object
+    if (Array.isArray(evObj.matches)) {
+      for (const m of evObj.matches) {
+        if (!m || typeof m !== 'object') continue;
+        const m1Id = String(m.player1_id || '').trim().toLowerCase();
+        const m1Nm = String(m.player1_name || '').trim().toLowerCase();
+        const m2Id = String(m.player2_id || '').trim().toLowerCase();
+        const m2Nm = String(m.player2_name || '').trim().toLowerCase();
+        if ((pidLow && m1Id === pidLow) || (nmLow && m1Nm === nmLow)) {
+          if (m.player1_list_id) {
+            matched = Object.assign({}, matched || { full_name: cleanName || m.player1_name, player_id: cleanPid || m.player1_id, faction: cleanFac || m.player1_faction }, {
+              list_id: (matched && (matched.list_id || matched.listId)) || m.player1_list_id
+            });
+            break;
+          }
+        }
+        if ((pidLow && m2Id === pidLow) || (nmLow && m2Nm === nmLow)) {
+          if (m.player2_list_id) {
+            matched = Object.assign({}, matched || { full_name: cleanName || m.player2_name, player_id: cleanPid || m.player2_id, faction: cleanFac || m.player2_faction }, {
+              list_id: (matched && (matched.list_id || matched.listId)) || m.player2_list_id
+            });
+            break;
+          }
+        }
+      }
+    }
+    return matched;
+  };
+
+  // 1. Check if currentEventData already matches this eventId
+  if (typeof currentEventData === 'object' && currentEventData && cleanEvId && String(currentEventData.id || currentEventData.event_id || '').toLowerCase() === cleanEvId.toLowerCase()) {
+    const directRec = findPlayerInEventObj(currentEventData);
+    if (directRec) {
+      if (!directRec.faction && cleanFac) directRec.faction = cleanFac;
+      if (!directRec.full_name && cleanName) directRec.full_name = cleanName;
+      openEventPlayerListModal(cleanPid || cleanName, directRec);
+      return;
+    }
+  }
+
+  // 2. Open modal immediately with loading indicator while fetching tournament details
+  const modal = document.getElementById('event-army-list-modal');
+  if (modal) {
+    const titleEl = document.getElementById('event-army-list-modal-title');
+    const subEl = document.getElementById('event-army-list-modal-subtitle');
+    const toggleWrap = document.getElementById('event-army-list-mode-toggle');
+    const contentEl = document.getElementById('event-army-list-modal-content');
+    const btnCopy = document.getElementById('btn-army-list-copy');
+    const btnBcpLink = document.getElementById('btn-army-list-bcp-link');
+    if (titleEl) titleEl.innerText = `${cleanName || cleanPid || 'Competitor'} — Army Roster`;
+    if (subEl) subEl.innerText = `${cleanFac || 'Faction'}${cleanEvName ? ` • ${cleanEvName}` : ''}`;
+    if (toggleWrap) toggleWrap.style.display = 'none';
+    if (btnCopy) btnCopy.style.display = 'none';
+    if (btnBcpLink) btnBcpLink.style.display = 'none';
+    if (contentEl) {
+      contentEl.innerHTML = `
+        <div style="text-align:center; padding:3.5rem 1.5rem; margin:auto;">
+          <div class="spinner-mini" style="display:inline-block; width:38px; height:38px; border:3px solid rgba(56,189,248,0.2); border-top-color:#38bdf8; border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:1rem;"></div>
+          <div style="font-size:1.05rem; font-weight:700; color:#38bdf8; margin-bottom:0.35rem;">Loading Tournament Roster...</div>
+          <div style="font-size:0.84rem; color:var(--text-muted);">${escapeHtml(cleanEvName || 'Fetching competitor army list details')}</div>
+        </div>
+      `;
+    }
+    modal.style.display = 'flex';
+    if (typeof bringModalToFront === 'function') {
+      bringModalToFront(modal);
+    } else {
+      modal.classList.add('active');
+    }
+  }
+
+  let resolvedPlayer = null;
+  if (cleanEvId && !cleanEvId.startsWith('ev_idx_') && window.api && typeof window.api.getTournamentDetails === 'function') {
+    try {
+      const evData = await window.api.getTournamentDetails(cleanEvId);
+      if (evData && !evData.error) {
+        resolvedPlayer = findPlayerInEventObj(evData);
+      }
+    } catch (e) {
+      // Fallback below
+    }
+  }
+
+  const finalPlayer = Object.assign(
+    {
+      player_id: cleanPid || cleanName,
+      full_name: cleanName || cleanPid || 'Competitor',
+      faction: cleanFac || '-'
+    },
+    resolvedPlayer || {}
+  );
+  if (!finalPlayer.faction || finalPlayer.faction === '-') {
+    finalPlayer.faction = cleanFac || '-';
+  }
+  if (!finalPlayer.full_name) {
+    finalPlayer.full_name = cleanName || cleanPid || 'Competitor';
+  }
+  openEventPlayerListModal(cleanPid || cleanName, finalPlayer);
+}
+window.openJourneyPlayerRosterModal = openJourneyPlayerRosterModal;
+
 function _renderEventCompetitorPlayMode(contentEl, parsedRoster, fallbackText) {
   if (!contentEl) return;
   let matchedSaved = false;

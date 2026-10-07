@@ -1735,6 +1735,7 @@ class EloEngine:
                     "event_id": m.get("event_id"),
                     "event_name": m.get("event_name"),
                     "round": m.get("round"),
+                    "table_number": m.get("table_number"),
                     "match_date": m.get("match_date"),
                     "old_elo": player_meta.get("current_elo", self.initial_elo),
                     "new_elo": player_meta.get("current_elo", self.initial_elo),

@@ -2231,6 +2231,9 @@ def api_get_scorecard(match_id: str):
 
     # 1. Check PostgreSQL tracker_games first (submitted & finalized scorecards in our backend DB)
     game_rec = None
+    m_pat = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id.strip(), re.IGNORECASE)
+    m_player_pat = None if m_pat else re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-P-(.+)$", match_id.strip(), re.IGNORECASE)
+
     if db and hasattr(db, "get_tracker_game"):
         for cand in candidates:
             try:
@@ -2240,6 +2243,227 @@ def api_get_scorecard(match_id: str):
                     break
             except Exception:
                 pass
+        if not game_rec and m_pat and hasattr(db, "get_connection"):
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT match_id
+                            FROM tracker_games
+                            WHERE LOWER(event_id) = LOWER(%s)
+                              AND round_num = %s
+                              AND table_num = %s
+                            ORDER BY
+                              COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
+                              is_finished DESC,
+                              updated_at DESC
+                            LIMIT 1;
+                        """, (m_pat.group(1), int(m_pat.group(2)), int(m_pat.group(3))))
+                        tg_row = cur.fetchone()
+                        if tg_row:
+                            mapped_mid = tg_row[0] if not isinstance(tg_row, dict) else tg_row.get("match_id")
+                            if mapped_mid:
+                                game_rec = db.get_tracker_game(str(mapped_mid))
+            except Exception:
+                pass
+
+    # 2. Check event & official BCP match record in our database if this is an event pairing or match ID
+    bcp_match = None
+    is_event_completed = False
+    ev_id_raw = m_pat.group(1) if m_pat else (m_player_pat.group(1) if m_player_pat else None)
+
+    if ev_id_raw and db and hasattr(db, "get_studio_event"):
+        try:
+            st_ev = db.get_studio_event(ev_id_raw)
+            if isinstance(st_ev, dict):
+                if (
+                    st_ev.get("is_ended") is True
+                    or st_ev.get("ended") is True
+                    or str(st_ev.get("status") or "").lower() in ("ended", "completed", "finished", "concluded")
+                ):
+                    is_event_completed = True
+        except Exception:
+            pass
+
+    if db and hasattr(db, "get_connection"):
+        try:
+            with db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    row = None
+                    if m_pat:
+                        cur.execute("""
+                            SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                   m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
+                                   e.name AS event_name, e.is_ended AS event_is_ended,
+                                   e.event_date, e.end_date, e.raw_json AS event_raw_json
+                            FROM matches m
+                            LEFT JOIN events e ON e.id = m.event_id
+                            WHERE LOWER(m.event_id) = LOWER(%s)
+                              AND m.round = %s
+                              AND m.table_number = %s
+                            LIMIT 1;
+                        """, (m_pat.group(1), int(m_pat.group(2)), int(m_pat.group(3))))
+                        row = cur.fetchone()
+                    elif m_player_pat:
+                        p_tok = urllib.parse.unquote(m_player_pat.group(3)).strip()
+                        cur.execute("""
+                            SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                   m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
+                                   e.name AS event_name, e.is_ended AS event_is_ended,
+                                   e.event_date, e.end_date, e.raw_json AS event_raw_json
+                            FROM matches m
+                            LEFT JOIN events e ON e.id = m.event_id
+                            WHERE LOWER(m.event_id) = LOWER(%s)
+                              AND m.round = %s
+                              AND (
+                                  LOWER(COALESCE(m.player1_id, '')) = LOWER(%s)
+                                  OR LOWER(COALESCE(m.player2_id, '')) = LOWER(%s)
+                                  OR LOWER(TRIM(COALESCE(m.player1_name, ''))) = LOWER(%s)
+                                  OR LOWER(TRIM(COALESCE(m.player2_name, ''))) = LOWER(%s)
+                              )
+                            LIMIT 1;
+                        """, (m_player_pat.group(1), int(m_player_pat.group(2)), p_tok, p_tok, p_tok, p_tok))
+                        row = cur.fetchone()
+
+                    if not row and not m_pat and not m_player_pat:
+                        raw_mid_lookup = match_id.strip()
+                        cur.execute("""
+                            SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                   m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
+                                   e.name AS event_name, e.is_ended AS event_is_ended,
+                                   e.event_date, e.end_date, e.raw_json AS event_raw_json
+                            FROM matches m
+                            LEFT JOIN events e ON e.id = m.event_id
+                            WHERE m.id = %s
+                            LIMIT 1;
+                        """, (raw_mid_lookup,))
+                        row = cur.fetchone()
+
+                    if row and getattr(cur, "description", None):
+                        cols = [desc[0] for desc in cur.description]
+                        row_dict = dict(zip(cols, row)) if not isinstance(row, dict) else dict(row)
+                        ev_is_ended = row_dict.pop("event_is_ended", False)
+                        ev_date = row_dict.pop("event_date", None)
+                        ev_end_date = row_dict.pop("end_date", None)
+                        ev_raw = row_dict.pop("event_raw_json", None)
+                        if isinstance(ev_raw, str):
+                            try:
+                                ev_raw = json.loads(ev_raw)
+                            except Exception:
+                                ev_raw = None
+
+                        if not ev_id_raw and row_dict.get("event_id"):
+                            ev_id_raw = str(row_dict["event_id"])
+
+                        now_utc = datetime.now(timezone.utc)
+                        if ev_is_ended is True:
+                            is_event_completed = True
+                        elif isinstance(ev_raw, dict) and (
+                            ev_raw.get("ended") is True
+                            or ev_raw.get("isEnded") is True
+                            or (isinstance(ev_raw.get("status"), dict) and ev_raw["status"].get("ended") is True)
+                            or str(ev_raw.get("status") or "").lower() in ("ended", "completed", "finished")
+                        ):
+                            is_event_completed = True
+                        elif ev_end_date and hasattr(ev_end_date, "timestamp"):
+                            end_dt = ev_end_date if ev_end_date.tzinfo else ev_end_date.replace(tzinfo=timezone.utc)
+                            if end_dt < (now_utc - timedelta(hours=48)):
+                                is_event_completed = True
+                        elif ev_date and hasattr(ev_date, "timestamp"):
+                            start_dt = ev_date if ev_date.tzinfo else ev_date.replace(tzinfo=timezone.utc)
+                            if start_dt < (now_utc - timedelta(days=3)):
+                                is_event_completed = True
+
+                        bcp_match = row_dict
+                        if bcp_match.get("match_date") and hasattr(bcp_match["match_date"], "isoformat"):
+                            bcp_match["match_date"] = bcp_match["match_date"].isoformat()
+
+                        # If resolved via m.id or P-player and we haven't checked tracker_games for its (event_id, round, table_number), check now!
+                        if not game_rec and bcp_match.get("event_id") and bcp_match.get("round") and bcp_match.get("table_number") and hasattr(db, "get_tracker_game"):
+                            cur.execute("""
+                                SELECT match_id
+                                FROM tracker_games
+                                WHERE LOWER(event_id) = LOWER(%s)
+                                  AND round_num = %s
+                                  AND table_num = %s
+                                ORDER BY
+                                  COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
+                                  is_finished DESC,
+                                  updated_at DESC
+                                LIMIT 1;
+                            """, (bcp_match["event_id"], int(bcp_match["round"]), int(bcp_match["table_number"])))
+                            tg_row2 = cur.fetchone()
+                            if tg_row2:
+                                mapped_mid2 = tg_row2[0] if not isinstance(tg_row2, dict) else tg_row2.get("match_id")
+                                if mapped_mid2:
+                                    game_rec = db.get_tracker_game(str(mapped_mid2))
+
+                    # Fallback to rating_history if matches table had no row
+                    if not bcp_match and not game_rec:
+                        if m_player_pat:
+                            p_tok = urllib.parse.unquote(m_player_pat.group(3)).strip()
+                            cur.execute("""
+                                SELECT h.match_id, h.event_id, h.round, h.match_date,
+                                       h.player_id, p.full_name AS player_name, h.player_faction, h.player_score,
+                                       h.opponent_id, h.opponent_name, h.opponent_faction, h.opponent_score,
+                                       h.result, e.name AS event_name
+                                FROM rating_history h
+                                LEFT JOIN events e ON e.id = h.event_id
+                                LEFT JOIN players p ON p.id = h.player_id
+                                WHERE LOWER(h.event_id) = LOWER(%s)
+                                  AND h.round = %s
+                                  AND (LOWER(h.player_id) = LOWER(%s) OR LOWER(COALESCE(h.opponent_id, '')) = LOWER(%s) OR LOWER(TRIM(COALESCE(h.opponent_name, ''))) = LOWER(%s))
+                                LIMIT 1;
+                            """, (m_player_pat.group(1), int(m_player_pat.group(2)), p_tok, p_tok, p_tok))
+                        else:
+                            cur.execute("""
+                                SELECT h.match_id, h.event_id, h.round, h.match_date,
+                                       h.player_id, p.full_name AS player_name, h.player_faction, h.player_score,
+                                       h.opponent_id, h.opponent_name, h.opponent_faction, h.opponent_score,
+                                       h.result, e.name AS event_name
+                                FROM rating_history h
+                                LEFT JOIN events e ON e.id = h.event_id
+                                LEFT JOIN players p ON p.id = h.player_id
+                                WHERE h.match_id = %s
+                                LIMIT 1;
+                            """, (match_id.strip(),))
+                        rh_row = cur.fetchone()
+                        if rh_row and getattr(cur, "description", None):
+                            rh_cols = [desc[0] for desc in cur.description]
+                            rh = dict(zip(rh_cols, rh_row)) if not isinstance(rh_row, dict) else dict(rh_row)
+                            m_dt = rh.get("match_date")
+                            if m_dt and hasattr(m_dt, "isoformat"):
+                                m_dt = m_dt.isoformat()
+                            res_ch = str(rh.get("result") or "").upper()
+                            bcp_match = {
+                                "id": rh.get("match_id") or match_id,
+                                "event_id": rh.get("event_id"),
+                                "event_name": rh.get("event_name") or rh.get("event_id") or "Tournament Match",
+                                "round": rh.get("round") or 1,
+                                "table_number": None,
+                                "match_date": m_dt,
+                                "player1_id": rh.get("player_id"),
+                                "player1_name": rh.get("player_name") or "Player 1",
+                                "player1_faction": rh.get("player_faction") or "",
+                                "player1_score": rh.get("player_score"),
+                                "player2_id": rh.get("opponent_id"),
+                                "player2_name": rh.get("opponent_name") or "Player 2",
+                                "player2_faction": rh.get("opponent_faction") or "",
+                                "player2_score": rh.get("opponent_score"),
+                                "winner_id": rh.get("player_id") if res_ch == "W" else (rh.get("opponent_id") if res_ch == "L" else None),
+                                "is_draw": res_ch == "D",
+                                "is_bye": False,
+                                "is_done": True
+                            }
+                            is_event_completed = True
+        except Exception:
+            pass
 
     is_rec_finished = bool(
         game_rec and (
@@ -2274,90 +2498,11 @@ def api_get_scorecard(match_id: str):
             "game_system": sys_id,
             "game_record": game_rec,
             "state": state,
+            "bcp_match": bcp_match,
             "is_finished": True,
             "status": "completed",
             "source": "tracker_games"
         }
-
-    # 2. Check event & official BCP match record in our database if this is an event pairing
-    bcp_match = None
-    is_event_completed = False
-    ev_id_raw = None
-    m_pat = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id.strip(), re.IGNORECASE)
-    if m_pat:
-        ev_id_raw = m_pat.group(1)
-        r_num = int(m_pat.group(2))
-        t_num = int(m_pat.group(3))
-
-        if db and hasattr(db, "get_studio_event"):
-            try:
-                st_ev = db.get_studio_event(ev_id_raw)
-                if isinstance(st_ev, dict):
-                    if (
-                        st_ev.get("is_ended") is True
-                        or st_ev.get("ended") is True
-                        or str(st_ev.get("status") or "").lower() in ("ended", "completed", "finished", "concluded")
-                    ):
-                        is_event_completed = True
-            except Exception:
-                pass
-
-        if db and hasattr(db, "get_connection"):
-            try:
-                with db.get_connection() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("""
-                            SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
-                                   m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
-                                   e.name AS event_name, e.is_ended AS event_is_ended,
-                                   e.event_date, e.end_date, e.raw_json AS event_raw_json
-                            FROM matches m
-                            LEFT JOIN events e ON e.id = m.event_id
-                            WHERE LOWER(m.event_id) = LOWER(%s)
-                              AND m.round = %s
-                              AND m.table_number = %s
-                            LIMIT 1;
-                        """, (ev_id_raw, r_num, t_num))
-                        row = cur.fetchone()
-                        if row and getattr(cur, "description", None):
-                            cols = [desc[0] for desc in cur.description]
-                            row_dict = dict(zip(cols, row)) if not isinstance(row, dict) else dict(row)
-                            ev_is_ended = row_dict.pop("event_is_ended", False)
-                            ev_date = row_dict.pop("event_date", None)
-                            ev_end_date = row_dict.pop("end_date", None)
-                            ev_raw = row_dict.pop("event_raw_json", None)
-                            if isinstance(ev_raw, str):
-                                try:
-                                    ev_raw = json.loads(ev_raw)
-                                except Exception:
-                                    ev_raw = None
-
-                            now_utc = datetime.now(timezone.utc)
-                            if ev_is_ended is True:
-                                is_event_completed = True
-                            elif isinstance(ev_raw, dict) and (
-                                ev_raw.get("ended") is True
-                                or ev_raw.get("isEnded") is True
-                                or (isinstance(ev_raw.get("status"), dict) and ev_raw["status"].get("ended") is True)
-                                or str(ev_raw.get("status") or "").lower() in ("ended", "completed", "finished")
-                            ):
-                                is_event_completed = True
-                            elif ev_end_date and hasattr(ev_end_date, "timestamp"):
-                                end_dt = ev_end_date if ev_end_date.tzinfo else ev_end_date.replace(tzinfo=timezone.utc)
-                                if end_dt < (now_utc - timedelta(hours=48)):
-                                    is_event_completed = True
-                            elif ev_date and hasattr(ev_date, "timestamp"):
-                                start_dt = ev_date if ev_date.tzinfo else ev_date.replace(tzinfo=timezone.utc)
-                                if start_dt < (now_utc - timedelta(days=3)):
-                                    is_event_completed = True
-
-                            bcp_match = row_dict
-                            if bcp_match.get("match_date") and hasattr(bcp_match["match_date"], "isoformat"):
-                                bcp_match["match_date"] = bcp_match["match_date"].isoformat()
-            except Exception:
-                pass
 
     # If the event is completed, delete any leftover Firestore room records for it
     # and return the BCP score (since tracker_games was already checked in Step 1).

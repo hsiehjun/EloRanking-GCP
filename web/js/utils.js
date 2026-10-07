@@ -12,6 +12,16 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+function escapeJsArg(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;')
+    .replace(/\r?\n/g, ' ');
+}
+window.escapeJsArg = escapeJsArg;
+
 function formatNumber(num) {
   if (num === null || num === undefined) return '0';
   return Number(num).toLocaleString();

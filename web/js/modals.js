@@ -601,8 +601,10 @@ function renderPlayerMatches(history, isFiltered = false) {
   }
 
   // Display at most 5 recent matches in the quick scout card
+  const scoutPlayerId = currentModalPlayerId || '';
+  const scoutPlayerName = currentModalPlayerName || 'Player';
   const previewMatches = history.slice(0, 5);
-  previewMatches.forEach(h => {
+  previewMatches.forEach((h, mIdx) => {
     const tr = document.createElement('tr');
     const isWin = h.result === 'W';
     const isLoss = h.result === 'L';
@@ -612,33 +614,69 @@ function renderPlayerMatches(history, isFiltered = false) {
     const dColor = dVal > 0 ? 'var(--win)' : (dVal < 0 ? 'var(--loss)' : 'var(--text-muted)');
 
     const oppName = h.opponent_name || (h.result === 'BYE' ? 'BYE' : 'Opponent');
-    const oppFac = h.opponent_faction ? `<span class="scout-opp-fac">${escapeHtml(h.opponent_faction)}</span>` : '';
+    const oppFacStr = h.opponent_faction || '';
+    const oppFac = oppFacStr ? `<span class="scout-opp-fac">${escapeHtml(oppFacStr)}</span>` : '';
     const isBye = Boolean(h.is_bye || h.result === 'BYE' || (oppName && oppName.toUpperCase() === 'BYE'));
     const oppId = h.opponent_id || '';
     const canOpenOpp = !isBye && (oppId || (oppName && oppName !== 'Opponent' && oppName !== 'Unknown'));
     const oppLink = canOpenOpp
-      ? `<span class="player-link scout-opp-name" style="cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(oppId)}', '${escapeHtml(oppName)}')">${escapeHtml(oppName)}</span>`
+      ? `<span class="player-link scout-opp-name" style="cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeJsArg(oppId)}', '${escapeJsArg(oppName)}')">${escapeHtml(oppName)}</span>`
       : `<span class="scout-opp-name" style="color:#fff;">${escapeHtml(oppName)}</span>`;
 
+    const evId = h.event_id || '';
+    const evName = h.event_name || 'Tournament';
     const evDate = (h.match_date || '').slice(0, 10);
+    const roundNum = h.round || (previewMatches.length - mIdx);
+    const tableNum = h.table_number || h.table || '';
+    const myFac = h.player_faction || '';
     const evSub = [evDate, h.round ? `R${h.round}` : ''].filter(Boolean).join(' · ');
+
+    const hasScores = (h.player_score !== null && h.player_score !== undefined && h.opponent_score !== null && h.opponent_score !== undefined);
+    const scoreStr = hasScores ? `${h.player_score} - ${h.opponent_score}` : '-';
+    const scorecardMatchId = h.tracker_match_id
+      || (h.match_id ? String(h.match_id) : '')
+      || (evId && tableNum ? `BCP-${evId}-R${roundNum}-T${tableNum}` : (evId ? `BCP-${evId}-R${roundNum}-P-${scoutPlayerId || scoutPlayerName}` : `MATCH-R${roundNum}`));
+
+    const oppRosterBtn = (!isBye && evId) ? `
+      <button type="button" class="journey-action-pill journey-roster-pill-sm" onclick="event.stopPropagation(); openJourneyPlayerRosterModal('${escapeJsArg(evId)}', '${escapeJsArg(oppId)}', '${escapeJsArg(oppName)}', '${escapeJsArg(oppFacStr)}', '${escapeJsArg(evName)}')" title="View ${escapeHtml(oppName)}'s army roster">
+        📋 Roster
+      </button>
+    ` : '';
+
+    const myRosterBtn = evId ? `
+      <button type="button" class="journey-action-pill journey-roster-pill-sm" onclick="event.stopPropagation(); openJourneyPlayerRosterModal('${escapeJsArg(evId)}', '${escapeJsArg(scoutPlayerId)}', '${escapeJsArg(scoutPlayerName)}', '${escapeJsArg(myFac)}', '${escapeJsArg(evName)}')" title="View ${escapeHtml(scoutPlayerName)}'s army roster">
+        📋 Roster
+      </button>
+    ` : '';
+
+    const scoreCellHtml = (!isBye && hasScores) ? `
+      <button type="button" class="journey-scorecard-pill" onclick="event.stopPropagation(); openJourneyScorecardModal('${escapeJsArg(scorecardMatchId)}', '${escapeJsArg(evId)}', '${escapeJsArg(evName)}', '${escapeJsArg(roundNum)}', '${escapeJsArg(tableNum)}', '${escapeJsArg(evDate)}', '${escapeJsArg(scoutPlayerId)}', '${escapeJsArg(scoutPlayerName)}', '${escapeJsArg(myFac)}', '${escapeJsArg(h.player_score)}', '${escapeJsArg(oppId)}', '${escapeJsArg(oppName)}', '${escapeJsArg(oppFacStr)}', '${escapeJsArg(h.opponent_score)}')" title="View match scorecard">
+        <span>📊</span><span>${scoreStr}</span>
+      </button>
+    ` : scoreStr;
 
     tr.innerHTML = `
       <td style="text-align: center;"><span class="badge ${resClass}" style="font-size: 0.72rem; padding: 0.15rem 0.4rem; min-width: 22px;">${h.result || '-'}</span></td>
       <td>
         <div class="scout-cell-stack">
           ${oppLink}
-          ${oppFac}
+          <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+            ${oppFac}
+            ${oppRosterBtn}
+          </div>
         </div>
       </td>
       <td class="scout-col-event">
         <div class="scout-cell-stack">
-          <span class="player-link scout-event-name" onclick="event.stopPropagation(); openEventModal('${h.event_id}')" title="${escapeHtml(h.event_name || 'Tournament')}">${escapeHtml(h.event_name || 'Tournament')}</span>
-          <span class="scout-event-meta">${escapeHtml(evSub)}</span>
+          <span class="player-link scout-event-name" onclick="event.stopPropagation(); openEventModal('${escapeJsArg(evId)}')" title="${escapeHtml(evName)}">${escapeHtml(evName)}</span>
+          <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+            <span class="scout-event-meta">${escapeHtml(evSub)}</span>
+            ${myRosterBtn}
+          </div>
         </div>
       </td>
       <td style="text-align: center; font-family: var(--font-mono); font-size: 0.82rem; color: #e2e8f0;">
-        ${h.player_score !== null && h.opponent_score !== null ? `${h.player_score} - ${h.opponent_score}` : '-'}
+        ${scoreCellHtml}
       </td>
       <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; font-size: 0.85rem; color: ${dColor};">
         ${dStr}
@@ -1535,7 +1573,28 @@ function toggleModalPlayerSecondaries(rowClass) {
   });
 }
 
-async function openScorecardModal(matchId) {
+function openJourneyScorecardModal(matchId, eventId, eventName, roundNum, tableNum, matchDate, p1Id, p1Name, p1Fac, p1Score, p2Id, p2Name, p2Fac, p2Score) {
+  const fallbackMatchMeta = {
+    event_id: eventId || '',
+    event_name: eventName || 'Tournament Match',
+    round: Number(roundNum || 1),
+    table_number: tableNum ? Number(tableNum) : null,
+    match_date: matchDate || '',
+    player1_id: p1Id || '',
+    player1_name: p1Name || 'Player 1',
+    player1_faction: p1Fac || 'Warhammer 40k',
+    player1_score: (p1Score !== '' && p1Score !== null && p1Score !== undefined && !isNaN(Number(p1Score))) ? Number(p1Score) : null,
+    player2_id: p2Id || '',
+    player2_name: p2Name || 'Player 2',
+    player2_faction: p2Fac || 'Warhammer 40k',
+    player2_score: (p2Score !== '' && p2Score !== null && p2Score !== undefined && !isNaN(Number(p2Score))) ? Number(p2Score) : null,
+  };
+  const resolvedMatchId = matchId || (eventId ? `BCP-${eventId}-R${roundNum || 1}-T${tableNum || 1}` : `MATCH-R${roundNum || 1}`);
+  openScorecardModal(resolvedMatchId, fallbackMatchMeta);
+}
+window.openJourneyScorecardModal = openJourneyScorecardModal;
+
+async function openScorecardModal(matchId, fallbackMatchMeta = null) {
   if (!matchId) return;
   activeScorecardMatchId = matchId;
 
@@ -1578,29 +1637,40 @@ async function openScorecardModal(matchId) {
   if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Fetching verified battle records...</div></td></tr>';
 
   const bcpMatch = String(matchId).match(/^(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$/i);
-  const parsedEventId = bcpMatch ? bcpMatch[1] : null;
-  const parsedRound = bcpMatch ? parseInt(bcpMatch[2], 10) : null;
-  const parsedTable = bcpMatch ? parseInt(bcpMatch[3], 10) : null;
+  const parsedEventId = bcpMatch ? bcpMatch[1] : (fallbackMatchMeta && fallbackMatchMeta.event_id ? String(fallbackMatchMeta.event_id) : null);
+  const parsedRound = bcpMatch ? parseInt(bcpMatch[2], 10) : (fallbackMatchMeta && fallbackMatchMeta.round ? Number(fallbackMatchMeta.round) : null);
+  const parsedTable = bcpMatch ? parseInt(bcpMatch[3], 10) : (fallbackMatchMeta && fallbackMatchMeta.table_number ? Number(fallbackMatchMeta.table_number) : null);
 
   let evMatch = null;
   let evP1 = null;
   let evP2 = null;
   const evObj = (typeof currentEventData === 'object' && currentEventData) ? currentEventData : null;
-  const evMatches = (evObj && Array.isArray(evObj.matches) && evObj.matches.length > 0)
-    ? evObj.matches
-    : ((typeof eventMatchesCache !== 'undefined' && Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0)
-      ? eventMatchesCache
-      : (Array.isArray(window.eventMatchesCache) ? window.eventMatchesCache : []));
-  const evPlayers = (evObj && Array.isArray(evObj.players) && evObj.players.length > 0)
-    ? evObj.players
-    : ((typeof eventPlayersCache !== 'undefined' && Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0)
-      ? eventPlayersCache
-      : (Array.isArray(window.eventPlayersCache) ? window.eventPlayersCache : []));
+  const isSameCachedEvent = Boolean(
+    !parsedEventId ||
+    (evObj && String(evObj.event_id || evObj.id || '') === String(parsedEventId))
+  );
+  const evMatches = isSameCachedEvent
+    ? ((evObj && Array.isArray(evObj.matches) && evObj.matches.length > 0)
+      ? evObj.matches
+      : ((typeof eventMatchesCache !== 'undefined' && Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0)
+        ? eventMatchesCache
+        : (Array.isArray(window.eventMatchesCache) ? window.eventMatchesCache : [])))
+    : [];
+  const evPlayers = isSameCachedEvent
+    ? ((evObj && Array.isArray(evObj.players) && evObj.players.length > 0)
+      ? evObj.players
+      : ((typeof eventPlayersCache !== 'undefined' && Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0)
+        ? eventPlayersCache
+        : (Array.isArray(window.eventPlayersCache) ? window.eventPlayersCache : [])))
+    : [];
 
   if (parsedRound !== null && parsedTable !== null && evMatches.length > 0) {
     evMatch = evMatches.find(m => Number(m.round || 1) === parsedRound && Number(m.table_number || m.table || 1) === parsedTable) || null;
   } else if (evMatches.length > 0) {
     evMatch = evMatches.find(m => String(m.tracker_match_id || '') === String(matchId)) || null;
+  }
+  if (!evMatch && fallbackMatchMeta && typeof fallbackMatchMeta === 'object') {
+    evMatch = fallbackMatchMeta;
   }
   if (evMatch && evPlayers.length > 0) {
     const p1Id = String(evMatch.player1_id || '').trim().toLowerCase();
@@ -1624,8 +1694,8 @@ async function openScorecardModal(matchId) {
   if (evMatch) {
     const initRound = evMatch.round || parsedRound || 1;
     const initTable = evMatch.table_number || evMatch.table || parsedTable || null;
-    const initEventLabel = (evObj && evObj.name) || evMatch.event_name || parsedEventId || null;
-    const initDate = evMatch.match_date || (evObj && evObj.event_date) || Date.now();
+    const initEventLabel = evMatch.event_name || (isSameCachedEvent && evObj && evObj.name) || parsedEventId || null;
+    const initDate = evMatch.match_date || (isSameCachedEvent && evObj && evObj.event_date) || Date.now();
     if (titleEl) {
       titleEl.innerHTML = `🏆 ${initEventLabel ? escapeHtml(initEventLabel) + ' • ' : ''}R${initRound}${initTable ? ' • T' + initTable : ''}`;
     }
@@ -1853,7 +1923,7 @@ async function openScorecardModal(matchId) {
 
     const roundNum = (isTrackerScorecard && (rec.round_num || game.roundNum || st.round_num)) || bcpMatchRec?.round || parsedRound || 1;
     const tableNum = (isTrackerScorecard && (rec.table_num || game.tableNum || st.table_num)) || bcpMatchRec?.table_number || bcpMatchRec?.table || parsedTable || null;
-    const eventLabel = (currentEventData && currentEventData.name) || bcpMatchRec?.event_name || (isTrackerScorecard && (st.mapped_event_name || rec.mapped_event_name)) || null;
+    const eventLabel = bcpMatchRec?.event_name || (isTrackerScorecard && (st.mapped_event_name || rec.mapped_event_name)) || (isSameCachedEvent && currentEventData && currentEventData.name) || null;
 
     if (badgesEl) {
       badgesEl.innerHTML = '';
@@ -1868,7 +1938,7 @@ async function openScorecardModal(matchId) {
       titleEl.innerHTML = `🏆 ${eventLabel ? escapeHtml(eventLabel) + ' • ' : ''}R${roundNum}${tableNum ? ' • T' + tableNum : ''}`;
     }
     if (subEl) {
-      const dateStr = (isTrackerScorecard && (st.game_date || rec.game_date || rec.updated_at || rec.updatedAt)) || bcpMatchRec?.match_date || (currentEventData && currentEventData.event_date) || Date.now();
+      const dateStr = (isTrackerScorecard && (st.game_date || rec.game_date || rec.updated_at || rec.updatedAt)) || bcpMatchRec?.match_date || (isSameCachedEvent && currentEventData && currentEventData.event_date) || Date.now();
       if (hasTurnData) {
         const liveTag = (data.source === 'firestore' && !data.is_finished) ? '🔴 LIVE • ' : '';
         const missionLabel = isAosModal

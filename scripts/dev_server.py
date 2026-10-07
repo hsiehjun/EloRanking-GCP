@@ -5010,9 +5010,41 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "event_draws": 0,
                             "event_battle_points": 220,
                             "current_elo": 2240.0,
-                            "army_list": "",
+                            "army_list": "++ Ultramarines - Gladius Task Force [2,000 pts] ++\n\nCharacters:\nMarneus Calgar [185 pts]: Victrix Honour Guard (Warlord)\nUriel Ventris [75 pts]: Sword of Idaeus\nApothecary Biologis [85 pts]: Fire Discipline\n\nInfantry:\n6x Aggressor Squad [240 pts]: Auto boltstorm gauntlets\n6x Eradicator Squad [190 pts]: Melta rifles, Multi-melta\n6x Inceptor Squad [260 pts]: Plasma exterminators\n5x Scout Squad [65 pts]: Astartes chainsword",
                             "list_url": "",
-                            "has_list": False
+                            "has_list": True
+                        },
+                        {
+                            "player_id": "1",
+                            "full_name": "Innes Wilson",
+                            "faction": "Adeptus Custodes",
+                            "detachment": "Shield Host",
+                            "team": "Stat Check",
+                            "placement": 1,
+                            "event_wins": 5,
+                            "event_losses": 0,
+                            "event_draws": 0,
+                            "event_battle_points": 485,
+                            "current_elo": 2120.5,
+                            "army_list": "++ Adeptus Custodes - Shield Host [2,000 pts] ++\n\nCharacters:\nTrajann Valoris [150 pts]: Watcher's Axe (Warlord)\nBlade Champion [110 pts]: Vaultswords, Auric Mantle\nBlade Champion [110 pts]: Vaultswords\n\nBattleline:\n5x Custodian Guard [225 pts]: 4x Guardian Spear, 1x Praesidium Shield & Misericordia\n5x Custodian Guard [225 pts]: 5x Guardian Spear\n\nOther Datasheets:\n5x Custodian Wardens [250 pts]: 5x Castellan Axe, Vexilla\n5x Custodian Wardens [250 pts]: 5x Guardian Spear, Vexilla\n3x Allarus Custodians [195 pts]: 3x Castellan Axe, Balistus Grenade Launcher\n2x Caladius Grav-tank [430 pts]: Twin arachnus heavy blaze cannon\n4x Prosecutors [40 pts]: Boltgun",
+                            "list_url": "",
+                            "has_list": True
+                        },
+                        {
+                            "player_id": "p_marcus",
+                            "full_name": "Marcus Vance",
+                            "faction": "Space Marines",
+                            "detachment": "Gladius Task Force",
+                            "team": "Da Boyz Club",
+                            "placement": 4,
+                            "event_wins": 3,
+                            "event_losses": 2,
+                            "event_draws": 0,
+                            "event_battle_points": 380,
+                            "current_elo": 1980.0,
+                            "army_list": "++ Space Marines - Gladius Task Force [2,000 pts] ++\n\nCharacters:\nMarneus Calgar [185 pts]: Victrix Honour Guard (Warlord)\nApothecary Biologis [85 pts]: Fire Discipline\nLieutenant with Combi-weapon [70 pts]\n\nInfantry:\n6x Aggressor Squad [240 pts]: Auto boltstorm gauntlets, Fragstorm grenade launcher\n6x Eradicator Squad [190 pts]: Melta rifles, Multi-melta\n5x Infiltrator Squad [100 pts]: Helix Gauntlet\n\nVehicles:\nLand Raider Redeemer [285 pts]: 2x Flamestorm cannon, Multi-melta\n2x Gladiator Lancer [320 pts]: Lancer laser destroyer",
+                            "list_url": "",
+                            "has_list": True
                         }
                     ],
                     "team_standings": [],
@@ -5137,6 +5169,108 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "list_url": "",
                             "has_list": False,
                             "checked_in": False
+                        },
+                        {
+                            "player_id": "p_dev_commander",
+                            "full_name": "Commander",
+                            "faction": "Space Marines",
+                            "detachment": "Gladius Task Force",
+                            "team": "Iron Hands Veterans",
+                            "placement": 7,
+                            "event_wins": 4,
+                            "event_losses": 1,
+                            "event_draws": 0,
+                            "event_battle_points": 445,
+                            "current_elo": 1845.5,
+                            "army_list": "++ Space Marines - Gladius Task Force [2,000 pts] ++\n\nCharacters:\nMarneus Calgar [185 pts]: Victrix Honour Guard (Warlord)\nApothecary Biologis [85 pts]: Fire Discipline\nLieutenant with Combi-weapon [70 pts]\n\nInfantry:\n6x Aggressor Squad [240 pts]: Auto boltstorm gauntlets, Fragstorm grenade launcher\n6x Eradicator Squad [190 pts]: Melta rifles, Multi-melta\n5x Infiltrator Squad [100 pts]: Helix Gauntlet\n5x Scout Squad [65 pts]: Astartes chainsword, Missile launcher\n\nVehicles:\nLand Raider Redeemer [285 pts]: 2x Flamestorm cannon, Multi-melta\n2x Gladiator Lancer [320 pts]: Lancer laser destroyer\nRedemptor Dreadnought [210 pts]: Macro plasma incinerator",
+                            "list_url": "",
+                            "has_list": True,
+                            "checked_in": True
+                        },
+                        {
+                            "player_id": "MEV83VFANA",
+                            "full_name": "John Hsieh",
+                            "faction": "Necrons",
+                            "detachment": "Canoptek Court",
+                            "team": "Team Zero Comp",
+                            "placement": 8,
+                            "event_wins": 4,
+                            "event_losses": 1,
+                            "event_draws": 0,
+                            "event_battle_points": 430,
+                            "current_elo": 1888.5,
+                            "army_list": "++ Necrons - Canoptek Court [2,000 pts] ++\n\nCharacters:\nIlluminor Szeras [175 pts]: Eldritch lance (Warlord)\nTechnomancer [85 pts]: Dimensional Sanctum\nTechnomancer [60 pts]: Staff of light\nPlasmancer [65 pts]: Plasmic lance\n\nBattleline:\n10x Immortals [150 pts]: Tesla carbine\n\nInfantry & Beasts:\n6x Canoptek Wraiths [250 pts]: Vicious claws, Particle caster\n6x Canoptek Wraiths [250 pts]: Vicious claws, Particle caster\n\nMonsters & Vehicles:\nC'tan Shard of the Nightbringer [295 pts]: Scythe of the Nightbringer\n3x Canoptek Doomstalker [435 pts]: Doomsday blaster",
+                            "list_url": "",
+                            "has_list": True,
+                            "checked_in": True
+                        },
+                        {
+                            "player_id": "Te1Q9lp3By",
+                            "full_name": "Junior Aflleje",
+                            "faction": "Leagues of Votann",
+                            "detachment": "Oathband",
+                            "team": "Team Zero Comp",
+                            "placement": 1,
+                            "event_wins": 6,
+                            "event_losses": 0,
+                            "event_draws": 0,
+                            "event_battle_points": 565,
+                            "current_elo": 2190.8,
+                            "army_list": "++ Leagues of Votann - Oathband [2,000 pts] ++\n\nCharacters:\nKâhl [90 pts]: Appraising Glare (Warlord)\nEinhyr Champion [80 pts]: Grim Demeanour, Mass hammer\n\nBattleline:\n10x Hearthkyn Warriors [100 pts]: Autoch-pattern bolter, Magna-rail rifle\n10x Hearthkyn Warriors [100 pts]: Ion blaster\n\nDedicated Transports:\n3x Sagitaur [330 pts]: HYLas beam cannon\n\nOther Datasheets:\n6x Einhyr Hearthguard [320 pts]: Volkanite disintegrators, Concussion gauntlets\n6x Hernkyn Pioneers [180 pts]: HYLas rotary cannon\n2x Hekaton Land Fortress [450 pts]: Heavy magna-rail cannon",
+                            "list_url": "",
+                            "has_list": True,
+                            "checked_in": True
+                        },
+                        {
+                            "player_id": "p_marcus",
+                            "full_name": "Marcus Vance",
+                            "faction": "Orks",
+                            "detachment": "War Horde",
+                            "team": "Da Boyz Club",
+                            "placement": 9,
+                            "event_wins": 3,
+                            "event_losses": 2,
+                            "event_draws": 0,
+                            "event_battle_points": 380,
+                            "current_elo": 1720.0,
+                            "army_list": "++ Orks - War Horde [2,000 pts] ++\n\nCharacters:\nMozrog Skragbad [165 pts]: Big Chompa's jaws, Gutrippa (Warlord)\nBeastboss on Squigosaur [150 pts]: Headwoppa's Killchoppa\nWarboss [65 pts]: Attack squig, Power klaw\n\nBattleline:\n20x Beast Snagga Boyz [210 pts]: Choppa, Slugga\n10x Boyz [85 pts]: Choppa, Rokkit launcha\n\nVehicles:\nBattlewagon [160 pts]: Deff rolla, 4x Big shoota\n2x Trukk [130 pts]: Wreckin' ball\nKill Rig [170 pts]: 'Eavy lobba, Wurrtower",
+                            "list_url": "",
+                            "has_list": True,
+                            "checked_in": True
+                        },
+                        {
+                            "player_id": "1",
+                            "full_name": "Innes Wilson",
+                            "faction": "Adeptus Custodes",
+                            "detachment": "Shield Host",
+                            "team": "Stat Check",
+                            "placement": 1,
+                            "event_wins": 5,
+                            "event_losses": 0,
+                            "event_draws": 0,
+                            "event_battle_points": 485,
+                            "current_elo": 2120.5,
+                            "army_list": "++ Adeptus Custodes - Shield Host [2,000 pts] ++\n\nCharacters:\nTrajann Valoris [150 pts]: Watcher's Axe (Warlord)\nBlade Champion [110 pts]: Vaultswords, Auric Mantle\nBlade Champion [110 pts]: Vaultswords\n\nBattleline:\n5x Custodian Guard [225 pts]: 4x Guardian Spear, 1x Praesidium Shield & Misericordia\n5x Custodian Guard [225 pts]: 5x Guardian Spear\n\nOther Datasheets:\n5x Custodian Wardens [250 pts]: 5x Castellan Axe, Vexilla\n5x Custodian Wardens [250 pts]: 5x Guardian Spear, Vexilla\n3x Allarus Custodians [195 pts]: 3x Castellan Axe, Balistus Grenade Launcher\n2x Caladius Grav-tank [430 pts]: Twin arachnus heavy blaze cannon\n4x Prosecutors [40 pts]: Boltgun",
+                            "list_url": "",
+                            "has_list": True,
+                            "checked_in": True
+                        },
+                        {
+                            "player_id": "p_john_lennon",
+                            "full_name": "John Lennon",
+                            "faction": "Ultramarines",
+                            "detachment": "Gladius Task Force",
+                            "team": "Art of War",
+                            "placement": 2,
+                            "event_wins": 4,
+                            "event_losses": 1,
+                            "event_draws": 0,
+                            "event_battle_points": 455,
+                            "current_elo": 2340.5,
+                            "army_list": "++ Ultramarines - Gladius Task Force [2,000 pts] ++\n\nCharacters:\nMarneus Calgar [185 pts]: Victrix Honour Guard (Warlord)\nUriel Ventris [75 pts]: Sword of Idaeus\nApothecary Biologis [85 pts]: Fire Discipline\n\nInfantry:\n6x Aggressor Squad [240 pts]: Auto boltstorm gauntlets\n6x Eradicator Squad [190 pts]: Melta rifles, Multi-melta\n6x Inceptor Squad [260 pts]: Plasma exterminators\n5x Scout Squad [65 pts]: Astartes chainsword",
+                            "list_url": "",
+                            "has_list": True,
+                            "checked_in": True
                         }
                     ],
                     "team_standings": [],
@@ -6334,6 +6468,64 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 or (isinstance(st, dict) and (st.get("is_finished") or st.get("status") == "completed"))
             )
             if not is_finished or not st:
+                # Check if this is a BCP/Tournament match ID and return official bcp_match scorecard
+                bcp_match_fallback = None
+                ev_t_m = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", str(match_id), re.I)
+                ev_p_m = None if ev_t_m else re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-P-(.+)$", str(match_id), re.I)
+                if ev_t_m or ev_p_m:
+                    ev_id_f = ev_t_m.group(1) if ev_t_m else ev_p_m.group(1)
+                    r_f = int(ev_t_m.group(2) if ev_t_m else ev_p_m.group(2))
+                    t_f = int(ev_t_m.group(3)) if ev_t_m else 1
+                    p_tok_f = urllib.parse.unquote(ev_p_m.group(3)).strip() if ev_p_m else ""
+                    ev_cached = DEV_EVENT_CACHE.get(ev_id_f)
+                    if ev_cached and isinstance(ev_cached.get("matches"), list):
+                        for cm in ev_cached["matches"]:
+                            if int(cm.get("round") or 1) == r_f:
+                                if ev_t_m and int(cm.get("table_number") or cm.get("table") or 1) == t_f:
+                                    bcp_match_fallback = dict(cm)
+                                    bcp_match_fallback.setdefault("event_name", ev_cached.get("name") or ev_id_f)
+                                    break
+                                elif ev_p_m and (
+                                    str(cm.get("player1_id") or "").lower() == p_tok_f.lower()
+                                    or str(cm.get("player2_id") or "").lower() == p_tok_f.lower()
+                                    or str(cm.get("player1_name") or "").lower() == p_tok_f.lower()
+                                    or str(cm.get("player2_name") or "").lower() == p_tok_f.lower()
+                                ):
+                                    bcp_match_fallback = dict(cm)
+                                    bcp_match_fallback.setdefault("event_name", ev_cached.get("name") or ev_id_f)
+                                    break
+                    if not bcp_match_fallback:
+                        bcp_match_fallback = {
+                            "id": match_id,
+                            "event_id": ev_id_f,
+                            "event_name": (ev_cached.get("name") if isinstance(ev_cached, dict) else None) or ev_id_f.replace("ev_", "").replace("_", " ").title(),
+                            "round": r_f,
+                            "table_number": t_f,
+                            "match_date": "2026-08-20",
+                            "player1_name": p_tok_f or "Competitor",
+                            "player1_faction": "Space Marines",
+                            "player1_score": 90,
+                            "player2_name": "Opponent",
+                            "player2_faction": "Orks",
+                            "player2_score": 65,
+                            "is_done": True
+                        }
+                if bcp_match_fallback:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    if not is_head:
+                        self.wfile.write(json.dumps({
+                            "success": True,
+                            "match_id": match_id,
+                            "game_record": None,
+                            "state": None,
+                            "bcp_match": bcp_match_fallback,
+                            "is_finished": True,
+                            "status": "completed",
+                            "source": "bcp"
+                        }, default=str).encode("utf-8"))
+                    return
                 self.send_response(404)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
