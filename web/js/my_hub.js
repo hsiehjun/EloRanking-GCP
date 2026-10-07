@@ -245,6 +245,9 @@ async function loadMyHubDashboard() {
     if (!alreadyMounted) {
       renderMyHub(cachedData);
     }
+    if (typeof prefetchHubTopTournaments === 'function') {
+      prefetchHubTopTournaments(cachedData);
+    }
   } else if (currentUser) {
     const shell = buildMyHubShellData(currentUser);
     shell.active_sessions = localInitial.active;
@@ -392,6 +395,9 @@ async function loadMyHubDashboard() {
     if (typeof prefetchHubMappableEventMatches === 'function') {
       prefetchHubMappableEventMatches(gs);
     }
+    if (typeof prefetchHubTopTournaments === 'function') {
+      prefetchHubTopTournaments(data);
+    }
     if (window.Armory && typeof window.Armory.renderActiveRivalHexBanner === 'function') {
       window.Armory.renderActiveRivalHexBanner('my-hub-content');
     }
@@ -432,6 +438,9 @@ async function loadMyHubDashboard() {
         const actLen = (data.active_sessions && data.active_sessions.length) || 0;
         activeSubtabCountEl.textContent = String(actLen + freshRegs.length);
       }
+      if (typeof prefetchHubTopTournaments === 'function') {
+        prefetchHubTopTournaments(data);
+      }
     }).catch(() => {});
   } catch (err) {
     console.warn("Notice updating competitor hub from server:", err);
@@ -440,6 +449,37 @@ async function loadMyHubDashboard() {
     }
   }
 }
+
+function prefetchHubTopTournaments(data) {
+  if (!data || !window.api || typeof window.api.getTournamentDetails !== 'function') return;
+  const candidateIds = [];
+  const addId = (rawId) => {
+    const eid = String(rawId || '').trim();
+    if (!eid || eid.startsWith('g-') || eid.startsWith('game-') || candidateIds.includes(eid)) return;
+    if (candidateIds.length < 5) candidateIds.push(eid);
+  };
+  (data.registered_tournaments || []).slice(0, 2).forEach(e => addId(e && (e.bcp_event_id || e.event_id || e.id)));
+  (data.upcoming_events || []).slice(0, 2).forEach(e => addId(e && (e.bcp_event_id || e.event_id || e.id)));
+  (data.events_attended || []).slice(0, 3).forEach(e => addId(e && (e.event_id || e.bcp_event_id || e.id)));
+
+  candidateIds.forEach((eid, idx) => {
+    if (typeof window.getWarmEventModalCache === 'function' && window.getWarmEventModalCache(eid)) {
+      return;
+    }
+    setTimeout(() => {
+      const pEv = window.api.getTournamentDetails(eid, false).catch(() => null);
+      const pReg = (typeof window.api.getCommunityEventRegistration === 'function')
+        ? window.api.getCommunityEventRegistration(eid, false).catch(() => null)
+        : Promise.resolve(null);
+      Promise.all([pEv, pReg]).then(([ev, reg]) => {
+        if (ev && !ev.error && typeof window.saveEventModalCache === 'function') {
+          window.saveEventModalCache(eid, ev, (reg && !reg.error) ? reg : null);
+        }
+      }).catch(() => {});
+    }, 80 + idx * 120);
+  });
+}
+window.prefetchHubTopTournaments = prefetchHubTopTournaments;
 
 var currentHubSubtab = (typeof window !== 'undefined' && window.currentHubSubtab) || 'active';
 if (typeof window !== 'undefined') window.currentHubSubtab = currentHubSubtab;

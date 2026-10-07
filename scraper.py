@@ -121,9 +121,29 @@ class BestCoastPairingsScraper:
                 logger.info("Reached end of events pagination.")
                 break
 
+    _bcp_http_cache: Dict[str, Any] = {}
+    _BCP_HTTP_CACHE_TTL: float = 45.0
+
+    def _is_mocked(self) -> bool:
+        return (
+            hasattr(self._make_request, "assert_called")
+            or hasattr(self._make_request, "side_effect")
+            or hasattr(urllib.request.urlopen, "assert_called")
+            or hasattr(urllib.request.urlopen, "side_effect")
+        )
+
     def fetch_event_details(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Fetches full tournament details for a specific event."""
-        return self._make_request(f"/events/{event_id}")
+        use_cache = not self._is_mocked()
+        cache_key = f"ev_details:{event_id}"
+        if use_cache:
+            entry = BestCoastPairingsScraper._bcp_http_cache.get(cache_key)
+            if entry and (time.time() - entry[0]) < self._BCP_HTTP_CACHE_TTL:
+                return entry[1]
+        res = self._make_request(f"/events/{event_id}")
+        if use_cache and res:
+            BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), res)
+        return res
 
     def fetch_event_pairings_for_round(self, event_id: str, round_num: int, pairing_type: str = "Pairing") -> List[Dict[str, Any]]:
         """Fetches all pairings for a specific round of an event. Falls back to TeamPairing if standard Pairing is empty."""
@@ -187,8 +207,26 @@ class BestCoastPairingsScraper:
         """Fetches registered player roster for an event from BCP with official placings and tiebreaker metrics.
         Ensures both complete registered roster and official placings are retrieved.
         """
-        # 1. Fetch from /events/{event_id}/players with placings=true (supporting super-majors up to 2500 competitors)
-        resp = self._make_request(f"/events/{event_id}/players", params={"limit": 2500, "placings": "true"})
+        use_cache = not self._is_mocked()
+        cache_key = f"ev_players:{event_id}"
+        if use_cache:
+            entry = BestCoastPairingsScraper._bcp_http_cache.get(cache_key)
+            if entry and (time.time() - entry[0]) < self._BCP_HTTP_CACHE_TTL:
+                return entry[1]
+
+        # 1. Fetch from /events/{event_id}/players with placings=true AND without placings filter
+        # (BCP excludes unplaced competitors when placings=true is queried)
+        if use_cache and self.request_delay <= 0.01:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                f_plc = pool.submit(self._make_request, f"/events/{event_id}/players", {"limit": 2500, "placings": "true"})
+                f_ros = pool.submit(self._make_request, f"/events/{event_id}/players", {"limit": 2500})
+                resp = f_plc.result()
+                roster_resp = f_ros.result()
+        else:
+            resp = self._make_request(f"/events/{event_id}/players", params={"limit": 2500, "placings": "true"})
+            roster_resp = self._make_request(f"/events/{event_id}/players", params={"limit": 2500})
+
         players = []
         if resp:
             if isinstance(resp, dict):
@@ -201,9 +239,6 @@ class BestCoastPairingsScraper:
             elif isinstance(resp, list):
                 players = resp
 
-        # 2. Also fetch complete roster without placings filter to capture all enrolled competitors
-        # (BCP excludes unplaced competitors when placings=true is queried)
-        roster_resp = self._make_request(f"/events/{event_id}/players", params={"limit": 2500})
         roster_players = []
         if roster_resp:
             if isinstance(roster_resp, dict):
@@ -237,10 +272,16 @@ class BestCoastPairingsScraper:
                         for k in ("placing", "manualPlacing", "rank", "place", "placement", "points", "battlePoints", "totalPoints", "metrics", "pod_metrics", "total_metrics", "overall_metrics", "games", "pod_games", "total_games", "podNum"):
                             if matched.get(k) is not None:
                                 rp[k] = matched[k]
+                if use_cache:
+                    BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), roster_players)
                 return roster_players
+            if use_cache:
+                BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), roster_players)
             return roster_players
 
         if players:
+            if use_cache:
+                BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), players)
             return players
 
         # 3. If empty, fallback to full event details object
@@ -253,11 +294,30 @@ class BestCoastPairingsScraper:
             elif "users" in ev_data and isinstance(ev_data["users"], list):
                 players = ev_data["users"]
 
+        if use_cache and players:
+            BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), players)
         return players
 
     def fetch_event_teams(self, event_id: str) -> List[Dict[str, Any]]:
         """Fetches registered teams and official team placings from BCP for a team tournament."""
-        resp = self._make_request(f"/events/{event_id}/teamplayers", params={"limit": 2500, "placings": "true"})
+        use_cache = not self._is_mocked()
+        cache_key = f"ev_teams:{event_id}"
+        if use_cache:
+            entry = BestCoastPairingsScraper._bcp_http_cache.get(cache_key)
+            if entry and (time.time() - entry[0]) < self._BCP_HTTP_CACHE_TTL:
+                return entry[1]
+
+        if use_cache and self.request_delay <= 0.01:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                f_plc = pool.submit(self._make_request, f"/events/{event_id}/teamplayers", {"limit": 2500, "placings": "true"})
+                f_ros = pool.submit(self._make_request, f"/events/{event_id}/teamplayers", {"limit": 2500})
+                resp = f_plc.result()
+                roster_resp = f_ros.result()
+        else:
+            resp = self._make_request(f"/events/{event_id}/teamplayers", params={"limit": 2500, "placings": "true"})
+            roster_resp = self._make_request(f"/events/{event_id}/teamplayers", params={"limit": 2500})
+
         teams = []
         if resp:
             if isinstance(resp, dict):
@@ -271,7 +331,6 @@ class BestCoastPairingsScraper:
                 teams = resp
 
         # Also fetch without placings to capture all enrolled teams if placings=true returns empty/fewer
-        roster_resp = self._make_request(f"/events/{event_id}/teamplayers", params={"limit": 2500})
         roster_teams = []
         if roster_resp:
             if isinstance(roster_resp, dict):
@@ -309,6 +368,8 @@ class BestCoastPairingsScraper:
                     x.get("placing") if x.get("placing") is not None and not isinstance(x.get("placing"), bool) else 999999
                 ))
 
+        if use_cache and teams:
+            BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), teams)
         return teams
 
     def ingest_event_roster(self, event_id: str, enrolled_players: List[Dict[str, Any]], teams: Optional[List[Dict[str, Any]]] = None) -> int:

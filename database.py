@@ -3872,6 +3872,7 @@ class PostgresDatabase:
                 res = dict(event_row)
 
                 # 2. Match pairings with digital tracker game linkage
+                ev_variants = list({str(event_id), str(event_id).lower(), str(event_id).upper()})
                 cursor.execute("""
                 SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
                        m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
@@ -3881,12 +3882,13 @@ class PostgresDatabase:
                        tg.match_id as tracker_match_id,
                        COALESCE(tg.is_finished, FALSE) as tracker_is_done,
                        COALESCE(tg.started, FALSE) as tracker_started,
-                       COALESCE((tg.state_json->>'event_match_locked')::boolean, tg.is_finished, FALSE) as tracker_is_locked
+                       COALESCE(tg.tracker_is_locked, FALSE) as tracker_is_locked
                 FROM matches m
                 LEFT JOIN LATERAL (
-                    SELECT match_id, is_finished, started, state_json
+                    SELECT match_id, is_finished, started,
+                           COALESCE((state_json->>'event_match_locked')::boolean, is_finished, FALSE) as tracker_is_locked
                     FROM tracker_games
-                    WHERE LOWER(event_id) = LOWER(m.event_id)
+                    WHERE event_id = ANY(%s)
                       AND round_num = m.round
                       AND table_num = m.table_number
                     ORDER BY
@@ -3898,23 +3900,32 @@ class PostgresDatabase:
                 ) tg ON TRUE
                 WHERE m.event_id = %s
                 ORDER BY m.round ASC, m.table_number ASC;
-                """, (event_id,))
+                """, (ev_variants, event_id))
                 matches = [dict(r) for r in cursor.fetchall()]
 
-                # 3. Participants roster
+                # 3. Participants roster (indexed by player_id first, then fallback indexed by player_name)
                 cursor.execute("""
                 SELECT 
                     ep.player_id, 
-                    COALESCE(NULLIF(TRIM(ep.full_name), ''), pr.player_name, 'Player') as full_name,
-                    COALESCE(ep.faction, pr.top_faction, 'Unknown') as faction,
-                    COALESCE(ep.team, pr.team, '') as team,
+                    COALESCE(NULLIF(TRIM(ep.full_name), ''), pr_id.player_name, pr_nm.player_name, 'Player') as full_name,
+                    COALESCE(ep.faction, pr_id.top_faction, pr_nm.top_faction, 'Unknown') as faction,
+                    COALESCE(ep.team, pr_id.team, pr_nm.team, '') as team,
                     ep.dropped, ep.checked_in,
                     ep.placement, ep.pod_num,
-                    COALESCE(pr.current_elo, 1500.0) as current_elo,
-                    COALESCE(pr.peak_elo, 1500.0) as peak_elo,
-                    COALESCE(pr.win_rate, 0.0) as global_win_rate
+                    COALESCE(pr_id.current_elo, pr_nm.current_elo, 1500.0) as current_elo,
+                    COALESCE(pr_id.peak_elo, pr_nm.peak_elo, 1500.0) as peak_elo,
+                    COALESCE(pr_id.win_rate, pr_nm.win_rate, 0.0) as global_win_rate
                 FROM event_participants ep
-                LEFT JOIN player_ratings pr ON (ep.player_id = pr.player_id OR (pr.player_name IS NOT NULL AND LOWER(pr.player_name) = LOWER(ep.full_name)))
+                LEFT JOIN player_ratings pr_id ON pr_id.player_id = ep.player_id
+                LEFT JOIN LATERAL (
+                    SELECT player_name, top_faction, team, current_elo, peak_elo, win_rate
+                    FROM player_ratings
+                    WHERE pr_id.player_id IS NULL
+                      AND ep.full_name IS NOT NULL
+                      AND player_name IN (TRIM(ep.full_name), INITCAP(TRIM(ep.full_name)))
+                    ORDER BY total_matches DESC NULLS LAST
+                    LIMIT 1
+                ) pr_nm ON TRUE
                 WHERE ep.event_id = %s;
                 """, (event_id,))
                 participants = {r["player_id"]: dict(r) for r in cursor.fetchall()}

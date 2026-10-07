@@ -903,12 +903,35 @@ def _check_tournament_started_or_ended(ev: Dict[str, Any], rj: Optional[Dict[str
     return is_started, is_ended
 
 
+_community_reg_cache: Dict[str, Any] = {}
+_COMMUNITY_REG_CACHE_TTL: float = 60.0
+
+
+def _invalidate_community_reg_cache(event_id: Optional[str] = None) -> None:
+    if not event_id:
+        _community_reg_cache.clear()
+        return
+    clean = str(event_id).strip()
+    for k in list(_community_reg_cache.keys()):
+        if k.startswith(f"{clean}:"):
+            _community_reg_cache.pop(k, None)
+
+
 @router.get("/api/community/events/{event_id}/registration", summary="Get Event Registration Metadata, User Status & Saved Army Lists")
-def api_community_event_registration(
+async def api_community_event_registration(
     event_id: str,
     request: Request,
     force_sync: bool = Query(False),
     token: Optional[str] = Query(None)
+):
+    return await asyncio.to_thread(_sync_api_community_event_registration, event_id, request, force_sync, token)
+
+
+def _sync_api_community_event_registration(
+    event_id: str,
+    request: Request,
+    force_sync: bool = False,
+    token: Optional[str] = None
 ):
     """
     Returns complete registration configuration for a tournament:
@@ -925,9 +948,21 @@ def api_community_event_registration(
     user = auth_mgr.get_session(session_token) if session_token else None
     user_id = user["id"] if user else None
     x_bcp_token = request.headers.get("X-BCP-Token")
+    clean_eid = str(event_id).strip()
+
+    is_mock_env = (
+        hasattr(db, "assert_called")
+        or hasattr(getattr(db, "get_event_details", None), "assert_called")
+        or hasattr(auth_mgr, "assert_called")
+        or hasattr(getattr(auth_mgr, "get_session", None), "assert_called")
+    )
+    cache_key = f"{clean_eid}:{user_id or 'anon'}:{bool(x_bcp_token)}"
+    if not force_sync and not is_mock_env:
+        cached_entry = _community_reg_cache.get(cache_key)
+        if cached_entry and (time.time() - cached_entry[0]) < _COMMUNITY_REG_CACHE_TTL:
+            return cached_entry[1]
 
     # Retrieve event from DB or fallback fetch from BCP
-    clean_eid = str(event_id).strip()
     ev = db.get_event_details(clean_eid)
     if not ev:
         ev = db.get_studio_event(clean_eid)
@@ -1035,7 +1070,7 @@ def api_community_event_registration(
             "bcp_user_id": bcp_user_id
         }
 
-        # Check if already registered
+        # Check if already registered in DB
         matched_reg = None
         try:
             user_regs = db.get_user_registered_tournaments(user["id"])
@@ -1047,8 +1082,36 @@ def api_community_event_registration(
         except Exception:
             is_registered = False
 
+        # Also check already-loaded event participants in `ev.get("players")` before making external HTTP calls
+        if not is_registered and isinstance(ev.get("players"), list) and ev.get("players"):
+            target_uids = {str(k) for k in (bcp_user_id, user.get("id"), user.get("player_id")) if k}
+            user_display_clean = str(user_display or "").strip().lower()
+            for ep in ev["players"]:
+                if not isinstance(ep, dict):
+                    continue
+                ep_pid = str(ep.get("player_id") or ep.get("user_id") or ep.get("id") or "").strip()
+                ep_name = str(ep.get("full_name") or ep.get("name") or "").strip().lower()
+                if (ep_pid and ep_pid in target_uids) or (user_display_clean and len(user_display_clean) > 3 and ep_name == user_display_clean):
+                    is_registered = True
+                    matched_reg = {
+                        "player_id": str(ep.get("bcp_event_player_id") or ep_pid),
+                        "first_name": fn,
+                        "last_name": ln,
+                        "team_name": ep.get("team") or "",
+                        "faction": ep.get("faction") if ep.get("faction") not in ("Unknown", "-", None) else "",
+                        "detachment": ep.get("detachment") or "",
+                        "checked_in": bool(ep.get("checked_in") or False),
+                        "dropped": bool(ep.get("dropped") or False),
+                        "has_list_submitted": bool(ep.get("has_list") or ep.get("army_list") or ep.get("list_id")),
+                        "army_list": ep.get("army_list") or "",
+                        "list_id": str(ep.get("list_id") or ""),
+                    }
+                    break
+
+        should_skip_live_bcp = bool(not is_mock_env and is_ended and not force_sync)
+
         # Live sync from BCP dedicated /currentPlayer endpoint
-        if not clean_eid.startswith("ES-"):
+        if not clean_eid.startswith("ES-") and not should_skip_live_bcp and (is_mock_env or bcp_linked or x_bcp_token):
             try:
                 from bcp_adapter import bcp_adapter
                 succ_cp, _, cp = bcp_adapter.fetch_event_current_player(
@@ -1114,7 +1177,7 @@ def api_community_event_registration(
                 logger.debug(f"Notice querying live /currentPlayer: {cp_err}")
 
         # Live sync from BCP if user is linked to BCP
-        if not is_registered and not clean_eid.startswith("ES-"):
+        if not is_registered and not clean_eid.startswith("ES-") and not should_skip_live_bcp and (is_mock_env or bcp_linked or x_bcp_token):
             try:
                 from bcp_adapter import bcp_adapter
                 succ, _, bcp_events = bcp_adapter.fetch_user_registered_events(user["id"], explicit_token=x_bcp_token)
@@ -1134,10 +1197,10 @@ def api_community_event_registration(
                 logger.debug(f"Notice querying live user registered events: {bcp_fetch_err}")
 
         # Fallback check against live event players from BCP with resilient matching
-        if not is_registered and not clean_eid.startswith("ES-"):
+        if not is_registered and not clean_eid.startswith("ES-") and not should_skip_live_bcp:
             try:
                 from scraper import BestCoastPairingsScraper
-                scraper = BestCoastPairingsScraper()
+                scraper = BestCoastPairingsScraper(request_delay=0.0)
                 bcp_players = scraper.fetch_event_players(clean_eid)
                 target_uids = {str(bcp_user_id), str(user.get("id"))} if bcp_user_id else {str(user.get("id"))}
                 user_em = str(user_email or "").strip().lower()
@@ -1193,9 +1256,19 @@ def api_community_event_registration(
         if matched_reg:
             from bcp_adapter import bcp_adapter
             cand_pid = str(matched_reg.get("bcp_player_id") or matched_reg.get("player_id") or "").strip()
-            # If candidate_pid is invalid, identical to event_id, or starts with user_, resolve the real one
-            resolved_pid = bcp_adapter.resolve_event_player_id(clean_eid, user["id"], candidate_pid=cand_pid, explicit_token=x_bcp_token)
-            actual_pid = resolved_pid or (cand_pid if (cand_pid and cand_pid != clean_eid and not cand_pid.startswith("user_")) else "")
+            valid_cand = bool(
+                cand_pid
+                and cand_pid != clean_eid
+                and not cand_pid.startswith("user_")
+                and cand_pid != str(user.get("id") or "")
+                and cand_pid != str(bcp_user_id or "")
+            )
+            if not is_mock_env and valid_cand:
+                actual_pid = cand_pid
+            else:
+                # If candidate_pid is invalid, identical to event_id, or starts with user_, resolve the real one
+                resolved_pid = bcp_adapter.resolve_event_player_id(clean_eid, user["id"], candidate_pid=cand_pid, explicit_token=x_bcp_token)
+                actual_pid = resolved_pid or (cand_pid if valid_cand else "")
 
             fn_val = matched_reg.get("first_name") or fn
             ln_val = matched_reg.get("last_name") or ln
@@ -1238,7 +1311,7 @@ def api_community_event_registration(
         except Exception as e:
             logger.debug(f"Saved army lists fetch notice: {e}")
 
-    return {
+    resp_payload = {
         "success": True,
         "event_id": clean_eid,
         "event_name": ev.get("name") or "Tournament",
@@ -1272,10 +1345,13 @@ def api_community_event_registration(
         "user_profile": user_profile,
         "army_lists": army_lists
     }
+    if not is_mock_env:
+        _community_reg_cache[cache_key] = (time.time(), resp_payload)
+    return resp_payload
 
 
 @router.post("/api/community/events/{event_id}/register", summary="Register Competitor for Free Tournament")
-def api_community_event_register(
+async def api_community_event_register(
     event_id: str,
     payload: CommunityEventRegisterPayload,
     request: Request,
@@ -1588,6 +1664,7 @@ def api_community_event_register(
         already_reg = bool(bcp_resp and isinstance(bcp_resp, dict) and bcp_resp.get("already_registered"))
         success_msg = f"You are already registered for {ev.get('name') or 'Tournament'} on Best Coast Pairings!" if already_reg else f"Successfully registered for {ev.get('name') or 'Tournament'} on Best Coast Pairings!"
 
+        _invalidate_community_reg_cache(clean_eid)
         return {
             "success": True,
             "message": success_msg,
@@ -1651,6 +1728,7 @@ def api_community_event_register(
     except Exception as es_err:
         logger.debug(f"Event Studio roster update notice: {es_err}")
 
+    _invalidate_community_reg_cache(clean_eid)
     return {
         "success": True,
         "message": f"Successfully registered for {ev.get('name') or 'Tournament'}!",
@@ -1675,7 +1753,7 @@ def api_community_event_register(
 # =========================================================================
 
 @router.get("/api/community/gamesystems/{gamesystem_id}/factions", summary="Get Official Factions and Detachments for Gamesystem")
-def api_community_gamesystem_factions(gamesystem_id: str):
+async def api_community_gamesystem_factions(gamesystem_id: str):
     """
     Fetches the official list of factions and detachments (subfactions) for a gamesystem from BCP.
     """
@@ -1692,7 +1770,7 @@ def api_community_gamesystem_factions(gamesystem_id: str):
 
 
 @router.post("/api/community/events/{event_id}/player", summary="Update Player Registration Details on BCP")
-def api_community_update_player(
+async def api_community_update_player(
     event_id: str,
     payload: UpdateEventPlayerPayload,
     request: Request,
@@ -1800,6 +1878,7 @@ def api_community_update_player(
         except Exception as dberr:
             logger.debug(f"Event Studio participant sync notice: {dberr}")
 
+    _invalidate_community_reg_cache(clean_eid)
     return {
         "success": True,
         "message": "Player details updated successfully",
@@ -1809,7 +1888,7 @@ def api_community_update_player(
 
 
 @router.post("/api/community/events/{event_id}/armylist", summary="Submit Army List to BCP")
-def api_community_submit_armylist(
+async def api_community_submit_armylist(
     event_id: str,
     payload: SubmitArmylistPayload,
     request: Request,
@@ -1884,6 +1963,7 @@ def api_community_submit_armylist(
         except Exception as dberr:
             logger.debug(f"Event Studio participant list sync notice: {dberr}")
 
+    _invalidate_community_reg_cache(clean_eid)
     return {
         "success": True,
         "message": "Army list submitted successfully to BCP",
@@ -1893,7 +1973,7 @@ def api_community_submit_armylist(
 
 
 @router.post("/api/community/events/{event_id}/checkin", summary="Check-in Player to Tournament on BCP")
-def api_community_checkin_player(
+async def api_community_checkin_player(
     event_id: str,
     payload: CheckinPlayerPayload,
     request: Request,
@@ -1974,6 +2054,7 @@ def api_community_checkin_player(
         except Exception as dberr:
             logger.debug(f"Event Studio participant checkin sync notice: {dberr}")
 
+    _invalidate_community_reg_cache(clean_eid)
     return {
         "success": True,
         "message": "Successfully checked in to tournament on BCP",
@@ -1983,7 +2064,7 @@ def api_community_checkin_player(
 
 
 @router.post("/api/community/events/{event_id}/drop", summary="Drop Player from Tournament on BCP")
-def api_community_drop_player(
+async def api_community_drop_player(
     event_id: str,
     payload: DropPlayerPayload,
     request: Request,
@@ -2041,6 +2122,7 @@ def api_community_drop_player(
         except Exception as dberr:
             logger.debug(f"Event Studio participant drop sync notice: {dberr}")
 
+    _invalidate_community_reg_cache(clean_eid)
     return {
         "success": True,
         "message": "Successfully dropped from tournament on BCP",

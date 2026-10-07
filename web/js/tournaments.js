@@ -344,6 +344,42 @@ function closeEventDetailsLoadingModal() {
 }
 window.closeEventDetailsLoadingModal = closeEventDetailsLoadingModal;
 
+function getWarmEventModalCache(eventId) {
+  if (!eventId) return null;
+  const key = String(eventId).trim();
+  if (window._eventModalMemCache && window._eventModalMemCache.has(key)) {
+    const entry = window._eventModalMemCache.get(key);
+    if (entry && (Date.now() - (entry.ts || 0)) < 600000) {
+      return entry;
+    }
+  }
+  try {
+    const raw = sessionStorage.getItem(`omni_ev_modal_v1_${key}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.ev && (Date.now() - (parsed.ts || 0)) < 600000) {
+        if (!window._eventModalMemCache) window._eventModalMemCache = new Map();
+        window._eventModalMemCache.set(key, parsed);
+        return parsed;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+function saveEventModalCache(eventId, ev, userRegData) {
+  if (!eventId || !ev) return;
+  const key = String(eventId).trim();
+  const entry = { ev, userRegData: userRegData || null, ts: Date.now() };
+  if (!window._eventModalMemCache) window._eventModalMemCache = new Map();
+  window._eventModalMemCache.set(key, entry);
+  try {
+    sessionStorage.setItem(`omni_ev_modal_v1_${key}`, JSON.stringify(entry));
+  } catch (e) {}
+}
+window.getWarmEventModalCache = getWarmEventModalCache;
+window.saveEventModalCache = saveEventModalCache;
+
 async function openEventModal(eventId, forceSync = false, initialTab = null) {
   stopEventSyncPoll();
   currentOpenEventId = eventId;
@@ -402,10 +438,35 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
                           currentEventData && String(currentEventData.id) === String(eventId);
   const loadingModal = document.getElementById('event-details-loading-modal');
 
+  // Hydrate in-memory API cache from session warm cache if available
+  const warmEntry = (!forceSync && typeof getWarmEventModalCache === 'function')
+    ? getWarmEventModalCache(eventId)
+    : null;
+  if (warmEntry && warmEntry.ev) {
+    if (!currentEventData || String(currentEventData.id) !== String(eventId)) {
+      currentEventData = warmEntry.ev;
+    }
+    if (window.api && window.api._cache) {
+      const evUrl = `/api/event/${encodeURIComponent(eventId)}`;
+      if (!window.api._cache.has(evUrl)) {
+        window.api._cache.set(evUrl, { data: warmEntry.ev, timestamp: Date.now(), ttl: 180000 });
+      }
+      if (warmEntry.userRegData) {
+        const regUrl = `/api/community/events/${encodeURIComponent(eventId)}/registration`;
+        if (!window.api._cache.has(regUrl)) {
+          window.api._cache.set(regUrl, { data: warmEntry.userRegData, timestamp: Date.now(), ttl: 180000 });
+        }
+      }
+    }
+  }
+
   // Check if we already have warm cached data in memory
   const hasWarmCache = Boolean(
-    (currentEventData && String(currentEventData.id) === String(eventId)) ||
-    (window.api && window.api._cache && window.api._cache.has(`/api/event/${encodeURIComponent(eventId)}`))
+    !forceSync && (
+      (warmEntry && warmEntry.ev) ||
+      (currentEventData && String(currentEventData.id) === String(eventId)) ||
+      (window.api && window.api._cache && window.api._cache.has(`/api/event/${encodeURIComponent(eventId)}`))
+    )
   );
 
   // If the event modal is not already the top active modal showing this event, and no warm cache exists, display loading screen
@@ -480,14 +541,18 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (pbody) pbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Syncing live round pairings from BCP...</div></td></tr>';
   }
 
-  // Parallel network fetch: tournament details + community registration
-  const detailsPromise = window.api.getTournamentDetails(eventId, forceSync);
-  const regPromise = (typeof window.api?.getCommunityEventRegistration === 'function')
-    ? window.api.getCommunityEventRegistration(eventId, forceSync).catch(e => {
-        console.debug('Notice checking user registration:', e);
-        return null;
-      })
-    : Promise.resolve(null);
+  // Parallel network fetch (or 0ms warm cache resolution): tournament details + community registration
+  const detailsPromise = (!forceSync && warmEntry && warmEntry.ev)
+    ? Promise.resolve(warmEntry.ev)
+    : window.api.getTournamentDetails(eventId, forceSync);
+  const regPromise = (!forceSync && warmEntry && warmEntry.userRegData)
+    ? Promise.resolve(warmEntry.userRegData)
+    : ((typeof window.api?.getCommunityEventRegistration === 'function')
+      ? window.api.getCommunityEventRegistration(eventId, forceSync).catch(e => {
+          console.debug('Notice checking user registration:', e);
+          return null;
+        })
+      : Promise.resolve(null));
 
   try {
     const [detailsResult, regResult] = await Promise.allSettled([detailsPromise, regPromise]);
@@ -517,6 +582,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const userRegData = (regResult.status === 'fulfilled' && regResult.value && !regResult.value.error) ? regResult.value : null;
 
     currentEventData = ev;
+    saveEventModalCache(eventId, ev, userRegData);
     let eventName = ev.name;
     if (!eventName || eventName === 'Tournament' || eventName === 'Tournament Details' || eventName === 'Unnamed Tournament') {
       eventName = ev.raw_json?.name || ev.event_name || 'Tournament Details';
@@ -533,7 +599,11 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     }
     invalidateEventSearchIndex();
     if (typeof loadEventLivestreams === 'function') {
-      await loadEventLivestreams(eventId);
+      loadEventLivestreams(eventId).then(() => {
+        if (String(currentOpenEventId) === String(eventId) && typeof renderEventPairingsRows === 'function') {
+          renderEventPairingsRows();
+        }
+      }).catch(() => {});
     }
 
     const eventRounds = getEventNumRounds(ev, eventMatchesCache);
@@ -2825,14 +2895,13 @@ async function populateEventPlayerDetails(regData) {
   if (lnInput) lnInput.value = reg.last_name || (regData.user_profile && regData.user_profile.last_name) || '';
   if (teamInput) teamInput.value = reg.team_name || '';
 
-  // 3. Load Factions and select current faction / detachment
+  // 3. Load Factions and select current faction / detachment (non-blocking if not yet cached)
   const gamesystemId = reg.gamesystem_id || 'WGMSzfKFYA';
-  const factions = await loadGamesystemFactions(gamesystemId);
-  
   const factionSelect = document.getElementById('player-reg-faction');
   const detachmentSelect = document.getElementById('player-reg-detachment');
 
-  if (factionSelect) {
+  const applyFactionsToPlayerSelects = (factions) => {
+    if (!factionSelect) return;
     if (factions && factions.length > 0) {
       let matchedFaction = null;
       if (reg.army_id) {
@@ -2890,6 +2959,16 @@ async function populateEventPlayerDetails(regData) {
         detachmentSelect.innerHTML = `<option value="${escapeHtml(reg.sub_faction_id || reg.detachment)}" selected>${escapeHtml(reg.detachment || reg.sub_faction_id)}</option>`;
       }
     }
+  };
+
+  if (typeof cachedGamesystemFactions !== 'undefined' && cachedGamesystemFactions[gamesystemId]) {
+    await loadGamesystemFactions(gamesystemId);
+    applyFactionsToPlayerSelects(cachedGamesystemFactions[gamesystemId]);
+  } else {
+    applyFactionsToPlayerSelects(null);
+    loadGamesystemFactions(gamesystemId).then(factions => {
+      applyFactionsToPlayerSelects(factions);
+    }).catch(() => {});
   }
 
   // 4. Populate OmniTactica Saved Lists Dropdown
