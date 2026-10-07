@@ -115,9 +115,12 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
         self.assertLess(multi_src.index("NULLIF(e.total_players, 0)"), multi_src.index("totalPlayers"))
         perf_src = inspect.getsource(PostgresDatabase._ensure_critical_perf_schema)
         self.assertIn("(TRIM(team))", perf_src)
+        self.assertIn("idx_pg_ratings_coal_sys_team_cov", perf_src)
+        self.assertIn("VACUUM ANALYZE player_ratings", perf_src)
         teams_src = inspect.getsource(PostgresDatabase._get_all_teams_list)
         self.assertIn("SUM(tp.is_active) OVER", teams_src)
         self.assertIn("SET LOCAL work_mem = '64MB'", teams_src)
+        self.assertIn("SET LOCAL enable_seqscan = off", teams_src)
         search_src = inspect.getsource(PostgresDatabase.search_players)
         self.assertIn("is_id_token", search_src)
 
