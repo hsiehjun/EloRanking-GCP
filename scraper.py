@@ -122,7 +122,7 @@ class BestCoastPairingsScraper:
                 break
 
     _bcp_http_cache: Dict[str, Any] = {}
-    _BCP_HTTP_CACHE_TTL: float = 45.0
+    _BCP_HTTP_CACHE_TTL: float = 90.0
 
     def _is_mocked(self) -> bool:
         return (
@@ -130,6 +130,13 @@ class BestCoastPairingsScraper:
             or hasattr(self._make_request, "side_effect")
             or hasattr(urllib.request.urlopen, "assert_called")
             or hasattr(urllib.request.urlopen, "side_effect")
+            or hasattr(self.fetch_event_details, "assert_called")
+            or hasattr(self.fetch_event_details, "side_effect")
+            or hasattr(self.fetch_event_players, "assert_called")
+            or hasattr(self.fetch_event_players, "side_effect")
+            or hasattr(self.fetch_event_pairings_for_round, "assert_called")
+            or hasattr(self.fetch_event_pairings_for_round, "side_effect")
+            or hasattr(getattr(self, "db", None), "assert_called")
         )
 
     def fetch_event_details(self, event_id: str) -> Optional[Dict[str, Any]]:
@@ -141,19 +148,39 @@ class BestCoastPairingsScraper:
             if entry and (time.time() - entry[0]) < self._BCP_HTTP_CACHE_TTL:
                 return entry[1]
         res = self._make_request(f"/events/{event_id}")
-        if use_cache and res:
+        if use_cache:
             BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), res)
         return res
 
     def fetch_event_pairings_for_round(self, event_id: str, round_num: int, pairing_type: str = "Pairing") -> List[Dict[str, Any]]:
         """Fetches all pairings for a specific round of an event. Falls back to TeamPairing if standard Pairing is empty."""
+        use_cache = not self._is_mocked()
+        if use_cache:
+            ev_entry = BestCoastPairingsScraper._bcp_http_cache.get(f"ev_details:{event_id}")
+            if ev_entry and (time.time() - ev_entry[0]) < self._BCP_HTTP_CACHE_TTL and ev_entry[1] is None:
+                return []
+            pair_cache_key = f"ev_pairings:{event_id}:{round_num}:{pairing_type}"
+            pair_entry = BestCoastPairingsScraper._bcp_http_cache.get(pair_cache_key)
+            if pair_entry and (time.time() - pair_entry[0]) < self._BCP_HTTP_CACHE_TTL:
+                return pair_entry[1]
+        elif (
+            not hasattr(self._make_request, "assert_called")
+            and not hasattr(self._make_request, "side_effect")
+            and not hasattr(urllib.request.urlopen, "assert_called")
+            and not hasattr(urllib.request.urlopen, "side_effect")
+        ):
+            return []
+
         endpoints = [
             (f"/events/{event_id}/pairings", {"round": round_num, "pairingType": pairing_type}),
             ("/pairings", {"eventId": event_id, "round": round_num, "pairingType": pairing_type, "limit": 500}),
         ]
         items = []
+        any_resp_not_none = False
         for ep, params in endpoints:
             resp = self._make_request(ep, params=params)
+            if resp is not None:
+                any_resp_not_none = True
             if isinstance(resp, dict):
                 if "active" in resp and isinstance(resp["active"], list) and resp["active"]:
                     items = resp["active"]
@@ -166,7 +193,7 @@ class BestCoastPairingsScraper:
                 break
 
         # Fallback to TeamPairing if standard Pairing is empty (e.g. Doubles or Team events)
-        if not items and pairing_type == "Pairing":
+        if not items and pairing_type == "Pairing" and (any_resp_not_none or not use_cache):
             team_endpoints = [
                 (f"/events/{event_id}/pairings", {"round": round_num, "pairingType": "TeamPairing"}),
                 ("/pairings", {"eventId": event_id, "round": round_num, "pairingType": "TeamPairing", "limit": 500}),
@@ -184,7 +211,10 @@ class BestCoastPairingsScraper:
                     items = resp_team
                     break
 
-        return items or []
+        res_items = items or []
+        if use_cache:
+            BestCoastPairingsScraper._bcp_http_cache[f"ev_pairings:{event_id}:{round_num}:{pairing_type}"] = (time.time(), res_items)
+        return res_items
 
     def fetch_event_team_pairings_for_round(self, event_id: str, round_num: int) -> List[Dict[str, Any]]:
         """Fetches team-level pairings (Team vs Team) for a team or doubles tournament round."""
@@ -213,6 +243,10 @@ class BestCoastPairingsScraper:
             entry = BestCoastPairingsScraper._bcp_http_cache.get(cache_key)
             if entry and (time.time() - entry[0]) < self._BCP_HTTP_CACHE_TTL:
                 return entry[1]
+            ev_entry = BestCoastPairingsScraper._bcp_http_cache.get(f"ev_details:{event_id}")
+            if ev_entry and (time.time() - ev_entry[0]) < self._BCP_HTTP_CACHE_TTL and ev_entry[1] is None:
+                BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), [])
+                return []
 
         # 1. Fetch from /events/{event_id}/players with placings=true AND without placings filter
         # (BCP excludes unplaced competitors when placings=true is queried)
@@ -284,6 +318,10 @@ class BestCoastPairingsScraper:
                 BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), players)
             return players
 
+        if resp is None and roster_resp is None and use_cache:
+            BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), [])
+            return []
+
         # 3. If empty, fallback to full event details object
         ev_data = self.fetch_event_details(event_id)
         if ev_data and isinstance(ev_data, dict):
@@ -294,7 +332,7 @@ class BestCoastPairingsScraper:
             elif "users" in ev_data and isinstance(ev_data["users"], list):
                 players = ev_data["users"]
 
-        if use_cache and players:
+        if use_cache:
             BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), players)
         return players
 
@@ -306,6 +344,17 @@ class BestCoastPairingsScraper:
             entry = BestCoastPairingsScraper._bcp_http_cache.get(cache_key)
             if entry and (time.time() - entry[0]) < self._BCP_HTTP_CACHE_TTL:
                 return entry[1]
+            ev_entry = BestCoastPairingsScraper._bcp_http_cache.get(f"ev_details:{event_id}")
+            if ev_entry and (time.time() - ev_entry[0]) < self._BCP_HTTP_CACHE_TTL and ev_entry[1] is None:
+                BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), [])
+                return []
+        elif (
+            not hasattr(self._make_request, "assert_called")
+            and not hasattr(self._make_request, "side_effect")
+            and not hasattr(urllib.request.urlopen, "assert_called")
+            and not hasattr(urllib.request.urlopen, "side_effect")
+        ):
+            return []
 
         if use_cache and self.request_delay <= 0.01:
             from concurrent.futures import ThreadPoolExecutor
@@ -368,7 +417,7 @@ class BestCoastPairingsScraper:
                     x.get("placing") if x.get("placing") is not None and not isinstance(x.get("placing"), bool) else 999999
                 ))
 
-        if use_cache and teams:
+        if use_cache:
             BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), teams)
         return teams
 

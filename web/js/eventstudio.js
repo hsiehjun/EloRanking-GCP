@@ -40,7 +40,7 @@ function getStudioFirestoreDb() {
 document.addEventListener("DOMContentLoaded", () => {
   setDefaultEventDates();
   if ((typeof activeTab !== 'undefined' && activeTab === 'event-studio') ||
-      document.getElementById('es-view-events') ||
+      window.location.hash === '#event-studio' ||
       window.location.pathname.includes("eventstudio.html")) {
     initStudio();
   }
@@ -594,12 +594,14 @@ function startStudioPolling() {
   stopStudioPolling();
   studioPollTimer = setInterval(async () => {
     if (document.hidden) return;
+    const isOnStudioPage = (typeof activeTab !== 'undefined' && activeTab === 'event-studio') || window.location.pathname.includes("eventstudio.html");
+    if (!isOnStudioPage) return;
     if (studioState.activeTab === "manage" && studioState.activeTournament?.id) {
       await pollTournamentWorkspaceQuietly(studioState.activeTournament.id);
     } else if (studioState.activeTab === "events") {
       await pollStudioEventsQuietly();
     }
-  }, 10000);
+  }, 15000);
 }
 
 function stopStudioPolling() {

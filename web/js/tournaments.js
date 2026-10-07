@@ -469,34 +469,53 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     )
   );
 
-  // If the event modal is not already the top active modal showing this event, and no warm cache exists, display loading screen
-  if (!isTopEventModal && loadingModal && !hasWarmCache) {
-    let previewName = '';
-    if (currentEventData && String(currentEventData.id) === String(eventId)) {
-      previewName = currentEventData.name || currentEventData.event_name || '';
-    } else if (typeof myHubData !== 'undefined' && myHubData) {
-      const allHubEvents = [
-        ...(myHubData.registered_tournaments || []),
-        ...(myHubData.upcoming_events || []),
-        ...(myHubData.events_attended || [])
-      ];
-      const found = allHubEvents.find(e => String(e.bcp_event_id || e.id) === String(eventId));
-      if (found) previewName = found.event_name || found.name || '';
-    }
-    if (!previewName && typeof communityState !== 'undefined' && communityState?.overview) {
-      const allEvents = [
-        ...(communityState.overview.events_upcoming || []),
-        ...(communityState.overview.events_recent || []),
-        ...(communityState.overview.upcoming_events || []),
-        ...(communityState.overview.recent_events || [])
-      ];
-      const found = allEvents.find(e => String(e.id) === String(eventId));
-      if (found) previewName = found.name || '';
-    } else if (!previewName && typeof eventsData !== 'undefined' && Array.isArray(eventsData)) {
-      const found = eventsData.find(e => String(e.id) === String(eventId));
-      if (found) previewName = found.name || '';
-    }
+  let previewEv = null;
+  if (currentEventData && String(currentEventData.id) === String(eventId)) {
+    previewEv = currentEventData;
+  } else if (typeof eventsData !== 'undefined' && Array.isArray(eventsData)) {
+    previewEv = eventsData.find(e => e && String(e.id) === String(eventId)) || null;
+  }
+  if (!previewEv && typeof communityState !== 'undefined' && communityState?.overview) {
+    const allEvents = [
+      ...(communityState.overview.events_upcoming || []),
+      ...(communityState.overview.events_recent || []),
+      ...(communityState.overview.upcoming_events || []),
+      ...(communityState.overview.recent_events || [])
+    ];
+    previewEv = allEvents.find(e => e && String(e.id) === String(eventId)) || null;
+  }
+  if (!previewEv && typeof myHubData !== 'undefined' && myHubData) {
+    const allHubEvents = [
+      ...(myHubData.registered_tournaments || []),
+      ...(myHubData.upcoming_events || []),
+      ...(myHubData.events_attended || [])
+    ];
+    previewEv = allHubEvents.find(e => e && String(e.bcp_event_id || e.id) === String(eventId)) || null;
+  }
 
+  // If preview metadata exists, populate the Quick-View Modal header & KPI shell immediately at 0ms!
+  if (!isTopEventModal && !hasWarmCache && previewEv) {
+    const nameEl = document.getElementById('modal-event-name');
+    if (nameEl) nameEl.textContent = previewEv.name || previewEv.event_name || 'Tournament Details';
+    const metaEl = document.getElementById('modal-event-meta');
+    if (metaEl) {
+      const loc = [previewEv.city, previewEv.state, previewEv.country].filter(Boolean).join(', ') || 'Online / Unspecified';
+      const dStr = (previewEv.event_date || previewEv.start_date || '').slice(0, 10);
+      const rdsNum = Number(previewEv.num_rounds || previewEv.numberOfRounds || 0);
+      const rds = rdsNum > 0 ? ` • 🔄 ${rdsNum} Rounds` : '';
+      metaEl.innerHTML = `<span>📅 ${escapeHtml(dStr || 'Date TBD')}</span><span> • 📍 ${escapeHtml(loc)}</span><span>${rds}</span>`;
+    }
+    const qTbody = document.getElementById('modal-quick-tbody');
+    if (qTbody && (!Array.isArray(previewEv.players) || previewEv.players.length === 0)) {
+      qTbody.innerHTML = '<tr><td colspan="6" class="empty-state" style="padding:2rem;"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading tournament standings & rosters...</div></td></tr>';
+    }
+    if (typeof bringModalToFront === 'function') {
+      bringModalToFront(modal);
+    } else {
+      modal.classList.add('active');
+    }
+  } else if (!isTopEventModal && loadingModal && !hasWarmCache) {
+    const previewName = previewEv ? (previewEv.name || previewEv.event_name || '') : '';
     const titleEl = document.getElementById('event-details-loading-title');
     if (titleEl) titleEl.innerText = 'Loading tournament data...';
 
@@ -526,36 +545,57 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     bcpLink.href = `https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}`;
   }
 
+  const hubTabEl = document.getElementById('tab-event-hub');
+  const isHubPageVisible = Boolean(hubTabEl && hubTabEl.classList.contains('active'));
+
   const rbody = document.getElementById('event-results-body');
   const ebody = document.getElementById('event-elo-body');
   const pbody = document.getElementById('event-pairings-body');
   const hasCachedRows = (currentEventData && String(currentEventData.id) === String(eventId));
 
-  if (hasCachedRows && isTopEventModal) {
-    if (rbody) rbody.style.opacity = '0.6';
-    if (ebody) ebody.style.opacity = '0.6';
-    if (pbody) pbody.style.opacity = '0.6';
-  } else if (!hasCachedRows) {
-    if (rbody) rbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading placings & results...</div></td></tr>';
-    if (ebody) ebody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading participant ratings...</div></td></tr>';
-    if (pbody) pbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Syncing live round pairings from BCP...</div></td></tr>';
+  if (isHubPageVisible) {
+    if (hasCachedRows && isTopEventModal) {
+      if (rbody) rbody.style.opacity = '0.6';
+      if (ebody) ebody.style.opacity = '0.6';
+      if (pbody) pbody.style.opacity = '0.6';
+    } else if (!hasCachedRows) {
+      if (rbody) rbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading placings & results...</div></td></tr>';
+      if (ebody) ebody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading participant ratings...</div></td></tr>';
+      if (pbody) pbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Syncing live round pairings from BCP...</div></td></tr>';
+    }
   }
 
-  // Parallel network fetch (or 0ms warm cache resolution): tournament details + community registration
+  const isEndedPreview = Boolean(
+    previewEv && (
+      previewEv.is_ended === true ||
+      previewEv.ended === true ||
+      (typeof isEventEnded === 'function' && isEventEnded(previewEv))
+    )
+  );
+
+  // Parallel network fetch (or 0ms warm cache resolution): tournament details + non-blocking community registration
   const detailsPromise = (!forceSync && warmEntry && warmEntry.ev)
     ? Promise.resolve(warmEntry.ev)
     : window.api.getTournamentDetails(eventId, forceSync);
   const regPromise = (!forceSync && warmEntry && warmEntry.userRegData)
     ? Promise.resolve(warmEntry.userRegData)
-    : ((typeof window.api?.getCommunityEventRegistration === 'function')
-      ? window.api.getCommunityEventRegistration(eventId, forceSync).catch(e => {
-          console.debug('Notice checking user registration:', e);
-          return null;
-        })
-      : Promise.resolve(null));
+    : ((!forceSync && isEndedPreview)
+      ? Promise.resolve(null)
+      : ((typeof window.api?.getCommunityEventRegistration === 'function')
+        ? window.api.getCommunityEventRegistration(eventId, forceSync).catch(e => {
+            console.debug('Notice checking user registration:', e);
+            return null;
+          })
+        : Promise.resolve(null)));
+
+  // Never let registration check block opening the quick-view modal beyond 120ms
+  const regFastPromise = Promise.race([
+    regPromise,
+    new Promise(resolve => setTimeout(() => resolve(null), 120))
+  ]);
 
   try {
-    const [detailsResult, regResult] = await Promise.allSettled([detailsPromise, regPromise]);
+    const [detailsResult, regResult] = await Promise.allSettled([detailsPromise, regFastPromise]);
 
     // Check if user dismissed the loading screen while waiting
     if (eventDetailsLoadingCancelledId === eventId) {
@@ -581,6 +621,19 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const ev = detailsResult.value;
     const userRegData = (regResult.status === 'fulfilled' && regResult.value && !regResult.value.error) ? regResult.value : null;
 
+    // If regPromise resolves after the 120ms fast-path window, hydrate the registration banner asynchronously
+    if (!userRegData && regPromise) {
+      regPromise.then(lateReg => {
+        if (lateReg && !lateReg.error && lateReg.is_registered && String(currentOpenEventId) === String(eventId)) {
+          currentEventRegistration = lateReg;
+          saveEventModalCache(eventId, ev, lateReg);
+          if (typeof renderQuickEventModal === 'function') {
+            renderQuickEventModal(ev, lateReg);
+          }
+        }
+      }).catch(() => {});
+    }
+
     currentEventData = ev;
     saveEventModalCache(eventId, ev, userRegData);
     let eventName = ev.name;
@@ -598,7 +651,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       computeEventPlayerEloStats(eventPlayersCache, eventMatchesCache);
     }
     invalidateEventSearchIndex();
-    if (typeof loadEventLivestreams === 'function') {
+    if (isHubPageVisible && typeof loadEventLivestreams === 'function') {
       loadEventLivestreams(eventId).then(() => {
         if (String(currentOpenEventId) === String(eventId) && typeof renderEventPairingsRows === 'function') {
           renderEventPairingsRows();
@@ -651,7 +704,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
         labelSpan.innerText = isDoublesEvent ? (hasTeamPlacings ? '🏆 Duo Placings' : '👥 Doubles Rosters') : (hasTeamPlacings ? '🏆 Team Placings' : '🛡️ Team Rosters');
       }
       if (tabTeamsCount) tabTeamsCount.innerText = teamsList.length;
-      renderEventTeamsRows();
+      if (isHubPageVisible) renderEventTeamsRows();
     } else {
       if (subtabTeams) subtabTeams.style.setProperty('display', 'none', 'important');
     }
@@ -690,7 +743,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (userRegData && userRegData.is_registered) {
       if (subtabPlayer) subtabPlayer.style.setProperty('display', shouldShowPlayerTab ? 'inline-flex' : 'none', 'important');
       currentEventRegistration = userRegData;
-      if (shouldShowPlayerTab) {
+      if (shouldShowPlayerTab && isHubPageVisible) {
         await renderPlayerStation(ev, userRegData);
       }
 
@@ -762,25 +815,28 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       switchEventModalTab('results');
     }
 
-    renderEventResultsRows();
-    renderEventEloRows();
-    renderEventPairingsRows();
-    updateEventModalTabCountsForSearch();
-
     if (typeof renderQuickEventModal === 'function') {
       renderQuickEventModal(ev, userRegData);
     }
-    if (typeof renderEventHubHeroSection === 'function') {
-      renderEventHubHeroSection(ev, userRegData);
-    }
-    if (typeof populateEventHubFactionFilter === 'function') {
-      populateEventHubFactionFilter(eventPlayersCache);
-    }
-    if (typeof renderPersonalEventScorecard === 'function') {
-      renderPersonalEventScorecard(ev, userRegData);
-    }
-    if (typeof renderEventMetaAndHighlights === 'function') {
-      renderEventMetaAndHighlights(ev);
+
+    if (isHubPageVisible) {
+      renderEventResultsRows();
+      renderEventEloRows();
+      renderEventPairingsRows();
+      updateEventModalTabCountsForSearch();
+
+      if (typeof renderEventHubHeroSection === 'function') {
+        renderEventHubHeroSection(ev, userRegData);
+      }
+      if (typeof populateEventHubFactionFilter === 'function') {
+        populateEventHubFactionFilter(eventPlayersCache);
+      }
+      if (typeof renderPersonalEventScorecard === 'function') {
+        renderPersonalEventScorecard(ev, userRegData);
+      }
+      if (typeof renderEventMetaAndHighlights === 'function') {
+        renderEventMetaAndHighlights(ev);
+      }
     }
 
     if (rbody) rbody.style.opacity = '1';
@@ -2213,7 +2269,7 @@ function renderEventPairingsRows() {
     ''
   ).trim().toLowerCase();
 
-  // Collect all candidate names, IDs, and emails for logged-in user
+  // Collect all candidate names (u.display_name, u.competitor_name), IDs, and emails for logged-in user
   const userNames = uBannerNames;
   const userIds = uBannerIds;
   const userIdsSet = new Set(userIds);
@@ -3557,9 +3613,11 @@ function computeEventPlayerEloStats(players, matches) {
     p.event_matches_count = (Number(p.event_wins || 0) + Number(p.event_losses || 0) + Number(p.event_draws || 0)) || p.event_matches_count || 0;
     const pid = String(p.player_id || p.id || '').trim().toLowerCase();
     const pname = String(p.full_name || p.name || '').trim().toLowerCase();
-    p._computed_net_elo = (p.net_elo !== undefined && p.net_elo !== null) ? Number(p.net_elo) :
-                          (p.elo_delta !== undefined && p.elo_delta !== null) ? Number(p.elo_delta) : 0;
-    p._has_explicit_delta = (p.net_elo !== undefined && p.net_elo !== null) || (p.elo_delta !== undefined && p.elo_delta !== null);
+    const explicitDelta = (p.event_net_elo !== undefined && p.event_net_elo !== null) ? p.event_net_elo :
+                          (p.net_elo !== undefined && p.net_elo !== null) ? p.net_elo :
+                          (p.elo_delta !== undefined && p.elo_delta !== null) ? p.elo_delta : null;
+    p._computed_net_elo = explicitDelta !== null ? Number(explicitDelta) : 0;
+    p._has_explicit_delta = explicitDelta !== null && Number(explicitDelta) !== 0;
     [p.player_id, p.id, p.bcp_event_player_id, p.user_id, p.bcp_player_id].forEach(cid => {
       if (cid) pMap.set(String(cid).trim().toLowerCase(), p);
     });

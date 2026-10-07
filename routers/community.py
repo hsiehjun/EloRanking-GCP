@@ -870,7 +870,8 @@ def _check_tournament_started_or_ended(ev: Dict[str, Any], rj: Optional[Dict[str
         rj.get("isEnded") or rj.get("is_ended") or rj.get("ended") or
         status_obj.get("ended") or status_obj.get("isEnded") or
         status_str in ("ended", "completed", "concluded") or
-        (end_date_str and end_date_str < today_utc_str)
+        (end_date_str and end_date_str < today_utc_str) or
+        (not end_date_str and ev_date_str and ev_date_str < (now_utc - timedelta(days=4)).strftime("%Y-%m-%d"))
     )
 
     c_round = 0
@@ -908,7 +909,7 @@ def _check_tournament_started_or_ended(ev: Dict[str, Any], rj: Optional[Dict[str
 
 
 _community_reg_cache: Dict[str, Any] = {}
-_COMMUNITY_REG_CACHE_TTL: float = 60.0
+_COMMUNITY_REG_CACHE_TTL: float = 300.0
 
 
 def _invalidate_community_reg_cache(event_id: Optional[str] = None) -> None:
@@ -966,31 +967,39 @@ def _sync_api_community_event_registration(
         if cached_entry and (time.time() - cached_entry[0]) < _COMMUNITY_REG_CACHE_TTL:
             return cached_entry[1]
 
-    # Retrieve event from DB or fallback fetch from BCP
-    ev = db.get_event_details(clean_eid)
+    # Retrieve event from warm leaderboard cache, DB, or fallback fetch from BCP
+    ev = None
+    if not force_sync and not is_mock_env:
+        try:
+            from routers.leaderboard import _event_details_cache
+            entry = _event_details_cache.get(clean_eid)
+            if entry and (time.time() - entry.get("timestamp", 0)) < 300:
+                ev = entry.get("data")
+        except Exception:
+            pass
+    if not ev:
+        ev = db.get_event_details(clean_eid)
     if not ev:
         ev = db.get_studio_event(clean_eid)
 
     if not ev and not clean_eid.startswith("ES-"):
         try:
-            bcp_url = f"{BCP_API_BASE}/events/{clean_eid}"
-            req = urllib.request.Request(bcp_url, headers=DEFAULT_HEADERS)
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                if resp.status == 200:
-                    bcp_data = json.loads(resp.read().decode())
-                    ev = {
-                        "id": clean_eid,
-                        "name": bcp_data.get("name", "Tournament"),
-                        "event_date": bcp_data.get("eventDate") or bcp_data.get("startDate"),
-                        "end_date": bcp_data.get("endDate"),
-                        "city": bcp_data.get("city"),
-                        "state": bcp_data.get("state"),
-                        "country": bcp_data.get("country"),
-                        "venue": bcp_data.get("venue"),
-                        "total_players": bcp_data.get("totalPlayers", 0),
-                        "num_rounds": bcp_data.get("numberOfRounds", 5),
-                        "raw_json": bcp_data
-                    }
+            from scraper import BestCoastPairingsScraper
+            bcp_data = BestCoastPairingsScraper(db=db, request_delay=0.0).fetch_event_details(clean_eid)
+            if bcp_data and isinstance(bcp_data, dict):
+                ev = {
+                    "id": clean_eid,
+                    "name": bcp_data.get("name", "Tournament"),
+                    "event_date": bcp_data.get("eventDate") or bcp_data.get("startDate"),
+                    "end_date": bcp_data.get("endDate"),
+                    "city": bcp_data.get("city"),
+                    "state": bcp_data.get("state"),
+                    "country": bcp_data.get("country"),
+                    "venue": bcp_data.get("venue"),
+                    "total_players": bcp_data.get("totalPlayers", 0),
+                    "num_rounds": bcp_data.get("numberOfRounds", 5),
+                    "raw_json": bcp_data
+                }
         except Exception as ex:
             logger.debug(f"Direct BCP fetch in registration metadata notice for {clean_eid}: {ex}")
 
@@ -1180,8 +1189,8 @@ def _sync_api_community_event_registration(
             except Exception as cp_err:
                 logger.debug(f"Notice querying live /currentPlayer: {cp_err}")
 
-        # Live sync from BCP if user is linked to BCP
-        if not is_registered and not clean_eid.startswith("ES-") and not should_skip_live_bcp and (is_mock_env or bcp_linked or x_bcp_token):
+        # Live sync from BCP if user is linked to BCP (only on force_sync or mock tests since /currentPlayer was already queried)
+        if not is_registered and not clean_eid.startswith("ES-") and not should_skip_live_bcp and (is_mock_env or force_sync) and (is_mock_env or bcp_linked or x_bcp_token):
             try:
                 from bcp_adapter import bcp_adapter
                 succ, _, bcp_events = bcp_adapter.fetch_user_registered_events(user["id"], explicit_token=x_bcp_token)
@@ -1200,8 +1209,8 @@ def _sync_api_community_event_registration(
             except Exception as bcp_fetch_err:
                 logger.debug(f"Notice querying live user registered events: {bcp_fetch_err}")
 
-        # Fallback check against live event players from BCP with resilient matching
-        if not is_registered and not clean_eid.startswith("ES-") and not should_skip_live_bcp:
+        # Fallback check against live event players from BCP only if ev["players"] was empty or force_sync/mocked
+        if not is_registered and not clean_eid.startswith("ES-") and not should_skip_live_bcp and (is_mock_env or force_sync or not ev.get("players")):
             try:
                 from scraper import BestCoastPairingsScraper
                 scraper = BestCoastPairingsScraper(request_delay=0.0)
@@ -1267,8 +1276,8 @@ def _sync_api_community_event_registration(
                 and cand_pid != str(user.get("id") or "")
                 and cand_pid != str(bcp_user_id or "")
             )
-            if not is_mock_env and valid_cand:
-                actual_pid = cand_pid
+            if not is_mock_env and (valid_cand or should_skip_live_bcp):
+                actual_pid = cand_pid if valid_cand else ""
             else:
                 # If candidate_pid is invalid, identical to event_id, or starts with user_, resolve the real one
                 resolved_pid = bcp_adapter.resolve_event_player_id(clean_eid, user["id"], candidate_pid=cand_pid, explicit_token=x_bcp_token)

@@ -4336,7 +4336,8 @@ class PostgresDatabase:
                 cur_rd = max(
                     int(res.get("current_round") or 0),
                     int(raw_meta.get("currentRound") if isinstance(raw_meta, dict) and raw_meta.get("currentRound") else 0),
-                    max_dict_rd
+                    max_dict_rd,
+                    max_match_round
                 )
                 if cur_rd > 0:
                     res["current_round"] = cur_rd
@@ -4369,7 +4370,8 @@ class PostgresDatabase:
                     if not computed_is_ended and not has_active_round and ev_dt is not None and end_dt is None:
                         ev_dt_str = str(ev_dt).strip()[:10]
                         cutoff_str = (now_utc - timedelta(hours=36)).strftime("%Y-%m-%d")
-                        if ev_dt_str < cutoff_str and (num_rds <= 3 or cur_rd >= num_rds):
+                        cutoff_multi_day_str = (now_utc - timedelta(days=4)).strftime("%Y-%m-%d")
+                        if ev_dt_str < cutoff_multi_day_str or (ev_dt_str < cutoff_str and (num_rds <= 3 or cur_rd >= num_rds)):
                             computed_is_ended = True
 
                     if not computed_is_ended and not has_active_round and num_rds > 0 and cur_rd >= num_rds and len(matches) > 0:

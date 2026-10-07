@@ -485,12 +485,27 @@ def api_user_dashboard(request: Request, player_id: Optional[str] = Query(None),
 
 
 @router.get("/api/user/registered-tournaments", summary="Get tournaments registered on BCP for current user")
-def api_user_registered_tournaments(
+async def api_user_registered_tournaments(
     request: Request,
     force_sync: bool = Query(False),
     token: Optional[str] = Query(None),
     game_system: Optional[str] = Query(None)
 ):
+    return await asyncio.to_thread(_sync_api_user_registered_tournaments, request, force_sync, token, game_system)
+
+
+def _sync_api_user_registered_tournaments(
+    request: Request,
+    force_sync: bool = False,
+    token: Optional[str] = None,
+    game_system: Optional[str] = None
+):
+    if isinstance(force_sync, bool) is False:
+        force_sync = False
+    if not isinstance(token, (str, type(None))):
+        token = None
+    if not isinstance(game_system, (str, type(None))):
+        game_system = None
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
@@ -676,11 +691,11 @@ def api_user_registered_tournaments(
 
 
 @router.post("/api/user/registered-tournaments/sync", summary="Force sync tournaments registered on BCP for current user")
-def api_user_sync_registered_tournaments(
+async def api_user_sync_registered_tournaments(
     request: Request,
     token: Optional[str] = Query(None),
     game_system: Optional[str] = Query(None)
 ):
-    return api_user_registered_tournaments(request, force_sync=True, token=token, game_system=game_system)
+    return await api_user_registered_tournaments(request, force_sync=True, token=token, game_system=game_system)
 
 

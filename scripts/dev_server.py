@@ -3936,22 +3936,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 else:
                     res = {"is_registered": False}
             else:
-                bcp_name = "Tournament"
-                event_date = "2026-09-16"
-                is_started = False
-                is_ended = False
-                try:
-                    b_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{eid}"
-                    b_req = urllib.request.Request(b_url, headers={"client-id": "web-app", "User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(b_req, timeout=4) as b_resp:
-                        if b_resp.status == 200:
-                            b_json = json.loads(b_resp.read().decode("utf-8"))
-                            bcp_name = b_json.get("name") or bcp_name
-                            event_date = (b_json.get("eventDate") or event_date)[:10]
-                            is_started = bool(b_json.get("started"))
-                            is_ended = bool(b_json.get("ended"))
-                except Exception:
-                    pass
+                bcp_name = "Bay Area Open 2026 - Warhammer 40k Champs" if eid == "FKsBtHI4ZqHx" else "Tournament"
+                event_date = "2025-05-23" if eid == "FKsBtHI4ZqHx" else "2026-09-16"
+                is_started = True if eid == "FKsBtHI4ZqHx" else False
+                is_ended = True if eid == "FKsBtHI4ZqHx" else False
+                cached_ev = DEV_EVENT_CACHE.get(eid)
+                if isinstance(cached_ev, dict):
+                    bcp_name = cached_ev.get("name") or bcp_name
+                    event_date = str(cached_ev.get("event_date") or event_date)[:10]
+                    is_started = bool(cached_ev.get("started") or cached_ev.get("is_ended"))
+                    is_ended = bool(cached_ev.get("is_ended") or cached_ev.get("ended"))
                 cookie_hdr = self.headers.get("Cookie", "")
                 persona_hdr = self.headers.get("X-Dev-Persona", "")
                 is_spectator = (
@@ -3982,15 +3976,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "tier": "free",
                     "ticket_price": 0.0,
                     "ticket_currency": "usd",
-                    "can_register_free": not is_reg_7oh,
+                    "can_register_free": not is_reg_7oh and not is_ended,
                     "can_buy_ticket": False,
                     "requires_external_ticket": False,
-                    "is_closed": False,
+                    "is_closed": is_ended,
                     "is_sold_out": False,
                     "is_started": is_started or is_reg_7oh,
                     "is_ended": is_ended,
+                    "ended": is_ended,
                     "is_ongoing": bool((is_started or is_reg_7oh) and not is_ended),
-                    "status_label": "Event Live" if is_reg_7oh else "Registration Open",
+                    "status_label": "Completed" if is_ended else ("Event Live" if is_reg_7oh else "Registration Open"),
                     "is_registered": is_reg_7oh,
                     "player_registration": preg_7oh,
                     "player": preg_7oh,
@@ -4008,15 +4003,19 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             import badges
             req_game_sys = query_params.get("game_system", ["40k"])[0].lower() if "query_params" in locals() else "40k"
             user_pinned = DEV_USER.get("pinned_badges") if isinstance(DEV_USER, dict) else None
-            b_eval = badges.evaluate_player_badges(
-                player_data=res.get("player") or res,
-                history=res.get("history") or [],
-                tournaments=res.get("tournaments") or [],
-                faction_mastery=res.get("faction_mastery") or [],
-                matchup_matrix=res.get("matchup_matrix") or [],
-                user_pinned_ids=user_pinned,
-                game_system=req_game_sys
-            )
+            reg_badge_key = ("reg", req_game_sys, tuple(user_pinned or []))
+            b_eval = _DEV_PLAYER_BADGE_CACHE.get(reg_badge_key)
+            if b_eval is None:
+                b_eval = badges.evaluate_player_badges(
+                    player_data=res.get("player") or res,
+                    history=res.get("history") or [],
+                    tournaments=res.get("tournaments") or [],
+                    faction_mastery=res.get("faction_mastery") or [],
+                    matchup_matrix=res.get("matchup_matrix") or [],
+                    user_pinned_ids=user_pinned,
+                    game_system=req_game_sys
+                )
+                _DEV_PLAYER_BADGE_CACHE[reg_badge_key] = b_eval
             user_ack = DEV_USER.get("acknowledged_badge_ids") or []
             ack_set = set(user_ack)
             newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
@@ -4363,6 +4362,49 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 if not is_head:
                     self.wfile.write(json.dumps(DEV_EVENT_CACHE[ev_param]).encode("utf-8"))
+                return
+
+            if ev_param == "FKsBtHI4ZqHx":
+                res = {
+                    "id": "FKsBtHI4ZqHx",
+                    "name": "Bay Area Open 2026 - Warhammer 40k Champs",
+                    "event_date": "2025-05-23",
+                    "end_date": None,
+                    "city": "Burlingame",
+                    "state": "CA",
+                    "country": "United States",
+                    "venue": "Hyatt Regency San Francisco Airport",
+                    "total_players": 161,
+                    "num_rounds": 6,
+                    "numberOfRounds": 6,
+                    "current_round": 6,
+                    "is_ended": True,
+                    "ended": True,
+                    "started": True,
+                    "avg_field_elo": 1621.0,
+                    "status": {"ended": True, "isEnded": True, "started": True},
+                    "players": [
+                        {"player_id": "p_colin", "full_name": "Colin McDade", "faction": "Chaos Knights", "detachment": "Traitoris Lance", "team": "Stat Check", "placement": 1, "event_wins": 6, "event_losses": 0, "event_draws": 0, "event_matches_count": 6, "event_battle_points": 568, "current_elo": 2115.4, "event_net_elo": 48.2, "has_list": True},
+                        {"player_id": "p_siegler", "full_name": "Richard Siegler", "faction": "T'au Empire", "detachment": "Retaliation Cadre", "team": "Art of War", "placement": 2, "event_wins": 6, "event_losses": 0, "event_draws": 0, "event_matches_count": 6, "event_battle_points": 554, "current_elo": 2195.0, "event_net_elo": 36.5, "has_list": True},
+                        {"player_id": "p_liam_vsl", "full_name": "Liam VSL", "faction": "Astra Militarum", "detachment": "Combined Regiment", "team": "Team VSL", "placement": 3, "event_wins": 5, "event_losses": 0, "event_draws": 1, "event_matches_count": 6, "event_battle_points": 541, "current_elo": 2092.1, "event_net_elo": 29.8, "has_list": True},
+                        {"player_id": "p_lennon", "full_name": "John Lennon", "faction": "Adeptus Astartes", "detachment": "Gladius Task Force", "team": "Art of War", "placement": 4, "event_wins": 5, "event_losses": 1, "event_draws": 0, "event_matches_count": 6, "event_battle_points": 536, "current_elo": 2210.8, "event_net_elo": 18.4, "has_list": True},
+                        {"player_id": "p_folger", "full_name": "Folger Pyles", "faction": "Adeptus Custodes", "detachment": "Shield Host", "team": "Art of War", "placement": 5, "event_wins": 5, "event_losses": 1, "event_draws": 0, "event_matches_count": 6, "event_battle_points": 528, "current_elo": 2350.0, "event_net_elo": 12.1, "has_list": True},
+                        {"player_id": "p_innes", "full_name": "Innes Wilson", "faction": "Genestealer Cults", "detachment": "Host of Ascension", "team": "Stat Check", "placement": 6, "event_wins": 5, "event_losses": 1, "event_draws": 0, "event_matches_count": 6, "event_battle_points": 522, "current_elo": 2375.2, "event_net_elo": 9.6, "has_list": True},
+                        {"player_id": "p_david", "full_name": "David Gaylard", "faction": "Necrons", "detachment": "Canoptek Court", "team": "Team Zero Comp", "placement": 7, "event_wins": 5, "event_losses": 1, "event_draws": 0, "event_matches_count": 6, "event_battle_points": 514, "current_elo": 2280.4, "event_net_elo": 14.0, "has_list": True},
+                        {"player_id": "p_jack", "full_name": "Jack Harpster", "faction": "Blood Angels", "detachment": "Sons of Sanguinius", "team": "Art of War", "placement": 8, "event_wins": 5, "event_losses": 1, "event_draws": 0, "event_matches_count": 6, "event_battle_points": 509, "current_elo": 2240.1, "event_net_elo": 11.2, "has_list": True}
+                    ],
+                    "matches": [
+                        {"id": f"m_bao_{i}", "event_id": "FKsBtHI4ZqHx", "round": ((i - 1) // 73) + 1, "table_number": ((i - 1) % 73) + 1, "table": ((i - 1) % 73) + 1, "player1_id": "p_colin", "player1_name": "Colin McDade", "player1_faction": "Chaos Knights", "player1_score": 95, "player2_id": "p_lennon", "player2_name": "John Lennon", "player2_faction": "Adeptus Astartes", "player2_score": 78, "winner_id": "p_colin", "is_done": True}
+                        for i in range(1, 438)
+                    ],
+                    "team_standings": []
+                }
+                DEV_EVENT_CACHE[ev_param] = res
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps(res).encode("utf-8"))
                 return
 
             if len(ev_param) >= 8 and not ev_param.startswith("ev_"):
@@ -5556,6 +5598,20 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "match_count": 18,
                     "is_ended": False,
                     "status": "ongoing"
+                },
+                {
+                    "id": "FKsBtHI4ZqHx",
+                    "name": "Bay Area Open 2026 - Warhammer 40k Champs",
+                    "event_date": "2025-05-23",
+                    "city": "Burlingame",
+                    "state": "CA",
+                    "country": "United States",
+                    "total_players": 161,
+                    "num_rounds": 6,
+                    "match_count": 437,
+                    "is_ended": True,
+                    "ended": True,
+                    "status": "ended"
                 },
                 {
                     "id": "73q0VFQZIVGo",

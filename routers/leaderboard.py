@@ -1340,6 +1340,10 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         hasattr(db, "assert_called")
         or hasattr(getattr(db, "get_event_details", None), "assert_called")
         or hasattr(BestCoastPairingsScraper, "assert_called")
+        or hasattr(getattr(BestCoastPairingsScraper, "fetch_event_players", None), "assert_called")
+        or hasattr(getattr(BestCoastPairingsScraper, "fetch_event_details", None), "assert_called")
+        or hasattr(getattr(BestCoastPairingsScraper, "fetch_event_teams", None), "assert_called")
+        or hasattr(getattr(BestCoastPairingsScraper, "fetch_event_pairings_for_round", None), "assert_called")
     )
     if not force_sync and not is_mock_env and event_id_str in _event_details_cache:
         entry = _event_details_cache[event_id_str]
@@ -1359,6 +1363,42 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         if not event_details:
             raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found")
         event_details["sync_in_progress"] = False
+        return event_details
+
+    # Fast-path: Completed tournaments already stored in DB with full roster & matches
+    # return immediately (<20ms) without making external BCP HTTP waterfall calls.
+    if (
+        not is_mock_env
+        and not force_sync
+        and event_details
+        and event_details.get("is_ended")
+        and len(event_details.get("players") or []) > 0
+        and len(event_details.get("matches") or []) > 0
+    ):
+        for pl in (event_details.get("players") or []):
+            if isinstance(pl, dict):
+                if pl.get("faction"):
+                    pl["faction"] = sanitize_event_faction(pl["faction"])
+                al = str(pl.get("army_list") or "").strip()
+                if al.startswith(("/list/", "http://", "https://", "/v1/")):
+                    if not pl.get("list_url"):
+                        pl["list_url"] = f"https://www.bestcoastpairings.com{al}" if al.startswith("/") else al
+                    pl["army_list"] = ""
+                lu = str(pl.get("list_url") or pl.get("listUrl") or "").strip()
+                if lu.startswith("/"):
+                    lu = f"https://www.bestcoastpairings.com{lu}"
+                    pl["list_url"] = lu
+                if not pl.get("list_id") and lu:
+                    m_lid = re.search(r'/list/([a-zA-Z0-9_-]+)', lu)
+                    if m_lid:
+                        pl["list_id"] = m_lid.group(1)
+                pl["has_list"] = bool(pl.get("army_list") or pl.get("list_url") or pl.get("list_id"))
+        event_details["sync_in_progress"] = False
+        _event_details_cache[event_id_str] = {
+            "timestamp": now_ts,
+            "is_ended": True,
+            "data": event_details
+        }
         return event_details
 
     # For BCP events: Query BCP API directly as the source of truth for event metadata

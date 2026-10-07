@@ -691,7 +691,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
 
 def _api_tracker_create_room_sync(request: Request, payload: Optional[TrackerCreatePayload] = None):
     db = get_database()
-    user = getattr(request, "_mock_user", None) if request else None
+    user = getattr(request, "_mock_user", None) if (request and isinstance(getattr(request, "_mock_user", None), dict)) else None
     if user is None:
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "") if request and hasattr(request, "headers") else ""
@@ -760,7 +760,7 @@ def _api_tracker_create_room_sync(request: Request, payload: Optional[TrackerCre
         # Check Firestore for multi-worker support
         fs_engine = get_firestore_engine()
         fs_doc = fs_engine.get_room(match_id)
-        if fs_doc and fs_doc.get("state"):
+        if fs_doc and isinstance(fs_doc, dict) and fs_doc.get("state"):
             u_id = user["id"] if user else None
             role, claim_slot = determine_existing_room_role(user, fs_doc, match_id, payload)
             if claim_slot == "user_id_p1":
@@ -807,7 +807,7 @@ def _api_tracker_create_room_sync(request: Request, payload: Optional[TrackerCre
             }
 
         saved_game = db.get_tracker_game(match_id) if (db and hasattr(db, "get_tracker_game")) else None
-        if saved_game and saved_game.get("state"):
+        if saved_game and isinstance(saved_game, dict) and saved_game.get("state"):
             u_id = user["id"] if user else None
             role, claim_slot = determine_existing_room_role(user, saved_game, match_id, payload)
             if claim_slot == "user_id_p1":
@@ -1081,7 +1081,7 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
     except Exception:
         pass
     fs_engine = get_firestore_engine()
-    user = getattr(request, "_mock_user", None) if request else None
+    user = getattr(request, "_mock_user", None) if (request and isinstance(getattr(request, "_mock_user", None), dict)) else None
     if user is None and request:
         try:
             auth_mgr = get_auth_manager()
@@ -1092,15 +1092,15 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
             pass
     user_id = user["id"] if user else None
     
-    if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(match_id):
+    if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(match_id) is True:
         TRACKER_ROOMS.pop(match_id, None)
         return {"exists": False, "is_abandoned": True, "match_id": match_id, "error": f"Room key '{match_id}' was discarded."}
 
-    if match_id in TRACKER_ROOMS and not fs_engine.is_connected:
+    if match_id in TRACKER_ROOMS and fs_engine.is_connected is not True:
         room = TRACKER_ROOMS[match_id]
     else:
         fs_doc = fs_engine.get_room(match_id)
-        if fs_doc and fs_doc.get("state"):
+        if fs_doc and isinstance(fs_doc, dict) and fs_doc.get("state"):
             room = {
                 "match_id": match_id,
                 "user_id_p1": fs_doc.get("user_id_p1") or (fs_doc["state"].get("user_id_p1") if isinstance(fs_doc.get("state"), dict) else None),
@@ -1112,15 +1112,15 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
                 "participants": fs_doc.get("participants", {})
             }
             TRACKER_ROOMS[match_id] = room
-        elif match_id in TRACKER_ROOMS and not fs_engine.is_connected:
+        elif match_id in TRACKER_ROOMS and fs_engine.is_connected is not True:
             room = TRACKER_ROOMS[match_id]
         else:
-            if fs_engine.is_connected:
+            if fs_engine.is_connected is True:
                 TRACKER_ROOMS.pop(match_id, None)
             saved = db.get_tracker_game(match_id) if (db and hasattr(db, "get_tracker_game")) else None
-            if saved and saved.get("state"):
+            if saved and isinstance(saved, dict) and saved.get("state"):
                 is_fin = bool(saved.get("is_finished") or (isinstance(saved.get("state"), dict) and saved["state"].get("is_finished")))
-                if fs_engine.is_connected and not is_fin:
+                if fs_engine.is_connected is True and not is_fin:
                     return {"exists": False, "is_abandoned": True, "match_id": match_id, "error": f"Room key '{match_id}' does not exist."}
                 room = {
                     "match_id": match_id,
@@ -1231,11 +1231,11 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
     except Exception:
         pass
     fs_engine = get_firestore_engine()
-    if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(match_id):
+    if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(match_id) is True:
         TRACKER_ROOMS.pop(match_id, None)
         raise HTTPException(status_code=404, detail="Match room was discarded or not found")
     
-    user = getattr(request, "_mock_user", None) if request else None
+    user = getattr(request, "_mock_user", None) if (request and isinstance(getattr(request, "_mock_user", None), dict)) else None
     if user is None and request:
         try:
             auth_mgr = get_auth_manager()
@@ -1247,9 +1247,9 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
     user_id = user["id"] if user else None
     user_name = (user.get("display_name") or user.get("name")) if user else None
     
-    if match_id not in TRACKER_ROOMS or fs_engine.is_connected:
+    if match_id not in TRACKER_ROOMS or fs_engine.is_connected is True:
         fs_doc = fs_engine.get_room(match_id)
-        if fs_doc and fs_doc.get("state"):
+        if fs_doc and isinstance(fs_doc, dict) and fs_doc.get("state"):
             TRACKER_ROOMS[match_id] = {
                 "match_id": match_id,
                 "user_id_p1": fs_doc.get("user_id_p1") or (fs_doc["state"].get("user_id_p1") if isinstance(fs_doc.get("state"), dict) else None),
@@ -1260,13 +1260,13 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
                 "participants": fs_doc.get("participants", {}),
                 "updated_at": fs_doc.get("updated_at")
             }
-        elif match_id in TRACKER_ROOMS and not fs_engine.is_connected:
+        elif match_id in TRACKER_ROOMS and fs_engine.is_connected is not True:
             pass
         else:
-            if fs_engine.is_connected:
+            if fs_engine.is_connected is True:
                 TRACKER_ROOMS.pop(match_id, None)
             saved = db.get_tracker_game(match_id) if (db and hasattr(db, "get_tracker_game")) else None
-            if saved and saved.get("state"):
+            if saved and isinstance(saved, dict) and saved.get("state"):
                 is_fin = bool(saved.get("is_finished") or (isinstance(saved.get("state"), dict) and saved["state"].get("is_finished")))
                 if is_fin:
                     return {
@@ -1277,7 +1277,7 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
                         "scorecard_url": f"/scorecard/{match_id}",
                         "state": saved["state"]
                     }
-                if fs_engine.is_connected:
+                if fs_engine.is_connected is True:
                     raise HTTPException(status_code=404, detail="Match room was discarded or not found")
                 TRACKER_ROOMS[match_id] = {
                     "match_id": match_id,
@@ -1401,7 +1401,7 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
 async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, request: Request):
     match_id = normalize_tracker_match_id(match_id)
     fs_engine = get_firestore_engine()
-    if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(match_id):
+    if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(match_id) is True:
         TRACKER_ROOMS.pop(match_id, None)
         return {
             "success": False,
@@ -1418,7 +1418,7 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
     
     # Hard Guard: If match is already concluded in PostgreSQL, reject state write and NEVER re-create Firestore room!
     saved_rec = db.get_tracker_game(match_id) if (db and hasattr(db, "get_tracker_game")) else None
-    if saved_rec and (saved_rec.get("is_finished") or (isinstance(saved_rec.get("state_json"), dict) and saved_rec["state_json"].get("is_finished"))):
+    if saved_rec and isinstance(saved_rec, dict) and (saved_rec.get("is_finished") or (isinstance(saved_rec.get("state_json"), dict) and saved_rec["state_json"].get("is_finished"))):
         return {
             "success": False,
             "is_finished": True,
@@ -1427,7 +1427,7 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
             "message": "Match has concluded and is locked."
         }
     
-    user = getattr(request, "_mock_user", None) if request else None
+    user = getattr(request, "_mock_user", None) if (request and isinstance(getattr(request, "_mock_user", None), dict)) else None
     if user is None and request:
         try:
             auth_mgr = get_auth_manager()
@@ -1438,9 +1438,9 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
             pass
     user_id = user["id"] if user else None
     
-    if match_id not in TRACKER_ROOMS or fs_engine.is_connected:
+    if match_id not in TRACKER_ROOMS or fs_engine.is_connected is True:
         fs_doc = fs_engine.get_room(match_id)
-        if fs_doc and fs_doc.get("state"):
+        if fs_doc and isinstance(fs_doc, dict) and fs_doc.get("state"):
             if fs_doc.get("status") == "completed" or fs_doc.get("is_finished"):
                 return {
                     "success": False,
@@ -1468,7 +1468,7 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
                     "chess_clock": fs_doc.get("chess_clock"),
                     "updated_at": fs_doc.get("updated_at")
                 }
-        elif match_id in TRACKER_ROOMS and not fs_engine.is_connected:
+        elif match_id in TRACKER_ROOMS and fs_engine.is_connected is not True:
             pass
         else:
             # Room does not exist in Firestore -> do NOT resurrect a deleted room!
@@ -1741,7 +1741,7 @@ def _api_tracker_user_sessions_sync(
     token: Optional[str] = None,
     game_system: Optional[str] = None
 ):
-    user = getattr(request, "_mock_user", None) if request else None
+    user = getattr(request, "_mock_user", None) if (request and isinstance(getattr(request, "_mock_user", None), dict)) else None
     if user is None and request:
         try:
             auth_mgr = get_auth_manager()
@@ -1847,7 +1847,7 @@ def _api_tracker_user_sessions_sync(
 @router.post("/api/tracker/room/{match_id}/discard", summary="Discard / abandon a casual test session with zero Elo penalty")
 async def api_tracker_discard_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
     match_id = normalize_tracker_match_id(match_id)
-    user = getattr(request, "_mock_user", None) if request else None
+    user = getattr(request, "_mock_user", None) if (request and isinstance(getattr(request, "_mock_user", None), dict)) else None
     if user is None and request:
         try:
             auth_mgr = get_auth_manager()
@@ -2652,7 +2652,7 @@ class TrackerImportParsePayload(BaseModel):
     dry_run: Optional[bool] = False
 
 def _resolve_importing_user(request: Request) -> Optional[Dict[str, Any]]:
-    user = getattr(request, "_mock_user", None) if request else None
+    user = getattr(request, "_mock_user", None) if (request and isinstance(getattr(request, "_mock_user", None), dict)) else None
     if user is None and request:
         try:
             auth_mgr = get_auth_manager()
