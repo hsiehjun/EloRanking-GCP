@@ -298,8 +298,10 @@ async def _prewarm_meta_intel_cache():
         db = await asyncio.to_thread(get_database)
         await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k")
         await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos")
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 3)
+        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 2)
+        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "6mo", 2)
         await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr", 2)
+        await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo", 2)
         logger.info(f"🔥 Meta Intel & Faction Details caches pre-warmed for 40k and AoS ({start_str} to {end_str})")
     except Exception as me:
         logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
@@ -339,7 +341,7 @@ async def on_server_startup():
             lh_svc = get_leagues_hub_service()
             elo_eng = get_elo_engine()
             auth_mgr = get_auth_manager()
-            for fn in (
+            core_tasks = [
                 lambda: db.get_summary_stats(game_system="40k"),
                 lambda: db.get_summary_stats(game_system="aos"),
                 lambda: db.get_top_ranked_players(page=1, page_size=25, min_matches=3, faction="All", sort_by="current_elo", order="DESC", game_system="40k", active_only=True),
@@ -358,6 +360,13 @@ async def on_server_startup():
                 lambda: db.get_community_overview(lat=32.7157, lng=-117.1611, radius_miles=50.0, include_bcp=False, game_system="aos"),
                 lambda: PlacesService.get_local_game_stores(db, lat=32.7157, lng=-117.1611, radius_miles=50.0, city=None, state=None, game_system="40k"),
                 lambda: PlacesService.get_local_game_stores(db, lat=32.7157, lng=-117.1611, radius_miles=50.0, city=None, state=None, game_system="aos"),
+                lambda: elo_eng.get_player_win_path("MEV83VFANA", game_system="40k"),
+                lambda: elo_eng.get_player_win_path("M7EJ7VW2K3", game_system="40k"),
+                lambda: elo_eng.get_player_win_path("xcaFfMZt5b", game_system="40k"),
+                lambda: auth_mgr.get_user_competitor_hub(player_id="MEV83VFANA", user_id=None, game_system="40k"),
+                lambda: db.fetch_and_cache_bcp_event_placings("7ohG0RuDqC1k", timeout=3.0, persist_async=False),
+                lambda: db.get_player_tournaments("MEV83VFANA", game_system="40k"),
+                lambda: db.get_player_tournaments("M7EJ7VW2K3", game_system="40k"),
                 lambda: lh_svc.get_leagues_list(game_system=None, limit=50),
                 lambda: lh_svc.get_leagues_list(game_system="40k", limit=50),
                 lambda: lh_svc.get_leagues_list(game_system="aos", limit=50),
@@ -367,17 +376,13 @@ async def on_server_startup():
                 lambda: lh_svc.get_league_group_chats("sd40k"),
                 lambda: lh_svc.get_unified_floor_ops("sd40k"),
                 lambda: lh_svc.get_player_league_summary("Jun Hsieh"),
-                lambda: elo_eng.get_player_win_path("MEV83VFANA", game_system="40k"),
-                lambda: elo_eng.get_player_win_path("xcaFfMZt5b", game_system="40k"),
-                lambda: auth_mgr.get_user_competitor_hub(player_id="MEV83VFANA", user_id=None, game_system="40k"),
-                lambda: db.fetch_and_cache_bcp_event_placings("7ohG0RuDqC1k", timeout=6.0, persist_async=True),
-                lambda: db.get_player_tournaments("MEV83VFANA", game_system="40k"),
-            ):
+            ]
+            for fn in core_tasks:
                 try:
                     await asyncio.to_thread(fn)
                 except Exception as inner_cw_err:
                     logger.warning(f"Notice during individual cache pre-warm step: {inner_cw_err}")
-            logger.info("🔥 Core leaderboard, stats, events, teams, stores, leagues & community caches pre-warmed")
+            logger.info("🔥 Core leaderboard, stats, events, teams, stores & community caches pre-warmed")
         except Exception as cw_err:
             logger.warning(f"Notice during core cache pre-warming: {cw_err}")
         try:

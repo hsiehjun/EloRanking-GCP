@@ -2908,7 +2908,7 @@ class AuthManager:
         import badges
         user_pinned = user_info.get("pinned_badges") if (user_info and user_info.get("pinned_badges")) else None
         reg_tournaments = list(self.db.get_user_registered_tournaments(user_id)) if user_id else []
-        if target_sys == "40k":
+        if target_sys == "40k" and os.environ.get("ENABLE_LEAGUE_FEATURES", "0") == "1":
             try:
                 from leagues_hub_service import get_leagues_hub_service
                 lh_svc = get_leagues_hub_service()

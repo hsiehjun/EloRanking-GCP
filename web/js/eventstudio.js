@@ -4893,82 +4893,26 @@ function initGooglePlaces() {
 
 window.initGooglePlaces = initGooglePlaces;
 
-// Automatically load Google Maps SDK and sync Commissioner card
+// Automatically load Google Maps SDK
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
     if (typeof loadGoogleMapsSdk === "function") loadGoogleMapsSdk();
-    syncStudioLeagueCommissionerCard();
   });
 } else {
   if (typeof loadGoogleMapsSdk === "function") loadGoogleMapsSdk();
-  syncStudioLeagueCommissionerCard();
 }
 
 async function loadManagedStudioLeagues() {
   try {
     const containers = document.querySelectorAll('#es-managed-leagues-container');
-    if (!containers || containers.length === 0) return;
-
-    let userObj = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : window.currentUser;
-    if (!userObj) {
-      try {
-        const raw = localStorage.getItem('user_data') || localStorage.getItem('omnitactica_user') || localStorage.getItem('user_profile');
-        if (raw) userObj = JSON.parse(raw);
-      } catch (_) {}
+    if (containers && containers.length > 0) {
+      containers.forEach(c => {
+        c.innerHTML = '';
+        c.style.display = 'none';
+      });
     }
-
-    const params = new URLSearchParams();
-    const uid = (userObj && (userObj.id || userObj.user_id)) || '';
-    const pid = (userObj && (userObj.player_id || userObj.bcp_player_id)) || '';
-    const email = (userObj && userObj.email) || '';
-    const displayName = (userObj && (userObj.display_name || userObj.name || userObj.full_name)) || 'John Hsieh';
-    const isAdmin = Boolean(userObj && (userObj.is_admin || userObj.role === 'admin' || userObj.role === 'superadmin'));
-
-    if (uid) params.set('user_id', String(uid));
-    if (pid) params.set('player_id', String(pid));
-    if (email) params.set('email', String(email));
-    if (displayName) params.set('display_name', String(displayName));
-    if (isAdmin) params.set('is_admin', 'true');
-
-    let res = await fetch(`/api/leagues/managed?${params.toString()}`).catch(() => ({ ok: false }));
-    let leagues = [];
-    if (res && res.ok) {
-      try {
-        const data = await res.json();
-        leagues = Array.isArray(data && data.leagues) ? data.leagues : [];
-      } catch (_) {}
-    }
-    if (!leagues || leagues.length === 0) {
-      const fbRes = await fetch('/api/leagues').catch(() => ({ ok: false }));
-      const dn = String(displayName || '').toLowerCase();
-      const em = String(email || '').toLowerCase();
-      const isOwnerOrAdmin = isAdmin || dn.includes('john hsieh') || em.includes('hsiehjun');
-      if (fbRes && fbRes.ok) {
-        try {
-          const fbData = await fbRes.json();
-          const all = Array.isArray(fbData && fbData.leagues) ? fbData.leagues : [];
-          if (isOwnerOrAdmin && all.length > 0) {
-            leagues = all.map(l => ({
-              ...l,
-              league_id: l.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90',
-              owner_name: l.owner_name || 'John Hsieh',
-              owner_email: l.owner_email || 'hsiehjun@google.com',
-              db_matched_players_count: l.db_matched_players_count || 62
-            }));
-          }
-        } catch (_) {}
-      }
-    }
-    studioState.managedLeagues = leagues || [];
-    renderManagedStudioLeagues(studioState.managedLeagues);
-    if (Array.isArray(studioState.managedLeagues) && studioState.managedLeagues.length > 0 && typeof fetchUnifiedFloorOps === 'function') {
-      Promise.all(studioState.managedLeagues.map(l => fetchUnifiedFloorOps(l.league_id))).then(() => {
-        renderManagedStudioLeagues(studioState.managedLeagues);
-      }).catch(() => {});
-    }
-  } catch (e) {
-    console.debug('Notice loading managed studio leagues:', e);
-  }
+    studioState.managedLeagues = [];
+  } catch (e) {}
 }
 window.loadManagedStudioLeagues = loadManagedStudioLeagues;
 

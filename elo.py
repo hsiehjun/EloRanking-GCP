@@ -1810,6 +1810,19 @@ class EloEngine:
 
         tournaments_list = self.db.get_player_tournaments(player_id, game_system=game_system) if hasattr(self.db, "get_player_tournaments") else []
 
+        if tournaments_list and history:
+            ev_by_id = {str(t.get("event_id") or "").strip(): t for t in tournaments_list if isinstance(t, dict) and t.get("event_id")}
+            ev_by_name = {str(t.get("event_name") or "").strip().lower(): t for t in tournaments_list if isinstance(t, dict) and t.get("event_name")}
+            for h in history:
+                if not isinstance(h, dict):
+                    continue
+                t_m = ev_by_id.get(str(h.get("event_id") or "").strip()) or ev_by_name.get(str(h.get("event_name") or "").strip().lower())
+                if t_m:
+                    if int(t_m.get("placement") or 0) > 0:
+                        h["placement"] = int(t_m["placement"])
+                    if int(t_m.get("total_players") or 0) > 0:
+                        h["total_players"] = int(t_m["total_players"])
+
         # Collect distinct teams for this player ordered by recency
         all_teams_list = []
         target_sys = (game_system or "40k").strip().lower()
@@ -1864,7 +1877,8 @@ class EloEngine:
         }
         if len(self._player_win_path_cache_dict) > 1000:
             self._player_win_path_cache_dict.clear()
-        self._player_win_path_cache_dict[cache_key] = (res, time.time())
+        if tournaments_list or not history:
+            self._player_win_path_cache_dict[cache_key] = (res, time.time())
         return res
 
 

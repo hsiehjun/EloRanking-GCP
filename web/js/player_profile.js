@@ -122,6 +122,32 @@ async function openPlayerProfilePage(playerId, gameSystem = '', options = {}, pl
     }
     currentProfileData = data;
     renderDedicatedPlayerProfile(data, targetSys);
+
+    const pendingPlacements = Array.isArray(data.tournaments) && data.tournaments.some(
+      t => Number(t.placement || 0) <= 0 && Number(t.matches_played || 0) > 0
+    );
+    if (pendingPlacements && !options._bgPlacementRetry) {
+      const requestedPid = currentProfilePlayerId;
+      setTimeout(async () => {
+        try {
+          if (currentProfilePlayerId !== requestedPid) return;
+          const profPanelNow = document.getElementById('tab-player-profile');
+          if (!profPanelNow || !profPanelNow.classList.contains('active')) return;
+          const refreshed = await window.api.getPlayerProfile(requestedPid, targetSys, playerName);
+          if (!refreshed || refreshed.error || currentProfilePlayerId !== requestedPid) return;
+          const prevPlaced = (currentProfileData && Array.isArray(currentProfileData.tournaments))
+            ? currentProfileData.tournaments.filter(t => Number(t.placement || 0) > 0).length
+            : 0;
+          const newPlaced = Array.isArray(refreshed.tournaments)
+            ? refreshed.tournaments.filter(t => Number(t.placement || 0) > 0).length
+            : 0;
+          if (newPlaced > prevPlaced) {
+            currentProfileData = refreshed;
+            renderDedicatedPlayerProfile(refreshed, targetSys);
+          }
+        } catch (_) {}
+      }, 2200);
+    }
   } catch (err) {
     if (container) {
       container.innerHTML = `

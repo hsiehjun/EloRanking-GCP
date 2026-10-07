@@ -146,23 +146,24 @@ def api_get_connect_requests(request: Request):
         direct_requests = []
 
     group_chats = []
-    try:
-        import leagues_hub_service
-        svc = leagues_hub_service.get_leagues_hub_service()
-        is_admin_or_to = bool(
-            user.get("is_admin")
-            or user.get("can_access_to")
-            or str(user.get("role") or "").lower() in ("admin", "superuser", "developer", "owner", "to", "organizer")
-        )
-        group_chats = svc.get_user_group_chats(
-            user_id=user.get("id"),
-            player_id=user.get("player_id"),
-            user_name=user.get("display_name"),
-            user_email=user.get("email"),
-            is_admin=is_admin_or_to
-        )
-    except Exception as ge:
-        logger.warning(f"Notice loading user seasonal group chats: {ge}")
+    if os.environ.get("ENABLE_LEAGUE_FEATURES", "0") == "1" or getattr(db.__class__, "__name__", "") != "PostgresDatabase":
+        try:
+            import leagues_hub_service
+            svc = leagues_hub_service.get_leagues_hub_service()
+            is_admin_or_to = bool(
+                user.get("is_admin")
+                or user.get("can_access_to")
+                or str(user.get("role") or "").lower() in ("admin", "superuser", "developer", "owner", "to", "organizer")
+            )
+            group_chats = svc.get_user_group_chats(
+                user_id=user.get("id"),
+                player_id=user.get("player_id"),
+                user_name=user.get("display_name"),
+                user_email=user.get("email"),
+                is_admin=is_admin_or_to
+            )
+        except Exception as ge:
+            logger.warning(f"Notice loading user seasonal group chats: {ge}")
 
     combined = list(group_chats) + list(direct_requests)
     return {

@@ -192,10 +192,22 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
 
         import badges
         events_attended = data.get("tournaments")
-        if events_attended is None:
+        if not events_attended:
             events_attended = db.get_player_tournaments(actual_pid, game_system=game_system)
         if not events_attended and pid != actual_pid:
             events_attended = db.get_player_tournaments(pid, game_system=game_system)
+        if events_attended and hasattr(db, "_bcp_event_placings_cache_dict"):
+            p_norm_lookup = str(data.get("player_name") or "").strip().lower()
+            for t_item in events_attended:
+                if isinstance(t_item, dict) and int(t_item.get("placement") or 0) <= 0:
+                    t_eid = str(t_item.get("event_id") or "").strip()
+                    plc_i = db.get_cached(db._bcp_event_placings_cache_dict, t_eid, ttl=3600)
+                    if isinstance(plc_i, dict) and plc_i.get("fetched_ok"):
+                        b_pl = (plc_i.get("by_id") or {}).get(actual_pid) or ((plc_i.get("by_name") or {}).get(p_norm_lookup) if p_norm_lookup else None)
+                        if b_pl and int(b_pl) > 0:
+                            t_item["placement"] = int(b_pl)
+                        if int(t_item.get("total_players") or 0) <= 1 and int(plc_i.get("active_count") or 0) > 0:
+                            t_item["total_players"] = int(plc_i["active_count"])
         data["tournaments"] = events_attended or []
         data["events_attended"] = data["tournaments"]
 

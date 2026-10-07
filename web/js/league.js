@@ -2836,71 +2836,12 @@ async function renderSparringRadarLeagueRegistrations() {
   const radarContainer = document.getElementById('radar-active-league-registrations');
   const staleTourneyContainer = document.getElementById('tournaments-active-league-registrations');
   if (staleTourneyContainer) staleTourneyContainer.remove();
-  if (!radarContainer) return;
-
-  try {
-    const res = await fetch('/api/leagues');
-    if (!res.ok) return;
-    const json = await res.json();
-    const openLeagues = (json.leagues || []).filter(l => l.registration_open !== false && l.publish_to_community_hub !== false);
-    if (!openLeagues.length) {
-      radarContainer.innerHTML = '';
-      return;
-    }
-
-    const cardsHtml = openLeagues.map(l => {
-      const lid = l.league_id || '8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90';
-      const isG = String(l.slug || l.name || '').toLowerCase().includes('gauntlet');
-      const sDate = formatLeagueDateShort(l.start_date || (isG ? '2026-09-01' : '2026-09-15'));
-      const eDate = formatLeagueDateShort(l.end_date || (isG ? '2026-10-26' : '2026-11-10'));
-      const regS = formatLeagueDateShort(l.registration_start || (isG ? '2026-08-15' : '2026-09-01'));
-      const regE = formatLeagueDateShort(l.registration_end || l.start_date || (isG ? '2026-09-01' : '2026-09-15'));
-      const meth = l.methodology || {};
-      const wkInfo = l.active_week_info || (typeof computeLeagueActiveWeekClient === 'function' ? computeLeagueActiveWeekClient(l.start_date, l.end_date, meth.season_duration_weeks || 8) : { short_label: 'Week 2 of 8' });
-      const podMin = Number(meth.pod_size_min ?? 6);
-      const podMax = Number(meth.pod_size_max ?? 8);
-      const wksCnt = Number(wkInfo.total_weeks || meth.season_duration_weeks || 8);
-      const gamesCnt = Number(meth.games_per_season ?? 5);
-
-      return `
-        <div class="card" data-radar-league-id="${escapeHtml(lid)}" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(15, 23, 42, 0.92) 100%); border: 1px solid rgba(16, 185, 129, 0.45); border-radius: 12px; padding: 0.8rem 1rem; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; justify-content: space-between; gap: 0.65rem;">
-          <div>
-            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.3rem;">
-              <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.45); font-size: 0.66rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; text-transform: uppercase;">
-                📡 REG OPEN (${escapeHtml(regS)} – ${escapeHtml(regE)})
-              </span>
-              <span style="background: rgba(56, 189, 248, 0.16); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 0.66rem; font-weight: 800; padding: 2px 7px; border-radius: 999px;">
-                🗓️ ${escapeHtml(wkInfo.short_label || `${wksCnt} Weeks`)}
-              </span>
-            </div>
-            <h3 style="margin: 0 0 0.2rem 0; font-size: 0.98rem; font-weight: 800; color: #fff;">
-              🛡️ ${escapeHtml(l.name || 'San Diego 40k BIG League @ At Ease Games')}
-            </h3>
-            <div style="font-size: 0.75rem; color: #cbd5e1; line-height: 1.4;">
-              📍 <strong>${escapeHtml(l.region || 'San Diego, CA')}</strong> • ${escapeHtml(sDate)} – ${escapeHtml(eDate)} • ${podMin}–${podMax}p Pods • ${gamesCnt} Games / ${wksCnt} Wks
-            </div>
-          </div>
-          <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
-            <button onclick="openLeaguePlayerRegistrationModal('${escapeHtml(lid)}', '${escapeHtml(l.name || 'San Diego 40k BIG League')}')" class="btn btn-primary" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700; font-size: 0.76rem; padding: 0.38rem 0.75rem;">
-              📝 Register
-            </button>
-            <button onclick="openLeagueHubPage('${escapeHtml(lid)}', '40k', { replaceUrl: true })" class="btn btn-outline" style="border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; font-weight: 700; font-size: 0.76rem; padding: 0.38rem 0.75rem;">
-              🛡️ League Hub →
-            </button>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    radarContainer.innerHTML = `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem;">${cardsHtml}</div>`;
-  } catch (e) {}
+  if (radarContainer) {
+    radarContainer.innerHTML = '';
+    radarContainer.style.display = 'none';
+  }
 }
 window.renderSparringRadarLeagueRegistrations = renderSparringRadarLeagueRegistrations;
-
-// Automatically populate Sparring Radar league registration cards on load
-document.addEventListener('DOMContentLoaded', () => {
-  setTimeout(renderSparringRadarLeagueRegistrations, 400);
-});
 
 /**
  * Opens Modal to Register a New Player into the Bottom Pod

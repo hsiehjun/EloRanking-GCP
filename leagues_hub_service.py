@@ -338,7 +338,7 @@ class LeaguesHubService:
         """Queries registered community leagues directly from PostgreSQL `native_leagues`."""
         db = self._get_db()
         cache_key = ("leagues_list", str(region or "").strip().lower(), str(game_system or "").strip().lower())
-        cached = self._get_cached_db(db, cache_key, ttl=120)
+        cached = self._get_cached_db(db, cache_key, ttl=3600)
         if cached is not None:
             return cached
 
@@ -738,7 +738,7 @@ class LeaguesHubService:
             return self._load_league_from_seed_json(lid, season_number)
 
         cache_key = ("league", lid, int(season_number) if season_number is not None else -1)
-        cached = self._get_cached_db(db, cache_key, ttl=120)
+        cached = self._get_cached_db(db, cache_key, ttl=3600)
         if cached is not None:
             return cached
 
@@ -1970,7 +1970,7 @@ class LeaguesHubService:
         db = _get_db()
         lid = _normalize_league_id(league_id_or_slug)
         cache_key = ("seasons_catalog", lid)
-        cached = self._get_cached_db(db, cache_key, ttl=120)
+        cached = self._get_cached_db(db, cache_key, ttl=3600)
         if cached is not None:
             return cached
         try:
@@ -2214,7 +2214,7 @@ class LeaguesHubService:
         p_clean = player_name.strip().lower()
         db = self._get_db()
         cache_key = ("player_league_summary", p_clean)
-        cached = self._get_cached_db(db, cache_key, ttl=600)
+        cached = self._get_cached_db(db, cache_key, ttl=3600)
         if cached is not None:
             return cached
         active_matches = []
@@ -5712,7 +5712,7 @@ class LeaguesHubService:
 
         db = self._get_db()
         ops_cache_key = ("floor_ops", key_id)
-        cached_ops = self._get_cached_db(db, ops_cache_key, ttl=120)
+        cached_ops = self._get_cached_db(db, ops_cache_key, ttl=3600)
         if cached_ops is not None:
             now_ms_cached = int(datetime.now(timezone.utc).timestamp() * 1000)
             c_clk = cached_ops.get("clock") or {}
@@ -6560,7 +6560,7 @@ class LeaguesHubService:
         lid = _normalize_league_id(league_id)
         db = self._get_db()
         cache_key = ("league_group_chats", lid)
-        cached = self._get_cached_db(db, cache_key, ttl=600)
+        cached = self._get_cached_db(db, cache_key, ttl=3600)
         if cached is not None:
             return cached
         league = self.get_league(lid)

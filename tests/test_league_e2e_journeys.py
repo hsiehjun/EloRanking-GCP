@@ -128,7 +128,7 @@ class LeagueE2EClient:
         }
         return token
 
-    def _run_With_auth(self, coro, user: Optional[Dict[str, Any]] = None):
+    def _make_stub_auth(self, user: Optional[Dict[str, Any]] = None):
         class _StubAuth:
             def __init__(self, sessions, default_user):
                 self._sessions = sessions
@@ -139,16 +139,35 @@ class LeagueE2EClient:
                     return self._sessions[token]
                 return self._default_user
 
-        stub_auth = _StubAuth(self._sessions, user)
+        return _StubAuth(self._sessions, user)
+
+    def _run_With_auth(self, coro, user: Optional[Dict[str, Any]] = None):
+        stub_auth = self._make_stub_auth(user)
         try:
             with patch("routers.connect.get_auth_manager", return_value=stub_auth), \
                  patch("routers.tracker.get_auth_manager", return_value=stub_auth):
-                res = asyncio.run(coro)
+                res = asyncio.run(coro) if asyncio.iscoroutine(coro) else coro
                 return MockResponseWrapper(200, res)
         except HTTPException as exc:
             return MockResponseWrapper(exc.status_code, {"success": False, "detail": exc.detail, "error": exc.detail})
 
     def request(
+        self,
+        method: str,
+        path: str,
+        json_body: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        user: Optional[Dict[str, Any]] = None,
+    ) -> MockResponseWrapper:
+        stub_auth = self._make_stub_auth(user)
+        try:
+            with patch("routers.connect.get_auth_manager", return_value=stub_auth), \
+                 patch("routers.tracker.get_auth_manager", return_value=stub_auth):
+                return self._dispatch_request(method, path, json_body=json_body, params=params, user=user)
+        except HTTPException as exc:
+            return MockResponseWrapper(exc.status_code, {"success": False, "detail": exc.detail, "error": exc.detail})
+
+    def _dispatch_request(
         self,
         method: str,
         path: str,
