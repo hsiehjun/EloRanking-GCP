@@ -1786,6 +1786,8 @@ class EloEngine:
                 player_fac_counts[fac] += 1
         factions_breakdown = [{"faction": f, "matches": c} for f, c in player_fac_counts.most_common() if f]
 
+        tournaments_list = self.db.get_player_tournaments(player_id, game_system=game_system) if hasattr(self.db, "get_player_tournaments") else []
+
         # Collect distinct teams for this player ordered by recency
         all_teams_list = []
         target_sys = (game_system or "40k").strip().lower()
@@ -1809,8 +1811,6 @@ class EloEngine:
         # Current/Latest team is the first one in recency order
         latest_team = all_teams_list[0] if all_teams_list else (player_meta.get("team") or None)
         all_teams_str = ", ".join(all_teams_list) if all_teams_list else (latest_team or "")
-
-        tournaments_list = self.db.get_player_tournaments(player_id, game_system=game_system) if hasattr(self.db, "get_player_tournaments") else []
 
         res = {
             "player_id": player_id,

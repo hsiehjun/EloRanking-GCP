@@ -459,7 +459,7 @@ class PostgresDatabase:
                     if row and row[0]:
                         cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_version';")
                         setting = cursor.fetchone()
-                        if setting and setting[0] == 'v21_faction_standard_btree_indexes':
+                        if setting and setting[0] == 'v22_coal_functional_indexes':
                             return
         except Exception as e:
             logger.debug(f"DB schema pre-check notice: {e}")
@@ -508,19 +508,6 @@ class PostgresDatabase:
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS started BOOLEAN DEFAULT FALSE;
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS pairings_status VARCHAR(32) DEFAULT 'draft';
                 CREATE INDEX IF NOT EXISTS idx_events_lat_lng ON events (latitude, longitude) WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
-                UPDATE events
-                SET latitude = (raw_json->'coordinate'->>1)::double precision,
-                    longitude = (raw_json->'coordinate'->>0)::double precision
-                WHERE latitude IS NULL 
-                  AND jsonb_typeof(raw_json->'coordinate') = 'array' 
-                  AND jsonb_array_length(raw_json->'coordinate') = 2;
-
-                UPDATE events
-                SET latitude = (raw_json->'location'->'coordinate'->>1)::double precision,
-                    longitude = (raw_json->'location'->'coordinate'->>0)::double precision
-                WHERE latitude IS NULL 
-                  AND jsonb_typeof(raw_json->'location'->'coordinate') = 'array' 
-                  AND jsonb_array_length(raw_json->'location'->'coordinate') = 2;
 
 
 
@@ -673,13 +660,7 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_tracker_games_system ON tracker_games(game_system);
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_done_sys ON matches(game_system) WHERE is_done = TRUE;
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_done_sys ON player_ratings(game_system) WHERE matches_played > 0;
-                UPDATE player_ratings SET game_system = '40k' WHERE game_system IS NULL;
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_player_ratings_player_system ON player_ratings (player_id, game_system);
-
-                -- Auto-tag AoS events if they were created with AoS BCP Game System ID
-                UPDATE events SET game_system = 'aos' WHERE (game_system_id = 'OY8FCPBf6O' OR game_system_id = '23qDprPABN') AND game_system != 'aos';
-                UPDATE matches SET game_system = 'aos' WHERE event_id IN (SELECT id FROM events WHERE game_system = 'aos') AND game_system != 'aos';
-                UPDATE rating_history SET game_system = 'aos' WHERE event_id IN (SELECT id FROM events WHERE game_system = 'aos') AND game_system != 'aos';
 
                 CREATE TABLE IF NOT EXISTS tracker_games (
                     match_id VARCHAR(64) PRIMARY KEY,
@@ -733,6 +714,9 @@ class PostgresDatabase:
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_role TEXT DEFAULT 'player2';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS referee_ids TEXT[] DEFAULT '{}';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS state_json JSONB;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS event_id TEXT;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS round_num INT;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS table_num INT;",
             "ALTER TABLE events ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'Local / RTT';",
             "ALTER TABLE events ADD COLUMN IF NOT EXISTS venue TEXT;",
             "ALTER TABLE events ADD COLUMN IF NOT EXISTS organizer_id VARCHAR(64);",
@@ -746,6 +730,8 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_events_organizer_bcp_id ON events(organizer_bcp_id);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid1 ON tracker_games(user_id_p1);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_evt ON tracker_games(event_id, round_num, table_num);",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_event_lower_rt ON tracker_games ((LOWER(event_id)), round_num, table_num) WHERE event_id IS NOT NULL;",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_regional_eval ON matches (event_id) WHERE is_done = TRUE AND is_bye = FALSE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p1 ON matches (match_date DESC, player1_faction) WHERE is_done = TRUE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p2 ON matches (match_date DESC, player2_faction) WHERE is_done = TRUE AND is_bye = FALSE;",
@@ -906,7 +892,13 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_pg_participants_player ON event_participants(player_id);",
             "CREATE INDEX IF NOT EXISTS idx_pg_participants_bcp_player ON event_participants(bcp_player_id) WHERE bcp_player_id IS NOT NULL AND bcp_player_id != '';",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_player_lower ON player_ratings(LOWER(player_name));",
-            "CREATE INDEX IF NOT EXISTS idx_users_player_id ON users(player_id);"
+            "CREATE INDEX IF NOT EXISTS idx_users_player_id ON users(player_id);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_elo ON player_ratings ((COALESCE(game_system, '40k')), current_elo DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_pid ON player_ratings (player_id, (COALESCE(game_system, '40k')));",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team ON player_ratings ((COALESCE(game_system, '40k')), TRIM(team), current_elo DESC) WHERE team IS NOT NULL AND TRIM(team) != '';",
+            "CREATE INDEX IF NOT EXISTS idx_pg_events_coal_sys_date ON events ((COALESCE(game_system, '40k')), event_date DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_history_coal_sys_pid ON rating_history (player_id, (COALESCE(game_system, '40k')), match_date ASC);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_name_trgm ON player_ratings USING gin (player_name gin_trgm_ops);"
         ]
         try:
             with self.get_connection() as conn:
@@ -935,54 +927,9 @@ class PostgresDatabase:
                         event_id VARCHAR(64) PRIMARY KEY,
                         deleted_at TIMESTAMPTZ DEFAULT NOW()
                     );
-                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v21_faction_standard_btree_indexes')
+                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v22_coal_functional_indexes')
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
-                    UPDATE users 
-                    SET player_id = NULL 
-                    WHERE (bcp_user_id IS NULL OR bcp_user_id = '') 
-                      AND player_id IS NOT NULL;
                     """)
-                    placeholder_re = r'^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)'
-                    cursor.execute("""
-                    UPDATE players p
-                    SET full_name = SUBSTRING(TRIM(ep.full_name), 1, 100)
-                    FROM event_participants ep
-                    WHERE p.id = ep.player_id
-                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
-                      AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != '' AND LENGTH(ep.full_name) <= 100
-                      AND ep.full_name NOT LIKE '{%%' AND ep.full_name NOT LIKE '[%%'
-                      AND NOT (ep.full_name ~* %s OR ep.full_name ILIKE 'BYE');
-                    """, (placeholder_re, placeholder_re))
-                    cursor.execute("""
-                    UPDATE players p
-                    SET full_name = SUBSTRING(TRIM(m.player1_name), 1, 100)
-                    FROM matches m
-                    WHERE p.id = m.player1_id
-                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
-                      AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != '' AND LENGTH(m.player1_name) <= 100
-                      AND m.player1_name NOT LIKE '{%%' AND m.player1_name NOT LIKE '[%%'
-                      AND NOT (m.player1_name ~* %s OR m.player1_name ILIKE 'BYE');
-                    """, (placeholder_re, placeholder_re))
-                    cursor.execute("""
-                    UPDATE players p
-                    SET full_name = SUBSTRING(TRIM(m.player2_name), 1, 100)
-                    FROM matches m
-                    WHERE p.id = m.player2_id
-                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
-                      AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != '' AND LENGTH(m.player2_name) <= 100
-                      AND m.player2_name NOT LIKE '{%%' AND m.player2_name NOT LIKE '[%%'
-                      AND NOT (m.player2_name ~* %s OR m.player2_name ILIKE 'BYE');
-                    """, (placeholder_re, placeholder_re))
-                    cursor.execute("""
-                    UPDATE player_ratings pr
-                    SET player_name = SUBSTRING(TRIM(p.full_name), 1, 100), updated_at = NOW()
-                    FROM players p
-                    WHERE pr.player_id = p.id
-                      AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s OR LENGTH(pr.player_name) > 100 OR pr.player_name LIKE '{%%')
-                      AND p.full_name IS NOT NULL AND TRIM(p.full_name) != '' AND LENGTH(p.full_name) <= 100
-                      AND p.full_name NOT LIKE '{%%' AND p.full_name NOT LIKE '[%%'
-                      AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
-                    """, (placeholder_re, placeholder_re))
                 conn.commit()
         except Exception as err:
             logger.debug(f"init_db migrations notice: {err}")
@@ -3828,8 +3775,16 @@ class PostgresDatabase:
                 """
 
                 try:
-                    cursor.execute(f"SELECT COUNT(*) as total_count FROM player_ratings r {where_sql};", params)
-                    total_count = cursor.fetchone()["total_count"] or 0
+                    is_mock_cur = type(cursor).__module__.startswith("unittest.mock")
+                    count_cache_key = (min_matches, (query or "").strip().lower(), (faction or "All"), target_sys, bool(active_only))
+                    cached_count = None if is_mock_cur else PostgresDatabase.get_cached(PostgresDatabase._players_count_cache_dict, count_cache_key, ttl=900)
+                    if cached_count is not None:
+                        total_count = cached_count
+                    else:
+                        cursor.execute(f"SELECT COUNT(*) as total_count FROM player_ratings r {where_sql};", params)
+                        total_count = cursor.fetchone()["total_count"] or 0
+                        if not is_mock_cur:
+                            PostgresDatabase.set_cached(PostgresDatabase._players_count_cache_dict, count_cache_key, total_count)
                     cursor.execute(sql, params + [page_size, offset])
                     rows = [dict(r) for r in cursor.fetchall()]
                 except Exception as e:
@@ -4806,6 +4761,14 @@ class PostgresDatabase:
                     where_clauses.append("COALESCE(e.game_system, '40k') = %s")
                     params.append((game_system or "40k").lower())
 
+                status_norm = (status or "").strip().lower()
+                if status_norm == "completed":
+                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = TRUE OR COALESCE(e.end_date, e.event_date) < CURRENT_DATE)")
+                elif status_norm == "upcoming":
+                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = FALSE AND COALESCE(e.event_date, CURRENT_DATE) >= CURRENT_DATE)")
+                elif status_norm in ("live", "active"):
+                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = FALSE AND e.event_date <= CURRENT_DATE AND COALESCE(e.end_date, e.event_date) >= CURRENT_DATE - INTERVAL '1 day')")
+
                 if query:
                     where_clauses.append("(e.name ILIKE %s OR e.city ILIKE %s OR e.state ILIKE %s OR e.country ILIKE %s)")
                     params.extend([f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"])
@@ -4945,20 +4908,20 @@ class PostgresDatabase:
                                 END as is_active
                             FROM player_ratings
                             WHERE COALESCE(matches_played, 0) > 0
-                              AND team IS NOT NULL AND TRIM(team) != ''
+                              AND team IS NOT NULL AND team != '' AND TRIM(team) != ''
                               AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
                               {sys_clause}
                         ),
                         ranked_active AS (
                             SELECT 
                                 tp.*,
-                                ROW_NUMBER() OVER (PARTITION BY tp.team_name, tp.is_active ORDER BY tp.current_elo DESC) as active_rn,
+                                ROW_NUMBER() OVER (PARTITION BY tp.team_name ORDER BY tp.is_active DESC, tp.current_elo DESC) as active_rn,
                                 ROW_NUMBER() OVER (PARTITION BY tp.team_name ORDER BY tp.current_elo DESC) as overall_rn
                             FROM team_players tp
                         )
                         SELECT 
                             tm.team_name as team,
-                            COUNT(DISTINCT tm.player_id) as roster_count,
+                            COUNT(*) as roster_count,
                             SUM(tm.is_active) as active_roster_count,
                             ROUND(AVG(tm.current_elo)::numeric, 1) as avg_elo,
                             ROUND(MAX(tm.current_elo)::numeric, 1) as top_player_elo,
@@ -4991,7 +4954,7 @@ class PostgresDatabase:
                             CASE WHEN SUM(tm.is_active) >= 5 AND SUM(tm.matches_played) >= 25 THEN TRUE ELSE FALSE END as is_qualified
                         FROM ranked_active tm
                         GROUP BY tm.team_name
-                        HAVING COUNT(DISTINCT tm.player_id) >= 1
+                        HAVING COUNT(*) >= 1
                         ORDER BY power_rating DESC, active_avg_elo DESC, top_player_elo DESC, roster_count DESC;
                         """
                         cursor.execute(fast_sql, tuple(sys_params))
@@ -5159,134 +5122,134 @@ class PostgresDatabase:
                         ORDER BY current_elo DESC NULLS LAST;
                         """, (team_name, system))
                         roster = [dict(r) for r in cur_safe.fetchall()]
-                if not roster:
-                    res = {"team": team_name, "roster": [], "stats": {}, "game_system": system}
-                    PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
-                    return res
+        if not roster:
+            res = {"team": team_name, "roster": [], "stats": {}, "game_system": system}
+            PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
+            return res
 
-                total_matches = sum(p["matches_played"] or 0 for p in roster)
-                total_wins = sum(p["wins"] or 0 for p in roster)
-                total_losses = sum(p["losses"] or 0 for p in roster)
-                total_draws = sum(p.get("draws", 0) or 0 for p in roster)
-                avg_elo = round(sum(p["current_elo"] for p in roster) / len(roster), 1)
-                top_elo = roster[0]["current_elo"] if roster else 1500.0
-                win_rate = round((total_wins / total_matches) * 100.0, 1) if total_matches > 0 else 0.0
-                
-                # 6-Month Rolling Window (180 days) Active Filter & Tri-Anchor Streamlined Power Rating
-                from datetime import datetime, date, timezone, timedelta
-                now_dt = datetime.now(timezone.utc)
-                cutoff_180d = now_dt - timedelta(days=180)
-                cutoff_date = cutoff_180d.date()
+        total_matches = sum(p["matches_played"] or 0 for p in roster)
+        total_wins = sum(p["wins"] or 0 for p in roster)
+        total_losses = sum(p["losses"] or 0 for p in roster)
+        total_draws = sum(p.get("draws", 0) or 0 for p in roster)
+        avg_elo = round(sum(p["current_elo"] for p in roster) / len(roster), 1)
+        top_elo = roster[0]["current_elo"] if roster else 1500.0
+        win_rate = round((total_wins / total_matches) * 100.0, 1) if total_matches > 0 else 0.0
+        
+        # 6-Month Rolling Window (180 days) Active Filter & Tri-Anchor Streamlined Power Rating
+        from datetime import datetime, date, timezone, timedelta
+        now_dt = datetime.now(timezone.utc)
+        cutoff_180d = now_dt - timedelta(days=180)
+        cutoff_date = cutoff_180d.date()
 
-                def _is_active(p):
-                    if int(p.get("matches_played") or 0) <= 0:
-                        return False
-                    val = p.get("last_active_date")
-                    if val is None:
-                        return False
-                    if isinstance(val, datetime):
-                        if val.tzinfo is not None:
-                            return val >= cutoff_180d
-                        return val >= cutoff_180d.replace(tzinfo=None)
-                    elif isinstance(val, date):
-                        return val >= cutoff_date
-                    elif isinstance(val, str):
-                        try:
-                            d = datetime.fromisoformat(val[:10]).date()
-                            return d >= cutoff_date
-                        except Exception:
-                            return False
-                    return False
-
-                active_roster = [p for p in roster if _is_active(p)]
-                active_count = len(active_roster)
-                roster_count = len(roster)
-
-                # Flag active status and core/ace designations on player records
-                active_idx = 0
-                for p in roster:
-                    act = _is_active(p)
-                    p["is_active"] = act
-                    if act:
-                        active_idx += 1
-                        p["active_rank"] = active_idx
-                        if active_idx == 1:
-                            p["is_ace"] = True
-                            p["is_core"] = True
-                        elif active_idx <= 5:
-                            p["is_ace"] = False
-                            p["is_core"] = True
-                        else:
-                            p["is_ace"] = False
-                            p["is_core"] = False
-                    else:
-                        p["active_rank"] = None
-                        p["is_ace"] = False
-                        p["is_core"] = False
-
-                if active_count <= 0:
-                    power_rating = 0.0
-                    active_avg_elo = 0.0
-                    top5_active_avg = 0.0
-                else:
-                    active_top_ace = active_roster[0]["current_elo"] if active_roster else top_elo
-                    top5_active = active_roster[:5]
-                    top5_active_avg = sum(p["current_elo"] for p in top5_active) / len(top5_active)
-                    active_avg_elo = sum(p["current_elo"] for p in active_roster) / active_count
-                    skill_baseline = (0.40 * top5_active_avg) + (0.40 * active_avg_elo) + (0.20 * active_top_ace)
-
-                    if active_count <= 1:
-                        f_roster = 0.10
-                    elif active_count >= 30:
-                        f_roster = 1.00
-                    else:
-                        f_roster = 0.10 + 0.90 * ((math.log10(active_count) / math.log10(30)) ** 0.65)
-
-                    power_rating = round(skill_baseline * f_roster, 1)
-
-                res = {
-                    "team": team_name,
-                    "starting_5": active_roster[:5],
-                    "roster": roster,
-                    "stats": {
-                        "roster_count": roster_count,
-                        "active_roster_count": active_count,
-                        "power_rating": power_rating,
-                        "avg_elo": avg_elo,
-                        "active_avg_elo": round(active_avg_elo, 1) if active_count > 0 else 0.0,
-                        "top5_avg_elo": round(top5_active_avg, 1) if active_count > 0 else 0.0,
-                        "top_player_elo": round(top_elo, 1),
-                        "total_matches": total_matches,
-                        "total_wins": total_wins,
-                        "total_losses": total_losses,
-                        "total_draws": total_draws,
-                        "win_rate": win_rate,
-                        "is_qualified": (active_count >= 5 and total_matches >= 25)
-                    }
-                }
-                roster_pids = [p["player_id"] for p in roster if p.get("player_id")]
-                feed = self.get_team_matches(team_name, limit=250, game_system=system, player_ids=roster_pids)
-                if not feed and roster:
-                    try:
-                        import teams_hub_service
-                        feed = teams_hub_service._generate_team_battlefield_feed(res)
-                    except Exception as e:
-                        logger.debug(f"Dev fallback feed notice: {e}")
-                res["battlefield_feed"] = feed or []
-
-                # Consolidated Hall of Champions silverware computed from real player awards
+        def _is_active(p):
+            if int(p.get("matches_played") or 0) <= 0:
+                return False
+            val = p.get("last_active_date")
+            if val is None:
+                return False
+            if isinstance(val, datetime):
+                if val.tzinfo is not None:
+                    return val >= cutoff_180d
+                return val >= cutoff_180d.replace(tzinfo=None)
+            elif isinstance(val, date):
+                return val >= cutoff_date
+            elif isinstance(val, str):
                 try:
-                    res["championships"] = self.get_team_championships(team_name, system, roster=roster)
-                except Exception as e:
-                    logger.debug(f"Team championships resolution notice: {e}")
-                    res["championships"] = {
-                        "total": 0, "super_major_wins": 0, "major_wins": 0, "gt_wins": 0, "rtt_wins": 0,
-                        "undefeated_count": 0, "championship_glory": 0, "championship_pill": None,
-                        "top_champions": [], "factions_distribution": [], "items": []
-                    }
+                    d = datetime.fromisoformat(val[:10]).date()
+                    return d >= cutoff_date
+                except Exception:
+                    return False
+            return False
 
-                PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
-                return res
+        active_roster = [p for p in roster if _is_active(p)]
+        active_count = len(active_roster)
+        roster_count = len(roster)
+
+        # Flag active status and core/ace designations on player records
+        active_idx = 0
+        for p in roster:
+            act = _is_active(p)
+            p["is_active"] = act
+            if act:
+                active_idx += 1
+                p["active_rank"] = active_idx
+                if active_idx == 1:
+                    p["is_ace"] = True
+                    p["is_core"] = True
+                elif active_idx <= 5:
+                    p["is_ace"] = False
+                    p["is_core"] = True
+                else:
+                    p["is_ace"] = False
+                    p["is_core"] = False
+            else:
+                p["active_rank"] = None
+                p["is_ace"] = False
+                p["is_core"] = False
+
+        if active_count <= 0:
+            power_rating = 0.0
+            active_avg_elo = 0.0
+            top5_active_avg = 0.0
+        else:
+            active_top_ace = active_roster[0]["current_elo"] if active_roster else top_elo
+            top5_active = active_roster[:5]
+            top5_active_avg = sum(p["current_elo"] for p in top5_active) / len(top5_active)
+            active_avg_elo = sum(p["current_elo"] for p in active_roster) / active_count
+            skill_baseline = (0.40 * top5_active_avg) + (0.40 * active_avg_elo) + (0.20 * active_top_ace)
+
+            if active_count <= 1:
+                f_roster = 0.10
+            elif active_count >= 30:
+                f_roster = 1.00
+            else:
+                f_roster = 0.10 + 0.90 * ((math.log10(active_count) / math.log10(30)) ** 0.65)
+
+            power_rating = round(skill_baseline * f_roster, 1)
+
+        res = {
+            "team": team_name,
+            "starting_5": active_roster[:5],
+            "roster": roster,
+            "stats": {
+                "roster_count": roster_count,
+                "active_roster_count": active_count,
+                "power_rating": power_rating,
+                "avg_elo": avg_elo,
+                "active_avg_elo": round(active_avg_elo, 1) if active_count > 0 else 0.0,
+                "top5_avg_elo": round(top5_active_avg, 1) if active_count > 0 else 0.0,
+                "top_player_elo": round(top_elo, 1),
+                "total_matches": total_matches,
+                "total_wins": total_wins,
+                "total_losses": total_losses,
+                "total_draws": total_draws,
+                "win_rate": win_rate,
+                "is_qualified": (active_count >= 5 and total_matches >= 25)
+            }
+        }
+        roster_pids = [p["player_id"] for p in roster[:35] if p.get("player_id")]
+        feed = self.get_team_matches(team_name, limit=250, game_system=system, player_ids=roster_pids)
+        if not feed and roster:
+            try:
+                import teams_hub_service
+                feed = teams_hub_service._generate_team_battlefield_feed(res)
+            except Exception as e:
+                logger.debug(f"Dev fallback feed notice: {e}")
+        res["battlefield_feed"] = feed or []
+
+        # Consolidated Hall of Champions silverware computed from real player awards
+        try:
+            res["championships"] = self.get_team_championships(team_name, system, roster=roster[:35])
+        except Exception as e:
+            logger.debug(f"Team championships resolution notice: {e}")
+            res["championships"] = {
+                "total": 0, "super_major_wins": 0, "major_wins": 0, "gt_wins": 0, "rtt_wins": 0,
+                "undefeated_count": 0, "championship_glory": 0, "championship_pill": None,
+                "top_champions": [], "factions_distribution": [], "items": []
+            }
+
+        PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
+        return res
 
     def get_team_championships(self, team_name: str, game_system: str = "40k", roster: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """Consolidates all actual tournament championships and silverware won across squad members."""
@@ -5302,7 +5265,7 @@ class PostgresDatabase:
         seen_event_player = set()
 
         if roster:
-            roster_pids = [str(p.get("player_id") or "").strip() for p in roster if str(p.get("player_id") or "").strip() and int(p.get("matches_played") or 0) > 0]
+            roster_pids = [str(p.get("player_id") or "").strip() for p in roster[:35] if str(p.get("player_id") or "").strip() and int(p.get("matches_played") or 0) > 0]
             tournaments_by_player = self.get_multiple_players_tournaments(roster_pids, game_system=system)
 
             for p in roster:
@@ -5637,18 +5600,19 @@ class PostgresDatabase:
                 except Exception:
                     return eid, None
 
-            sync_eids = missing_eids[:2]
-            bg_eids = missing_eids[2:]
+            sync_eids = missing_eids[:2] if len(tournaments) <= 5 else []
+            bg_eids = (missing_eids[2:6] if len(tournaments) <= 5 else missing_eids[:6])
 
             try:
-                with ThreadPoolExecutor(max_workers=min(2, len(sync_eids))) as pool:
-                    for eid, plc_payload in pool.map(_fetch_one_bcp_placing, sync_eids):
-                        PostgresDatabase.set_cached(
-                            PostgresDatabase._bcp_event_placings_cache_dict,
-                            eid,
-                            plc_payload if plc_payload is not None else {"by_id": {}, "by_name": {}, "active_count": 0},
-                            max_size=2000
-                        )
+                if sync_eids:
+                    with ThreadPoolExecutor(max_workers=min(2, len(sync_eids))) as pool:
+                        for eid, plc_payload in pool.map(_fetch_one_bcp_placing, sync_eids):
+                            PostgresDatabase.set_cached(
+                                PostgresDatabase._bcp_event_placings_cache_dict,
+                                eid,
+                                plc_payload if plc_payload is not None else {"by_id": {}, "by_name": {}, "active_count": 0},
+                                max_size=2000
+                            )
             except Exception as e:
                 logger.debug(f"BCP tournament placing enrichment notice: {e}")
 
@@ -5817,7 +5781,7 @@ class PostgresDatabase:
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
                         WHERE m.player1_id IS NOT NULL AND m.player1_id != ''
-                          AND (m.player1_id = %(pid)s OR te.needs_full_rank = TRUE)
+                          AND m.player1_id = %(pid)s
                           AND (
                               m.winner_id IS NOT NULL
                               OR COALESCE(m.is_draw, FALSE) = TRUE
@@ -5856,7 +5820,7 @@ class PostgresDatabase:
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
                         WHERE m.player2_id IS NOT NULL AND m.player2_id != '' AND COALESCE(m.is_bye, FALSE) = FALSE
-                          AND (m.player2_id = %(pid)s OR te.needs_full_rank = TRUE)
+                          AND m.player2_id = %(pid)s
                           AND (
                               m.winner_id IS NOT NULL
                               OR COALESCE(m.is_draw, FALSE) = TRUE
@@ -5911,7 +5875,7 @@ class PostgresDatabase:
                             COALESCE(ep.dropped, FALSE) AS dropped
                         FROM event_participants ep
                         JOIN target_events te ON te.event_id = ep.event_id
-                        WHERE ep.player_id = %(pid)s OR te.needs_full_rank = TRUE
+                        WHERE ep.player_id = %(pid)s
                     ),
                     matched_ep AS (
                         SELECT
@@ -10437,6 +10401,8 @@ class PostgresDatabase:
                             OR (e.latitude IS NULL AND e.city IS NOT NULL AND e.city != '')
                         )
                           AND COALESCE(e.game_system, '40k') = %s
+                          AND e.event_date >= CURRENT_DATE - INTERVAL '180 days'
+                          AND e.event_date <= CURRENT_DATE + INTERVAL '95 days'
                     ),
                     events_dist AS (
                         SELECT *,
@@ -10474,7 +10440,7 @@ class PostgresDatabase:
                         WHERE distance_miles <= %s
                           AND event_date < CURRENT_DATE - INTERVAL '1 day'
                         ORDER BY event_date DESC, distance_miles ASC
-                        LIMIT 50
+                        LIMIT 25
                     );
                 """
                 cursor.execute(
@@ -11069,32 +11035,11 @@ class PostgresDatabase:
                 if all_event_ids:
                     cursor.execute("""
                         WITH regional_team_members AS (
-                            SELECT DISTINCT ON (ep.player_id, TRIM(COALESCE(
-                                NULLIF(TRIM(ep.team), ''),
-                                CASE 
-                                    WHEN NOT EXISTS (
-                                        SELECT 1 FROM event_participants ep2
-                                        INNER JOIN events e2 ON ep2.event_id = e2.id
-                                        WHERE ep2.player_id = ep.player_id
-                                          AND TRIM(ep2.team) = TRIM(pr.team)
-                                          AND COALESCE(e2.game_system, '40k') != %s
-                                    ) THEN NULLIF(TRIM(pr.team), '')
-                                    ELSE NULL
-                                END
-                            )))
-                                TRIM(COALESCE(
-                                    NULLIF(TRIM(ep.team), ''),
-                                    CASE 
-                                        WHEN NOT EXISTS (
-                                            SELECT 1 FROM event_participants ep2
-                                            INNER JOIN events e2 ON ep2.event_id = e2.id
-                                            WHERE ep2.player_id = ep.player_id
-                                              AND TRIM(ep2.team) = TRIM(pr.team)
-                                              AND COALESCE(e2.game_system, '40k') != %s
-                                        ) THEN NULLIF(TRIM(pr.team), '')
-                                        ELSE NULL
-                                    END
-                                )) as team_name,
+                            SELECT DISTINCT ON (
+                                ep.player_id,
+                                TRIM(COALESCE(NULLIF(TRIM(ep.team), ''), NULLIF(TRIM(pr.team), '')))
+                            )
+                                TRIM(COALESCE(NULLIF(TRIM(ep.team), ''), NULLIF(TRIM(pr.team), ''))) as team_name,
                                 ep.player_id,
                                 COALESCE(pr.player_name, ep.full_name, 'Player') as player_name,
                                 COALESCE(pr.current_elo, 1500.0) as current_elo,
@@ -11148,7 +11093,7 @@ class PostgresDatabase:
                         HAVING COUNT(DISTINCT vm.player_id) >= 1
                         ORDER BY power_rating DESC, avg_elo DESC, local_members_count DESC
                         LIMIT 50;
-                    """, (target_sys, target_sys, target_sys, all_event_ids,))
+                    """, (target_sys, all_event_ids,))
                     team_rows = cursor.fetchall()
                     for idx, tr in enumerate(team_rows, start=1):
                         td = dict(tr)

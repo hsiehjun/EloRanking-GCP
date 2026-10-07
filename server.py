@@ -299,8 +299,15 @@ async def on_server_startup():
         try:
             db = await asyncio.to_thread(get_database)
             await asyncio.to_thread(db.get_summary_stats, "40k")
-            await asyncio.to_thread(db.get_top_ranked_players, 1, 25, "40k", None, None, None, None, "elo", "DESC", True, "40k")
-            await asyncio.to_thread(db.get_events_list, 1, 20, None, None, None, "event_date", "DESC", "40k")
+            await asyncio.to_thread(
+                db.get_top_ranked_players,
+                1, 25, 3, "All", "current_elo", "DESC", "40k", True
+            )
+            await asyncio.to_thread(
+                db.get_players_directory,
+                1, 25, 0, "All", None, "current_elo", "DESC", "40k", False
+            )
+            await asyncio.to_thread(db.get_events_list, 1, 25, None, None, "all", "event_date", "DESC", "40k")
             await asyncio.to_thread(db._get_all_teams_list, "40k")
             await asyncio.to_thread(db.get_community_overview, None, None, 50.0, None, None, None, None, False, "40k")
             logger.info("🔥 Core leaderboard, stats, events, teams & community caches pre-warmed")
@@ -313,19 +320,6 @@ async def on_server_startup():
             logger.info("🔥 NewRecruit detachments & AoS formations catalogs pre-warmed from local bundle")
         except Exception as nr_err:
             logger.warning(f"Notice during NR detachments pre-warming: {nr_err}")
-        await asyncio.sleep(30)
-        try:
-            db = await asyncio.to_thread(get_database)
-            try:
-                from scripts.repair_matches_and_elo import ensure_startup_elo_repair_migration
-                await asyncio.to_thread(ensure_startup_elo_repair_migration, db)
-            except Exception as rep_err:
-                logger.warning(f"Notice during startup BCP pairing & Elo repair check: {rep_err}")
-            await asyncio.to_thread(db.sync_player_latest_teams, False)
-            await asyncio.to_thread(db.get_summary_stats, "40k")
-            logger.info("🔥 Global summary stats 40k cache pre-warmed")
-        except Exception as se:
-            logger.warning(f"Notice during stats cache pre-warming: {se}")
 
         await _prewarm_meta_intel_cache()
 

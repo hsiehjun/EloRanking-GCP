@@ -191,10 +191,12 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
             data["equipped"] = norm_self_vault.get("equipped", {})
 
         import badges
-        events_attended = db.get_player_tournaments(actual_pid, game_system=game_system)
+        events_attended = data.get("tournaments")
+        if not events_attended:
+            events_attended = db.get_player_tournaments(actual_pid, game_system=game_system)
         if not events_attended and pid != actual_pid:
             events_attended = db.get_player_tournaments(pid, game_system=game_system)
-        data["tournaments"] = events_attended or data.get("tournaments") or []
+        data["tournaments"] = events_attended or []
         data["events_attended"] = data["tournaments"]
 
         ev_meta_by_id = {}
@@ -425,7 +427,7 @@ def api_events_recommended(
         api_events_recommended._cache = {}
 
     cached_entry = api_events_recommended._cache.get(geo_key)
-    if cached_entry and (now_ts - cached_entry["timestamp"] < 90) and cached_entry["events"]:
+    if cached_entry and (now_ts - cached_entry["timestamp"] < 600) and cached_entry["events"]:
         bcp_events = list(cached_entry["events"])
     else:
         headers = DEFAULT_HEADERS.copy()
@@ -451,13 +453,13 @@ def api_events_recommended(
                 })
             }
             next_key = None
-            for _ in range(4):  # Up to 200 events
+            for _ in range(2):  # Up to 100 events
                 if next_key:
                     params["nextKey"] = next_key
                 url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
                 try:
                     req = urllib.request.Request(url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=4.5) as resp:
+                    with urllib.request.urlopen(req, timeout=2.5) as resp:
                         data = json.loads(resp.read().decode())
                         evs = data.get("data", [])
                         fetched_bcp.extend(evs)
@@ -468,11 +470,9 @@ def api_events_recommended(
                     logger.warning(f"Live BCP geo query error: {e}")
                     break
         else:
-            # Global / multi-window query when no GPS coordinates are active
+            # Fast single-window query when no GPS coordinates are active
             windows = [
-                (now_dt.strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=35)).strftime("%Y-%m-%dT23:59:59.999Z")),
-                ((now_dt + timedelta(days=36)).strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=75)).strftime("%Y-%m-%dT23:59:59.999Z")),
-                ((now_dt + timedelta(days=76)).strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59.999Z"))
+                (now_dt.strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=60)).strftime("%Y-%m-%dT23:59:59.999Z"))
             ]
             for s_iso, e_iso in windows:
                 next_key = None
@@ -482,13 +482,13 @@ def api_events_recommended(
                     "startDate": s_iso,
                     "endDate": e_iso
                 }
-                for _ in range(3):
+                for _ in range(1):
                     if next_key:
                         params["nextKey"] = next_key
                     url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
                     try:
                         req = urllib.request.Request(url, headers=headers)
-                        with urllib.request.urlopen(req, timeout=3.5) as resp:
+                        with urllib.request.urlopen(req, timeout=2.5) as resp:
                             data = json.loads(resp.read().decode())
                             evs = data.get("data", [])
                             fetched_bcp.extend(evs)
@@ -537,7 +537,7 @@ def api_events_recommended(
     # Batch query enrolled player stats from DB for all incoming events
     ev_all_ids = [str(ev.get("id") or ev.get("objectId")) for ev in bcp_events if (ev.get("id") or ev.get("objectId"))]
     try:
-        field_stats = db.get_events_field_stats(ev_all_ids)
+        field_stats = db.get_events_field_stats(ev_all_ids, game_system=target_sys)
     except Exception as e:
         logger.warning(f"Notice querying field stats: {e}")
         field_stats = {}
@@ -548,7 +548,7 @@ def api_events_recommended(
     # For nearby upcoming events with enrolled players not yet in DB, fetch live roster from BCP concurrently
     headers = DEFAULT_HEADERS.copy()
     uncached_eids = []
-    for ev in bcp_events[:20]:
+    for ev in bcp_events[:4]:
         eid = str(ev.get("id") or ev.get("objectId") or "")
         enrolled_cnt = int(ev.get("totalPlayers") or ev.get("total_players") or ev.get("enrolled_count") or 0)
         if not eid or enrolled_cnt <= 0:
@@ -570,7 +570,7 @@ def api_events_recommended(
             try:
                 p_url = f"{BCP_API_BASE}/events/{target_eid}/players"
                 p_req = urllib.request.Request(p_url, headers=headers)
-                with urllib.request.urlopen(p_req, timeout=1.8) as p_resp:
+                with urllib.request.urlopen(p_req, timeout=1.5) as p_resp:
                     p_data = json.loads(p_resp.read().decode())
                     return target_eid, (p_data.get("active") or [])
             except Exception as pe:
@@ -580,7 +580,7 @@ def api_events_recommended(
         fetched_rosters = {}
         all_p_ids = set()
         all_p_names = set()
-        with ThreadPoolExecutor(max_workers=min(6, len(uncached_eids))) as pool:
+        with ThreadPoolExecutor(max_workers=min(4, len(uncached_eids))) as pool:
             for eid_res, active_p in pool.map(_fetch_single_bcp_roster, uncached_eids):
                 if active_p is None:
                     continue
@@ -608,8 +608,12 @@ def api_events_recommended(
                         cur.execute("""
                             SELECT player_id, LOWER(player_name) as player_name, current_elo
                             FROM player_ratings
-                            WHERE player_id = ANY(%s) OR player_name = ANY(%s);
-                        """, (list(all_p_ids), list(all_p_names)))
+                            WHERE player_id = ANY(%s) AND COALESCE(game_system, '40k') = %s
+                            UNION ALL
+                            SELECT player_id, LOWER(player_name) as player_name, current_elo
+                            FROM player_ratings
+                            WHERE player_name = ANY(%s) AND COALESCE(game_system, '40k') = %s;
+                        """, (list(all_p_ids), target_sys, list(all_p_names), target_sys))
                         rated_rows = cur.fetchall()
                         found_ratings = {str(r["player_id"]): float(r["current_elo"]) for r in rated_rows if r.get("player_id")}
                         name_ratings = {str(r["player_name"]): float(r["current_elo"]) for r in rated_rows if r.get("player_name")}

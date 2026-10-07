@@ -57,6 +57,33 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
         self.assertNotIn("ARRAY_AGG", src)
         self.assertIn("overall_rn", src)
 
+    def test_init_db_defines_coalesce_functional_indexes_and_skips_full_table_updates(self):
+        """Ensure init_db creates functional expression indexes for COALESCE(game_system, '40k') and skips boot-time full table UPDATEs."""
+        src = inspect.getsource(PostgresDatabase.init_db)
+        self.assertIn("idx_pg_ratings_coal_sys_elo", src)
+        self.assertIn("idx_pg_ratings_coal_sys_pid", src)
+        self.assertIn("idx_pg_ratings_coal_sys_team", src)
+        self.assertIn("idx_pg_events_coal_sys_date", src)
+        self.assertIn("idx_pg_history_coal_sys_pid", src)
+        self.assertNotIn("UPDATE player_ratings SET game_system = '40k'", src)
+
+    def test_get_player_tournaments_avoids_full_event_fanout(self):
+        """Ensure get_player_tournaments filters strictly by player_id without OR te.needs_full_rank = TRUE fan-out."""
+        src = inspect.getsource(PostgresDatabase.get_player_tournaments)
+        self.assertNotIn("OR te.needs_full_rank = TRUE", src)
+
+    def test_get_community_overview_bounds_event_dates_and_avoids_not_exists_team_subquery(self):
+        """Ensure get_community_overview bounds events_filtered by date and avoids correlated NOT EXISTS subqueries."""
+        src = inspect.getsource(PostgresDatabase.get_community_overview)
+        self.assertIn("INTERVAL '180 days'", src)
+        self.assertNotIn("SELECT 1 FROM event_participants ep2", src)
+
+    def test_get_events_list_enforces_status_filter(self):
+        """Ensure get_events_list applies SQL filtering for completed, upcoming, and live statuses."""
+        src = inspect.getsource(PostgresDatabase.get_events_list)
+        self.assertIn('s_norm == "completed"', src)
+        self.assertIn('s_norm == "upcoming"', src)
+
 
 if __name__ == "__main__":
     unittest.main()
