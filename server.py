@@ -298,10 +298,8 @@ async def _prewarm_meta_intel_cache():
         db = await asyncio.to_thread(get_database)
         await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k")
         await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos")
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr")
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "6mo")
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr")
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo")
+        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 3)
+        await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr", 2)
         logger.info(f"🔥 Meta Intel & Faction Details caches pre-warmed for 40k and AoS ({start_str} to {end_str})")
     except Exception as me:
         logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")

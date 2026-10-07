@@ -340,6 +340,8 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_name_trgm ON player_ratings USING gin (player_name gin_trgm_ops);",
             "ANALYZE player_ratings;",
             "ANALYZE events;",
+            "ANALYZE matches;",
+            "ANALYZE event_participants;",
             "ANALYZE tracker_games;",
         ]
         try:
@@ -6984,7 +6986,7 @@ class PostgresDatabase:
         def _do_query(cur):
             try:
                 cur.execute(f"""
-                WITH faction_player_games AS (
+                WITH faction_player_games AS MATERIALIZED (
                     (
                         SELECT 
                             player1_id as p_id,
@@ -7018,7 +7020,7 @@ class PostgresDatabase:
                         LIMIT 3500
                     )
                 ),
-                agg_pilots AS (
+                agg_pilots AS MATERIALIZED (
                     SELECT
                         fpg.p_id,
                         COALESCE(MAX(fpg.p_name), 'Player') as player_name,
@@ -7063,7 +7065,7 @@ class PostgresDatabase:
                 except Exception:
                     pass
                 cur.execute(f"""
-                WITH faction_player_games AS (
+                WITH faction_player_games AS MATERIALIZED (
                     (
                         SELECT 
                             player1_id as p_id,
@@ -7141,7 +7143,7 @@ class PostgresDatabase:
 
         def _do_query(cur):
             cur.execute(f"""
-            WITH p1_faction_matches AS (
+            WITH p1_faction_matches AS MATERIALIZED (
                 SELECT id, match_date, round, table_number
                 FROM matches
                 WHERE LOWER(player1_faction) = %s
@@ -7153,7 +7155,7 @@ class PostgresDatabase:
                 SELECT id, match_date, round, table_number, TRUE as is_p1
                 FROM p1_faction_matches
             ),
-            p2_faction_matches AS (
+            p2_faction_matches AS MATERIALIZED (
                 SELECT id, match_date, round, table_number
                 FROM matches
                 WHERE LOWER(player2_faction) = %s
@@ -7174,7 +7176,7 @@ class PostgresDatabase:
                 ) combined
                 ORDER BY id, match_date DESC NULLS LAST, round DESC
             ),
-            top_candidates AS (
+            top_candidates AS MATERIALIZED (
                 SELECT id, is_p1
                 FROM candidate_matches
                 ORDER BY match_date DESC NULLS LAST, round DESC
@@ -7226,7 +7228,7 @@ class PostgresDatabase:
 
         def _do_query(cur):
             cur.execute(f"""
-            WITH faction_games AS (
+            WITH faction_games AS MATERIALIZED (
                 (
                     SELECT 
                         player2_faction as opp_faction,
