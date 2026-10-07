@@ -264,9 +264,14 @@ app.add_middleware(
 async def root_health_check():
     return {"status": "ok"}
 
+SERVER_PREWARM_COMPLETE = False
+
 @app.get("/api/system/perf-telemetry", summary="Structured API and DB call latency telemetry snapshot")
 async def api_system_perf_telemetry():
-    return PERF_REGISTRY.snapshot()
+    snap = PERF_REGISTRY.snapshot()
+    if isinstance(snap, dict):
+        snap["prewarm_complete"] = SERVER_PREWARM_COMPLETE
+    return snap
 
 # Static Assets Mount (/assets is served by serve_tracker_media_assets with local + NewRecruit fallback)
 if (web_dir / "css").exists():
@@ -290,7 +295,6 @@ async def _periodic_firestore_cleanup():
 async def _prewarm_meta_intel_cache():
     """Pre-warms the 90-day Meta Intel and Faction Details caches for 40k and AoS shortly after server startup."""
     try:
-        await asyncio.sleep(1)
         now = datetime.now(timezone.utc)
         d90 = now - timedelta(days=90)
         start_str = d90.strftime("%Y-%m-%d")
@@ -298,10 +302,10 @@ async def _prewarm_meta_intel_cache():
         db = await asyncio.to_thread(get_database)
         await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k")
         await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos")
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 2)
+        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 3)
         await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "6mo", 2)
         await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr", 2)
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo", 2)
+        await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo", 1)
         logger.info(f"🔥 Meta Intel & Faction Details caches pre-warmed for 40k and AoS ({start_str} to {end_str})")
     except Exception as me:
         logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
@@ -334,6 +338,8 @@ async def on_server_startup():
     asyncio.create_task(_periodic_nr_bundle_refresh())
 
     async def _deferred_startup_tasks():
+        global SERVER_PREWARM_COMPLETE
+        await _prewarm_meta_intel_cache()
         try:
             db = await asyncio.to_thread(get_database)
             from services.places_service import PlacesService
@@ -392,8 +398,8 @@ async def on_server_startup():
             logger.info("🔥 NewRecruit detachments & AoS formations catalogs pre-warmed from local bundle")
         except Exception as nr_err:
             logger.warning(f"Notice during NR detachments pre-warming: {nr_err}")
-
-        await _prewarm_meta_intel_cache()
+        finally:
+            SERVER_PREWARM_COMPLETE = True
 
     asyncio.create_task(_deferred_startup_tasks())
 

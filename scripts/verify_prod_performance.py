@@ -148,7 +148,7 @@ def fetch_once(url: str, timeout: float = 15.0) -> Tuple[int, float, bytes]:
         return 599, ms, str(exc).encode("utf-8")
 
 
-def wait_for_prewarm(base_url: str, max_wait_sec: int = 45) -> None:
+def wait_for_prewarm(base_url: str, max_wait_sec: int = 75) -> None:
     """Waits after deployment for background startup cache pre-warming to finish."""
     deadline = time.time() + max_wait_sec
     while time.time() < deadline:
@@ -156,8 +156,14 @@ def wait_for_prewarm(base_url: str, max_wait_sec: int = 45) -> None:
         if status == 200:
             try:
                 data = json.loads(body.decode("utf-8"))
+                if data.get("prewarm_complete") is True:
+                    return
                 db_names = {m.get("name") for m in (data.get("db_metrics") or [])}
-                if "PostgresDatabase.get_faction_details" in db_names and int(data.get("observed_db_methods_count") or 0) >= 15:
+                if (
+                    "prewarm_complete" not in data
+                    and "PostgresDatabase.prewarm_faction_details_cache" in db_names
+                    and int(data.get("observed_db_methods_count") or 0) >= 20
+                ):
                     return
             except Exception:
                 pass
