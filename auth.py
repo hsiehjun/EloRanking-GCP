@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import urllib.error
@@ -2462,6 +2463,8 @@ class AuthManager:
         return None
 
     _HUB_CACHE: Dict[Tuple[str, str, str], Tuple[float, Dict[str, Any]]] = {}
+    _HUB_LOCKS: Dict[Tuple[str, str, str], threading.Lock] = {}
+    _HUB_LOCKS_GUARD = threading.Lock()
     _TOTAL_RANKED_CACHE: Dict[str, Tuple[float, int]] = {}
     _SYSTEM_GLORY_CACHE: Dict[Tuple[str, str], Tuple[float, int]] = {}
 
@@ -2490,7 +2493,7 @@ class AuthManager:
         cache_key = (str(target_pid), str(game_system or "40k").lower())
         now_ts = time.time()
         cached_g = self._SYSTEM_GLORY_CACHE.get(cache_key)
-        if cached_g and (now_ts - cached_g[0]) < 60.0:
+        if cached_g and (now_ts - cached_g[0]) < 120.0:
             return cached_g[1]
         try:
             from psycopg2 import extras
@@ -2593,13 +2596,48 @@ class AuthManager:
         now_ts = time.time()
         hub_cache_key = (str(user_id or ""), str(target_pid or ""), target_sys)
         cached_hub = self._HUB_CACHE.get(hub_cache_key)
-        if cached_hub and (now_ts - cached_hub[0]) < 30.0:
+        if cached_hub and (now_ts - cached_hub[0]) < 120.0:
             res_copy = copy.copy(cached_hub[1])
             if user_info:
                 res_copy["armory_vault"] = user_info.get("armory_vault") or {}
                 res_copy["equipped"] = (user_info.get("armory_vault") or {}).get("equipped", {})
             return res_copy
 
+        with self._HUB_LOCKS_GUARD:
+            key_lock = self._HUB_LOCKS.get(hub_cache_key)
+            if key_lock is None:
+                key_lock = threading.Lock()
+                self._HUB_LOCKS[hub_cache_key] = key_lock
+
+        with key_lock:
+            now_ts = time.time()
+            cached_hub = self._HUB_CACHE.get(hub_cache_key)
+            if cached_hub and (now_ts - cached_hub[0]) < 120.0:
+                res_copy = copy.copy(cached_hub[1])
+                if user_info:
+                    res_copy["armory_vault"] = user_info.get("armory_vault") or {}
+                    res_copy["equipped"] = (user_info.get("armory_vault") or {}).get("equipped", {})
+                return res_copy
+            return self._compute_user_competitor_hub_locked(
+                hub_cache_key=hub_cache_key,
+                target_pid=target_pid,
+                user_id=user_id,
+                target_sys=target_sys,
+                user_info=user_info,
+                display_name=display_name,
+                now_ts=now_ts,
+            )
+
+    def _compute_user_competitor_hub_locked(
+        self,
+        hub_cache_key: Tuple[str, str, str],
+        target_pid: str,
+        user_id: Optional[str],
+        target_sys: str,
+        user_info: Optional[Dict[str, Any]],
+        display_name: str,
+        now_ts: float,
+    ) -> Dict[str, Any]:
         total_ranked = 0
         cached_tr = self._TOTAL_RANKED_CACHE.get(target_sys)
         if cached_tr and (now_ts - cached_tr[0]) < 300.0:
@@ -2676,7 +2714,7 @@ class AuthManager:
                     FROM tracker_games
                     WHERE m.event_id IS NOT NULL
                       AND m.table_number IS NOT NULL
-                      AND LOWER(event_id) = LOWER(m.event_id)
+                      AND event_id IN (m.event_id, LOWER(m.event_id), UPPER(m.event_id))
                       AND round_num = m.round
                       AND table_num = m.table_number
                     ORDER BY

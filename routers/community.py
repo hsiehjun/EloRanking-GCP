@@ -650,36 +650,51 @@ async def api_community_events_field_stats(
         missing_ids.append(eid)
 
     if missing_ids:
-        db = get_database()
-        # 1. Query existing DB participants (read-only)
-        db_stats = db.get_events_field_stats(missing_ids, game_system=target_sys)
-        need_bcp_sync: List[str] = []
+        def _resolve_missing_field_stats(m_ids: List[str], t_sys: str) -> Dict[str, Any]:
+            local_res: Dict[str, Any] = {}
+            db = get_database()
+            db_stats = db.get_events_field_stats(m_ids, game_system=t_sys)
+            need_bcp_sync: List[str] = []
 
-        for eid in missing_ids:
-            c_key = f"{eid}:{target_sys}"
-            stat = db_stats.get(eid)
-            # If DB already has participants from prior scraping, cache and return
-            if stat and int(stat.get("total_enrolled") or 0) > 0:
-                results[eid] = stat
-                _community_field_stats_cache[c_key] = {
-                    "timestamp": now_ts,
-                    "stats": stat
-                }
-            else:
-                need_bcp_sync.append(eid)
+            for eid in m_ids:
+                c_key = f"{eid}:{t_sys}"
+                stat = db_stats.get(eid)
+                if stat and int(stat.get("total_enrolled") or 0) > 0:
+                    local_res[eid] = stat
+                    _community_field_stats_cache[c_key] = {
+                        "timestamp": now_ts,
+                        "stats": stat
+                    }
+                else:
+                    need_bcp_sync.append(eid)
 
-        # 2. For events without participants in DB, compute live from BCP API (strictly zero DB writes)
-        if need_bcp_sync:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(need_bcp_sync))) as executor:
-                future_map = {executor.submit(compute_live_bcp_field_stats, eid, db, target_sys): eid for eid in need_bcp_sync}
-                done, not_done = concurrent.futures.wait(future_map.keys(), timeout=6.0)
-                for fut in done:
-                    eid = future_map[fut]
-                    c_key = f"{eid}:{target_sys}"
-                    try:
-                        stat = fut.result()
-                    except Exception:
-                        stat = {
+            if need_bcp_sync:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(need_bcp_sync))) as executor:
+                    future_map = {executor.submit(compute_live_bcp_field_stats, eid, db, t_sys): eid for eid in need_bcp_sync}
+                    done, not_done = concurrent.futures.wait(future_map.keys(), timeout=4.0)
+                    for fut in done:
+                        eid = future_map[fut]
+                        c_key = f"{eid}:{t_sys}"
+                        try:
+                            stat = fut.result()
+                        except Exception:
+                            stat = {
+                                "event_id": eid,
+                                "avg_field_elo": None,
+                                "top_seed_elo": None,
+                                "total_enrolled": 0,
+                                "rated_players_count": 0,
+                                "status": "empty"
+                            }
+                        local_res[eid] = stat
+                        _community_field_stats_cache[c_key] = {
+                            "timestamp": now_ts,
+                            "stats": stat
+                        }
+                    for fut in not_done:
+                        eid = future_map[fut]
+                        c_key = f"{eid}:{t_sys}"
+                        empty_stat = {
                             "event_id": eid,
                             "avg_field_elo": None,
                             "top_seed_elo": None,
@@ -687,26 +702,15 @@ async def api_community_events_field_stats(
                             "rated_players_count": 0,
                             "status": "empty"
                         }
-                    results[eid] = stat
-                    _community_field_stats_cache[c_key] = {
-                        "timestamp": now_ts,
-                        "stats": stat
-                    }
-                for fut in not_done:
-                    eid = future_map[fut]
-                    empty_stat = {
-                        "event_id": eid,
-                        "avg_field_elo": None,
-                        "top_seed_elo": None,
-                        "total_enrolled": 0,
-                        "rated_players_count": 0,
-                        "status": "empty"
-                    }
-                    results[eid] = empty_stat
-                    _community_field_stats_cache[eid] = {
-                        "timestamp": now_ts,
-                        "stats": empty_stat
-                    }
+                        local_res[eid] = empty_stat
+                        _community_field_stats_cache[c_key] = {
+                            "timestamp": now_ts,
+                            "stats": empty_stat
+                        }
+            return local_res
+
+        fetched_stats = await asyncio.to_thread(_resolve_missing_field_stats, missing_ids, target_sys)
+        results.update(fetched_stats)
 
     return {
         "success": True,

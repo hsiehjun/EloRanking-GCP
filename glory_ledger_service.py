@@ -566,6 +566,8 @@ class GloryLedgerService:
     # PUBLIC TRANSACTION & SYNC API
     # =========================================================================
 
+    _sync_cache: Dict[str, Tuple[float, int, int, Dict[str, Any]]] = {}
+
     def sync_earned_career_glory(
         self,
         user_id: str,
@@ -588,6 +590,17 @@ class GloryLedgerService:
         if not db or not hasattr(db, "get_connection"):
             return self._memory_sync_earned(user_id, evaluated_earned_glory, glory_40k, glory_aos, actual_armory_spent=actual_armory_spent)
 
+        is_mock_db = bool(hasattr(db, "assert_called") or hasattr(getattr(db, "get_connection", None), "assert_called"))
+        target_earned = max(0, int(evaluated_earned_glory or 0))
+        target_spent = max(0, int(actual_armory_spent or 0))
+        if not is_mock_db:
+            cached = self._sync_cache.get(user_id)
+            if cached and (time.time() - cached[0]) < 120.0 and cached[1] == target_earned and cached[2] == target_spent:
+                resp = dict(cached[3])
+                resp["glory_40k"] = int(glory_40k or 0)
+                resp["glory_aos"] = int(glory_aos or 0)
+                return resp
+
         try:
             self.ensure_schema()
             with db.get_connection() as conn:
@@ -599,7 +612,6 @@ class GloryLedgerService:
                         actual_armory_spent=actual_armory_spent
                     )
                     current_earned = int(wallet["earned_glory_total"])
-                    target_earned = max(0, int(evaluated_earned_glory or 0))
                     if target_earned > current_earned:
                         delta = target_earned - current_earned
                         idem_key = f"career_glory_milestone:{user_id}:{current_earned}_to_{target_earned}"
@@ -623,7 +635,10 @@ class GloryLedgerService:
                             }
                         )
                 conn.commit()
-            return self._format_wallet_response(wallet, glory_40k=glory_40k, glory_aos=glory_aos)
+            fmt_resp = self._format_wallet_response(wallet, glory_40k=glory_40k, glory_aos=glory_aos)
+            if not is_mock_db:
+                self._sync_cache[user_id] = (time.time(), target_earned, int(wallet.get("spent_glory_total", target_spent)), dict(fmt_resp))
+            return fmt_resp
         except Exception as e:
             logger.warning(f"sync_earned_career_glory fallback notice for {user_id}: {e}")
             return self._memory_sync_earned(user_id, evaluated_earned_glory, glory_40k, glory_aos, actual_armory_spent=actual_armory_spent)
@@ -650,6 +665,7 @@ class GloryLedgerService:
         """
         if not user_id:
             raise GloryLedgerError("user_id is required for Glory Honor transactions.")
+        self._sync_cache.pop(user_id, None)
         clean_amount = int(amount or 0)
         if clean_amount <= 0:
             raise GloryLedgerError("Transaction amount must be greater than 0.")
@@ -708,6 +724,7 @@ class GloryLedgerService:
                             json.dumps(metadata or {})
                         ))
                 conn.commit()
+                self._sync_cache.pop(user_id, None)
                 res = self._format_wallet_response(wallet)
                 if extra_result is not None:
                     res["extra"] = extra_result

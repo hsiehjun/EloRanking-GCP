@@ -195,6 +195,35 @@
     }
   }
 
+  var inFlightCatalogPromise = {};
+  var lastCatalogLoadedAt = {};
+
+  function hydrateVaultFromGlobalSession() {
+    var hub = window.myHubData;
+    var usr = window.currentUser || (window.api && window.api.currentUser);
+    if ((!currentVault || !currentVault.inventory || Object.keys(currentVault.inventory).length === 0)) {
+      var candidateVault = (hub && hub.armory_vault) || (usr && usr.armory_vault);
+      if (candidateVault && typeof candidateVault === 'object') {
+        currentVault = {
+          inventory: candidateVault.inventory || {},
+          equipped: normalizeEquippedObject(candidateVault.equipped || {})
+        };
+      }
+    }
+    if (!currentGlory || (!currentGlory.total_earned && !currentGlory.spendable_glory)) {
+      if (hub && (hub.glory_balance !== undefined || hub.total_glory !== undefined)) {
+        currentGlory = {
+          spendable_glory: Number(hub.spendable_glory !== undefined ? hub.spendable_glory : (hub.glory_balance || 0)),
+          total_earned: Number(hub.total_earned !== undefined ? hub.total_earned : (hub.unified_glory || hub.total_glory || 0)),
+          glory_spent: Number(hub.glory_spent || 0),
+          glory_40k: Number(hub.glory_40k || 0),
+          glory_aos: Number(hub.glory_aos || 0),
+          peak_elo: Number((hub.player && hub.player.peak_elo) || 1500)
+        };
+      }
+    }
+  }
+
   /**
    * Switch active game system inside Armory modal (40k vs aos)
    */
@@ -208,6 +237,19 @@
       t.classList.toggle('active', t.getAttribute('data-sys') === sys);
     });
 
+    if (catalogBySystem[sys] && Array.isArray(catalogBySystem[sys].items)) {
+      currentCatalog = catalogBySystem[sys];
+      renderArmoryGrid();
+      if (Date.now() - (lastCatalogLoadedAt[sys] || 0) > 15000) {
+        loadArmoryData(sys).then(function() {
+          if (currentGameSystem === sys && document.getElementById('retribution-armory-modal')) {
+            renderArmoryGrid();
+          }
+        });
+      }
+      return;
+    }
+
     var gridEl = document.getElementById('armory-products-grid');
     if (gridEl) {
       gridEl.innerHTML = buildArmoryLoadingHtml(sys === 'aos' ? 'Synchronizing Age of Sigmar Grand Alliance Relics...' : 'Synchronizing Warhammer 40,000 Command Vault...');
@@ -218,67 +260,69 @@
   }
 
   /**
-   * Fetch latest catalog & user vault from server
+   * Fetch latest catalog & user vault from server (single unified request with in-flight deduplication)
    */
-  async function loadArmoryData(gameSys) {
-    try {
-      var sys = (gameSys || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
-      if (sys !== '40k' && sys !== 'aos') sys = '40k';
-      var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
-      var headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+  async function loadArmoryData(gameSys, forceRefresh) {
+    var sys = (gameSys || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
+    if (sys !== '40k' && sys !== 'aos') sys = '40k';
 
-      var catPromise = fetch('/api/armory/catalog?game_system=' + encodeURIComponent(sys) + '&_t=' + Date.now(), {
-        headers: headers,
-        credentials: 'include',
-        cache: 'no-store'
-      });
-      var vaultPromise = fetch('/api/armory/vault?_t=' + Date.now(), {
-        headers: headers,
-        credentials: 'include',
-        cache: 'no-store'
-      }).catch(function() { return null; });
+    hydrateVaultFromGlobalSession();
 
-      var results = await Promise.all([catPromise, vaultPromise]);
-      var catRes = results[0];
-      var vaultRes = results[1];
-
-      if (vaultRes && vaultRes.ok) {
-        try {
-          var vData = await vaultRes.json();
-          if (vData.vault) currentVault = vData.vault;
-          if (vData.glory) currentGlory = vData.glory;
-        } catch (ve) {}
-      }
-
-      if (catRes.ok) {
-        var data = await catRes.json();
-        currentCatalog = data;
-        catalogBySystem[sys] = data;
-        if (data.user_glory) currentGlory = data.user_glory;
-        if (data.user_vault) currentVault = data.user_vault;
-      }
-
-      // Strict per-system normalization: never write flat top-level slot keys
-      if (!currentVault) currentVault = { inventory: {}, equipped: {} };
-      currentVault.equipped = normalizeEquippedObject(currentVault.equipped);
-
-      // If catalog items for `sys` have is_equipped === true, reflect them into currentVault.equipped[sys] ONLY
-      if (currentCatalog && Array.isArray(currentCatalog.items)) {
-        currentCatalog.items.forEach(function(item) {
-          var itemSys = (item.game_system || sys).toLowerCase();
-          if (itemSys === sys && item.is_equipped && item.slot) {
-            currentVault.equipped[sys][item.slot] = item.id;
-          }
-        });
-      }
-
-      syncCachedUserVault();
-      updateArmoryHeaderBalance();
+    if (!forceRefresh && catalogBySystem[sys] && (Date.now() - (lastCatalogLoadedAt[sys] || 0) < 10000)) {
+      currentCatalog = catalogBySystem[sys];
       return currentCatalog;
-    } catch (e) {
-      console.warn('Notice loading armory catalog:', e);
     }
-    return null;
+
+    if (inFlightCatalogPromise[sys]) {
+      return inFlightCatalogPromise[sys];
+    }
+
+    inFlightCatalogPromise[sys] = (async function() {
+      try {
+        var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
+        var headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+
+        var catRes = await fetch('/api/armory/catalog?game_system=' + encodeURIComponent(sys) + '&_t=' + Date.now(), {
+          headers: headers,
+          credentials: 'include',
+          cache: 'no-store'
+        });
+
+        if (catRes && catRes.ok) {
+          var data = await catRes.json();
+          currentCatalog = data;
+          catalogBySystem[sys] = data;
+          lastCatalogLoadedAt[sys] = Date.now();
+          if (data.user_glory) currentGlory = data.user_glory;
+          if (data.user_vault) currentVault = data.user_vault;
+        }
+
+        // Strict per-system normalization: never write flat top-level slot keys
+        if (!currentVault) currentVault = { inventory: {}, equipped: {} };
+        currentVault.equipped = normalizeEquippedObject(currentVault.equipped);
+
+        // If catalog items for `sys` have is_equipped === true, reflect them into currentVault.equipped[sys] ONLY
+        if (currentCatalog && Array.isArray(currentCatalog.items)) {
+          currentCatalog.items.forEach(function(item) {
+            var itemSys = (item.game_system || sys).toLowerCase();
+            if (itemSys === sys && item.is_equipped && item.slot) {
+              currentVault.equipped[sys][item.slot] = item.id;
+            }
+          });
+        }
+
+        syncCachedUserVault();
+        updateArmoryHeaderBalance();
+        return currentCatalog;
+      } catch (e) {
+        console.warn('Notice loading armory catalog:', e);
+      } finally {
+        delete inFlightCatalogPromise[sys];
+      }
+      return currentCatalog || null;
+    })();
+
+    return inFlightCatalogPromise[sys];
   }
 
   /**
@@ -1574,6 +1618,7 @@
    */
   async function openArmoryModal(initialWing, system) {
     currentGameSystem = (system === '40k' || system === 'aos') ? system : detectActiveGameSystem();
+    hydrateVaultFromGlobalSession();
 
     if (initialWing === 'store') {
       currentArmoryMode = 'store';
@@ -1596,8 +1641,24 @@
     modal.id = 'retribution-armory-modal';
     modal.className = 'modal-backdrop active';
     modal.style.zIndex = '100005';
+    document.body.appendChild(modal);
 
-    // Immediately render the modal frame & Quartermaster loading screen so there is zero blank state
+    // Fast path: if catalog for this system is already loaded in memory, render the full interactive shell in 0ms!
+    if (catalogBySystem[currentGameSystem] && Array.isArray(catalogBySystem[currentGameSystem].items)) {
+      currentCatalog = catalogBySystem[currentGameSystem];
+      renderArmoryModalShell();
+      if (Date.now() - (lastCatalogLoadedAt[currentGameSystem] || 0) > 15000) {
+        loadArmoryData(currentGameSystem).then(function() {
+          if (document.getElementById('retribution-armory-modal')) {
+            updateArmoryHeaderBalance();
+            renderArmoryGrid();
+          }
+        });
+      }
+      return;
+    }
+
+    // Cold path: render the modal frame & Quartermaster loading screen while awaiting the first catalog fetch
     var isStore = (currentArmoryMode === 'store');
     modal.innerHTML = [
       '<div class="modal-card armory-modal-card">',
@@ -1619,9 +1680,6 @@
       '</div>'
     ].join('\n');
 
-    document.body.appendChild(modal);
-
-    // Load data and render full interactive Vault / Store
     await loadArmoryData(currentGameSystem);
     renderArmoryModalShell();
   }
@@ -2181,11 +2239,15 @@
   function bootArmory() {
     var initSys = detectActiveGameSystem();
     currentGameSystem = initSys;
-    loadArmoryData(initSys).then(function() {
-      applyEquippedDecorations(detectActiveGameSystem());
-      checkAndTriggerSignInPokeEffect();
-      renderActiveRivalHexBanner();
-    });
+    hydrateVaultFromGlobalSession();
+    applyEquippedDecorations(initSys);
+    setTimeout(function() {
+      loadArmoryData(detectActiveGameSystem()).then(function() {
+        applyEquippedDecorations(detectActiveGameSystem());
+        checkAndTriggerSignInPokeEffect();
+        renderActiveRivalHexBanner();
+      });
+    }, 350);
   }
 
   if (document.readyState === 'loading') {

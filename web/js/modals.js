@@ -1594,7 +1594,8 @@ function openJourneyScorecardModal(matchId, eventId, eventName, roundNum, tableN
 }
 window.openJourneyScorecardModal = openJourneyScorecardModal;
 
-async function openScorecardModal(matchId, fallbackMatchMeta = null) {
+async function openScorecardModal(matchId) {
+  const fallbackMatchMeta = arguments.length > 1 ? arguments[1] : null;
   if (!matchId) return;
   activeScorecardMatchId = matchId;
 
@@ -1644,25 +1645,33 @@ async function openScorecardModal(matchId, fallbackMatchMeta = null) {
   let evMatch = null;
   let evP1 = null;
   let evP2 = null;
-  const evObj = (typeof currentEventData === 'object' && currentEventData) ? currentEventData : null;
+  const cachedModalEntry = (parsedEventId && typeof window.getEventModalCache === 'function')
+    ? window.getEventModalCache(parsedEventId)
+    : null;
+  const rawEvObj = (typeof currentEventData === 'object' && currentEventData)
+    ? currentEventData
+    : ((typeof window.currentEventData === 'object' && window.currentEventData)
+      ? window.currentEventData
+      : (cachedModalEntry && cachedModalEntry.ev ? cachedModalEntry.ev : null));
   const isSameCachedEvent = Boolean(
     !parsedEventId ||
-    (evObj && String(evObj.event_id || evObj.id || '') === String(parsedEventId))
+    (rawEvObj && String(rawEvObj.event_id || rawEvObj.id || '').trim().toLowerCase() === String(parsedEventId).trim().toLowerCase())
   );
-  const evMatches = isSameCachedEvent
-    ? ((evObj && Array.isArray(evObj.matches) && evObj.matches.length > 0)
-      ? evObj.matches
-      : ((typeof eventMatchesCache !== 'undefined' && Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0)
+  const evObj = isSameCachedEvent ? rawEvObj : (cachedModalEntry && cachedModalEntry.ev ? cachedModalEntry.ev : null);
+  const evMatches = (evObj && Array.isArray(evObj.matches) && evObj.matches.length > 0)
+    ? evObj.matches
+    : (isSameCachedEvent
+      ? ((typeof eventMatchesCache !== 'undefined' && Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0)
         ? eventMatchesCache
-        : (Array.isArray(window.eventMatchesCache) ? window.eventMatchesCache : [])))
-    : [];
-  const evPlayers = isSameCachedEvent
-    ? ((evObj && Array.isArray(evObj.players) && evObj.players.length > 0)
-      ? evObj.players
-      : ((typeof eventPlayersCache !== 'undefined' && Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0)
+        : (Array.isArray(window.eventMatchesCache) ? window.eventMatchesCache : []))
+      : []);
+  const evPlayers = (evObj && Array.isArray(evObj.players) && evObj.players.length > 0)
+    ? evObj.players
+    : (isSameCachedEvent
+      ? ((typeof eventPlayersCache !== 'undefined' && Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0)
         ? eventPlayersCache
-        : (Array.isArray(window.eventPlayersCache) ? window.eventPlayersCache : [])))
-    : [];
+        : (Array.isArray(window.eventPlayersCache) ? window.eventPlayersCache : []))
+      : []);
 
   if (parsedRound !== null && parsedTable !== null && evMatches.length > 0) {
     evMatch = evMatches.find(m => Number(m.round || 1) === parsedRound && Number(m.table_number || m.table || 1) === parsedTable) || null;
@@ -1689,13 +1698,19 @@ async function openScorecardModal(matchId, fallbackMatchMeta = null) {
     }) || null;
   }
 
-  // Immediately populate the top header and P1 vs P2 strip if we already know the clicked match,
+  // Immediately populate the top header, P1 vs P2 strip, AND initial BCP matrix rows if we already know the clicked match,
   // or clear to loading placeholders so stale player names from a previous match never flash.
   if (evMatch) {
     const initRound = evMatch.round || parsedRound || 1;
     const initTable = evMatch.table_number || evMatch.table || parsedTable || null;
     const initEventLabel = evMatch.event_name || (isSameCachedEvent && evObj && evObj.name) || parsedEventId || null;
     const initDate = evMatch.match_date || (isSameCachedEvent && evObj && evObj.event_date) || Date.now();
+    const initP1Name = evMatch.player1_name || 'Player 1';
+    const initP2Name = evMatch.player2_name || 'Player 2';
+    const initP1Fac = evMatch.player1_faction || evP1?.faction || 'Warhammer 40k';
+    const initP2Fac = evMatch.player2_faction || evP2?.faction || 'Warhammer 40k';
+    const initP1Det = evMatch.player1_detachment || evP1?.detachment || '';
+    const initP2Det = evMatch.player2_detachment || evP2?.detachment || '';
     if (titleEl) {
       titleEl.innerHTML = `🏆 ${initEventLabel ? escapeHtml(initEventLabel) + ' • ' : ''}R${initRound}${initTable ? ' • T' + initTable : ''}`;
     }
@@ -1704,13 +1719,58 @@ async function openScorecardModal(matchId, fallbackMatchMeta = null) {
     }
     if (p1NameEl) p1NameEl.innerText = evMatch.player1_name || 'Player 1';
     if (p2NameEl) p2NameEl.innerText = evMatch.player2_name || 'Player 2';
-    if (p1FacEl) p1FacEl.innerText = evMatch.player1_faction || evP1?.faction || 'Warhammer 40k';
-    if (p2FacEl) p2FacEl.innerText = evMatch.player2_faction || evP2?.faction || 'Warhammer 40k';
-    if (p1DetEl) p1DetEl.innerText = evMatch.player1_detachment || evP1?.detachment || '';
-    if (p2DetEl) p2DetEl.innerText = evMatch.player2_detachment || evP2?.detachment || '';
+    if (p1FacEl) p1FacEl.innerText = initP1Fac;
+    if (p2FacEl) p2FacEl.innerText = initP2Fac;
+    if (p1DetEl) p1DetEl.innerText = initP1Det;
+    if (p2DetEl) p2DetEl.innerText = initP2Det;
     const hasInitScore = evMatch.player1_score !== null && evMatch.player1_score !== undefined && evMatch.player2_score !== null && evMatch.player2_score !== undefined;
     if (p1ScoreEl) p1ScoreEl.innerText = hasInitScore ? evMatch.player1_score : '-';
     if (p2ScoreEl) p2ScoreEl.innerText = hasInitScore ? evMatch.player2_score : '-';
+    if (hasInitScore) {
+      const s1 = Number(evMatch.player1_score || 0);
+      const s2 = Number(evMatch.player2_score || 0);
+      if (s1 > s2 && p1NameEl) p1NameEl.innerText = `🏆 ${initP1Name}`;
+      else if (s2 > s1 && p2NameEl) p2NameEl.innerText = `🏆 ${initP2Name}`;
+    }
+    if (tbody) {
+      const isInitAos = Boolean(String(matchId || '').startsWith('AOS-') || window.currentGameSystem === 'aos');
+      const initMaxTot = isInitAos ? 50 : 100;
+      const p1WonInit = hasInitScore && Number(evMatch.player1_score) > Number(evMatch.player2_score);
+      const p2WonInit = hasInitScore && Number(evMatch.player2_score) > Number(evMatch.player1_score);
+      const p1BadgeInit = !hasInitScore
+        ? '<span class="badge badge-draw" style="margin-right:6px;">PENDING</span>'
+        : (p1WonInit ? '<span class="badge badge-win" style="margin-right:6px;">VICTORY</span>' : (p2WonInit ? '<span class="badge badge-loss" style="margin-right:6px;">DEFEAT</span>' : '<span class="badge badge-draw" style="margin-right:6px;">DRAW</span>'));
+      const p2BadgeInit = !hasInitScore
+        ? '<span class="badge badge-draw" style="margin-right:6px;">PENDING</span>'
+        : (p2WonInit ? '<span class="badge badge-win" style="margin-right:6px;">VICTORY</span>' : (p1WonInit ? '<span class="badge badge-loss" style="margin-right:6px;">DEFEAT</span>' : '<span class="badge badge-draw" style="margin-right:6px;">DRAW</span>'));
+      const initStatusDesc = hasInitScore ? 'Official BCP Final Battle Points' : 'Official BCP Match Pairing (Awaiting Final Score)';
+      const p1TotInit = hasInitScore ? `${escapeHtml(String(evMatch.player1_score))} / ${initMaxTot}` : `- / ${initMaxTot}`;
+      const p2TotInit = hasInitScore ? `${escapeHtml(String(evMatch.player2_score))} / ${initMaxTot}` : `- / ${initMaxTot}`;
+      tbody.innerHTML = `
+        <tr>
+          <td style="color:#38bdf8; font-weight:800; text-align:left; white-space:normal;">
+            <div>🟦 ${escapeHtml(initP1Name)}</div>
+            <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600; margin-top:2px;">${escapeHtml(initP1Fac)}${initP1Det ? ' • ' + escapeHtml(initP1Det) : ''}</div>
+          </td>
+          <td colspan="5" style="text-align:center; color:var(--text-secondary); font-size:0.78rem; white-space:normal;">
+            ${p1BadgeInit}
+            ${initStatusDesc}
+          </td>
+          <td style="font-family:var(--font-mono); font-weight:900; font-size:1.02rem; color:${p1WonInit ? '#4ade80' : '#f8fafc'}; text-align:center; white-space:nowrap;">${p1TotInit}</td>
+        </tr>
+        <tr>
+          <td style="color:#f43f5e; font-weight:800; text-align:left; white-space:normal;">
+            <div>🟥 ${escapeHtml(initP2Name)}</div>
+            <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600; margin-top:2px;">${escapeHtml(initP2Fac)}${initP2Det ? ' • ' + escapeHtml(initP2Det) : ''}</div>
+          </td>
+          <td colspan="5" style="text-align:center; color:var(--text-secondary); font-size:0.78rem; white-space:normal;">
+            ${p2BadgeInit}
+            ${initStatusDesc}
+          </td>
+          <td style="font-family:var(--font-mono); font-weight:900; font-size:1.02rem; color:${p2WonInit ? '#4ade80' : '#f8fafc'}; text-align:center; white-space:nowrap;">${p2TotInit}</td>
+        </tr>
+      `;
+    }
   } else {
     if (titleEl) titleEl.innerHTML = `🏆 Match Scorecard`;
     if (subEl) subEl.innerText = `Loading match details...`;

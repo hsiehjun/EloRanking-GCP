@@ -591,10 +591,15 @@ def api_user_registered_tournaments(
             to_enrich = []
             for t in combined_tournaments:
                 t_eid = str(t.get("bcp_event_id") or t.get("id") or "").strip()
-                if not t_eid or t_eid.startswith("ES-"):
+                if not t_eid or t_eid.startswith("ES-") or t_eid.startswith("league_"):
+                    continue
+                is_ended = bool(t.get("ended") or t.get("is_ended") or str(t.get("status") or "").lower() in ("ended", "completed", "finished"))
+                if not force_sync and is_ended and t.get("faction") and t.get("player_id"):
                     continue
                 if force_sync or not t.get("faction") or not t.get("army_list") or not t.get("player_id"):
                     to_enrich.append((t_eid, t))
+            if not force_sync and len(to_enrich) > 4:
+                to_enrich = to_enrich[:4]
 
             def _enrich_single_tournament(pair):
                 t_eid, t_obj = pair

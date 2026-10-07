@@ -450,34 +450,37 @@ async function loadMyHubDashboard() {
   }
 }
 
+var _hubPrefetchTimer = null;
+var _prefetchedEventIds = new Set();
+
 function prefetchHubTopTournaments(data) {
   if (!data || !window.api || typeof window.api.getTournamentDetails !== 'function') return;
-  const candidateIds = [];
-  const addId = (rawId) => {
-    const eid = String(rawId || '').trim();
-    if (!eid || eid.startsWith('g-') || eid.startsWith('game-') || candidateIds.includes(eid)) return;
-    if (candidateIds.length < 5) candidateIds.push(eid);
-  };
-  (data.registered_tournaments || []).slice(0, 2).forEach(e => addId(e && (e.bcp_event_id || e.event_id || e.id)));
-  (data.upcoming_events || []).slice(0, 2).forEach(e => addId(e && (e.bcp_event_id || e.event_id || e.id)));
-  (data.events_attended || []).slice(0, 3).forEach(e => addId(e && (e.event_id || e.bcp_event_id || e.id)));
-
-  candidateIds.forEach((eid, idx) => {
-    if (typeof window.getWarmEventModalCache === 'function' && window.getWarmEventModalCache(eid)) {
-      return;
+  if (_hubPrefetchTimer) clearTimeout(_hubPrefetchTimer);
+  _hubPrefetchTimer = setTimeout(() => {
+    if (document.querySelector('.modal-backdrop.active')) return;
+    const candidateIds = [];
+    const addId = (rawId) => {
+      const eid = String(rawId || '').trim();
+      if (!eid || eid.startsWith('g-') || eid.startsWith('game-') || eid.startsWith('league_') || _prefetchedEventIds.has(eid) || candidateIds.includes(eid)) return;
+      if (candidateIds.length < 1) candidateIds.push(eid);
+    };
+    (data.registered_tournaments || []).slice(0, 1).forEach(e => addId(e && (e.bcp_event_id || e.event_id || e.id)));
+    if (candidateIds.length === 0) {
+      (data.events_attended || []).slice(0, 1).forEach(e => addId(e && (e.event_id || e.bcp_event_id || e.id)));
     }
-    setTimeout(() => {
-      const pEv = window.api.getTournamentDetails(eid, false).catch(() => null);
-      const pReg = (typeof window.api.getCommunityEventRegistration === 'function')
-        ? window.api.getCommunityEventRegistration(eid, false).catch(() => null)
-        : Promise.resolve(null);
-      Promise.all([pEv, pReg]).then(([ev, reg]) => {
+
+    candidateIds.forEach((eid) => {
+      _prefetchedEventIds.add(eid);
+      if (typeof window.getWarmEventModalCache === 'function' && window.getWarmEventModalCache(eid)) {
+        return;
+      }
+      window.api.getTournamentDetails(eid, false).then((ev) => {
         if (ev && !ev.error && typeof window.saveEventModalCache === 'function') {
-          window.saveEventModalCache(eid, ev, (reg && !reg.error) ? reg : null);
+          window.saveEventModalCache(eid, ev, null);
         }
       }).catch(() => {});
-    }, 80 + idx * 120);
-  });
+    });
+  }, 2500);
 }
 window.prefetchHubTopTournaments = prefetchHubTopTournaments;
 

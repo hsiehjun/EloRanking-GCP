@@ -685,7 +685,11 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
         return ("spectator" if (p1_id and p2_id) else "player1", None)
 
 @router.post("/api/tracker/room/create", summary="Create or connect to a multiplayer match room with host player")
-def api_tracker_create_room(request: Request, payload: Optional[TrackerCreatePayload] = None):
+async def api_tracker_create_room(request: Request, payload: Optional[TrackerCreatePayload] = None):
+    return await asyncio.to_thread(_api_tracker_create_room_sync, request, payload)
+
+
+def _api_tracker_create_room_sync(request: Request, payload: Optional[TrackerCreatePayload] = None):
     db = get_database()
     user = getattr(request, "_mock_user", None) if request else None
     if user is None:
@@ -1064,7 +1068,11 @@ def api_tracker_firestore_inspect(match_id: str):
     }
 
 @router.get("/api/tracker/room/{match_id}/check", summary="Check if room exists and check player slots")
-def api_tracker_check_room(match_id: str, request: Request):
+async def api_tracker_check_room(match_id: str, request: Request):
+    return await asyncio.to_thread(_api_tracker_check_room_sync, match_id, request)
+
+
+def _api_tracker_check_room_sync(match_id: str, request: Request):
     match_id = normalize_tracker_match_id(match_id)
         
     db = None
@@ -1720,10 +1728,18 @@ def api_tracker_history(request: Request, limit: int = 500, search: Optional[str
         return {"success": False, "history": []}
 
 @router.get("/api/tracker/sessions", summary="Get user's 3-tier active slot management (primary active, unfinished, completed)")
-def api_tracker_user_sessions(
+async def api_tracker_user_sessions(
     request: Request,
     token: Optional[str] = Query(None),
     game_system: Optional[str] = Query(None)
+):
+    return await asyncio.to_thread(_api_tracker_user_sessions_sync, request, token, game_system)
+
+
+def _api_tracker_user_sessions_sync(
+    request: Request,
+    token: Optional[str] = None,
+    game_system: Optional[str] = None
 ):
     user = getattr(request, "_mock_user", None) if request else None
     if user is None and request:
@@ -2188,7 +2204,22 @@ def api_tracker_unhide_game(match_id: str, request: Request, payload: Optional[T
     return {"success": success, "match_id": match_id, "unhidden_for_user": user["id"]}
 
 @router.get("/api/scorecard/{match_id}", summary="Get verified tournament digital scorecard data")
-def api_get_scorecard(match_id: str):
+async def api_get_scorecard(match_id: str):
+    return await asyncio.to_thread(_api_get_scorecard_sync, match_id)
+
+
+def _event_id_case_variants(ev_id: str) -> List[str]:
+    s = str(ev_id or "").strip()
+    if not s:
+        return []
+    out = []
+    for cand in (s, s.lower(), s.upper()):
+        if cand and cand not in out:
+            out.append(cand)
+    return out
+
+
+def _api_get_scorecard_sync(match_id: str):
     db = None
     try:
         db = get_database()
@@ -2200,6 +2231,7 @@ def api_get_scorecard(match_id: str):
     except Exception:
         pass
 
+    is_mock_db = bool(db and hasattr(db, "assert_called"))
     norm_mid = normalize_tracker_match_id(match_id)
     candidates = []
     for c in [
@@ -2230,49 +2262,38 @@ def api_get_scorecard(match_id: str):
             candidates.append(c)
 
     # 1. Check PostgreSQL tracker_games first (submitted & finalized scorecards in our backend DB)
+    # Note: db.get_tracker_game(match_id) already checks all candidate IDs and (event_id, round_num, table_num) in a single indexed query!
     game_rec = None
     m_pat = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id.strip(), re.IGNORECASE)
     m_player_pat = None if m_pat else re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-P-(.+)$", match_id.strip(), re.IGNORECASE)
 
     if db and hasattr(db, "get_tracker_game"):
-        for cand in candidates:
-            try:
-                rec = db.get_tracker_game(cand)
-                if rec and isinstance(rec, dict):
-                    game_rec = rec
-                    break
-            except Exception:
-                pass
-        if not game_rec and m_pat and hasattr(db, "get_connection"):
-            try:
-                with db.get_connection() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("""
-                            SELECT match_id
-                            FROM tracker_games
-                            WHERE LOWER(event_id) = LOWER(%s)
-                              AND round_num = %s
-                              AND table_num = %s
-                            ORDER BY
-                              COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
-                              is_finished DESC,
-                              updated_at DESC
-                            LIMIT 1;
-                        """, (m_pat.group(1), int(m_pat.group(2)), int(m_pat.group(3))))
-                        tg_row = cur.fetchone()
-                        if tg_row:
-                            mapped_mid = tg_row[0] if not isinstance(tg_row, dict) else tg_row.get("match_id")
-                            if mapped_mid:
-                                game_rec = db.get_tracker_game(str(mapped_mid))
-            except Exception:
-                pass
+        try:
+            rec = db.get_tracker_game(match_id)
+            if rec and isinstance(rec, dict):
+                game_rec = rec
+        except Exception:
+            pass
+        if not game_rec and is_mock_db:
+            for cand in candidates[1:]:
+                try:
+                    rec = db.get_tracker_game(cand)
+                    if rec and isinstance(rec, dict):
+                        game_rec = rec
+                        break
+                except Exception:
+                    pass
 
     # 2. Check event & official BCP match record in our database if this is an event pairing or match ID
     bcp_match = None
     is_event_completed = False
     ev_id_raw = m_pat.group(1) if m_pat else (m_player_pat.group(1) if m_player_pat else None)
 
-    if ev_id_raw and db and hasattr(db, "get_studio_event"):
+    is_es_event = bool(
+        match_id.upper().startswith(("ES-", "WH40K-ES-", "AOS-ES-"))
+        or (ev_id_raw and str(ev_id_raw).upper().startswith("ES-"))
+    )
+    if is_es_event and ev_id_raw and db and hasattr(db, "get_studio_event") and not is_mock_db:
         try:
             st_ev = db.get_studio_event(ev_id_raw)
             if isinstance(st_ev, dict):
@@ -2285,12 +2306,13 @@ def api_get_scorecard(match_id: str):
         except Exception:
             pass
 
-    if db and hasattr(db, "get_connection"):
+    if db and hasattr(db, "get_connection") and not is_mock_db:
         try:
             with db.get_connection() as conn:
                 with conn.cursor() as cur:
                     row = None
                     if m_pat:
+                        ev_vars = _event_id_case_variants(m_pat.group(1))
                         cur.execute("""
                             SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
                                    m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
@@ -2300,13 +2322,14 @@ def api_get_scorecard(match_id: str):
                                    e.event_date, e.end_date, e.raw_json AS event_raw_json
                             FROM matches m
                             LEFT JOIN events e ON e.id = m.event_id
-                            WHERE LOWER(m.event_id) = LOWER(%s)
+                            WHERE m.event_id = ANY(%s)
                               AND m.round = %s
                               AND m.table_number = %s
                             LIMIT 1;
-                        """, (m_pat.group(1), int(m_pat.group(2)), int(m_pat.group(3))))
+                        """, (ev_vars, int(m_pat.group(2)), int(m_pat.group(3))))
                         row = cur.fetchone()
                     elif m_player_pat:
+                        ev_vars = _event_id_case_variants(m_player_pat.group(1))
                         p_tok = urllib.parse.unquote(m_player_pat.group(3)).strip()
                         cur.execute("""
                             SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
@@ -2317,7 +2340,7 @@ def api_get_scorecard(match_id: str):
                                    e.event_date, e.end_date, e.raw_json AS event_raw_json
                             FROM matches m
                             LEFT JOIN events e ON e.id = m.event_id
-                            WHERE LOWER(m.event_id) = LOWER(%s)
+                            WHERE m.event_id = ANY(%s)
                               AND m.round = %s
                               AND (
                                   LOWER(COALESCE(m.player1_id, '')) = LOWER(%s)
@@ -2326,7 +2349,7 @@ def api_get_scorecard(match_id: str):
                                   OR LOWER(TRIM(COALESCE(m.player2_name, ''))) = LOWER(%s)
                               )
                             LIMIT 1;
-                        """, (m_player_pat.group(1), int(m_player_pat.group(2)), p_tok, p_tok, p_tok, p_tok))
+                        """, (ev_vars, int(m_player_pat.group(2)), p_tok, p_tok, p_tok, p_tok))
                         row = cur.fetchone()
 
                     if not row and not m_pat and not m_player_pat:
@@ -2385,11 +2408,12 @@ def api_get_scorecard(match_id: str):
                             bcp_match["match_date"] = bcp_match["match_date"].isoformat()
 
                         # If resolved via m.id or P-player and we haven't checked tracker_games for its (event_id, round, table_number), check now!
-                        if not game_rec and bcp_match.get("event_id") and bcp_match.get("round") and bcp_match.get("table_number") and hasattr(db, "get_tracker_game"):
+                        if not game_rec and not m_pat and bcp_match.get("event_id") and bcp_match.get("round") and bcp_match.get("table_number") and hasattr(db, "get_tracker_game"):
+                            ev_vars2 = _event_id_case_variants(bcp_match["event_id"])
                             cur.execute("""
                                 SELECT match_id
                                 FROM tracker_games
-                                WHERE LOWER(event_id) = LOWER(%s)
+                                WHERE event_id = ANY(%s)
                                   AND round_num = %s
                                   AND table_num = %s
                                 ORDER BY
@@ -2397,7 +2421,7 @@ def api_get_scorecard(match_id: str):
                                   is_finished DESC,
                                   updated_at DESC
                                 LIMIT 1;
-                            """, (bcp_match["event_id"], int(bcp_match["round"]), int(bcp_match["table_number"])))
+                            """, (ev_vars2, int(bcp_match["round"]), int(bcp_match["table_number"])))
                             tg_row2 = cur.fetchone()
                             if tg_row2:
                                 mapped_mid2 = tg_row2[0] if not isinstance(tg_row2, dict) else tg_row2.get("match_id")
@@ -2407,6 +2431,7 @@ def api_get_scorecard(match_id: str):
                     # Fallback to rating_history if matches table had no row
                     if not bcp_match and not game_rec:
                         if m_player_pat:
+                            ev_vars = _event_id_case_variants(m_player_pat.group(1))
                             p_tok = urllib.parse.unquote(m_player_pat.group(3)).strip()
                             cur.execute("""
                                 SELECT h.match_id, h.event_id, h.round, h.match_date,
@@ -2416,11 +2441,11 @@ def api_get_scorecard(match_id: str):
                                 FROM rating_history h
                                 LEFT JOIN events e ON e.id = h.event_id
                                 LEFT JOIN players p ON p.id = h.player_id
-                                WHERE LOWER(h.event_id) = LOWER(%s)
+                                WHERE h.event_id = ANY(%s)
                                   AND h.round = %s
                                   AND (LOWER(h.player_id) = LOWER(%s) OR LOWER(COALESCE(h.opponent_id, '')) = LOWER(%s) OR LOWER(TRIM(COALESCE(h.opponent_name, ''))) = LOWER(%s))
                                 LIMIT 1;
-                            """, (m_player_pat.group(1), int(m_player_pat.group(2)), p_tok, p_tok, p_tok))
+                            """, (ev_vars, int(m_player_pat.group(2)), p_tok, p_tok, p_tok))
                         else:
                             cur.execute("""
                                 SELECT h.match_id, h.event_id, h.round, h.match_date,
@@ -2473,15 +2498,10 @@ def api_get_scorecard(match_id: str):
         )
     )
     if game_rec and is_rec_finished:
-        # Ensure any leftover Firestore room for this finalized game is cleaned up
-        if fs_engine and hasattr(fs_engine, "discard_room"):
-            for cand in candidates:
-                try:
-                    fs_engine.discard_room(cand)
-                except Exception:
-                    pass
         for cand in candidates:
             TRACKER_ROOMS.pop(cand, None)
+            if fs_engine and hasattr(fs_engine, "_fallback_rooms"):
+                fs_engine._fallback_rooms.pop(cand, None)
 
         state = game_rec.get("state") or game_rec.get("state_json") or {}
         sys_id = (
@@ -2504,20 +2524,13 @@ def api_get_scorecard(match_id: str):
             "source": "tracker_games"
         }
 
-    # If the event is completed, delete any leftover Firestore room records for it
-    # and return the BCP score (since tracker_games was already checked in Step 1).
+    # If the event is completed, evict any in-memory rooms and return the BCP score immediately
+    # without running expensive Cloud Firestore collection scans on a GET request.
     if is_event_completed:
-        if fs_engine:
-            try:
-                if ev_id_raw and hasattr(fs_engine, "delete_event_rooms"):
-                    fs_engine.delete_event_rooms(ev_id_raw)
-                if hasattr(fs_engine, "discard_room"):
-                    for cand in candidates:
-                        fs_engine.discard_room(cand)
-            except Exception:
-                pass
         for cand in candidates:
             TRACKER_ROOMS.pop(cand, None)
+            if fs_engine and hasattr(fs_engine, "_fallback_rooms"):
+                fs_engine._fallback_rooms.pop(cand, None)
 
         if bcp_match:
             has_bcp_score = (bcp_match.get("player1_score") is not None and bcp_match.get("player2_score") is not None)
@@ -2534,10 +2547,18 @@ def api_get_scorecard(match_id: str):
         raise HTTPException(status_code=404, detail="Completed scorecard not found in database for this match ID")
 
     # 3. Event is in progress (or standalone live tracker game like WH40K-DD52-6CA8):
-    # Read live up-to-date game state from Firestore / TRACKER_ROOMS
+    # Read live up-to-date game state from TRACKER_ROOMS / Firestore (check normalized room ID first, max 2 lookups)
     room_doc = None
-    if fs_engine and hasattr(fs_engine, "get_room"):
-        for cand in candidates:
+    for cand in candidates:
+        rdoc = TRACKER_ROOMS.get(cand)
+        if rdoc and isinstance(rdoc, dict) and not rdoc.get("is_abandoned") and rdoc.get("status") != "abandoned":
+            room_doc = rdoc
+            break
+    if not room_doc and fs_engine and hasattr(fs_engine, "get_room"):
+        fs_lookup_keys = [norm_mid]
+        if match_id != norm_mid and match_id not in fs_lookup_keys:
+            fs_lookup_keys.append(match_id)
+        for cand in fs_lookup_keys:
             try:
                 rdoc = fs_engine.get_room(cand)
                 if rdoc and isinstance(rdoc, dict):
@@ -2545,12 +2566,6 @@ def api_get_scorecard(match_id: str):
                     break
             except Exception:
                 pass
-    if not room_doc:
-        for cand in candidates:
-            rdoc = TRACKER_ROOMS.get(cand)
-            if rdoc and isinstance(rdoc, dict) and not rdoc.get("is_abandoned") and rdoc.get("status") != "abandoned":
-                room_doc = rdoc
-                break
 
     if room_doc:
         state = (

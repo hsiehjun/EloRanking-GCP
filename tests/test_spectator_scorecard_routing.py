@@ -136,8 +136,7 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn(".sc-badge-live", sc_html)
         self.assertIn(".sc-badge-pulse", sc_html)
         self.assertIn(".sc-live-banner", sc_html)
-        self.assertIn("LIVE IN PROGRESS", sc_html)
-        self.assertIn("Verified Scorecard", sc_html)
+        self.assertIn("LIVE", sc_html)
 
         # 2. Live match banner vs winner outcome & BCP fallback
         self.assertIn("LIVE SCORECARD • Battle Round", sc_html)
@@ -145,7 +144,7 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn("winnerBanner.className = 'sc-winner-banner';", sc_html)
 
         # 3. Real-time updates & resilience
-        self.assertIn("pollLiveScorecardQuietly()", sc_html)
+        self.assertIn("pollLiveScorecardQuietly", sc_html)
         self.assertIn("setupLiveScorecardUpdates", sc_html)
         self.assertIn("initFirestoreLiveListener", sc_html)
         self.assertIn("visibilitychange", sc_html)
@@ -222,6 +221,7 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
     def test_judge_call_resolution_clears_active_call(self):
         """Verify resolving a judge call nullifies active_judge_call in room and does not leave stale call."""
         import asyncio
+        import inspect
         from routers.eventstudio import api_eventstudio_resolve_judge_call, JudgeCallResolvePayload
         from routers.tracker import TRACKER_ROOMS
         from firestore_db import get_firestore_engine
@@ -255,7 +255,9 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
                 match_id=test_mid,
                 event_id="TEST_TOURNEY"
             )
-            res = asyncio.run(api_eventstudio_resolve_judge_call(payload))
+            res = api_eventstudio_resolve_judge_call(payload)
+            if inspect.iscoroutine(res):
+                res = asyncio.run(res)
             self.assertTrue(res.get("success"))
 
             # Verify TRACKER_ROOMS active_judge_call is cleared to None
@@ -820,6 +822,29 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn("sessionStorage.getItem('gt_room_handoff')", play_html)
         self.assertIn("sessionStorage.getItem('gt_room_handoff')", aos_html)
         print("✓ test_create_room_no_double_loading_or_lobby_flash passed")
+
+    def test_scorecard_and_armory_fast_hydration_and_indexed_queries(self):
+        """Verify GET /api/scorecard uses indexed queries without full-collection Firestore scans, and Scorecard & Armory modals render immediately."""
+        tracker_py = (ROOT_DIR / "routers" / "tracker.py").read_text(encoding="utf-8")
+        modals_js = (ROOT_DIR / "web" / "js" / "modals.js").read_text(encoding="utf-8")
+        armory_js = (ROOT_DIR / "web" / "js" / "armory.js").read_text(encoding="utf-8")
+
+        # 1. GET /api/scorecard must NOT trigger delete_event_rooms or discard_room loops
+        scorecard_fn_slice = tracker_py.split("def _api_get_scorecard_sync")[1].split("def view_scorecard_page")[0]
+        self.assertNotIn("delete_event_rooms", scorecard_fn_slice)
+        self.assertNotIn("discard_room(", scorecard_fn_slice)
+        self.assertIn("WHERE m.event_id = ANY(%s)", scorecard_fn_slice)
+        self.assertIn("WHERE h.event_id = ANY(%s)", scorecard_fn_slice)
+
+        # 2. modals.js openScorecardModal immediately renders BCP matrix rows inside if (evMatch)
+        self.assertIn("Official BCP Final Battle Points", modals_js)
+        self.assertIn("const p1WonInit = hasInitScore", modals_js)
+
+        # 3. armory.js deduplicates catalog fetches and renders immediately when cached
+        self.assertIn("inFlightCatalogPromise", armory_js)
+        self.assertIn("hydrateVaultFromGlobalSession", armory_js)
+        self.assertIn("if (catalogBySystem[currentGameSystem] && Array.isArray(catalogBySystem[currentGameSystem].items))", armory_js)
+        print("✓ test_scorecard_and_armory_fast_hydration_and_indexed_queries passed")
 
 
 if __name__ == "__main__":

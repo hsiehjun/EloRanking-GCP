@@ -895,6 +895,7 @@ class PostgresDatabase:
             "ALTER TABLE community_chat_messages ADD COLUMN IF NOT EXISTS sender_elo DOUBLE PRECISION;",
             "CREATE INDEX IF NOT EXISTS idx_comm_chat_reg_created ON community_chat_messages(region, created_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_participants_player ON event_participants(player_id);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_participants_bcp_player ON event_participants(bcp_player_id) WHERE bcp_player_id IS NOT NULL AND bcp_player_id != '';",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_player_lower ON player_ratings(LOWER(player_name));",
             "CREATE INDEX IF NOT EXISTS idx_users_player_id ON users(player_id);"
         ]
@@ -5460,10 +5461,13 @@ class PostgresDatabase:
         missing_eids: List[str] = []
         seen_eids: Set[str] = set()
         for t in tournaments:
+            has_db_pl = bool(t.pop("_has_db_placement", False))
             eid = str(t.get("event_id") or "").strip()
             if not eid or len(eid) < 10 or not eid.isalnum() or eid.startswith(("ES-", "test", "mock")):
                 continue
             if int(t.get("matches_played") or 0) <= 0 and int(t.get("placement") or 0) <= 0:
+                continue
+            if has_db_pl and int(t.get("placement") or 0) > 0:
                 continue
             if PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, eid, ttl=3600) is None:
                 if eid not in seen_eids:
@@ -5486,7 +5490,7 @@ class PostgresDatabase:
                 url = f"https://newprod-api.bestcoastpairings.com/v1/events/{eid}/players?limit=2500&placings=true"
                 try:
                     req = urllib.request.Request(url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=1.8) as resp:
+                    with urllib.request.urlopen(req, timeout=1.5) as resp:
                         data = json.loads(resp.read().decode("utf-8"))
                     active = []
                     if isinstance(data, dict):
@@ -5528,41 +5532,50 @@ class PostgresDatabase:
                 except Exception:
                     return eid, None
 
-            sync_eids = missing_eids[:4]
-            bg_eids = missing_eids[4:]
+            sync_eids = missing_eids[:2]
+            bg_eids = missing_eids[2:]
 
             try:
-                with ThreadPoolExecutor(max_workers=min(4, len(sync_eids))) as pool:
+                with ThreadPoolExecutor(max_workers=min(2, len(sync_eids))) as pool:
                     for eid, plc_payload in pool.map(_fetch_one_bcp_placing, sync_eids):
-                        if plc_payload is not None:
-                            PostgresDatabase.set_cached(
-                                PostgresDatabase._bcp_event_placings_cache_dict,
-                                eid,
-                                plc_payload,
-                                max_size=2000
-                            )
+                        PostgresDatabase.set_cached(
+                            PostgresDatabase._bcp_event_placings_cache_dict,
+                            eid,
+                            plc_payload if plc_payload is not None else {"by_id": {}, "by_name": {}, "active_count": 0},
+                            max_size=2000
+                        )
             except Exception as e:
                 logger.debug(f"BCP tournament placing enrichment notice: {e}")
 
             if bg_eids:
-                def _bg_warm_bcp_placings(eids_to_warm: List[str], p_id: str):
+                def _bg_warm_bcp_placings(eids_to_warm: List[str], p_id: str, p_norm: str):
                     try:
-                        with ThreadPoolExecutor(max_workers=min(6, len(eids_to_warm))) as bg_pool:
+                        with ThreadPoolExecutor(max_workers=min(4, len(eids_to_warm))) as bg_pool:
                             for b_eid, b_payload in bg_pool.map(_fetch_one_bcp_placing, eids_to_warm):
+                                clean_payload = b_payload if b_payload is not None else {"by_id": {}, "by_name": {}, "active_count": 0}
                                 PostgresDatabase.set_cached(
                                     PostgresDatabase._bcp_event_placings_cache_dict,
                                     b_eid,
-                                    b_payload if b_payload is not None else {"by_id": {}, "by_name": {}, "active_count": 0},
+                                    clean_payload,
                                     max_size=2000
                                 )
+                        # Update any cached tournament lists in-place rather than evicting the cache
                         for sys_k in ("40k", "aos", "all"):
-                            PostgresDatabase._player_tournaments_cache_dict.pop(f"{sys_k}:{p_id}", None)
+                            c_list = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, f"{sys_k}:{p_id}", ttl=600)
+                            if isinstance(c_list, list):
+                                for t_item in c_list:
+                                    t_eid = str(t_item.get("event_id") or "").strip()
+                                    plc_i = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, t_eid, ttl=3600)
+                                    if isinstance(plc_i, dict):
+                                        b_pl = (plc_i.get("by_id") or {}).get(p_id) or ((plc_i.get("by_name") or {}).get(p_norm) if p_norm else None)
+                                        if b_pl and int(b_pl) > 0:
+                                            t_item["placement"] = int(b_pl)
                     except Exception:
                         pass
 
                 threading.Thread(
                     target=_bg_warm_bcp_placings,
-                    args=(bg_eids, pid_clean),
+                    args=(bg_eids, pid_clean, norm_name),
                     daemon=True
                 ).start()
 
@@ -5589,7 +5602,7 @@ class PostgresDatabase:
             return []
 
         cache_key = f"{system}:{player_id}"
-        cached = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, cache_key, ttl=300)
+        cached = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, cache_key, ttl=600)
         if cached is not None:
             return cached
 
@@ -5941,6 +5954,7 @@ class PostgresDatabase:
                         COALESCE(rc.losses, 0) AS losses,
                         COALESCE(rc.draws, 0) AS draws,
                         COALESCE(rc.match_bp, 0) AS total_battle_points,
+                        (COALESCE(rc.ep_placement, nep.name_placement, 0) > 0) AS _has_db_placement,
                         (SELECT norm_name FROM player_name_ref) AS _player_norm_name
                     FROM target_events te
                     JOIN events e ON e.id = te.event_id
@@ -7420,35 +7434,49 @@ class PostgresDatabase:
                         ev_id, r_num, t_num = m_evt.group(1), int(m_evt.group(2)), int(m_evt.group(3))
                         alt_bcp = f"BCP-{ev_id.upper()}-R{r_num}-T{t_num}"
                         alt_es = f"ES-{ev_id.upper()}-R{r_num}-T{t_num}"
+                        alt_bcp_orig = f"BCP-{ev_id}-R{r_num}-T{t_num}"
+                        alt_es_orig = f"ES-{ev_id}-R{r_num}-T{t_num}"
+                        mid_cands = list(dict.fromkeys([match_id, alt_bcp, alt_es, alt_bcp_orig, alt_es_orig]))
+                        ev_cands = list(dict.fromkeys([ev_id, ev_id.lower(), ev_id.upper()]))
                         cursor.execute("""
                         SELECT * FROM tracker_games
-                        WHERE (LOWER(event_id) = LOWER(%s) AND round_num = %s AND table_num = %s)
-                           OR match_id IN (%s, %s, %s)
+                        WHERE match_id = ANY(%s)
                         ORDER BY
                           COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
-                          CASE WHEN COALESCE(state_json->>'imported_source', '') != '' OR match_id LIKE '%%-TTB-%%' OR match_id LIKE '%%-GW-%%' THEN 1 ELSE 0 END DESC,
                           is_finished DESC,
                           updated_at DESC
                         LIMIT 1;
-                        """, (ev_id, r_num, t_num, match_id, alt_bcp, alt_es))
+                        """, (mid_cands,))
                         row = cursor.fetchone()
+                        if not row:
+                            cursor.execute("""
+                            SELECT * FROM tracker_games
+                            WHERE event_id = ANY(%s) AND round_num = %s AND table_num = %s
+                            ORDER BY
+                              COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
+                              CASE WHEN COALESCE(state_json->>'imported_source', '') != '' OR match_id LIKE '%%-TTB-%%' OR match_id LIKE '%%-GW-%%' THEN 1 ELSE 0 END DESC,
+                              is_finished DESC,
+                              updated_at DESC
+                            LIMIT 1;
+                            """, (ev_cands, r_num, t_num))
+                            row = cursor.fetchone()
                     else:
+                        mid_cands = [match_id]
+                        if not match_id.startswith("BCP-"):
+                            mid_cands.append(f"BCP-{match_id}")
+                        if not match_id.startswith("ES-"):
+                            mid_cands.append(f"ES-{match_id}")
+                        if match_id.startswith("BCP-"):
+                            mid_cands.append(match_id[4:])
+                        if match_id.startswith("ES-"):
+                            mid_cands.append(match_id[3:])
                         cursor.execute("""
-                        SELECT * FROM tracker_games WHERE match_id = %s;
-                        """, (match_id,))
+                        SELECT * FROM tracker_games
+                        WHERE match_id = ANY(%s)
+                        ORDER BY is_finished DESC, updated_at DESC
+                        LIMIT 1;
+                        """, (list(dict.fromkeys(mid_cands)),))
                         row = cursor.fetchone()
-                        if not row and not match_id.startswith("BCP-"):
-                            cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (f"BCP-{match_id}",))
-                            row = cursor.fetchone()
-                        if not row and not match_id.startswith("ES-"):
-                            cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (f"ES-{match_id}",))
-                            row = cursor.fetchone()
-                        if not row and match_id.startswith("BCP-"):
-                            cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (match_id[4:],))
-                            row = cursor.fetchone()
-                        if not row and match_id.startswith("ES-"):
-                            cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (match_id[3:],))
-                            row = cursor.fetchone()
                     if row:
                         d = dict(row)
                         if isinstance(d.get("state_json"), str):
@@ -7584,9 +7612,11 @@ class PostgresDatabase:
                     params = []
                     
                     if user_id:
-                        if user_name:
-                            conditions.append("((user_id_p1 = %s OR user_id_p2 = %s) OR (LOWER(p1_name) = LOWER(%s) OR LOWER(p2_name) = LOWER(%s)))")
-                            params.extend([user_id, user_id, user_name.strip(), user_name.strip()])
+                        if user_name and user_name.strip():
+                            nm = user_name.strip()
+                            nm_variants = list(dict.fromkeys([nm, nm.lower(), nm.upper(), nm.title()]))
+                            conditions.append("(user_id_p1 = %s OR user_id_p2 = %s OR p1_name = ANY(%s) OR p2_name = ANY(%s))")
+                            params.extend([user_id, user_id, nm_variants, nm_variants])
                         else:
                             conditions.append("(user_id_p1 = %s OR user_id_p2 = %s)")
                             params.extend([user_id, user_id])
