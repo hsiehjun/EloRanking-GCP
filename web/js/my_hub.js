@@ -389,6 +389,9 @@ async function loadMyHubDashboard() {
     if (mySeq !== _myHubLoadSeq) return;
 
     await renderMyHub(data);
+    if (typeof prefetchHubMappableEventMatches === 'function') {
+      prefetchHubMappableEventMatches(gs);
+    }
     if (window.Armory && typeof window.Armory.renderActiveRivalHexBanner === 'function') {
       window.Armory.renderActiveRivalHexBanner('my-hub-content');
     }
@@ -6146,6 +6149,127 @@ async function submitTrackerImport(mode) {
 let _hubMappableMatchesCache = [];
 let _hubActiveMapMatchId = '';
 let _hubActiveMapGameSystem = '40k';
+let _hubMappablePrefetchInFlight = {};
+if (typeof window !== 'undefined') {
+  window.__omniMappableMatchesCacheBySys = window.__omniMappableMatchesCacheBySys || {};
+}
+
+function _hubNamesRoughlyMatch(a, b) {
+  const na = String(a || '').trim().toLowerCase();
+  const nb = String(b || '').trim().toLowerCase();
+  if (!na || !nb) return false;
+  if (['player 1', 'player 2', 'player1', 'player2', 'you', 'opponent', 'unknown'].includes(na)) return false;
+  if (['player 1', 'player 2', 'player1', 'player2', 'you', 'opponent', 'unknown'].includes(nb)) return false;
+  if (na === nb) return true;
+  const pa = na.split(/\s+/);
+  const pb = nb.split(/\s+/);
+  if (pa.length >= 2 && pb.length >= 2 && pa[0] === pb[0] && pa[pa.length - 1] === pb[pb.length - 1]) return true;
+  if (pa.length === 1 && pb.length >= 1 && pa[0].length >= 3 && pa[0] === pb[0]) return true;
+  if (pb.length === 1 && pa.length >= 1 && pb[0].length >= 3 && pb[0] === pa[0]) return true;
+  return false;
+}
+
+function _getHubCachedMappableMatchesBySys(sys) {
+  const s = (sys && String(sys).toLowerCase().includes('aos')) ? 'aos' : '40k';
+  if (typeof window !== 'undefined' && window.__omniMappableMatchesCacheBySys && Array.isArray(window.__omniMappableMatchesCacheBySys[s]) && window.__omniMappableMatchesCacheBySys[s].length > 0) {
+    return window.__omniMappableMatchesCacheBySys[s];
+  }
+  try {
+    const raw = localStorage.getItem('omni_mappable_matches_v1_' + s);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.matches) && (Date.now() - (parsed.ts || 0)) < 600000) {
+        if (typeof window !== 'undefined' && window.__omniMappableMatchesCacheBySys) {
+          window.__omniMappableMatchesCacheBySys[s] = parsed.matches;
+        }
+        return parsed.matches;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+function _setHubCachedMappableMatchesBySys(sys, matches) {
+  const s = (sys && String(sys).toLowerCase().includes('aos')) ? 'aos' : '40k';
+  if (!Array.isArray(matches)) return;
+  if (typeof window !== 'undefined') {
+    window.__omniMappableMatchesCacheBySys = window.__omniMappableMatchesCacheBySys || {};
+    window.__omniMappableMatchesCacheBySys[s] = matches;
+  }
+  try {
+    localStorage.setItem('omni_mappable_matches_v1_' + s, JSON.stringify({ ts: Date.now(), matches }));
+  } catch (e) {}
+}
+
+function _scoreHubMappableMatches(rawMatches, sourceGame, activeMatchId) {
+  if (!Array.isArray(rawMatches)) return [];
+  const normMid = String(activeMatchId || '').trim().toUpperCase();
+  const sgP1 = sourceGame ? String(sourceGame.p1_name || '') : '';
+  const sgP2 = sourceGame ? String(sourceGame.p2_name || '') : '';
+  const sgS1 = sourceGame && sourceGame.p1_score != null ? Number(sourceGame.p1_score) : null;
+  const sgS2 = sourceGame && sourceGame.p2_score != null ? Number(sourceGame.p2_score) : null;
+
+  const scored = rawMatches.map(m => {
+    const copy = Object.assign({}, m);
+    const lockedBy = String(copy.locked_by_match_id || '').trim().toUpperCase();
+    const isCurr = Boolean(normMid && lockedBy && lockedBy === normMid) || Boolean(copy.is_currently_mapped && (!normMid || lockedBy === normMid));
+    copy.is_currently_mapped = isCurr;
+    if (isCurr) {
+      copy.is_locked = false;
+    }
+    if (sourceGame) {
+      let rel = 0;
+      const oppName = copy.opponent_name || (copy.user_slot === 'player1' ? copy.player2_name : copy.player1_name) || '';
+      if (_hubNamesRoughlyMatch(sgP1, oppName) || _hubNamesRoughlyMatch(sgP2, oppName)) {
+        rel += 50;
+      }
+      if (copy.player1_score != null && copy.player2_score != null && sgS1 != null && sgS2 != null) {
+        const ev1 = Number(copy.player1_score);
+        const ev2 = Number(copy.player2_score);
+        if ((ev1 === sgS1 && ev2 === sgS2) || (ev1 === sgS2 && ev2 === sgS1)) {
+          rel += 40;
+        }
+      }
+      copy.relevance = rel;
+      copy.recommended = rel >= 50;
+    }
+    return copy;
+  });
+
+  scored.sort((a, b) => {
+    if (Boolean(a.is_currently_mapped) !== Boolean(b.is_currently_mapped)) {
+      return a.is_currently_mapped ? -1 : 1;
+    }
+    if (Boolean(!a.is_locked) !== Boolean(!b.is_locked)) {
+      return !a.is_locked ? -1 : 1;
+    }
+    return (b.relevance || 0) - (a.relevance || 0);
+  });
+  return scored;
+}
+
+async function prefetchHubMappableEventMatches(gameSystem) {
+  const s = (gameSystem && String(gameSystem).toLowerCase().includes('aos')) ? 'aos' : '40k';
+  if (_hubMappablePrefetchInFlight[s]) return _hubMappablePrefetchInFlight[s];
+  const tok = (window.api && typeof window.api.getAuthToken === 'function' ? window.api.getAuthToken() : '') || localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
+  if (!tok && !window.location.search.includes('mock_persona')) return null;
+  _hubMappablePrefetchInFlight[s] = (async () => {
+    try {
+      const headers = tok ? { 'Authorization': 'Bearer ' + tok } : {};
+      const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(s)}`, { headers });
+      if (resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        if (data && Array.isArray(data.matches)) {
+          _setHubCachedMappableMatchesBySys(s, data.matches);
+        }
+      }
+    } catch (e) {
+    } finally {
+      _hubMappablePrefetchInFlight[s] = null;
+    }
+  })();
+  return _hubMappablePrefetchInFlight[s];
+}
 
 function _findLocalSourceGameForMapModal(matchId) {
   const target = String(matchId || '').trim().toUpperCase();
@@ -6257,7 +6381,16 @@ async function openMapGameToEventModal(matchId, gameSystem) {
     </div>
   `;
   modal.style.display = 'flex';
-  _renderHubMapSourceGameBanner(_findLocalSourceGameForMapModal(_hubActiveMapMatchId));
+  const localSg = _findLocalSourceGameForMapModal(_hubActiveMapMatchId);
+  _renderHubMapSourceGameBanner(localSg);
+
+  // Instant (0ms) render from prefetched/cached tournament matches if available
+  const cachedList = _getHubCachedMappableMatchesBySys(_hubActiveMapGameSystem);
+  const hadInstantRender = Boolean(cachedList && cachedList.length > 0);
+  if (hadInstantRender) {
+    _hubMappableMatchesCache = _scoreHubMappableMatches(cachedList, localSg, _hubActiveMapMatchId);
+    renderHubMappableEventMatches(_hubMappableMatchesCache);
+  }
 
   try {
     const headers = {};
@@ -6266,15 +6399,22 @@ async function openMapGameToEventModal(matchId, gameSystem) {
     const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(_hubActiveMapGameSystem)}&match_id=${encodeURIComponent(_hubActiveMapMatchId)}`, { headers });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      throw new Error(data.detail || 'Please sign in to map scorecards to your tournament matches.');
+      if (!hadInstantRender) {
+        throw new Error(data.detail || 'Please sign in to map scorecards to your tournament matches.');
+      }
+      return;
     }
     if (data.source_game) _renderHubMapSourceGameBanner(data.source_game);
-    _hubMappableMatchesCache = data.matches || [];
-    renderHubMappableEventMatches(_hubMappableMatchesCache);
+    const freshMatches = data.matches || [];
+    _setHubCachedMappableMatchesBySys(_hubActiveMapGameSystem, freshMatches);
+    _hubMappableMatchesCache = _scoreHubMappableMatches(freshMatches, data.source_game || localSg, _hubActiveMapMatchId);
+    filterHubMappableEventMatches();
   } catch (err) {
-    const listEl = document.getElementById('omni-map-event-list');
-    if (listEl) {
-      listEl.innerHTML = `<div style="padding:1.25rem; text-align:center; color:#fca5a5; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; font-size:0.82rem;">⚠️ ${escapeHtml(err.message)}</div>`;
+    if (!hadInstantRender) {
+      const listEl = document.getElementById('omni-map-event-list');
+      if (listEl) {
+        listEl.innerHTML = `<div style="padding:1.25rem; text-align:center; color:#fca5a5; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; font-size:0.82rem;">⚠️ ${escapeHtml(err.message)}</div>`;
+      }
     }
   }
 }
@@ -6357,6 +6497,17 @@ async function confirmMapGameToEventFromHub(eventId, roundNum, tableNum) {
       statusEl.style.color = '#34d399';
       statusEl.innerHTML = `✅ Mapped &amp; locked to <b>${escapeHtml(data.event_name || eventId)}</b> (Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''})${data.swapped_p1_p2 ? ' • Auto-aligned Player 1 / Player 2 columns!' : '!'}`;
     }
+    // Update local mappable matches cache immediately so the pairing shows as locked
+    const cachedSys = _getHubCachedMappableMatchesBySys(_hubActiveMapGameSystem);
+    if (Array.isArray(cachedSys)) {
+      const updatedSys = cachedSys.map(item => {
+        if (String(item.event_id || '').toLowerCase() === String(eventId || '').toLowerCase() && Number(item.round || item.round_num || 1) === Number(roundNum || 1) && Number(item.table_number || item.table_num || 1) === Number(tableNum || 1)) {
+          return Object.assign({}, item, { is_locked: true, locked_by_match_id: _hubActiveMapMatchId });
+        }
+        return item;
+      });
+      _setHubCachedMappableMatchesBySys(_hubActiveMapGameSystem, updatedSys);
+    }
     try {
       localStorage.removeItem('my_hub_cache_40k');
       localStorage.removeItem('my_hub_cache_aos');
@@ -6417,6 +6568,7 @@ window.openMapGameToEventModal = openMapGameToEventModal;
 window.closeMapGameToEventModal = closeMapGameToEventModal;
 window.filterHubMappableEventMatches = filterHubMappableEventMatches;
 window.confirmMapGameToEventFromHub = confirmMapGameToEventFromHub;
+window.prefetchHubMappableEventMatches = prefetchHubMappableEventMatches;
 
 
 

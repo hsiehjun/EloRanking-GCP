@@ -3045,11 +3045,32 @@ def _names_roughly_match(name_a: Optional[str], name_b: Optional[str]) -> bool:
     return False
 
 
+_USER_PLAYER_IDS_CACHE: Dict[str, Tuple[float, List[str]]] = {}
+_MAPPABLE_BASE_MATCHES_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+_MAPPABLE_CACHE_TTL_SEC = 180.0
+
+
+def _invalidate_mappable_matches_cache() -> None:
+    _MAPPABLE_BASE_MATCHES_CACHE.clear()
+
+
+def _event_id_variants(event_id: str) -> List[str]:
+    s = str(event_id or "").strip()
+    if not s:
+        return []
+    out = [s]
+    for v in (s.lower(), s.upper()):
+        if v not in out:
+            out.append(v)
+    return out
+
+
 def _lookup_event_pairing_record(db: Any, event_id: str, round_num: int, table_num: int) -> Optional[Dict[str, Any]]:
-    """Finds a specific tournament pairing from `matches` table or `events.pairings` JSONB."""
+    """Finds a specific tournament pairing from `matches` table or `events.pairings` JSONB using indexed event_id lookups."""
     if not db or not event_id:
         return None
     from psycopg2 import extras
+    ev_variants = _event_id_variants(event_id)
     try:
         with db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -3061,12 +3082,27 @@ def _lookup_event_pairing_record(db: Any, event_id: str, round_num: int, table_n
                            e.name AS event_name, e.event_date, e.game_system
                     FROM matches m
                     LEFT JOIN events e ON e.id = m.event_id
-                    WHERE LOWER(m.event_id) = LOWER(%s)
+                    WHERE m.event_id = ANY(%s)
                       AND m.round = %s
                       AND m.table_number = %s
                     LIMIT 1;
-                """, (event_id.strip(), int(round_num), int(table_num)))
+                """, (ev_variants, int(round_num), int(table_num)))
                 row = cur.fetchone()
+                if not row:
+                    cur.execute("""
+                        SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                               m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                               m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                               m.is_bye, m.is_done,
+                               e.name AS event_name, e.event_date, e.game_system
+                        FROM matches m
+                        LEFT JOIN events e ON e.id = m.event_id
+                        WHERE LOWER(m.event_id) = LOWER(%s)
+                          AND m.round = %s
+                          AND m.table_number = %s
+                        LIMIT 1;
+                    """, (event_id.strip(), int(round_num), int(table_num)))
+                    row = cur.fetchone()
                 if row:
                     return dict(row)
 
@@ -3074,9 +3110,9 @@ def _lookup_event_pairing_record(db: Any, event_id: str, round_num: int, table_n
                 cur.execute("""
                     SELECT id, name, event_date, game_system, pairings
                     FROM events
-                    WHERE LOWER(id) = LOWER(%s)
+                    WHERE id = ANY(%s) OR LOWER(id) = LOWER(%s)
                     LIMIT 1;
-                """, (event_id.strip(),))
+                """, (ev_variants, event_id.strip()))
                 ev_row = cur.fetchone()
                 if ev_row:
                     ev = dict(ev_row)
@@ -3131,28 +3167,24 @@ def _find_conflicting_locked_tracker_game_for_event_match(
     if not db or not hasattr(db, "get_connection"):
         return None
     from psycopg2 import extras
+    ev_variants = _event_id_variants(ev_real_id)
     try:
         with db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT match_id, is_finished, state_json
+                    SELECT match_id, is_finished,
+                           COALESCE((state_json->>'event_match_locked')::boolean, FALSE) AS event_match_locked
                     FROM tracker_games
-                    WHERE LOWER(event_id) = LOWER(%s)
+                    WHERE event_id = ANY(%s)
                       AND round_num = %s
                       AND table_num = %s
                       AND UPPER(match_id) != UPPER(%s)
                     ORDER BY is_finished DESC, updated_at DESC
                     LIMIT 1;
-                """, (ev_real_id, int(r_num), int(t_num), str(exclude_match_id)))
+                """, (ev_variants, int(r_num), int(t_num), str(exclude_match_id)))
                 conflict_row = cur.fetchone()
                 if conflict_row:
-                    c_st = conflict_row.get("state_json")
-                    if isinstance(c_st, str):
-                        try:
-                            c_st = json.loads(c_st)
-                        except Exception:
-                            c_st = {}
-                    c_locked = bool(conflict_row.get("is_finished") or (isinstance(c_st, dict) and c_st.get("event_match_locked")))
+                    c_locked = bool(conflict_row.get("is_finished") or conflict_row.get("event_match_locked"))
                     if c_locked:
                         return dict(conflict_row)
     except Exception as e:
@@ -3210,6 +3242,42 @@ def _determine_p1_p2_alignment_swap(
     return False
 
 
+def _resolve_user_mappable_player_ids(cur: Any, user: Dict[str, Any], u_ids: List[str], u_names: List[str]) -> List[str]:
+    """Resolves canonical player_id values for the user via indexed player_ratings lookup (cached for 10 min)."""
+    now_ts = time.time()
+    cache_key = f"{'|'.join(sorted(u_ids))}::{'|'.join(sorted(u_names))}"
+    cached = _USER_PLAYER_IDS_CACHE.get(cache_key)
+    if cached and (now_ts - cached[0]) < 600.0:
+        return list(cached[1])
+
+    resolved = list(u_ids)
+    if u_names:
+        name_variants = []
+        for n in u_names:
+            for v in (n, n.title(), n.upper()):
+                if v and v not in name_variants:
+                    name_variants.append(v)
+        try:
+            # First hit idx_pg_ratings_name on player_ratings(player_name) directly
+            cur.execute("""
+                SELECT DISTINCT player_id
+                FROM player_ratings
+                WHERE player_name = ANY(%s)
+                  AND player_id IS NOT NULL
+                  AND player_id != ''
+                LIMIT 25;
+            """, (name_variants,))
+            for pr_row in (cur.fetchall() or []):
+                pid = str((pr_row.get("player_id") if isinstance(pr_row, dict) else pr_row[0]) or "").strip()
+                if pid and pid not in resolved:
+                    resolved.append(pid)
+        except Exception:
+            pass
+
+    _USER_PLAYER_IDS_CACHE[cache_key] = (now_ts, resolved)
+    return resolved
+
+
 @router.get("/api/tracker/mappable_event_matches", summary="List tournament pairings where the authenticated user is a participant")
 def api_get_mappable_event_matches(
     request: Request,
@@ -3226,28 +3294,6 @@ def api_get_mappable_event_matches(
     target_game = None
     source_game_summary = None
     norm_mid = normalize_tracker_match_id(match_id) if match_id else None
-    if norm_mid and hasattr(db, "get_tracker_game"):
-        target_game = db.get_tracker_game(norm_mid)
-        if target_game:
-            t_st = target_game.get("state") if isinstance(target_game.get("state"), dict) else {}
-            t_g = t_st.get("game") if isinstance(t_st.get("game"), dict) else {}
-            t_p1 = t_st.get("p1") if isinstance(t_st.get("p1"), dict) else {}
-            t_p2 = t_st.get("p2") if isinstance(t_st.get("p2"), dict) else {}
-            raw_dt = t_st.get("game_date") or target_game.get("updated_at") or target_game.get("created_at")
-            dt_str = raw_dt.strftime("%b %d, %Y") if hasattr(raw_dt, "strftime") else (str(raw_dt)[:10] if raw_dt else "")
-            source_game_summary = {
-                "match_id": target_game.get("match_id") or norm_mid,
-                "p1_name": target_game.get("p1_name") or t_g.get("p1Name") or t_p1.get("name") or "Player 1",
-                "p2_name": target_game.get("p2_name") or t_g.get("p2Name") or t_p2.get("name") or "Player 2",
-                "p1_faction": target_game.get("p1_faction") or t_g.get("p1Faction") or t_p1.get("faction") or "",
-                "p2_faction": target_game.get("p2_faction") or t_g.get("p2Faction") or t_p2.get("faction") or "",
-                "p1_score": target_game.get("p1_score") if target_game.get("p1_score") is not None else (t_st.get("p1Score") or t_p1.get("score") or 0),
-                "p2_score": target_game.get("p2_score") if target_game.get("p2_score") is not None else (t_st.get("p2Score") or t_p2.get("score") or 0),
-                "primary_mission": target_game.get("primary_mission") or t_g.get("primary") or "",
-                "edition": t_st.get("edition") or "10th",
-                "edition_label": t_st.get("edition_label") or "",
-                "game_date": dt_str,
-            }
 
     u_ids = []
     for k in ("id", "user_id", "player_id", "bcp_user_id", "bcp_id"):
@@ -3261,6 +3307,13 @@ def api_get_mappable_event_matches(
         if v and str(v).strip().lower() not in u_names:
             u_names.append(str(v).strip().lower())
 
+    sys_val = None
+    if game_system and game_system.lower() in ("40k", "aos"):
+        sys_val = "aos" if "aos" in game_system.lower() else "40k"
+
+    safe_limit = max(10, min(200, int(limit)))
+    search_clean = (search or "").strip().lower()
+
     from psycopg2 import extras
     candidates: List[Dict[str, Any]] = []
     seen_keys = set()
@@ -3268,72 +3321,200 @@ def api_get_mappable_event_matches(
     try:
         with db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                where_parts = ["COALESCE(m.is_bye, FALSE) = FALSE"]
-                params: List[Any] = []
+                # 1. Lightweight scalar lookup for target_game (avoids fetching/parsing full state_json blob)
+                if norm_mid:
+                    try:
+                        cur.execute("""
+                            SELECT match_id, p1_name, p2_name, p1_faction, p2_faction,
+                                   p1_score, p2_score, primary_mission, user_id_p1, user_id_p2,
+                                   updated_at, created_at,
+                                   state_json->>'edition' AS edition,
+                                   state_json->>'edition_label' AS edition_label,
+                                   state_json->>'game_date' AS game_date,
+                                   state_json->'game'->>'p1Name' AS g_p1_name,
+                                   state_json->'game'->>'p2Name' AS g_p2_name,
+                                   state_json->'game'->>'p1Faction' AS g_p1_faction,
+                                   state_json->'game'->>'p2Faction' AS g_p2_faction,
+                                   state_json->'game'->>'primary' AS g_primary
+                            FROM tracker_games
+                            WHERE match_id = %s
+                            LIMIT 1;
+                        """, (norm_mid,))
+                        tg_meta = cur.fetchone()
+                        if tg_meta:
+                            tg_d = dict(tg_meta)
+                            raw_dt = tg_d.get("game_date") or tg_d.get("updated_at") or tg_d.get("created_at")
+                            dt_str = raw_dt.strftime("%b %d, %Y") if hasattr(raw_dt, "strftime") else (str(raw_dt)[:10] if raw_dt else "")
+                            p1_nm = tg_d.get("p1_name") or tg_d.get("g_p1_name") or "Player 1"
+                            p2_nm = tg_d.get("p2_name") or tg_d.get("g_p2_name") or "Player 2"
+                            p1_fc = tg_d.get("p1_faction") or tg_d.get("g_p1_faction") or ""
+                            p2_fc = tg_d.get("p2_faction") or tg_d.get("g_p2_faction") or ""
+                            p1_sc = tg_d.get("p1_score") if tg_d.get("p1_score") is not None else 0
+                            p2_sc = tg_d.get("p2_score") if tg_d.get("p2_score") is not None else 0
+                            prim_m = tg_d.get("primary_mission") or tg_d.get("g_primary") or ""
+                            target_game = {
+                                "match_id": tg_d.get("match_id") or norm_mid,
+                                "p1_name": p1_nm,
+                                "p2_name": p2_nm,
+                                "p1_faction": p1_fc,
+                                "p2_faction": p2_fc,
+                                "p1_score": p1_sc,
+                                "p2_score": p2_sc,
+                                "user_id_p1": tg_d.get("user_id_p1"),
+                                "user_id_p2": tg_d.get("user_id_p2"),
+                                "state": {},
+                            }
+                            source_game_summary = {
+                                "match_id": target_game["match_id"],
+                                "p1_name": p1_nm,
+                                "p2_name": p2_nm,
+                                "p1_faction": p1_fc,
+                                "p2_faction": p2_fc,
+                                "p1_score": p1_sc,
+                                "p2_score": p2_sc,
+                                "primary_mission": prim_m,
+                                "edition": tg_d.get("edition") or "10th",
+                                "edition_label": tg_d.get("edition_label") or "",
+                                "game_date": dt_str,
+                            }
+                    except Exception:
+                        conn.rollback()
 
-                part_clauses = []
-                if u_ids:
-                    part_clauses.append("m.player1_id = ANY(%s)")
-                    params.append(u_ids)
-                    part_clauses.append("m.player2_id = ANY(%s)")
-                    params.append(u_ids)
-                if u_names:
-                    part_clauses.append("LOWER(TRIM(m.player1_name)) = ANY(%s)")
-                    params.append(u_names)
-                    part_clauses.append("LOWER(TRIM(m.player2_name)) = ANY(%s)")
-                    params.append(u_names)
+                if norm_mid and not target_game and hasattr(db, "get_tracker_game"):
+                    target_game = db.get_tracker_game(norm_mid)
+                    if target_game:
+                        t_st = target_game.get("state") if isinstance(target_game.get("state"), dict) else {}
+                        t_g = t_st.get("game") if isinstance(t_st.get("game"), dict) else {}
+                        t_p1 = t_st.get("p1") if isinstance(t_st.get("p1"), dict) else {}
+                        t_p2 = t_st.get("p2") if isinstance(t_st.get("p2"), dict) else {}
+                        raw_dt = t_st.get("game_date") or target_game.get("updated_at") or target_game.get("created_at")
+                        dt_str = raw_dt.strftime("%b %d, %Y") if hasattr(raw_dt, "strftime") else (str(raw_dt)[:10] if raw_dt else "")
+                        source_game_summary = {
+                            "match_id": target_game.get("match_id") or norm_mid,
+                            "p1_name": target_game.get("p1_name") or t_g.get("p1Name") or t_p1.get("name") or "Player 1",
+                            "p2_name": target_game.get("p2_name") or t_g.get("p2Name") or t_p2.get("name") or "Player 2",
+                            "p1_faction": target_game.get("p1_faction") or t_g.get("p1Faction") or t_p1.get("faction") or "",
+                            "p2_faction": target_game.get("p2_faction") or t_g.get("p2Faction") or t_p2.get("faction") or "",
+                            "p1_score": target_game.get("p1_score") if target_game.get("p1_score") is not None else (t_st.get("p1Score") or t_p1.get("score") or 0),
+                            "p2_score": target_game.get("p2_score") if target_game.get("p2_score") is not None else (t_st.get("p2Score") or t_p2.get("score") or 0),
+                            "primary_mission": target_game.get("primary_mission") or t_g.get("primary") or "",
+                            "edition": t_st.get("edition") or "10th",
+                            "edition_label": t_st.get("edition_label") or "",
+                            "game_date": dt_str,
+                        }
 
-                if not part_clauses:
+                # 2. Resolve all player_ids for this user so we can query `matches` purely via idx_pg_matches_p1 / idx_pg_matches_p2
+                resolved_u_ids = _resolve_user_mappable_player_ids(cur, user, u_ids, u_names)
+                for extra_id in resolved_u_ids:
+                    if extra_id not in u_ids:
+                        u_ids.append(extra_id)
+
+                if not resolved_u_ids and not u_names:
                     return {"success": True, "match_id": norm_mid, "source_game": source_game_summary, "matches": []}
 
-                where_parts.append("(" + " OR ".join(part_clauses) + ")")
+                now_ts = time.time()
+                base_cache_key = f"{'|'.join(sorted(resolved_u_ids))}::{sys_val or 'all'}"
+                cached_base = _MAPPABLE_BASE_MATCHES_CACHE.get(base_cache_key)
+                base_rows: Optional[List[Dict[str, Any]]] = None
+                if cached_base and (now_ts - cached_base[0]) < _MAPPABLE_CACHE_TTL_SEC:
+                    base_rows = cached_base[1]
 
-                if search and search.strip():
-                    s_pat = f"%{search.strip()}%"
-                    where_parts.append("(e.name ILIKE %s OR m.player1_name ILIKE %s OR m.player2_name ILIKE %s OR m.event_id ILIKE %s)")
-                    params.extend([s_pat, s_pat, s_pat, s_pat])
+                if base_rows is None:
+                    base_rows = []
+                    if resolved_u_ids:
+                        sys_where = "WHERE COALESCE(e.game_system, cm.game_system, '40k') = %s" if sys_val else ""
+                        q_params: List[Any] = [resolved_u_ids, resolved_u_ids]
+                        if sys_val:
+                            q_params.append(sys_val)
+                        q_params.append(200)
+                        cur.execute(f"""
+                            WITH p1_matches AS (
+                                SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                                       m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                       m.is_done, m.game_system
+                                FROM matches m
+                                WHERE m.player1_id = ANY(%s)
+                                  AND COALESCE(m.is_bye, FALSE) = FALSE
+                                ORDER BY m.match_date DESC NULLS LAST, m.round DESC
+                                LIMIT 250
+                            ),
+                            p2_matches AS (
+                                SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                                       m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                       m.is_done, m.game_system
+                                FROM matches m
+                                WHERE m.player2_id = ANY(%s)
+                                  AND COALESCE(m.is_bye, FALSE) = FALSE
+                                ORDER BY m.match_date DESC NULLS LAST, m.round DESC
+                                LIMIT 250
+                            ),
+                            combined AS (
+                                SELECT * FROM p1_matches
+                                UNION ALL
+                                SELECT * FROM p2_matches
+                            )
+                            SELECT cm.id, cm.event_id, cm.round, cm.table_number, cm.match_date,
+                                   cm.player1_id, cm.player1_name, cm.player1_faction, cm.player1_score,
+                                   cm.player2_id, cm.player2_name, cm.player2_faction, cm.player2_score,
+                                   cm.is_done,
+                                   COALESCE(e.name, cm.event_id) AS event_name,
+                                   e.event_date,
+                                   COALESCE(e.game_system, cm.game_system, '40k') AS game_system
+                            FROM combined cm
+                            LEFT JOIN events e ON e.id = cm.event_id
+                            {sys_where}
+                            ORDER BY COALESCE(e.event_date, cm.match_date) DESC NULLS LAST, cm.round DESC, cm.table_number ASC
+                            LIMIT %s;
+                        """, tuple(q_params))
+                        base_rows = [dict(r) for r in (cur.fetchall() or [])]
+                    _MAPPABLE_BASE_MATCHES_CACHE[base_cache_key] = (now_ts, base_rows)
 
-                if game_system and game_system.lower() in ("40k", "aos"):
-                    sys_val = "aos" if "aos" in game_system.lower() else "40k"
-                    where_parts.append("COALESCE(e.game_system, m.game_system, '40k') = %s")
-                    params.append(sys_val)
+                # Filter by search query in memory (instant on <=200 rows)
+                if search_clean:
+                    filtered_rows = [
+                        r for r in base_rows
+                        if search_clean in str(r.get("event_name") or "").lower()
+                        or search_clean in str(r.get("event_id") or "").lower()
+                        or search_clean in str(r.get("player1_name") or "").lower()
+                        or search_clean in str(r.get("player2_name") or "").lower()
+                    ][:safe_limit]
+                else:
+                    filtered_rows = base_rows[:safe_limit]
 
-                params.append(max(10, min(200, int(limit))))
-
-                cur.execute(f"""
-                    SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                           m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                           m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
-                           m.is_done,
-                           COALESCE(e.name, m.event_id) AS event_name,
-                           e.event_date,
-                           COALESCE(e.game_system, m.game_system, '40k') AS game_system,
-                           tg.match_id AS existing_tracker_match_id,
-                           COALESCE(tg.is_finished, FALSE) AS existing_tracker_finished,
-                           COALESCE((tg.state_json->>'event_match_locked')::boolean, tg.is_finished, FALSE) AS existing_tracker_locked
-                    FROM matches m
-                    LEFT JOIN events e ON e.id = m.event_id
-                    LEFT JOIN LATERAL (
-                        SELECT match_id, is_finished, state_json
+                # 3. Batch-lookup existing tracker_games mappings using idx_tracker_games_evt (no lateral full-table scan)
+                locked_map: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
+                ev_id_set = set()
+                for r in filtered_rows:
+                    for v in _event_id_variants(r.get("event_id") or ""):
+                        ev_id_set.add(v)
+                if ev_id_set:
+                    cur.execute("""
+                        SELECT match_id, event_id, round_num, table_num, is_finished,
+                               COALESCE((state_json->>'event_match_locked')::boolean, FALSE) AS existing_tracker_locked
                         FROM tracker_games
-                        WHERE LOWER(event_id) = LOWER(m.event_id)
-                          AND round_num = m.round
-                          AND table_num = m.table_number
+                        WHERE event_id = ANY(%s)
+                          AND round_num IS NOT NULL
+                          AND table_num IS NOT NULL
                         ORDER BY
                           COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
                           CASE WHEN COALESCE(state_json->>'imported_source', '') != '' OR match_id LIKE '%%-TTB-%%' OR match_id LIKE '%%-GW-%%' THEN 1 ELSE 0 END DESC,
                           is_finished DESC,
-                          updated_at DESC
-                        LIMIT 1
-                    ) tg ON TRUE
-                    WHERE {" AND ".join(where_parts)}
-                    ORDER BY COALESCE(e.event_date, m.match_date) DESC NULLS LAST, m.round DESC, m.table_number ASC
-                    LIMIT %s;
-                """, tuple(params))
+                          updated_at DESC;
+                    """, (list(ev_id_set),))
+                    for tg_r in (cur.fetchall() or []):
+                        tg_d = dict(tg_r)
+                        k = (
+                            str(tg_d.get("event_id") or "").lower(),
+                            int(tg_d.get("round_num") or 1),
+                            int(tg_d.get("table_num") or 1),
+                        )
+                        if k not in locked_map:
+                            locked_map[k] = tg_d
 
-                rows = cur.fetchall()
-                for r in rows:
-                    d = dict(r)
+                user_id_set = set(resolved_u_ids)
+                for d in filtered_rows:
                     ev_id = str(d.get("event_id") or "")
                     r_num = int(d.get("round") or 1)
                     t_num = int(d.get("table_number") or 1)
@@ -3342,17 +3523,20 @@ def api_get_mappable_event_matches(
                         continue
                     seen_keys.add(key)
 
-                    is_p1 = check_user_matches_player(user, d.get("player1_name"), d.get("player1_id"))
-                    is_p2 = check_user_matches_player(user, d.get("player2_name"), d.get("player2_id"))
+                    p1_id_str = str(d.get("player1_id") or "").strip()
+                    p2_id_str = str(d.get("player2_id") or "").strip()
+                    is_p1 = (p1_id_str in user_id_set) or check_user_matches_player(user, d.get("player1_name"), p1_id_str or None)
+                    is_p2 = (p2_id_str in user_id_set) or check_user_matches_player(user, d.get("player2_name"), p2_id_str or None)
                     if not (is_p1 or is_p2):
                         continue
 
-                    existing_mid = d.get("existing_tracker_match_id")
+                    tg_info = locked_map.get(key) or {}
+                    existing_mid = tg_info.get("match_id")
                     is_currently_mapped = bool(norm_mid and existing_mid and str(existing_mid).upper() == norm_mid.upper())
                     is_locked = bool(
                         existing_mid
                         and not is_currently_mapped
-                        and (d.get("existing_tracker_locked") or d.get("existing_tracker_finished"))
+                        and (tg_info.get("existing_tracker_locked") or tg_info.get("is_finished"))
                     )
 
                     will_swap = False
@@ -3602,7 +3786,8 @@ def api_map_tracker_game_to_event_match(
     if not saved_ok:
         raise HTTPException(status_code=500, detail="Failed to persist tournament match mapping.")
 
-    # Invalidate event details cache so Tournament Standings / Pairings reflect the mapped scorecard immediately
+    # Invalidate event details & mappable matches caches so Tournament Standings / Pairings reflect the mapped scorecard immediately
+    _invalidate_mappable_matches_cache()
     try:
         if hasattr(db, "_event_details_cache_dict") and isinstance(db._event_details_cache_dict, dict):
             db._event_details_cache_dict.clear()
@@ -3674,6 +3859,7 @@ def api_unmap_tracker_game_from_event_match(
         user_id_p1=game_rec.get("user_id_p1"),
         user_id_p2=game_rec.get("user_id_p2"),
     )
+    _invalidate_mappable_matches_cache()
     try:
         if hasattr(db, "_event_details_cache_dict") and isinstance(db._event_details_cache_dict, dict):
             db._event_details_cache_dict.clear()

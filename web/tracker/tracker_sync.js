@@ -2350,6 +2350,9 @@
               renderHistoryList(dbHistoryCache);
             }
             watchLobbyActiveMatches();
+            if (!isPlay && typeof window.__prefetchLobbyMappableEventMatches === 'function') {
+              window.__prefetchLobbyMappableEventMatches(isAosMode ? 'aos' : '40k');
+            }
           }
         }
       } catch (e) {
@@ -6486,6 +6489,120 @@ Space Marines - Gladius Task Force (2000 pts)
     let _lobbyMappableMatchesCache = [];
     let _lobbyActiveMapMatchId = '';
     let _lobbyActiveMapGameSystem = '40k';
+    window.__omniMappableMatchesCacheBySys = window.__omniMappableMatchesCacheBySys || {};
+    let _lobbyMappablePrefetchInFlight = {};
+
+    function _namesRoughlyMatchClient(a, b) {
+      const na = String(a || '').trim().toLowerCase();
+      const nb = String(b || '').trim().toLowerCase();
+      if (!na || !nb) return false;
+      if (['player 1', 'player 2', 'player1', 'player2', 'you', 'opponent', 'unknown'].includes(na)) return false;
+      if (['player 1', 'player 2', 'player1', 'player2', 'you', 'opponent', 'unknown'].includes(nb)) return false;
+      if (na === nb) return true;
+      const pa = na.split(/\s+/);
+      const pb = nb.split(/\s+/);
+      if (pa.length >= 2 && pb.length >= 2 && pa[0] === pb[0] && pa[pa.length - 1] === pb[pb.length - 1]) return true;
+      if (pa.length === 1 && pb.length >= 1 && pa[0].length >= 3 && pa[0] === pb[0]) return true;
+      if (pb.length === 1 && pa.length >= 1 && pb[0].length >= 3 && pb[0] === pa[0]) return true;
+      return false;
+    }
+
+    function _getCachedMappableMatchesBySys(sys) {
+      const s = (sys && String(sys).toLowerCase().includes('aos')) ? 'aos' : '40k';
+      if (Array.isArray(window.__omniMappableMatchesCacheBySys[s]) && window.__omniMappableMatchesCacheBySys[s].length > 0) {
+        return window.__omniMappableMatchesCacheBySys[s];
+      }
+      try {
+        const raw = originalGetItem('omni_mappable_matches_v1_' + s);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.matches) && (Date.now() - (parsed.ts || 0)) < 600000) {
+            window.__omniMappableMatchesCacheBySys[s] = parsed.matches;
+            return parsed.matches;
+          }
+        }
+      } catch (e) {}
+      return null;
+    }
+
+    function _setCachedMappableMatchesBySys(sys, matches) {
+      const s = (sys && String(sys).toLowerCase().includes('aos')) ? 'aos' : '40k';
+      if (!Array.isArray(matches)) return;
+      window.__omniMappableMatchesCacheBySys[s] = matches;
+      try {
+        originalSetItem('omni_mappable_matches_v1_' + s, JSON.stringify({ ts: Date.now(), matches }));
+      } catch (e) {}
+    }
+
+    function _scoreLobbyMappableMatches(rawMatches, sourceGame, activeMatchId) {
+      if (!Array.isArray(rawMatches)) return [];
+      const normMid = String(activeMatchId || '').trim().toUpperCase();
+      const sgP1 = sourceGame ? String(sourceGame.p1_name || '') : '';
+      const sgP2 = sourceGame ? String(sourceGame.p2_name || '') : '';
+      const sgS1 = sourceGame && sourceGame.p1_score != null ? Number(sourceGame.p1_score) : null;
+      const sgS2 = sourceGame && sourceGame.p2_score != null ? Number(sourceGame.p2_score) : null;
+
+      const scored = rawMatches.map(m => {
+        const copy = Object.assign({}, m);
+        const lockedBy = String(copy.locked_by_match_id || '').trim().toUpperCase();
+        const isCurr = Boolean(normMid && lockedBy && lockedBy === normMid) || Boolean(copy.is_currently_mapped && (!normMid || lockedBy === normMid));
+        copy.is_currently_mapped = isCurr;
+        if (isCurr) {
+          copy.is_locked = false;
+        }
+        if (sourceGame) {
+          let rel = 0;
+          const oppName = copy.opponent_name || (copy.user_slot === 'player1' ? copy.player2_name : copy.player1_name) || '';
+          if (_namesRoughlyMatchClient(sgP1, oppName) || _namesRoughlyMatchClient(sgP2, oppName)) {
+            rel += 50;
+          }
+          if (copy.player1_score != null && copy.player2_score != null && sgS1 != null && sgS2 != null) {
+            const ev1 = Number(copy.player1_score);
+            const ev2 = Number(copy.player2_score);
+            if ((ev1 === sgS1 && ev2 === sgS2) || (ev1 === sgS2 && ev2 === sgS1)) {
+              rel += 40;
+            }
+          }
+          copy.relevance = rel;
+          copy.recommended = rel >= 50;
+        }
+        return copy;
+      });
+
+      scored.sort((a, b) => {
+        if (Boolean(a.is_currently_mapped) !== Boolean(b.is_currently_mapped)) {
+          return a.is_currently_mapped ? -1 : 1;
+        }
+        if (Boolean(!a.is_locked) !== Boolean(!b.is_locked)) {
+          return !a.is_locked ? -1 : 1;
+        }
+        return (b.relevance || 0) - (a.relevance || 0);
+      });
+      return scored;
+    }
+
+    window.__prefetchLobbyMappableEventMatches = async function(gameSystem) {
+      const s = (gameSystem && String(gameSystem).toLowerCase().includes('aos')) ? 'aos' : '40k';
+      if (_lobbyMappablePrefetchInFlight[s]) return _lobbyMappablePrefetchInFlight[s];
+      const tok = originalGetItem('native_session_token') || originalGetItem('elo_auth_token') || originalGetItem('omnitactica_id_token') || originalGetItem('firebase_id_token') || '';
+      if (!tok && !window.location.search.includes('mock_persona')) return null;
+      _lobbyMappablePrefetchInFlight[s] = (async () => {
+        try {
+          const headers = tok ? { 'Authorization': 'Bearer ' + tok } : {};
+          const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(s)}`, { headers });
+          if (resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            if (data && Array.isArray(data.matches)) {
+              _setCachedMappableMatchesBySys(s, data.matches);
+            }
+          }
+        } catch (e) {
+        } finally {
+          _lobbyMappablePrefetchInFlight[s] = null;
+        }
+      })();
+      return _lobbyMappablePrefetchInFlight[s];
+    };
 
     function _findLobbySourceGame(matchId) {
       const target = String(matchId || '').trim().toUpperCase();
@@ -6554,7 +6671,7 @@ Space Marines - Gladius Task Force (2000 pts)
     if (typeof window.openMapGameToEventModal !== 'function') {
       window.openMapGameToEventModal = async function(matchId, gameSystem) {
         _lobbyActiveMapMatchId = matchId || '';
-        _lobbyActiveMapGameSystem = gameSystem || (String(matchId || '').startsWith('AOS-') || isAosMode ? 'aos' : '40k');
+        _lobbyActiveMapGameSystem = gameSystem || (String(matchId || '').startsWith('AOS-') || window.location.pathname.includes('/aos') ? 'aos' : '40k');
 
         let modal = document.getElementById('omni-map-game-event-modal');
         if (!modal) {
@@ -6588,7 +6705,16 @@ Space Marines - Gladius Task Force (2000 pts)
           </div>
         `;
         modal.style.display = 'flex';
-        _renderLobbyMapSourceBanner(_findLobbySourceGame(_lobbyActiveMapMatchId));
+        const localSg = _findLobbySourceGame(_lobbyActiveMapMatchId);
+        _renderLobbyMapSourceBanner(localSg);
+
+        // Instant (0ms) render from prefetched/cached tournament matches if available
+        const cachedList = _getCachedMappableMatchesBySys(_lobbyActiveMapGameSystem);
+        const hadInstantRender = Boolean(cachedList && cachedList.length > 0);
+        if (hadInstantRender) {
+          _lobbyMappableMatchesCache = _scoreLobbyMappableMatches(cachedList, localSg, _lobbyActiveMapMatchId);
+          window.__renderLobbyMappableEventMatches(_lobbyMappableMatchesCache);
+        }
 
         try {
           const tok = originalGetItem('native_session_token') || originalGetItem('elo_auth_token') || originalGetItem('omnitactica_id_token') || originalGetItem('firebase_id_token') || '';
@@ -6596,15 +6722,22 @@ Space Marines - Gladius Task Force (2000 pts)
           const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(_lobbyActiveMapGameSystem)}&match_id=${encodeURIComponent(_lobbyActiveMapMatchId)}`, { headers });
           const data = await resp.json().catch(() => ({}));
           if (!resp.ok) {
-            throw new Error(data.detail || 'Please sign in to map scorecards to your tournament matches.');
+            if (!hadInstantRender) {
+              throw new Error(data.detail || 'Please sign in to map scorecards to your tournament matches.');
+            }
+            return;
           }
           if (data.source_game) _renderLobbyMapSourceBanner(data.source_game);
-          _lobbyMappableMatchesCache = data.matches || [];
-          window.__renderLobbyMappableEventMatches(_lobbyMappableMatchesCache);
+          const freshMatches = data.matches || [];
+          _setCachedMappableMatchesBySys(_lobbyActiveMapGameSystem, freshMatches);
+          _lobbyMappableMatchesCache = _scoreLobbyMappableMatches(freshMatches, data.source_game || localSg, _lobbyActiveMapMatchId);
+          window.__filterLobbyMappableEventMatches();
         } catch (err) {
-          const listEl = document.getElementById('omni-map-event-list');
-          if (listEl) {
-            listEl.innerHTML = `<div style="padding:1.25rem; text-align:center; color:#fca5a5; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; font-size:0.82rem;">⚠️ ${escapeHtml(err.message)}</div>`;
+          if (!hadInstantRender) {
+            const listEl = document.getElementById('omni-map-event-list');
+            if (listEl) {
+              listEl.innerHTML = `<div style="padding:1.25rem; text-align:center; color:#fca5a5; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; font-size:0.82rem;">⚠️ ${escapeHtml(err.message)}</div>`;
+            }
           }
         }
       };
@@ -6680,6 +6813,17 @@ Space Marines - Gladius Task Force (2000 pts)
             statusEl.style.border = '1px solid rgba(16,185,129,0.4)';
             statusEl.style.color = '#34d399';
             statusEl.innerHTML = `✅ Mapped &amp; locked to <b>${escapeHtml(data.event_name || eventId)}</b> (Round ${roundNum}${tableNum ? ' • Table ' + tableNum : ''})${data.swapped_p1_p2 ? ' • Auto-aligned Player 1 / Player 2 columns!' : '!'}`;
+          }
+          // Update local mappable matches cache immediately so the pairing shows as locked
+          const cachedSys = _getCachedMappableMatchesBySys(_lobbyActiveMapGameSystem);
+          if (Array.isArray(cachedSys)) {
+            const updatedSys = cachedSys.map(item => {
+              if (String(item.event_id || '').toLowerCase() === String(eventId || '').toLowerCase() && Number(item.round || item.round_num || 1) === Number(roundNum || 1) && Number(item.table_number || item.table_num || 1) === Number(tableNum || 1)) {
+                return Object.assign({}, item, { is_locked: true, locked_by_match_id: _lobbyActiveMapMatchId });
+              }
+              return item;
+            });
+            _setCachedMappableMatchesBySys(_lobbyActiveMapGameSystem, updatedSys);
           }
           try {
             originalRemoveItem('my_hub_cache_40k');
