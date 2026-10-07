@@ -8071,7 +8071,7 @@ class PostgresDatabase:
         edition = str(
             state.get("edition")
             or game_data.get("edition")
-            or ("aos_4e" if is_aos else "10th")
+            or ("aos_4e" if is_aos else ("10th" if state.get("imported_source") else "11th"))
         ).strip().lower()
 
         def calc_vp(p_obj):
@@ -8096,7 +8096,7 @@ class PostgresDatabase:
                 pri_cap = 36
                 sec_cap = 12
                 max_tot = 48
-            elif p_ed in ("9th", "9e"):
+            elif p_ed in ("9th", "9e", "11th", "11e"):
                 pri_cap = 45
                 sec_cap = 45
                 max_tot = 100
@@ -8374,6 +8374,65 @@ class PostgresDatabase:
                                 d["game_date"] = iso_gd
                             except Exception:
                                 pass
+                        # Normalize 11th Edition 45/45 Primary & Secondary caps for any previously saved scorecards
+                        raw_ed = str(
+                            st_obj.get("edition")
+                            or (st_obj.get("game") or {}).get("edition")
+                            or (st_obj.get("p1") or {}).get("edition")
+                            or (st_obj.get("p2") or {}).get("edition")
+                            or ""
+                        ).strip().lower()
+                        is_aos_game = (
+                            str(st_obj.get("game_system") or st_obj.get("gameSystem") or d.get("game_system") or "").lower() == "aos"
+                            or str(d.get("match_id") or "").upper().startswith("AOS-")
+                        )
+                        if not is_aos_game and (raw_ed in ("11th", "11e") or (not raw_ed and not st_obj.get("imported_source"))):
+                            needs_db_repair = False
+                            st_obj["edition"] = "11th"
+                            st_obj.setdefault("edition_label", "11th Edition")
+                            for side_k, score_k, top_k in (("p1", "p1Score", "p1_score"), ("p2", "p2Score", "p2_score")):
+                                p_side = st_obj.get(side_k)
+                                if isinstance(p_side, dict):
+                                    if p_side.get("primaryCap") != 45 or p_side.get("secondaryCap") != 45:
+                                        needs_db_repair = True
+                                    p_side["edition"] = "11th"
+                                    p_side["primaryCap"] = 45
+                                    p_side["secondaryCap"] = 45
+                                    r_list = [r for r in (p_side.get("rounds") or []) if isinstance(r, dict)]
+                                    if r_list:
+                                        raw_pri = sum(int(r.get("primaryScore") or 0) for r in r_list)
+                                        raw_sec = sum(int(r.get("secondaryScore") or 0) for r in r_list)
+                                        if raw_sec == 0 and isinstance(p_side.get("hand"), list):
+                                            for card in p_side["hand"]:
+                                                if not isinstance(card, dict) or card.get("status") == "discarded":
+                                                    continue
+                                                if card.get("recurring"):
+                                                    for rv in (card.get("roundScores") or {}).values():
+                                                        raw_sec += int(rv.get("points") or 0) if isinstance(rv, dict) else int(rv or 0)
+                                                elif card.get("scoredRound") is not None:
+                                                    raw_sec += int(card.get("points") or 0)
+                                        p_side["primaryScore"] = min(45, raw_pri)
+                                        p_side["secondaryScore"] = min(45, raw_sec)
+                                        pnt = int(p_side["paintScore"]) if isinstance(p_side.get("paintScore"), (int, float)) else (10 if p_side.get("battleReady", True) is not False else 0)
+                                        tot_s = min(100, p_side["primaryScore"] + p_side["secondaryScore"] + pnt)
+                                        if tot_s > 0:
+                                            if int(d.get(top_k) or 0) != tot_s:
+                                                needs_db_repair = True
+                                            p_side["score"] = tot_s
+                                            p_side["totalScore"] = tot_s
+                                            st_obj[score_k] = tot_s
+                                            d[top_k] = tot_s
+                            d["state_json"] = st_obj
+                            if needs_db_repair and d.get("match_id"):
+                                try:
+                                    cursor.execute(
+                                        "UPDATE tracker_games SET p1_score = %s, p2_score = %s, state_json = %s::jsonb WHERE match_id = %s;",
+                                        (int(d.get("p1_score") or 0), int(d.get("p2_score") or 0), json.dumps(st_obj), d["match_id"]),
+                                    )
+                                    conn.commit()
+                                    PostgresDatabase._tracker_history_cache_dict.clear()
+                                except Exception:
+                                    pass
                         return d
                     return None
 
@@ -8559,6 +8618,8 @@ class PostgresDatabase:
                         else:
                             if any(k in pack_text for k in ("nephilim", "arks of omen", "arks_of_omen", "arksofomen", "warzone nachmund", "warzonenachmund", "tempest of war", "tempestofwar", "octarius", "gt 2020", "gt 2021", "gt 2022", "gt2020", "gt2021", "gt2022", "eternal war", "eternalwar", "9th")):
                                 d["edition"] = "9th"
+                            elif any(k in pack_text for k in ("11th", "vanguard operation", "search and scour", "core rulebook")):
+                                d["edition"] = "11th"
                             elif any(k in pack_text for k in ("leviathan", "pariah", "ca25", "chapter approved 2025", "nachmund crusade", "nachmund_crusade", "10th")):
                                 d["edition"] = "10th"
                             elif (not d.get("edition")) or (d.get("edition") == "8th_itc" and "itc" not in pack_text and "champions" not in pack_text and ymd >= "2020-07-25"):
@@ -8566,10 +8627,12 @@ class PostgresDatabase:
                                     d["edition"] = "8th_itc"
                                 elif ymd and ymd < "2023-06-15":
                                     d["edition"] = "9th"
+                                elif not d.get("imported_source"):
+                                    d["edition"] = "11th"
                                 else:
                                     d["edition"] = "10th"
 
-                        d["edition_label"] = ed_map.get(str(d["edition"]).lower(), d.get("edition_label") or "10th Edition")
+                        d["edition_label"] = ed_map.get(str(d["edition"]).lower(), d.get("edition_label") or "11th Edition")
                         d["_sort_iso"] = sort_iso
                         res.append(d)
 

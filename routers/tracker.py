@@ -2057,10 +2057,13 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
                         return int(side_obj["score"])
                     rounds_arr = side_obj.get("rounds") or []
                     if isinstance(rounds_arr, list) and rounds_arr:
+                        raw_ed = str(side_obj.get("edition") or state.get("edition") or "11th").strip().lower()
+                        pri_cap = 50 if raw_ed in ("10th", "10e") else (36 if "8th" in raw_ed or "itc" in raw_ed else 45)
+                        sec_cap = 40 if raw_ed in ("10th", "10e") else (12 if "8th" in raw_ed or "itc" in raw_ed else 45)
                         prim = sum(int(r.get("primaryScore") or 0) for r in rounds_arr if isinstance(r, dict))
                         sec = sum(int(r.get("secondaryScore") or 0) for r in rounds_arr if isinstance(r, dict))
-                        paint = 10 if side_obj.get("battleReady") is not False else 0
-                        return min(100, min(50, prim) + min(40, sec) + paint)
+                        paint = 0 if ("8th" in raw_ed or "itc" in raw_ed) else (10 if side_obj.get("battleReady") is not False else 0)
+                        return min(100, min(pri_cap, prim) + min(sec_cap, sec) + paint)
             return int(room.get(top_key) or 0)
 
         p1_score = _extract_tracker_score("p1", "p1_score")

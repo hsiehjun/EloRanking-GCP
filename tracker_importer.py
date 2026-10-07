@@ -1204,8 +1204,37 @@ def detect_game_edition(
     ) or ("nachmund" in pack_str and "crusade" not in pack_str):
         return ("9th", "9th Edition")
 
-    if any(k in gtype for k in ("11e", "11th")) or any(k in pack_str for k in ("wh40k11e", "11th")):
+    if any(k in gtype for k in ("11e", "11th")):
         return ("11th", "11th Edition")
+
+    if any(k in gtype for k in ("10e", "10th")):
+        return ("10th", "10th Edition")
+
+    if any(
+        k in pack_str
+        for k in (
+            "wh40k11e",
+            "11th",
+            "vanguard operation",
+            "vanguard_operation",
+            "search and scour",
+            "search_and_scour",
+            "core rulebook",
+            "forward position",
+            "forward-position",
+            "forward-posision",
+            "centre ground",
+            "centre-ground",
+            "burden of trust",
+            "burden-of-trust",
+        )
+    ):
+        return ("11th", "11th Edition")
+
+    if any(
+        k in pack_str for k in ("leviathan", "pariah", "ca25", "chapter approved 2025", "nachmund_crusade", "nachmundcrusade", "10th")
+    ):
+        return ("10th", "10th Edition")
 
     # Inspect player secondaries/primaries for unmistakable 8th ITC or 9th Edition signatures
     for p in players:
@@ -1228,9 +1257,9 @@ def detect_game_edition(
                 p_arr = pr.get("scores") if isinstance(pr.get("scores"), list) else (pr.get("points") if isinstance(pr.get("points"), list) else [])
                 pri_sum += sum(int(x or 0) for x in p_arr if isinstance(x, (int, float)))
         is_modern_date = bool(game_date_iso and len(game_date_iso) >= 10 and game_date_iso[:10] >= "2023-06-20")
-        if (
+        if not is_modern_date and (
             int(p.get("secondaryScore") or 0) > 40
-            or (sec_sum > 40 and len(secs) <= 3 and pri_sum <= 45 and not is_modern_date)
+            or (sec_sum > 40 and len(secs) <= 3 and pri_sum <= 45)
         ):
             return ("9th", "9th Edition")
 
@@ -1517,12 +1546,12 @@ def _build_40k_player_state(
         sec_name = _humanize_identifier(p_raw.get("secretMission") or "Secret Mission")
         pri_scores[4] += secret_score
 
-    # Edition-specific scoring caps
+    # Edition-specific scoring caps (8th ITC: 36/12, 9th & 11th: 45/45, 10th: 50/40)
     if edition == "8th_itc":
         pri_cap = 36
         sec_cap = 12
         max_total = 48
-    elif edition == "9th":
+    elif edition in ("9th", "11th"):
         pri_cap = 45
         sec_cap = 45
         max_total = 100
@@ -2238,11 +2267,11 @@ def _parse_single_text_scorecard(
                 p2_paint = p2_score >= 10
                 p1_rem = max(0, p1_score - (10 if p1_paint else 0))
                 p2_rem = max(0, p2_score - (10 if p2_paint else 0))
-                pri_cap = 45 if text_edition == "9th" else 50
-                sec_cap = 45 if text_edition == "9th" else 40
-                p1_pri_tot = min(pri_cap, int(round(p1_rem * (0.5 if text_edition == "9th" else 0.56))))
+                pri_cap = 45 if text_edition in ("9th", "11th") else 50
+                sec_cap = 45 if text_edition in ("9th", "11th") else 40
+                p1_pri_tot = min(pri_cap, int(round(p1_rem * (0.5 if text_edition in ("9th", "11th") else 0.56))))
                 p1_sec_tot = max(0, min(sec_cap, p1_rem - p1_pri_tot))
-                p2_pri_tot = min(pri_cap, int(round(p2_rem * (0.5 if text_edition == "9th" else 0.56))))
+                p2_pri_tot = min(pri_cap, int(round(p2_rem * (0.5 if text_edition in ("9th", "11th") else 0.56))))
                 p2_sec_tot = max(0, min(sec_cap, p2_rem - p2_pri_tot))
             for i in range(1, 5):
                 p1_pri[i] = p1_pri_tot // 4 + (1 if (i - 1) < (p1_pri_tot % 4) else 0)

@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=4efdde57dc">
+  <link rel="manifest" href="/manifest.json?v=387457ff7c">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "4efdde57dc";</script>
+  <script>window.APP_VERSION = "387457ff7c";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -586,7 +586,7 @@
           <div class="sc-player-faction" id="sc-p1-faction">-</div>
           <div class="sc-player-det" id="sc-p1-det" style="display:none;">-</div>
           <div class="sc-score-pill-row" id="sc-p1-sub-breakdown">
-            <span>PRI: 0/50</span> • <span>SEC: 0/40</span> • <span>PNT: +10</span>
+            <span>PRI: 0/45</span> • <span>SEC: 0/45</span> • <span>PNT: +10</span>
           </div>
         </div>
 
@@ -602,7 +602,7 @@
           <div class="sc-player-faction" id="sc-p2-faction">-</div>
           <div class="sc-player-det" id="sc-p2-det" style="display:none;">-</div>
           <div class="sc-score-pill-row" id="sc-p2-sub-breakdown">
-            <span>PRI: 0/50</span> • <span>SEC: 0/40</span> • <span>PNT: +10</span>
+            <span>PRI: 0/45</span> • <span>SEC: 0/45</span> • <span>PNT: +10</span>
           </div>
         </div>
       </div>
@@ -815,16 +815,21 @@
         };
       }
 
-      if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th')) {
+      const isNative11thTracker = Boolean(
+        !st.imported_source && !rec.imported_source &&
+        (p1Obj.deck || p2Obj.deck || game.p1Disposition || game.p2Disposition || !rawEd)
+      );
+
+      if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th') || isNative11thTracker) {
         return {
           edition: '11th',
-          editionLabel: rawLabel || 'WH40K 11th Ed • Matched Play',
+          editionLabel: rawLabel || 'WH40K 11th Ed • Matched Play (45/45/10)',
           shortBadge: '🚀 WH40K 11th Ed',
           badgeBg: 'rgba(56, 189, 248, 0.14)',
           badgeColor: '#38bdf8',
           badgeBorder: 'rgba(56, 189, 248, 0.35)',
-          priCap: 50,
-          secCap: 40,
+          priCap: 45,
+          secCap: 45,
           maxTotal: 100,
           hasPaint: true
         };
@@ -996,7 +1001,7 @@
       return res;
     }
 
-    function getPlayerTotalSecondary(pObj, maxSecCap = 40) {
+    function getPlayerTotalSecondary(pObj, maxSecCap = 45) {
       if (!pObj) return 0;
       let total = 0;
       for (let i = 1; i <= 5; i++) {

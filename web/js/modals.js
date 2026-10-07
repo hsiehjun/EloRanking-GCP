@@ -1885,9 +1885,13 @@ async function openScorecardModal(matchId) {
       secCap = 12;
       maxTot = 48;
       hasPaint = false;
-    } else if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th')) {
+    } else if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th') || (!st.imported_source && !rec.imported_source && (p1Obj.deck || p2Obj.deck || game.p1Disposition || game.p2Disposition || !rawEd))) {
       edCode = '11th';
       edBadgeLabel = '11th Ed';
+      priCap = 45;
+      secCap = 45;
+      maxTot = 100;
+      hasPaint = true;
     } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || Number(p1Obj.primaryCap) === 45 || Number(p1Obj.secondaryCap) === 45) {
       edCode = '9th';
       edBadgeLabel = '9th Ed';

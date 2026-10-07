@@ -406,9 +406,13 @@ def test_event_match_mapping_participant_verification_alignment_and_locking():
             event_id="socal-open-2026", round_num=2, table_num=4
         )
 
+        def _call_map(mid, pl):
+            res = tracker_router.api_map_tracker_game_to_event_match(mid, pl, None)
+            return asyncio.run(res) if asyncio.iscoroutine(res) else res
+
         # Case A: Non-participant user tries to map -> 403 Forbidden
         try:
-            asyncio.run(tracker_router.api_map_tracker_game_to_event_match("WH40K-TTB-IMPORT-SWAP", payload, None))
+            _call_map("WH40K-TTB-IMPORT-SWAP", payload)
             assert False, "Expected 403 HTTPException for non-participant"
         except Exception as ex:
             assert getattr(ex, "status_code", None) == 403
@@ -421,7 +425,7 @@ def test_event_match_mapping_participant_verification_alignment_and_locking():
             "player_id": "p-john",
         })
 
-        body = asyncio.run(tracker_router.api_map_tracker_game_to_event_match("WH40K-TTB-IMPORT-SWAP", payload, None))
+        body = _call_map("WH40K-TTB-IMPORT-SWAP", payload)
         assert body["success"] is True
         assert body["locked"] is True
         assert body["event_match_locked"] is True
@@ -443,7 +447,7 @@ def test_event_match_mapping_participant_verification_alignment_and_locking():
 
         # Case C: Another game tries to map to the same locked event match -> 409 Conflict!
         try:
-            asyncio.run(tracker_router.api_map_tracker_game_to_event_match("WH40K-TTB-IMPORT-SECOND", payload, None))
+            _call_map("WH40K-TTB-IMPORT-SECOND", payload)
             assert False, "Expected 409 HTTPException when mapping to an already locked match"
         except Exception as ex2:
             assert getattr(ex2, "status_code", None) == 409
@@ -499,8 +503,9 @@ def test_aos_championship_badge_parity_rtt_vs_gt():
 
 
 def test_10th_11th_ed_tactical_over_40_raw_not_misclassified_as_9th():
-    # Verify an 11th/10th Edition game where a player scores >40 raw secondary points across 8 tactical cards
-    # (e.g. 5 + 10 + 5 + 10 + 15 = 45 raw -> 40 capped) is NOT misclassified as 9th Edition and preserves Turn 5 = 15.
+    # 1. Verify an 11th Edition game (45 Primary / 45 Secondary / +10 Paint = 100) where a player scores
+    # 55 raw primary (-> 45/45 capped) and 45 secondary (5 + 10 + 5 + 10 + 15 = 45/45) is classified as 11th Edition
+    # with 45/45 caps, not 10th Edition (50/40) or 9th Edition.
     raw_11th_over_40 = {
         "id": "ttb-11th-50a4c798",
         "packName": "Chapter Approved 2025-26",
@@ -512,7 +517,7 @@ def test_10th_11th_ed_tactical_over_40_raw_not_misclassified_as_9th():
                 "faction": "Black Templars",
                 "detachment": "Wrathful Procession",
                 "battleReady": True,
-                "primaryScores": [0, 15, 10, 15, 15],  # 55 raw -> 50 capped
+                "primaryScores": [0, 15, 10, 15, 15],  # 55 raw -> 45 capped in 11th Ed
                 "secondaries": [
                     {"name": "Secure No Man's Land", "round": 1, "points": 5},
                     {"name": "Assassination", "round": 2, "points": 5},
@@ -538,16 +543,110 @@ def test_10th_11th_ed_tactical_over_40_raw_not_misclassified_as_9th():
         ],
     }
     parsed = tracker_importer.parse_imported_games_payload(raw_11th_over_40, "tabletop_battles")[0]
-    assert parsed["edition"] in ("10th", "11th")
+    assert parsed["edition"] == "11th"
     st = parsed["state"]
-    assert st["p1"]["primaryCap"] == 50
-    assert st["p1"]["secondaryCap"] == 40
-    # Turn 5 secondaryScore must remain 15 (not clipped to 10), while total secondaryScore is capped at 40
+    assert st["p1"]["primaryCap"] == 45
+    assert st["p1"]["secondaryCap"] == 45
     assert [r["secondaryScore"] for r in st["p1"]["rounds"]] == [5, 10, 5, 10, 15]
-    assert st["p1"]["secondaryScore"] == 40
-    assert st["p1"]["primaryScore"] == 50
+    assert st["p1"]["secondaryScore"] == 45
+    assert st["p1"]["primaryScore"] == 45
     assert parsed["p1_score"] == 100
     assert parsed["p2_score"] == 37
+
+    # 2. Verify LVO 2026 Round 4 (WH40K-TTB-94687C2C: John Craig vs John Hsieh)
+    # John Craig: 17/45 Pri + 23/45 Sec + 10 Paint = 50
+    # John Hsieh: 46 raw -> 45/45 Pri + 45/45 Sec + 10 Paint = 100 (NOT 46/50 + 40/40 + 10 = 96!)
+    raw_lvo_r4 = {
+        "id": "94687c2c-lvo-r4",
+        "gameType": "wh40k11e",
+        "missionName": "Vanguard Operation",
+        "deployment": "Search and Scour",
+        "date": "2026-10-03T18:00:00Z",
+        "players": [
+            {
+                "name": "John Craig",
+                "faction": "Blood Angels",
+                "detachment": "Rage-cursed Onslaught",
+                "battleReady": True,
+                "primaryScores": [6, 3, 5, 3, 0],  # 17
+                "secondaries": [
+                    {"name": "Centre Ground", "round": 1, "points": 3},
+                    {"name": "Establish Locus", "round": 1, "points": 2},
+                    {"name": "Overwhelming Force", "round": 2, "points": 5},
+                    {"name": "A Tempting Target", "round": 3, "points": 5},
+                    {"name": "Extend Battle Lines", "round": 3, "points": 5},
+                    {"name": "Assassination", "round": 4, "points": 3},
+                ],
+            },
+            {
+                "name": "John Hsieh",
+                "faction": "Necrons",
+                "detachment": "Cursed Legion",
+                "battleReady": True,
+                "primaryScores": [6, 10, 10, 10, 10],  # 46 raw -> 45/45 capped
+                "secondaries": [
+                    {"name": "Extend Battle Lines", "round": 1, "points": 5},
+                    {"name": "Centre Ground", "round": 2, "points": 5},
+                    {"name": "Bring It Down", "round": 2, "points": 5},
+                    {"name": "Marked for Death", "round": 3, "points": 5},
+                    {"name": "No Prisoners", "round": 3, "points": 5},
+                    {"name": "Behind Enemy Lines", "round": 4, "points": 5},
+                    {"name": "Cull the Horde", "round": 5, "points": 5},
+                    {"name": "Overwhelming Force", "round": 5, "points": 5},
+                    {"name": "Defend Stronghold", "round": 5, "points": 5},
+                ],
+            },
+        ],
+    }
+    parsed_lvo_r4 = tracker_importer.parse_imported_games_payload(raw_lvo_r4, "tabletop_battles")[0]
+    assert parsed_lvo_r4["edition"] == "11th"
+    st_r4 = parsed_lvo_r4["state"]
+    assert st_r4["p1"]["primaryCap"] == 45
+    assert st_r4["p1"]["secondaryCap"] == 45
+    assert st_r4["p2"]["primaryCap"] == 45
+    assert st_r4["p2"]["secondaryCap"] == 45
+    assert st_r4["p2"]["primaryScore"] == 45
+    assert st_r4["p2"]["secondaryScore"] == 45
+    assert parsed_lvo_r4["p1_score"] == 50
+    assert parsed_lvo_r4["p2_score"] == 100
+
+    # 3. Verify a 10th Edition Pariah Nexus game retains 50 Primary / 40 Secondary caps
+    raw_10th_pn = {
+        "id": "ttb-10th-pn-001",
+        "gameType": "wh40k10e",
+        "packName": "Pariah Nexus",
+        "missionName": "Linchpin",
+        "date": "2025-04-12T18:00:00Z",
+        "players": [
+            {
+                "name": "John Hsieh",
+                "faction": "Necrons",
+                "battleReady": True,
+                "primaryScores": [0, 15, 15, 15, 10],  # 55 raw -> 50 capped in 10th Ed
+                "secondaries": [
+                    {"name": "Area Denial", "round": 1, "points": 5},
+                    {"name": "Assassination", "round": 2, "points": 10},
+                    {"name": "Cleanse", "round": 3, "points": 10},
+                    {"name": "Bring It Down", "round": 4, "points": 10},
+                    {"name": "Defend Stronghold", "round": 5, "points": 10},  # 45 raw -> 40 capped in 10th Ed
+                ],
+            },
+            {
+                "name": "Opponent",
+                "faction": "Aeldari",
+                "battleReady": True,
+                "primaryScores": [0, 10, 10, 10, 10],
+                "secondaries": [],
+            },
+        ],
+    }
+    parsed_10th = tracker_importer.parse_imported_games_payload(raw_10th_pn, "tabletop_battles")[0]
+    assert parsed_10th["edition"] == "10th"
+    assert parsed_10th["state"]["p1"]["primaryCap"] == 50
+    assert parsed_10th["state"]["p1"]["secondaryCap"] == 40
+    assert parsed_10th["state"]["p1"]["primaryScore"] == 50
+    assert parsed_10th["state"]["p1"]["secondaryScore"] == 40
+    assert parsed_10th["p1_score"] == 100
 
 
 def test_all_secondaries_preserved_including_unscored_discarded_and_held():
