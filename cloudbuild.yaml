@@ -18,35 +18,14 @@ steps:
       - '--all-tags'
       - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking'
 
-  # 2b. Deploy Cloud Run NewRecruit Relay in us-west1 (clean outbound IP for live NewRecruit account RPCs)
+  # 2b. Ensure legacy elo-nr-relay service in us-west1 is deleted
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'deploy-nr-relay'
+    id: 'cleanup-nr-relay'
     entrypoint: bash
     args:
       - '-c'
       - |
-        gcloud run deploy elo-nr-relay \
-          --image us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA \
-          --region us-west1 \
-          --platform managed \
-          --allow-unauthenticated \
-          --memory 512Mi \
-          --cpu 1 \
-          --min-instances 0 \
-          --max-instances 4 \
-          --cpu-throttling \
-          --quiet || \
-        gcloud run deploy elo-nr-relay \
-          --image us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA \
-          --region us-west1 \
-          --platform managed \
-          --no-allow-unauthenticated \
-          --memory 512Mi \
-          --cpu 1 \
-          --min-instances 0 \
-          --max-instances 4 \
-          --cpu-throttling \
-          --quiet || true
+        gcloud run services delete elo-nr-relay --region us-west1 --platform managed --quiet || true
 
   # 3. Deploy Cloud Run Web Service: elo-ranking (min-instances=1 to eliminate cold starts)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -69,8 +48,8 @@ steps:
       - '--max'
       - '10'
       - '--cpu-throttling'
-      - '--update-env-vars'
-      - 'NR_RELAY_URL=https://elo-nr-relay-911555823374.us-west1.run.app'
+      - '--remove-env-vars'
+      - 'NR_RELAY_URL'
 
   # 4. Update Cloud Run Job: elo-tournament-sync-job
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
