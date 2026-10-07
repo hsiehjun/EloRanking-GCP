@@ -298,7 +298,7 @@ class PostgresDatabase:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT value FROM system_settings WHERE key = 'perf_indexes_v24';")
+                    cur.execute("SELECT value FROM system_settings WHERE key = 'perf_indexes_v25';")
                     row = cur.fetchone()
                     if row and row[0] == 'ready':
                         return
@@ -313,7 +313,7 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_event_lower_rt ON tracker_games ((LOWER(event_id)), round_num, table_num) WHERE event_id IS NOT NULL;",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_elo ON player_ratings ((COALESCE(game_system, '40k')), current_elo DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_pid ON player_ratings (player_id, (COALESCE(game_system, '40k')));",
-            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team ON player_ratings ((COALESCE(game_system, '40k')), TRIM(team), current_elo DESC) WHERE team IS NOT NULL AND TRIM(team) != '';",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team ON player_ratings ((COALESCE(game_system, '40k')), (TRIM(team)), current_elo DESC) WHERE team IS NOT NULL AND TRIM(team) != '';",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team_ilike ON player_ratings ((COALESCE(game_system, '40k')), LOWER(TRIM(team)), current_elo DESC) WHERE team IS NOT NULL AND TRIM(team) != '';",
             "CREATE INDEX IF NOT EXISTS idx_pg_events_coal_sys_date ON events ((COALESCE(game_system, '40k')), event_date DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_history_coal_sys_pid ON rating_history (player_id, (COALESCE(game_system, '40k')), match_date ASC);",
@@ -338,11 +338,11 @@ class PostgresDatabase:
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO system_settings (key, value, updated_at)
-                        VALUES ('perf_indexes_v24', 'ready', NOW())
+                        VALUES ('perf_indexes_v25', 'ready', NOW())
                         ON CONFLICT (key) DO UPDATE SET value = 'ready', updated_at = NOW();
                     """)
                 conn.commit()
-                logger.info("🔥 Critical COALESCE functional indexes and tracker_games columns verified (v24)")
+                logger.info("🔥 Critical COALESCE functional indexes and tracker_games columns verified (v25)")
         except Exception as err:
             logger.warning(f"_ensure_critical_perf_schema notice: {err}")
 
@@ -351,7 +351,7 @@ class PostgresDatabase:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT value FROM system_settings WHERE key = 'startup_schema_seed_v24';")
+                    cur.execute("SELECT value FROM system_settings WHERE key = 'startup_schema_seed_v4';")
                     row = cur.fetchone()
                     return bool(row and row[0] == 'ready')
         except Exception:
@@ -363,7 +363,7 @@ class PostgresDatabase:
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO system_settings (key, value, updated_at)
-                        VALUES ('startup_schema_seed_v24', 'ready', NOW())
+                        VALUES ('startup_schema_seed_v4', 'ready', NOW())
                         ON CONFLICT (key) DO UPDATE SET value = 'ready', updated_at = NOW();
                     """)
                 conn.commit()
@@ -949,7 +949,7 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_users_player_id ON users(player_id);",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_elo ON player_ratings ((COALESCE(game_system, '40k')), current_elo DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_pid ON player_ratings (player_id, (COALESCE(game_system, '40k')));",
-            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team ON player_ratings ((COALESCE(game_system, '40k')), TRIM(team), current_elo DESC) WHERE team IS NOT NULL AND TRIM(team) != '';",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team ON player_ratings ((COALESCE(game_system, '40k')), (TRIM(team)), current_elo DESC) WHERE team IS NOT NULL AND TRIM(team) != '';",
             "CREATE INDEX IF NOT EXISTS idx_pg_events_coal_sys_date ON events ((COALESCE(game_system, '40k')), event_date DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_history_coal_sys_pid ON rating_history (player_id, (COALESCE(game_system, '40k')), match_date ASC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_name_trgm ON player_ratings USING gin (player_name gin_trgm_ops);"
@@ -4925,7 +4925,7 @@ class PostgresDatabase:
             try:
                 with self.get_connection() as conn:
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                        cursor.execute("SET LOCAL statement_timeout = '15000ms';")
+                        cursor.execute("SET LOCAL statement_timeout = '15000ms'; SET LOCAL work_mem = '64MB';")
                         sys_clause = ""
                         sys_params = []
                         if game_system and game_system != "all":
@@ -4957,7 +4957,11 @@ class PostgresDatabase:
                         ranked_active AS (
                             SELECT 
                                 tp.*,
-                                ROW_NUMBER() OVER (PARTITION BY tp.team_name ORDER BY tp.is_active DESC, tp.current_elo DESC) as active_rn,
+                                SUM(tp.is_active) OVER (
+                                    PARTITION BY tp.team_name
+                                    ORDER BY tp.current_elo DESC
+                                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                                ) as active_rn,
                                 ROW_NUMBER() OVER (PARTITION BY tp.team_name ORDER BY tp.current_elo DESC) as overall_rn
                             FROM team_players tp
                         )
@@ -4988,7 +4992,7 @@ class PostgresDatabase:
                                         CASE 
                                             WHEN SUM(tm.is_active) <= 1 THEN 0.10
                                             WHEN SUM(tm.is_active) >= 30 THEN 1.00
-                                            ELSE (0.10 + 0.90 * POWER(LOG(SUM(tm.is_active)::numeric) / LOG(30.0), 0.65))
+                                            ELSE (0.10 + 0.90 * POWER(LN(SUM(tm.is_active)::float8) / LN(30.0::float8), 0.65::float8)::numeric)
                                         END
                                     )
                                 END
@@ -5755,16 +5759,6 @@ class PostgresDatabase:
                           AND LOWER(TRIM(full_name)) NOT IN ('player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye')
                         LIMIT 1
                     ),
-                    name_ep AS (
-                        SELECT
-                            ep.event_id,
-                            MIN(NULLIF(ep.placement, 0)) AS name_placement
-                        FROM event_participants ep
-                        JOIN raw_player_events rpe ON rpe.event_id = ep.event_id
-                        JOIN player_name_ref pnr ON LOWER(TRIM(ep.full_name)) = pnr.norm_name
-                        WHERE ep.placement IS NOT NULL AND ep.placement > 0
-                        GROUP BY ep.event_id
-                    ),
                     direct_ep AS (
                         SELECT
                             ep.event_id,
@@ -5772,6 +5766,17 @@ class PostgresDatabase:
                         FROM event_participants ep
                         JOIN raw_player_events rpe ON rpe.event_id = ep.event_id
                         WHERE ep.player_id = %(pid)s AND ep.placement IS NOT NULL AND ep.placement > 0
+                        GROUP BY ep.event_id
+                    ),
+                    name_ep AS (
+                        SELECT
+                            ep.event_id,
+                            MIN(NULLIF(ep.placement, 0)) AS name_placement
+                        FROM event_participants ep
+                        JOIN raw_player_events rpe ON rpe.event_id = ep.event_id
+                        LEFT JOIN direct_ep dep ON dep.event_id = rpe.event_id
+                        JOIN player_name_ref pnr ON LOWER(TRIM(ep.full_name)) = pnr.norm_name
+                        WHERE dep.direct_placement IS NULL AND ep.placement IS NOT NULL AND ep.placement > 0
                         GROUP BY ep.event_id
                     ),
                     target_events AS (
@@ -5785,7 +5790,7 @@ class PostgresDatabase:
                                 COALESCE(
                                     NULLIF(e.num_rounds, 0),
                                     CASE
-                                        WHEN (e.raw_json->>'numberOfRounds') ~ '^[0-9]+$' THEN NULLIF((e.raw_json->>'numberOfRounds')::int, 0)
+                                        WHEN FALSE AND (e.raw_json->>'numberOfRounds') ~ '^[0-9]+$' THEN NULLIF((e.raw_json->>'numberOfRounds')::int, 0)
                                         ELSE NULL
                                     END,
                                     0
@@ -6068,7 +6073,7 @@ class PostgresDatabase:
                         COALESCE(
                             NULLIF(e.total_players, 0),
                             CASE
-                                WHEN (e.raw_json->>'totalPlayers') ~ '^[0-9]+$'
+                                WHEN FALSE AND (e.raw_json->>'totalPlayers') ~ '^[0-9]+$'
                                 THEN NULLIF((e.raw_json->>'totalPlayers')::int, 0)
                                 ELSE NULL
                             END,
@@ -6200,7 +6205,7 @@ class PostgresDatabase:
                                 COALESCE(
                                     NULLIF(e.num_rounds, 0),
                                     CASE
-                                        WHEN (e.raw_json->>'numberOfRounds') ~ '^[0-9]+$' THEN NULLIF((e.raw_json->>'numberOfRounds')::int, 0)
+                                        WHEN FALSE AND (e.raw_json->>'numberOfRounds') ~ '^[0-9]+$' THEN NULLIF((e.raw_json->>'numberOfRounds')::int, 0)
                                         ELSE NULL
                                     END,
                                     0
@@ -6391,7 +6396,7 @@ class PostgresDatabase:
                         COALESCE(
                             NULLIF(e.total_players, 0),
                             CASE
-                                WHEN (e.raw_json->>'totalPlayers') ~ '^[0-9]+$'
+                                WHEN FALSE AND (e.raw_json->>'totalPlayers') ~ '^[0-9]+$'
                                 THEN NULLIF((e.raw_json->>'totalPlayers')::int, 0)
                                 ELSE NULL
                             END,
@@ -6723,7 +6728,24 @@ class PostgresDatabase:
                     sys_params = [(game_system or "40k").lower()]
 
                 try:
-                    if len(tokens) > 1:
+                    is_id_token = (
+                        len(tokens) == 1
+                        and bool(q_str)
+                        and (
+                            any(c.isdigit() for c in q_str)
+                            or "_" in q_str
+                            or (len(q_str) >= 8 and any(c.isupper() for c in q_str[1:]))
+                        )
+                    )
+                    if is_id_token:
+                        cursor.execute(f"""
+                        SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, COALESCE(game_system, '40k') as game_system
+                        FROM player_ratings
+                        WHERE player_id = %s{sys_clause}
+                        ORDER BY matches_played DESC, current_elo DESC
+                        LIMIT %s;
+                        """, (q_str, *sys_params, limit))
+                    elif len(tokens) > 1:
                         sub = " AND ".join(["player_name ILIKE %s" for _ in tokens])
                         params = [f"%{t}%" for t in tokens] + [q_str] + sys_params + [limit]
                         cursor.execute(f"""
