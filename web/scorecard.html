@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=cd08ff3522">
+  <link rel="manifest" href="/manifest.json?v=a4aecf30de">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "cd08ff3522";</script>
+  <script>window.APP_VERSION = "a4aecf30de";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -1436,7 +1436,14 @@
         ? `🎯 Battleplan: ${game.battleplan?.name || st.battleplan?.name || rec.primary_mission || 'Border War'}`
         : `🎯 Primary: ${game.primary || game.p1Primary || st.mission?.primaryName || rec.primary_mission || 'Take & Hold'}`;
       const rawDateVal = st.game_date || rec.game_date || rec.updated_at || Date.now();
-      document.getElementById('sc-date-time').innerText = `⏱️ ${new Date(rawDateVal).toLocaleDateString()}`;
+      let scDateObj;
+      if (typeof rawDateVal === 'string' && /^\d{9,16}(?:\.\d+)?$/.test(rawDateVal.trim())) {
+        const numDt = parseFloat(rawDateVal.trim());
+        scDateObj = new Date(numDt > 1e11 ? numDt : numDt * 1000);
+      } else {
+        scDateObj = new Date(rawDateVal);
+      }
+      document.getElementById('sc-date-time').innerText = `⏱️ ${!isNaN(scDateObj.getTime()) ? scDateObj.toLocaleDateString() : String(rawDateVal)}`;
 
       // Build Matrix Rows
       const tbody = document.getElementById('sc-matrix-body');

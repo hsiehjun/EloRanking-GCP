@@ -583,6 +583,39 @@ def _fetch_ttb_observer_websocket(code: str, timeout: int = 8) -> Dict[str, Any]
             return games[0]
 
 
+def _normalize_ttb_date_to_iso(raw_date: Any) -> Optional[str]:
+    """Converts epoch-ms ints/floats/numeric-strings or ISO date strings into an ISO-8601 UTC string."""
+    if raw_date is None:
+        return None
+    if isinstance(raw_date, (int, float)):
+        if raw_date <= 0:
+            return None
+        ts = float(raw_date) / 1000.0 if raw_date > 1e11 else float(raw_date)
+        try:
+            return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).isoformat()
+        except Exception:
+            return None
+    if isinstance(raw_date, str):
+        s = raw_date.strip()
+        if not s:
+            return None
+        if re.match(r"^\d{9,16}(?:\.\d+)?$", s):
+            val = float(s)
+            ts = val / 1000.0 if val > 1e11 else val
+            try:
+                return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).isoformat()
+            except Exception:
+                return None
+        try:
+            dt = datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.timezone.utc)
+            return dt.isoformat()
+        except Exception:
+            return s
+    return None
+
+
 def _extract_ttb_envelope_games(raw_data: Any) -> List[Dict[str, Any]]:
     """Unwraps GameEnvelopesList / GameEnvelope / Observer JSON into raw game dicts."""
     if isinstance(raw_data, str):
@@ -598,10 +631,15 @@ def _extract_ttb_envelope_games(raw_data: Any) -> List[Dict[str, Any]]:
         return out
 
     if isinstance(raw_data, dict):
-        # Check for list containers
-        for list_key in ("games", "envelopes", "items", "battles", "results"):
+        # Check for list containers (combine all matching list keys such as games + coreGames)
+        combined_lists: List[Dict[str, Any]] = []
+        found_list_key = False
+        for list_key in ("games", "coreGames", "envelopes", "items", "battles", "results"):
             if isinstance(raw_data.get(list_key), list):
-                return _extract_ttb_envelope_games(raw_data[list_key])
+                found_list_key = True
+                combined_lists.extend(_extract_ttb_envelope_games(raw_data[list_key]))
+        if found_list_key:
+            return combined_lists
 
         # Check if it's a GameEnvelope wrapping `data` or `game` or `gameCore`
         for inner_key in ("data", "game", "gameCore", "envelope"):
@@ -615,8 +653,24 @@ def _extract_ttb_envelope_games(raw_data: Any) -> List[Dict[str, Any]]:
                 k in inner for k in ("players", "teams", "gameType", "systemId", "mission", "primaries")
             ):
                 merged = dict(inner)
-                for meta_k in ("id", "gameId", "gameType", "systemId", "createdOn", "gameDate", "updatedOn", "isFinished"):
-                    if meta_k in raw_data and meta_k not in merged:
+                for meta_k in (
+                    "id",
+                    "gameId",
+                    "gameType",
+                    "systemId",
+                    "gameSystemId",
+                    "coreSystemId",
+                    "edition",
+                    "date",
+                    "gameDate",
+                    "createdDate",
+                    "startDate",
+                    "eventDate",
+                    "createdOn",
+                    "updatedOn",
+                    "isFinished",
+                ):
+                    if meta_k in raw_data and (meta_k not in merged or merged.get(meta_k) in (None, "")):
                         merged[meta_k] = raw_data[meta_k]
                 return [merged]
 
@@ -847,17 +901,19 @@ def convert_ttb_game_to_omnitactica(
     # Historical Game Date
     raw_date = (
         raw_game.get("gameDate")
+        or raw_game.get("date")
+        or raw_game.get("createdDate")
+        or raw_game.get("startDate")
+        or raw_game.get("eventDate")
+        or raw_game.get("battleDate")
         or raw_game.get("createdOn")
         or raw_game.get("created_at")
-        or raw_game.get("date")
+        or raw_game.get("updatedOn")
     )
-    if isinstance(raw_date, (int, float)):
-        ts = raw_date / 1000.0 if raw_date > 1e11 else raw_date
-        game_date_iso = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).isoformat()
-    elif isinstance(raw_date, str) and raw_date.strip():
-        game_date_iso = raw_date.strip()
-    else:
-        game_date_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    game_date_iso = (
+        _normalize_ttb_date_to_iso(raw_date)
+        or datetime.datetime.now(datetime.timezone.utc).isoformat()
+    )
 
     edition_code, edition_label = detect_game_edition(raw_game, is_aos=is_aos, game_date_iso=game_date_iso)
 
@@ -1012,6 +1068,10 @@ def detect_game_edition(
       - 'aos_3e'  -> 'AoS 3rd Edition'
       - 'aos_4e'  -> 'AoS 4th Edition'
     """
+    norm_date = _normalize_ttb_date_to_iso(game_date_iso)
+    if norm_date:
+        game_date_iso = norm_date
+
     explicit_ed = str(raw_game.get("edition") or "").strip().lower()
     if explicit_ed in ("8th_itc", "8th", "8e", "itc"):
         return ("8th_itc", "8th Ed ITC")
@@ -1026,22 +1086,49 @@ def detect_game_edition(
     if explicit_ed in ("aos_4e", "aos4e", "4e", "4th"):
         return ("aos_4e", "AoS 4th Edition")
 
-    gtype = str(raw_game.get("gameType") or raw_game.get("systemId") or "").strip().lower()
+    gtype = " ".join([
+        str(raw_game.get("gameType") or ""),
+        str(raw_game.get("systemId") or ""),
+        str(raw_game.get("gameSystemId") or ""),
+        str(raw_game.get("coreSystemId") or ""),
+    ]).strip().lower()
     mission_obj = raw_game.get("mission") if isinstance(raw_game.get("mission"), dict) else {}
+    players = raw_game.get("players") or []
+
+    # Collect all mission, pack, primary, and secondary IDs/names to inspect TTB dataset prefixes
+    sec_and_pri_tokens: List[str] = []
+    for p in players:
+        if not isinstance(p, dict):
+            continue
+        for pr in (p.get("primaries") or []):
+            if isinstance(pr, dict):
+                sec_and_pri_tokens.append(str(pr.get("id") or ""))
+                sec_and_pri_tokens.append(str(pr.get("name") or ""))
+        for sc in (p.get("secondaries") or []):
+            if isinstance(sc, dict):
+                sec_and_pri_tokens.append(str(sc.get("id") or ""))
+                sec_and_pri_tokens.append(str(sc.get("name") or ""))
+                sec_and_pri_tokens.append(str(sc.get("categoryId") or ""))
+
     pack_str = " ".join([
         str(mission_obj.get("packId") or ""),
         str(mission_obj.get("packName") or ""),
         str(mission_obj.get("missionId") or ""),
         str(mission_obj.get("missionName") or ""),
+        str(mission_obj.get("deploymentMapId") or ""),
+        str(mission_obj.get("deploymentMapName") or ""),
+        str(raw_game.get("packId") or ""),
+        str(raw_game.get("packName") or ""),
+        str(raw_game.get("missionId") or ""),
+        str(raw_game.get("missionName") or ""),
         str(raw_game.get("mission_pack") or ""),
         str(raw_game.get("primary_mission") or ""),
+        *sec_and_pri_tokens,
     ]).lower()
-
-    players = raw_game.get("players") or []
 
     if is_aos:
         if any(k in gtype for k in ("aos3", "3e", "3rd")) or any(
-            k in pack_str for k in ("2021", "2022", "2023", "andtor", "gallet", "ghur", "thondia", "3rd", "3e")
+            k in pack_str for k in ("2021", "2022", "2023", "pb23", "pb_23", "andtor", "gallet", "ghur", "thondia", "dawnbringers", "3rd", "3e")
         ):
             return ("aos_3e", "AoS 3rd Edition")
         for p in players:
@@ -1049,14 +1136,14 @@ def detect_game_edition(
                 p.get("grandStrategy") or p.get("grand_strategy") or p.get("grandStrategyScore")
             ):
                 return ("aos_3e", "AoS 3rd Edition")
-        if game_date_iso and len(game_date_iso) >= 10 and game_date_iso[:10] < "2024-07-01":
-            return ("aos_3e", "AoS 3rd Edition")
+        if not any(k in gtype for k in ("aos4", "4e", "4th")) and not any(
+            k in pack_str for k in ("pb24", "pb_24", "pb25", "pb_25", "pb26", "pb_26", "2024", "2025", "2026", "fireandjade", "sandandbone", "cityofash")
+        ):
+            if game_date_iso and len(game_date_iso) >= 10 and game_date_iso[:10] < "2024-07-01":
+                return ("aos_3e", "AoS 3rd Edition")
         return ("aos_4e", "AoS 4th Edition")
 
     # 40k Edition Detection
-    if any(k in gtype for k in ("11e", "11th")) or "11th" in pack_str:
-        return ("11th", "11th Edition")
-
     if any(k in gtype for k in ("8e", "8th", "itc")) or any(
         k in pack_str for k in ("itc", "champions mission", "champions_mission", "8th")
     ):
@@ -1068,7 +1155,13 @@ def detect_game_edition(
             "nephilim",
             "arks of omen",
             "arks_of_omen",
-            "nachmund",
+            "arksofomen",
+            "warzone nachmund",
+            "warzone_nachmund",
+            "warzonenachmund",
+            "tempest of war",
+            "tempest_of_war",
+            "tempestofwar",
             "octarius",
             "gt 2020",
             "gt 2021",
@@ -1077,10 +1170,16 @@ def detect_game_edition(
             "gt2021",
             "gt2022",
             "eternal war",
+            "eternal_war",
+            "eternalwar",
+            "wh40k9e",
             "9th",
         )
-    ):
+    ) or ("nachmund" in pack_str and "crusade" not in pack_str):
         return ("9th", "9th Edition")
+
+    if any(k in gtype for k in ("11e", "11th")) or any(k in pack_str for k in ("wh40k11e", "11th")):
+        return ("11th", "11th Edition")
 
     # Inspect player secondaries/primaries for unmistakable 8th ITC or 9th Edition signatures
     for p in players:
@@ -1110,8 +1209,10 @@ def detect_game_edition(
             return ("9th", "9th Edition")
 
     # Check historical date if not explicitly 10e
-    if "10e" not in gtype and "10th" not in gtype and not any(k in pack_str for k in ("leviathan", "pariah", "10th")):
-        if game_date_iso and len(game_date_iso) >= 10:
+    if "10e" not in gtype and "10th" not in gtype and not any(
+        k in pack_str for k in ("leviathan", "pariah", "ca25", "nachmund_crusade", "nachmundcrusade", "10th")
+    ):
+        if game_date_iso and len(game_date_iso) >= 10 and game_date_iso[:4].isdigit():
             ymd = game_date_iso[:10]
             if ymd < "2020-07-25":
                 return ("8th_itc", "8th Ed ITC")

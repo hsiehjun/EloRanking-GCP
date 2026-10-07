@@ -659,6 +659,97 @@ def test_all_secondaries_preserved_including_unscored_discarded_and_held():
     assert p2_r5["No Prisoners"] == (0, "unscored")
 
 
+def test_multi_edition_176_games_import_and_epoch_string_dates():
+    """Verifies that:
+    1. Numeric epoch-ms string dates (e.g. '1791010800000', '1705000000000', '1675000000000')
+       are converted to ISO-8601 UTC strings and do NOT trigger the ASCII < '2020-07-25' bug.
+    2. Envelopes containing both 'games' and 'coreGames' (176+ games across 11th, 10th, and 9th Ed)
+       are all extracted without stopping at 50 or dropping secondary list keys.
+    3. TTB dataset prefixes (arksofomen, eternalwar, ca25, pariah_nexus, wh40k11e) accurately
+       detect 9th, 10th, and 11th Edition scorecards.
+    """
+    # 1. Epoch-ms string in 2024 ("1705000000000" -> 2024-01-11) without explicit 10e in gameType
+    raw_2024_epoch_str = {
+        "id": "ttb-epoch-2024",
+        "gameType": "wh40k",
+        "gameDate": "1705000000000",
+        "mission": {"missionId": "pariah_nexus.takeAndHold", "missionName": "Take and Hold"},
+        "players": [
+            {"name": "John Hsieh", "faction": {"name": "Necrons"}, "primaries": [{"scores": [0, 10, 10, 15, 10]}], "secondaries": []},
+            {"name": "Opponent", "faction": {"name": "Aeldari"}, "primaries": [{"scores": [0, 5, 10, 10, 5]}], "secondaries": []},
+        ],
+    }
+    conv_2024 = tracker_importer.convert_ttb_game_to_omnitactica(raw_2024_epoch_str)
+    assert conv_2024["game_date"].startswith("2024-01-11"), f"Expected ISO date starting with 2024-01-11, got {conv_2024['game_date']}"
+    assert conv_2024["edition"] == "10th", f"Expected 10th edition, got {conv_2024['edition']}"
+
+    # 2. Epoch-ms string in Jan 2023 ("1675000000000" -> 2023-01-29) with Arks of Omen secondary ID prefix
+    raw_2023_aoo = {
+        "id": "ttb-epoch-2023-aoo",
+        "gameType": "wh40k",
+        "date": "1675000000000",
+        "mission": {"missionId": "arksOfOmen.recoverTheRelics", "missionName": "Recover The Relics"},
+        "players": [
+            {"name": "John Hsieh", "faction": {"name": "Necrons"}, "primaries": [{"scores": [0, 12, 12, 12, 9]}], "secondaries": [{"id": "arksOfOmen.behindEnemyLines", "scores": [0, 4, 4, 4, 3]}]},
+            {"name": "Opponent", "faction": {"name": "Dark Angels"}, "primaries": [{"scores": [0, 8, 8, 8, 8]}], "secondaries": []},
+        ],
+    }
+    conv_2023 = tracker_importer.convert_ttb_game_to_omnitactica(raw_2023_aoo)
+    assert conv_2023["game_date"].startswith("2023-01-29"), f"Expected ISO date starting with 2023-01-29, got {conv_2023['game_date']}"
+    assert conv_2023["edition"] == "9th", f"Expected 9th edition, got {conv_2023['edition']}"
+
+    # 3. 176 games split across 'games' and 'coreGames' in GameEnvelopesList
+    games_batch = [
+        {
+            "id": f"g11-{i}",
+            "gameType": "wh40k11e",
+            "gameDate": "1791010800000",
+            "data": {
+                "players": [
+                    {"name": "John Hsieh", "faction": {"name": "Necrons"}, "totalScore": 90},
+                    {"name": f"Opp11-{i}", "faction": {"name": "Drukhari"}, "totalScore": 60},
+                ]
+            },
+        }
+        for i in range(60)
+    ] + [
+        {
+            "id": f"g10-{i}",
+            "gameType": "wh40k10e",
+            "gameDate": "1747958400000",
+            "data": {
+                "mission": {"packId": "pariah_nexus"},
+                "players": [
+                    {"name": "John Hsieh", "faction": {"name": "Necrons"}, "totalScore": 85},
+                    {"name": f"Opp10-{i}", "faction": {"name": "Space Marines"}, "totalScore": 70},
+                ],
+            },
+        }
+        for i in range(80)
+    ]
+    core_games_batch = [
+        {
+            "id": f"g9-{i}",
+            "systemId": "wh40k9e",
+            "createdDate": "1668276000000",
+            "gameCore": {
+                "mission": {"packId": "nephilim"},
+                "players": [
+                    {"name": "John Hsieh", "faction": {"name": "Necrons"}, "totalScore": 92},
+                    {"name": f"Opp9-{i}", "faction": {"name": "Tyranids"}, "totalScore": 55},
+                ],
+            },
+        }
+        for i in range(36)
+    ]
+    parsed_176 = tracker_importer.parse_imported_games_payload({"games": games_batch, "coreGames": core_games_batch})
+    assert len(parsed_176) == 176, f"Expected all 176 games to be parsed, got {len(parsed_176)}"
+    ed_counts = {}
+    for g in parsed_176:
+        ed_counts[g["edition"]] = ed_counts.get(g["edition"], 0) + 1
+    assert ed_counts == {"11th": 60, "10th": 80, "9th": 36}, f"Unexpected edition breakdown: {ed_counts}"
+
+
 if __name__ == "__main__":
     test_edition_detection_and_unclipped_9th_ed_secondaries()
     print("✓ test_edition_detection_and_unclipped_9th_ed_secondaries passed")
@@ -674,7 +765,10 @@ if __name__ == "__main__":
     print("✓ test_10th_11th_ed_tactical_over_40_raw_not_misclassified_as_9th passed")
     test_all_secondaries_preserved_including_unscored_discarded_and_held()
     print("✓ test_all_secondaries_preserved_including_unscored_discarded_and_held passed")
+    test_multi_edition_176_games_import_and_epoch_string_dates()
+    print("✓ test_multi_edition_176_games_import_and_epoch_string_dates passed")
     print("ALL TESTS PASSED!")
+
 
 
 

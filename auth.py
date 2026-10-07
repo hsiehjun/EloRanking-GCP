@@ -2685,7 +2685,7 @@ class AuthManager:
         tracker_history = []
         if target_sys == "40k":
             try:
-                tracker_history = self.db.get_tracker_history(limit=50, user_id=user_id)
+                tracker_history = self.db.get_tracker_history(limit=500, user_id=user_id)
             except Exception as e:
                 logger.debug(f"Tracker history error: {e}")
 

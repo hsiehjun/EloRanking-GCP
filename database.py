@@ -7272,9 +7272,24 @@ class PostgresDatabase:
 
         parsed_game_date = None
         raw_game_date = state.get("game_date") or game_data.get("gameDate")
-        if raw_game_date and isinstance(raw_game_date, str):
+        if raw_game_date is not None:
             try:
-                parsed_game_date = datetime.fromisoformat(raw_game_date.replace("Z", "+00:00")).isoformat()
+                if isinstance(raw_game_date, (int, float)):
+                    ts = float(raw_game_date) / 1000.0 if raw_game_date > 1e11 else float(raw_game_date)
+                    parsed_game_date = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+                elif isinstance(raw_game_date, str):
+                    gd_s = raw_game_date.strip()
+                    if gd_s.isdigit() or re.match(r"^\d{9,16}(?:\.\d+)?$", gd_s):
+                        val = float(gd_s)
+                        ts = val / 1000.0 if val > 1e11 else val
+                        parsed_game_date = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+                    elif gd_s:
+                        dt_obj = datetime.fromisoformat(gd_s.replace("Z", "+00:00"))
+                        if dt_obj.tzinfo is None:
+                            dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+                        parsed_game_date = dt_obj.isoformat()
+                if parsed_game_date and isinstance(state, dict):
+                    state["game_date"] = parsed_game_date
             except Exception:
                 parsed_game_date = None
 
@@ -7425,6 +7440,17 @@ class PostgresDatabase:
                                 d["p2_army_list"] = json.loads(d["p2_army_list"])
                             except Exception:
                                 pass
+                        st_obj = d.get("state") if isinstance(d.get("state"), dict) else {}
+                        raw_gd = st_obj.get("game_date") or d.get("game_date")
+                        if isinstance(raw_gd, str) and re.match(r"^\d{9,16}(?:\.\d+)?$", raw_gd.strip()):
+                            try:
+                                val = float(raw_gd.strip())
+                                ts = val / 1000.0 if val > 1e11 else val
+                                iso_gd = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+                                st_obj["game_date"] = iso_gd
+                                d["game_date"] = iso_gd
+                            except Exception:
+                                pass
                         return d
                     return None
 
@@ -7495,7 +7521,7 @@ class PostgresDatabase:
             logger.debug(f"Notice saving tracker clock: {e}")
             return False
 
-    def get_tracker_history(self, limit: int = 50, search: Optional[str] = None, user_id: Optional[str] = None, user_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_tracker_history(self, limit: int = 500, search: Optional[str] = None, user_id: Optional[str] = None, user_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns recent persistent tracker games, optionally filtered by player user_id/name and excluding soft-deleted games."""
         def do_query():
             with self.get_connection() as conn:
@@ -7516,7 +7542,9 @@ class PostgresDatabase:
                            state_json->>'game_date' AS game_date,
                            state_json->>'mapped_event_name' AS mapped_event_name,
                            COALESCE((state_json->>'event_match_locked')::boolean, FALSE) AS event_match_locked,
-                           state_json->>'mapped_by_user_id' AS mapped_by_user_id
+                           state_json->>'mapped_by_user_id' AS mapped_by_user_id,
+                           state_json->'game'->>'missionPack' AS mission_pack,
+                           state_json->'battleplan'->>'pack' AS battleplan_pack
                     FROM tracker_games
                     """
                     conditions = []
@@ -7544,37 +7572,78 @@ class PostgresDatabase:
                     
                     cursor.execute(query, tuple(params))
                     rows = cursor.fetchall()
+                    ed_map = {
+                        "8th_itc": "8th Ed ITC",
+                        "9th": "9th Edition",
+                        "10th": "10th Edition",
+                        "11th": "11th Edition",
+                        "aos_3e": "AoS 3rd Edition",
+                        "aos_4e": "AoS 4th Edition",
+                    }
                     res = []
                     for r in rows:
                         d = dict(r)
                         if not d.get("game_system"):
                             d["game_system"] = "aos" if str(d.get("match_id") or "").upper().startswith("AOS-") else "40k"
-                        if not d.get("edition"):
-                            d["edition"] = "aos_4e" if d["game_system"] == "aos" else "10th"
-                        if not d.get("edition_label"):
-                            ed_map = {
-                                "8th_itc": "8th Ed ITC",
-                                "9th": "9th Edition",
-                                "10th": "10th Edition",
-                                "11th": "11th Edition",
-                                "aos_3e": "AoS 3rd Edition",
-                                "aos_4e": "AoS 4th Edition",
-                            }
-                            d["edition_label"] = ed_map.get(str(d["edition"]).lower(), "10th Edition")
+
+                        # 1. Normalize game_date first (handle numeric epoch-ms strings like "1791010800000")
+                        sort_iso = ""
                         if d.get("game_date"):
                             try:
                                 gd_str = str(d["game_date"]).strip()
-                                if gd_str.isdigit():
-                                    ts = int(gd_str) / 1000.0 if int(gd_str) > 1e11 else float(gd_str)
+                                if gd_str.isdigit() or re.match(r"^\d{9,16}(?:\.\d+)?$", gd_str):
+                                    val = float(gd_str)
+                                    ts = val / 1000.0 if val > 1e11 else val
                                     dt = datetime.fromtimestamp(ts, tz=timezone.utc)
                                 else:
                                     dt = datetime.fromisoformat(gd_str.replace("Z", "+00:00"))
+                                    if dt.tzinfo is None:
+                                        dt = dt.replace(tzinfo=timezone.utc)
+                                d["game_date"] = dt.isoformat()
                                 d["date"] = dt.strftime("%b %d, %Y")
+                                sort_iso = dt.isoformat()
                             except Exception:
                                 d["date"] = str(d["game_date"])[:10]
+                                sort_iso = str(d["game_date"])
                         elif d.get("updated_at") and hasattr(d["updated_at"], "strftime"):
                             d["date"] = d["updated_at"].strftime("%b %d, %Y")
+                            dt_u = d["updated_at"] if d["updated_at"].tzinfo else d["updated_at"].replace(tzinfo=timezone.utc)
+                            sort_iso = dt_u.isoformat()
+
+                        # 2. Infer or repair edition from mission pack / historical date
+                        pack_text = " ".join([
+                            str(d.get("mission_pack") or ""),
+                            str(d.get("battleplan_pack") or ""),
+                            str(d.get("primary_mission") or ""),
+                            str(d.get("mission_rule") or ""),
+                        ]).lower()
+                        ymd = sort_iso[:10] if (len(sort_iso) >= 10 and sort_iso[:4].isdigit()) else ""
+
+                        if d["game_system"] == "aos":
+                            if any(k in pack_text for k in ("2021", "2022", "2023", "pb23", "pb_23", "andtor", "gallet", "ghur", "thondia", "dawnbringers", "3rd", "3e")):
+                                d["edition"] = "aos_3e"
+                            elif not d.get("edition"):
+                                d["edition"] = "aos_3e" if (ymd and ymd < "2024-07-01") else "aos_4e"
+                        else:
+                            if any(k in pack_text for k in ("nephilim", "arks of omen", "arks_of_omen", "arksofomen", "warzone nachmund", "warzonenachmund", "tempest of war", "tempestofwar", "octarius", "gt 2020", "gt 2021", "gt 2022", "gt2020", "gt2021", "gt2022", "eternal war", "eternalwar", "9th")):
+                                d["edition"] = "9th"
+                            elif any(k in pack_text for k in ("leviathan", "pariah", "ca25", "chapter approved 2025", "nachmund crusade", "nachmund_crusade", "10th")):
+                                d["edition"] = "10th"
+                            elif (not d.get("edition")) or (d.get("edition") == "8th_itc" and "itc" not in pack_text and "champions" not in pack_text and ymd >= "2020-07-25"):
+                                if ymd and ymd < "2020-07-25":
+                                    d["edition"] = "8th_itc"
+                                elif ymd and ymd < "2023-06-15":
+                                    d["edition"] = "9th"
+                                else:
+                                    d["edition"] = "10th"
+
+                        d["edition_label"] = ed_map.get(str(d["edition"]).lower(), d.get("edition_label") or "10th Edition")
+                        d["_sort_iso"] = sort_iso
                         res.append(d)
+
+                    res.sort(key=lambda item: item.get("_sort_iso") or "", reverse=True)
+                    for item in res:
+                        item.pop("_sort_iso", None)
                     return res
 
         try:
@@ -7628,7 +7697,7 @@ class PostgresDatabase:
         2. unfinished_sessions: other unfinished matches (< 14d)
         3. completed_history: completed matches (verified scorecards)
         """
-        all_games = self.get_tracker_history(limit=100, user_id=user_id, user_name=user_name)
+        all_games = self.get_tracker_history(limit=500, user_id=user_id, user_name=user_name)
         now = datetime.now(timezone.utc)
         
         primary_active = None

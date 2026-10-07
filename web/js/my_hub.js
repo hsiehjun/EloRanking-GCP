@@ -1986,8 +1986,65 @@ function renderMyHub(data) {
           ` : ''}
 
           <!-- Verified Match History / Completed Scorecards -->
-          ${(data.completed_history && data.completed_history.length > 0) ? `
-            <div class="hub-table-wrapper" style="margin-top: 10px;">
+          ${(data.completed_history && data.completed_history.length > 0) ? (() => {
+            if (!window.__filterHubTrackerEdition) {
+              window.__filterHubTrackerEdition = function(edKey, btnEl) {
+                window.__hubTrackerEditionFilter = edKey || 'all';
+                const bar = document.getElementById('hub-tracker-edition-filter-bar');
+                if (bar) {
+                  bar.querySelectorAll('button[data-ed-filter]').forEach(b => {
+                    const isSel = b.getAttribute('data-ed-filter') === window.__hubTrackerEditionFilter;
+                    b.style.background = isSel ? 'rgba(56,189,248,0.2)' : 'rgba(15,23,42,0.6)';
+                    b.style.color = isSel ? '#38bdf8' : '#94a3b8';
+                    b.style.borderColor = isSel ? 'rgba(56,189,248,0.55)' : 'rgba(148,163,184,0.22)';
+                  });
+                }
+                const tbl = document.getElementById('hub-tracker-history-table');
+                if (tbl) {
+                  tbl.querySelectorAll('tbody tr[data-edition]').forEach(tr => {
+                    const rowEd = tr.getAttribute('data-edition') || '';
+                    tr.style.display = (window.__hubTrackerEditionFilter === 'all' || rowEd === window.__hubTrackerEditionFilter) ? '' : 'none';
+                  });
+                }
+              };
+            }
+            const isAosHub = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos');
+            const activeHubEd = window.__hubTrackerEditionFilter || 'all';
+            const hubEdCounts = { all: data.completed_history.length };
+            data.completed_history.forEach(th => {
+              const ec = String(th.edition || (isAosHub ? 'aos_4e' : '10th')).toLowerCase();
+              hubEdCounts[ec] = (hubEdCounts[ec] || 0) + 1;
+            });
+            const hubEdDefs = isAosHub
+              ? [
+                  { code: 'all', label: 'All Editions', icon: '📚' },
+                  { code: 'aos_4e', label: 'AoS 4e', icon: '⚡' },
+                  { code: 'aos_3e', label: 'AoS 3e', icon: '⚔️' }
+                ]
+              : [
+                  { code: 'all', label: 'All Editions', icon: '📚' },
+                  { code: '11th', label: '11th Ed', icon: '🚀' },
+                  { code: '10th', label: '10th Ed', icon: '🦅' },
+                  { code: '9th', label: '9th Ed', icon: '📜' },
+                  { code: '8th_itc', label: '8th ITC', icon: '🏛️' }
+                ];
+            const hubFilterButtons = hubEdDefs
+              .filter(d => d.code === 'all' || (hubEdCounts[d.code] || 0) > 0)
+              .map(d => {
+                const cnt = hubEdCounts[d.code] || 0;
+                const isSel = activeHubEd === d.code;
+                return `<button type="button" data-ed-filter="${d.code}" onclick="window.__filterHubTrackerEdition('${d.code}', this)" style="background:${isSel ? 'rgba(56,189,248,0.2)' : 'rgba(15,23,42,0.6)'}; color:${isSel ? '#38bdf8' : '#94a3b8'}; border:1px solid ${isSel ? 'rgba(56,189,248,0.55)' : 'rgba(148,163,184,0.22)'}; border-radius:999px; padding:3px 10px; font-size:0.68rem; font-weight:800; font-family:var(--font-mono); cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:all 0.15s;">${d.icon} ${escapeHtml(d.label)} <span style="opacity:0.85;">(${cnt})</span></button>`;
+              })
+              .join('');
+
+            return `
+            <div id="hub-tracker-edition-filter-bar" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; margin-top:10px; margin-bottom:6px; padding:0 2px;">
+              <span style="font-size:0.68rem; font-weight:800; color:var(--text-secondary); text-transform:uppercase; font-family:var(--font-mono);">📜 Completed Scorecards (${data.completed_history.length})</span>
+              <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+                ${hubFilterButtons}
+              </div>
+            </div>
+            <div class="hub-table-wrapper" style="margin-top: 4px; max-height: 460px; overflow-y: auto;">
               <table id="hub-tracker-history-table" class="hub-table">
                 <thead>
                   <tr>
@@ -2010,19 +2067,29 @@ function renderMyHub(data) {
                     const impBadge = impSrc === 'gw_app'
                       ? '<span style="display:inline-block; font-size:0.6rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); line-height:1.3;">📥 GW</span>'
                       : (impSrc ? '<span style="display:inline-block; font-size:0.6rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.35); line-height:1.3;">📥 TTB</span>' : '');
-                    const edCode = String(th.edition || '').toLowerCase();
-                    const edShort = edCode === '8th_itc' ? '8th ITC' : (edCode === '9th' ? '9th Ed' : (edCode === '11th' ? '11th Ed' : (edCode === 'aos_3e' ? 'AoS 3e' : (edCode === 'aos_4e' ? 'AoS 4e' : (edCode === '10th' ? '10th Ed' : '')))));
+                    const edCode = String(th.edition || (isAosHub ? 'aos_4e' : '10th')).toLowerCase();
+                    const edShort = edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : '')))));
+                    const edStyleMap = {
+                      '11th': 'background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);',
+                      '10th': 'background:rgba(45,212,191,0.14); color:#2dd4bf; border:1px solid rgba(45,212,191,0.35);',
+                      '9th': 'background:rgba(251,191,36,0.14); color:#fbbf24; border:1px solid rgba(251,191,36,0.35);',
+                      '8th_itc': 'background:rgba(192,132,252,0.14); color:#c084fc; border:1px solid rgba(192,132,252,0.35);',
+                      'aos_4e': 'background:rgba(245,158,11,0.14); color:#f59e0b; border:1px solid rgba(245,158,11,0.35);',
+                      'aos_3e': 'background:rgba(251,146,60,0.14); color:#fb923c; border:1px solid rgba(251,146,60,0.35);'
+                    };
+                    const edCss = edStyleMap[edCode] || edStyleMap['10th'];
                     const edBadge = edShort
-                      ? `<span style="display:inline-block; font-size:0.58rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); line-height:1.3;">${escapeHtml(edShort)}</span>`
+                      ? `<span style="display:inline-block; font-size:0.58rem; font-weight:800; padding:1px 5px; border-radius:4px; ${edCss} line-height:1.3;">${escapeHtml(edShort)}</span>`
                       : '';
                     const isLockedEvent = Boolean(th.event_match_locked || th.event_id);
                     const evTag = isLockedEvent
                       ? `<div style="font-size:0.66rem; color:#fbbf24; font-weight:700; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🔒 ${escapeHtml(th.mapped_event_name || th.event_id || 'Tournament')} R${th.round_num || 1}${th.table_num ? ' T' + th.table_num : ''}</div>`
                       : '';
                     const sysStr = th.game_system || (String(matchId).startsWith('AOS-') ? 'aos' : '40k');
+                    const rowHidden = (activeHubEd !== 'all' && edCode !== activeHubEd) ? 'display:none;' : '';
 
                     return `
-                      <tr>
+                      <tr data-edition="${escapeHtml(edCode)}" style="${rowHidden}">
                         <td style="overflow: hidden; vertical-align: middle;">
                           <div style="min-width:0;">
                             <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
@@ -2066,7 +2133,7 @@ function renderMyHub(data) {
                 </tbody>
               </table>
             </div>
-          ` : (activeMatches.length === 0 && (!data.completed_history || data.completed_history.length === 0)) ? `
+          `; })() : (activeMatches.length === 0 && (!data.completed_history || data.completed_history.length === 0)) ? `
             <div style="padding: 2.25rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
               <div style="font-size: 1.05rem; margin-bottom: 0.35rem;">🎲 No Live Game Tracker matches logged.</div>
               <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">Track live games with automated scoring & real-time sync, or import completed games from Tabletop Battles / GW App!</div>

@@ -1689,7 +1689,7 @@ def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 @router.get("/api/tracker/history", summary="Get persistent history of tracker games")
-async def api_tracker_history(request: Request, limit: int = 50, search: Optional[str] = None, token: Optional[str] = Query(None), game_system: Optional[str] = Query(None)):
+async def api_tracker_history(request: Request, limit: int = 500, search: Optional[str] = None, token: Optional[str] = Query(None), game_system: Optional[str] = Query(None)):
     try:
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "")
@@ -1751,7 +1751,7 @@ async def api_tracker_user_sessions(
     completed_mids = set()
     if db and hasattr(db, "get_tracker_history"):
         try:
-            raw_completed_history = db.get_tracker_history(limit=50, user_id=user_id, user_name=user_name) or []
+            raw_completed_history = db.get_tracker_history(limit=500, user_id=user_id, user_name=user_name) or []
             completed_mids = {
                 (g.get("match_id") or "").strip().upper()
                 for g in raw_completed_history

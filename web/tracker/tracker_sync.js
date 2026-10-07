@@ -1961,15 +1961,58 @@
       `;
     }
 
-    // 2. Completed Match History (All in Grey Cards)
+    // 2. Completed Match History (All in Grey Cards with Edition Filter Bar)
     if (scopedCompleted.length > 0) {
+      if (!window.__gtSetEditionFilter) {
+        window.__gtSetEditionFilter = function(edKey) {
+          window.__gtHistoryEditionFilter = edKey || 'all';
+          renderCustomLobbySections();
+        };
+      }
+      const activeEdFilter = window.__gtHistoryEditionFilter || 'all';
+      const edCounts = { all: scopedCompleted.length };
+      scopedCompleted.forEach(item => {
+        const ec = String(item.edition || (isAosMode ? 'aos_4e' : '10th')).toLowerCase();
+        edCounts[ec] = (edCounts[ec] || 0) + 1;
+      });
+      const edDefs = isAosMode
+        ? [
+            { code: 'all', label: 'All Editions', icon: '📚' },
+            { code: 'aos_4e', label: 'AoS 4e', icon: '⚡' },
+            { code: 'aos_3e', label: 'AoS 3e', icon: '⚔️' }
+          ]
+        : [
+            { code: 'all', label: 'All Editions', icon: '📚' },
+            { code: '11th', label: '11th Ed', icon: '🚀' },
+            { code: '10th', label: '10th Ed', icon: '🦅' },
+            { code: '9th', label: '9th Ed', icon: '📜' },
+            { code: '8th_itc', label: '8th ITC', icon: '🏛️' }
+          ];
+      const filteredCompleted = activeEdFilter === 'all'
+        ? scopedCompleted
+        : scopedCompleted.filter(item => String(item.edition || (isAosMode ? 'aos_4e' : '10th')).toLowerCase() === activeEdFilter);
+
+      const filterPillsHtml = edDefs
+        .filter(d => d.code === 'all' || (edCounts[d.code] || 0) > 0 || d.code === activeEdFilter)
+        .map(d => {
+          const cnt = edCounts[d.code] || 0;
+          const isSel = activeEdFilter === d.code;
+          return `<button type="button" onclick="window.__gtSetEditionFilter('${d.code}')" style="background:${isSel ? 'rgba(56,189,248,0.2)' : 'rgba(15,23,42,0.65)'}; color:${isSel ? '#38bdf8' : '#94a3b8'}; border:1px solid ${isSel ? 'rgba(56,189,248,0.55)' : 'rgba(148,163,184,0.22)'}; border-radius:999px; padding:4px 11px; font-size:11px; font-weight:800; font-family:'JetBrains Mono',monospace; cursor:pointer; display:inline-flex; align-items:center; gap:5px; transition:all 0.15s;">${d.icon} ${escapeHtml(d.label)} <span style="opacity:0.85;">(${cnt})</span></button>`;
+        })
+        .join('');
+
       outHtml += `
         <div style="margin-top:14px;">
-          <div style="font-size:11px; font-weight:800; color:var(--text-secondary, #94a3b8); text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:8px;">
-            📜 Completed Matches (${scopedCompleted.length})
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+            <div style="font-size:11px; font-weight:800; color:var(--text-secondary, #94a3b8); text-transform:uppercase; font-family:'JetBrains Mono',monospace;">
+              📜 Completed Matches (${filteredCompleted.length}${activeEdFilter !== 'all' ? ' of ' + scopedCompleted.length : ''})
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              ${filterPillsHtml}
+            </div>
           </div>
           <div style="display:flex; flex-direction:column; gap:8px;">
-            ${scopedCompleted.map(item => {
+            ${filteredCompleted.map(item => {
               const p1 = item.game?.p1Name || item.p1_name || 'Player 1';
               const p2 = item.game?.p2Name || item.p2_name || 'Player 2';
               const p1F = item.game?.p1Faction || item.p1_faction || '';
@@ -1982,8 +2025,15 @@
               let dateStr = 'Completed';
               if (rawDate) {
                 try {
-                  const dObj = new Date(rawDate);
-                  dateStr = !isNaN(dObj.getTime()) ? dObj.toLocaleDateString() : String(rawDate);
+                  const sRaw = String(rawDate).trim();
+                  let dObj;
+                  if (/^\d{9,16}(?:\.\d+)?$/.test(sRaw)) {
+                    const num = parseFloat(sRaw);
+                    dObj = new Date(num > 1e11 ? num : num * 1000);
+                  } else {
+                    dObj = new Date(rawDate);
+                  }
+                  dateStr = !isNaN(dObj.getTime()) ? dObj.toLocaleDateString() : sRaw;
                 } catch (e) { dateStr = String(rawDate); }
               }
               const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:var(--text-secondary, #94a3b8); margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
@@ -1991,10 +2041,19 @@
               const impBadge = impSrc === 'gw_app'
                 ? `<span style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">📥 GW App</span>`
                 : (impSrc ? `<span style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35); font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">📥 Tabletop Battles</span>` : '');
-              const edCode = String(item.edition || '').toLowerCase();
+              const edCode = String(item.edition || (isAosMode ? 'aos_4e' : '10th')).toLowerCase();
               const edShort = edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : '')))));
+              const edStyleMap = {
+                '11th': 'background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);',
+                '10th': 'background:rgba(45,212,191,0.14); color:#2dd4bf; border:1px solid rgba(45,212,191,0.35);',
+                '9th': 'background:rgba(251,191,36,0.14); color:#fbbf24; border:1px solid rgba(251,191,36,0.35);',
+                '8th_itc': 'background:rgba(192,132,252,0.14); color:#c084fc; border:1px solid rgba(192,132,252,0.35);',
+                'aos_4e': 'background:rgba(245,158,11,0.14); color:#f59e0b; border:1px solid rgba(245,158,11,0.35);',
+                'aos_3e': 'background:rgba(251,146,60,0.14); color:#fb923c; border:1px solid rgba(251,146,60,0.35);'
+              };
+              const edCss = edStyleMap[edCode] || edStyleMap['10th'];
               const edBadge = edShort
-                ? `<span style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">${escapeHtml(edShort)}</span>`
+                ? `<span style="${edCss} font-weight:800; font-size:10px; padding:2px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace;">${escapeHtml(edShort)}</span>`
                 : '';
               const isLockedEvent = Boolean(item.event_match_locked || item.event_id);
               const lockBadge = isLockedEvent
@@ -2003,7 +2062,7 @@
               const sysStr = item.game_system || (String(mid).startsWith('AOS-') || isAosMode ? 'aos' : '40k');
 
               return `
-                <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/scorecard/${encodeURIComponent(mid)}'" style="background:var(--bg-secondary, #12161f); border:1px solid var(--border, #273042); border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative; flex-wrap:wrap; gap:10px;" onmouseover="this.style.borderColor='var(--accent, #38bdf8)'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='var(--border, #273042)'; this.style.transform='none'">
+                <div data-match-id="${escapeHtml(mid)}" data-edition="${escapeHtml(edCode)}" onclick="window.location.href='/scorecard/${encodeURIComponent(mid)}'" style="background:var(--bg-secondary, #12161f); border:1px solid var(--border, #273042); border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative; flex-wrap:wrap; gap:10px;" onmouseover="this.style.borderColor='var(--accent, #38bdf8)'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='var(--border, #273042)'; this.style.transform='none'">
                   <div style="min-width:0; flex:1;">
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px; flex-wrap:wrap;">
                       <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:var(--accent-glow, rgba(56,189,248,0.1)); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(shortId)} ↗</span>
@@ -2201,7 +2260,20 @@
               } else if (typeof item.state === 'object') {
                 s = item.state || {};
               }
+              const rawGdVal = item.game_date || s.game_date || item.updated_at || item.created_at || null;
+              let parsedDateMs = Date.now();
+              if (rawGdVal) {
+                const sGd = String(rawGdVal).trim();
+                if (/^\d{9,16}(?:\.\d+)?$/.test(sGd)) {
+                  const numGd = parseFloat(sGd);
+                  parsedDateMs = numGd > 1e11 ? numGd : numGd * 1000;
+                } else {
+                  const tMs = new Date(rawGdVal).getTime();
+                  if (!isNaN(tMs)) parsedDateMs = tMs;
+                }
+              }
               return {
+                ...s,
                 id: item.match_id,
                 match_id: item.match_id,
                 game_system: item.game_system || s.gameSystem || (String(item.match_id || '').startsWith('AOS-') ? 'aos' : '40k'),
@@ -2214,8 +2286,8 @@
                 event_match_locked: Boolean(item.event_match_locked || s.event_match_locked || item.event_id || s.event_id),
                 imported_source: item.imported_source || s.imported_source || null,
                 imported_app: item.imported_app || s.imported_app || null,
-                game_date: item.game_date || s.game_date || item.updated_at || null,
-                date: new Date(item.game_date || item.updated_at || item.created_at || Date.now()).getTime(),
+                game_date: rawGdVal ? new Date(parsedDateMs).toISOString() : null,
+                date: parsedDateMs,
                 p1_name: item.p1_name || s.game?.p1Name || 'Player 1',
                 p2_name: item.p2_name || s.game?.p2Name || 'Player 2',
                 p1_faction: item.p1_faction || s.game?.p1Faction || '',
@@ -2237,8 +2309,7 @@
                 p2Score: item.p2_score ?? item.p2Score ?? 0,
                 started: item.started,
                 isFinished: item.is_finished,
-                winner: item.winner_name,
-                ...s
+                winner: item.winner_name
               };
             });
 
