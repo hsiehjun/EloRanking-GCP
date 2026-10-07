@@ -2530,12 +2530,92 @@ def _persist_imported_games_to_db(
         st["started"] = True
         u_p1 = item.get("user_id_p1") or uid
         u_p2 = item.get("user_id_p2")
+        ver = 1
+
+        if db and hasattr(db, "get_tracker_game"):
+            try:
+                existing = db.get_tracker_game(mid)
+            except Exception:
+                existing = None
+            if isinstance(existing, dict):
+                ver = int(existing.get("version") or 1) + 1
+                ex_st = existing.get("state")
+                if isinstance(ex_st, str):
+                    try:
+                        ex_st = json.loads(ex_st)
+                    except Exception:
+                        ex_st = {}
+                if not isinstance(ex_st, dict):
+                    ex_st = {}
+
+                if ex_st.get("event_id") or existing.get("event_id") or ex_st.get("event_match_locked"):
+                    if ex_st.get("swapped_p1_p2"):
+                        g_obj = st.get("game") if isinstance(st.get("game"), dict) else {}
+                        st["p1"], st["p2"] = st.get("p2", {}), st.get("p1", {})
+                        st["p1Score"], st["p2Score"] = st.get("p2Score"), st.get("p1Score")
+                        item["p1_score"], item["p2_score"] = item.get("p2_score"), item.get("p1_score")
+                        item["p1_faction"], item["p2_faction"] = item.get("p2_faction"), item.get("p1_faction")
+                        item["p1_detachment"], item["p2_detachment"] = item.get("p2_detachment"), item.get("p1_detachment")
+                        g_obj["p1Faction"], g_obj["p2Faction"] = g_obj.get("p2Faction"), g_obj.get("p1Faction")
+                        g_obj["p1Detachments"], g_obj["p2Detachments"] = g_obj.get("p2Detachments") or [], g_obj.get("p1Detachments") or []
+                        ft_curr = str(st.get("firstTurn") or g_obj.get("firstTurn") or "").lower()
+                        if ft_curr in ("p1", "player1", "1"):
+                            st["firstTurn"] = "p2"
+                            g_obj["firstTurn"] = "p2"
+                        elif ft_curr in ("p2", "player2", "2"):
+                            st["firstTurn"] = "p1"
+                            g_obj["firstTurn"] = "p1"
+                        if isinstance(st.get("roundState"), dict):
+                            for rv in st["roundState"].values():
+                                if isinstance(rv, dict):
+                                    r_ft = str(rv.get("firstTurn") or "").lower()
+                                    if r_ft == "p1":
+                                        rv["firstTurn"] = "p2"
+                                    elif r_ft == "p2":
+                                        rv["firstTurn"] = "p1"
+                        st["game"] = g_obj
+                        st["swapped_p1_p2"] = True
+
+                    ex_g = ex_st.get("game") if isinstance(ex_st.get("game"), dict) else {}
+                    ex_p1 = ex_st.get("p1") if isinstance(ex_st.get("p1"), dict) else {}
+                    ex_p2 = ex_st.get("p2") if isinstance(ex_st.get("p2"), dict) else {}
+                    g_obj = st.get("game") if isinstance(st.get("game"), dict) else {}
+
+                    ev_p1_nm = existing.get("p1_name") or ex_g.get("p1Name") or ex_p1.get("name")
+                    ev_p2_nm = existing.get("p2_name") or ex_g.get("p2Name") or ex_p2.get("name")
+                    if ev_p1_nm and isinstance(st.get("p1"), dict):
+                        st["p1"]["importedName"] = st["p1"].get("name")
+                        st["p1"]["name"] = ev_p1_nm
+                        g_obj["p1Name"] = ev_p1_nm
+                        item["p1_name"] = ev_p1_nm
+                    if ev_p2_nm and isinstance(st.get("p2"), dict):
+                        st["p2"]["importedName"] = st["p2"].get("name")
+                        st["p2"]["name"] = ev_p2_nm
+                        g_obj["p2Name"] = ev_p2_nm
+                        item["p2_name"] = ev_p2_nm
+
+                    for k in ("p1Id", "p2Id", "eventId", "roundNum", "tableNum"):
+                        if ex_g.get(k) is not None:
+                            g_obj[k] = ex_g[k]
+                    st["game"] = g_obj
+
+                    st["event_id"] = ex_st.get("event_id") or existing.get("event_id")
+                    st["round_num"] = ex_st.get("round_num") or existing.get("round_num")
+                    st["table_num"] = ex_st.get("table_num") or existing.get("table_num")
+                    st["mapped_event_name"] = ex_st.get("mapped_event_name")
+                    st["event_match_locked"] = bool(ex_st.get("event_match_locked", True))
+                    st["mapped_by_user_id"] = ex_st.get("mapped_by_user_id")
+                    st["mapped_at"] = ex_st.get("mapped_at")
+                    u_p1 = existing.get("user_id_p1") or ex_st.get("user_id_p1") or u_p1
+                    u_p2 = existing.get("user_id_p2") or ex_st.get("user_id_p2") or u_p2
+                    st["user_id_p1"] = u_p1
+                    st["user_id_p2"] = u_p2
 
         if not dry_run and db and hasattr(db, "save_tracker_game"):
             db.save_tracker_game(
                 mid,
                 st,
-                version=1,
+                version=ver,
                 user_id_p1=u_p1,
                 user_id_p2=u_p2,
             )

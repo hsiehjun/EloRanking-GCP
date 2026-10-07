@@ -1350,9 +1350,12 @@ const MODAL_CARD_NAMES = {
   'forward-position': 'Forward Position',
   'overwhelming-force': 'Overwhelming Force',
   'a-tempting-target': 'A Tempting Target',
+  'a-grievous-blow': 'A Grievous Blow',
+  'display-of-might': 'Display of Might',
   'sabotage': 'Sabotage',
   'recover-assets': 'Recover Assets',
   'secure-no-mans-land': "Secure No Man's Land",
+  'secure-no-man-s-land': "Secure No Man's Land",
   'defend-stronghold': 'Defend Stronghold',
   'area-denial': 'Area Denial',
   'behind-enemy-lines': 'Behind Enemy Lines',
@@ -1363,6 +1366,8 @@ const MODAL_CARD_NAMES = {
   'marked-for-death': 'Marked for Death',
   'unshakable-will': 'Unshakable Will',
   'cull-the-horde': 'Cull the Horde',
+  'deploy-teleport-homers': 'Deploy Teleport Homers',
+  'capture-enemy-outpost': 'Capture Enemy Outpost',
   'beacon': 'Beacon',
   'burden-of-trust': 'Burden of Trust'
 };
@@ -1377,51 +1382,145 @@ function formatModalCardName(card) {
   return cId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') || 'Secondary Mission';
 }
 
+function formatModalSecondaryStatusBadge(s, roundNum) {
+  if (!s) return '';
+  const sc = Number(s.score) || 0;
+  const st = String(s.status || '').toLowerCase();
+  if (sc > 0) {
+    if (s.drawnRound && Number(s.drawnRound) < Number(roundNum) && !s.recurring) {
+      return ` <span style="font-size:0.63rem; font-weight:600; color:#94a3b8; background:rgba(148,163,184,0.12); border:1px solid rgba(148,163,184,0.25); padding:1px 5px; border-radius:4px; margin-left:5px;">Drawn R${s.drawnRound}</span>`;
+    }
+    return '';
+  }
+  if (st === 'discarded') {
+    return ` <span style="font-size:0.63rem; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:#f87171; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.28); padding:1px 5px; border-radius:4px; margin-left:5px;">Discarded</span>`;
+  }
+  if (st === 'held') {
+    return ` <span style="font-size:0.63rem; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:#fbbf24; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.28); padding:1px 5px; border-radius:4px; margin-left:5px;">Held</span>`;
+  }
+  return ` <span style="font-size:0.63rem; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:#94a3b8; background:rgba(148,163,184,0.12); border:1px solid rgba(148,163,184,0.25); padding:1px 5px; border-radius:4px; margin-left:5px;">0 VP</span>`;
+}
+
 function getModalPlayerRoundSecondaries(pObj, rNum) {
   if (!pObj) return [];
   const res = [];
-  const hand = pObj.hand || [];
+  const seenKeys = new Set();
 
-  if (Array.isArray(hand)) {
-    hand.forEach(card => {
-      if (!card || card.status === 'discarded') return;
-      let score = 0;
-      let isForThisRound = false;
+  function addSecItem(item) {
+    if (!item || !item.name) return;
+    const key = String(item.cardId || item.name).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    res.push(item);
+  }
 
-      if (card.recurring && card.roundScores) {
-        const rScore = card.roundScores[rNum] || card.roundScores[String(rNum)];
-        if (rScore) {
-          score = typeof rScore === 'object' ? (Number(rScore.points) || 0) : (Number(rScore) || 0);
-          isForThisRound = true;
-        }
-      } else if (Number(card.scoredRound) === rNum) {
-        score = Number(card.points) || 0;
-        isForThisRound = true;
-      }
+  const r = Array.isArray(pObj.rounds)
+    ? (pObj.rounds.find(x => (x && (x.round === rNum || x.battleRound === rNum))) || pObj.rounds[rNum - 1])
+    : null;
 
-      if (isForThisRound && score > 0) {
-        res.push({
-          name: formatModalCardName(card),
-          cardId: card.cardId,
-          score: score,
-          status: card.status || 'scored'
+  if (r && Array.isArray(r.secondaries) && r.secondaries.length > 0) {
+    r.secondaries.forEach(s => {
+      if (typeof s === 'string') {
+        const sc = Number(r.secondaryScore) || 0;
+        addSecItem({
+          name: formatModalCardName(s),
+          cardId: s,
+          score: sc,
+          status: sc > 0 ? 'scored' : 'unscored'
+        });
+      } else if (s && typeof s === 'object') {
+        const sc = Number(s.score ?? s.points) || 0;
+        const rawSt = String(s.status || '').toLowerCase();
+        const st = sc > 0
+          ? 'scored'
+          : (rawSt === 'discarded' || s.wasDiscardedStartOfRound
+              ? 'discarded'
+              : (rawSt === 'held' ? 'held' : 'unscored'));
+        addSecItem({
+          name: formatModalCardName(s),
+          cardId: s.cardId || s.id,
+          score: sc,
+          status: st,
+          drawnRound: s.drawnRound || (s.drawnInRound !== undefined && s.drawnInRound !== null ? Number(s.drawnInRound) + 1 : null),
+          scoredRound: s.scoredRound || null,
+          discardedRound: s.discardedRound || (s.discardedInRound !== undefined && s.discardedInRound !== null ? Number(s.discardedInRound) + 1 : null),
+          recurring: Boolean(s.recurring)
         });
       }
     });
   }
 
-  if (res.length === 0 && Array.isArray(pObj.rounds) && pObj.rounds.length >= rNum) {
-    const r = pObj.rounds.find(x => (x.round === rNum || x.battleRound === rNum)) || pObj.rounds[rNum - 1];
-    if (r) {
-      if (Array.isArray(r.secondaries) && r.secondaries.length > 0) {
-        r.secondaries.forEach(s => {
-          if (typeof s === 'string') res.push({ name: formatModalCardName(s), score: Number(r.secondaryScore) || 0, status: 'achieved' });
-          else if (s && typeof s === 'object') res.push({ name: formatModalCardName(s), score: Number(s.score || s.points) || 0, status: s.status || 'achieved' });
-        });
-      } else if (r.secondaryScore && Number(r.secondaryScore) > 0) {
-        res.push({ name: 'Tactical / Fixed Secondaries', score: Number(r.secondaryScore), status: 'achieved' });
+  const hand = pObj.hand || [];
+  if (Array.isArray(hand)) {
+    hand.forEach(card => {
+      if (!card) return;
+      let score = 0;
+      let isForThisRound = false;
+      let status = String(card.status || '').toLowerCase();
+
+      if (card.recurring) {
+        const rScores = card.roundScores || {};
+        const rScore = rScores[rNum] !== undefined ? rScores[rNum] : rScores[String(rNum)];
+        if (rScore !== undefined && rScore !== null) {
+          score = typeof rScore === 'object' ? (Number(rScore.points ?? rScore.score) || 0) : (Number(rScore) || 0);
+          isForThisRound = true;
+          status = score > 0 ? 'scored' : 'unscored';
+        } else if (rNum === 1 && Object.keys(rScores).length === 0 && (Number(card.points) || 0) === 0) {
+          score = 0;
+          isForThisRound = true;
+          status = 'unscored';
+        }
+      } else {
+        const scoredR = Number(card.scoredRound) || 0;
+        const drawnR = Number(card.drawnRound) || (card.drawnInRound !== undefined && card.drawnInRound !== null ? Number(card.drawnInRound) + 1 : 0);
+        const discR = Number(card.discardedRound) || (card.discardedInRound !== undefined && card.discardedInRound !== null ? Number(card.discardedInRound) + 1 : 0);
+
+        if (scoredR === rNum) {
+          score = Number(card.points ?? card.score) || 0;
+          isForThisRound = true;
+          status = score > 0 ? 'scored' : (status === 'discarded' ? 'discarded' : 'unscored');
+        } else if (scoredR > rNum && drawnR > 0 && drawnR <= rNum) {
+          score = 0;
+          isForThisRound = true;
+          status = 'held';
+        } else if (scoredR === 0) {
+          const startR = drawnR || discR || 0;
+          const endR = (discR >= startR && discR > 0) ? discR : startR;
+          if (startR > 0 && rNum >= startR && rNum <= endR) {
+            score = 0;
+            isForThisRound = true;
+            if (rNum < endR) {
+              status = 'held';
+            } else {
+              status = (status === 'discarded' || discR > 0 || card.wasDiscardedStartOfRound)
+                ? 'discarded'
+                : (status === 'held' ? 'held' : 'unscored');
+            }
+          }
+        }
       }
-    }
+
+      if (isForThisRound) {
+        addSecItem({
+          name: formatModalCardName(card),
+          cardId: card.cardId || card.id,
+          score: score,
+          status: status || (score > 0 ? 'scored' : 'unscored'),
+          drawnRound: card.drawnRound || (card.drawnInRound !== undefined && card.drawnInRound !== null ? Number(card.drawnInRound) + 1 : null),
+          scoredRound: card.scoredRound || null,
+          discardedRound: card.discardedRound || (card.discardedInRound !== undefined && card.discardedInRound !== null ? Number(card.discardedInRound) + 1 : null),
+          recurring: Boolean(card.recurring)
+        });
+      }
+    });
+  }
+
+  if (res.length === 0 && r && Number(r.secondaryScore) > 0) {
+    res.push({
+      name: 'Tactical / Fixed Secondaries',
+      score: Number(r.secondaryScore),
+      status: 'scored'
+    });
   }
 
   return res;
@@ -1950,25 +2049,36 @@ async function openScorecardModal(matchId) {
               ? secs.reduce((acc, s) => acc + (Number(s.score) || 0), 0)
               : (Number(r.secondaryScore) || 0);
             total += val;
-            cells += `<td style="font-family:var(--font-mono); font-weight:600; text-align:center;">${val > 0 ? val : '-'}</td>`;
+            const cellVal = val > 0 ? val : (secs.length > 0 ? '0' : '-');
+            const cellColor = val > 0 ? '#e2e8f0' : (secs.length > 0 ? '#94a3b8' : '#475569');
+            cells += `<td style="font-family:var(--font-mono); font-weight:600; color:${cellColor}; text-align:center;">${cellVal}</td>`;
 
             if (secs.length > 0) {
               secs.forEach(s => {
+                const scVal = Number(s.score) || 0;
+                const isScored = scVal > 0;
+                const badgeHtml = formatModalSecondaryStatusBadge(s, i);
                 let roundCells = '';
                 for (let c = 1; c <= 5; c++) {
                   if (c === i) {
-                    roundCells += `<td style="font-family:var(--font-mono); color:${playerColor}; font-weight:800; background:rgba(56,189,248,0.06); text-align:center;">+${s.score}</td>`;
+                    if (isScored) {
+                      roundCells += `<td style="font-family:var(--font-mono); color:${playerColor}; font-weight:800; background:rgba(56,189,248,0.06); text-align:center;">+${scVal}</td>`;
+                    } else {
+                      roundCells += `<td style="font-family:var(--font-mono); color:#94a3b8; font-weight:600; background:rgba(148,163,184,0.04); text-align:center;">0</td>`;
+                    }
                   } else {
                     roundCells += `<td style="color:#475569; text-align:center;">-</td>`;
                   }
                 }
+                const totCellText = isScored ? `+${scVal}` : '0';
+                const totCellColor = isScored ? '#cbd5e1' : '#64748b';
                 subRowsHtml += `
                   <tr class="${subClass}" style="display:table-row; background:rgba(15,23,42,0.7); font-size:0.78rem;">
-                    <td style="padding-left:1.5rem; color:#cbd5e1; text-align:left;">
-                      <span style="color:${playerColor}; font-weight:700;">R${i}:</span> 🃏 ${escapeHtml(s.name)}
+                    <td style="padding-left:1.5rem; color:${isScored ? '#cbd5e1' : '#94a3b8'}; text-align:left;">
+                      <span style="color:${playerColor}; font-weight:700;">R${i}:</span> 🃏 ${escapeHtml(s.name)}${badgeHtml}
                     </td>
                     ${roundCells}
-                    <td style="font-family:var(--font-mono); font-weight:700; color:#cbd5e1; text-align:center;">+${s.score}</td>
+                    <td style="font-family:var(--font-mono); font-weight:${isScored ? '700' : '600'}; color:${totCellColor}; text-align:center;">${totCellText}</td>
                   </tr>
                 `;
               });

@@ -307,6 +307,43 @@ def _dev_save_imported_games(converted_games, dry_run=False):
         st["edition"] = ed
         st["edition_label"] = ed_lbl
 
+        existing = TRACKER_GAMES_DB.get(mid)
+        if isinstance(existing, dict):
+            ex_st = existing.get("state") or {}
+            if ex_st.get("event_id") or existing.get("event_id") or ex_st.get("event_match_locked"):
+                if ex_st.get("swapped_p1_p2"):
+                    g_obj = st.get("game") if isinstance(st.get("game"), dict) else {}
+                    st["p1"], st["p2"] = st.get("p2", {}), st.get("p1", {})
+                    st["p1Score"], st["p2Score"] = st.get("p2Score"), st.get("p1Score")
+                    item["p1_score"], item["p2_score"] = item.get("p2_score"), item.get("p1_score")
+                    item["p1_faction"], item["p2_faction"] = item.get("p2_faction"), item.get("p1_faction")
+                    item["p1_detachment"], item["p2_detachment"] = item.get("p2_detachment"), item.get("p1_detachment")
+                    g_obj["p1Faction"], g_obj["p2Faction"] = g_obj.get("p2Faction"), g_obj.get("p1Faction")
+                    g_obj["p1Detachments"], g_obj["p2Detachments"] = g_obj.get("p2Detachments") or [], g_obj.get("p1Detachments") or []
+                    st["game"] = g_obj
+                    st["swapped_p1_p2"] = True
+
+                ex_g = ex_st.get("game") if isinstance(ex_st.get("game"), dict) else {}
+                g_obj = st.get("game") if isinstance(st.get("game"), dict) else {}
+                ev_p1_nm = existing.get("p1_name") or ex_g.get("p1Name")
+                ev_p2_nm = existing.get("p2_name") or ex_g.get("p2Name")
+                if ev_p1_nm and isinstance(st.get("p1"), dict):
+                    st["p1"]["importedName"] = st["p1"].get("name")
+                    st["p1"]["name"] = ev_p1_nm
+                    g_obj["p1Name"] = ev_p1_nm
+                    item["p1_name"] = ev_p1_nm
+                if ev_p2_nm and isinstance(st.get("p2"), dict):
+                    st["p2"]["importedName"] = st["p2"].get("name")
+                    st["p2"]["name"] = ev_p2_nm
+                    g_obj["p2Name"] = ev_p2_nm
+                    item["p2_name"] = ev_p2_nm
+                st["game"] = g_obj
+                st["event_id"] = ex_st.get("event_id") or existing.get("event_id")
+                st["round_num"] = ex_st.get("round_num") or existing.get("round_num")
+                st["table_num"] = ex_st.get("table_num") or existing.get("table_num")
+                st["mapped_event_name"] = ex_st.get("mapped_event_name") or existing.get("mapped_event_name")
+                st["event_match_locked"] = bool(ex_st.get("event_match_locked", True))
+
         rec = {
             "id": mid,
             "match_id": mid,

@@ -550,6 +550,115 @@ def test_10th_11th_ed_tactical_over_40_raw_not_misclassified_as_9th():
     assert parsed["p2_score"] == 37
 
 
+def test_all_secondaries_preserved_including_unscored_discarded_and_held():
+    # Verify that unscored (0 VP), discarded, and held-across-rounds tactical secondaries
+    # from Tabletop Battles JSON and text exports are preserved in both `rounds[r].secondaries` and `hand`.
+    raw_ttb_all_secs = {
+        "id": "615c94aa-demo-full-secs",
+        "gameType": "wh40k11e",
+        "gameDate": "2026-10-05T19:00:00Z",
+        "isFinished": True,
+        "mission": {
+            "packId": "ca2025",
+            "packName": "Chapter Approved",
+            "missionName": "Take and Hold",
+            "deploymentMapName": "Tipping Point",
+        },
+        "players": [
+            {
+                "name": "John",
+                "faction": {"name": "Necrons", "subtitle": "Hypercrypt Legion"},
+                "primaries": [{"name": "Take and Hold", "scores": [3, 7, 12, 7, 9]}],
+                "secondaries": [
+                    # R1: Secure No Man's Land scored (+5), Sabotage discarded (0)
+                    {"id": "secure-no-mans-land", "name": "Secure No Man's Land", "categoryId": "tacticalMissions", "drawnInRound": 0, "discardedInRound": 0, "scores": [5, 0, 0, 0, 0]},
+                    {"id": "sabotage", "name": "Sabotage", "categoryId": "tacticalMissions", "drawnInRound": 0, "discardedInRound": 0, "scores": [0, 0, 0, 0, 0]},
+                    # R2: Outflank (+5), Forward Position (+5)
+                    {"id": "outflank", "name": "Outflank", "categoryId": "tacticalMissions", "drawnInRound": 1, "discardedInRound": 1, "scores": [0, 5, 0, 0, 0]},
+                    {"id": "forward-position", "name": "Forward Position", "categoryId": "tacticalMissions", "drawnInRound": 1, "discardedInRound": 1, "scores": [0, 5, 0, 0, 0]},
+                    # R3: Burden of Trust (+5), Centre Ground (+5)
+                    {"id": "burden-of-trust", "name": "Burden of Trust", "categoryId": "tacticalMissions", "drawnInRound": 2, "discardedInRound": 2, "scores": [0, 0, 5, 0, 0]},
+                    {"id": "centre-ground", "name": "Centre Ground", "categoryId": "tacticalMissions", "drawnInRound": 2, "discardedInRound": 2, "scores": [0, 0, 5, 0, 0]},
+                    # R4: Overwhelming Force (+3), Defend Stronghold (+5)
+                    {"id": "overwhelming-force", "name": "Overwhelming Force", "categoryId": "tacticalMissions", "drawnInRound": 3, "discardedInRound": 3, "scores": [0, 0, 0, 3, 0]},
+                    {"id": "defend-stronghold", "name": "Defend Stronghold", "categoryId": "tacticalMissions", "drawnInRound": 3, "discardedInRound": 3, "scores": [0, 0, 0, 5, 0]},
+                    # R5: Assassination (0, discarded), Recover Assets (0, unscored at end of game)
+                    {"id": "assassination", "name": "Assassination", "categoryId": "tacticalMissions", "drawnInRound": 4, "discardedInRound": 4, "scores": [0, 0, 0, 0, 0]},
+                    {"id": "recover-assets", "name": "Recover Assets", "categoryId": "tacticalMissions", "drawnInRound": 4, "discardedInRound": None, "scores": [0, 0, 0, 0, 0]},
+                ],
+                "isBattleReady": True,
+                "totalScore": 81,
+            },
+            {
+                "name": "Joseph",
+                "faction": {"name": "Blood Angels", "subtitle": "Liberator Assault Group"},
+                "primaries": [{"name": "Take and Hold", "scores": [8, 7, 12, 0, 4]}],
+                "secondaries": [
+                    # R1: Area Denial discarded in R1 (0), Defend Stronghold drawn in R1 and held into R2 where it scored (+5)!
+                    {"id": "area-denial", "name": "Area Denial", "categoryId": "tacticalMissions", "drawnInRound": 0, "discardedInRound": 0, "scores": [0, 0, 0, 0, 0]},
+                    {"id": "defend-stronghold", "name": "Defend Stronghold", "categoryId": "tacticalMissions", "drawnInRound": 0, "discardedInRound": 1, "scores": [0, 5, 0, 0, 0]},
+                    # R2: Centre Ground drawn and scored in R2 (+5)
+                    {"id": "centre-ground", "name": "Centre Ground", "categoryId": "tacticalMissions", "drawnInRound": 1, "discardedInRound": 1, "scores": [0, 5, 0, 0, 0]},
+                    # R3: Secure No Man's Land (+5), Plunder discarded (0)
+                    {"id": "secure-no-mans-land", "name": "Secure No Man's Land", "categoryId": "tacticalMissions", "drawnInRound": 2, "discardedInRound": 2, "scores": [0, 0, 5, 0, 0]},
+                    {"id": "plunder", "name": "Plunder", "categoryId": "tacticalMissions", "drawnInRound": 2, "discardedInRound": 2, "scores": [0, 0, 0, 0, 0]},
+                    # R4: Behind Enemy Lines discarded in R4 (0), Bring It Down drawn in R4 and held into R5 where it scored (+5)
+                    {"id": "behind-enemy-lines", "name": "Behind Enemy Lines", "categoryId": "tacticalMissions", "drawnInRound": 3, "discardedInRound": 3, "scores": [0, 0, 0, 0, 0]},
+                    {"id": "bring-it-down", "name": "Bring It Down", "categoryId": "tacticalMissions", "drawnInRound": 3, "discardedInRound": 4, "scores": [0, 0, 0, 0, 5]},
+                    # R5: No Prisoners drawn in R5, unscored (0)
+                    {"id": "no-prisoners", "name": "No Prisoners", "categoryId": "tacticalMissions", "drawnInRound": 4, "discardedInRound": None, "scores": [0, 0, 0, 0, 0]},
+                ],
+                "isBattleReady": True,
+                "totalScore": 61,
+            },
+        ],
+    }
+
+    parsed = tracker_importer.parse_imported_games_payload(raw_ttb_all_secs, "tabletop_battles")[0]
+    st = parsed["state"]
+    p1 = st["p1"]
+    p2 = st["p2"]
+
+    # John's total secondary score is still 33, total score 81, but all 10 cards across 5 rounds are present
+    assert p1["secondaryScore"] == 33
+    assert parsed["p1_score"] == 81
+    assert len(p1["hand"]) == 10
+    for r_idx in range(5):
+        assert len(p1["rounds"][r_idx]["secondaries"]) == 2, f"Expected 2 secondaries in John R{r_idx+1}, got {p1['rounds'][r_idx]['secondaries']}"
+
+    # Verify John R1 has both Secure No Man's Land (+5, scored) and Sabotage (0, discarded)
+    r1_names = {s["name"]: (s["score"], s["status"]) for s in p1["rounds"][0]["secondaries"]}
+    assert r1_names["Secure No Man's Land"] == (5, "scored")
+    assert r1_names["Sabotage"] == (0, "discarded")
+
+    # Verify John R5 has both Assassination (0, discarded) and Recover Assets (0, unscored)
+    r5_names = {s["name"]: (s["score"], s["status"]) for s in p1["rounds"][4]["secondaries"]}
+    assert r5_names["Assassination"] == (0, "discarded")
+    assert r5_names["Recover Assets"] == (0, "unscored")
+
+    # Verify Joseph's held cards appear as 'held' (0 VP) in the round drawn AND 'scored' (+5 VP) in the round scored
+    assert p2["secondaryScore"] == 20
+    assert parsed["p2_score"] == 61
+    for r_idx in range(5):
+        assert len(p2["rounds"][r_idx]["secondaries"]) == 2, f"Expected 2 secondaries in Joseph R{r_idx+1}, got {p2['rounds'][r_idx]['secondaries']}"
+
+    p2_r1 = {s["name"]: (s["score"], s["status"]) for s in p2["rounds"][0]["secondaries"]}
+    assert p2_r1["Area Denial"] == (0, "discarded")
+    assert p2_r1["Defend Stronghold"] == (0, "held")
+
+    p2_r2 = {s["name"]: (s["score"], s["status"]) for s in p2["rounds"][1]["secondaries"]}
+    assert p2_r2["Defend Stronghold"] == (5, "scored")
+    assert p2_r2["Centre Ground"] == (5, "scored")
+
+    p2_r4 = {s["name"]: (s["score"], s["status"]) for s in p2["rounds"][3]["secondaries"]}
+    assert p2_r4["Behind Enemy Lines"] == (0, "discarded")
+    assert p2_r4["Bring It Down"] == (0, "held")
+
+    p2_r5 = {s["name"]: (s["score"], s["status"]) for s in p2["rounds"][4]["secondaries"]}
+    assert p2_r5["Bring It Down"] == (5, "scored")
+    assert p2_r5["No Prisoners"] == (0, "unscored")
+
+
 if __name__ == "__main__":
     test_edition_detection_and_unclipped_9th_ed_secondaries()
     print("✓ test_edition_detection_and_unclipped_9th_ed_secondaries passed")
@@ -563,6 +672,9 @@ if __name__ == "__main__":
     print("✓ test_aos_championship_badge_parity_rtt_vs_gt passed")
     test_10th_11th_ed_tactical_over_40_raw_not_misclassified_as_9th()
     print("✓ test_10th_11th_ed_tactical_over_40_raw_not_misclassified_as_9th passed")
+    test_all_secondaries_preserved_including_unscored_discarded_and_held()
+    print("✓ test_all_secondaries_preserved_including_unscored_discarded_and_held passed")
     print("ALL TESTS PASSED!")
+
 
 

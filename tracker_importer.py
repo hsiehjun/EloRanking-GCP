@@ -132,10 +132,15 @@ def _get_demo_ttb_games() -> List[Dict[str, Any]]:
                         {"id": "takeAndHold", "name": "Take and Hold", "scores": [0, 10, 15, 15, 10]}
                     ],
                     "secondaries": [
-                        {"id": "cleanse", "name": "Cleanse", "categoryId": "tacticalMissions", "scores": [4, 0, 5, 0, 0]},
-                        {"id": "assassination", "name": "Assassination", "categoryId": "tacticalMissions", "scores": [0, 5, 0, 0, 0]},
-                        {"id": "bringItDown", "name": "Bring It Down", "categoryId": "tacticalMissions", "scores": [0, 0, 4, 6, 0]},
-                        {"id": "extendBattleLines", "name": "Extend Battle Lines", "categoryId": "tacticalMissions", "scores": [0, 5, 0, 0, 5]},
+                        {"id": "cleanse", "name": "Cleanse", "categoryId": "tacticalMissions", "drawnInRound": 0, "discardedInRound": 0, "scores": [4, 0, 0, 0, 0]},
+                        {"id": "sabotage", "name": "Sabotage", "categoryId": "tacticalMissions", "drawnInRound": 0, "discardedInRound": 0, "scores": [0, 0, 0, 0, 0]},
+                        {"id": "assassination", "name": "Assassination", "categoryId": "tacticalMissions", "drawnInRound": 1, "discardedInRound": 1, "scores": [0, 5, 0, 0, 0]},
+                        {"id": "extendBattleLines", "name": "Extend Battle Lines", "categoryId": "tacticalMissions", "drawnInRound": 1, "discardedInRound": 1, "scores": [0, 5, 0, 0, 0]},
+                        {"id": "secureNoMansLand", "name": "Secure No Man's Land", "categoryId": "tacticalMissions", "drawnInRound": 2, "discardedInRound": 2, "scores": [0, 0, 5, 0, 0]},
+                        {"id": "bringItDown", "name": "Bring It Down", "categoryId": "tacticalMissions", "drawnInRound": 2, "discardedInRound": 2, "scores": [0, 0, 4, 0, 0]},
+                        {"id": "defendStronghold", "name": "Defend Stronghold", "categoryId": "tacticalMissions", "drawnInRound": 3, "discardedInRound": 3, "scores": [0, 0, 0, 6, 0]},
+                        {"id": "overwhelmingForce", "name": "Overwhelming Force", "categoryId": "tacticalMissions", "drawnInRound": 3, "discardedInRound": 4, "scores": [0, 0, 0, 0, 5]},
+                        {"id": "recoverAssets", "name": "Recover Assets", "categoryId": "tacticalMissions", "drawnInRound": 4, "discardedInRound": 4, "scores": [0, 0, 0, 0, 0]},
                     ],
                     "isBattleReady": True,
                     "cpRemaining": 2,
@@ -152,9 +157,15 @@ def _get_demo_ttb_games() -> List[Dict[str, Any]]:
                         {"id": "takeAndHold", "name": "Take and Hold", "scores": [0, 10, 10, 10, 5]}
                     ],
                     "secondaries": [
-                        {"id": "engageOnAllFronts", "name": "Engage on All Fronts", "categoryId": "tacticalMissions", "scores": [4, 4, 0, 0, 0]},
-                        {"id": "stormHostileObjective", "name": "Storm Hostile Objective", "categoryId": "tacticalMissions", "scores": [0, 0, 5, 5, 0]},
-                        {"id": "areaDenial", "name": "Area Denial", "categoryId": "tacticalMissions", "scores": [0, 0, 0, 5, 5]},
+                        {"id": "engageOnAllFronts", "name": "Engage on All Fronts", "categoryId": "tacticalMissions", "drawnInRound": 0, "discardedInRound": 0, "scores": [4, 0, 0, 0, 0]},
+                        {"id": "behindEnemyLines", "name": "Behind Enemy Lines", "categoryId": "tacticalMissions", "drawnInRound": 0, "discardedInRound": 0, "scores": [0, 0, 0, 0, 0]},
+                        {"id": "investigateSignals", "name": "Investigate Signals", "categoryId": "tacticalMissions", "drawnInRound": 1, "discardedInRound": 1, "scores": [0, 4, 0, 0, 0]},
+                        {"id": "stormHostileObjective", "name": "Storm Hostile Objective", "categoryId": "tacticalMissions", "drawnInRound": 1, "discardedInRound": 2, "scores": [0, 0, 5, 0, 0]},
+                        {"id": "noPrisoners", "name": "No Prisoners", "categoryId": "tacticalMissions", "drawnInRound": 2, "discardedInRound": 2, "scores": [0, 0, 0, 0, 0]},
+                        {"id": "areaDenial", "name": "Area Denial", "categoryId": "tacticalMissions", "drawnInRound": 3, "discardedInRound": 3, "scores": [0, 0, 0, 5, 0]},
+                        {"id": "aTemptingTarget", "name": "A Tempting Target", "categoryId": "tacticalMissions", "drawnInRound": 3, "discardedInRound": 3, "scores": [0, 0, 0, 5, 0]},
+                        {"id": "markedForDeath", "name": "Marked for Death", "categoryId": "tacticalMissions", "drawnInRound": 4, "discardedInRound": 4, "scores": [0, 0, 0, 0, 5]},
+                        {"id": "cullTheHorde", "name": "Cull the Horde", "categoryId": "tacticalMissions", "drawnInRound": 4, "discardedInRound": None, "scores": [0, 0, 0, 0, 0]},
                     ],
                     "isBattleReady": True,
                     "cpRemaining": 1,
@@ -1134,19 +1145,60 @@ def _build_40k_player_state(
         for idx in range(len(p_arr)):
             pri_scores[min(4, idx)] += int(p_arr[idx] or 0)
 
-    # Extract secondaries per round and build hand cards
+    # Extract secondaries per round and build hand cards (including unscored, held, and discarded cards)
     secondaries = p_raw.get("secondaries") or []
     sec_round_totals = [0, 0, 0, 0, 0]
     sec_round_items: List[List[Dict[str, Any]]] = [[], [], [], [], []]
     hand: List[Dict[str, Any]] = []
 
     if isinstance(secondaries, list):
+        has_tactical = any(
+            isinstance(s, dict) and "tactical" in str(s.get("categoryId") or s.get("category") or "").lower()
+            for s in secondaries
+        )
         for sec in secondaries:
             if not isinstance(sec, dict):
                 continue
-            sec_name = sec.get("name") or _humanize_identifier(sec.get("id") or "Secondary Mission")
-            card_id = _clean_card_slug(sec.get("id") or sec_name)
-            cat_id = str(sec.get("categoryId") or "").lower()
+            raw_sec_id = str(sec.get("id") or sec.get("cardId") or "").strip()
+            raw_sec_name = str(sec.get("name") or sec.get("title") or "").strip()
+            if not raw_sec_id and not raw_sec_name:
+                continue
+
+            sec_name = raw_sec_name or _humanize_identifier(raw_sec_id or "Secondary Mission")
+            card_id = _clean_card_slug(raw_sec_id or sec_name)
+            cat_id = str(sec.get("categoryId") or sec.get("category") or "").lower()
+
+            drawn_r: Optional[int] = None
+            if sec.get("drawnInRound") is not None:
+                try:
+                    drawn_r = max(1, min(5, int(sec["drawnInRound"]) + 1))
+                except (ValueError, TypeError):
+                    drawn_r = None
+            elif sec.get("drawnRound") is not None:
+                try:
+                    drawn_r = max(1, min(5, int(sec["drawnRound"])))
+                except (ValueError, TypeError):
+                    drawn_r = None
+            elif sec.get("round") is not None:
+                try:
+                    drawn_r = max(1, min(5, int(sec["round"])))
+                except (ValueError, TypeError):
+                    drawn_r = None
+
+            discarded_r: Optional[int] = None
+            if sec.get("discardedInRound") is not None:
+                try:
+                    discarded_r = max(1, min(5, int(sec["discardedInRound"]) + 1))
+                except (ValueError, TypeError):
+                    discarded_r = None
+            elif sec.get("discardedRound") is not None:
+                try:
+                    discarded_r = max(1, min(5, int(sec["discardedRound"])))
+                except (ValueError, TypeError):
+                    discarded_r = None
+
+            was_discarded_start = bool(sec.get("wasDiscardedStartOfRound"))
+
             scores_arr = (
                 sec.get("scores")
                 if isinstance(sec.get("scores"), list)
@@ -1162,37 +1214,38 @@ def _build_40k_player_state(
                     round_scores_map[str(r_num)] = pts
                     scored_rounds.append(r_num)
                     sec_round_totals[r_idx] += pts
-                    sec_round_items[r_idx].append({
-                        "cardId": card_id,
-                        "name": sec_name,
-                        "score": pts,
-                        "points": pts,
-                        "status": "scored",
-                    })
 
             # Handle flat secondary with totalScore/points but no per-round array
-            if not scores_arr and (sec.get("totalScore") or isinstance(sec.get("points"), (int, float))):
-                pts = int(sec.get("totalScore") or sec.get("points") or 0)
-                if sec.get("round") is not None:
-                    r_num = int(sec.get("round"))
+            if not scores_arr and (sec.get("totalScore") is not None or isinstance(sec.get("points"), (int, float))):
+                pts = int(sec.get("totalScore") or (sec.get("points") if isinstance(sec.get("points"), (int, float)) else 0) or 0)
+                if sec.get("scoredRound") is not None:
+                    r_num = int(sec.get("scoredRound"))
+                elif drawn_r is not None:
+                    r_num = drawn_r
+                elif discarded_r is not None:
+                    r_num = discarded_r
                 else:
-                    r_num = int(sec.get("scoredRound") or sec.get("drawnInRound") or 0) + 1
+                    r_num = 1
                 r_num = max(1, min(5, r_num))
                 if pts > 0:
                     round_scores_map[str(r_num)] = pts
                     scored_rounds.append(r_num)
                     sec_round_totals[r_num - 1] += pts
-                    sec_round_items[r_num - 1].append({
-                        "cardId": card_id,
-                        "name": sec_name,
-                        "score": pts,
-                        "points": pts,
-                        "status": "scored",
-                    })
+
+            is_recurring = ("fixed" in cat_id) or (len(scored_rounds) > 1) or (edition in ("9th", "8th_itc"))
 
             if round_scores_map:
-                is_recurring = ("fixed" in cat_id) or (len(scored_rounds) > 1) or (edition in ("9th", "8th_itc"))
                 if is_recurring:
+                    for r_num in scored_rounds:
+                        pts = round_scores_map[str(r_num)]
+                        sec_round_items[r_num - 1].append({
+                            "cardId": card_id,
+                            "name": sec_name,
+                            "score": pts,
+                            "points": pts,
+                            "status": "scored",
+                            "recurring": True,
+                        })
                     hand.append({
                         "cardId": card_id,
                         "name": sec_name,
@@ -1204,14 +1257,132 @@ def _build_40k_player_state(
                 else:
                     only_r = scored_rounds[0]
                     pts = round_scores_map[str(only_r)]
+                    start_r = drawn_r if (drawn_r is not None and drawn_r <= only_r) else only_r
+                    for hr in range(start_r, only_r):
+                        sec_round_items[hr - 1].append({
+                            "cardId": card_id,
+                            "name": sec_name,
+                            "score": 0,
+                            "points": 0,
+                            "status": "held",
+                            "drawnRound": start_r,
+                            "scoredRound": only_r,
+                        })
+                    sec_round_items[only_r - 1].append({
+                        "cardId": card_id,
+                        "name": sec_name,
+                        "score": pts,
+                        "points": pts,
+                        "status": "scored",
+                        "drawnRound": start_r,
+                        "scoredRound": only_r,
+                    })
                     hand.append({
                         "cardId": card_id,
                         "name": sec_name,
                         "recurring": False,
                         "status": "scored",
+                        "drawnRound": start_r,
                         "scoredRound": only_r,
+                        "discardedRound": discarded_r or only_r,
                         "points": pts,
                     })
+            else:
+                # 0 VP card: either a discarded/held/unscored Tactical card or an unscored Fixed/9th/8th secondary
+                if is_recurring:
+                    if "fixed" in cat_id and has_tactical and p_raw.get("useFixedMissions") is False:
+                        continue
+                    sec_round_items[0].append({
+                        "cardId": card_id,
+                        "name": sec_name,
+                        "score": 0,
+                        "points": 0,
+                        "status": "unscored",
+                        "recurring": True,
+                    })
+                    hand.append({
+                        "cardId": card_id,
+                        "name": sec_name,
+                        "recurring": True,
+                        "status": "unscored",
+                        "roundScores": {},
+                        "points": 0,
+                    })
+                else:
+                    start_r = drawn_r or discarded_r or 1
+                    end_r = discarded_r if (discarded_r is not None and discarded_r >= start_r) else start_r
+                    raw_status = str(sec.get("status") or "").strip().lower()
+                    is_disc = bool(discarded_r is not None or was_discarded_start or raw_status == "discarded")
+                    final_status = "discarded" if is_disc else (raw_status if raw_status in ("held", "active", "unscored") else "unscored")
+
+                    for hr in range(start_r, end_r):
+                        sec_round_items[hr - 1].append({
+                            "cardId": card_id,
+                            "name": sec_name,
+                            "score": 0,
+                            "points": 0,
+                            "status": "held",
+                            "drawnRound": start_r,
+                            "discardedRound": end_r if is_disc else None,
+                        })
+                    sec_round_items[end_r - 1].append({
+                        "cardId": card_id,
+                        "name": sec_name,
+                        "score": 0,
+                        "points": 0,
+                        "status": final_status,
+                        "drawnRound": start_r,
+                        "discardedRound": end_r if is_disc else None,
+                        "wasDiscardedStartOfRound": was_discarded_start,
+                    })
+                    hand.append({
+                        "cardId": card_id,
+                        "name": sec_name,
+                        "recurring": False,
+                        "status": final_status,
+                        "drawnRound": start_r,
+                        "scoredRound": None,
+                        "discardedRound": end_r if is_disc else None,
+                        "wasDiscardedStartOfRound": was_discarded_start,
+                        "points": 0,
+                    })
+
+        # If a tactical card was drawn in `drawnRound` and never scored or marked discarded
+        # (`discardedRound is None` and not `wasDiscardedStartOfRound`), carry it forward into
+        # subsequent rounds that have fewer than 2 active cards (representing a card held in hand).
+        for h_card in hand:
+            if (
+                not h_card.get("recurring")
+                and h_card.get("scoredRound") is None
+                and h_card.get("discardedRound") is None
+                and not h_card.get("wasDiscardedStartOfRound")
+            ):
+                start_r = int(h_card.get("drawnRound") or 1)
+                c_id = h_card.get("cardId")
+                c_name = h_card.get("name")
+                carried_any = False
+                for next_r in range(start_r + 1, 6):
+                    r_list = sec_round_items[next_r - 1]
+                    active_count = sum(1 for item in r_list if not item.get("wasDiscardedStartOfRound"))
+                    already_in = any(item.get("cardId") == c_id for item in r_list)
+                    if active_count < 2 and not already_in:
+                        r_list.append({
+                            "cardId": c_id,
+                            "name": c_name,
+                            "score": 0,
+                            "points": 0,
+                            "status": "held" if next_r < 5 else "unscored",
+                            "drawnRound": start_r,
+                        })
+                        carried_any = True
+                    else:
+                        break
+                if carried_any:
+                    for item in sec_round_items[start_r - 1]:
+                        if item.get("cardId") == c_id and item.get("score", 0) == 0:
+                            item["status"] = "held"
+                            break
+
 
     # Also Include Secret Mission / Challenger Cards if present in TTB
     secret_score = int(p_raw.get("secretMissionScore") or 0)
@@ -1420,9 +1591,11 @@ def _build_aos_player_state(
                 if isinstance(tac.get("scores"), list)
                 else (tac.get("points") if isinstance(tac.get("points"), list) else [])
             )
+            any_scored = False
             for r_idx in range(min(5, len(scores_arr))):
                 pts = int(scores_arr[r_idx] or 0)
                 if pts > 0:
+                    any_scored = True
                     round_tactics[r_idx] = {
                         "tacticId": tac_name,
                         "tacticStatus": "achieved",
@@ -1435,14 +1608,29 @@ def _build_aos_player_state(
                         "tacticScore": 0,
                     }
 
-            if not scores_arr and tac.get("round"):
-                r_idx = max(0, min(4, int(tac["round"]) - 1))
-                pts = int(tac.get("score") or (tac.get("points") if isinstance(tac.get("points"), (int, float)) else 0) or (4 if tac.get("completed") or tac.get("status") == "achieved" else 0))
-                round_tactics[r_idx] = {
-                    "tacticId": tac_name,
-                    "tacticStatus": "achieved" if pts > 0 else "failed",
-                    "tacticScore": pts,
-                }
+            if not any_scored:
+                fallback_r_idx: Optional[int] = None
+                if tac.get("drawnInRound") is not None:
+                    fallback_r_idx = int(tac["drawnInRound"])
+                elif tac.get("discardedInRound") is not None:
+                    fallback_r_idx = int(tac["discardedInRound"])
+                elif tac.get("drawnRound") is not None:
+                    fallback_r_idx = int(tac["drawnRound"]) - 1
+                elif tac.get("round") is not None:
+                    fallback_r_idx = int(tac["round"]) - 1
+                if fallback_r_idx is not None:
+                    r_idx = max(0, min(4, fallback_r_idx))
+                    pts = int(
+                        tac.get("score")
+                        or (tac.get("points") if isinstance(tac.get("points"), (int, float)) else 0)
+                        or (4 if tac.get("completed") or tac.get("status") == "achieved" else 0)
+                    )
+                    if pts > 0 or round_tactics[r_idx]["tacticId"] == "none":
+                        round_tactics[r_idx] = {
+                            "tacticId": tac_name,
+                            "tacticStatus": "achieved" if pts > 0 else "failed",
+                            "tacticScore": pts,
+                        }
 
     rounds = []
     for r_idx in range(5):
@@ -1773,7 +1961,7 @@ def _parse_single_text_scorecard(
                 m_sec = re.search(r"(?:sec(?:ondary)?|tac(?:tic)?)\s*[:=]?\s*\+?(\d+)", part, re.IGNORECASE)
                 sec_total_for_part = int(m_sec.group(1)) if m_sec else 0
 
-                # Extract named cards in parentheses e.g. (Cleanse +5, Bring It Down +4) or (Cleanse, Assassination)
+                # Extract named cards in parentheses e.g. (Cleanse +5, Bring It Down +4) or (Cleanse +5, Assassination)
                 m_paren = re.search(r"\(([^)]+)\)", part)
                 parsed_named = False
                 if m_paren:
@@ -1790,6 +1978,8 @@ def _parse_single_text_scorecard(
                                 "name": c_name,
                                 "id": _clean_card_slug(c_name),
                                 "scores": scores_5,
+                                "drawnInRound": r_idx,
+                                "discardedInRound": r_idx,
                                 "categoryId": "tacticalMissions",
                             }
                             if target_is_p2:
@@ -1802,25 +1992,32 @@ def _parse_single_text_scorecard(
                         else:
                             unnumbered_names.append(item_str)
 
-                    if not parsed_named and unnumbered_names and sec_total_for_part > 0:
+                    if unnumbered_names:
                         n_cards = len(unnumbered_names)
-                        for c_idx, c_name in enumerate(unnumbered_names):
-                            c_pts = (sec_total_for_part // n_cards) + (1 if c_idx < (sec_total_for_part % n_cards) else 0)
-                            if c_pts > 0:
-                                scores_5 = [0, 0, 0, 0, 0]
-                                scores_5[r_idx] = c_pts
-                                sec_entry = {
-                                    "name": c_name,
-                                    "id": _clean_card_slug(c_name),
-                                    "scores": scores_5,
-                                    "categoryId": "tacticalMissions",
-                                }
-                                if target_is_p2:
-                                    p2_secs.append(sec_entry)
-                                    p2_tactics.append({"round": r_idx + 1, "name": c_name, "score": c_pts, "completed": True})
-                                else:
-                                    p1_secs.append(sec_entry)
-                                    p1_tactics.append({"round": r_idx + 1, "name": c_name, "score": c_pts, "completed": True})
+                        for c_idx, raw_c_name in enumerate(unnumbered_names):
+                            c_name = re.sub(r"\s*[-–:]?\s*\b(?:discarded|held|unscored|failed)\b\s*$", "", raw_c_name, flags=re.IGNORECASE).strip() or raw_c_name
+                            is_explicit_disc = bool(re.search(r"\bdiscarded\b", raw_c_name, re.IGNORECASE))
+                            if not parsed_named and sec_total_for_part > 0:
+                                c_pts = (sec_total_for_part // n_cards) + (1 if c_idx < (sec_total_for_part % n_cards) else 0)
+                            else:
+                                c_pts = 0
+                            scores_5 = [0, 0, 0, 0, 0]
+                            scores_5[r_idx] = c_pts
+                            sec_entry = {
+                                "name": c_name,
+                                "id": _clean_card_slug(c_name),
+                                "scores": scores_5,
+                                "drawnInRound": r_idx,
+                                "discardedInRound": r_idx if (c_pts > 0 or is_explicit_disc) else None,
+                                "status": "discarded" if is_explicit_disc else ("scored" if c_pts > 0 else "unscored"),
+                                "categoryId": "tacticalMissions",
+                            }
+                            if target_is_p2:
+                                p2_secs.append(sec_entry)
+                                p2_tactics.append({"round": r_idx + 1, "name": c_name, "score": c_pts, "completed": c_pts > 0})
+                            else:
+                                p1_secs.append(sec_entry)
+                                p1_tactics.append({"round": r_idx + 1, "name": c_name, "score": c_pts, "completed": c_pts > 0})
                         parsed_named = True
 
                 if not parsed_named and sec_total_for_part > 0:
@@ -1831,6 +2028,8 @@ def _parse_single_text_scorecard(
                         "name": f"Round {r_idx + 1} {'Battle Tactic' if is_aos else 'Secondary'}",
                         "id": f"round-{r_idx + 1}-sec",
                         "scores": scores_5,
+                        "drawnInRound": r_idx,
+                        "discardedInRound": r_idx,
                         "categoryId": "tacticalMissions",
                     }
                     if target_is_p2:
