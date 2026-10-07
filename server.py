@@ -298,18 +298,19 @@ async def on_server_startup():
     async def _deferred_startup_tasks():
         try:
             db = await asyncio.to_thread(get_database)
-            await asyncio.to_thread(db.get_summary_stats, "40k")
-            await asyncio.to_thread(
-                db.get_top_ranked_players,
-                1, 25, 3, "All", "current_elo", "DESC", "40k", True
-            )
-            await asyncio.to_thread(
-                db.get_players_directory,
-                1, 25, 0, "All", None, "current_elo", "DESC", "40k", False
-            )
-            await asyncio.to_thread(db.get_events_list, 1, 25, None, None, "all", "event_date", "DESC", "40k")
-            await asyncio.to_thread(db._get_all_teams_list, "40k")
-            await asyncio.to_thread(db.get_community_overview, None, None, 50.0, None, None, None, None, False, "40k")
+            for fn in (
+                lambda: db.get_summary_stats(game_system="40k"),
+                lambda: db.get_top_ranked_players(page=1, page_size=25, min_matches=3, faction="All", sort_by="current_elo", order="DESC", game_system="40k", active_only=True),
+                lambda: db.get_players_directory(page=1, page_size=25, min_matches=0, faction="All", sort_by="current_elo", order="DESC", game_system="40k", active_only=False),
+                lambda: db.get_events_list(page=1, page_size=25, status="all", sort_by="event_date", order="DESC", game_system="40k"),
+                lambda: db.get_events_list(page=1, page_size=25, status="completed", sort_by="event_date", order="DESC", game_system="40k"),
+                lambda: db._get_all_teams_list(game_system="40k"),
+                lambda: db.get_community_overview(lat=None, lng=None, radius_miles=50.0, include_bcp=False, game_system="40k"),
+            ):
+                try:
+                    await asyncio.to_thread(fn)
+                except Exception as inner_cw_err:
+                    logger.warning(f"Notice during individual cache pre-warm step: {inner_cw_err}")
             logger.info("🔥 Core leaderboard, stats, events, teams & community caches pre-warmed")
         except Exception as cw_err:
             logger.warning(f"Notice during core cache pre-warming: {cw_err}")

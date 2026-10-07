@@ -84,6 +84,37 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
         self.assertIn('s_norm == "completed"', src)
         self.assertIn('s_norm == "upcoming"', src)
 
+    def test_ensure_critical_perf_schema_and_no_ddl_in_read_fallbacks(self):
+        """Ensure _ensure_critical_perf_schema runs on startup and read query fallbacks never run ALTER TABLE."""
+        init_src = inspect.getsource(PostgresDatabase.__init__)
+        self.assertIn("_ensure_critical_perf_schema", init_src)
+        perf_src = inspect.getsource(PostgresDatabase._ensure_critical_perf_schema)
+        self.assertIn("idx_pg_ratings_coal_sys_team_ilike", perf_src)
+        self.assertIn("ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS event_id TEXT", perf_src)
+
+        for method in (
+            PostgresDatabase.get_players_directory,
+            PostgresDatabase.get_events_list,
+            PostgresDatabase.get_faction_meta_stats,
+            PostgresDatabase.get_player_history,
+            PostgresDatabase.get_player_matches,
+            PostgresDatabase.search_players,
+            PostgresDatabase.get_head_to_head,
+        ):
+            self.assertNotIn("ALTER TABLE", inspect.getsource(method))
+
+    def test_team_roster_and_matches_use_indexes_and_short_circuit_toast(self):
+        """Ensure get_team_roster uses LOWER(TRIM(team)) = LOWER(%s), get_team_matches uses UNION ALL, and tournament queries short-circuit TOAST."""
+        roster_src = inspect.getsource(PostgresDatabase.get_team_roster)
+        self.assertIn("LOWER(TRIM(team)) = LOWER(%s)", roster_src)
+        matches_src = inspect.getsource(PostgresDatabase.get_team_matches)
+        self.assertIn("WITH raw_team_matches AS", matches_src)
+        self.assertIn("UNION ALL", matches_src)
+        multi_src = inspect.getsource(PostgresDatabase.get_multiple_players_tournaments)
+        self.assertLess(multi_src.index("NULLIF(e.num_rounds, 0)"), multi_src.index("numberOfRounds"))
+        self.assertLess(multi_src.index("NULLIF(e.total_players, 0)"), multi_src.index("totalPlayers"))
+
 
 if __name__ == "__main__":
     unittest.main()
+
