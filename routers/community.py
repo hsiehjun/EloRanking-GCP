@@ -1099,20 +1099,33 @@ def _sync_api_community_event_registration(
             is_registered = False
 
         # Also check already-loaded event participants in `ev.get("players")` before making external HTTP calls
-        if not is_registered and isinstance(ev.get("players"), list) and ev.get("players"):
-            target_uids = {str(k) for k in (bcp_user_id, user.get("id"), user.get("player_id")) if k}
-            user_display_clean = str(user_display or "").strip().lower()
+        if isinstance(ev.get("players"), list) and ev.get("players"):
+            target_uids = {str(k).strip() for k in (bcp_user_id, user.get("id"), user.get("player_id")) if k}
+            target_names = {
+                str(n).strip().lower()
+                for n in (user_display, user.get("competitor_name"), user.get("full_name"), user.get("name"))
+                if n and len(str(n).strip()) > 2
+            }
             for ep in ev["players"]:
                 if not isinstance(ep, dict):
                     continue
+                ep_ids = {
+                    str(ep.get(k) or "").strip()
+                    for k in ("player_id", "user_id", "id", "bcp_event_player_id")
+                    if ep.get(k)
+                }
                 ep_pid = str(ep.get("player_id") or ep.get("user_id") or ep.get("id") or "").strip()
                 ep_name = str(ep.get("full_name") or ep.get("name") or "").strip().lower()
-                if (ep_pid and ep_pid in target_uids) or (user_display_clean and len(user_display_clean) > 3 and ep_name == user_display_clean):
+                if (ep_ids and (ep_ids & target_uids)) or (ep_name and ep_name in target_names):
                     is_registered = True
-                    matched_reg = {
+                    ep_reg = {
                         "player_id": str(ep.get("bcp_event_player_id") or ep_pid),
+                        "bcp_player_id": str(ep.get("bcp_event_player_id") or ""),
+                        "canonical_player_id": ep_pid,
                         "first_name": fn,
                         "last_name": ln,
+                        "full_name": str(ep.get("full_name") or ep.get("name") or user_display or "").strip(),
+                        "player_name": str(ep.get("full_name") or ep.get("name") or user_display or "").strip(),
                         "team_name": ep.get("team") or "",
                         "faction": ep.get("faction") if ep.get("faction") not in ("Unknown", "-", None) else "",
                         "detachment": ep.get("detachment") or "",
@@ -1122,6 +1135,12 @@ def _sync_api_community_event_registration(
                         "army_list": ep.get("army_list") or "",
                         "list_id": str(ep.get("list_id") or ""),
                     }
+                    if matched_reg:
+                        for k, v in ep_reg.items():
+                            if v and not matched_reg.get(k):
+                                matched_reg[k] = v
+                    else:
+                        matched_reg = ep_reg
                     break
 
         should_skip_live_bcp = bool(not is_mock_env and is_ended and not force_sync)
@@ -1279,17 +1298,36 @@ def _sync_api_community_event_registration(
                 and cand_pid != str(user.get("id") or "")
                 and cand_pid != str(bcp_user_id or "")
             )
+            fallback_canonical_pid = str(
+                matched_reg.get("canonical_player_id")
+                or (cand_pid if (cand_pid and cand_pid != clean_eid and not cand_pid.startswith("user_")) else "")
+                or user.get("player_id")
+                or bcp_user_id
+                or ""
+            ).strip()
             if not is_mock_env and (valid_cand or should_skip_live_bcp):
-                actual_pid = cand_pid if valid_cand else ""
+                actual_pid = cand_pid if valid_cand else fallback_canonical_pid
             else:
                 # If candidate_pid is invalid, identical to event_id, or starts with user_, resolve the real one
                 resolved_pid = bcp_adapter.resolve_event_player_id(clean_eid, user["id"], candidate_pid=cand_pid, explicit_token=x_bcp_token)
-                actual_pid = resolved_pid or (cand_pid if valid_cand else "")
+                actual_pid = resolved_pid or (cand_pid if valid_cand else ("" if is_mock_env else fallback_canonical_pid))
 
             fn_val = matched_reg.get("first_name") or fn
             ln_val = matched_reg.get("last_name") or ln
-            full_name_val = f"{fn_val} {ln_val}".strip() or matched_reg.get("player_name") or matched_reg.get("name") or user_display or "Competitor"
+            full_name_val = (
+                matched_reg.get("full_name")
+                or f"{fn_val} {ln_val}".strip()
+                or matched_reg.get("player_name")
+                or matched_reg.get("name")
+                or user_display
+                or user.get("competitor_name")
+                or "Competitor"
+            )
             list_id_val = str(matched_reg.get("list_id") or matched_reg.get("listId") or "").strip()
+            if not list_id_val:
+                al_raw = str(matched_reg.get("army_list") or matched_reg.get("armyList") or "").strip()
+                if al_raw.startswith("/list/"):
+                    list_id_val = al_raw.split("/list/", 1)[1].strip("/")
 
             player_registration = {
                 "player_id": actual_pid,
@@ -1305,7 +1343,7 @@ def _sync_api_community_event_registration(
                 "checked_in": bool(matched_reg.get("checked_in") or matched_reg.get("checkedIn") or False),
                 "dropped": bool(matched_reg.get("dropped") or False),
                 "has_list_submitted": bool(matched_reg.get("has_list_submitted") or matched_reg.get("army_list") or matched_reg.get("armyList") or list_id_val),
-                "army_list": matched_reg.get("army_list") or matched_reg.get("armyList") or "",
+                "army_list": "" if str(matched_reg.get("army_list") or "").startswith("/list/") else (matched_reg.get("army_list") or matched_reg.get("armyList") or ""),
                 "list_id": list_id_val,
                 "gamesystem_id": matched_reg.get("gamesystem_id") or ev.get("gamesystem_id") or rj.get("gameSystemId") or "WGMSzfKFYA",
             }

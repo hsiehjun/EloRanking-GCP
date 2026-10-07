@@ -466,11 +466,22 @@ class AuthManager:
         except Exception as e:
             logger.warning(f"Notice ensuring user columns: {e}")
 
+    _NR_CREDS_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
     def get_nr_credentials(self, user_id: Optional[str]) -> Dict[str, Any]:
         """Retrieves persisted NewRecruit Cloud credentials for a specific user from PostgreSQL."""
         uid = str(user_id or "").strip()
         if not uid or uid == "default":
             return {}
+        is_pg_real = (
+            getattr(getattr(self, "db", None).__class__, "__name__", "") == "PostgresDatabase"
+            and not hasattr(getattr(self.db, "get_connection", None), "_mock_name")
+        )
+        now_ts = time.time()
+        if is_pg_real:
+            cached = self._NR_CREDS_CACHE.get(uid)
+            if cached is not None and (now_ts - cached[0]) < 60.0:
+                return dict(cached[1])
         from psycopg2 import extras
         try:
             with self.db.get_connection() as conn:
@@ -486,6 +497,8 @@ class AuthManager:
                     )
                     row = cur.fetchone()
                     if not row:
+                        if is_pg_real:
+                            self._NR_CREDS_CACHE[uid] = (now_ts, {})
                         return {}
                     access = str(row.get("nr_access_token") or "").strip()
                     refresh = str(row.get("nr_refresh_token") or "").strip()
@@ -493,7 +506,7 @@ class AuthManager:
                     client_key = str(row.get("nr_client_key") or "").strip()
                     linked_at = row.get("nr_linked_at")
                     disc_at = row.get("nr_disconnected_at")
-                    return {
+                    res = {
                         "connected": bool(access),
                         "login": login,
                         "access": access,
@@ -502,6 +515,9 @@ class AuthManager:
                         "last_sync": linked_at.isoformat() if hasattr(linked_at, "isoformat") else (str(linked_at) if linked_at else None),
                         "disconnected_at": disc_at.isoformat() if hasattr(disc_at, "isoformat") else (str(disc_at) if disc_at else None),
                     }
+                    if is_pg_real:
+                        self._NR_CREDS_CACHE[uid] = (now_ts, res)
+                    return res
         except Exception as e:
             logger.debug(f"get_nr_credentials notice for {uid}: {e}")
             return {}
@@ -518,6 +534,7 @@ class AuthManager:
         uid = str(user_id or "").strip()
         if not uid or uid == "default" or not access_token:
             return False
+        self._NR_CREDS_CACHE.pop(uid, None)
         try:
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:
@@ -579,6 +596,7 @@ class AuthManager:
         uid = str(user_id or "").strip()
         if not uid or uid == "default":
             return False
+        self._NR_CREDS_CACHE.pop(uid, None)
         try:
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:

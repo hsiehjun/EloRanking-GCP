@@ -210,6 +210,122 @@ class TestJourneyPlacings(unittest.TestCase):
         self.assertIn("p1ScoreEl.innerText = hasInitScore ? evMatch.player1_score : '-'", pre_await_body)
         self.assertIn("p1NameEl.innerText = 'Loading...'", pre_await_body)
 
+    def test_event_details_bcp_list_id_and_placement_overlay_and_player_station_synthesis(self):
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_cursor.__enter__.return_value = mock_cursor
+        db.get_connection = MagicMock(return_value=mock_conn)
+        mock_conn.cursor.return_value = mock_cursor
+
+        mock_cursor.fetchone.return_value = {
+            "id": "7ohG0RuDqC1k",
+            "name": "Las Vegas Open XIV: Warhammer 40k Champs",
+            "event_date": "2025-10-03",
+            "city": "Las Vegas",
+            "state": "NV",
+            "country": "US",
+            "total_players": 914,
+            "num_rounds": 9,
+            "game_system": "40k",
+            "is_ended": True,
+        }
+        mock_cursor.fetchall.side_effect = [
+            [
+                {
+                    "id": 1001,
+                    "round": 1,
+                    "table_number": 42,
+                    "player1_id": "MEV83VFANA",
+                    "player1_name": "John Hsieh",
+                    "player1_faction": "Genestealer Cults",
+                    "player1_score": 85,
+                    "player1_elo_before": 1650.0,
+                    "player1_elo_after": 1665.0,
+                    "player1_elo_delta": 15.0,
+                    "player2_id": "OPP1234567",
+                    "player2_name": "Richard Siegler",
+                    "player2_faction": "Adeptus Mechanicus",
+                    "player2_score": 92,
+                    "player2_elo_before": 1950.0,
+                    "player2_elo_after": 1955.0,
+                    "player2_elo_delta": 5.0,
+                    "winner_id": "OPP1234567",
+                    "is_draw": False,
+                    "match_date": "2025-10-03",
+                    "tracker_match_id": None,
+                }
+            ],
+            [
+                {
+                    "player_id": "MEV83VFANA",
+                    "full_name": "John Hsieh",
+                    "faction": "Genestealer Cults",
+                    "team": "Stat Check",
+                    "placement": None,
+                    "dropped": False,
+                    "checked_in": True,
+                    "bcp_player_id": "ep_john",
+                    "detachment": "Host of Ascension",
+                    "army_list": "/list/LIST_JOHN_123",
+                    "has_list_submitted": True,
+                    "battle_points": 410,
+                    "current_elo": 1665.0,
+                },
+                {
+                    "player_id": "OPP1234567",
+                    "full_name": "Richard Siegler",
+                    "faction": "Adeptus Mechanicus",
+                    "team": "Art of War",
+                    "placement": 1,
+                    "dropped": False,
+                    "checked_in": True,
+                    "bcp_player_id": "ep_siegler",
+                    "detachment": "Skitarii Hunter Cohort",
+                    "army_list": None,
+                    "has_list_submitted": False,
+                    "battle_points": 850,
+                    "current_elo": 1955.0,
+                },
+            ],
+        ]
+
+        # Pre-populate BCP placings cache for Richard Siegler's listId and John Hsieh's official placement
+        PostgresDatabase.set_cached(
+            PostgresDatabase._bcp_event_placings_cache_dict,
+            "7ohG0RuDqC1k",
+            {
+                "by_id": {"MEV83VFANA": 112, "OPP1234567": 1},
+                "by_name": {"john hsieh": 112, "richard siegler": 1},
+                "meta_by_id": {
+                    "MEV83VFANA": {"placement": 112, "list_id": "LIST_JOHN_123", "list_url": "https://www.bestcoastpairings.com/list/LIST_JOHN_123", "has_list": True},
+                    "OPP1234567": {"placement": 1, "list_id": "LIST_SIEGLER_999", "list_url": "https://www.bestcoastpairings.com/list/LIST_SIEGLER_999", "has_list": True},
+                },
+                "meta_by_name": {},
+                "active_count": 914,
+                "fetched_ok": True,
+            },
+        )
+
+        ev = db.get_event_details("7ohG0RuDqC1k")
+        self.assertIsNotNone(ev)
+        players_by_id = {p["player_id"]: p for p in ev["players"]}
+        self.assertTrue(players_by_id["MEV83VFANA"]["has_list"])
+        self.assertEqual(players_by_id["MEV83VFANA"]["list_id"], "LIST_JOHN_123")
+        self.assertEqual(players_by_id["MEV83VFANA"]["placement"], 112)
+        self.assertTrue(players_by_id["OPP1234567"]["has_list"])
+        self.assertEqual(players_by_id["OPP1234567"]["list_id"], "LIST_SIEGLER_999")
+        self.assertEqual(ev["matches"][0]["player1_list_id"], "LIST_JOHN_123")
+        self.assertEqual(ev["matches"][0]["player2_list_id"], "LIST_SIEGLER_999")
+
+        with open("web/js/tournaments.js", "r", encoding="utf-8") as f:
+            js_code = f.read()
+        self.assertIn("function synthesizeClientUserEventRegistration(ev, existingReg = null)", js_code)
+        self.assertIn("userRegData = synthesizeClientUserEventRegistration(ev, userRegData);", js_code)
+        self.assertIn("event-hub-participant-banner", js_code)
+
 
 if __name__ == "__main__":
     unittest.main()
+

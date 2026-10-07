@@ -300,11 +300,11 @@ class PostgresDatabase:
             logger.warning(f"Initial DB connect notice (will retry on query): {e}")
 
     def _ensure_critical_perf_schema(self) -> None:
-        """Guarantees critical functional B-tree indexes and tracker_games columns exist on Cloud SQL."""
+        """Guarantees critical functional B-tree indexes and tracker_games/event_participants columns exist on Cloud SQL."""
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT value FROM system_settings WHERE key = 'perf_indexes_v28';")
+                    cur.execute("SELECT value FROM system_settings WHERE key = 'perf_indexes_v29';")
                     row = cur.fetchone()
                     if row and row[0] == 'ready':
                         return
@@ -315,9 +315,16 @@ class PostgresDatabase:
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS event_id TEXT;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS round_num INT;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS table_num INT;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS bcp_player_id TEXT;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS detachment TEXT;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS army_list TEXT;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS has_list_submitted BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS battle_points INT;",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_evt ON tracker_games(event_id, round_num, table_num);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_event_lower_rt ON tracker_games ((LOWER(event_id)), round_num, table_num) WHERE event_id IS NOT NULL;",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_updated_at ON tracker_games (updated_at DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_u1_updated ON tracker_games (user_id_p1, updated_at DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_u2_updated ON tracker_games (user_id_p2, updated_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_elo ON player_ratings ((COALESCE(game_system, '40k')), current_elo DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_pid ON player_ratings (player_id, (COALESCE(game_system, '40k')));",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_player_name_btree ON player_ratings (player_name);",
@@ -326,14 +333,18 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team ON player_ratings ((COALESCE(game_system, '40k')), (TRIM(team)), current_elo DESC) WHERE team IS NOT NULL AND TRIM(team) != '';",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team_cov ON player_ratings ((COALESCE(game_system, '40k')), (TRIM(team)), current_elo DESC) INCLUDE (team, game_system, player_id, player_name, wins, losses, draws, matches_played, last_active_date) WHERE team IS NOT NULL AND TRIM(team) != '' AND COALESCE(matches_played, 0) > 0;",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_coal_sys_team_ilike ON player_ratings ((COALESCE(game_system, '40k')), LOWER(TRIM(team)), current_elo DESC) WHERE team IS NOT NULL AND TRIM(team) != '';",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_top_fac_lower ON player_ratings ((COALESCE(game_system, '40k')), (LOWER(TRIM(top_faction))), current_elo DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_events_coal_sys_date ON events ((COALESCE(game_system, '40k')), event_date DESC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_history_coal_sys_pid ON rating_history (player_id, (COALESCE(game_system, '40k')), match_date ASC);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_history_match_pid ON rating_history (match_id, player_id);",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_p1 ON matches(player1_id);",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_p2 ON matches(player2_id);",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_fac_lower_date ON matches ((LOWER(player1_faction)), match_date DESC) WHERE is_done = TRUE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_lower_date ON matches ((LOWER(player2_faction)), match_date DESC) WHERE is_done = TRUE AND is_bye = FALSE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_participants_event ON event_participants(event_id);",
             "CREATE INDEX IF NOT EXISTS idx_pg_participants_player ON event_participants(player_id);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ep_event_player ON event_participants(event_id, player_id);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ep_event_name_lower ON event_participants(event_id, (LOWER(TRIM(full_name))));",
             "CREATE INDEX IF NOT EXISTS idx_users_player_id ON users(player_id);",
             "CREATE INDEX IF NOT EXISTS idx_users_bcp_user_id ON users(bcp_user_id);",
             "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
@@ -342,6 +353,7 @@ class PostgresDatabase:
             "ANALYZE events;",
             "ANALYZE matches;",
             "ANALYZE event_participants;",
+            "ANALYZE rating_history;",
             "ANALYZE tracker_games;",
         ]
         try:
@@ -371,11 +383,11 @@ class PostgresDatabase:
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO system_settings (key, value, updated_at)
-                        VALUES ('perf_indexes_v28', 'ready', NOW())
+                        VALUES ('perf_indexes_v28', 'ready', NOW()), ('perf_indexes_v29', 'ready', NOW())
                         ON CONFLICT (key) DO UPDATE SET value = 'ready', updated_at = NOW();
                     """)
                 conn.commit()
-                logger.info("🔥 Critical COALESCE functional indexes and tracker_games columns verified (v28)")
+                logger.info("🔥 Critical COALESCE functional indexes and tracker_games/event_participants columns verified (v29)")
         except Exception as err:
             logger.warning(f"_ensure_critical_perf_schema notice: {err}")
 
@@ -1242,6 +1254,20 @@ class PostgresDatabase:
 
     def ensure_league_tables(self):
         """Guarantees native_leagues, native_league_seasons, native_league_pods, native_league_participants, native_league_standings, and native_league_matches exist and seeds SD40K league data."""
+        if not hasattr(self.get_connection, "_mock_name"):
+            try:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT
+                                (SELECT COUNT(*) FROM native_leagues WHERE id IN ('8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90', '7a9e4c1b-3d28-4f6a-9c1e-5b8d2a4f6c91') AND owner_user_id IS NOT NULL),
+                                EXISTS(SELECT 1 FROM native_league_participants LIMIT 1);
+                        """)
+                        chk = cur.fetchone()
+                        if chk and chk[0] >= 2 and chk[1]:
+                            return
+            except Exception:
+                pass
         stmts = [
             """CREATE TABLE IF NOT EXISTS native_leagues (
                 id VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -3964,13 +3990,80 @@ class PostgresDatabase:
         if cached is not None:
             return cached
 
+        def _extract_participant_list_fields(p_info: Dict[str, Any]) -> Dict[str, Any]:
+            raw_al = str(p_info.get("army_list") or "").strip()
+            list_url = str(p_info.get("list_url") or p_info.get("listUrl") or "").strip()
+            list_id = str(p_info.get("list_id") or p_info.get("listId") or "").strip()
+            army_list_text = ""
+            if raw_al.startswith(("/list/", "http://", "https://", "/v1/")):
+                if not list_url:
+                    list_url = f"https://www.bestcoastpairings.com{raw_al}" if raw_al.startswith("/") else raw_al
+            elif raw_al:
+                army_list_text = raw_al
+            if list_url.startswith("/"):
+                list_url = f"https://www.bestcoastpairings.com{list_url}"
+            if not list_id and list_url:
+                m_lid = re.search(r"/list/([a-zA-Z0-9_-]+)", list_url)
+                if m_lid:
+                    list_id = m_lid.group(1)
+            if list_id and not list_url:
+                list_url = f"https://www.bestcoastpairings.com/list/{list_id}"
+            has_list = bool(army_list_text or list_url or list_id or p_info.get("has_list_submitted"))
+            return {
+                "bcp_event_player_id": str(p_info.get("bcp_player_id") or p_info.get("bcp_event_player_id") or "").strip() or None,
+                "detachment": str(p_info.get("detachment") or "").strip(),
+                "army_list": army_list_text,
+                "list_url": list_url or None,
+                "list_id": list_id or None,
+                "has_list": has_list,
+                "has_list_submitted": has_list,
+            }
+
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                # 1. Event metadata
+                # 1. Event metadata (project lightweight keys from raw_json to avoid multi-MB TOAST decompression)
                 cursor.execute("""
                 SELECT id, name, event_date, end_date, city, state, country,
-                       total_players, num_rounds, current_round, is_ended, raw_json,
-                       roster, organizer_id, organizer_bcp_id,
+                       total_players, num_rounds, current_round, is_ended,
+                       COALESCE(game_system, '40k') as game_system,
+                       CASE
+                           WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json) = 'object' THEN
+                               jsonb_build_object(
+                                   'placingMetrics', COALESCE(raw_json->'placingMetrics', '[]'::jsonb),
+                                   'numberOfRounds', raw_json->'numberOfRounds',
+                                   'numRounds', raw_json->'numRounds',
+                                   'currentRound', raw_json->'currentRound',
+                                   'activeRound', raw_json->'activeRound',
+                                   'ended', raw_json->'ended',
+                                   'isEnded', raw_json->'isEnded',
+                                   'status', raw_json->'status',
+                                   'teamEvent', raw_json->'teamEvent',
+                                   'doublesEvent', raw_json->'doublesEvent',
+                                   'totalTeamPlayers', raw_json->'totalTeamPlayers',
+                                   'totalPlayers', raw_json->'totalPlayers',
+                                   'gameSystemId', raw_json->'gameSystemId',
+                                   'usingOnlineReg', raw_json->'usingOnlineReg',
+                                   'ticketPrice', raw_json->'ticketPrice',
+                                   'numTickets', raw_json->'numTickets',
+                                   'capacity', raw_json->'capacity',
+                                   'externalUrl', raw_json->'externalUrl',
+                                   'privateEvent', raw_json->'privateEvent',
+                                   'hasAccessCode', raw_json->'hasAccessCode',
+                                   'requireAccessCode', raw_json->'requireAccessCode',
+                                   'ticketing', raw_json->'ticketing',
+                                   'rounds', raw_json->'rounds',
+                                   'venueName', raw_json->'venueName',
+                                   'location', raw_json->'location',
+                                   'eventDate', raw_json->'eventDate',
+                                   'startDate', raw_json->'startDate',
+                                   'endDate', raw_json->'endDate',
+                                   'eventEndDate', raw_json->'eventEndDate',
+                                   'name', raw_json->'name'
+                               )
+                           ELSE '{}'::jsonb
+                       END as raw_json,
+                       CASE WHEN COALESCE(total_players, 0) = 0 THEN roster ELSE '[]'::jsonb END as roster,
+                       organizer_id, organizer_bcp_id,
                        COALESCE(started, false) as started,
                        COALESCE(pairings_status, 'draft') as pairings_status
                 FROM events
@@ -3980,10 +4073,23 @@ class PostgresDatabase:
                 if not event_row:
                     return None
                 res = dict(event_row)
+                ev_gs = str(res.get("game_system") or "40k").strip().lower()
 
-                # 2. Match pairings with digital tracker game linkage
+                # 2. Match pairings with digital tracker game linkage (single materialized CTE instead of per-row LATERAL)
                 ev_variants = list({str(event_id), str(event_id).lower(), str(event_id).upper()})
                 cursor.execute("""
+                WITH event_tracker_games AS MATERIALIZED (
+                    SELECT DISTINCT ON (round_num, table_num)
+                           round_num, table_num, match_id, is_finished, started,
+                           COALESCE((state_json->>'event_match_locked')::boolean, is_finished, FALSE) as tracker_is_locked
+                    FROM tracker_games
+                    WHERE event_id = ANY(%s)
+                    ORDER BY round_num, table_num,
+                             COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
+                             CASE WHEN COALESCE(state_json->>'imported_source', '') != '' OR match_id LIKE '%%-TTB-%%' OR match_id LIKE '%%-GW-%%' THEN 1 ELSE 0 END DESC,
+                             is_finished DESC,
+                             updated_at DESC
+                )
                 SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
                        m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
                        m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
@@ -3994,50 +4100,86 @@ class PostgresDatabase:
                        COALESCE(tg.started, FALSE) as tracker_started,
                        COALESCE(tg.tracker_is_locked, FALSE) as tracker_is_locked
                 FROM matches m
-                LEFT JOIN LATERAL (
-                    SELECT match_id, is_finished, started,
-                           COALESCE((state_json->>'event_match_locked')::boolean, is_finished, FALSE) as tracker_is_locked
-                    FROM tracker_games
-                    WHERE event_id = ANY(%s)
-                      AND round_num = m.round
-                      AND table_num = m.table_number
-                    ORDER BY
-                      COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
-                      CASE WHEN COALESCE(state_json->>'imported_source', '') != '' OR match_id LIKE '%%-TTB-%%' OR match_id LIKE '%%-GW-%%' THEN 1 ELSE 0 END DESC,
-                      is_finished DESC,
-                      updated_at DESC
-                    LIMIT 1
-                ) tg ON TRUE
+                LEFT JOIN event_tracker_games tg
+                       ON tg.round_num = m.round AND tg.table_num = m.table_number
                 WHERE m.event_id = %s
                 ORDER BY m.round ASC, m.table_number ASC;
                 """, (ev_variants, event_id))
                 matches = [dict(r) for r in cursor.fetchall()]
 
-                # 3. Participants roster (indexed by player_id first, then fallback indexed by player_name)
+                # 3. Participants roster (indexed by player_id first, then batched fallback by player_name)
+                # Uses ORDER BY matches_played DESC NULLS LAST when resolving duplicate player_name rows
                 cursor.execute("""
+                WITH ep_rows AS MATERIALIZED (
+                    SELECT
+                        ep.player_id,
+                        ep.bcp_player_id,
+                        ep.full_name,
+                        ep.faction,
+                        ep.detachment,
+                        ep.team,
+                        ep.dropped,
+                        ep.checked_in,
+                        ep.placement,
+                        ep.pod_num,
+                        ep.army_list,
+                        ep.has_list_submitted,
+                        ep.battle_points,
+                        pr_id.player_id AS matched_pr_id,
+                        pr_id.player_name AS pr_player_name,
+                        pr_id.top_faction AS pr_top_faction,
+                        pr_id.team AS pr_team,
+                        pr_id.current_elo AS pr_current_elo,
+                        pr_id.peak_elo AS pr_peak_elo,
+                        pr_id.win_rate AS pr_win_rate
+                    FROM event_participants ep
+                    LEFT JOIN player_ratings pr_id
+                           ON pr_id.player_id = ep.player_id
+                          AND COALESCE(pr_id.game_system, '40k') = %s
+                    WHERE ep.event_id = %s
+                ),
+                unmatched_names AS MATERIALIZED (
+                    SELECT DISTINCT LOWER(TRIM(full_name)) AS norm_name
+                    FROM ep_rows
+                    WHERE matched_pr_id IS NULL
+                      AND full_name IS NOT NULL
+                      AND TRIM(full_name) != ''
+                ),
+                name_ratings AS MATERIALIZED (
+                    SELECT DISTINCT ON (LOWER(TRIM(player_name)))
+                        LOWER(TRIM(player_name)) AS norm_name,
+                        player_name,
+                        top_faction,
+                        team,
+                        current_elo,
+                        peak_elo,
+                        win_rate
+                    FROM unmatched_names un
+                    JOIN player_ratings
+                      ON LOWER(TRIM(player_name)) = un.norm_name
+                     AND COALESCE(game_system, '40k') = %s
+                    ORDER BY LOWER(TRIM(player_name)), matches_played DESC NULLS LAST
+                )
                 SELECT 
-                    ep.player_id, 
-                    COALESCE(NULLIF(TRIM(ep.full_name), ''), pr_id.player_name, pr_nm.player_name, 'Player') as full_name,
-                    COALESCE(ep.faction, pr_id.top_faction, pr_nm.top_faction, 'Unknown') as faction,
-                    COALESCE(ep.team, pr_id.team, pr_nm.team, '') as team,
+                    ep.player_id,
+                    ep.bcp_player_id,
+                    COALESCE(NULLIF(TRIM(ep.full_name), ''), ep.pr_player_name, pr_nm.player_name, 'Player') as full_name,
+                    COALESCE(ep.faction, ep.pr_top_faction, pr_nm.top_faction, 'Unknown') as faction,
+                    COALESCE(ep.detachment, '') as detachment,
+                    COALESCE(ep.team, ep.pr_team, pr_nm.team, '') as team,
                     ep.dropped, ep.checked_in,
                     ep.placement, ep.pod_num,
-                    COALESCE(pr_id.current_elo, pr_nm.current_elo, 1500.0) as current_elo,
-                    COALESCE(pr_id.peak_elo, pr_nm.peak_elo, 1500.0) as peak_elo,
-                    COALESCE(pr_id.win_rate, pr_nm.win_rate, 0.0) as global_win_rate
-                FROM event_participants ep
-                LEFT JOIN player_ratings pr_id ON pr_id.player_id = ep.player_id
-                LEFT JOIN LATERAL (
-                    SELECT player_name, top_faction, team, current_elo, peak_elo, win_rate
-                    FROM player_ratings
-                    WHERE pr_id.player_id IS NULL
-                      AND ep.full_name IS NOT NULL
-                      AND player_name IN (TRIM(ep.full_name), INITCAP(TRIM(ep.full_name)))
-                    ORDER BY matches_played DESC NULLS LAST
-                    LIMIT 1
-                ) pr_nm ON TRUE
-                WHERE ep.event_id = %s;
-                """, (event_id,))
+                    ep.army_list,
+                    COALESCE(ep.has_list_submitted, FALSE) as has_list_submitted,
+                    ep.battle_points,
+                    COALESCE(ep.pr_current_elo, pr_nm.current_elo, 1500.0) as current_elo,
+                    COALESCE(ep.pr_peak_elo, pr_nm.peak_elo, 1500.0) as peak_elo,
+                    COALESCE(ep.pr_win_rate, pr_nm.win_rate, 0.0) as global_win_rate
+                FROM ep_rows ep
+                LEFT JOIN name_ratings pr_nm
+                       ON ep.matched_pr_id IS NULL
+                      AND LOWER(TRIM(ep.full_name)) = pr_nm.norm_name;
+                """, (ev_gs, event_id, ev_gs))
                 participants = {r["player_id"]: dict(r) for r in cursor.fetchall()}
 
                 # 4. Compute official Best Coast Pairings Swiss standings & tiebreakers
@@ -4070,16 +4212,24 @@ class PostgresDatabase:
                     if p1_id:
                         if p1_id not in player_stats:
                             p_info = participants.get(p1_id, {})
+                            lf1 = _extract_participant_list_fields(p_info)
                             player_stats[p1_id] = {
                                 "player_id": p1_id,
+                                "bcp_event_player_id": lf1["bcp_event_player_id"],
                                 "full_name": p_info.get("full_name") or p1_name,
                                 "faction": p_info.get("faction") or p1_fac,
+                                "detachment": lf1["detachment"],
                                 "team": p_info.get("team") or "",
                                 "dropped": p_info.get("dropped", False),
                                 "checked_in": p_info.get("checked_in", True),
                                 "pod_num": p_info.get("pod_num"),
                                 "placement": p_info.get("placement"),
                                 "official_placement": p_info.get("placement"),
+                                "army_list": lf1["army_list"],
+                                "list_url": lf1["list_url"],
+                                "list_id": lf1["list_id"],
+                                "has_list": lf1["has_list"],
+                                "has_list_submitted": lf1["has_list_submitted"],
                                 "current_elo": p_info.get("current_elo", 1500.0),
                                 "peak_elo": p_info.get("peak_elo", 1500.0),
                                 "global_win_rate": p_info.get("global_win_rate", 0.0),
@@ -4111,16 +4261,24 @@ class PostgresDatabase:
                     if p2_id and not m.get("is_bye") and p2_name != "BYE":
                         if p2_id not in player_stats:
                             p_info = participants.get(p2_id, {})
+                            lf2 = _extract_participant_list_fields(p_info)
                             player_stats[p2_id] = {
                                 "player_id": p2_id,
+                                "bcp_event_player_id": lf2["bcp_event_player_id"],
                                 "full_name": p_info.get("full_name") or p2_name,
                                 "faction": p_info.get("faction") or p2_fac,
+                                "detachment": lf2["detachment"],
                                 "team": p_info.get("team") or "",
                                 "dropped": p_info.get("dropped", False),
                                 "checked_in": p_info.get("checked_in", True),
                                 "pod_num": p_info.get("pod_num"),
                                 "placement": p_info.get("placement"),
                                 "official_placement": p_info.get("placement"),
+                                "army_list": lf2["army_list"],
+                                "list_url": lf2["list_url"],
+                                "list_id": lf2["list_id"],
+                                "has_list": lf2["has_list"],
+                                "has_list_submitted": lf2["has_list_submitted"],
                                 "current_elo": p_info.get("current_elo", 1500.0),
                                 "peak_elo": p_info.get("peak_elo", 1500.0),
                                 "global_win_rate": p_info.get("global_win_rate", 0.0),
@@ -4162,15 +4320,29 @@ class PostgresDatabase:
                         if name_norm and name_norm in existing_names:
                             target_pid = existing_names[name_norm]
 
+                    lf = _extract_participant_list_fields(p_info)
                     if target_pid:
-                        # Merge pod_num, team, placement, or battle points if present
-                        if p_info.get("placement") is not None:
+                        # Merge pod_num, team, placement, list_id, bcp_event_player_id, detachment, or battle points if present
+                        if p_info.get("placement") is not None and p_info.get("placement") > 0:
                             player_stats[target_pid]["official_placement"] = p_info.get("placement")
                             player_stats[target_pid]["placement"] = p_info.get("placement")
                         if p_info.get("pod_num") is not None and player_stats[target_pid].get("pod_num") is None:
                             player_stats[target_pid]["pod_num"] = p_info.get("pod_num")
                         if not player_stats[target_pid].get("team") and p_info.get("team"):
                             player_stats[target_pid]["team"] = p_info.get("team")
+                        if not player_stats[target_pid].get("detachment") and lf["detachment"]:
+                            player_stats[target_pid]["detachment"] = lf["detachment"]
+                        if not player_stats[target_pid].get("bcp_event_player_id") and lf["bcp_event_player_id"]:
+                            player_stats[target_pid]["bcp_event_player_id"] = lf["bcp_event_player_id"]
+                        if not player_stats[target_pid].get("list_id") and lf["list_id"]:
+                            player_stats[target_pid]["list_id"] = lf["list_id"]
+                        if not player_stats[target_pid].get("list_url") and lf["list_url"]:
+                            player_stats[target_pid]["list_url"] = lf["list_url"]
+                        if not player_stats[target_pid].get("army_list") and lf["army_list"]:
+                            player_stats[target_pid]["army_list"] = lf["army_list"]
+                        if lf["has_list"]:
+                            player_stats[target_pid]["has_list"] = True
+                            player_stats[target_pid]["has_list_submitted"] = True
                         if not player_stats[target_pid].get("event_battle_points") and p_info.get("battle_points"):
                             player_stats[target_pid]["event_battle_points"] = p_info.get("battle_points")
                         continue
@@ -4178,14 +4350,21 @@ class PostgresDatabase:
                     if p_id not in player_stats:
                         player_stats[p_id] = {
                             "player_id": p_id,
+                            "bcp_event_player_id": lf["bcp_event_player_id"],
                             "full_name": p_info.get("full_name") or "Player",
                             "faction": p_info.get("faction") or "Unknown",
+                            "detachment": lf["detachment"],
                             "team": p_info.get("team") or "",
                             "dropped": p_info.get("dropped", False),
                             "checked_in": p_info.get("checked_in", True),
                             "pod_num": p_info.get("pod_num"),
                             "placement": p_info.get("placement"),
                             "official_placement": p_info.get("placement"),
+                            "army_list": lf["army_list"],
+                            "list_url": lf["list_url"],
+                            "list_id": lf["list_id"],
+                            "has_list": lf["has_list"],
+                            "has_list_submitted": lf["has_list_submitted"],
                             "current_elo": p_info.get("current_elo", 1500.0),
                             "peak_elo": p_info.get("peak_elo", 1500.0),
                             "global_win_rate": p_info.get("global_win_rate", 0.0),
@@ -4222,14 +4401,21 @@ class PostgresDatabase:
                         entry_id = r_id or f"roster-{len(player_stats) + 1}"
                         player_stats[entry_id] = {
                             "player_id": entry_id,
+                            "bcp_event_player_id": r_id or None,
                             "full_name": r_name,
                             "faction": r_fac,
+                            "detachment": str(r_entry.get("detachment") or ""),
                             "team": r_team,
                             "dropped": bool(r_entry.get("dropped", False)),
                             "checked_in": bool(r_entry.get("checkedIn") or r_entry.get("checked_in", True)),
                             "pod_num": None,
                             "placement": None,
                             "official_placement": None,
+                            "army_list": "",
+                            "list_url": None,
+                            "list_id": str(r_entry.get("listId") or r_entry.get("list_id") or "") or None,
+                            "has_list": bool(r_entry.get("listId") or r_entry.get("list_id")),
+                            "has_list_submitted": bool(r_entry.get("listId") or r_entry.get("list_id")),
                             "current_elo": r_elo,
                             "peak_elo": r_elo,
                             "global_win_rate": 0.0,
@@ -4244,6 +4430,36 @@ class PostgresDatabase:
                         }
                         if r_norm:
                             existing_names[r_norm] = entry_id
+
+                # Overlay any cached BCP competitor placings & listIds from _bcp_event_placings_cache_dict
+                plc_cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, cache_key, ttl=3600)
+                if isinstance(plc_cached, dict):
+                    c_by_id = plc_cached.get("by_id") or {}
+                    c_by_name = plc_cached.get("by_name") or {}
+                    c_meta_id = plc_cached.get("meta_by_id") or {}
+                    c_meta_name = plc_cached.get("meta_by_name") or {}
+                    for p_id, ps in player_stats.items():
+                        nm_low = str(ps.get("full_name") or "").strip().lower()
+                        bcp_ep_id = str(ps.get("bcp_event_player_id") or "").strip()
+                        pl_val = c_by_id.get(p_id) or (c_by_id.get(bcp_ep_id) if bcp_ep_id else None) or (c_by_name.get(nm_low) if nm_low else None)
+                        if pl_val and int(pl_val) > 0:
+                            ps["official_placement"] = int(pl_val)
+                            ps["placement"] = int(pl_val)
+                        meta = c_meta_id.get(p_id) or (c_meta_id.get(bcp_ep_id) if bcp_ep_id else None) or (c_meta_name.get(nm_low) if nm_low else None)
+                        if isinstance(meta, dict):
+                            if meta.get("list_id") and not ps.get("list_id"):
+                                ps["list_id"] = meta["list_id"]
+                                ps["list_url"] = meta.get("list_url") or f"https://www.bestcoastpairings.com/list/{meta['list_id']}"
+                                ps["has_list"] = True
+                                ps["has_list_submitted"] = True
+                            if meta.get("bcp_event_player_id") and not ps.get("bcp_event_player_id"):
+                                ps["bcp_event_player_id"] = meta["bcp_event_player_id"]
+                            if meta.get("detachment") and not ps.get("detachment"):
+                                ps["detachment"] = meta["detachment"]
+                            if meta.get("team") and not ps.get("team"):
+                                ps["team"] = meta["team"]
+                            if meta.get("games") and not ps.get("games"):
+                                ps["games"] = meta["games"]
 
                 # Determine total rounds in tournament
                 max_rounds = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 6)
@@ -4391,12 +4607,36 @@ class PostgresDatabase:
                                 seen_names.add(norm_name)
 
                 has_matches = len(matches) > 0
+                pid_to_list_id = {}
+                name_to_list_id = {}
                 for rank_idx, p in enumerate(final_players, 1):
                     if has_official_placements or has_matches:
                         p["placement"] = p.get("official_placement") or rank_idx
                     else:
                         p["placement"] = p.get("official_placement") or None
-                    p["rank"] = rank_idx
+                    p["rank"] = p.get("official_placement") or rank_idx
+                    lid = p.get("list_id")
+                    if lid:
+                        if p.get("player_id"):
+                            pid_to_list_id[str(p["player_id"])] = lid
+                        if p.get("bcp_event_player_id"):
+                            pid_to_list_id[str(p["bcp_event_player_id"])] = lid
+                        fn_low = str(p.get("full_name") or "").strip().lower()
+                        if fn_low:
+                            name_to_list_id[fn_low] = lid
+
+                if pid_to_list_id or name_to_list_id:
+                    for m in matches:
+                        if not m.get("player1_list_id"):
+                            m["player1_list_id"] = (
+                                pid_to_list_id.get(str(m.get("player1_id") or ""))
+                                or name_to_list_id.get(str(m.get("player1_name") or "").strip().lower())
+                            )
+                        if not m.get("player2_list_id"):
+                            m["player2_list_id"] = (
+                                pid_to_list_id.get(str(m.get("player2_id") or ""))
+                                or name_to_list_id.get(str(m.get("player2_name") or "").strip().lower())
+                            )
 
                 res["players"] = final_players
                 res["roster"] = roster_list
@@ -5660,6 +5900,236 @@ class PostgresDatabase:
                     logger.warning(f"Error fetching team matches in get_team_matches: {e}")
                     return []
 
+    _bcp_persisted_eids: Set[str] = set()
+
+    def _persist_bcp_event_players_to_db_async(self, eid: str, active: List[Dict[str, Any]]) -> None:
+        """Asynchronously persists BCP official placings and listIds into event_participants in Cloud SQL."""
+        if not eid or not active:
+            return
+        if not hasattr(self, "get_connection") or hasattr(self.get_connection, "_mock_name"):
+            return
+        if eid in PostgresDatabase._bcp_persisted_eids:
+            return
+        PostgresDatabase._bcp_persisted_eids.add(eid)
+
+        def _bg_persist():
+            try:
+                updates_by_id = []
+                updates_by_name = []
+                for p in active:
+                    if not isinstance(p, dict):
+                        continue
+                    placing_num = None
+                    for pk in ("manualPlacing", "placing", "place", "rank", "placement", "ranking", "overallPlacing"):
+                        val = p.get(pk)
+                        if val is not None and not isinstance(val, bool):
+                            try:
+                                pv = int(val)
+                                if pv > 0:
+                                    placing_num = pv
+                                    break
+                            except (ValueError, TypeError):
+                                pass
+                    u = p.get("user") if isinstance(p.get("user"), dict) else {}
+                    bcp_ep_id = str(p.get("id") or p.get("_id") or p.get("playerId") or "").strip()
+                    user_id = str(u.get("id") or p.get("userId") or p.get("user_id") or "").strip()
+                    list_id = str(p.get("listId") or p.get("list_id") or p.get("armyListId") or p.get("army_list_id") or p.get("rosterId") or "").strip()
+                    army_list_val = f"/list/{list_id}" if list_id else None
+                    has_list_val = bool(list_id)
+                    det_obj = p.get("subFaction") or p.get("detachment") or {}
+                    det_name = str((det_obj.get("name") or "") if isinstance(det_obj, dict) else (det_obj or "")).strip() or None
+                    fn = str(u.get("firstName") or p.get("firstName") or "").strip()
+                    ln = str(u.get("lastName") or p.get("lastName") or "").strip()
+                    full = f"{fn} {ln}".strip() or str(p.get("name") or "").strip()
+
+                    if not placing_num and not list_id and not bcp_ep_id and not det_name:
+                        continue
+                    cand_ids = [k for k in {user_id, bcp_ep_id} if k]
+                    if cand_ids:
+                        updates_by_id.append((placing_num, bcp_ep_id or None, det_name, army_list_val, has_list_val, eid, cand_ids))
+                    if full:
+                        updates_by_name.append((placing_num, bcp_ep_id or None, det_name, army_list_val, has_list_val, eid, full.lower()))
+
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        if updates_by_id:
+                            extras.execute_batch(
+                                cur,
+                                """
+                                UPDATE event_participants
+                                SET placement = COALESCE(%s, placement),
+                                    bcp_player_id = COALESCE(%s, bcp_player_id),
+                                    detachment = COALESCE(%s, NULLIF(detachment, '')),
+                                    army_list = COALESCE(%s, NULLIF(army_list, '')),
+                                    has_list_submitted = (COALESCE(has_list_submitted, FALSE) OR %s)
+                                WHERE event_id = %s AND player_id = ANY(%s);
+                                """,
+                                updates_by_id,
+                                page_size=200,
+                            )
+                        if updates_by_name:
+                            extras.execute_batch(
+                                cur,
+                                """
+                                UPDATE event_participants
+                                SET placement = COALESCE(%s, placement),
+                                    bcp_player_id = COALESCE(%s, bcp_player_id),
+                                    detachment = COALESCE(%s, NULLIF(detachment, '')),
+                                    army_list = COALESCE(%s, NULLIF(army_list, '')),
+                                    has_list_submitted = (COALESCE(has_list_submitted, FALSE) OR %s)
+                                WHERE event_id = %s AND LOWER(TRIM(full_name)) = %s;
+                                """,
+                                updates_by_name,
+                                page_size=200,
+                            )
+                        if len(active) > 0:
+                            cur.execute(
+                                """
+                                UPDATE events
+                                SET total_players = GREATEST(COALESCE(total_players, 0), %s)
+                                WHERE id = %s AND COALESCE(total_players, 0) < %s;
+                                """,
+                                (len(active), eid, len(active)),
+                            )
+                    conn.commit()
+                PostgresDatabase._event_details_cache_dict.pop(eid, None)
+            except Exception as e:
+                PostgresDatabase._bcp_persisted_eids.discard(eid)
+                logger.debug(f"Background BCP event_participants persist notice for {eid}: {e}")
+
+        threading.Thread(target=_bg_persist, daemon=True).start()
+
+    def fetch_and_cache_bcp_event_placings(
+        self,
+        eid: str,
+        timeout: float = 1.5,
+        persist_async: bool = True,
+    ) -> Optional[Dict[str, Any]]:
+        """Fetches official BCP placings & listIds for an event, caches in-memory, and optionally persists to DB in background."""
+        eid = str(eid or "").strip()
+        if not eid:
+            return None
+        cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, eid, ttl=3600)
+        if isinstance(cached, dict) and cached.get("fetched_ok"):
+            return cached
+
+        import urllib.request
+        headers = {
+            "Accept": "application/json",
+            "client-id": "web-app",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Origin": "https://www.bestcoastpairings.com",
+            "Referer": "https://www.bestcoastpairings.com/",
+        }
+        url = f"https://newprod-api.bestcoastpairings.com/v1/events/{eid}/players?limit=2500&placings=true"
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            active = []
+            if isinstance(data, dict):
+                for k in ("active", "data", "players"):
+                    if isinstance(data.get(k), list):
+                        active = data[k]
+                        break
+            elif isinstance(data, list):
+                active = data
+
+            by_id: Dict[str, int] = {}
+            by_name: Dict[str, int] = {}
+            meta_by_id: Dict[str, Dict[str, Any]] = {}
+            meta_by_name: Dict[str, Dict[str, Any]] = {}
+            has_any_list = False
+
+            for p in active:
+                if not isinstance(p, dict):
+                    continue
+                placing_num = None
+                for pk in ("manualPlacing", "placing", "place", "rank", "placement", "ranking", "overallPlacing"):
+                    val = p.get(pk)
+                    if val is not None and not isinstance(val, bool):
+                        try:
+                            pv = int(val)
+                            if pv > 0:
+                                placing_num = pv
+                                break
+                        except (ValueError, TypeError):
+                            pass
+
+                u = p.get("user") if isinstance(p.get("user"), dict) else {}
+                bcp_ep_id = str(p.get("id") or p.get("_id") or p.get("playerId") or "").strip()
+                user_id = str(u.get("id") or p.get("userId") or p.get("user_id") or "").strip()
+                list_id = str(p.get("listId") or p.get("list_id") or p.get("armyListId") or p.get("army_list_id") or p.get("rosterId") or "").strip()
+                list_url = f"https://www.bestcoastpairings.com/list/{list_id}" if list_id else None
+                if list_id:
+                    has_any_list = True
+
+                det_obj = p.get("subFaction") or p.get("detachment") or {}
+                det_name = str((det_obj.get("name") or "") if isinstance(det_obj, dict) else (det_obj or "")).strip()
+                fac_obj = p.get("army") or p.get("faction") or {}
+                fac_name = str((fac_obj.get("name") or "") if isinstance(fac_obj, dict) else (fac_obj or "")).strip()
+                tm_obj = p.get("team") or {}
+                team_name = str((tm_obj.get("name") or "") if isinstance(tm_obj, dict) else (tm_obj or p.get("teamName") or "")).strip()
+
+                fn = str(u.get("firstName") or p.get("firstName") or "").strip()
+                ln = str(u.get("lastName") or p.get("lastName") or "").strip()
+                full = f"{fn} {ln}".strip() or str(p.get("name") or "").strip()
+
+                meta_item = {
+                    "placement": placing_num,
+                    "list_id": list_id or None,
+                    "list_url": list_url,
+                    "has_list": bool(list_id),
+                    "bcp_event_player_id": bcp_ep_id or None,
+                    "user_id": user_id or None,
+                    "detachment": det_name,
+                    "faction": fac_name,
+                    "team": team_name,
+                    "dropped": bool(p.get("dropped")),
+                    "checked_in": bool(p.get("checkedIn") or p.get("checked_in", True)),
+                    "games": p.get("games") or p.get("total_games") or [],
+                }
+
+                for kid in (u.get("id"), p.get("userId"), p.get("user_id"), p.get("id"), p.get("playerId")):
+                    if kid:
+                        k_str = str(kid).strip()
+                        meta_by_id[k_str] = meta_item
+                        if placing_num:
+                            by_id[k_str] = placing_num
+                if full:
+                    f_low = full.lower()
+                    meta_by_name[f_low] = meta_item
+                    if placing_num:
+                        by_name[f_low] = placing_num
+
+            payload = {
+                "by_id": by_id,
+                "by_name": by_name,
+                "meta_by_id": meta_by_id,
+                "meta_by_name": meta_by_name,
+                "raw_players": active,
+                "active_count": len(active),
+                "has_any_list": has_any_list,
+                "fetched_ok": True,
+            }
+            PostgresDatabase.set_cached(
+                PostgresDatabase._bcp_event_placings_cache_dict,
+                eid,
+                payload,
+                max_size=2000,
+            )
+            PostgresDatabase._event_details_cache_dict.pop(eid, None)
+            try:
+                from scraper import BestCoastPairingsScraper
+                BestCoastPairingsScraper._bcp_http_cache[f"ev_players:{eid}"] = (time.time(), active)
+            except Exception:
+                pass
+            if persist_async and active:
+                self._persist_bcp_event_players_to_db_async(eid, active)
+            return payload
+        except Exception:
+            return None
+
     def _enrich_tournaments_with_bcp_placings(
         self,
         tournaments: List[Dict[str, Any]],
@@ -5681,7 +6151,7 @@ class PostgresDatabase:
                 continue
             if int(t.get("matches_played") or 0) <= 0 and int(t.get("placement") or 0) <= 0:
                 continue
-            if has_db_pl and int(t.get("placement") or 0) > 0:
+            if has_db_pl and int(t.get("placement") or 0) > 0 and int(t.get("total_players") or 0) > 1:
                 continue
             if PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, eid, ttl=3600) is None:
                 if eid not in seen_eids:
@@ -5689,94 +6159,44 @@ class PostgresDatabase:
                     missing_eids.append(eid)
 
         if missing_eids:
-            import urllib.request
             from concurrent.futures import ThreadPoolExecutor
 
-            headers = {
-                "Accept": "application/json",
-                "client-id": "web-app",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                "Origin": "https://www.bestcoastpairings.com",
-                "Referer": "https://www.bestcoastpairings.com/",
-            }
-
             def _fetch_one_bcp_placing(eid: str):
-                url = f"https://newprod-api.bestcoastpairings.com/v1/events/{eid}/players?limit=2500&placings=true"
-                try:
-                    req = urllib.request.Request(url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=1.5) as resp:
-                        data = json.loads(resp.read().decode("utf-8"))
-                    active = []
-                    if isinstance(data, dict):
-                        for k in ("active", "data", "players"):
-                            if isinstance(data.get(k), list):
-                                active = data[k]
-                                break
-                    elif isinstance(data, list):
-                        active = data
-
-                    by_id: Dict[str, int] = {}
-                    by_name: Dict[str, int] = {}
-                    for p in active:
-                        if not isinstance(p, dict):
-                            continue
-                        placing_num = None
-                        for pk in ("manualPlacing", "placing", "place", "rank", "placement", "ranking", "overallPlacing"):
-                            val = p.get(pk)
-                            if val is not None and not isinstance(val, bool):
-                                try:
-                                    pv = int(val)
-                                    if pv > 0:
-                                        placing_num = pv
-                                        break
-                                except (ValueError, TypeError):
-                                    pass
-                        if not placing_num:
-                            continue
-                        u = p.get("user") if isinstance(p.get("user"), dict) else {}
-                        for kid in (u.get("id"), p.get("userId"), p.get("user_id"), p.get("id"), p.get("playerId")):
-                            if kid:
-                                by_id[str(kid).strip()] = placing_num
-                        fn = str(u.get("firstName") or p.get("firstName") or "").strip()
-                        ln = str(u.get("lastName") or p.get("lastName") or "").strip()
-                        full = f"{fn} {ln}".strip() or str(p.get("name") or "").strip()
-                        if full:
-                            by_name[full.lower()] = placing_num
-                    return eid, {"by_id": by_id, "by_name": by_name, "active_count": len(active)}
-                except Exception:
-                    return eid, None
+                plc_payload = self.fetch_and_cache_bcp_event_placings(eid, timeout=1.5, persist_async=True)
+                return eid, plc_payload
 
             sync_eids = missing_eids[:2] if len(tournaments) <= 5 else []
-            bg_eids = (missing_eids[2:6] if len(tournaments) <= 5 else missing_eids[:6])
+            bg_eids = missing_eids[len(sync_eids):]
 
             try:
                 if sync_eids:
                     with ThreadPoolExecutor(max_workers=min(2, len(sync_eids))) as pool:
                         for eid, plc_payload in pool.map(_fetch_one_bcp_placing, sync_eids):
-                            PostgresDatabase.set_cached(
-                                PostgresDatabase._bcp_event_placings_cache_dict,
-                                eid,
-                                plc_payload if plc_payload is not None else {"by_id": {}, "by_name": {}, "active_count": 0},
-                                max_size=2000
-                            )
+                            if plc_payload is None:
+                                PostgresDatabase.set_cached(
+                                    PostgresDatabase._bcp_event_placings_cache_dict,
+                                    eid,
+                                    {"by_id": {}, "by_name": {}, "active_count": 0, "fetched_ok": False},
+                                    max_size=2000
+                                )
             except Exception as e:
                 logger.debug(f"BCP tournament placing enrichment notice: {e}")
 
             if bg_eids:
                 def _bg_warm_bcp_placings(eids_to_warm: List[str], p_id: str, p_norm: str):
                     try:
-                        with ThreadPoolExecutor(max_workers=min(4, len(eids_to_warm))) as bg_pool:
+                        with ThreadPoolExecutor(max_workers=min(6, len(eids_to_warm))) as bg_pool:
                             for b_eid, b_payload in bg_pool.map(_fetch_one_bcp_placing, eids_to_warm):
-                                clean_payload = b_payload if b_payload is not None else {"by_id": {}, "by_name": {}, "active_count": 0}
-                                PostgresDatabase.set_cached(
-                                    PostgresDatabase._bcp_event_placings_cache_dict,
-                                    b_eid,
-                                    clean_payload,
-                                    max_size=2000
-                                )
+                                if b_payload is None:
+                                    PostgresDatabase.set_cached(
+                                        PostgresDatabase._bcp_event_placings_cache_dict,
+                                        b_eid,
+                                        {"by_id": {}, "by_name": {}, "active_count": 0, "fetched_ok": False},
+                                        max_size=2000
+                                    )
                         # Update any cached tournament lists in-place rather than evicting the cache
                         for sys_k in ("40k", "aos", "all"):
-                            c_list = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, f"{sys_k}:{p_id}", ttl=600)
+                            c_list = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, f"{sys_k}:{p_id}", ttl=1800)
                             if isinstance(c_list, list):
                                 for t_item in c_list:
                                     t_eid = str(t_item.get("event_id") or "").strip()
@@ -5785,6 +6205,8 @@ class PostgresDatabase:
                                         b_pl = (plc_i.get("by_id") or {}).get(p_id) or ((plc_i.get("by_name") or {}).get(p_norm) if p_norm else None)
                                         if b_pl and int(b_pl) > 0:
                                             t_item["placement"] = int(b_pl)
+                                        if int(t_item.get("total_players") or 0) <= 1 and int(plc_i.get("active_count") or 0) > 0:
+                                            t_item["total_players"] = int(plc_i["active_count"])
                     except Exception:
                         pass
 
@@ -5806,7 +6228,7 @@ class PostgresDatabase:
             bcp_pl = by_id.get(pid_clean) or (by_name.get(norm_name) if norm_name else None)
             if bcp_pl and int(bcp_pl) > 0:
                 t["placement"] = int(bcp_pl)
-            if int(t.get("total_players") or 0) <= 0 and int(plc_info.get("active_count") or 0) > 0:
+            if int(t.get("total_players") or 0) <= 1 and int(plc_info.get("active_count") or 0) > 0:
                 t["total_players"] = int(plc_info["active_count"])
 
     def get_player_tournaments(self, player_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
@@ -6157,18 +6579,12 @@ class PostgresDatabase:
                                 THEN NULLIF((e.raw_json->>'totalPlayers')::int, 0)
                                 ELSE NULL
                             END,
-                            GREATEST(COALESCE(e.total_players, 0), COALESCE(rc.computed_total_players, 0))
+                            (SELECT COUNT(*)::int FROM event_participants ep_cnt WHERE ep_cnt.event_id = e.id),
+                            0
                         ) AS total_players, 
                         COALESCE(e.num_rounds, 0) AS num_rounds,
                         COALESCE(rc.registered_faction, 'Unknown') AS registered_faction,
-                        CASE
-                            WHEN COALESCE(rc.ep_placement, nep.name_placement, 0) > 0 THEN COALESCE(rc.ep_placement, nep.name_placement)
-                            WHEN COALESCE(rc.matches_played, 0) > 0 AND (
-                                COALESCE(e.is_ended, FALSE) = TRUE
-                                OR COALESCE(e.end_date, e.event_date, rc.last_match_date) < (NOW() - INTERVAL '12 hours')
-                            ) THEN COALESCE(rc.computed_rank, 0)
-                            ELSE 0
-                        END AS placement,
+                        COALESCE(rc.ep_placement, nep.name_placement, 0) AS placement,
                         COALESCE(rc.matches_played, 0) AS matches_played,
                         COALESCE(rc.wins, 0) AS wins,
                         COALESCE(rc.losses, 0) AS losses,
@@ -6694,29 +7110,43 @@ class PostgresDatabase:
                     params.append(sys_norm)
                 try:
                     cursor.execute(f"""
-                    SELECT h.*, e.name as event_name,
-                           m.table_number,
+                    WITH player_hist AS MATERIALIZED (
+                        SELECT h.*, e.name as event_name, m.table_number, m.event_id as m_event_id, m.round as m_round
+                        FROM rating_history h
+                        LEFT JOIN events e ON h.event_id = e.id
+                        LEFT JOIN matches m ON h.match_id = m.id
+                        {where_sql}
+                    ),
+                    player_tg AS MATERIALIZED (
+                        SELECT DISTINCT ON (LOWER(event_id), round_num, table_num)
+                               LOWER(event_id) AS ev_low,
+                               round_num,
+                               table_num,
+                               match_id,
+                               is_finished
+                        FROM tracker_games
+                        WHERE LOWER(event_id) IN (
+                            SELECT DISTINCT LOWER(m_event_id) FROM player_hist WHERE m_event_id IS NOT NULL
+                        )
+                        ORDER BY
+                               LOWER(event_id),
+                               round_num,
+                               table_num,
+                               COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
+                               is_finished DESC,
+                               updated_at DESC
+                    )
+                    SELECT ph.*,
                            tg.match_id AS tracker_match_id,
                            COALESCE(tg.is_finished, FALSE) AS has_tracker_scorecard
-                    FROM rating_history h
-                    LEFT JOIN events e ON h.event_id = e.id
-                    LEFT JOIN matches m ON h.match_id = m.id
-                    LEFT JOIN LATERAL (
-                        SELECT match_id, is_finished
-                        FROM tracker_games
-                        WHERE m.event_id IS NOT NULL
-                          AND m.table_number IS NOT NULL
-                          AND LOWER(event_id) = LOWER(m.event_id)
-                          AND round_num = m.round
-                          AND table_num = m.table_number
-                        ORDER BY
-                          COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
-                          is_finished DESC,
-                          updated_at DESC
-                        LIMIT 1
-                    ) tg ON TRUE
-                    {where_sql}
-                    ORDER BY h.match_date ASC, h.round ASC;
+                    FROM player_hist ph
+                    LEFT JOIN player_tg tg
+                      ON ph.m_event_id IS NOT NULL
+                     AND ph.table_number IS NOT NULL
+                     AND LOWER(ph.m_event_id) = tg.ev_low
+                     AND ph.m_round = tg.round_num
+                     AND ph.table_number = tg.table_num
+                    ORDER BY ph.match_date ASC, ph.round ASC;
                     """, tuple(params))
                     rows = [dict(r) for r in cursor.fetchall()]
                     if not is_mock_self:
@@ -6999,8 +7429,8 @@ class PostgresDatabase:
                         WHERE LOWER(player1_faction) = %s
                           AND player1_id IS NOT NULL 
                           AND is_done = TRUE{sys_clause}{date_clause}
-                        ORDER BY match_date DESC
-                        LIMIT 3500
+                        ORDER BY LOWER(player1_faction), match_date DESC
+                        LIMIT 1500
                     )
                     UNION ALL
                     (
@@ -7016,8 +7446,8 @@ class PostgresDatabase:
                           AND player2_id IS NOT NULL 
                           AND is_bye = FALSE 
                           AND is_done = TRUE{sys_clause}{date_clause}
-                        ORDER BY match_date DESC
-                        LIMIT 3500
+                        ORDER BY LOWER(player2_faction), match_date DESC
+                        LIMIT 1500
                     )
                 ),
                 agg_pilots AS MATERIALIZED (
@@ -7078,8 +7508,8 @@ class PostgresDatabase:
                         WHERE LOWER(player1_faction) = %s
                           AND player1_id IS NOT NULL 
                           AND is_done = TRUE{date_clause}
-                        ORDER BY match_date DESC
-                        LIMIT 2500
+                        ORDER BY LOWER(player1_faction), match_date DESC
+                        LIMIT 1500
                     )
                     UNION ALL
                     (
@@ -7095,8 +7525,8 @@ class PostgresDatabase:
                           AND player2_id IS NOT NULL 
                           AND is_bye = FALSE 
                           AND is_done = TRUE{date_clause}
-                        ORDER BY match_date DESC
-                        LIMIT 2500
+                        ORDER BY LOWER(player2_faction), match_date DESC
+                        LIMIT 1500
                     )
                 )
                 SELECT 
@@ -7148,7 +7578,7 @@ class PostgresDatabase:
                 FROM matches
                 WHERE LOWER(player1_faction) = %s
                   AND is_done = TRUE{sys_clause}{date_clause}
-                ORDER BY match_date DESC
+                ORDER BY LOWER(player1_faction), match_date DESC
                 LIMIT %s
             ),
             p1_matches AS (
@@ -7160,7 +7590,7 @@ class PostgresDatabase:
                 FROM matches
                 WHERE LOWER(player2_faction) = %s
                   AND is_done = TRUE AND is_bye = FALSE{sys_clause}{date_clause}
-                ORDER BY match_date DESC
+                ORDER BY LOWER(player2_faction), match_date DESC
                 LIMIT %s
             ),
             p2_matches AS (
@@ -7241,8 +7671,8 @@ class PostgresDatabase:
                       AND player2_faction != 'Unknown Faction' 
                       AND LOWER(player2_faction) != %s
                       AND is_done = TRUE{sys_clause}{date_clause}
-                    ORDER BY match_date DESC
-                    LIMIT 4000
+                    ORDER BY LOWER(player1_faction), match_date DESC
+                    LIMIT 2000
                 )
                 UNION ALL
                 (
@@ -7258,8 +7688,8 @@ class PostgresDatabase:
                       AND is_bye = FALSE 
                       AND LOWER(player1_faction) != %s
                       AND is_done = TRUE{sys_clause}{date_clause}
-                    ORDER BY match_date DESC
-                    LIMIT 4000
+                    ORDER BY LOWER(player2_faction), match_date DESC
+                    LIMIT 2000
                 )
             )
             SELECT 

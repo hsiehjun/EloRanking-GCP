@@ -1391,7 +1391,9 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         return event_details
 
     # Fast-path: Completed tournaments already stored in DB with full roster & matches
-    # return immediately (<20ms) without making external BCP HTTP waterfall calls.
+    # return immediately (<20ms) when BCP roster/placings metadata is already present,
+    # or enrich from BCP within a strict 600ms budget (falling back to async background
+    # enrichment + sync_in_progress=True if BCP takes >600ms on a huge cold event).
     if (
         not is_mock_env
         and not force_sync
@@ -1400,24 +1402,125 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         and len(event_details.get("players") or []) > 0
         and len(event_details.get("matches") or []) > 0
     ):
-        for pl in (event_details.get("players") or []):
-            if isinstance(pl, dict):
-                if pl.get("faction"):
-                    pl["faction"] = sanitize_event_faction(pl["faction"])
-                al = str(pl.get("army_list") or "").strip()
-                if al.startswith(("/list/", "http://", "https://", "/v1/")):
-                    if not pl.get("list_url"):
-                        pl["list_url"] = f"https://www.bestcoastpairings.com{al}" if al.startswith("/") else al
-                    pl["army_list"] = ""
-                lu = str(pl.get("list_url") or pl.get("listUrl") or "").strip()
-                if lu.startswith("/"):
-                    lu = f"https://www.bestcoastpairings.com{lu}"
-                    pl["list_url"] = lu
-                if not pl.get("list_id") and lu:
-                    m_lid = re.search(r'/list/([a-zA-Z0-9_-]+)', lu)
-                    if m_lid:
-                        pl["list_id"] = m_lid.group(1)
-                pl["has_list"] = bool(pl.get("army_list") or pl.get("list_url") or pl.get("list_id"))
+        def _normalize_fast_path_players_and_matches(ev_obj: dict) -> None:
+            p_by_id = {}
+            p_by_name = {}
+            for pl in (ev_obj.get("players") or []):
+                if isinstance(pl, dict):
+                    if pl.get("faction"):
+                        pl["faction"] = sanitize_event_faction(pl["faction"])
+                    al = str(pl.get("army_list") or "").strip()
+                    if al.startswith(("/list/", "http://", "https://", "/v1/")):
+                        if not pl.get("list_url"):
+                            pl["list_url"] = f"https://www.bestcoastpairings.com{al}" if al.startswith("/") else al
+                        pl["army_list"] = ""
+                    lu = str(pl.get("list_url") or pl.get("listUrl") or "").strip()
+                    if lu.startswith("/"):
+                        lu = f"https://www.bestcoastpairings.com{lu}"
+                        pl["list_url"] = lu
+                    if not pl.get("list_id") and lu:
+                        m_lid = re.search(r'/list/([a-zA-Z0-9_-]+)', lu)
+                        if m_lid:
+                            pl["list_id"] = m_lid.group(1)
+                    pl["has_list"] = bool(pl.get("army_list") or pl.get("list_url") or pl.get("list_id"))
+                    for k in ("player_id", "id", "bcp_event_player_id", "user_id"):
+                        kv = pl.get(k)
+                        if kv:
+                            p_by_id[str(kv).strip()] = pl
+                    pnm = str(pl.get("full_name") or pl.get("name") or "").strip().lower()
+                    if pnm:
+                        p_by_name[pnm] = pl
+            for m in (ev_obj.get("matches") or []):
+                if not isinstance(m, dict):
+                    continue
+                if not m.get("player1_list_id"):
+                    p1_pl = p_by_id.get(str(m.get("player1_id") or "").strip()) or p_by_name.get(str(m.get("player1_name") or "").strip().lower())
+                    if p1_pl and p1_pl.get("list_id"):
+                        m["player1_list_id"] = p1_pl["list_id"]
+                if not m.get("player2_list_id"):
+                    p2_pl = p_by_id.get(str(m.get("player2_id") or "").strip()) or p_by_name.get(str(m.get("player2_name") or "").strip().lower())
+                    if p2_pl and p2_pl.get("list_id"):
+                        m["player2_list_id"] = p2_pl["list_id"]
+
+        def _apply_bcp_raw_players_to_ev(ev_obj: dict, raw_bcp_players: list) -> None:
+            if not raw_bcp_players:
+                return
+            ev_gs = ev_obj.get("game_system") or "40k"
+            formatted_pl = format_bcp_roster_to_players(
+                raw_bcp_players,
+                ev_obj.get("players") or [],
+                db=db,
+                game_system=ev_gs,
+                is_ended=True,
+            )
+            if formatted_pl:
+                ev_obj["players"] = formatted_pl
+                ev_obj["total_players"] = len(formatted_pl)
+                elos_list = [float(p["current_elo"]) for p in formatted_pl if p.get("current_elo") is not None]
+                if elos_list:
+                    ev_obj["avg_field_elo"] = round(sum(elos_list) / len(elos_list), 1)
+                    ev_obj["top_seed_elo"] = max(elos_list)
+            _normalize_fast_path_players_and_matches(ev_obj)
+
+        _normalize_fast_path_players_and_matches(event_details)
+        plc_cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, event_id_str, ttl=3600)
+        if isinstance(plc_cached, dict) and plc_cached.get("raw_players"):
+            _apply_bcp_raw_players_to_ev(event_details, plc_cached["raw_players"])
+
+        players_arr = event_details.get("players") or []
+        has_bcp_roster_meta = (
+            any(
+                isinstance(p, dict) and (p.get("list_id") or p.get("bcp_event_player_id") or p.get("list_url"))
+                for p in players_arr
+            )
+            and any(
+                isinstance(p, dict) and (int(p.get("official_placement") or 0) > 0)
+                for p in players_arr
+            )
+        )
+        already_checked_bcp = bool(isinstance(plc_cached, dict) and plc_cached.get("fetched_ok"))
+
+        if not has_bcp_roster_meta and not already_checked_bcp and hasattr(db, "fetch_and_cache_bcp_event_placings"):
+            holder = {"res": None, "done": False}
+
+            def _bg_fetch_bcp_for_completed():
+                try:
+                    res = db.fetch_and_cache_bcp_event_placings(event_id_str, timeout=4.0, persist_async=True)
+                    holder["res"] = res
+                    holder["done"] = True
+                    if isinstance(res, dict) and res.get("raw_players"):
+                        import copy
+                        ev_copy = copy.deepcopy(event_details)
+                        _apply_bcp_raw_players_to_ev(ev_copy, res["raw_players"])
+                        ev_copy["sync_in_progress"] = False
+                        _event_details_cache[event_id_str] = {
+                            "timestamp": time.time(),
+                            "is_ended": True,
+                            "data": ev_copy,
+                        }
+                except Exception as e:
+                    logger.debug(f"Background BCP enrichment notice for {event_id_str}: {e}")
+                    holder["done"] = True
+
+            t_enrich = threading.Thread(target=_bg_fetch_bcp_for_completed, daemon=True)
+            t_enrich.start()
+            t_enrich.join(timeout=0.58)
+            if holder["done"]:
+                res_obj = holder["res"]
+                if isinstance(res_obj, dict) and res_obj.get("raw_players"):
+                    _apply_bcp_raw_players_to_ev(event_details, res_obj["raw_players"])
+                event_details["sync_in_progress"] = False
+                _event_details_cache[event_id_str] = {
+                    "timestamp": time.time(),
+                    "is_ended": True,
+                    "data": event_details,
+                }
+                return event_details
+            else:
+                # Return fast (<600ms) with sync_in_progress=True so frontend re-polls in 2s once cached
+                event_details["sync_in_progress"] = True
+                return event_details
+
         event_details["sync_in_progress"] = False
         _event_details_cache[event_id_str] = {
             "timestamp": now_ts,
@@ -1615,25 +1718,51 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                 try:
                     by_id_cache = {}
                     by_name_cache = {}
+                    meta_by_id_cache = {}
+                    meta_by_name_cache = {}
                     for fp in formatted_players:
                         if not isinstance(fp, dict):
                             continue
                         pl_val = fp.get("placement") or fp.get("official_placement")
-                        if pl_val and int(pl_val) > 0:
-                            pl_int = int(pl_val)
-                            for kid in (fp.get("player_id"), fp.get("user_id"), fp.get("bcp_event_player_id"), fp.get("id")):
-                                if kid:
-                                    by_id_cache[str(kid).strip()] = pl_int
-                            fn_str = str(fp.get("full_name") or "").strip().lower()
-                            if fn_str:
+                        pl_int = int(pl_val) if (pl_val and int(pl_val) > 0) else None
+                        p_meta = {
+                            "placement": pl_int,
+                            "list_id": fp.get("list_id"),
+                            "list_url": fp.get("list_url") or "",
+                            "has_list": bool(fp.get("has_list") or fp.get("list_id") or fp.get("list_url")),
+                            "bcp_event_player_id": fp.get("bcp_event_player_id") or "",
+                            "detachment": fp.get("detachment") or "",
+                            "faction": fp.get("faction") or "",
+                            "team": fp.get("team") or "",
+                            "dropped": bool(fp.get("dropped")),
+                        }
+                        for kid in (fp.get("player_id"), fp.get("user_id"), fp.get("bcp_event_player_id"), fp.get("id")):
+                            if kid:
+                                k_str = str(kid).strip()
+                                meta_by_id_cache[k_str] = p_meta
+                                if pl_int:
+                                    by_id_cache[k_str] = pl_int
+                        fn_str = str(fp.get("full_name") or "").strip().lower()
+                        if fn_str:
+                            meta_by_name_cache[fn_str] = p_meta
+                            if pl_int:
                                 by_name_cache[fn_str] = pl_int
-                    if by_id_cache or by_name_cache:
-                        PostgresDatabase.set_cached(
-                            PostgresDatabase._bcp_event_placings_cache_dict,
-                            event_id_str,
-                            {"by_id": by_id_cache, "by_name": by_name_cache, "active_count": len(formatted_players)},
-                            max_size=2000
-                        )
+                    PostgresDatabase.set_cached(
+                        PostgresDatabase._bcp_event_placings_cache_dict,
+                        event_id_str,
+                        {
+                            "by_id": by_id_cache,
+                            "by_name": by_name_cache,
+                            "meta_by_id": meta_by_id_cache,
+                            "meta_by_name": meta_by_name_cache,
+                            "raw_players": bcp_players,
+                            "active_count": len(formatted_players),
+                            "fetched_ok": True,
+                        },
+                        max_size=2000
+                    )
+                    if not is_mock_env and hasattr(db, "_persist_bcp_event_players_to_db_async"):
+                        db._persist_bcp_event_players_to_db_async(event_id_str, bcp_players)
                 except Exception:
                     pass
             elos = [float(p["current_elo"]) for p in formatted_players if p.get("current_elo") is not None]

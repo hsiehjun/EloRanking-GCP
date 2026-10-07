@@ -370,6 +370,8 @@ async def on_server_startup():
                 lambda: elo_eng.get_player_win_path("MEV83VFANA", game_system="40k"),
                 lambda: elo_eng.get_player_win_path("xcaFfMZt5b", game_system="40k"),
                 lambda: auth_mgr.get_user_competitor_hub(player_id="MEV83VFANA", user_id=None, game_system="40k"),
+                lambda: db.fetch_and_cache_bcp_event_placings("7ohG0RuDqC1k", timeout=6.0, persist_async=True),
+                lambda: db.get_player_tournaments("MEV83VFANA", game_system="40k"),
             ):
                 try:
                     await asyncio.to_thread(fn)
