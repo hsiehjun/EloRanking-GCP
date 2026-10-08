@@ -3383,6 +3383,13 @@
     const roundEl = document.getElementById('gt-master-clock-round');
     if (!clockPill || !timeEl) return;
 
+    const status = String(tournamentMasterClock.status || 'stopped').toLowerCase();
+    if (status !== 'running' && status !== 'paused') {
+      clockPill.style.display = 'none';
+      return;
+    }
+    clockPill.style.display = 'inline-flex';
+
     const rem = getMasterClockRemainingSeconds();
     const hrs = Math.floor(rem / 3600);
     const mins = Math.floor((rem % 3600) / 60);
@@ -3392,20 +3399,20 @@
     timeEl.textContent = timeStr;
     if (roundEl) roundEl.textContent = tournamentMasterClock.round || 1;
 
-    if (rem === 0 && tournamentMasterClock.status === 'running') {
+    if (rem === 0 && status === 'running') {
       clockPill.style.background = '#e11d48';
       clockPill.style.color = '#fff';
       clockPill.style.borderColor = '#f43f5e';
       timeEl.textContent = "TIME EXPIRED";
-    } else if (rem <= 300 && tournamentMasterClock.status === 'running') {
+    } else if (rem <= 300 && status === 'running') {
       clockPill.style.background = 'rgba(239, 68, 68, 0.2)';
       clockPill.style.color = '#ef4444';
       clockPill.style.borderColor = 'rgba(239, 68, 68, 0.6)';
-    } else if (rem <= 900 && tournamentMasterClock.status === 'running') {
+    } else if (rem <= 900 && status === 'running') {
       clockPill.style.background = 'rgba(245, 158, 11, 0.2)';
       clockPill.style.color = '#f59e0b';
       clockPill.style.borderColor = 'rgba(245, 158, 11, 0.6)';
-    } else if (tournamentMasterClock.status === 'paused') {
+    } else if (status === 'paused') {
       clockPill.style.background = 'rgba(100, 116, 139, 0.2)';
       clockPill.style.color = '#94a3b8';
       clockPill.style.borderColor = '#475569';
@@ -4095,8 +4102,8 @@
           </span>
         ` : ''}
         ${tournamentId ? `
-          <div id="gt-master-clock-pill" style="display:inline-flex; align-items:center; gap:5px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:800; font-family:'JetBrains Mono',monospace;" title="Tournament Round Master Clock (Synchronized with TO)">
-            <span>🏆 Round <span id="gt-master-clock-round">${tournamentMasterClock.round || 1}</span>:</span>
+          <div id="gt-master-clock-pill" style="display:${(tournamentMasterClock.status === 'running' || tournamentMasterClock.status === 'paused') ? 'inline-flex' : 'none'}; align-items:center; gap:5px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:800; font-family:'JetBrains Mono',monospace;" title="Tournament Round Master Clock (Synchronized with TO)">
+            <span>⏱️ Round Clock:</span>
             <span id="gt-master-clock-time">02:30:00</span>
           </div>
         ` : ''}

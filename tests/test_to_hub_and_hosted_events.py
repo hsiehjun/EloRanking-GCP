@@ -249,6 +249,13 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
         self.assertIn("function sendToHubCommsDirectChat()", tournaments_js)
         self.assertIn("function sendToHubCommsBanner()", tournaments_js)
 
+        # Verify Master Round Clock is only shown to players when status is 'running' or 'paused', and TO Hub has Start/Stop controls
+        self.assertIn("if (clockStatus !== 'running' && clockStatus !== 'paused') {", tournaments_js)
+        self.assertIn("updateToHubMasterClockAction('stop')", tournaments_js)
+        self.assertIn("▶️ Start Round (Show Clock to Players)", tournaments_js)
+        self.assertIn("⏹️ Stop Round (Hide Clock)", tournaments_js)
+        self.assertNotIn("to-hub-clock-round-select", tournaments_js)
+
         # Verify syncGlobalEventAnnouncementBanner always queries wildcard '*' and runs on switchTab & startup
         sync_fn_start = tournaments_js.find("async function syncGlobalEventAnnouncementBanner(")
         sync_fn_body = tournaments_js[sync_fn_start:]

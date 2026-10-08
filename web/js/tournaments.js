@@ -11474,9 +11474,12 @@ async function loadEventToHubState(eventId, forceRefresh = false) {
     const res = await window.api.getEventToHubState(eid, forceRefresh);
     if (res && !res.error) {
       res._fetchedAt = Date.now();
+      const normClock = res.clock || res.master_clock || res.masterClock || null;
+      res.clock = normClock;
+      res.master_clock = normClock;
       _eventToHubStateCache.set(eid, res);
       updateEventNewsTabBadge(eid);
-      if (res.clock && res.clock.status === 'running') {
+      if (normClock && normClock.status === 'running') {
         startToHubClockTicker(eid);
       }
       if (currentOpenEventId && String(currentOpenEventId) === eid && currentEventData) {
@@ -11602,50 +11605,34 @@ function buildEventRoundClockAndScheduleCardHtml(ev, skipFetch = false) {
   const state = _eventToHubStateCache.get(eventId) || {};
   const bcpCfg = getEventBcpRoundConfig(eventObj);
   const clockObj = state.clock || state.master_clock || null;
-  const remSec = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
-  const clockStatus = (clockObj && clockObj.status) ? String(clockObj.status) : 'idle';
-  const clockRound = (clockObj && (clockObj.round_num || clockObj.round)) ? (clockObj.round_num || clockObj.round) : 1;
+  const clockStatus = (clockObj && clockObj.status) ? String(clockObj.status).toLowerCase() : 'stopped';
+
+  // Only show the clock to players in Pairings & Live / Player Station when a round has been started by the TO ('running' or 'paused')
+  if (clockStatus !== 'running' && clockStatus !== 'paused') {
+    return '';
+  }
+
+  const configuredMins = Number(clockObj?.durationMinutes || clockObj?.duration_minutes || bcpCfg.defaultLengthMins) || bcpCfg.defaultLengthMins;
+  const remSec = computeClockRemainingSeconds(clockObj, configuredMins);
 
   if (clockStatus === 'running') {
     startToHubClockTicker(eventId);
   }
 
-  const roundTimersHtml = bcpCfg.roundTimers.length > 0
-    ? bcpCfg.roundTimers.map((rt, idx) => {
-        const rNum = rt.round || (idx + 1);
-        const st = rt.startTime ? new Date(rt.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
-        const et = rt.endTime ? new Date(rt.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
-        const datePart = rt.startTime ? new Date(rt.startTime).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
-        const isPaused = Boolean(rt.paused);
-        return `
-          <div style="display:flex; align-items:center; justify-content:space-between; padding:0.45rem 0.65rem; background:rgba(15,23,42,0.55); border:1px solid rgba(255,255,255,0.07); border-radius:6px; font-size:0.8rem;">
-            <span style="font-weight:700; color:#e2e8f0;">Round ${rNum} ${datePart ? `<span style="color:var(--text-muted); font-weight:500;">(${escapeHtml(datePart)})</span>` : ''}</span>
-            <span style="font-family:var(--font-mono); color:#38bdf8;">${escapeHtml(st)} – ${escapeHtml(et)} ${isPaused ? '<span style="color:#fbbf24;">(Paused)</span>' : ''}</span>
-          </div>
-        `;
-      }).join('')
-    : `<div style="font-size:0.8rem; color:var(--text-muted);">Standard Round Length: <strong style="color:#e2e8f0;">${bcpCfg.defaultLengthMins} mins (${(bcpCfg.defaultLengthMins / 60).toFixed(1)} hrs)</strong></div>`;
-
   return `
-    <!-- Live Round Clock & Schedule Card -->
-    <div class="card event-round-clock-schedule-card" style="padding:0.95rem 1.15rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.09); border-radius:10px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.65rem; flex-wrap:wrap;">
-        <div style="font-size:0.78rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:#38bdf8;">⏱️ Round Clock & Schedule</div>
-        <span class="badge" style="background:${clockStatus === 'running' ? 'rgba(34,197,94,0.18)' : 'rgba(148,163,184,0.15)'}; color:${clockStatus === 'running' ? '#4ade80' : '#94a3b8'}; border:1px solid ${clockStatus === 'running' ? 'rgba(34,197,94,0.35)' : 'rgba(148,163,184,0.25)'}; font-size:0.68rem; font-weight:700;">
-          ${clockStatus === 'running' ? `🔴 Round ${clockRound} Live` : (clockStatus === 'paused' ? `⏸️ Round ${clockRound} Paused` : `Standard ${bcpCfg.defaultLengthMins}m Rounds`)}
-        </span>
-      </div>
-      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:0.75rem; padding:0.6rem 0.85rem; background:rgba(2,6,23,0.65); border:1px solid rgba(255,255,255,0.07); border-radius:8px; margin-bottom:0.65rem;">
-        <div>
-          <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Master Round Timer</div>
-          <div style="font-size:0.78rem; color:var(--text-secondary);">Round ${clockRound} (${bcpCfg.defaultLengthMins} min limit)</div>
+    <!-- Live Round Clock Card (Visible only while round is active) -->
+    <div class="card event-round-clock-schedule-card" style="padding:0.85rem 1.1rem; background:rgba(15,23,42,0.88); border:1px solid ${clockStatus === 'running' ? 'rgba(34,197,94,0.4)' : 'rgba(245,158,11,0.4)'}; border-radius:10px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+          <span style="font-size:0.82rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:#38bdf8;">⏱️ Live Round Clock</span>
+          <span class="badge" style="background:${clockStatus === 'running' ? 'rgba(34,197,94,0.18)' : 'rgba(245,158,11,0.18)'}; color:${clockStatus === 'running' ? '#4ade80' : '#fbbf24'}; border:1px solid ${clockStatus === 'running' ? 'rgba(34,197,94,0.4)' : 'rgba(245,158,11,0.4)'}; font-size:0.7rem; font-weight:800;">
+            ${clockStatus === 'running' ? '🔴 ROUND IN PROGRESS' : '⏸️ ROUND CLOCK PAUSED'}
+          </span>
+          <span style="font-size:0.75rem; color:var(--text-muted);">(${configuredMins} min round limit)</span>
         </div>
-        <div class="live-event-master-clock-readout" style="font-family:var(--font-mono); font-size:1.45rem; font-weight:800; color:${clockStatus === 'running' ? '#fbbf24' : '#e2e8f0'};">
+        <div class="live-event-master-clock-readout" style="font-family:var(--font-mono); font-size:1.55rem; font-weight:900; color:${clockStatus === 'running' ? '#fbbf24' : '#e2e8f0'}; letter-spacing:0.03em;">
           ${formatClockDurationHms(remSec)}
         </div>
-      </div>
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.4rem; max-height:150px; overflow-y:auto;">
-        ${roundTimersHtml}
       </div>
     </div>
   `;
@@ -11882,7 +11869,7 @@ async function renderEventToHub(ev, skipFetch = false) {
   const missingListCount = Math.max(0, activeRoster.length - listsSubmittedCount);
 
   const bcpCfg = getEventBcpRoundConfig(eventObj);
-  const clockObj = state.clock || null;
+  const clockObj = state.clock || state.master_clock || null;
   if (clockObj && clockObj.status === 'running') {
     startToHubClockTicker(eventId);
   }
@@ -12165,22 +12152,27 @@ async function updateToHubMasterClockAction(action, deltaSeconds = 0) {
   const state = _eventToHubStateCache.get(eventId) || {};
   const bcpCfg = getEventBcpRoundConfig(currentEventData);
   const currentClock = state.clock || state.master_clock || {};
-  const roundSelect = document.getElementById('to-hub-clock-round-select');
   const minsInput = document.getElementById('to-hub-clock-mins-input');
-  const roundNum = roundSelect ? Number(roundSelect.value) || 1 : (Number(currentClock.round_num || currentClock.round) || 1);
-  const configuredMins = minsInput ? Number(minsInput.value) || bcpCfg.defaultLengthMins : bcpCfg.defaultLengthMins;
+  const roundNum = Number(_toHubRadarRound || currentClock.round_num || currentClock.round) || 1;
+  const configuredMins = minsInput ? Number(minsInput.value) || bcpCfg.defaultLengthMins : (Number(currentClock.durationMinutes || currentClock.duration_minutes) || bcpCfg.defaultLengthMins);
 
+  const prevStatus = String(currentClock.status || 'stopped').toLowerCase();
   let rem = computeClockRemainingSeconds(currentClock, configuredMins);
-  let nextStatus = currentClock.status || 'idle';
+  let nextStatus = prevStatus;
 
   if (action === 'start') {
-    if (rem <= 0) rem = configuredMins * 60;
+    if (prevStatus === 'stopped' || prevStatus === 'idle' || rem <= 0) {
+      rem = configuredMins * 60;
+    }
     nextStatus = 'running';
   } else if (action === 'pause') {
     nextStatus = 'paused';
+  } else if (action === 'stop') {
+    rem = configuredMins * 60;
+    nextStatus = 'stopped';
   } else if (action === 'reset') {
     rem = configuredMins * 60;
-    nextStatus = 'paused';
+    nextStatus = (prevStatus === 'running' || prevStatus === 'paused') ? 'paused' : 'stopped';
   } else if (action === 'adjust') {
     rem = Math.max(0, rem + Number(deltaSeconds || 0));
   }
@@ -12201,6 +12193,17 @@ async function updateToHubMasterClockAction(action, deltaSeconds = 0) {
     updated_at: nowMs,
   };
 
+  // Optimistic local state update so UI and Player Clock visibility update immediately
+  const nextState = { ...state, clock: clockPayload, master_clock: clockPayload, _fetchedAt: nowMs };
+  _eventToHubStateCache.set(eventId, nextState);
+  if (currentEventData) {
+    renderEventClockAndScheduleWidgets(currentEventData, true);
+    renderEventToHub(currentEventData, true);
+  }
+  if (nextStatus === 'running') {
+    startToHubClockTicker(eventId);
+  }
+
   try {
     // Direct Firestore write for instant real-time propagation (if client SDK active)
     if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0 && typeof firebase.firestore === 'function') {
@@ -12216,10 +12219,15 @@ async function updateToHubMasterClockAction(action, deltaSeconds = 0) {
 
     await window.api.updateEventMasterClock(eventId, clockPayload);
     await loadEventToHubState(eventId, true);
-    if (nextStatus === 'running') {
-      startToHubClockTicker(eventId);
+    if (typeof showToast === 'function') {
+      if (action === 'start') {
+        showToast('▶️ Round Clock STARTED — Live clock is now visible to all players!', 'success');
+      } else if (action === 'stop') {
+        showToast('⏹️ Round Clock STOPPED — Clock is now hidden from players.', 'info');
+      } else {
+        showToast(`Master Round Clock updated (${nextStatus.toUpperCase()})`, 'success');
+      }
     }
-    if (typeof showToast === 'function') showToast(`Master Round Clock updated (${nextStatus.toUpperCase()})`, 'success');
   } catch (err) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to update clock', 'error');
   }
@@ -12232,9 +12240,8 @@ async function broadcastToHubClockStatus() {
   const bcpCfg = getEventBcpRoundConfig(currentEventData);
   const clockObj = state.clock || state.master_clock || {};
   const rem = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
-  const rNum = clockObj.round_num || clockObj.round || 1;
   const minsLeft = Math.ceil(rem / 60);
-  const msg = `⏱️ Round ${rNum} Time Check: ${minsLeft} minutes remaining (${formatClockDurationHms(rem)} on Master Clock).`;
+  const msg = `⏱️ Live Round Time Check: ${minsLeft} minutes remaining (${formatClockDurationHms(rem)} on Master Clock).`;
   const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || '';
   try {
     recordRecentInteractedEventId(eventId);
@@ -12320,11 +12327,13 @@ async function resolveToHubJudgeCall(callId) {
 }
 
 function renderToHubClockAndJudgeSubtab(eventId, ev, roundNums, bcpCfg, clockObj, judgeCalls) {
-  const remSec = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
-  const clockStatus = (clockObj && clockObj.status) ? String(clockObj.status) : 'idle';
-  const clockRound = (clockObj && (clockObj.round_num || clockObj.round)) ? Number(clockObj.round_num || clockObj.round) : (_toHubRadarRound || 1);
+  const configuredMins = Number(clockObj?.durationMinutes || clockObj?.duration_minutes || bcpCfg.defaultLengthMins) || bcpCfg.defaultLengthMins;
+  const remSec = computeClockRemainingSeconds(clockObj, configuredMins);
+  const rawStatus = (clockObj && clockObj.status) ? String(clockObj.status).toLowerCase() : 'stopped';
+  const isRunning = rawStatus === 'running';
+  const isPaused = rawStatus === 'paused';
+  const isVisibleToPlayers = isRunning || isPaused;
   const staffList = extractEventStaffDirectory(ev);
-  const rList = roundNums.length > 0 ? roundNums : [1, 2, 3, 4, 5];
 
   const judgeListHtml = judgeCalls.length > 0
     ? judgeCalls.map(c => {
@@ -12351,47 +12360,59 @@ function renderToHubClockAndJudgeSubtab(eventId, ev, roundNums, bcpCfg, clockObj
       }).join('')
     : `<div style="padding:1.25rem; text-align:center; color:var(--text-muted); font-size:0.82rem;">No floor judge calls logged for this event.</div>`;
 
+  const visibilityBadgeHtml = isRunning
+    ? `<span class="badge" style="background:rgba(34,197,94,0.18); color:#4ade80; border:1px solid rgba(34,197,94,0.45); font-size:0.68rem; font-weight:800;">🟢 LIVE • SHOWN TO PLAYERS</span>`
+    : (isPaused
+        ? `<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.45); font-size:0.68rem; font-weight:800;">⏸️ PAUSED • SHOWN TO PLAYERS</span>`
+        : `<span class="badge" style="background:rgba(148,163,184,0.15); color:#94a3b8; border:1px solid rgba(148,163,184,0.3); font-size:0.68rem; font-weight:800;">⚫ STOPPED • HIDDEN FROM PLAYERS</span>`);
+
   return `
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:1rem;">
       <!-- Master Round Clock Control Card -->
-      <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px;">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+      <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid ${isRunning ? 'rgba(34,197,94,0.35)' : 'rgba(255,255,255,0.09)'}; border-radius:10px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;">
           <h4 style="margin:0; font-size:0.95rem; font-weight:800; color:#fff;">⏱️ Master Round Clock</h4>
-          <span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; font-size:0.7rem;">BCP Default: ${bcpCfg.defaultLengthMins} mins</span>
+          <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+            ${visibilityBadgeHtml}
+            <span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; font-size:0.68rem;">BCP Default: ${bcpCfg.defaultLengthMins}m</span>
+          </div>
         </div>
 
-        <div style="text-align:center; padding:1rem; background:rgba(2,6,23,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:0.85rem;">
-          <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:0.2rem;">
-            ROUND ${clockRound} • ${clockStatus.toUpperCase()}
+        <div style="text-align:center; padding:1rem; background:rgba(2,6,23,0.75); border:1px solid ${isRunning ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)'}; border-radius:10px; margin-bottom:0.85rem;">
+          <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; color:${isRunning ? '#4ade80' : (isPaused ? '#fbbf24' : 'var(--text-muted)')}; margin-bottom:0.2rem;">
+            ${isRunning ? '🔴 ROUND IN PROGRESS (VISIBLE TO PLAYERS)' : (isPaused ? '⏸️ ROUND CLOCK PAUSED (VISIBLE TO PLAYERS)' : '⏹️ ROUND STOPPED (CLOCK HIDDEN FROM PLAYERS)')}
           </div>
-          <div class="live-event-master-clock-readout" style="font-family:var(--font-mono); font-size:2.35rem; font-weight:900; color:${clockStatus === 'running' ? '#fbbf24' : '#f8fafc'}; letter-spacing:0.04em;">
+          <div class="live-event-master-clock-readout" style="font-family:var(--font-mono); font-size:2.35rem; font-weight:900; color:${isRunning ? '#fbbf24' : '#f8fafc'}; letter-spacing:0.04em;">
             ${formatClockDurationHms(remSec)}
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.55rem; margin-bottom:0.75rem;">
-          <div>
-            <label style="font-size:0.7rem; color:var(--text-muted); display:block; margin-bottom:0.2rem;">Active Round</label>
-            <select id="to-hub-clock-round-select" style="width:100%; padding:0.4rem 0.6rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;">
-              ${rList.map(r => `<option value="${r}" ${r === clockRound ? 'selected' : ''}>Round ${r}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="font-size:0.7rem; color:var(--text-muted); display:block; margin-bottom:0.2rem;">Round Duration (Mins)</label>
-            <input id="to-hub-clock-mins-input" type="number" min="15" max="600" value="${bcpCfg.defaultLengthMins}" style="width:100%; padding:0.4rem 0.6rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;" />
-          </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; margin-bottom:0.75rem; padding:0.5rem 0.7rem; background:rgba(15,23,42,0.55); border:1px solid rgba(255,255,255,0.07); border-radius:8px;">
+          <label for="to-hub-clock-mins-input" style="font-size:0.76rem; font-weight:700; color:#cbd5e1;">Round Duration (Minutes)</label>
+          <input id="to-hub-clock-mins-input" type="number" min="15" max="600" value="${configuredMins}" style="width:110px; padding:0.35rem 0.6rem; border-radius:6px; background:rgba(15,23,42,0.95); border:1px solid rgba(255,255,255,0.18); color:#fff; font-size:0.84rem; font-family:var(--font-mono); font-weight:700; text-align:right;" />
+        </div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:0.45rem; margin-bottom:0.55rem;">
+          ${!isRunning ? `
+            <button type="button" class="btn btn-primary" onclick="updateToHubMasterClockAction('start')" style="flex:1.4; font-size:0.78rem; font-weight:800; padding:0.5rem 0.75rem; background:linear-gradient(135deg, #059669, #10b981); border-color:#34d399; color:#fff;">
+              ${isPaused ? '▶️ Resume Round Clock' : '▶️ Start Round (Show Clock to Players)'}
+            </button>
+          ` : `
+            <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('pause')" style="flex:1; font-size:0.78rem; font-weight:800; padding:0.5rem 0.75rem; border-color:rgba(245,158,11,0.5); color:#fbbf24;">
+              ⏸️ Pause Clock
+            </button>
+          `}
+          ${isVisibleToPlayers ? `
+            <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('stop')" style="flex:1; font-size:0.78rem; font-weight:800; padding:0.5rem 0.75rem; border-color:rgba(239,68,68,0.5); color:#f87171; background:rgba(239,68,68,0.1);">
+              ⏹️ Stop Round (Hide Clock)
+            </button>
+          ` : ''}
         </div>
 
         <div style="display:flex; flex-wrap:wrap; gap:0.45rem; margin-bottom:0.65rem;">
-          <button type="button" class="btn btn-primary" onclick="updateToHubMasterClockAction('start')" style="flex:1; font-size:0.78rem; font-weight:700; padding:0.45rem 0.7rem;">
-            ▶️ Start / Resume
-          </button>
-          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('pause')" style="flex:1; font-size:0.78rem; font-weight:700; padding:0.45rem 0.7rem;">
-            ⏸️ Pause
-          </button>
-          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('adjust', 300)" style="font-size:0.76rem; padding:0.45rem 0.65rem;">+5m</button>
-          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('adjust', -300)" style="font-size:0.76rem; padding:0.45rem 0.65rem;">-5m</button>
-          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('reset')" style="font-size:0.76rem; padding:0.45rem 0.65rem;">🔄 Reset</button>
+          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('adjust', 300)" style="flex:1; font-size:0.75rem; padding:0.38rem 0.6rem;">+5m</button>
+          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('adjust', -300)" style="flex:1; font-size:0.75rem; padding:0.38rem 0.6rem;">-5m</button>
+          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('reset')" style="flex:1; font-size:0.75rem; padding:0.38rem 0.6rem;">🔄 Reset Timer</button>
         </div>
 
         <button type="button" class="btn btn-outline" onclick="broadcastToHubClockStatus()" style="width:100%; font-size:0.78rem; font-weight:700; padding:0.45rem; border-color:rgba(245,158,11,0.4); color:#fbbf24;">
