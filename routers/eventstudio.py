@@ -3592,7 +3592,8 @@ class JudgeCallResolvePayload(BaseModel):
 
 class StudioMasterClockPayload(BaseModel):
     status: Optional[str] = "running"
-    round: Optional[int] = 1
+    round: Optional[int] = None
+    round_num: Optional[int] = None
     duration_minutes: Optional[int] = None
     durationMinutes: Optional[int] = None
     target_end_time: Optional[float] = None
@@ -3787,12 +3788,19 @@ def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
 @router.post("/api/eventstudio/event/{event_id}/clock", summary="Update tournament round master clock")
 def api_eventstudio_update_clock(event_id: str, payload: StudioMasterClockPayload):
     fs_engine = get_firestore_engine()
+    status_str = (payload.status or "running").strip().lower()
+    rnd = payload.round_num if payload.round_num is not None else (payload.round or 1)
     dur = payload.durationMinutes if payload.durationMinutes is not None else (payload.duration_minutes or 150)
     target_end = payload.targetEndTime if payload.targetEndTime is not None else payload.target_end_time
     rem_sec = payload.remainingSeconds if payload.remainingSeconds is not None else payload.remaining_seconds
+    if rem_sec is None:
+        rem_sec = int(dur) * 60
+    if status_str == "running" and target_end is None:
+        target_end = int((time.time() + float(rem_sec)) * 1000)
     clock_data = {
-        "status": payload.status or "running",
-        "round": payload.round or 1,
+        "status": status_str,
+        "round": rnd,
+        "round_num": rnd,
         "durationMinutes": dur,
         "duration_minutes": dur,
         "targetEndTime": target_end,
@@ -3809,14 +3817,14 @@ def api_eventstudio_update_clock(event_id: str, payload: StudioMasterClockPayloa
         for mid, rdata in list(TRACKER_ROOMS.items()):
             mid_u = str(mid).upper()
             if (
-                rdata.get("eventId") == event_id or
-                rdata.get("event_id") == event_id or
-                rdata.get("tournament_id") == event_id or
-                clean_eid in mid_u
+                str(rdata.get("eventId") or "").lower() == event_id.lower() or
+                str(rdata.get("event_id") or "").lower() == event_id.lower() or
+                str(rdata.get("tournament_id") or "").lower() == event_id.lower() or
+                (clean_eid and clean_eid in mid_u)
             ):
                 rdata["masterClock"] = updated
                 listeners = TRACKER_LISTENERS.get(mid, [])
-                clock_msg = {"type": "master_clock_update", "masterClock": updated}
+                clock_msg = {"type": "master_clock_update", "masterClock": updated, "master_clock": updated}
                 for q in list(listeners):
                     try:
                         q.put_nowait(clock_msg)
@@ -3830,7 +3838,7 @@ def api_eventstudio_update_clock(event_id: str, payload: StudioMasterClockPayloa
 @router.get("/api/eventstudio/event/{event_id}/clock", summary="Get tournament round master clock")
 def api_eventstudio_get_clock(event_id: str):
     fs_engine = get_firestore_engine()
-    clock = fs_engine.get_tournament_master_clock(event_id) or {"status": "stopped", "round": 1, "remainingSeconds": 9000}
+    clock = fs_engine.get_tournament_master_clock(event_id) or {"status": "stopped", "round": 1, "round_num": 1, "remainingSeconds": 9000, "remaining_seconds": 9000}
     return {"success": True, "event_id": event_id, "masterClock": clock, "clock": clock}
 
 @router.post("/api/eventstudio/event/{event_id}/broadcast", summary="Publish tournament live broadcast announcement")
@@ -4167,19 +4175,52 @@ class ToHubNewsPostPayload(BaseModel):
     author_name: Optional[str] = None
 
 
-@router.get("/api/events/active-announcements", summary="Get active TO announcements across events for app-wide banner")
+def _push_broadcast_to_tracker_rooms(event_id: str, broadcast_obj: Optional[Dict[str, Any]]) -> None:
+    """Pushes broadcast announcement (or None when cleared) to all matching in-memory Game Tracker rooms and SSE listeners."""
+    try:
+        from routers.tracker import TRACKER_ROOMS, TRACKER_LISTENERS
+        clean_eid = str(event_id).replace("bcp_", "").replace("ES-", "").replace("es-", "").strip().upper()
+        for mid, rdata in list(TRACKER_ROOMS.items()):
+            if not isinstance(rdata, dict):
+                continue
+            mid_u = str(mid).upper()
+            if (
+                str(rdata.get("eventId") or "").lower() == event_id.lower() or
+                str(rdata.get("event_id") or "").lower() == event_id.lower() or
+                str(rdata.get("tournament_id") or "").lower() == event_id.lower() or
+                (clean_eid and clean_eid in mid_u)
+            ):
+                rdata["broadcast"] = broadcast_obj
+                listeners = TRACKER_LISTENERS.get(mid, [])
+                b_msg = {"type": "broadcast_update", "broadcast": broadcast_obj}
+                for q in list(listeners):
+                    try:
+                        q.put_nowait(b_msg)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+
+@router.get("/api/events/active-announcements", summary="Get active TO announcements across events for app-wide & Game Tracker banner")
 def api_get_active_event_announcements(
-    event_ids: Optional[str] = Query(None, description="Comma-separated list of event IDs")
+    event_ids: Optional[str] = Query(None, description="Comma-separated list of event IDs, or '*' for all active broadcasts")
 ):
     fs_engine = get_firestore_engine()
-    if not event_ids:
+    raw_list: List[str] = []
+    if event_ids and str(event_ids).strip() not in ("*", "all"):
+        raw_list = [eid.strip() for eid in str(event_ids).split(",") if eid.strip() and eid.strip() not in ("*", "all")][:25]
+    if not raw_list or (event_ids and ("*" in str(event_ids) or "all" in str(event_ids).lower())):
+        for fb_eid in list(fs_engine._fallback_tournaments.keys()):
+            if fb_eid and fb_eid not in raw_list:
+                raw_list.append(str(fb_eid))
+    if not raw_list:
         return {"ok": True, "success": True, "announcements": []}
-    raw_list = [eid.strip() for eid in str(event_ids).split(",") if eid.strip()][:25]
-    active = fs_engine.get_active_broadcasts_for_events(raw_list)
+    active = fs_engine.get_active_broadcasts_for_events(raw_list[:35])
     return {"ok": True, "success": True, "announcements": active}
 
 
-@router.get("/api/events/{event_id}/to-hub", summary="Get unified TO Hub and News state for an event in a single read")
+@router.get("/api/events/{event_id}/to-hub", summary="Get unified TO Hub (Firestore) and News (PostgreSQL) state for an event")
 def api_get_event_to_hub_state(event_id: str):
     fs_engine = get_firestore_engine()
     state = fs_engine.get_event_to_hub_state(event_id)
@@ -4193,9 +4234,9 @@ def api_get_event_to_hub_state(event_id: str):
                 continue
             mid_u = str(mid).upper()
             if (
-                rdata.get("eventId") == event_id or
-                rdata.get("event_id") == event_id or
-                rdata.get("tournament_id") == event_id or
+                str(rdata.get("eventId") or "").lower() == event_id.lower() or
+                str(rdata.get("event_id") or "").lower() == event_id.lower() or
+                str(rdata.get("tournament_id") or "").lower() == event_id.lower() or
                 (clean_eid and clean_eid in mid_u)
             ):
                 t_num = rdata.get("tableNum") or rdata.get("table_number") or rdata.get("table")
@@ -4221,12 +4262,13 @@ def api_get_event_to_hub_state(event_id: str):
     }
 
 
-@router.post("/api/events/{event_id}/to-hub/announcement", summary="Publish or clear an app-wide event announcement banner")
+@router.post("/api/events/{event_id}/to-hub/announcement", summary="Publish or clear an app-wide & Game Tracker pop-up event announcement banner in Firestore")
 def api_publish_event_to_hub_announcement(event_id: str, payload: ToHubAnnouncementPayload):
     fs_engine = get_firestore_engine()
     msg = (payload.message or "").strip()
     if payload.active is False or not msg:
         fs_engine.clear_tournament_broadcast(event_id)
+        _push_broadcast_to_tracker_rooms(event_id, None)
         state = fs_engine.get_event_to_hub_state(event_id)
         return {
             "ok": True,
@@ -4250,29 +4292,7 @@ def api_publish_event_to_hub_announcement(event_id: str, payload: ToHubAnnouncem
         "active": True,
     }
     res = fs_engine.publish_tournament_broadcast(event_id, broadcast_data)
-
-    # Propagate to active Game Tracker rooms and SSE listeners
-    try:
-        from routers.tracker import TRACKER_ROOMS, TRACKER_LISTENERS
-        clean_eid = str(event_id).replace("bcp_", "").replace("ES-", "").replace("es-", "").strip().upper()
-        for mid, rdata in list(TRACKER_ROOMS.items()):
-            mid_u = str(mid).upper()
-            if (
-                rdata.get("eventId") == event_id or
-                rdata.get("event_id") == event_id or
-                rdata.get("tournament_id") == event_id or
-                (clean_eid and clean_eid in mid_u)
-            ):
-                rdata["broadcast"] = res
-                listeners = TRACKER_LISTENERS.get(mid, [])
-                b_msg = {"type": "broadcast_update", "broadcast": res}
-                for q in list(listeners):
-                    try:
-                        q.put_nowait(b_msg)
-                    except Exception:
-                        pass
-    except Exception:
-        pass
+    _push_broadcast_to_tracker_rooms(event_id, res)
 
     state = fs_engine.get_event_to_hub_state(event_id)
     return {
@@ -4285,10 +4305,11 @@ def api_publish_event_to_hub_announcement(event_id: str, payload: ToHubAnnouncem
     }
 
 
-@router.delete("/api/events/{event_id}/to-hub/announcement", summary="Clear active event announcement banner")
+@router.delete("/api/events/{event_id}/to-hub/announcement", summary="Clear active event announcement banner in Firestore")
 def api_clear_event_to_hub_announcement(event_id: str):
     fs_engine = get_firestore_engine()
     fs_engine.clear_tournament_broadcast(event_id)
+    _push_broadcast_to_tracker_rooms(event_id, None)
     state = fs_engine.get_event_to_hub_state(event_id)
     return {
         "ok": True,
@@ -4300,10 +4321,13 @@ def api_clear_event_to_hub_announcement(event_id: str):
     }
 
 
-@router.post("/api/events/{event_id}/to-hub/news", summary="Create or update a TO News & Info post for an event")
+@router.post("/api/events/{event_id}/to-hub/news", summary="Create or update a TO News & Info post for an event in PostgreSQL")
 def api_save_event_to_hub_news_post(event_id: str, payload: ToHubNewsPostPayload):
     fs_engine = get_firestore_engine()
-    saved = fs_engine.save_event_news_post(event_id, payload.dict())
+    post_dict = payload.dict()
+    if post_dict.get("author_name") and not post_dict.get("author"):
+        post_dict["author"] = post_dict["author_name"]
+    saved = fs_engine.save_event_news_post(event_id, post_dict)
     all_posts = fs_engine.get_event_news_posts(event_id)
     return {
         "ok": True,
@@ -4311,10 +4335,11 @@ def api_save_event_to_hub_news_post(event_id: str, payload: ToHubNewsPostPayload
         "event_id": event_id,
         "post": saved,
         "news_posts": all_posts,
+        "storage": "postgresql",
     }
 
 
-@router.delete("/api/events/{event_id}/to-hub/news/{post_id}", summary="Delete a TO News & Info post for an event")
+@router.delete("/api/events/{event_id}/to-hub/news/{post_id}", summary="Delete a TO News & Info post for an event from PostgreSQL")
 def api_delete_event_to_hub_news_post(event_id: str, post_id: str):
     fs_engine = get_firestore_engine()
     ok = fs_engine.delete_event_news_post(event_id, post_id)
@@ -4325,7 +4350,9 @@ def api_delete_event_to_hub_news_post(event_id: str, post_id: str):
         "event_id": event_id,
         "deleted_id": post_id,
         "news_posts": all_posts,
+        "storage": "postgresql",
     }
+
 
 
 

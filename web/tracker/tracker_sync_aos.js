@@ -2260,12 +2260,101 @@ General's Regiment
     injectMobileBottomDock();
   }
 
+  let aosLastBroadcastId = null;
+  let aosBroadcastTimeout = null;
+  function showAosBroadcastBanner(broadcast) {
+    if (!broadcast || broadcast.active === false || !broadcast.message) {
+      aosLastBroadcastId = null;
+      const existing = document.getElementById('gt-broadcast-banner');
+      if (existing) existing.style.display = 'none';
+      return;
+    }
+    const bId = broadcast.id || `${broadcast.event_id || ''}_${broadcast.message}`;
+    if (bId === aosLastBroadcastId) return;
+    aosLastBroadcastId = bId;
+
+    let banner = document.getElementById('gt-broadcast-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'gt-broadcast-banner';
+      banner.style.position = 'fixed';
+      banner.style.top = '12px';
+      banner.style.left = '50%';
+      banner.style.transform = 'translateX(-50%)';
+      banner.style.zIndex = '999999';
+      banner.style.maxWidth = '680px';
+      banner.style.width = 'calc(100% - 24px)';
+      banner.style.borderRadius = '12px';
+      banner.style.boxShadow = '0 12px 40px rgba(0,0,0,0.85), 0 0 20px rgba(245,158,11,0.3)';
+      banner.style.padding = '12px 16px';
+      banner.style.fontFamily = "'Inter', system-ui, sans-serif";
+      banner.style.transition = 'all 0.3s ease';
+      document.body.appendChild(banner);
+    }
+
+    const type = broadcast.type || broadcast.level || 'info';
+    let bg = 'linear-gradient(135deg, #0284c7, #0369a1)';
+    let border = '1px solid #38bdf8';
+    let icon = '📢';
+    if (type === 'warning') {
+      bg = 'linear-gradient(135deg, #b45309, #92400e)';
+      border = '1px solid #f59e0b';
+      icon = '⚠️';
+    } else if (type === 'urgent') {
+      bg = 'linear-gradient(135deg, #be123c, #9f1239)';
+      border = '1px solid #f43f5e';
+      icon = '🚨';
+    }
+
+    banner.style.background = bg;
+    banner.style.border = border;
+    banner.style.display = 'block';
+    banner.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+        <div style="display:flex; align-items:flex-start; gap:10px;">
+          <span style="font-size:22px; flex-shrink:0;">${icon}</span>
+          <div>
+            <div style="font-size:11px; font-weight:800; color:rgba(255,255,255,0.8); text-transform:uppercase; letter-spacing:0.05em;">
+              Tournament Announcement
+            </div>
+            <div style="font-size:14px; font-weight:700; color:#fff; margin-top:2px; line-height:1.4;">
+              ${escapeHtml(broadcast.message || '')}
+            </div>
+          </div>
+        </div>
+        <button onclick="document.getElementById('gt-broadcast-banner').style.display='none'" style="background:transparent; border:none; color:#fff; font-size:18px; cursor:pointer; padding:0 4px; line-height:1; opacity:0.8;">✕</button>
+      </div>
+    `;
+    if (aosBroadcastTimeout) clearTimeout(aosBroadcastTimeout);
+    aosBroadcastTimeout = setTimeout(() => {
+      if (banner) banner.style.display = 'none';
+    }, 20000);
+  }
+
+  function startAosBroadcastSync() {
+    const poll = async () => {
+      if (document.hidden) return;
+      try {
+        const resp = await fetch('/api/events/active-announcements?event_ids=*');
+        if (resp.ok) {
+          const data = await resp.json();
+          const list = (data && Array.isArray(data.announcements)) ? data.announcements : [];
+          showAosBroadcastBanner(list.length > 0 ? list[0] : null);
+        }
+      } catch (e) {}
+    };
+    poll();
+    setInterval(poll, 6000);
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       initAosRoomAccess();
+      startAosBroadcastSync();
     });
   } else {
     initAosRoomAccess();
+    startAosBroadcastSync();
   }
 
   // Expose global helper for testing

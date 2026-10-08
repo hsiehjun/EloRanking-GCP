@@ -18,6 +18,8 @@ from routers.eventstudio import (
     api_clear_event_to_hub_announcement,
     api_save_event_to_hub_news_post,
     api_delete_event_to_hub_news_post,
+    api_eventstudio_update_clock,
+    StudioMasterClockPayload,
     ToHubAnnouncementPayload,
     ToHubNewsPostPayload,
 )
@@ -40,8 +42,36 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
         self.assertEqual(data["event_id"], self.test_event_id)
         self.assertIn("news_posts", data)
         self.assertIn("judge_calls", data)
+        self.assertEqual(
+            data.get("sync_backends"),
+            {
+                "announcements": "firestore",
+                "clocks": "firestore",
+                "flags": "firestore",
+                "news_posts": "postgresql",
+            },
+        )
 
-        # Publish app-wide event announcement banner
+        # Seed a simulated Game Tracker room for this event (uppercase matchId token)
+        room_mid = f"BCP-{self.test_event_id.upper()}-R2-T1"
+        self.fs._fallback_rooms[room_mid] = {"match_id": room_mid, "eventId": self.test_event_id}
+
+        # Update Master Clock via TO Hub payload (round_num + running status)
+        clk_res = api_eventstudio_update_clock(
+            self.test_event_id,
+            StudioMasterClockPayload(round_num=2, status="running", remaining_seconds=7200),
+        )
+        self.assertTrue(clk_res["success"])
+        clk_obj = clk_res["clock"]
+        self.assertEqual(clk_obj["status"], "running")
+        self.assertEqual(clk_obj["round"], 2)
+        self.assertEqual(clk_obj["round_num"], 2)
+        self.assertIsNotNone(clk_obj.get("targetEndTime"))
+        self.assertGreater(clk_obj["targetEndTime"], int(time.time() * 1000))
+        # Verify room received masterClock
+        self.assertEqual(self.fs._fallback_rooms[room_mid]["masterClock"]["round"], 2)
+
+        # Publish app-wide & Game Tracker event announcement banner
         pub_json = api_publish_event_to_hub_announcement(
             self.test_event_id,
             ToHubAnnouncementPayload(
@@ -55,8 +85,14 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
             pub_json["active_broadcast"]["message"],
             "Round 2 Pairings are LIVE! Report to your assigned table.",
         )
+        # Verify Game Tracker room received pop-up broadcast
+        self.assertIsNotNone(self.fs._fallback_rooms[room_mid].get("broadcast"))
+        self.assertEqual(
+            self.fs._fallback_rooms[room_mid]["broadcast"]["message"],
+            "Round 2 Pairings are LIVE! Report to your assigned table.",
+        )
 
-        # Query active announcements endpoint (used by Global Banner)
+        # Query active announcements endpoint (used by Global Banner & Game Tracker)
         t1 = time.perf_counter()
         act_res = api_get_active_event_announcements(event_ids=self.test_event_id)
         act_ms = (time.perf_counter() - t1) * 1000.0
@@ -66,7 +102,13 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
         self.assertEqual(act_list[0]["event_id"], self.test_event_id)
         self.assertEqual(act_list[0]["level"], "warning")
 
-        # Create a News Post for the public News & Info tab
+        # Also verify wildcard query for Game Tracker Lobby
+        wildcard_res = api_get_active_event_announcements(event_ids="*")
+        self.assertTrue(
+            any(a.get("event_id") == self.test_event_id for a in wildcard_res.get("announcements", []))
+        )
+
+        # Create a News Post for the public News & Info tab (PostgreSQL storage)
         news_res = api_save_event_to_hub_news_post(
             self.test_event_id,
             ToHubNewsPostPayload(
@@ -78,6 +120,7 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
             ),
         )
         self.assertTrue(news_res["ok"])
+        self.assertEqual(news_res.get("storage"), "postgresql")
         post_obj = news_res["post"]
         self.assertEqual(post_obj["category"], "mission")
         self.assertTrue(post_obj["pinned"])
@@ -97,6 +140,16 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
         self.assertTrue(clr_res["ok"])
         act_after = api_get_active_event_announcements(event_ids=self.test_event_id)
         self.assertEqual(len(act_after.get("announcements", [])), 0)
+        self.assertIsNone(self.fs._fallback_rooms[room_mid].get("broadcast"))
+
+    def test_news_and_info_tab_is_first_after_player_station(self):
+        app_html = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
+        idx_player = app_html.find('id="event-subtab-player"')
+        idx_news = app_html.find('id="event-subtab-news"')
+        idx_results = app_html.find('id="event-subtab-results"')
+        self.assertGreater(idx_player, 0)
+        self.assertGreater(idx_news, idx_player, "News & Info tab must appear after Player Station/My Results")
+        self.assertLess(idx_news, idx_results, "News & Info tab must appear before Standings & Placings")
 
     def test_bcp_hosted_events_and_registered_endpoint(self):
         bcp_adapter.BcpAdapter._last_hosted_events_by_user = {

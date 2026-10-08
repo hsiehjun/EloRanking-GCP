@@ -3210,11 +3210,30 @@
 
   let fsTournUnsub = null;
   let tournClockPollTimer = null;
+  let globalBroadcastPollTimer = null;
   function startTournamentClockFallbackPoll(tournamentId) {
     if (tournClockPollTimer || !tournamentId) return;
-    const fetchClock = async () => {
+    const fetchClockAndBroadcast = async () => {
       if (!tournamentId || document.hidden) return;
-      // If Firestore is connected and actively ticking a running master clock, skip HTTP poll to avoid clobbering
+      try {
+        const resp = await fetch(`/api/events/${encodeURIComponent(tournamentId)}/to-hub`);
+        if (resp.ok) {
+          const cData = await resp.json();
+          const clk = cData && (cData.clock || cData.master_clock || cData.masterClock);
+          if (clk) {
+            const hasEnd = Boolean(clk.targetEndTime || clk.target_end_time);
+            if (!(tournamentMasterClock.status === 'running' && !hasEnd && clk.status !== 'running')) {
+              applyRemoteMasterClock(clk);
+            }
+          }
+          if (cData && ('active_broadcast' in cData || 'broadcast' in cData)) {
+            applyRemoteBroadcast(cData.active_broadcast || cData.broadcast || null);
+          }
+          return;
+        }
+      } catch (e) {}
+
+      // Fallback to direct clock endpoint
       if (clientState.firestoreConnected && tournamentMasterClock.status === 'running' && tournamentMasterClock.targetEndTime) {
         return;
       }
@@ -3233,8 +3252,31 @@
         }
       } catch (e) {}
     };
-    fetchClock();
-    tournClockPollTimer = setInterval(fetchClock, 3000);
+    fetchClockAndBroadcast();
+    tournClockPollTimer = setInterval(fetchClockAndBroadcast, 4000);
+  }
+
+  function startGlobalActiveAnnouncementPoll() {
+    if (globalBroadcastPollTimer) return;
+    const pollActive = async () => {
+      if (document.hidden) return;
+      const tid = getTrackerTournamentId();
+      const queryIds = tid ? `${encodeURIComponent(tid)},*` : '*';
+      try {
+        const resp = await fetch(`/api/events/active-announcements?event_ids=${queryIds}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          const list = (data && Array.isArray(data.announcements)) ? data.announcements : [];
+          if (list.length > 0) {
+            applyRemoteBroadcast(list[0]);
+          } else if (!tid) {
+            applyRemoteBroadcast(null);
+          }
+        }
+      } catch (e) {}
+    };
+    pollActive();
+    globalBroadcastPollTimer = setInterval(pollActive, 6000);
   }
 
   function initTournamentDirectSync(tournamentId) {
@@ -3251,7 +3293,7 @@
         if (data.masterClock) {
           applyRemoteMasterClock(data.masterClock);
         }
-        if (data.broadcast) {
+        if ('broadcast' in data) {
           applyRemoteBroadcast(data.broadcast);
         }
         const calls = data.judge_calls || data.flags;
@@ -3297,7 +3339,7 @@
       ? remote.remainingSeconds 
       : (typeof remote.remaining_seconds === 'number' ? remote.remaining_seconds : 9000);
     const status = remote.status || 'stopped';
-    const round = remote.round || 1;
+    const round = remote.round || remote.round_num || 1;
     const durMin = remote.durationMinutes || remote.duration_minutes || 150;
     const upAt = remote.updatedAt || remote.updated_at || Date.now();
 
@@ -3376,8 +3418,15 @@
 
   let lastReceivedBroadcastId = null;
   function applyRemoteBroadcast(broadcast) {
-    if (!broadcast || !broadcast.id || broadcast.id === lastReceivedBroadcastId) return;
-    lastReceivedBroadcastId = broadcast.id;
+    if (!broadcast || broadcast.active === false || !broadcast.message) {
+      lastReceivedBroadcastId = null;
+      const existingBanner = document.getElementById('gt-broadcast-banner');
+      if (existingBanner) existingBanner.style.display = 'none';
+      return;
+    }
+    const bId = broadcast.id || `${broadcast.event_id || ''}_${broadcast.message}`;
+    if (bId === lastReceivedBroadcastId) return;
+    lastReceivedBroadcastId = bId;
 
     // Play chime sound via synthesized Web Audio
     playBroadcastAudioChime();
@@ -3799,11 +3848,12 @@
               applyRemoteChessClock(msg.chess_clock);
             }
           } else if (msg.type === 'master_clock_update') {
-            if (msg.master_clock) {
-              applyRemoteMasterClock(msg.master_clock);
+            const clk = msg.master_clock || msg.masterClock;
+            if (clk) {
+              applyRemoteMasterClock(clk);
             }
           } else if (msg.type === 'broadcast_update') {
-            if (msg.broadcast) {
+            if ('broadcast' in msg) {
               applyRemoteBroadcast(msg.broadcast);
             }
           } else if (msg.type === 'judge_call_update') {
@@ -4115,6 +4165,7 @@
     `;
 
     injectMobileBottomDock();
+    updateMasterClockDom();
 
     if (typeof mountDiceRollerModal === 'function' && typeof diceRollerState !== 'undefined' && diceRollerState.visible) {
       mountDiceRollerModal();
@@ -7551,6 +7602,7 @@ Space Marines - Gladius Task Force (2000 pts)
   const origInit = init;
   init = async function() {
     await origInit();
+    startGlobalActiveAnnouncementPoll();
     setTimeout(loadRoomArmyLists, 100);
     if (window.Armory && typeof window.Armory.loadArmoryData === 'function') {
       window.Armory.loadArmoryData('40k').then(function() {

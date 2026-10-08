@@ -11380,9 +11380,63 @@ function getEventBcpRoundConfig(ev) {
   };
 }
 
+let _toHubFirestoreUnsub = null;
+let _toHubFirestoreEventId = null;
+
+function ensureEventToHubFirestoreListener(eventId) {
+  const eid = String(eventId || '').trim();
+  if (!eid) return;
+  if (_toHubFirestoreEventId === eid && _toHubFirestoreUnsub) return;
+  if (_toHubFirestoreUnsub) {
+    try { _toHubFirestoreUnsub(); } catch (_) {}
+    _toHubFirestoreUnsub = null;
+    _toHubFirestoreEventId = null;
+  }
+  try {
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0 && typeof firebase.firestore === 'function') {
+      const db = firebase.firestore();
+      _toHubFirestoreEventId = eid;
+      _toHubFirestoreUnsub = db.collection('tournaments').doc(eid).onSnapshot(doc => {
+        if (!doc || !doc.exists) return;
+        const data = doc.data() || {};
+        const prev = _eventToHubStateCache.get(eid) || { event_id: eid };
+        if (data.masterClock) {
+          prev.clock = data.masterClock;
+          prev.master_clock = data.masterClock;
+        }
+        if ('broadcast' in data) {
+          const b = (data.broadcast && data.broadcast.active !== false) ? data.broadcast : null;
+          prev.broadcast = b;
+          prev.active_broadcast = b;
+        }
+        if (Array.isArray(data.announcements)) {
+          prev.announcements = data.announcements;
+        }
+        prev._fetchedAt = Date.now();
+        _eventToHubStateCache.set(eid, prev);
+        updateEventNewsTabBadge(eid);
+        if (prev.clock && prev.clock.status === 'running') {
+          startToHubClockTicker(eid);
+        }
+        if (currentOpenEventId && String(currentOpenEventId) === eid && currentEventData) {
+          if (currentEventModalTab === 'news') {
+            renderEventNewsHub(currentEventData, true);
+          } else if (currentEventModalTab === 'to-hub') {
+            renderEventToHub(currentEventData, true);
+          }
+        }
+        if (typeof syncGlobalEventAnnouncementBanner === 'function') {
+          syncGlobalEventAnnouncementBanner().catch(() => {});
+        }
+      }, () => {});
+    }
+  } catch (_) {}
+}
+
 async function loadEventToHubState(eventId, forceRefresh = false) {
   if (!eventId || !window.api || typeof window.api.getEventToHubState !== 'function') return null;
   const eid = String(eventId);
+  ensureEventToHubFirestoreListener(eid);
   if (!forceRefresh && _eventToHubStateCache.has(eid)) {
     const cached = _eventToHubStateCache.get(eid);
     if (Date.now() - (cached._fetchedAt || 0) < 12000) {
@@ -11396,6 +11450,9 @@ async function loadEventToHubState(eventId, forceRefresh = false) {
       res._fetchedAt = Date.now();
       _eventToHubStateCache.set(eid, res);
       updateEventNewsTabBadge(eid);
+      if (res.clock && res.clock.status === 'running') {
+        startToHubClockTicker(eid);
+      }
       if (currentOpenEventId && String(currentOpenEventId) === eid) {
         if (currentEventModalTab === 'news' && currentEventData) {
           renderEventNewsHub(currentEventData, true);
@@ -11452,12 +11509,19 @@ function computeClockRemainingSeconds(clockObj, defaultLengthMins = 180) {
   if (!clockObj || typeof clockObj !== 'object') {
     return Math.max(0, Math.round(defaultLengthMins * 60));
   }
-  const baseRem = Number(clockObj.remaining_seconds ?? (defaultLengthMins * 60));
-  if (clockObj.status === 'running' && clockObj.updated_at) {
-    const updatedMs = Date.parse(clockObj.updated_at);
-    if (!Number.isNaN(updatedMs)) {
-      const elapsed = Math.max(0, Math.floor((Date.now() - updatedMs) / 1000));
-      return Math.max(0, baseRem - elapsed);
+  const baseRem = Number(clockObj.remaining_seconds ?? clockObj.remainingSeconds ?? (clockObj.durationMinutes ? clockObj.durationMinutes * 60 : (defaultLengthMins * 60)));
+  if (clockObj.status === 'running') {
+    const targetEnd = Number(clockObj.targetEndTime || clockObj.target_end_time || 0);
+    if (targetEnd > 0) {
+      return Math.max(0, Math.round((targetEnd - Date.now()) / 1000));
+    }
+    const rawUp = clockObj.updatedAt ?? clockObj.updated_at;
+    if (rawUp !== undefined && rawUp !== null) {
+      const updatedMs = typeof rawUp === 'number' ? rawUp : (/^\d+$/.test(String(rawUp)) ? Number(rawUp) : Date.parse(String(rawUp)));
+      if (!Number.isNaN(updatedMs) && updatedMs > 0) {
+        const elapsed = Math.max(0, Math.floor((Date.now() - updatedMs) / 1000));
+        return Math.max(0, Math.round(baseRem) - elapsed);
+      }
     }
   }
   return Math.max(0, Math.round(baseRem));
@@ -11485,7 +11549,7 @@ function startToHubClockTicker(eventId) {
     }
     const state = _eventToHubStateCache.get(eid);
     const bcpCfg = getEventBcpRoundConfig(currentEventData);
-    const clockObj = (state && state.clock) ? state.clock : null;
+    const clockObj = (state && (state.clock || state.master_clock)) ? (state.clock || state.master_clock) : null;
     if (!clockObj || clockObj.status !== 'running') return;
     const rem = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
     const formatted = formatClockDurationHms(rem);
@@ -12083,10 +12147,10 @@ async function updateToHubMasterClockAction(action, deltaSeconds = 0) {
   if (!eventId) return;
   const state = _eventToHubStateCache.get(eventId) || {};
   const bcpCfg = getEventBcpRoundConfig(currentEventData);
-  const currentClock = state.clock || {};
+  const currentClock = state.clock || state.master_clock || {};
   const roundSelect = document.getElementById('to-hub-clock-round-select');
   const minsInput = document.getElementById('to-hub-clock-mins-input');
-  const roundNum = roundSelect ? Number(roundSelect.value) || 1 : (Number(currentClock.round_num) || 1);
+  const roundNum = roundSelect ? Number(roundSelect.value) || 1 : (Number(currentClock.round_num || currentClock.round) || 1);
   const configuredMins = minsInput ? Number(minsInput.value) || bcpCfg.defaultLengthMins : bcpCfg.defaultLengthMins;
 
   let rem = computeClockRemainingSeconds(currentClock, configuredMins);
@@ -12104,13 +12168,40 @@ async function updateToHubMasterClockAction(action, deltaSeconds = 0) {
     rem = Math.max(0, rem + Number(deltaSeconds || 0));
   }
 
+  const nowMs = Date.now();
+  const targetEndTime = nextStatus === 'running' ? (nowMs + rem * 1000) : null;
+  const clockPayload = {
+    round: roundNum,
+    round_num: roundNum,
+    duration_minutes: configuredMins,
+    durationMinutes: configuredMins,
+    status: nextStatus,
+    remaining_seconds: rem,
+    remainingSeconds: rem,
+    target_end_time: targetEndTime,
+    targetEndTime: targetEndTime,
+    updatedAt: nowMs,
+    updated_at: nowMs,
+  };
+
   try {
-    await window.api.updateEventMasterClock(eventId, {
-      round_num: roundNum,
-      status: nextStatus,
-      remaining_seconds: rem,
-    });
+    // Direct Firestore write for instant real-time propagation (if client SDK active)
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0 && typeof firebase.firestore === 'function') {
+      try {
+        const db = firebase.firestore();
+        await db.collection('tournaments').doc(eventId).set({
+          eventId,
+          masterClock: clockPayload,
+          updatedAt: nowMs,
+        }, { merge: true });
+      } catch (_) {}
+    }
+
+    await window.api.updateEventMasterClock(eventId, clockPayload);
     await loadEventToHubState(eventId, true);
+    if (nextStatus === 'running') {
+      startToHubClockTicker(eventId);
+    }
     if (typeof showToast === 'function') showToast(`Master Round Clock updated (${nextStatus.toUpperCase()})`, 'success');
   } catch (err) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to update clock', 'error');
@@ -12122,9 +12213,9 @@ async function broadcastToHubClockStatus() {
   if (!eventId) return;
   const state = _eventToHubStateCache.get(eventId) || {};
   const bcpCfg = getEventBcpRoundConfig(currentEventData);
-  const clockObj = state.clock || {};
+  const clockObj = state.clock || state.master_clock || {};
   const rem = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
-  const rNum = clockObj.round_num || 1;
+  const rNum = clockObj.round_num || clockObj.round || 1;
   const minsLeft = Math.ceil(rem / 60);
   const msg = `⏱️ Round ${rNum} Time Check: ${minsLeft} minutes remaining (${formatClockDurationHms(rem)} on Master Clock).`;
   try {
@@ -12156,14 +12247,22 @@ async function submitToHubJudgeCall() {
   }
   const combinedNotes = staffName ? `[Assigned: ${staffName}] ${notes}` : notes;
   try {
-    await window.api.post('/api/eventstudio/judge_calls', {
+    const payload = {
       event_id: eventId,
+      eventId: eventId,
       round_num: _toHubRadarRound || 1,
       table_num: tableNum,
+      tableNum: Number(tableNum) || 1,
       category,
+      note: combinedNotes,
       notes: combinedNotes,
-      status: 'open',
-    });
+      status: 'pending',
+    };
+    if (window.api && typeof window.api.createJudgeCall === 'function') {
+      await window.api.createJudgeCall(payload);
+    } else {
+      await window.api.post('/api/eventstudio/judge_call', payload);
+    }
     if (tableEl) tableEl.value = '';
     if (notesEl) notesEl.value = '';
     await loadEventToHubState(eventId, true);
@@ -12177,10 +12276,19 @@ async function resolveToHubJudgeCall(callId) {
   const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
   if (!eventId || !callId) return;
   try {
-    await window.api.request(`/api/eventstudio/judge_calls/${encodeURIComponent(callId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ event_id: eventId, status: 'resolved', resolution: 'Resolved by TO Hub' }),
-    });
+    const payload = {
+      event_id: eventId,
+      eventId: eventId,
+      call_id: callId,
+      callId: callId,
+      status: 'resolved',
+      assigned_judge: 'TO Hub',
+    };
+    if (window.api && typeof window.api.resolveJudgeCall === 'function') {
+      await window.api.resolveJudgeCall(payload);
+    } else {
+      await window.api.post('/api/eventstudio/judge_call/resolve', payload);
+    }
     await loadEventToHubState(eventId, true);
     if (typeof showToast === 'function') showToast('Judge call marked resolved!', 'success');
   } catch (err) {
@@ -12191,7 +12299,7 @@ async function resolveToHubJudgeCall(callId) {
 function renderToHubClockAndJudgeSubtab(eventId, ev, roundNums, bcpCfg, clockObj, judgeCalls) {
   const remSec = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
   const clockStatus = (clockObj && clockObj.status) ? String(clockObj.status) : 'idle';
-  const clockRound = (clockObj && clockObj.round_num) ? Number(clockObj.round_num) : (_toHubRadarRound || 1);
+  const clockRound = (clockObj && (clockObj.round_num || clockObj.round)) ? Number(clockObj.round_num || clockObj.round) : (_toHubRadarRound || 1);
   const staffList = extractEventStaffDirectory(ev);
   const rList = roundNums.length > 0 ? roundNums : [1, 2, 3, 4, 5];
 

@@ -13953,6 +13953,116 @@ class PostgresDatabase:
                     }
                 }
 
+    _event_news_cache: Dict[str, List[Dict[str, Any]]] = {}
+
+    def get_event_news_posts(self, event_id: str) -> List[Dict[str, Any]]:
+        """Fetches news & info posts published by the TO for an event from PostgreSQL (system_settings + L1 cache)."""
+        eid = str(event_id or "").strip()
+        if not eid:
+            return []
+        cache_key = f"event_news_v1_{eid.lower()}"
+        posts = PostgresDatabase._event_news_cache.get(cache_key)
+        if posts is None and not self._is_mock_instance() and hasattr(self, "get_connection") and not hasattr(self.get_connection, "_mock_name"):
+            try:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        if not type(cur).__module__.startswith("unittest.mock"):
+                            cur.execute("SET LOCAL statement_timeout = '1500ms';")
+                        cur.execute("SELECT value FROM system_settings WHERE key = %s;", (cache_key,))
+                        row = cur.fetchone()
+                        if row:
+                            raw_val = row[0] if not isinstance(row, dict) else row.get("value")
+                            if raw_val:
+                                parsed = json.loads(raw_val) if isinstance(raw_val, str) else raw_val
+                                if isinstance(parsed, list):
+                                    posts = [p for p in parsed if isinstance(p, dict)]
+                                    PostgresDatabase._event_news_cache[cache_key] = posts
+            except Exception as e:
+                logger.debug(f"PostgreSQL get_event_news_posts notice for {eid}: {e}")
+        if not isinstance(posts, list):
+            return []
+        valid = [dict(p) for p in posts if isinstance(p, dict)]
+        valid.sort(key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt") or 0), reverse=True)
+        return valid
+
+    def save_event_news_post(self, event_id: str, post_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Creates or updates a TO news/info post for an event in PostgreSQL (system_settings + L1 cache)."""
+        import uuid as _uuid
+        eid = str(event_id or "").strip()
+        cache_key = f"event_news_v1_{eid.lower()}"
+        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        existing = self.get_event_news_posts(eid)
+
+        post_id = str(post_data.get("id") or f"news_{int(now_ts)}_{_uuid.uuid4().hex[:6]}").strip()
+        prev = next((p for p in existing if str(p.get("id")) == post_id), None)
+
+        record = {
+            "id": post_id,
+            "event_id": eid,
+            "title": str(post_data.get("title") or "Event Update").strip(),
+            "category": str(post_data.get("category") or "General Info").strip(),
+            "body": str(post_data.get("body") or post_data.get("content") or "").strip(),
+            "pinned": bool(post_data.get("pinned", False)),
+            "author": str(post_data.get("author") or "Tournament Organizer").strip(),
+            "createdAt": (prev.get("createdAt") if prev else None) or now_ts,
+            "created_at": (prev.get("created_at") if prev else None) or now_iso,
+            "updatedAt": now_ts,
+            "updated_at": now_iso,
+        }
+
+        updated = [p for p in existing if str(p.get("id")) != post_id]
+        updated.insert(0, record)
+        updated.sort(key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt") or 0), reverse=True)
+        PostgresDatabase._event_news_cache[cache_key] = updated
+
+        if not self._is_mock_instance() and hasattr(self, "get_connection") and not hasattr(self.get_connection, "_mock_name"):
+            try:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        if not type(cur).__module__.startswith("unittest.mock"):
+                            cur.execute("SET LOCAL statement_timeout = '2000ms';")
+                        cur.execute(
+                            """
+                            INSERT INTO system_settings (key, value, updated_at)
+                            VALUES (%s, %s, NOW())
+                            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
+                            """,
+                            (cache_key, json.dumps(updated, default=str)),
+                        )
+                    conn.commit()
+            except Exception as e:
+                logger.warning(f"Notice persisting event news_posts to PostgreSQL for {eid}: {e}")
+        return record
+
+    def delete_event_news_post(self, event_id: str, post_id: str) -> bool:
+        """Deletes a TO news/info post for an event from PostgreSQL (system_settings + L1 cache)."""
+        eid = str(event_id or "").strip()
+        pid = str(post_id or "").strip()
+        cache_key = f"event_news_v1_{eid.lower()}"
+        existing = self.get_event_news_posts(eid)
+        updated = [p for p in existing if str(p.get("id")) != pid]
+        PostgresDatabase._event_news_cache[cache_key] = updated
+
+        if not self._is_mock_instance() and hasattr(self, "get_connection") and not hasattr(self.get_connection, "_mock_name"):
+            try:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        if not type(cur).__module__.startswith("unittest.mock"):
+                            cur.execute("SET LOCAL statement_timeout = '2000ms';")
+                        cur.execute(
+                            """
+                            INSERT INTO system_settings (key, value, updated_at)
+                            VALUES (%s, %s, NOW())
+                            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
+                            """,
+                            (cache_key, json.dumps(updated, default=str)),
+                        )
+                    conn.commit()
+            except Exception as e:
+                logger.warning(f"Notice deleting event news_post in PostgreSQL for {eid}: {e}")
+        return True
+
 
 class PostgresConnectionContext:
     """Manages connection acquisition and release back to ThreadedConnectionPool."""
@@ -14020,7 +14130,6 @@ try:
         PostgresDatabase,
         class_label="PostgresDatabase",
         exclude_methods={
-            "_is_mock_instance",
             "_normalize_dsn",
             "_sanitize_dsn",
             "db_path",
@@ -14031,7 +14140,7 @@ try:
             "_upsert_match_cursor",
             "is_valid_game_store_name",
         },
-        quiet_methods={"get_cached", "set_cached"},
+        quiet_methods={"get_cached", "set_cached", "_is_mock_instance"},
     )
 except Exception as _perf_err:
     logger.debug(f"Perf instrumentation notice on PostgresDatabase: {_perf_err}")

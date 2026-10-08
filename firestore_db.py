@@ -773,34 +773,79 @@ class FirestoreRoomEngine:
         return deleted
 
 
+    def _get_fallback_tournament_dict(self, event_id: str, create: bool = False) -> Dict[str, Any]:
+        """Resolves tournament fallback dictionary case-insensitively (e.g. BCP mixed-case IDs vs uppercase matchId tokens)."""
+        eid = str(event_id or "").strip()
+        if not eid:
+            return {}
+        if eid in self._fallback_tournaments:
+            return self._fallback_tournaments[eid]
+        eid_low = eid.lower()
+        for k, v in self._fallback_tournaments.items():
+            if str(k).lower() == eid_low:
+                return v
+        if create:
+            self._fallback_tournaments[eid] = {}
+            return self._fallback_tournaments[eid]
+        return {}
+
     def get_tournament_doc_ref(self, event_id: str):
         if not event_id or not self._client:
             return None
         return self._client.collection("tournaments").document(str(event_id).strip())
 
-    def get_tournament_master_clock(self, event_id: str) -> Optional[Dict[str, Any]]:
-        """Fetches tournament round master clock from tournaments/{event_id}."""
-        event_id = str(event_id).strip()
-        if self._client:
+    def _read_tournament_doc_dict(self, event_id: str) -> Dict[str, Any]:
+        """Reads tournaments/{event_id} from Firestore, checking both exact case and uppercase."""
+        eid = str(event_id or "").strip()
+        if not eid or not self._client:
+            return {}
+        for candidate in (eid, eid.upper()):
             try:
-                ref = self.get_tournament_doc_ref(event_id)
-                if ref:
-                    snap = ref.get()
-                    if snap.exists:
-                        data = snap.to_dict() or {}
-                        clock = data.get("masterClock")
-                        if clock:
-                            return clock
+                ref = self._client.collection("tournaments").document(candidate)
+                snap = ref.get()
+                if snap.exists:
+                    data = snap.to_dict() or {}
+                    if data:
+                        return data
             except Exception as e:
-                logger.warning(f"Notice reading master clock from Firestore: {e}")
-        return self._fallback_tournaments.get(event_id, {}).get("masterClock")
+                logger.warning(f"Notice reading tournament doc {candidate} from Firestore: {e}")
+        return {}
+
+    def _write_tournament_doc_dict(self, event_id: str, payload: Dict[str, Any]) -> None:
+        """Writes payload to tournaments/{event_id} (and uppercase alias if mixed-case) in Firestore."""
+        eid = str(event_id or "").strip()
+        if not eid or not self._client:
+            return
+        candidates = [eid]
+        if eid.upper() != eid:
+            candidates.append(eid.upper())
+        for candidate in candidates:
+            try:
+                ref = self._client.collection("tournaments").document(candidate)
+                ref.set(payload, merge=True)
+            except Exception as e:
+                logger.warning(f"Notice writing tournament doc {candidate} to Firestore: {e}")
+
+    def get_tournament_master_clock(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Fetches tournament round master clock from Firestore tournaments/{event_id}."""
+        event_id = str(event_id).strip()
+        data = self._read_tournament_doc_dict(event_id)
+        if data.get("masterClock"):
+            return data["masterClock"]
+        return self._get_fallback_tournament_dict(event_id).get("masterClock")
 
     def update_tournament_master_clock(self, event_id: str, clock_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Updates tournament master clock in tournaments/{event_id}."""
+        """Updates tournament master clock in Firestore tournaments/{event_id} and propagates to rooms."""
         event_id = str(event_id).strip()
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
         clock_data["updatedAt"] = now_ts
         clock_data["updated_at"] = now_ts
+
+        # Ensure round & round_num compatibility
+        if "round" in clock_data and "round_num" not in clock_data:
+            clock_data["round_num"] = clock_data["round"]
+        elif "round_num" in clock_data and "round" not in clock_data:
+            clock_data["round"] = clock_data["round_num"]
 
         # Ensure camelCase & snake_case compatibility
         if "durationMinutes" in clock_data and "duration_minutes" not in clock_data:
@@ -818,6 +863,15 @@ class FirestoreRoomEngine:
         elif "remaining_seconds" in clock_data and "remainingSeconds" not in clock_data:
             clock_data["remainingSeconds"] = clock_data["remaining_seconds"]
 
+        # Auto-calculate targetEndTime when status is running so all clients tick identically
+        if str(clock_data.get("status") or "").lower() == "running" and not clock_data.get("targetEndTime"):
+            rem_s = clock_data.get("remainingSeconds")
+            if rem_s is None:
+                rem_s = int(clock_data.get("durationMinutes") or 150) * 60
+            target_ms = now_ts + int(float(rem_s) * 1000)
+            clock_data["targetEndTime"] = target_ms
+            clock_data["target_end_time"] = target_ms
+
         doc_payload = {
             "id": event_id,
             "eventId": event_id,
@@ -826,20 +880,14 @@ class FirestoreRoomEngine:
             "updatedAt": now_ts
         }
 
-        if self._client:
-            try:
-                ref = self._client.collection("tournaments").document(event_id)
-                ref.set(doc_payload, merge=True)
-            except Exception as e:
-                logger.warning(f"Notice saving master clock to Firestore tournaments: {e}")
+        self._write_tournament_doc_dict(event_id, doc_payload)
 
-        if event_id not in self._fallback_tournaments:
-            self._fallback_tournaments[event_id] = {}
-        self._fallback_tournaments[event_id]["id"] = event_id
-        self._fallback_tournaments[event_id]["eventId"] = event_id
-        self._fallback_tournaments[event_id]["type"] = "Event"
-        self._fallback_tournaments[event_id]["masterClock"] = clock_data
-        self._fallback_tournaments[event_id]["updatedAt"] = now_ts
+        fb = self._get_fallback_tournament_dict(event_id, create=True)
+        fb["id"] = event_id
+        fb["eventId"] = event_id
+        fb["type"] = "Event"
+        fb["masterClock"] = clock_data
+        fb["updatedAt"] = now_ts
 
         # Propagate master clock directly to all table rooms for this tournament
         self.propagate_master_clock_to_rooms(event_id, clock_data)
@@ -864,7 +912,7 @@ class FirestoreRoomEngine:
             try:
                 col = self._client.collection("rooms")
                 for field in ("eventId", "event_id", "tournament_id"):
-                    for val in (event_id, clean_id):
+                    for val in (event_id, clean_id, event_id.upper(), clean_id.upper()):
                         if not val:
                             continue
                         try:
@@ -895,33 +943,81 @@ class FirestoreRoomEngine:
             if (
                 mid in seen_mids or
                 any(mid_upper.startswith(p.upper()) for p in prefixes) or
-                rdata.get("eventId") in (event_id, clean_id) or
-                rdata.get("event_id") in (event_id, clean_id) or
-                rdata.get("tournament_id") in (event_id, clean_id)
+                str(rdata.get("eventId") or "").lower() in (event_id.lower(), clean_id.lower()) or
+                str(rdata.get("event_id") or "").lower() in (event_id.lower(), clean_id.lower()) or
+                str(rdata.get("tournament_id") or "").lower() in (event_id.lower(), clean_id.lower())
             ):
                 rdata["masterClock"] = clock_data
                 count += 1
         return count
 
-    def get_tournament_broadcast(self, event_id: str) -> Optional[Dict[str, Any]]:
-        """Fetches active broadcast announcement for tournament."""
+    def propagate_broadcast_to_rooms(self, event_id: str, broadcast_data: Optional[Dict[str, Any]]) -> int:
+        """Propagates pop-up tournament broadcast announcement to all associated table game rooms in Firestore and memory."""
+        if not event_id:
+            return 0
         event_id = str(event_id).strip()
+        clean_id = event_id.replace("bcp_", "").replace("ES-", "").replace("es-", "").strip()
+        count = 0
+        seen_mids = set()
+
+        prefixes = (
+            f"BCP-{event_id}-", f"ES-{event_id}-", f"WH40K-BCP-{event_id}-", f"WH40K-ES-{event_id}-",
+            f"BCP-{clean_id}-", f"ES-{clean_id}-", f"WH40K-BCP-{clean_id}-", f"WH40K-ES-{clean_id}-",
+            f"{event_id}-R", f"{clean_id}-R",
+        )
+
         if self._client:
             try:
-                ref = self.get_tournament_doc_ref(event_id)
-                if ref:
-                    snap = ref.get()
-                    if snap.exists:
-                        data = snap.to_dict() or {}
-                        b = data.get("broadcast")
-                        if b:
-                            return b
+                col = self._client.collection("rooms")
+                for field in ("eventId", "event_id", "tournament_id"):
+                    for val in (event_id, clean_id, event_id.upper(), clean_id.upper()):
+                        if not val:
+                            continue
+                        try:
+                            for doc in col.where(field, "==", val).stream():
+                                mid = doc.id
+                                if mid not in seen_mids:
+                                    seen_mids.add(mid)
+                                    doc.reference.set({"broadcast": broadcast_data}, merge=True)
+                                    count += 1
+                        except Exception:
+                            pass
+
+                for doc in col.stream():
+                    mid = doc.id
+                    if mid in seen_mids:
+                        continue
+                    mid_upper = mid.upper()
+                    if any(mid_upper.startswith(p.upper()) for p in prefixes):
+                        seen_mids.add(mid)
+                        doc.reference.set({"broadcast": broadcast_data}, merge=True)
+                        count += 1
             except Exception as e:
-                logger.warning(f"Notice reading broadcast from Firestore: {e}")
-        return self._fallback_tournaments.get(event_id, {}).get("broadcast")
+                logger.warning(f"Notice propagating broadcast to Firestore rooms: {e}")
+
+        for mid, rdata in self._fallback_rooms.items():
+            mid_upper = str(mid).upper()
+            if (
+                mid in seen_mids or
+                any(mid_upper.startswith(p.upper()) for p in prefixes) or
+                str(rdata.get("eventId") or "").lower() in (event_id.lower(), clean_id.lower()) or
+                str(rdata.get("event_id") or "").lower() in (event_id.lower(), clean_id.lower()) or
+                str(rdata.get("tournament_id") or "").lower() in (event_id.lower(), clean_id.lower())
+            ):
+                rdata["broadcast"] = broadcast_data
+                count += 1
+        return count
+
+    def get_tournament_broadcast(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Fetches active pop-up broadcast announcement for tournament from Firestore."""
+        event_id = str(event_id).strip()
+        data = self._read_tournament_doc_dict(event_id)
+        if "broadcast" in data:
+            return data.get("broadcast")
+        return self._get_fallback_tournament_dict(event_id).get("broadcast")
 
     def publish_tournament_broadcast(self, event_id: str, broadcast_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Publishes broadcast announcement to tournaments/{event_id} and records in announcements history."""
+        """Publishes pop-up broadcast announcement to Firestore tournaments/{event_id} and propagates to Game Tracker rooms."""
         event_id = str(event_id).strip()
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
         import uuid as _uuid
@@ -943,165 +1039,122 @@ class FirestoreRoomEngine:
         broadcast_data["published_at"] = iso_now
 
         existing_history = []
-        if self._client:
-            try:
-                ref = self.get_tournament_doc_ref(event_id)
-                if ref:
-                    snap = ref.get()
-                    if snap.exists:
-                        d = snap.to_dict() or {}
-                        if isinstance(d.get("announcements"), list):
-                            existing_history = [a for a in d["announcements"] if isinstance(a, dict) and a.get("id") != broadcast_data["id"]]
-            except Exception as e:
-                logger.warning(f"Notice reading announcement history from Firestore: {e}")
+        d = self._read_tournament_doc_dict(event_id)
+        if isinstance(d.get("announcements"), list):
+            existing_history = [a for a in d["announcements"] if isinstance(a, dict) and a.get("id") != broadcast_data["id"]]
 
         if not existing_history:
-            fb_hist = self._fallback_tournaments.get(event_id, {}).get("announcements")
+            fb_hist = self._get_fallback_tournament_dict(event_id).get("announcements")
             if isinstance(fb_hist, list):
                 existing_history = [a for a in fb_hist if isinstance(a, dict) and a.get("id") != broadcast_data["id"]]
 
         existing_history.insert(0, dict(broadcast_data))
         existing_history = existing_history[:30]
 
-        if self._client:
-            try:
-                ref = self.get_tournament_doc_ref(event_id)
-                if ref:
-                    ref.set({
-                        "eventId": event_id,
-                        "broadcast": broadcast_data,
-                        "announcements": existing_history,
-                        "updatedAt": now_ts
-                    }, merge=True)
-            except Exception as e:
-                logger.warning(f"Notice publishing broadcast to Firestore: {e}")
+        self._write_tournament_doc_dict(event_id, {
+            "eventId": event_id,
+            "broadcast": broadcast_data,
+            "announcements": existing_history,
+            "updatedAt": now_ts
+        })
 
-        if event_id not in self._fallback_tournaments:
-            self._fallback_tournaments[event_id] = {}
-        self._fallback_tournaments[event_id]["broadcast"] = broadcast_data
-        self._fallback_tournaments[event_id]["announcements"] = existing_history
-        self._fallback_tournaments[event_id]["updatedAt"] = now_ts
+        fb = self._get_fallback_tournament_dict(event_id, create=True)
+        fb["broadcast"] = broadcast_data
+        fb["announcements"] = existing_history
+        fb["updatedAt"] = now_ts
+
+        # Propagate pop-up broadcast directly to all active Game Tracker rooms
+        self.propagate_broadcast_to_rooms(event_id, broadcast_data)
         return broadcast_data
 
     def clear_tournament_broadcast(self, event_id: str) -> bool:
-        """Clears the active broadcast banner for a tournament while preserving announcement history."""
+        """Clears the active pop-up broadcast banner in Firestore while preserving announcement history."""
         event_id = str(event_id).strip()
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
-        if self._client:
-            try:
-                ref = self.get_tournament_doc_ref(event_id)
-                if ref:
-                    ref.set({"eventId": event_id, "broadcast": None, "updatedAt": now_ts}, merge=True)
-            except Exception as e:
-                logger.warning(f"Notice clearing broadcast in Firestore: {e}")
-        if event_id in self._fallback_tournaments:
-            self._fallback_tournaments[event_id]["broadcast"] = None
-            self._fallback_tournaments[event_id]["updatedAt"] = now_ts
+        self._write_tournament_doc_dict(event_id, {"eventId": event_id, "broadcast": None, "updatedAt": now_ts})
+        fb = self._get_fallback_tournament_dict(event_id)
+        if fb is not None:
+            fb["broadcast"] = None
+            fb["updatedAt"] = now_ts
+        self.propagate_broadcast_to_rooms(event_id, None)
         return True
 
     def get_event_news_posts(self, event_id: str) -> List[Dict[str, Any]]:
-        """Fetches news & info posts published by the TO for an event."""
+        """Fetches News & Info posts published by the TO for an event from PostgreSQL."""
         event_id = str(event_id).strip()
-        posts = None
-        if self._client:
-            try:
-                ref = self.get_tournament_doc_ref(event_id)
-                if ref:
-                    snap = ref.get()
-                    if snap.exists:
-                        data = snap.to_dict() or {}
-                        if isinstance(data.get("news_posts"), list):
-                            posts = data.get("news_posts")
-            except Exception as e:
-                logger.warning(f"Notice reading news_posts from Firestore: {e}")
-        if posts is None:
-            posts = self._fallback_tournaments.get(event_id, {}).get("news_posts")
-        if not isinstance(posts, list):
-            return []
-        valid = [p for p in posts if isinstance(p, dict)]
-        valid.sort(key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt") or 0), reverse=True)
-        return valid
+        try:
+            from database import get_db
+            db = get_db()
+            posts = db.get_event_news_posts(event_id)
+            if posts:
+                return posts
+        except Exception as e:
+            logger.debug(f"Notice reading news_posts from PostgreSQL for {event_id}: {e}")
+
+        # Fallback if legacy posts existed in memory/Firestore
+        fb_posts = self._get_fallback_tournament_dict(event_id).get("news_posts")
+        if isinstance(fb_posts, list):
+            valid = [p for p in fb_posts if isinstance(p, dict)]
+            valid.sort(key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt") or 0), reverse=True)
+            return valid
+        return []
 
     def save_event_news_post(self, event_id: str, post_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Creates or updates a TO news/info post on tournaments/{event_id}."""
-        import uuid as _uuid
+        """Creates or updates a TO News & Info post in PostgreSQL."""
         event_id = str(event_id).strip()
-        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
-        now_iso = datetime.now(timezone.utc).isoformat()
-        existing = self.get_event_news_posts(event_id)
-
-        post_id = str(post_data.get("id") or f"news_{int(now_ts)}_{_uuid.uuid4().hex[:6]}").strip()
-        prev = next((p for p in existing if str(p.get("id")) == post_id), None)
-
-        record = {
-            "id": post_id,
-            "event_id": event_id,
-            "title": str(post_data.get("title") or "Event Update").strip(),
-            "category": str(post_data.get("category") or "General Info").strip(),
-            "body": str(post_data.get("body") or post_data.get("content") or "").strip(),
-            "pinned": bool(post_data.get("pinned", False)),
-            "author": str(post_data.get("author") or "Tournament Organizer").strip(),
-            "createdAt": (prev.get("createdAt") if prev else None) or now_ts,
-            "created_at": (prev.get("created_at") if prev else None) or now_iso,
-            "updatedAt": now_ts,
-            "updated_at": now_iso,
-        }
-
-        updated = [p for p in existing if str(p.get("id")) != post_id]
-        updated.insert(0, record)
-        updated.sort(key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt") or 0), reverse=True)
-
-        if self._client:
-            try:
-                ref = self.get_tournament_doc_ref(event_id)
-                if ref:
-                    ref.set({"eventId": event_id, "news_posts": updated, "updatedAt": now_ts}, merge=True)
-            except Exception as e:
-                logger.warning(f"Notice saving news_posts to Firestore: {e}")
-
-        if event_id not in self._fallback_tournaments:
-            self._fallback_tournaments[event_id] = {}
-        self._fallback_tournaments[event_id]["news_posts"] = updated
-        self._fallback_tournaments[event_id]["updatedAt"] = now_ts
-        return record
+        try:
+            from database import get_db
+            db = get_db()
+            return db.save_event_news_post(event_id, post_data)
+        except Exception as e:
+            logger.warning(f"Notice saving news_post to PostgreSQL for {event_id}: {e}")
+            import uuid as _uuid
+            now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+            now_iso = datetime.now(timezone.utc).isoformat()
+            existing = self.get_event_news_posts(event_id)
+            post_id = str(post_data.get("id") or f"news_{int(now_ts)}_{_uuid.uuid4().hex[:6]}").strip()
+            prev = next((p for p in existing if str(p.get("id")) == post_id), None)
+            record = {
+                "id": post_id,
+                "event_id": event_id,
+                "title": str(post_data.get("title") or "Event Update").strip(),
+                "category": str(post_data.get("category") or "General Info").strip(),
+                "body": str(post_data.get("body") or post_data.get("content") or "").strip(),
+                "pinned": bool(post_data.get("pinned", False)),
+                "author": str(post_data.get("author") or "Tournament Organizer").strip(),
+                "createdAt": (prev.get("createdAt") if prev else None) or now_ts,
+                "created_at": (prev.get("created_at") if prev else None) or now_iso,
+                "updatedAt": now_ts,
+                "updated_at": now_iso,
+            }
+            updated = [p for p in existing if str(p.get("id")) != post_id]
+            updated.insert(0, record)
+            updated.sort(key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt") or 0), reverse=True)
+            fb = self._get_fallback_tournament_dict(event_id, create=True)
+            fb["news_posts"] = updated
+            return record
 
     def delete_event_news_post(self, event_id: str, post_id: str) -> bool:
-        """Deletes a TO news post from tournaments/{event_id}."""
+        """Deletes a TO News & Info post from PostgreSQL."""
         event_id = str(event_id).strip()
         post_id = str(post_id).strip()
-        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
-        existing = self.get_event_news_posts(event_id)
-        updated = [p for p in existing if str(p.get("id")) != post_id]
-
-        if self._client:
-            try:
-                ref = self.get_tournament_doc_ref(event_id)
-                if ref:
-                    ref.set({"eventId": event_id, "news_posts": updated, "updatedAt": now_ts}, merge=True)
-            except Exception as e:
-                logger.warning(f"Notice deleting news_post from Firestore: {e}")
-
-        if event_id not in self._fallback_tournaments:
-            self._fallback_tournaments[event_id] = {}
-        self._fallback_tournaments[event_id]["news_posts"] = updated
-        self._fallback_tournaments[event_id]["updatedAt"] = now_ts
+        try:
+            from database import get_db
+            db = get_db()
+            db.delete_event_news_post(event_id, post_id)
+        except Exception as e:
+            logger.warning(f"Notice deleting news_post from PostgreSQL for {event_id}: {e}")
+        fb = self._get_fallback_tournament_dict(event_id)
+        if fb and isinstance(fb.get("news_posts"), list):
+            fb["news_posts"] = [p for p in fb["news_posts"] if str(p.get("id")) != post_id]
         return True
 
     def get_event_to_hub_state(self, event_id: str) -> Dict[str, Any]:
-        """Single-read retrieval of masterClock, broadcast, announcements, news_posts, and judge_calls for TO Hub & News tab."""
+        """Retrieves real-time Firestore state (masterClock, broadcast, announcements, judge_calls) + PostgreSQL news_posts."""
         event_id = str(event_id).strip()
-        doc_data: Dict[str, Any] = {}
-        if self._client:
-            try:
-                ref = self.get_tournament_doc_ref(event_id)
-                if ref:
-                    snap = ref.get()
-                    if snap.exists:
-                        doc_data = snap.to_dict() or {}
-            except Exception as e:
-                logger.warning(f"Notice reading TO Hub state from Firestore for {event_id}: {e}")
+        doc_data = self._read_tournament_doc_dict(event_id)
+        fb_data = self._get_fallback_tournament_dict(event_id)
 
-        fb_data = self._fallback_tournaments.get(event_id, {})
         master_clock = doc_data.get("masterClock") or fb_data.get("masterClock")
         broadcast = doc_data.get("broadcast") if "broadcast" in doc_data else fb_data.get("broadcast")
         if isinstance(broadcast, dict) and broadcast.get("active") is False:
@@ -1113,11 +1166,13 @@ class FirestoreRoomEngine:
         if not announcements and isinstance(broadcast, dict) and broadcast.get("message"):
             announcements = [broadcast]
 
-        news_posts = doc_data.get("news_posts") if isinstance(doc_data.get("news_posts"), list) else (
-            fb_data.get("news_posts") if isinstance(fb_data.get("news_posts"), list) else []
-        )
-        news_posts = [p for p in news_posts if isinstance(p, dict)]
-        news_posts.sort(key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt") or 0), reverse=True)
+        # News & Info posts live in PostgreSQL (with automatic fallback)
+        news_posts = self.get_event_news_posts(event_id)
+        if not news_posts:
+            legacy_posts = doc_data.get("news_posts") if isinstance(doc_data.get("news_posts"), list) else []
+            if legacy_posts:
+                news_posts = [p for p in legacy_posts if isinstance(p, dict)]
+                news_posts.sort(key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt") or 0), reverse=True)
 
         judge_calls = self.list_judge_calls(event_id, active_only=False)
 
@@ -1130,6 +1185,12 @@ class FirestoreRoomEngine:
             "announcements": announcements,
             "news_posts": news_posts,
             "judge_calls": judge_calls,
+            "sync_backends": {
+                "announcements": "firestore",
+                "clocks": "firestore",
+                "flags": "firestore",
+                "news_posts": "postgresql",
+            },
         }
 
     def get_active_broadcasts_for_events(self, event_ids: List[str]) -> List[Dict[str, Any]]:
