@@ -11445,9 +11445,23 @@ function ensureEventToHubFirestoreListener(eventId) {
   } catch (_) {}
 }
 
+function recordRecentInteractedEventId(eventId) {
+  const eid = String(eventId || '').trim();
+  if (!eid || eid === '*' || eid === '_active_broadcasts') return;
+  if (!window._recentInteractedEventIds) window._recentInteractedEventIds = new Set();
+  window._recentInteractedEventIds.add(eid);
+  try {
+    const raw = localStorage.getItem('omni_recent_event_ids');
+    const prev = raw ? JSON.parse(raw) : [];
+    const list = [eid, ...(Array.isArray(prev) ? prev.filter(x => x && x !== eid) : [])].slice(0, 12);
+    localStorage.setItem('omni_recent_event_ids', JSON.stringify(list));
+  } catch (_) {}
+}
+
 async function loadEventToHubState(eventId, forceRefresh = false) {
   if (!eventId || !window.api || typeof window.api.getEventToHubState !== 'function') return null;
   const eid = String(eventId);
+  recordRecentInteractedEventId(eid);
   ensureEventToHubFirestoreListener(eid);
   if (!forceRefresh && _eventToHubStateCache.has(eid)) {
     const cached = _eventToHubStateCache.get(eid);
@@ -11954,9 +11968,14 @@ async function broadcastUnfinishedTablesPing(eventId, roundNum) {
   if (matches.length === 0) return;
   const tableNums = matches.map((m, idx) => `Table ${m.table || m.table_number || (idx + 1)}`).slice(0, 12).join(', ');
   const msg = `⏳ Round ${roundNum} Score Submission Reminder: Waiting on ${matches.length} table(s) (${tableNums}${matches.length > 12 ? '...' : ''}). Please submit final scores now!`;
+  const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || '';
   try {
-    await window.api.publishEventToHubAnnouncement(eventId, { message: msg, level: 'warning' });
+    recordRecentInteractedEventId(eventId);
+    await window.api.publishEventToHubAnnouncement(eventId, { message: msg, level: 'warning', event_name: evName });
     await loadEventToHubState(eventId, true);
+    if (typeof syncGlobalEventAnnouncementBanner === 'function') {
+      await syncGlobalEventAnnouncementBanner(true);
+    }
     if (typeof showToast === 'function') showToast('Published live score reminder banner to all players!', 'success');
   } catch (err) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to publish reminder', 'error');
@@ -12203,12 +12222,18 @@ async function broadcastToHubClockStatus() {
   const rNum = clockObj.round_num || clockObj.round || 1;
   const minsLeft = Math.ceil(rem / 60);
   const msg = `⏱️ Round ${rNum} Time Check: ${minsLeft} minutes remaining (${formatClockDurationHms(rem)} on Master Clock).`;
+  const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || '';
   try {
+    recordRecentInteractedEventId(eventId);
     await window.api.publishEventToHubAnnouncement(eventId, {
       message: msg,
       level: minsLeft <= 20 ? 'urgent' : 'warning',
+      event_name: evName,
     });
     await loadEventToHubState(eventId, true);
+    if (typeof syncGlobalEventAnnouncementBanner === 'function') {
+      await syncGlobalEventAnnouncementBanner(true);
+    }
     if (typeof showToast === 'function') showToast('Broadcasted live round time check!', 'success');
   } catch (err) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to broadcast time check', 'error');
@@ -12414,8 +12439,15 @@ async function publishToHubBannerAnnouncement() {
     if (typeof showToast === 'function') showToast('Please enter an announcement message', 'warning');
     return;
   }
+  const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || '';
   try {
-    await window.api.publishEventToHubAnnouncement(eventId, { message, level });
+    recordRecentInteractedEventId(eventId);
+    const pubRes = await window.api.publishEventToHubAnnouncement(eventId, { message, level, event_name: evName });
+    if (pubRes && pubRes.broadcast && pubRes.broadcast.id) {
+      try {
+        localStorage.removeItem(`dismissed_event_broadcast_${pubRes.broadcast.id}`);
+      } catch (_) {}
+    }
     if (input) input.value = '';
     await loadEventToHubState(eventId, true);
     if (typeof syncGlobalEventAnnouncementBanner === 'function') {
@@ -12432,6 +12464,13 @@ async function clearToHubBannerAnnouncement() {
   if (!eventId) return;
   try {
     await window.api.clearEventToHubAnnouncement(eventId);
+    if (_eventToHubStateCache.has(eventId)) {
+      const c = _eventToHubStateCache.get(eventId);
+      if (c) {
+        c.broadcast = null;
+        c.active_broadcast = null;
+      }
+    }
     await loadEventToHubState(eventId, true);
     if (typeof syncGlobalEventAnnouncementBanner === 'function') {
       await syncGlobalEventAnnouncementBanner(true);
@@ -12760,6 +12799,24 @@ async function syncGlobalEventAnnouncementBanner(force = false) {
 
   const candidateIds = new Set();
   if (currentOpenEventId) candidateIds.add(String(currentOpenEventId));
+  if (window._recentInteractedEventIds instanceof Set) {
+    window._recentInteractedEventIds.forEach(id => {
+      if (id) candidateIds.add(String(id));
+    });
+  }
+  try {
+    const recentRaw = localStorage.getItem('omni_recent_event_ids');
+    const recentArr = recentRaw ? JSON.parse(recentRaw) : [];
+    if (Array.isArray(recentArr)) {
+      recentArr.forEach(id => {
+        if (id) candidateIds.add(String(id));
+      });
+    }
+  } catch (_) {}
+  for (const cachedEid of _eventToHubStateCache.keys()) {
+    if (cachedEid) candidateIds.add(String(cachedEid));
+  }
+
   const regList = [
     ...(Array.isArray(window.myHubRegisteredTournaments) ? window.myHubRegisteredTournaments : []),
     ...(Array.isArray(window._hubRegisteredEventsCache) ? window._hubRegisteredEventsCache : [])
@@ -12777,17 +12834,27 @@ async function syncGlobalEventAnnouncementBanner(force = false) {
     if (id) candidateIds.add(id);
   });
 
-  const eventIds = Array.from(candidateIds).slice(0, 25);
-  if (eventIds.length === 0) {
-    banner.style.display = 'none';
-    return;
-  }
+  // Always include wildcard '*' so mobile screens (My Hub, Team, Community, Leaderboards, etc.) receive all active tournament broadcasts
+  const eventIds = Array.from(candidateIds).filter(id => id && id !== '*' && id !== '_active_broadcasts').slice(0, 20);
+  const queryIds = [...eventIds, '*'];
 
   try {
-    const res = await window.api.getActiveEventAnnouncements(eventIds);
-    const announcements = Array.isArray(res?.announcements) ? res.announcements : [];
+    const res = await window.api.getActiveEventAnnouncements(queryIds, force);
+    const announcements = Array.isArray(res?.announcements) ? [...res.announcements] : [];
+
+    // Merge any active broadcast currently held in client-side _eventToHubStateCache
+    for (const [cEid, cState] of _eventToHubStateCache.entries()) {
+      const b = cState && (cState.active_broadcast || cState.broadcast);
+      if (b && b.message && b.active !== false) {
+        const exists = announcements.some(a => String(a.id || '') === String(b.id || '') || String(a.event_id || a.eventId || '') === String(cEid));
+        if (!exists) {
+          announcements.unshift({ ...b, event_id: b.event_id || b.eventId || cEid });
+        }
+      }
+    }
+
     const active = announcements.find(a => {
-      if (!a || !a.message) return false;
+      if (!a || !a.message || a.active === false) return false;
       const bid = String(a.id || `${a.event_id}_${a.published_at || ''}`);
       try {
         if (!force && localStorage.getItem(`dismissed_event_broadcast_${bid}`) === '1') {
@@ -12804,7 +12871,7 @@ async function syncGlobalEventAnnouncementBanner(force = false) {
     }
 
     const bid = String(active.id || `${active.event_id}_${active.published_at || ''}`);
-    const evId = String(active.event_id || '');
+    const evId = String(active.event_id || active.eventId || '');
     let evName = active.event_name || '';
     if (!evName) {
       if (currentEventData && String(currentEventData.id) === evId) {
@@ -12856,6 +12923,48 @@ async function syncGlobalEventAnnouncementBanner(force = false) {
   }
 }
 
+let _globalAnnouncementSyncStarted = false;
+let _globalAnnouncementFirestoreUnsub = null;
+
+function startGlobalAppAnnouncementSync() {
+  if (_globalAnnouncementSyncStarted) return;
+  _globalAnnouncementSyncStarted = true;
+
+  syncGlobalEventAnnouncementBanner().catch(() => {});
+
+  // Real-time Firestore listener on tournaments/_active_broadcasts for instant multi-screen / mobile push
+  try {
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0 && typeof firebase.firestore === 'function') {
+      const db = firebase.firestore();
+      _globalAnnouncementFirestoreUnsub = db.collection('tournaments').doc('_active_broadcasts').onSnapshot(() => {
+        syncGlobalEventAnnouncementBanner().catch(() => {});
+      }, () => {});
+    }
+  } catch (_) {}
+
+  // Lightweight background sync for all screens (My Hub, Team, Community, Leaderboards, etc.)
+  setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    syncGlobalEventAnnouncementBanner().catch(() => {});
+  }, 10000);
+
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        syncGlobalEventAnnouncementBanner().catch(() => {});
+      }
+    });
+  }
+}
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(startGlobalAppAnnouncementSync, 200));
+  } else {
+    setTimeout(startGlobalAppAnnouncementSync, 200);
+  }
+}
+
 window.canUserAccessEventToHub = canUserAccessEventToHub;
 window.getUserEventOrganizerRole = getUserEventOrganizerRole;
 window.extractEventStaffDirectory = extractEventStaffDirectory;
@@ -12883,6 +12992,7 @@ window.setToHubRosterFilter = setToHubRosterFilter;
 window.handleToHubRosterSearch = handleToHubRosterSearch;
 window.copyToHubFilteredRosterNames = copyToHubFilteredRosterNames;
 window.syncGlobalEventAnnouncementBanner = syncGlobalEventAnnouncementBanner;
+window.startGlobalAppAnnouncementSync = startGlobalAppAnnouncementSync;
 window.dismissGlobalEventAnnouncement = dismissGlobalEventAnnouncement;
 window.openGlobalAnnouncementEvent = openGlobalAnnouncementEvent;
 

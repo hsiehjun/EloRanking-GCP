@@ -1008,13 +1008,47 @@ class FirestoreRoomEngine:
                 count += 1
         return count
 
+    def _sync_active_broadcast_index(self, event_id: str, broadcast_data: Optional[Dict[str, Any]], write_firestore: bool = False) -> None:
+        """Updates the global _active_broadcasts index in memory and optionally Firestore so wildcard '*' queries work across all workers."""
+        eid = str(event_id or "").strip()
+        if not eid or eid == "_active_broadcasts":
+            return
+        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        fb_idx = self._get_fallback_tournament_dict("_active_broadcasts", create=True)
+        if not isinstance(fb_idx.get("broadcasts"), dict):
+            fb_idx["broadcasts"] = {}
+        if isinstance(broadcast_data, dict) and broadcast_data.get("message") and broadcast_data.get("active", True) is not False:
+            fb_idx["broadcasts"][eid] = dict(broadcast_data)
+        else:
+            fb_idx["broadcasts"].pop(eid, None)
+        fb_idx["updatedAt"] = now_ts
+
+        if write_firestore and self._client:
+            try:
+                ref = self._client.collection("tournaments").document("_active_broadcasts")
+                ref.set(
+                    {
+                        "broadcasts": {
+                            eid: (dict(broadcast_data) if (isinstance(broadcast_data, dict) and broadcast_data.get("message") and broadcast_data.get("active", True) is not False) else None)
+                        },
+                        "updatedAt": now_ts,
+                    },
+                    merge=True,
+                )
+            except Exception as e:
+                logger.debug(f"Notice updating _active_broadcasts in Firestore for {eid}: {e}")
+
     def get_tournament_broadcast(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Fetches active pop-up broadcast announcement for tournament from Firestore."""
         event_id = str(event_id).strip()
+        if not event_id or event_id == "_active_broadcasts":
+            return None
         data = self._read_tournament_doc_dict(event_id)
-        if "broadcast" in data:
-            return data.get("broadcast")
-        return self._get_fallback_tournament_dict(event_id).get("broadcast")
+        b = data.get("broadcast") if "broadcast" in data else self._get_fallback_tournament_dict(event_id).get("broadcast")
+        if isinstance(b, dict) and b.get("message") and b.get("active", True) is not False:
+            self._sync_active_broadcast_index(event_id, b, write_firestore=False)
+            return b
+        return None
 
     def publish_tournament_broadcast(self, event_id: str, broadcast_data: Dict[str, Any]) -> Dict[str, Any]:
         """Publishes pop-up broadcast announcement to Firestore tournaments/{event_id} and propagates to Game Tracker rooms."""
@@ -1063,6 +1097,9 @@ class FirestoreRoomEngine:
         fb["announcements"] = existing_history
         fb["updatedAt"] = now_ts
 
+        # Update global _active_broadcasts index in Firestore & fallback memory for app-wide banner across all screens/workers
+        self._sync_active_broadcast_index(event_id, broadcast_data, write_firestore=True)
+
         # Propagate pop-up broadcast directly to all active Game Tracker rooms
         self.propagate_broadcast_to_rooms(event_id, broadcast_data)
         return broadcast_data
@@ -1076,6 +1113,7 @@ class FirestoreRoomEngine:
         if fb is not None:
             fb["broadcast"] = None
             fb["updatedAt"] = now_ts
+        self._sync_active_broadcast_index(event_id, None, write_firestore=True)
         self.propagate_broadcast_to_rooms(event_id, None)
         return True
 
@@ -1159,6 +1197,8 @@ class FirestoreRoomEngine:
         broadcast = doc_data.get("broadcast") if "broadcast" in doc_data else fb_data.get("broadcast")
         if isinstance(broadcast, dict) and broadcast.get("active") is False:
             broadcast = None
+        if isinstance(broadcast, dict) and broadcast.get("message"):
+            self._sync_active_broadcast_index(event_id, broadcast, write_firestore=False)
 
         announcements = doc_data.get("announcements") if isinstance(doc_data.get("announcements"), list) else (
             fb_data.get("announcements") if isinstance(fb_data.get("announcements"), list) else []
@@ -1194,23 +1234,59 @@ class FirestoreRoomEngine:
         }
 
     def get_active_broadcasts_for_events(self, event_ids: List[str]) -> List[Dict[str, Any]]:
-        """Fetches active announcement banners across a list of event IDs for the app-wide banner."""
+        """Fetches active announcement banners across a list of event IDs (or '*' for all events) for the app-wide banner."""
         results = []
         seen_eids = set()
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        for raw_eid in (event_ids or []):
-            eid = str(raw_eid or "").strip()
-            if not eid or eid in seen_eids:
+
+        def _add_candidate(eid_str: str, b_obj: Any) -> None:
+            if not eid_str or eid_str == "_active_broadcasts" or eid_str in seen_eids:
+                return
+            if not isinstance(b_obj, dict) or not b_obj.get("message") or b_obj.get("active", True) is False:
+                return
+            exp = b_obj.get("expiresAt") or b_obj.get("expires_at")
+            if exp and isinstance(exp, (int, float)) and exp < now_ms:
+                return
+            seen_eids.add(eid_str)
+            b_copy = dict(b_obj)
+            b_copy["event_id"] = b_copy.get("event_id") or b_copy.get("eventId") or eid_str
+            results.append(b_copy)
+
+        raw_list = [str(x or "").strip() for x in (event_ids or []) if str(x or "").strip()]
+        include_wildcard = (not raw_list) or any(x.lower() in ("*", "all") for x in raw_list)
+
+        # 1. Check explicit event IDs first
+        for eid in raw_list:
+            if eid.lower() in ("*", "all", "_active_broadcasts") or eid in seen_eids:
                 continue
-            seen_eids.add(eid)
             b = self.get_tournament_broadcast(eid)
-            if isinstance(b, dict) and b.get("message") and b.get("active", True) is not False:
-                exp = b.get("expiresAt") or b.get("expires_at")
-                if exp and isinstance(exp, (int, float)) and exp < now_ms:
+            _add_candidate(eid, b)
+
+        # 2. If wildcard '*' or 'all' is requested, read global _active_broadcasts index from Firestore & memory
+        if include_wildcard:
+            if self._client:
+                try:
+                    snap = self._client.collection("tournaments").document("_active_broadcasts").get()
+                    if snap.exists:
+                        idx_data = snap.to_dict() or {}
+                        b_map = idx_data.get("broadcasts")
+                        if isinstance(b_map, dict):
+                            for k_eid, b_val in b_map.items():
+                                _add_candidate(str(k_eid).strip(), b_val)
+                except Exception as e:
+                    logger.debug(f"Notice reading _active_broadcasts from Firestore: {e}")
+
+            fb_idx = self._get_fallback_tournament_dict("_active_broadcasts")
+            if isinstance(fb_idx.get("broadcasts"), dict):
+                for k_eid, b_val in list(fb_idx["broadcasts"].items()):
+                    _add_candidate(str(k_eid).strip(), b_val)
+
+            for fb_eid, fb_doc in list(self._fallback_tournaments.items()):
+                if fb_eid == "_active_broadcasts" or fb_eid in seen_eids:
                     continue
-                b_copy = dict(b)
-                b_copy["event_id"] = b_copy.get("event_id") or b_copy.get("eventId") or eid
-                results.append(b_copy)
+                if isinstance(fb_doc, dict) and "broadcast" in fb_doc:
+                    _add_candidate(str(fb_eid).strip(), fb_doc.get("broadcast"))
+
         results.sort(key=lambda x: x.get("timestamp") or x.get("createdAt") or 0, reverse=True)
         return results
 

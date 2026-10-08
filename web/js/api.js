@@ -53,7 +53,7 @@ window.api = {
     for (const p of noCachePrefixes) {
       if (url.startsWith(p)) return false;
     }
-    if (url.includes('/livestreams') || url.startsWith('/api/scorecard')) return false;
+    if (url.includes('/livestreams') || url.startsWith('/api/scorecard') || url.includes('/to-hub') || url.includes('/active-announcements')) return false;
     return url.startsWith('/api/');
   },
 
@@ -1698,8 +1698,8 @@ window.api = {
   },
 
   // TO Hub & Event News: Unified single-read state (< 15ms)
-  async getEventToHubState(eventId) {
-    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/to-hub`);
+  async getEventToHubState(eventId, forceRefresh = false) {
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/to-hub`, { forceRefresh: Boolean(forceRefresh) });
   },
 
   // TO Hub: Publish or clear App-Wide Event Announcement Banner
@@ -1760,12 +1760,14 @@ window.api = {
   },
 
   // Global App-Wide Event Announcements Banner
-  async getActiveEventAnnouncements(eventIds = []) {
+  async getActiveEventAnnouncements(eventIds = [], forceRefresh = false) {
     const cleanIds = (Array.isArray(eventIds) ? eventIds : [eventIds])
       .map(id => String(id || '').trim())
       .filter(Boolean);
-    if (cleanIds.length === 0) return { success: true, announcements: [] };
-    return this._fetchJson(`/api/events/active-announcements?event_ids=${encodeURIComponent(cleanIds.join(','))}`);
+    if (cleanIds.length === 0) cleanIds.push('*');
+    return this._fetchJson(`/api/events/active-announcements?event_ids=${encodeURIComponent(cleanIds.join(','))}`, {
+      forceRefresh: Boolean(forceRefresh)
+    });
   }
 };
 

@@ -164,6 +164,19 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
         self.assertGreater(idx_details, 0)
         self.assertGreater(idx_bulletins, idx_details, "Official Event Details must be on top of News & Info tab")
 
+        # Verify syncGlobalEventAnnouncementBanner always queries wildcard '*' and runs on switchTab & startup
+        sync_fn_start = tournaments_js.find("async function syncGlobalEventAnnouncementBanner(")
+        sync_fn_body = tournaments_js[sync_fn_start:]
+        self.assertIn("const queryIds = [...eventIds, '*'];", sync_fn_body)
+        self.assertIn("function startGlobalAppAnnouncementSync()", sync_fn_body)
+
+        app_js = (root_dir / "web" / "js" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("syncGlobalEventAnnouncementBanner()", app_js)
+
+        api_js = (root_dir / "web" / "js" / "api.js").read_text(encoding="utf-8")
+        self.assertIn("url.includes('/active-announcements')", api_js)
+        self.assertIn("url.includes('/to-hub')", api_js)
+
     def test_bcp_hosted_events_and_registered_endpoint(self):
         bcp_adapter.BcpAdapter._last_hosted_events_by_user = {
             "u_to_1": [

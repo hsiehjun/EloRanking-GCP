@@ -361,6 +361,10 @@ function switchTab(tabName) {
   if (mainEl) mainEl.scrollTop = 0;
   window.scrollTo({ top: 0, behavior: 'instant' });
 
+  if (typeof syncGlobalEventAnnouncementBanner === 'function') {
+    syncGlobalEventAnnouncementBanner().catch(() => {});
+  }
+
   // Update URL hash history and clean away any query parameters
   if (tabName !== 'player-profile' && tabName !== 'event-hub' && window.history && window.history.replaceState) {
     let cleanPath = (window.location.pathname || '').replace(/\/+$/, '');

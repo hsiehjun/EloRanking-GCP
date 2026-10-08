@@ -4207,15 +4207,12 @@ def api_get_active_event_announcements(
     event_ids: Optional[str] = Query(None, description="Comma-separated list of event IDs, or '*' for all active broadcasts")
 ):
     fs_engine = get_firestore_engine()
-    raw_list: List[str] = []
-    if event_ids and str(event_ids).strip() not in ("*", "all"):
-        raw_list = [eid.strip() for eid in str(event_ids).split(",") if eid.strip() and eid.strip() not in ("*", "all")][:25]
-    if not raw_list or (event_ids and ("*" in str(event_ids) or "all" in str(event_ids).lower())):
-        for fb_eid in list(fs_engine._fallback_tournaments.keys()):
-            if fb_eid and fb_eid not in raw_list:
-                raw_list.append(str(fb_eid))
-    if not raw_list:
-        return {"ok": True, "success": True, "announcements": []}
+    raw_str = str(event_ids or "").strip()
+    tokens = [eid.strip() for eid in raw_str.split(",") if eid.strip()] if raw_str else []
+    include_wildcard = (not tokens) or any(t.lower() in ("*", "all") for t in tokens)
+    raw_list: List[str] = [t for t in tokens if t.lower() not in ("*", "all")][:25]
+    if include_wildcard:
+        raw_list.append("*")
     active = fs_engine.get_active_broadcasts_for_events(raw_list[:35])
     return {"ok": True, "success": True, "announcements": active}
 
@@ -4281,12 +4278,19 @@ def api_publish_event_to_hub_announcement(event_id: str, payload: ToHubAnnouncem
 
     lvl = payload.level or payload.type or "info"
     auth = payload.author_name or payload.author or "Tournament Organizer"
+    ev_name = (payload.event_name or "").strip()
+    if not ev_name:
+        try:
+            doc_d = fs_engine._read_tournament_doc_dict(event_id)
+            ev_name = str(doc_d.get("name") or doc_d.get("event_name") or "").strip()
+        except Exception:
+            pass
     broadcast_data = {
         "message": msg,
         "type": lvl,
         "level": lvl,
         "round": payload.round,
-        "event_name": payload.event_name or "",
+        "event_name": ev_name,
         "author": auth,
         "author_name": auth,
         "active": True,
