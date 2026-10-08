@@ -8007,41 +8007,22 @@ function renderEventCreatorHub(ev) {
     }
   }
 
-  // Header Banner & Mode Navigator (Storylines & Upsets tab removed per user request)
+  // Mode Navigator (compact tabs only)
   const headerHtml = `
-    <div class="creator-hero-banner">
-      <div class="creator-hero-header">
-        <div class="creator-hero-title">
-          <span>🎙️ Creator Studio & Broadcast Desk</span>
-          <span class="creator-badge-pro">PRO • CC EXCLUSIVE</span>
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.72rem; padding: 3px 8px;">
-            ● Live Event Feed Connected
-          </span>
-          <span class="badge" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.28); font-size: 0.72rem; padding: 3px 8px;">
-            Role: Content Creator / Admin
-          </span>
-        </div>
-      </div>
-      <div style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45;">
-        Live commentator desk, side-by-side tale of the tape, commander faction mastery & army rosters, livestream embed & OBS overlays, and one-click broadcast social graphics.
-      </div>
-      <div class="creator-mode-tabs">
-        <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'caster' ? 'active' : ''}" onclick="switchCreatorHubMode('caster')">
-          <span>🎙️ Caster Desk</span>
-        </button>
-        <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'stream' ? 'active' : ''}" onclick="switchCreatorHubMode('stream')">
-          <span>📺 Live Stream & OBS</span>
-          <span class="badge" style="background:#ef4444; color:#fff; font-size:0.65rem; padding:1px 5px; border-radius:4px;">LIVE</span>
-        </button>
-        <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'meta' ? 'active' : ''}" onclick="switchCreatorHubMode('meta')">
-          <span>🧬 Deep Meta & Lists</span>
-        </button>
-        <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'export' ? 'active' : ''}" onclick="switchCreatorHubMode('export')">
-          <span>📸 Media & Export Kit</span>
-        </button>
-      </div>
+    <div class="creator-mode-tabs">
+      <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'caster' ? 'active' : ''}" onclick="switchCreatorHubMode('caster')">
+        <span>🎙️ Caster Desk</span>
+      </button>
+      <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'stream' ? 'active' : ''}" onclick="switchCreatorHubMode('stream')">
+        <span>📺 Live Stream & OBS</span>
+        <span class="badge" style="background:#ef4444; color:#fff; font-size:0.65rem; padding:1px 5px; border-radius:4px;">LIVE</span>
+      </button>
+      <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'meta' ? 'active' : ''}" onclick="switchCreatorHubMode('meta')">
+        <span>🧬 Deep Meta & Lists</span>
+      </button>
+      <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'export' ? 'active' : ''}" onclick="switchCreatorHubMode('export')">
+        <span>📸 Media & Export Kit</span>
+      </button>
     </div>
   `;
 
