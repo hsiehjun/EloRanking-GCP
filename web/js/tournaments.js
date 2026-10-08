@@ -11705,7 +11705,6 @@ async function renderEventNewsHub(ev, skipFetch = false) {
             <div style="font-size:0.98rem; font-weight:700; color:#f8fafc; line-height:1.45;">${escapeHtml(activeBroadcast.message)}</div>
           </div>
         </div>
-        ${canTo ? `<button type="button" class="btn btn-outline" onclick="switchEventModalTab('to-hub'); switchEventToHubSubtab('announcements');" style="font-size:0.75rem; padding:0.35rem 0.7rem;">⚙️ Manage in TO Hub</button>` : ''}
       </div>
     `;
   })() : '';
@@ -11741,7 +11740,6 @@ async function renderEventNewsHub(ev, skipFetch = false) {
     : `
       <div style="padding:1.35rem; text-align:center; background:rgba(15,23,42,0.45); border:1px dashed rgba(255,255,255,0.12); border-radius:10px; color:var(--text-muted); font-size:0.85rem;">
         No TO bulletin posts published yet for this event.
-        ${canTo ? `<div style="margin-top:0.6rem;"><button type="button" class="btn btn-primary" onclick="switchEventModalTab('to-hub'); switchEventToHubSubtab('announcements');" style="font-size:0.78rem; padding:0.4rem 0.85rem;">📢 Publish First Bulletin in TO Hub</button></div>` : ''}
       </div>
     `;
 
@@ -11765,11 +11763,6 @@ async function renderEventNewsHub(ev, skipFetch = false) {
             <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.78rem; font-weight:600; padding:0.42rem 0.85rem; text-decoration:none;">
               🔗 BCP Event Page ↗
             </a>
-            ${canTo ? `
-              <button type="button" class="btn btn-outline" onclick="switchEventModalTab('to-hub')" style="font-size:0.78rem; font-weight:700; padding:0.42rem 0.85rem; border-color:rgba(245,158,11,0.45); color:#fbbf24;">
-                🏛️ Open TO Hub
-              </button>
-            ` : ''}
           </div>
         </div>
         ${descriptionHtml ? `
@@ -11790,11 +11783,6 @@ async function renderEventNewsHub(ev, skipFetch = false) {
             <h3 style="margin:0; font-size:1.05rem; font-weight:800; color:#fff;">📰 Tournament Bulletins & News Feed</h3>
             <div style="font-size:0.78rem; color:var(--text-secondary);">Official announcements, mission updates, and schedule notes posted by the TO staff.</div>
           </div>
-          ${canTo ? `
-            <button type="button" class="btn btn-primary" onclick="switchEventModalTab('to-hub'); switchEventToHubSubtab('announcements');" style="font-size:0.78rem; font-weight:700; padding:0.42rem 0.85rem;">
-              + Post Bulletin
-            </button>
-          ` : ''}
         </div>
         <div>
           ${newsPostsHtml}
