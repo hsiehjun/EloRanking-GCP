@@ -3100,7 +3100,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/player/"):
             import leagues_hub_service
-            pid = urllib.parse.unquote(clean_path.replace("api/player/", "").strip("/"))
+            raw_subpath = clean_path.replace("api/player/", "").strip("/")
+            if raw_subpath.endswith("/quick"):
+                raw_subpath = raw_subpath[:-6].strip("/")
+            pid = urllib.parse.unquote(raw_subpath)
             req_name = (query_params.get("name", [None])[0] or "").strip().lower()
             if pid == "Te1Q9lp3By" or "junior" in pid.lower() or "aflleje" in pid.lower() or "junior" in req_name or "aflleje" in req_name:
                 import badges
@@ -3711,6 +3714,48 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             is_self = bool(pid == DEV_USER.get("player_id") or pid == "p_folger_pyles" or pid == DEV_USER.get("id"))
             tournaments_list = (res.get("tournaments") or []) or (DEV_USER.get("events_attended", []) if is_self else [])
             res["tournaments"] = tournaments_list
+
+            hist_for_agg = res.get("history") or []
+            if not res.get("recent_form"):
+                res["recent_form"] = [{"result": h.get("result", "W")} for h in hist_for_agg[:5]]
+            if not res.get("faction_mastery"):
+                fm_map = {}
+                for h in hist_for_agg:
+                    pf = (h.get("player_faction") or "").strip()
+                    if not pf or pf == "Unknown":
+                        continue
+                    st = fm_map.setdefault(pf, {"faction": pf, "games": 0, "wins": 0, "losses": 0, "draws": 0, "net_elo": 0.0})
+                    st["games"] += 1
+                    r_ch = h.get("result", "W")
+                    if r_ch == "W":
+                        st["wins"] += 1
+                    elif r_ch == "L":
+                        st["losses"] += 1
+                    else:
+                        st["draws"] += 1
+                    st["net_elo"] = round(st["net_elo"] + float(h.get("delta_elo") or 0.0), 1)
+                for st in fm_map.values():
+                    st["win_rate"] = round((st["wins"] / max(1, st["games"])) * 100.0, 1)
+                res["faction_mastery"] = sorted(fm_map.values(), key=lambda x: (-x["games"], -x["win_rate"]))
+            if not res.get("matchup_matrix"):
+                mm_map = {}
+                for h in hist_for_agg:
+                    of = (h.get("opponent_faction") or "").strip()
+                    if not of or of == "Unknown":
+                        continue
+                    st = mm_map.setdefault(of, {"opponent_faction": of, "games": 0, "wins": 0, "losses": 0, "draws": 0, "net_elo": 0.0})
+                    st["games"] += 1
+                    r_ch = h.get("result", "W")
+                    if r_ch == "W":
+                        st["wins"] += 1
+                    elif r_ch == "L":
+                        st["losses"] += 1
+                    else:
+                        st["draws"] += 1
+                    st["net_elo"] = round(st["net_elo"] + float(h.get("delta_elo") or 0.0), 1)
+                for st in mm_map.values():
+                    st["win_rate"] = round((st["wins"] / max(1, st["games"])) * 100.0, 1)
+                res["matchup_matrix"] = sorted(mm_map.values(), key=lambda x: (-x["games"], -x["win_rate"]))
 
             import badges
             req_game_sys = query_params.get("game_system", ["40k"])[0].lower() if "query_params" in locals() else "40k"

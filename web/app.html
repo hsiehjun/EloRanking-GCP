@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=0441f6d134">
+  <link rel="manifest" href="/manifest.json?v=0e71796161">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=0441f6d134">
-  <link rel="stylesheet" href="/css/styles.min.css?v=0441f6d134">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=0441f6d134">
-  <link rel="preload" href="/js/app.bundle.min.js?v=0441f6d134" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=0e71796161">
+  <link rel="stylesheet" href="/css/styles.min.css?v=0e71796161">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=0e71796161">
+  <link rel="preload" href="/js/app.bundle.min.js?v=0e71796161" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "0441f6d134";</script>
+  <script>window.APP_VERSION = "0e71796161";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -2749,28 +2749,38 @@
           </div>
         </div>
 
-        <!-- Recent Form & Matches Section -->
+        <!-- Recent Form & Faction Mastery / Matchup Matrix Section -->
         <div class="scout-recent-section">
           <div class="scout-recent-header">
             <div class="scout-recent-title-group">
               <span class="scout-recent-title">Recent Form</span>
               <div id="modal-recent-form-beads" class="scout-form-beads"></div>
             </div>
-            <div id="modal-matches-count-note" class="scout-recent-note">Last 5 matches</div>
+            <div id="modal-matches-count-note" class="scout-recent-note">Career Telemetry</div>
           </div>
 
-          <!-- Compact Recent Matches Preview Table -->
-          <div class="scout-matches-wrapper">
+          <!-- Instant Faction Mastery & Matchup Matrix Breakdown -->
+          <div id="modal-combat-telemetry-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 0.75rem; margin-top: 0.5rem;">
+            <div class="scout-telemetry-card" style="background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(51, 65, 85, 0.65); border-radius: 10px; padding: 0.75rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.55rem; padding-bottom: 0.4rem; border-bottom: 1px solid rgba(51, 65, 85, 0.45);">
+                <span style="font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; color: #38bdf8; text-transform: uppercase;">🛡️ Faction Mastery</span>
+                <span id="modal-fm-count-badge" style="font-size: 0.68rem; color: var(--text-muted); font-weight: 600;">Piloted Armies</span>
+              </div>
+              <div id="modal-faction-mastery-list" style="display: flex; flex-direction: column; gap: 0.45rem;"></div>
+            </div>
+
+            <div class="scout-telemetry-card" style="background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(51, 65, 85, 0.65); border-radius: 10px; padding: 0.75rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.55rem; padding-bottom: 0.4rem; border-bottom: 1px solid rgba(51, 65, 85, 0.45);">
+                <span style="font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; color: #f59e0b; text-transform: uppercase;">⚔️ Matchup Matrix</span>
+                <span id="modal-mm-count-badge" style="font-size: 0.68rem; color: var(--text-muted); font-weight: 600;">vs Opponents</span>
+              </div>
+              <div id="modal-matchup-matrix-list" style="display: flex; flex-direction: column; gap: 0.45rem;"></div>
+            </div>
+          </div>
+
+          <!-- Hidden legacy tbody for backwards compatibility -->
+          <div class="scout-matches-wrapper" style="display: none;">
             <table class="scout-matches-table" id="player-matches-table">
-              <thead>
-                <tr>
-                  <th style="width: 44px; text-align: center;">Res</th>
-                  <th>Opponent</th>
-                  <th class="scout-col-event">Event</th>
-                  <th style="text-align: center;">Score</th>
-                  <th style="text-align: right;">Δ Elo</th>
-                </tr>
-              </thead>
               <tbody id="modal-matches-body"></tbody>
             </table>
           </div>
@@ -3701,7 +3711,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=0441f6d134"></script>
+  <script src="/js/app.bundle.min.js?v=0e71796161"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

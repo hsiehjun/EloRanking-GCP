@@ -155,6 +155,504 @@ let currentModalPlayerId = null;
 let currentModalPlayerName = '';
 window.currentModalPlayerId = currentModalPlayerId;
 window.currentModalPlayerName = currentModalPlayerName;
+window._quickPlayerModalCache = window._quickPlayerModalCache || new Map();
+
+function _findPreseededPlayerInMemory(targetId, targetName) {
+  const idClean = String(targetId || '').trim().toLowerCase();
+  const nameClean = String(targetName || '').trim().toLowerCase();
+  const pools = [];
+  if (typeof currentPlayersData !== 'undefined' && Array.isArray(currentPlayersData)) {
+    pools.push(currentPlayersData);
+  }
+  if (typeof leaderboardAllCache !== 'undefined' && leaderboardAllCache && typeof leaderboardAllCache === 'object') {
+    Object.values(leaderboardAllCache).forEach(entry => {
+      if (entry && Array.isArray(entry.data)) pools.push(entry.data);
+    });
+  }
+  if (typeof leaderboardItcCache !== 'undefined' && leaderboardItcCache && typeof leaderboardItcCache === 'object') {
+    Object.values(leaderboardItcCache).forEach(entry => {
+      if (entry && Array.isArray(entry.data)) pools.push(entry.data);
+    });
+  }
+  for (const list of pools) {
+    for (const item of list) {
+      if (!item) continue;
+      const pid = String(item.player_id || item.id || '').trim().toLowerCase();
+      const pname = String(item.player_name || item.full_name || '').trim().toLowerCase();
+      if ((idClean && pid === idClean) || (nameClean && pname === nameClean)) {
+        return item;
+      }
+    }
+  }
+  return null;
+}
+
+function renderPlayerModalTelemetryPanels(masteryList, matchupList) {
+  const fmListEl = document.getElementById('modal-faction-mastery-list');
+  const mmListEl = document.getElementById('modal-matchup-matrix-list');
+  const fmBadgeEl = document.getElementById('modal-fm-count-badge');
+  const mmBadgeEl = document.getElementById('modal-mm-count-badge');
+
+  if (fmBadgeEl) {
+    fmBadgeEl.textContent = masteryList && masteryList.length > 0
+      ? `${masteryList.length} ${masteryList.length === 1 ? 'Army' : 'Armies'}`
+      : 'Piloted Armies';
+  }
+  if (mmBadgeEl) {
+    mmBadgeEl.textContent = matchupList && matchupList.length > 0
+      ? `${matchupList.length} ${matchupList.length === 1 ? 'Faction' : 'Factions'}`
+      : 'vs Opponents';
+  }
+
+  if (fmListEl) {
+    if (!masteryList || masteryList.length === 0) {
+      fmListEl.innerHTML = '<div style="font-size:0.78rem; color:var(--text-muted); padding:0.65rem 0; text-align:center;">No recorded faction games yet.</div>';
+    } else {
+      fmListEl.innerHTML = masteryList.slice(0, 5).map((f, idx) => {
+        const g = Number(f.games || f.matches || 0);
+        const w = Number(f.wins || 0);
+        const l = Number(f.losses || 0);
+        const d = Number(f.draws || 0);
+        const wr = Number(f.win_rate !== undefined ? f.win_rate : (g > 0 ? (w / g) * 100 : 0));
+        const net = Number(f.net_elo || 0);
+        const netStr = `${net >= 0 ? '+' : ''}${net.toFixed(1)}`;
+        const netColor = net > 0 ? 'var(--win)' : (net < 0 ? 'var(--loss)' : 'var(--text-muted)');
+        const wrColor = wr >= 60 ? '#10b981' : (wr >= 50 ? '#38bdf8' : '#f87171');
+        const recStr = (w + l + d) > 0 ? `${w}W-${l}L${d ? `-${d}D` : ''}` : `${g} matches`;
+        return `
+          <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(51, 65, 85, 0.5); border-radius: 8px; padding: 0.45rem 0.6rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;">
+              <div style="min-width: 0; flex: 1;">
+                <div style="font-size: 0.8rem; font-weight: 700; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(f.faction)}">
+                  ${idx === 0 ? '<span title="Signature Army">👑</span> ' : ''}${escapeHtml(f.faction)}
+                </div>
+                <div style="font-size: 0.69rem; color: var(--text-secondary); font-family: var(--font-mono); margin-top: 1px;">
+                  <strong>${g}G</strong> · ${recStr}
+                </div>
+              </div>
+              <div style="text-align: right; flex-shrink: 0;">
+                <span style="display: inline-block; font-family: var(--font-mono); font-size: 0.74rem; font-weight: 800; color: ${wrColor}; background: rgba(15,23,42,0.9); border: 1px solid ${wrColor}44; padding: 1px 6px; border-radius: 5px;">
+                  ${wr.toFixed(1)}%
+                </span>
+                <div style="font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700; color: ${netColor}; margin-top: 2px;">
+                  ${netStr} Elo
+                </div>
+              </div>
+            </div>
+            <div style="height: 3px; background: rgba(51, 65, 85, 0.5); border-radius: 2px; margin-top: 0.35rem; overflow: hidden;">
+              <div style="height: 100%; width: ${Math.max(2, Math.min(100, wr))}%; background: ${wrColor}; border-radius: 2px;"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  if (mmListEl) {
+    if (!matchupList || matchupList.length === 0) {
+      mmListEl.innerHTML = '<div style="font-size:0.78rem; color:var(--text-muted); padding:0.65rem 0; text-align:center;">No opponent faction matchups recorded yet.</div>';
+    } else {
+      mmListEl.innerHTML = matchupList.slice(0, 5).map(m => {
+        const enemy = m.enemy_faction || m.faction || 'Unknown';
+        const g = Number(m.total_encounters || m.games || 0);
+        const w = Number(m.wins || 0);
+        const l = Number(m.losses || 0);
+        const d = Number(m.draws || 0);
+        const wr = Number(m.win_rate !== undefined ? m.win_rate : (g > 0 ? (w / g) * 100 : 0));
+        const net = Number(m.net_elo || 0);
+        const netStr = `${net >= 0 ? '+' : ''}${net.toFixed(1)}`;
+        const netColor = net > 0 ? 'var(--win)' : (net < 0 ? 'var(--loss)' : 'var(--text-muted)');
+        const wrColor = wr >= 60 ? '#10b981' : (wr >= 50 ? '#38bdf8' : '#f87171');
+        return `
+          <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(51, 65, 85, 0.5); border-radius: 8px; padding: 0.45rem 0.6rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;">
+              <div style="min-width: 0; flex: 1;">
+                <div style="font-size: 0.8rem; font-weight: 700; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="vs ${escapeHtml(enemy)}">
+                  <span style="color: var(--text-muted); font-weight: 600;">vs</span> ${escapeHtml(enemy)}
+                </div>
+                <div style="font-size: 0.69rem; color: var(--text-secondary); font-family: var(--font-mono); margin-top: 1px;">
+                  <strong>${g}G</strong> · ${w}W-${l}L${d ? `-${d}D` : ''}
+                </div>
+              </div>
+              <div style="text-align: right; flex-shrink: 0;">
+                <span style="display: inline-block; font-family: var(--font-mono); font-size: 0.74rem; font-weight: 800; color: ${wrColor}; background: rgba(15,23,42,0.9); border: 1px solid ${wrColor}44; padding: 1px 6px; border-radius: 5px;">
+                  ${wr.toFixed(1)}%
+                </span>
+                <div style="font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700; color: ${netColor}; margin-top: 2px;">
+                  ${netStr} Elo
+                </div>
+              </div>
+            </div>
+            <div style="height: 3px; background: rgba(51, 65, 85, 0.5); border-radius: 2px; margin-top: 0.35rem; overflow: hidden;">
+              <div style="height: 100%; width: ${Math.max(2, Math.min(100, wr))}%; background: ${wrColor}; border-radius: 2px;"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+}
+
+function _applyPlayerModalData(data, targetId, targetName) {
+  const nameEl = document.getElementById('modal-player-name');
+  const chatContainer = document.getElementById('modal-player-chat-container');
+  const p = data.player || data || {};
+  const resolvedName = (p.player_name && p.player_name !== 'Unknown') ? p.player_name : (p.full_name || targetName || 'Player Profile');
+  const resolvedId = p.player_id || p.id || data.player_id || targetId;
+  currentModalPlayerName = resolvedName;
+  window.currentModalPlayerName = currentModalPlayerName;
+  if (resolvedId) {
+    currentModalPlayerId = resolvedId;
+    window.currentModalPlayerId = currentModalPlayerId;
+  }
+  if (nameEl) {
+    nameEl.innerText = resolvedName;
+    nameEl.style.cursor = 'pointer';
+    nameEl.onclick = () => openDedicatedPlayerProfileFromModal();
+    nameEl.title = 'Click to open full player profile';
+  }
+
+  const predictBtn = document.getElementById('btn-modal-scout-predict');
+  if (predictBtn) {
+    predictBtn.innerHTML = `<span>🔮 Predict Match</span>`;
+    predictBtn.title = `Simulate match vs ${escapeHtml(resolvedName)}`;
+  }
+
+  // OmniTactica Registered User & Chat Request Handler
+  if (chatContainer) {
+    chatContainer.innerHTML = '';
+    const chatPlayerName = resolvedName !== 'Player Profile' ? resolvedName : 'Player';
+    const playerPid = p.player_id || resolvedId;
+    const currentUserVal = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
+
+    if (data.is_self) {
+      chatContainer.innerHTML = `
+        <span class="oc-badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); font-size: 0.78rem; padding: 0.35rem 0.65rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem;">
+          👤 You
+        </span>
+      `;
+    } else if (!data.has_account) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-outline';
+      btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.65rem; border-color: rgba(239, 68, 68, 0.35); color: #f87171; background: rgba(239, 68, 68, 0.08); display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: 6px;';
+      btn.title = `${chatPlayerName} has not registered an OmniTactica account yet. Direct chat requests are only available between registered OmniTactica players.`;
+      btn.innerHTML = `🔒 Not on OmniTactica`;
+      btn.onclick = () => showUnregisteredPlayerAlert(chatPlayerName);
+      chatContainer.appendChild(btn);
+    } else if (data.existing_request_status === 'accepted') {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-primary';
+      btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.75rem; background: #0284c7; border-color: #0284c7; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 6px; cursor: pointer;';
+      btn.innerHTML = `💬 Open Chat`;
+      btn.onclick = () => {
+        closeModal('player-modal');
+        if (typeof openChatWithRequest === 'function') {
+          openChatWithRequest(data.existing_request_id);
+        } else if (typeof toggleFloatingChat === 'function') {
+          toggleFloatingChat(true);
+        } else if (typeof switchTab === 'function') {
+          switchTab('chat');
+        }
+      };
+      chatContainer.appendChild(btn);
+    } else if (data.existing_request_status === 'pending') {
+      const isSender = data.existing_request_sender_id === currentUserVal?.id;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-outline';
+      btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.75rem; border-color: #f59e0b; color: #fbbf24; background: rgba(245, 158, 11, 0.12); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; cursor: pointer; border-radius: 6px;';
+      btn.innerHTML = isSender ? `⏳ Request Pending` : `🔔 Chat Request Received`;
+      btn.title = isSender ? 'Your chat request is pending their response' : 'They sent you a chat request! Click to view in Messages';
+      btn.onclick = () => {
+        closeModal('player-modal');
+        if (typeof toggleFloatingChat === 'function') {
+          toggleFloatingChat(true);
+        } else if (typeof switchTab === 'function') {
+          switchTab('chat');
+        }
+      };
+      chatContainer.appendChild(btn);
+    } else {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-primary';
+      btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 6px; cursor: pointer;';
+      btn.innerHTML = `💬 Send Chat Request`;
+      btn.title = `Send a direct chat and match request to ${chatPlayerName}`;
+      btn.onclick = () => {
+        const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
+        if (!token) {
+          alert('Please log in or create an account to send chat requests to players.');
+          window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.hash);
+          return;
+        }
+        if (typeof openSendChatRequestModal === 'function') {
+          openSendChatRequestModal(playerPid, chatPlayerName, data.account_user_id);
+        } else if (typeof openProposeMatchModal === 'function') {
+          openProposeMatchModal(playerPid, chatPlayerName);
+        }
+      };
+      chatContainer.appendChild(btn);
+    }
+  }
+
+  const teamDiv = document.getElementById('modal-player-team');
+  if (teamDiv) {
+    const rawTeams = Array.isArray(p.teams_history) && p.teams_history.length > 0 
+      ? p.teams_history 
+      : ((p.all_teams || p.team || '').split(',').map(t => t.trim()).filter(Boolean));
+
+    const seenTeams = new Set();
+    const teamsList = [];
+    rawTeams.forEach(t => {
+      const lower = t.toLowerCase();
+      if (!seenTeams.has(lower)) {
+        seenTeams.add(lower);
+        teamsList.push(t);
+      }
+    });
+
+    if (teamsList.length > 0) {
+      teamDiv.style.display = 'inline-flex';
+      teamDiv.innerHTML = '';
+
+      const currentTeam = p.team ? p.team.trim() : (teamsList[0] || '');
+      const currentIdx = teamsList.findIndex(t => t.toLowerCase() === currentTeam.toLowerCase());
+      const activeTeamName = currentIdx >= 0 ? teamsList[currentIdx] : teamsList[0];
+      const pastTeams = teamsList.filter((_, idx) => (currentIdx >= 0 ? idx !== currentIdx : idx !== 0));
+
+      function createTeamBadge(tm, isCurrent) {
+        const badge = document.createElement('span');
+        badge.className = 'faction-pill';
+        badge.style.cursor = 'pointer';
+        badge.style.border = isCurrent ? '1px solid #38bdf8' : '1px solid #334155';
+        badge.style.background = isCurrent ? 'rgba(56, 189, 248, 0.12)' : 'rgba(15, 23, 42, 0.6)';
+        badge.style.color = isCurrent ? '#38bdf8' : 'var(--text-secondary)';
+        badge.style.fontWeight = isCurrent ? '700' : '500';
+        badge.title = isCurrent ? `${tm} (Current Active Team) - Click to view team` : `${tm} (Past Team) - Click to view team`;
+        badge.innerHTML = `🛡️ ${escapeHtml(tm)}${isCurrent && teamsList.length > 1 ? ' <span style="font-size:0.68rem; opacity:0.85; margin-left:0.2rem;">(Current)</span>' : ''}`;
+        badge.onclick = (e) => { e.stopPropagation(); openTeamModal(tm); };
+        return badge;
+      }
+
+      teamDiv.appendChild(createTeamBadge(activeTeamName, true));
+
+      if (pastTeams.length === 1) {
+        teamDiv.appendChild(createTeamBadge(pastTeams[0], false));
+      } else if (pastTeams.length > 1) {
+        const pastContainer = document.createElement('span');
+        pastContainer.style.display = 'none';
+        pastContainer.style.alignItems = 'center';
+        pastContainer.style.gap = '0.35rem';
+        pastContainer.style.flexWrap = 'wrap';
+
+        pastTeams.forEach(tm => {
+          pastContainer.appendChild(createTeamBadge(tm, false));
+        });
+
+        const toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.className = 'modal-expand-pill';
+        toggleBtn.innerHTML = `+${pastTeams.length} past teams ▾`;
+        toggleBtn.title = `Click to view ${pastTeams.length} past teams: ${pastTeams.join(', ')}`;
+
+        let isExpanded = false;
+        toggleBtn.onclick = (e) => {
+          e.stopPropagation();
+          isExpanded = !isExpanded;
+          if (isExpanded) {
+            pastContainer.style.display = 'inline-flex';
+            toggleBtn.innerHTML = `▴ Less`;
+            toggleBtn.classList.add('active');
+          } else {
+            pastContainer.style.display = 'none';
+            toggleBtn.innerHTML = `+${pastTeams.length} past teams ▾`;
+            toggleBtn.classList.remove('active');
+          }
+        };
+
+        teamDiv.appendChild(pastContainer);
+        teamDiv.appendChild(toggleBtn);
+      }
+    } else {
+      teamDiv.style.display = 'none';
+    }
+  }
+
+  const factionsDiv = document.getElementById('modal-player-factions');
+  if (factionsDiv) {
+    factionsDiv.innerHTML = '';
+    const rawFactions = (p.top_faction || p.factions || '').split(',').map(f => f.trim()).filter(Boolean);
+    const seenFac = new Set();
+    const factionsList = [];
+    rawFactions.forEach(f => {
+      const lower = f.toLowerCase();
+      if (!seenFac.has(lower) && lower !== 'unknown') {
+        seenFac.add(lower);
+        factionsList.push(f);
+      }
+    });
+
+    if (factionsList.length > 0) {
+      factionsDiv.style.display = 'inline-flex';
+
+      function createFactionBadge(fac) {
+        const badge = document.createElement('span');
+        badge.className = 'faction-pill';
+        badge.innerText = fac;
+        return badge;
+      }
+
+      if (factionsList.length <= 3) {
+        factionsList.forEach(fac => {
+          factionsDiv.appendChild(createFactionBadge(fac));
+        });
+      } else {
+        const initialFactions = factionsList.slice(0, 2);
+        const extraFactions = factionsList.slice(2);
+
+        initialFactions.forEach(fac => {
+          factionsDiv.appendChild(createFactionBadge(fac));
+        });
+
+        const extraContainer = document.createElement('span');
+        extraContainer.style.display = 'none';
+        extraContainer.style.alignItems = 'center';
+        extraContainer.style.gap = '0.35rem';
+        extraContainer.style.flexWrap = 'wrap';
+
+        extraFactions.forEach(fac => {
+          extraContainer.appendChild(createFactionBadge(fac));
+        });
+
+        const toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.className = 'modal-expand-pill';
+        toggleBtn.innerHTML = `+${extraFactions.length} more ▾`;
+        toggleBtn.title = `Click to view all ${factionsList.length} factions: ${factionsList.join(', ')}`;
+
+        let isExpanded = false;
+        toggleBtn.onclick = (e) => {
+          e.stopPropagation();
+          isExpanded = !isExpanded;
+          if (isExpanded) {
+            extraContainer.style.display = 'inline-flex';
+            toggleBtn.innerHTML = `▴ Less`;
+            toggleBtn.classList.add('active');
+          } else {
+            extraContainer.style.display = 'none';
+            toggleBtn.innerHTML = `+${extraFactions.length} more ▾`;
+            toggleBtn.classList.remove('active');
+          }
+        };
+
+        factionsDiv.appendChild(extraContainer);
+        factionsDiv.appendChild(toggleBtn);
+      }
+    } else {
+      factionsDiv.style.display = 'none';
+    }
+  }
+
+  const eloMatches = p.matches_played || p.total_matches || data.total_matches || ((p.wins || 0) + (p.losses || 0) + (p.draws || 0));
+  const eloEl = document.getElementById('modal-elo');
+  if (eloEl) {
+    eloEl.innerHTML = typeof renderEloBadgePill === 'function' 
+      ? renderEloBadgePill(p.current_elo ?? data.current_elo, eloMatches, { showTierName: true }) 
+      : Number(p.current_elo ?? data.current_elo ?? 1500).toFixed(1);
+  }
+  const peakEl = document.getElementById('modal-peak');
+  if (peakEl) {
+    peakEl.innerHTML = typeof renderEloBadgePill === 'function'
+      ? (renderEloBadgePill(p.peak_elo || p.current_elo || data.peak_elo || data.current_elo, eloMatches, { showTierName: false }) + ' 👑')
+      : Number(p.peak_elo || p.current_elo || data.peak_elo || 1500).toFixed(1);
+  }
+  const winsVal = p.wins ?? data.wins ?? 0;
+  const lossesVal = p.losses ?? data.losses ?? 0;
+  const drawsVal = p.draws ?? data.draws ?? 0;
+  const recEl = document.getElementById('modal-record');
+  if (recEl) {
+    recEl.innerHTML = `<span style="color:var(--win);">${winsVal}W</span> - <span style="color:var(--loss);">${lossesVal}L</span>${drawsVal ? ` - <span style="color:var(--draw);">${drawsVal}D</span>` : ''}`;
+  }
+  const totalM = p.total_matches || p.matches_played || data.total_matches || (winsVal + lossesVal + drawsVal) || 0;
+  const wr = p.win_rate !== undefined ? p.win_rate : (data.win_rate !== undefined ? data.win_rate : (totalM > 0 ? ((winsVal / totalM) * 100).toFixed(1) : 0));
+  const winrateEl = document.getElementById('modal-winrate');
+  if (winrateEl) winrateEl.innerText = `${wr}%`;
+  const streakEl = document.getElementById('modal-streak');
+  if (streakEl) {
+    const streakVal = data.longest_win_streak ?? data.max_streak ?? p.peak_streak ?? p.streak;
+    streakEl.innerText = streakVal !== undefined ? `${streakVal} Wins` : '-';
+  }
+
+  currentPlayerTrajectory = data.trajectory || [];
+  const rawMatchesList = data.history || data.win_path || [];
+  const matchesList = typeof sortMatchesNewestFirst === 'function'
+    ? sortMatchesNewestFirst(rawMatchesList)
+    : rawMatchesList;
+  currentPlayerMatches = matchesList;
+
+  // Render Recent Form beads (from data.recent_form or matchesList)
+  const formBeadsEl = document.getElementById('modal-recent-form-beads');
+  const recentForForm = (Array.isArray(data.recent_form) && data.recent_form.length > 0)
+    ? data.recent_form
+    : matchesList.slice(0, 5);
+  if (formBeadsEl) {
+    formBeadsEl.innerHTML = '';
+    if (recentForForm.length > 0) {
+      recentForForm.forEach(m => {
+        const bead = document.createElement('span');
+        const isW = m.result === 'W';
+        const isL = m.result === 'L';
+        const cls = isW ? 'win' : (isL ? 'loss' : 'draw');
+        bead.className = `scout-form-bead ${cls}`;
+        bead.innerText = m.result || '-';
+        bead.title = `${m.result || '-'} vs ${m.opponent_name || 'Opponent'} (${(m.match_date || '').slice(0, 10)})`;
+        formBeadsEl.appendChild(bead);
+      });
+    } else {
+      formBeadsEl.innerHTML = '<span style="font-size:0.7rem; color:var(--text-muted);">-</span>';
+    }
+  }
+
+  // Compute & Render Faction Mastery & Matchup Matrix
+  const masteryList = typeof computeProfileFactionMastery === 'function'
+    ? computeProfileFactionMastery(
+        rawMatchesList,
+        data.faction_mastery || data.factions_breakdown,
+        data.tournaments || data.events_attended,
+        data.tracker_history || data.completed_history
+      )
+    : (data.faction_mastery || data.factions_breakdown || []);
+  const matchupList = typeof computeProfileMatchupMatrix === 'function'
+    ? computeProfileMatchupMatrix(
+        rawMatchesList,
+        data.matchup_matrix,
+        data.tournaments || data.events_attended,
+        data.tracker_history || data.completed_history
+      )
+    : (data.matchup_matrix || []);
+
+  renderPlayerModalTelemetryPanels(masteryList, matchupList);
+
+  const totalRecordedMatches = Number(data.history_count || matchesList.length || totalM || 0);
+  const morePromptEl = document.getElementById('modal-matches-more-prompt');
+  const noteEl = document.getElementById('modal-matches-count-note');
+  if (totalRecordedMatches > 0) {
+    if (noteEl) noteEl.innerText = `${totalRecordedMatches} career match${totalRecordedMatches === 1 ? '' : 'es'}`;
+    if (morePromptEl) {
+      morePromptEl.style.display = 'flex';
+      morePromptEl.innerHTML = `
+        <span>Showing Faction Mastery &amp; Matchup Matrix across <strong>${totalRecordedMatches}</strong> career matches</span>
+        <span class="scout-more-link" onclick="openDedicatedPlayerProfileFromModal()">View match history in full profile ↗</span>
+      `;
+    }
+  } else {
+    if (noteEl) noteEl.innerText = '0 recorded matches';
+    if (morePromptEl) morePromptEl.style.display = 'none';
+  }
+}
 
 async function openPlayerModal(playerId, playerName = '') {
   if (!playerId && !playerName) return;
@@ -163,6 +661,8 @@ async function openPlayerModal(playerId, playerName = '') {
 
   const targetId = String(playerId || '').trim();
   const targetName = String(playerName || '').trim();
+  const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+  const cacheKey = `${sys}:${(targetId || targetName).toLowerCase()}`;
 
   currentModalPlayerId = targetId;
   currentModalPlayerName = targetName;
@@ -171,377 +671,60 @@ async function openPlayerModal(playerId, playerName = '') {
 
   bringModalToFront(modal);
 
+  // 1. Check L1 Quick Modal Cache for 0ms instant render
+  const cachedEntry = window._quickPlayerModalCache.get(cacheKey);
+  if (cachedEntry && (Date.now() - cachedEntry.ts) < 300000) {
+    _applyPlayerModalData(cachedEntry.data, targetId, targetName);
+    return;
+  }
+
+  // 2. Immediately prefill header & core stats from in-memory leaderboard row if available (0ms),
+  //    or reset cleanly so previous player's stats never linger
+  const preseeded = _findPreseededPlayerInMemory(targetId, targetName);
   const nameEl = document.getElementById('modal-player-name');
-  if (nameEl && playerName) nameEl.innerText = playerName;
+  if (nameEl) nameEl.innerText = (preseeded && (preseeded.player_name || preseeded.full_name)) || targetName || 'Player Profile';
 
-  // Reset chart to collapsed state by default
-  isChartExpanded = false;
-  const chartContent = document.getElementById('chart-collapsible-content');
-  const toggleBtn = document.getElementById('toggle-chart-btn');
-  const toggleArrow = document.getElementById('toggle-chart-arrow');
-  if (chartContent) chartContent.style.display = 'none';
-  if (toggleArrow) toggleArrow.innerText = '▼';
-  if (toggleBtn) toggleBtn.querySelector('span').innerText = '📈 View Elo Progression Graph';
+  if (preseeded) {
+    _applyPlayerModalData(preseeded, targetId, targetName);
+  } else {
+    ['modal-elo', 'modal-peak', 'modal-record', 'modal-winrate', 'modal-streak'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '-';
+    });
+    const teamDiv = document.getElementById('modal-player-team');
+    if (teamDiv) { teamDiv.innerHTML = ''; teamDiv.style.display = 'none'; }
+    const facDiv = document.getElementById('modal-player-factions');
+    if (facDiv) { facDiv.innerHTML = ''; facDiv.style.display = 'none'; }
+    const beadsEl = document.getElementById('modal-recent-form-beads');
+    if (beadsEl) beadsEl.innerHTML = '<span style="font-size:0.7rem; color:var(--text-muted);">...</span>';
+  }
 
-  // Reset search filter
-  playerModalSearchQuery = '';
-  const searchInput = document.getElementById('player-modal-search');
-  if (searchInput) searchInput.value = '';
-  const clearBtn = document.getElementById('player-modal-search-clear');
-  if (clearBtn) clearBtn.style.display = 'none';
-  const searchSummary = document.getElementById('player-modal-search-summary');
-  if (searchSummary) searchSummary.style.display = 'none';
-
-  const tbody = document.getElementById('modal-matches-body');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading match highlights...</div></td></tr>';
+  const fmListEl = document.getElementById('modal-faction-mastery-list');
+  const mmListEl = document.getElementById('modal-matchup-matrix-list');
+  if (fmListEl && (!preseeded || !preseeded.faction_mastery)) {
+    fmListEl.innerHTML = '<div style="font-size:0.76rem; color:var(--text-muted); padding:0.5rem 0; text-align:center;">Loading faction mastery...</div>';
+  }
+  if (mmListEl && (!preseeded || !preseeded.matchup_matrix)) {
+    mmListEl.innerHTML = '<div style="font-size:0.76rem; color:var(--text-muted); padding:0.5rem 0; text-align:center;">Loading matchup matrix...</div>';
+  }
 
   const chatContainer = document.getElementById('modal-player-chat-container');
   if (chatContainer) chatContainer.innerHTML = '';
 
   try {
-    const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
-    const data = await window.api.getPlayerProfile(targetId || 'unknown', sys, targetName);
-    const p = data.player || data || {};
-    const resolvedName = (p.player_name && p.player_name !== 'Unknown') ? p.player_name : (p.full_name || targetName || 'Player Profile');
-    const resolvedId = p.player_id || p.id || data.player_id || targetId;
-    currentModalPlayerName = resolvedName;
-    window.currentModalPlayerName = currentModalPlayerName;
-    if (resolvedId) {
-      currentModalPlayerId = resolvedId;
-      window.currentModalPlayerId = currentModalPlayerId;
+    const data = typeof window.api.getPlayerQuickProfile === 'function'
+      ? await window.api.getPlayerQuickProfile(targetId || 'unknown', sys, targetName)
+      : await window.api.getPlayerProfile(targetId || 'unknown', sys, targetName, true);
+    if (currentModalPlayerId !== targetId && currentModalPlayerName !== targetName) {
+      return; // User switched modal before response returned
     }
-    if (nameEl) {
-      nameEl.innerText = resolvedName;
-      nameEl.style.cursor = 'pointer';
-      nameEl.onclick = () => openDedicatedPlayerProfileFromModal();
-      nameEl.title = 'Click to open full player profile';
+    window._quickPlayerModalCache.set(cacheKey, { data, ts: Date.now() });
+    if (data && data.player_id) {
+      window._quickPlayerModalCache.set(`${sys}:${String(data.player_id).toLowerCase()}`, { data, ts: Date.now() });
     }
-
-    const predictBtn = document.getElementById('btn-modal-scout-predict');
-    if (predictBtn) {
-      predictBtn.innerHTML = `<span>🔮 Predict Match</span>`;
-      predictBtn.title = `Simulate match vs ${escapeHtml(resolvedName)}`;
-    }
-
-    // OmniTactica Registered User & Chat Request Handler
-    if (chatContainer) {
-      chatContainer.innerHTML = '';
-      const chatPlayerName = resolvedName !== 'Player Profile' ? resolvedName : 'Player';
-      const playerPid = p.player_id || playerId;
-      const currentUserVal = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
-
-      if (data.is_self) {
-        chatContainer.innerHTML = `
-          <span class="oc-badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); font-size: 0.78rem; padding: 0.35rem 0.65rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem;">
-            👤 You
-          </span>
-        `;
-      } else if (!data.has_account) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'btn btn-outline';
-        btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.65rem; border-color: rgba(239, 68, 68, 0.35); color: #f87171; background: rgba(239, 68, 68, 0.08); display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: 6px;';
-        btn.title = `${chatPlayerName} has not registered an OmniTactica account yet. Direct chat requests are only available between registered OmniTactica players.`;
-        btn.innerHTML = `🔒 Not on OmniTactica`;
-        btn.onclick = () => showUnregisteredPlayerAlert(chatPlayerName);
-        chatContainer.appendChild(btn);
-      } else if (data.existing_request_status === 'accepted') {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'btn btn-primary';
-        btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.75rem; background: #0284c7; border-color: #0284c7; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 6px; cursor: pointer;';
-        btn.innerHTML = `💬 Open Chat`;
-        btn.onclick = () => {
-          closeModal('player-modal');
-          if (typeof openChatWithRequest === 'function') {
-            openChatWithRequest(data.existing_request_id);
-          } else if (typeof toggleFloatingChat === 'function') {
-            toggleFloatingChat(true);
-          } else if (typeof switchTab === 'function') {
-            switchTab('chat');
-          }
-        };
-        chatContainer.appendChild(btn);
-      } else if (data.existing_request_status === 'pending') {
-        const isSender = data.existing_request_sender_id === currentUserVal?.id;
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'btn btn-outline';
-        btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.75rem; border-color: #f59e0b; color: #fbbf24; background: rgba(245, 158, 11, 0.12); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; cursor: pointer; border-radius: 6px;';
-        btn.innerHTML = isSender ? `⏳ Request Pending` : `🔔 Chat Request Received`;
-        btn.title = isSender ? 'Your chat request is pending their response' : 'They sent you a chat request! Click to view in Messages';
-        btn.onclick = () => {
-          closeModal('player-modal');
-          if (typeof toggleFloatingChat === 'function') {
-            toggleFloatingChat(true);
-          } else if (typeof switchTab === 'function') {
-            switchTab('chat');
-          }
-        };
-        chatContainer.appendChild(btn);
-      } else {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'btn btn-primary';
-        btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 6px; cursor: pointer;';
-        btn.innerHTML = `💬 Send Chat Request`;
-        btn.title = `Send a direct chat and match request to ${chatPlayerName}`;
-        btn.onclick = () => {
-          const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
-          if (!token) {
-            alert('Please log in or create an account to send chat requests to players.');
-            window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.hash);
-            return;
-          }
-          if (typeof openSendChatRequestModal === 'function') {
-            openSendChatRequestModal(playerPid, chatPlayerName, data.account_user_id);
-          } else if (typeof openProposeMatchModal === 'function') {
-            openProposeMatchModal(playerPid, chatPlayerName);
-          }
-        };
-        chatContainer.appendChild(btn);
-      }
-    }
-
-    const teamDiv = document.getElementById('modal-player-team');
-
-    if (teamDiv) {
-      const rawTeams = Array.isArray(p.teams_history) && p.teams_history.length > 0 
-        ? p.teams_history 
-        : ((p.all_teams || p.team || '').split(',').map(t => t.trim()).filter(Boolean));
-
-      // Deduplicate while preserving original casing
-      const seenTeams = new Set();
-      const teamsList = [];
-      rawTeams.forEach(t => {
-        const lower = t.toLowerCase();
-        if (!seenTeams.has(lower)) {
-          seenTeams.add(lower);
-          teamsList.push(t);
-        }
-      });
-
-      if (teamsList.length > 0) {
-        hasTeams = true;
-        teamDiv.style.display = 'inline-flex';
-        teamDiv.innerHTML = '';
-
-        const currentTeam = p.team ? p.team.trim() : (teamsList[0] || '');
-        const currentIdx = teamsList.findIndex(t => t.toLowerCase() === currentTeam.toLowerCase());
-        const activeTeamName = currentIdx >= 0 ? teamsList[currentIdx] : teamsList[0];
-        const pastTeams = teamsList.filter((_, idx) => (currentIdx >= 0 ? idx !== currentIdx : idx !== 0));
-
-        function createTeamBadge(tm, isCurrent) {
-          const badge = document.createElement('span');
-          badge.className = 'faction-pill';
-          badge.style.cursor = 'pointer';
-          badge.style.border = isCurrent ? '1px solid #38bdf8' : '1px solid #334155';
-          badge.style.background = isCurrent ? 'rgba(56, 189, 248, 0.12)' : 'rgba(15, 23, 42, 0.6)';
-          badge.style.color = isCurrent ? '#38bdf8' : 'var(--text-secondary)';
-          badge.style.fontWeight = isCurrent ? '700' : '500';
-          badge.title = isCurrent ? `${tm} (Current Active Team) - Click to view team` : `${tm} (Past Team) - Click to view team`;
-          badge.innerHTML = `🛡️ ${escapeHtml(tm)}${isCurrent && teamsList.length > 1 ? ' <span style="font-size:0.68rem; opacity:0.85; margin-left:0.2rem;">(Current)</span>' : ''}`;
-          badge.onclick = (e) => { e.stopPropagation(); openTeamModal(tm); };
-          return badge;
-        }
-
-        // Always render current active team first
-        teamDiv.appendChild(createTeamBadge(activeTeamName, true));
-
-        // If only 1 past team (2 teams total), render it directly (clean & compact)
-        if (pastTeams.length === 1) {
-          teamDiv.appendChild(createTeamBadge(pastTeams[0], false));
-        } else if (pastTeams.length > 1) {
-          // Many past teams (e.g. 6 past teams like Folger Pyles): collapse by default
-          const pastContainer = document.createElement('span');
-          pastContainer.style.display = 'none';
-          pastContainer.style.alignItems = 'center';
-          pastContainer.style.gap = '0.35rem';
-          pastContainer.style.flexWrap = 'wrap';
-
-          pastTeams.forEach(tm => {
-            pastContainer.appendChild(createTeamBadge(tm, false));
-          });
-
-          const toggleBtn = document.createElement('button');
-          toggleBtn.type = 'button';
-          toggleBtn.className = 'modal-expand-pill';
-          toggleBtn.innerHTML = `+${pastTeams.length} past teams ▾`;
-          toggleBtn.title = `Click to view ${pastTeams.length} past teams: ${pastTeams.join(', ')}`;
-
-          let isExpanded = false;
-          toggleBtn.onclick = (e) => {
-            e.stopPropagation();
-            isExpanded = !isExpanded;
-            if (isExpanded) {
-              pastContainer.style.display = 'inline-flex';
-              toggleBtn.innerHTML = `▴ Less`;
-              toggleBtn.classList.add('active');
-            } else {
-              pastContainer.style.display = 'none';
-              toggleBtn.innerHTML = `+${pastTeams.length} past teams ▾`;
-              toggleBtn.classList.remove('active');
-            }
-          };
-
-          teamDiv.appendChild(pastContainer);
-          teamDiv.appendChild(toggleBtn);
-        }
-      } else {
-        teamDiv.style.display = 'none';
-      }
-    }
-
-    const factionsDiv = document.getElementById('modal-player-factions');
-    let hasFactions = false;
-
-    if (factionsDiv) {
-      factionsDiv.innerHTML = '';
-      const rawFactions = (p.top_faction || '').split(',').map(f => f.trim()).filter(Boolean);
-      const seenFac = new Set();
-      const factionsList = [];
-      rawFactions.forEach(f => {
-        const lower = f.toLowerCase();
-        if (!seenFac.has(lower)) {
-          seenFac.add(lower);
-          factionsList.push(f);
-        }
-      });
-
-      if (factionsList.length > 0) {
-        hasFactions = true;
-        factionsDiv.style.display = 'inline-flex';
-
-        function createFactionBadge(fac) {
-          const badge = document.createElement('span');
-          badge.className = 'faction-pill';
-          badge.innerText = fac;
-          return badge;
-        }
-
-        // If 3 or fewer factions: show all directly
-        if (factionsList.length <= 3) {
-          factionsList.forEach(fac => {
-            factionsDiv.appendChild(createFactionBadge(fac));
-          });
-        } else {
-          // Many factions: show top 2 + toggle for remaining
-          const initialFactions = factionsList.slice(0, 2);
-          const extraFactions = factionsList.slice(2);
-
-          initialFactions.forEach(fac => {
-            factionsDiv.appendChild(createFactionBadge(fac));
-          });
-
-          const extraContainer = document.createElement('span');
-          extraContainer.style.display = 'none';
-          extraContainer.style.alignItems = 'center';
-          extraContainer.style.gap = '0.35rem';
-          extraContainer.style.flexWrap = 'wrap';
-
-          extraFactions.forEach(fac => {
-            extraContainer.appendChild(createFactionBadge(fac));
-          });
-
-          const toggleBtn = document.createElement('button');
-          toggleBtn.type = 'button';
-          toggleBtn.className = 'modal-expand-pill';
-          toggleBtn.innerHTML = `+${extraFactions.length} more ▾`;
-          toggleBtn.title = `Click to view all ${factionsList.length} factions: ${factionsList.join(', ')}`;
-
-          let isExpanded = false;
-          toggleBtn.onclick = (e) => {
-            e.stopPropagation();
-            isExpanded = !isExpanded;
-            if (isExpanded) {
-              extraContainer.style.display = 'inline-flex';
-              toggleBtn.innerHTML = `▴ Less`;
-              toggleBtn.classList.add('active');
-            } else {
-              extraContainer.style.display = 'none';
-              toggleBtn.innerHTML = `+${extraFactions.length} more ▾`;
-              toggleBtn.classList.remove('active');
-            }
-          };
-
-          factionsDiv.appendChild(extraContainer);
-          factionsDiv.appendChild(toggleBtn);
-        }
-      } else {
-        factionsDiv.style.display = 'none';
-      }
-    }
-
-    const eloMatches = p.matches_played || p.total_matches || (p.wins + p.losses + (p.draws || 0));
-    document.getElementById('modal-elo').innerHTML = typeof renderEloBadgePill === 'function' 
-      ? renderEloBadgePill(p.current_elo, eloMatches, { showTierName: true }) 
-      : Number(p.current_elo || 1500).toFixed(1);
-    document.getElementById('modal-peak').innerHTML = typeof renderEloBadgePill === 'function'
-      ? (renderEloBadgePill(p.peak_elo || p.current_elo, eloMatches, { showTierName: false }) + ' 👑')
-      : Number(p.peak_elo || p.current_elo || 1500).toFixed(1);
-    document.getElementById('modal-record').innerHTML = `<span style="color:var(--win);">${p.wins || 0}W</span> - <span style="color:var(--loss);">${p.losses || 0}L</span>${p.draws ? ` - <span style="color:var(--draw);">${p.draws}D</span>` : ''}`;
-    const totalM = p.total_matches || p.matches_played || (p.wins + p.losses + (p.draws || 0)) || 0;
-    const wr = p.win_rate !== undefined ? p.win_rate : (totalM > 0 ? ((p.wins / totalM) * 100).toFixed(1) : 0);
-    const winrateEl = document.getElementById('modal-winrate');
-    if (winrateEl) winrateEl.innerText = `${wr}%`;
-    const streakEl = document.getElementById('modal-streak');
-    if (streakEl) streakEl.innerText = `${data.longest_win_streak || data.max_streak || 0} Wins`;
-
-    currentPlayerTrajectory = data.trajectory || [];
-    const rawMatchesList = data.history || data.win_path || [];
-    const matchesList = typeof sortMatchesNewestFirst === 'function'
-      ? sortMatchesNewestFirst(rawMatchesList)
-      : rawMatchesList;
-    currentPlayerMatches = matchesList;
-
-    // Render Recent Form beads
-    const formBeadsEl = document.getElementById('modal-recent-form-beads');
-    if (formBeadsEl) {
-      formBeadsEl.innerHTML = '';
-      const recentForForm = matchesList.slice(0, 5);
-      if (recentForForm.length > 0) {
-        recentForForm.forEach(m => {
-          const bead = document.createElement('span');
-          const isW = m.result === 'W';
-          const isL = m.result === 'L';
-          const cls = isW ? 'win' : (isL ? 'loss' : 'draw');
-          bead.className = `scout-form-bead ${cls}`;
-          bead.innerText = m.result || '-';
-          bead.title = `${m.result || '-'} vs ${m.opponent_name || 'Opponent'} (${(m.match_date || '').slice(0, 10)})`;
-          formBeadsEl.appendChild(bead);
-        });
-      } else {
-        formBeadsEl.innerHTML = '<span style="font-size:0.7rem; color:var(--text-muted);">-</span>';
-      }
-    }
-
-    // Matches Count note and More prompt
-    const morePromptEl = document.getElementById('modal-matches-more-prompt');
-    const noteEl = document.getElementById('modal-matches-count-note');
-    if (matchesList.length > 0) {
-      if (noteEl) noteEl.innerText = `Last ${Math.min(5, matchesList.length)} of ${matchesList.length} matches`;
-      if (morePromptEl) {
-        morePromptEl.style.display = 'flex';
-        if (matchesList.length > 5) {
-          morePromptEl.innerHTML = `
-            <span>Showing <strong>5</strong> of <strong>${matchesList.length}</strong> career matches</span>
-            <span class="scout-more-link" onclick="openDedicatedPlayerProfileFromModal()">View all in full profile ↗</span>
-          `;
-        } else {
-          morePromptEl.innerHTML = `
-            <span>Showing all <strong>${matchesList.length}</strong> recorded match${matchesList.length === 1 ? '' : 'es'}</span>
-            <span class="scout-more-link" onclick="openDedicatedPlayerProfileFromModal()">Open full profile ↗</span>
-          `;
-        }
-      }
-    } else {
-      if (noteEl) noteEl.innerText = '0 recorded matches';
-      if (morePromptEl) morePromptEl.style.display = 'none';
-    }
-
-    renderPlayerMatches(matchesList);
+    _applyPlayerModalData(data, targetId, targetName);
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty-state" style="color:var(--loss);">Error loading profile: ${escapeHtml(err.message)}</td></tr>`;
+    if (fmListEl) fmListEl.innerHTML = `<div style="color:var(--loss); font-size:0.78rem; padding:0.5rem;">Error: ${escapeHtml(err.message)}</div>`;
   }
 }
 

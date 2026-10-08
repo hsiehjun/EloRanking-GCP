@@ -179,17 +179,31 @@ async def api_players_search(q: str = Query("", min_length=1), limit: int = Quer
     return await asyncio.to_thread(_fetch)
 
 # API: Player Profile & Historical Win Path
+@router.get("/api/player/{player_id}/quick", summary="Get ultra-fast quick player profile popup summary (<15ms)")
 @router.get("/api/player/{player_id}", summary="Get player profile, win path, and Elo trajectory")
-async def api_player_profile(player_id: str, request: Request, game_system: Optional[str] = Query("40k"), name: Optional[str] = Query(None)):
+async def api_player_profile(
+    player_id: str,
+    request: Request,
+    game_system: Optional[str] = Query("40k"),
+    name: Optional[str] = Query(None),
+    quick: Optional[bool] = Query(False),
+):
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    is_quick = bool(quick) or request.url.path.endswith("/quick")
 
     def _fetch_profile():
         auth_mgr = get_auth_manager()
         current_user = auth_mgr.get_session(session_token) if session_token else None
 
         pid = player_id.strip()
-        data = get_elo_engine().get_player_win_path(pid, game_system=game_system, player_name=name)
+        raw_data = get_elo_engine().get_player_win_path(
+            pid,
+            game_system=game_system,
+            player_name=name,
+            include_tournaments=not is_quick,
+        )
+        data = dict(raw_data)
 
         # Check if this player is registered on OmniTactica
         db = get_database()
@@ -206,25 +220,50 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
                     data["existing_request_id"] = req["id"]
                     data["existing_request_status"] = req["status"]
 
-            import armory_catalog
-            vault = armory_catalog.normalize_armory_vault(user_row.get("armory_vault"))
-            data["armory_vault"] = vault
-            data["equipped"] = vault.get("equipped", {})
+            if not is_quick:
+                import armory_catalog
+                vault = armory_catalog.normalize_armory_vault(user_row.get("armory_vault"))
+                data["armory_vault"] = vault
+                data["equipped"] = vault.get("equipped", {})
         else:
-            import armory_catalog
-            empty_vault = armory_catalog.normalize_armory_vault({})
             data["has_account"] = False
             data["account_user_id"] = None
             data["can_chat"] = False
             data["is_self"] = False
-            data["armory_vault"] = empty_vault
-            data["equipped"] = empty_vault.get("equipped", {})
+            if not is_quick:
+                import armory_catalog
+                empty_vault = armory_catalog.normalize_armory_vault({})
+                data["armory_vault"] = empty_vault
+                data["equipped"] = empty_vault.get("equipped", {})
 
-        if data.get("is_self") and current_user and current_user.get("armory_vault"):
+        if not is_quick and data.get("is_self") and current_user and current_user.get("armory_vault"):
             import armory_catalog
             norm_self_vault = armory_catalog.normalize_armory_vault(current_user.get("armory_vault", {}))
             data["armory_vault"] = norm_self_vault
             data["equipped"] = norm_self_vault.get("equipped", {})
+
+        if is_quick:
+            hist_list = data.get("history") or data.get("win_path") or []
+            recent_slice = list(reversed(hist_list[-5:])) if hist_list else []
+            data["recent_form"] = [
+                {
+                    "result": m.get("result") or "-",
+                    "opponent_name": m.get("opponent_name") or "Opponent",
+                    "opponent_faction": m.get("opponent_faction") or "",
+                    "player_faction": m.get("player_faction") or "",
+                    "match_date": str(m.get("match_date") or "")[:10],
+                    "delta_elo": float(m.get("delta_elo") or 0.0),
+                }
+                for m in recent_slice
+                if isinstance(m, dict)
+            ]
+            data["history_count"] = len(hist_list)
+            data.pop("history", None)
+            data.pop("win_path", None)
+            data.pop("trajectory", None)
+            data.pop("tournaments", None)
+            data.pop("events_attended", None)
+            return data
 
         import badges
         events_attended = data.get("tournaments")

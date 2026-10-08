@@ -714,16 +714,23 @@ window.api = {
   },
 
   // Single Player Profile & Win Path
-  async getPlayerProfile(playerId, gameSystem = '', playerName = '') {
+  async getPlayerProfile(playerId, gameSystem = '', playerName = '', quick = false) {
     const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     const params = new URLSearchParams();
     if (currentSys) params.set('game_system', currentSys);
     if (playerName && typeof playerName === 'string' && playerName.trim()) {
       params.set('name', playerName.trim());
     }
+    if (quick) {
+      params.set('quick', '1');
+    }
     const qs = params.toString() ? `?${params.toString()}` : '';
     const safePid = (playerId && String(playerId).trim()) ? String(playerId).trim() : 'unknown';
     return this._fetchJson(`/api/player/${encodeURIComponent(safePid)}${qs}`);
+  },
+
+  async getPlayerQuickProfile(playerId, gameSystem = '', playerName = '') {
+    return this.getPlayerProfile(playerId, gameSystem, playerName, true);
   },
 
   // Single Team Roster

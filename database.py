@@ -6668,31 +6668,7 @@ class PostgresDatabase:
                 plc_payload = self.fetch_and_cache_bcp_event_placings(eid, timeout=req_timeout, persist_async=True)
                 return eid, plc_payload
 
-            sync_eids = missing_eids[:6]
-            bg_eids_set = set(missing_eids[len(sync_eids):])
-
-            if sync_eids:
-                pool = ThreadPoolExecutor(max_workers=min(6, len(sync_eids)))
-                futs = {pool.submit(_fetch_one_bcp_placing, eid, 0.35): eid for eid in sync_eids}
-                completed_sync = set()
-                try:
-                    for fut in as_completed(futs, timeout=0.40):
-                        eid_done = futs[fut]
-                        try:
-                            _, plc_payload = fut.result()
-                            if plc_payload is not None and plc_payload.get("fetched_ok"):
-                                completed_sync.add(eid_done)
-                        except Exception:
-                            pass
-                except Exception as e:
-                    logger.debug(f"BCP tournament placing sync window reached: {e}")
-                finally:
-                    pool.shutdown(wait=False, cancel_futures=True)
-                for s_eid in sync_eids:
-                    if s_eid not in completed_sync:
-                        bg_eids_set.add(s_eid)
-
-            bg_eids = [eid for eid in missing_eids if eid in bg_eids_set]
+            bg_eids = list(missing_eids)
             if bg_eids:
                 def _bg_warm_bcp_placings(eids_to_warm: List[str], p_id: str, p_norm: str, target_list: List[Dict[str, Any]]):
                     def _apply_to_list(t_list: List[Dict[str, Any]]):
@@ -6871,35 +6847,15 @@ class PostgresDatabase:
                     target_events AS MATERIALIZED (
                         SELECT
                             e.id AS event_id,
-                            (
-                                COALESCE(dep.direct_placement, nep.name_placement, 0) = 0
-                            ) AS needs_full_rank,
+                            FALSE AS needs_full_rank,
                             GREATEST(
                                 COALESCE(
                                     NULLIF(e.num_rounds, 0),
-                                    CASE
-                                        WHEN FALSE AND (e.raw_json->>'numberOfRounds') ~ '^[0-9]+$' THEN NULLIF((e.raw_json->>'numberOfRounds')::int, 0)
-                                        ELSE NULL
-                                    END,
                                     0
                                 ),
                                 3
                             ) AS eff_rounds,
-                            CASE
-                                WHEN FALSE THEN ARRAY(
-                                    SELECT COALESCE(m_elem->>'name', m_elem->>'key', '')
-                                    FROM jsonb_array_elements(
-                                        CASE
-                                            WHEN jsonb_typeof(e.raw_json->'placingMetrics') = 'array' THEN e.raw_json->'placingMetrics'
-                                            ELSE '[]'::jsonb
-                                        END
-                                    ) AS m_elem
-                                    WHERE jsonb_typeof(m_elem) = 'object'
-                                      AND LOWER(COALESCE(m_elem->>'isOn', '')) = 'true'
-                                      AND COALESCE(m_elem->>'name', m_elem->>'key', '') NOT IN ('Wins', 'wins', 'numWins', 'numGameWins', 'gameWins', 'gamesWon', 'teamMatchPoints')
-                                )
-                                ELSE ARRAY['Path to Victory', 'Oppt. Game Win %%', 'Battle Points']::text[]
-                            END AS tb_metrics
+                            ARRAY['Path to Victory', 'Oppt. Game Win %%', 'Battle Points']::text[] AS tb_metrics
                         FROM raw_player_events rpe
                         JOIN events e ON e.id = rpe.event_id
                         LEFT JOIN direct_ep dep ON dep.event_id = e.id
@@ -8214,13 +8170,23 @@ class PostgresDatabase:
                     params.append(sys_norm)
                 try:
                     cursor.execute(f"""
-                    WITH player_hist AS MATERIALIZED (
+                    WITH player_ep AS MATERIALIZED (
+                        SELECT ep.event_id,
+                               MAX(NULLIF(NULLIF(TRIM(ep.faction), ''), 'Unknown')) AS ep_faction
+                        FROM event_participants ep
+                        WHERE ep.player_id = %s
+                          AND ep.faction IS NOT NULL
+                          AND TRIM(ep.faction) != ''
+                        GROUP BY ep.event_id
+                    ),
+                    player_hist AS MATERIALIZED (
                         SELECT h.*,
                                COALESCE(
                                    NULLIF(NULLIF(TRIM(h.player_faction), ''), 'Unknown'),
                                    CASE WHEN m.player1_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player1_faction), ''), 'Unknown')
                                         WHEN m.player2_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player2_faction), ''), 'Unknown')
                                         ELSE NULL END,
+                                   pep.ep_faction,
                                    h.player_faction
                                ) AS enriched_player_faction,
                                COALESCE(
@@ -8234,6 +8200,7 @@ class PostgresDatabase:
                         FROM rating_history h
                         LEFT JOIN events e ON h.event_id = e.id
                         LEFT JOIN matches m ON h.match_id = m.id
+                        LEFT JOIN player_ep pep ON pep.event_id = COALESCE(h.event_id, m.event_id)
                         {where_sql}
                     ),
                     player_tg AS MATERIALIZED (
@@ -8266,7 +8233,7 @@ class PostgresDatabase:
                      AND ph.m_round = tg.round_num
                      AND ph.table_number = tg.table_num
                     ORDER BY ph.match_date ASC, ph.round ASC;
-                    """, tuple(params))
+                    """, tuple([player_id] + params))
                     rows = [dict(r) for r in cursor.fetchall()]
                     for r in rows:
                         epf = r.pop("enriched_player_faction", None)
