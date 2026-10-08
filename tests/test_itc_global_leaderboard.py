@@ -133,6 +133,132 @@ class TestItcGlobalLeaderboard(unittest.TestCase):
         self.assertIn("loadLeaderboardItc", bundle_js)
         self.assertIn("setItcLeaderboardCategory", bundle_js)
 
+    def test_uncapped_45k_rows_pagination_and_search_under_15ms(self):
+        """Verifies that all 45,000+ BCP ITC rows are preserved without any 300/500 cap and paginate in <15ms."""
+        db = self._create_mock_db()
+        total_rows = 45000
+        synthetic_45k = [
+            {
+                "rank": i,
+                "player_id": f"bcp_user_{i}",
+                "player_name": f"Commander {i}",
+                "itc_points": round(2500.0 - (i * 0.05), 2),
+                "events_scored": 6,
+                "max_events": 6,
+                "wins": 25,
+                "losses": 5,
+                "draws": 0,
+                "matches_played": 30,
+                "win_rate": 83.3,
+                "current_elo": 1850.0,
+                "peak_elo": 1900.0,
+                "factions": "Space Marines",
+                "top_faction": "Space Marines",
+                "team": "Omni Vanguard",
+                "game_system": "40k",
+                "region_id": "76Z23pN941",
+            }
+            for i in range(1, total_rows + 1)
+        ]
+        PostgresDatabase._itc_rankings_cache_map["40k:player:76Z23pN941"] = (synthetic_45k, time.time())
+
+        # Page 1 (1..100 of 45,000)
+        t0 = time.perf_counter()
+        res_p1 = db.get_itc_leaderboard(
+            category="players", page=1, page_size=100, game_system="40k", region_id="76Z23pN941"
+        )
+        p1_ms = (time.perf_counter() - t0) * 1000.0
+        self.assertEqual(res_p1["total"], 45000)
+        self.assertEqual(res_p1["total_pages"], 450)
+        self.assertEqual(len(res_p1["items"]), 100)
+        self.assertEqual(res_p1["items"][0]["rank"], 1)
+        self.assertEqual(res_p1["items"][99]["rank"], 100)
+        self.assertLess(p1_ms, 15.0, f"Page 1 of 45,000 rows took {p1_ms:.2f}ms (expected <15ms)")
+
+        # Page 450 (44,901..45,000 of 45,000)
+        t1 = time.perf_counter()
+        res_p450 = db.get_itc_leaderboard(
+            category="players", page=450, page_size=100, game_system="40k", region_id="76Z23pN941"
+        )
+        p450_ms = (time.perf_counter() - t1) * 1000.0
+        self.assertEqual(res_p450["total"], 45000)
+        self.assertEqual(len(res_p450["items"]), 100)
+        self.assertEqual(res_p450["items"][0]["rank"], 44901)
+        self.assertEqual(res_p450["items"][99]["rank"], 45000)
+        self.assertLess(p450_ms, 15.0, f"Page 450 of 45,000 rows took {p450_ms:.2f}ms (expected <15ms)")
+
+        # Search across all 45,000 rows
+        t2 = time.perf_counter()
+        res_search = db.get_itc_leaderboard(
+            category="players", query="Commander 44999", page=1, page_size=25, game_system="40k", region_id="76Z23pN941"
+        )
+        search_ms = (time.perf_counter() - t2) * 1000.0
+        self.assertEqual(res_search["total"], 1)
+        self.assertEqual(res_search["items"][0]["rank"], 44999)
+        self.assertLess(search_ms, 100.0, f"Search across 45,000 rows took {search_ms:.2f}ms (expected <100ms)")
+
+    def test_multi_page_bcp_nextkey_cursor_pagination(self):
+        """Verifies _fetch_itc_rankings_from_bcp(fetch_all=True) follows nextKey cursors across all pages."""
+        import json
+        from unittest.mock import patch
+
+        db = self._create_mock_db()
+        pages_data = [
+            {
+                "data": [
+                    {"rank": i, "points": 2000 - i, "userId": f"u_{i}", "user": {"firstName": "Player", "lastName": str(i)}}
+                    for i in range(1, 401)
+                ],
+                "nextKey": "cursor_page_2",
+            },
+            {
+                "data": [
+                    {"rank": i, "points": 2000 - i, "userId": f"u_{i}", "user": {"firstName": "Player", "lastName": str(i)}}
+                    for i in range(401, 801)
+                ],
+                "nextKey": "cursor_page_3",
+            },
+            {
+                "data": [
+                    {"rank": i, "points": 2000 - i, "userId": f"u_{i}", "user": {"firstName": "Player", "lastName": str(i)}}
+                    for i in range(801, 1051)
+                ],
+                "nextKey": None,
+            },
+        ]
+        call_idx = {"idx": 0}
+        progress_counts = []
+
+        class FakeResp:
+            def __init__(self, payload):
+                self._bytes = json.dumps(payload).encode("utf-8")
+            def read(self):
+                return self._bytes
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+
+        def fake_urlopen(req, timeout=None):
+            idx = call_idx["idx"]
+            call_idx["idx"] += 1
+            return FakeResp(pages_data[idx])
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            rows = db._fetch_itc_rankings_from_bcp(
+                ptype="player",
+                sys_key="40k",
+                region_id="76Z23pN941",
+                fetch_all=True,
+                batch_size=400,
+                on_page_callback=lambda partial, is_last: progress_counts.append((len(partial), is_last)),
+            )
+
+        self.assertEqual(len(rows), 1050)
+        self.assertEqual(rows[0]["rank"], 1)
+        self.assertEqual(rows[-1]["rank"], 1050)
+        self.assertEqual(progress_counts, [(400, False), (800, False), (1050, True)])
+
 
 if __name__ == "__main__":
     unittest.main()

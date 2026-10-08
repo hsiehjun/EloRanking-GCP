@@ -1108,6 +1108,13 @@ const factionModalDataCache = new Map();
 const factionModalInflightPromises = new Map();
 let factionModalAbortController = null;
 
+function clearFactionModalClientCache() {
+  factionModalDataCache.clear();
+  try { sessionStorage.removeItem(FACTION_MODAL_STORAGE_KEY); } catch (e) {}
+  try { localStorage.removeItem(FACTION_MODAL_STORAGE_KEY); } catch (e) {}
+}
+window.clearFactionModalClientCache = clearFactionModalClientCache;
+
 // Hydrate factionModalDataCache from sessionStorage / localStorage on startup
 (function hydrateFactionModalCacheFromStorage() {
   try {
@@ -1117,8 +1124,8 @@ let factionModalAbortController = null;
     if (!parsed || typeof parsed !== 'object') return;
     const now = Date.now();
     Object.entries(parsed).forEach(([k, v]) => {
-      if (v && v.data && v.timestamp && (now - v.timestamp < 21600000)) { // keep up to 6 hours for instant stale-while-revalidate
-        factionModalDataCache.set(k, v);
+      if (v && v.data && v.timestamp && (now - v.timestamp < 1800000)) { // keep up to 30m for instant stale-while-revalidate
+        factionModalDataCache.set(k, { ...v, fromStorage: true });
       }
     });
   } catch (e) {}
@@ -1130,7 +1137,7 @@ function persistFactionModalCacheToStorage() {
       .sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0))
       .slice(0, 35);
     const obj = {};
-    entries.forEach(([k, v]) => { obj[k] = v; });
+    entries.forEach(([k, v]) => { obj[k] = { timestamp: v.timestamp, data: v.data }; });
     const serialized = JSON.stringify(obj);
     try { sessionStorage.setItem(FACTION_MODAL_STORAGE_KEY, serialized); } catch (e) {}
     try { localStorage.setItem(FACTION_MODAL_STORAGE_KEY, serialized); } catch (e) {}
@@ -1139,7 +1146,7 @@ function persistFactionModalCacheToStorage() {
 
 function setFactionModalCacheEntry(cacheKey, data) {
   const now = Date.now();
-  factionModalDataCache.set(cacheKey, { timestamp: now, data });
+  factionModalDataCache.set(cacheKey, { timestamp: now, data, fromStorage: false });
   persistFactionModalCacheToStorage();
 }
 
@@ -1636,7 +1643,7 @@ async function loadFactionModalData(factionName, tf = '1yr') {
   const cacheKey = `${facNorm}_${sys}_${tf}`;
   const cachedEntry = factionModalDataCache.get(cacheKey);
   const now = Date.now();
-  const isFresh = cachedEntry && (now - cachedEntry.timestamp < 1800000); // 30 min fresh TTL
+  const isFresh = cachedEntry && !cachedEntry.fromStorage && (now - cachedEntry.timestamp < 120000); // 2 min in-session fresh; storage/older entries render in 0ms + background revalidate
 
   const reqFaction = factionName;
   const reqTf = tf;

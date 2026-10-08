@@ -329,6 +329,25 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertIn("SET LOCAL enable_bitmapscan = off", db_content)
         self.assertIn("matchups_by_faction", db_content)
 
+    def test_cache_invalidation_epoch_and_stale_l2_prevention(self):
+        """Verifies that invalidate_all_caches advances _last_cache_invalidation_ts and rejects older entries."""
+        PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, "preset_90d_40k", {"summary_kpis": {"total_matches": 100}})
+        self.assertIsNotNone(PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, "preset_90d_40k"))
+
+        before_ts = time.time()
+        PostgresDatabase.invalidate_all_caches()
+        self.assertGreaterEqual(PostgresDatabase._last_cache_invalidation_ts, before_ts)
+        self.assertIsNone(PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, "preset_90d_40k"))
+
+        # Even if a stale entry with an older timestamp were placed in a cache dict, get_cached rejects it
+        PostgresDatabase._faction_meta_cache_dict["stale_key"] = ({"summary_kpis": {"total_matches": 50}}, PostgresDatabase._last_cache_invalidation_ts - 1.0)
+        self.assertIsNone(PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, "stale_key"))
+
+        # Verify database.py purges L2 computed caches and checks _last_cache_invalidation_ts on L2 reads
+        db_content = (self.root_dir / "database.py").read_text(encoding="utf-8")
+        self.assertIn("purge_l2_computed_caches", db_content)
+        self.assertIn("_last_cache_invalidation_ts", db_content)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5696,6 +5696,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             od = query_params.get("order", ["DESC"])[0]
             gs = (query_params.get("game_system", ["40k"])[0]).lower()
             reg_id = query_params.get("region_id", [None])[0] or query_params.get("region", [None])[0] or "61vXu5vli4"
+            ref_raw = str(query_params.get("refresh", ["false"])[0]).strip().lower() in ("1", "true", "yes")
             res = db_inst.get_itc_leaderboard(
                 category=cat,
                 page=p,
@@ -5705,7 +5706,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 sort_by=sb,
                 order=od,
                 game_system=gs,
-                region_id=reg_id
+                region_id=reg_id,
+                force_refresh=ref_raw
             )
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -7724,6 +7726,15 @@ def main():
     print(f"--> Starting OmniTactica Game Tracker dev server on http://{HOST}:{PORT}")
     print(f"    Serving web directory: {WEB_DIR}")
     print(f"    Proxy URL: http://hsiehjun-high-perf-2.c.googlers.com:{PORT}/11th/tracker/play")
+    try:
+        import threading
+        from database import PostgresDatabase
+        threading.Thread(
+            target=lambda: PostgresDatabase.__new__(PostgresDatabase).prewarm_itc_rankings_cache(),
+            daemon=True,
+        ).start()
+    except Exception:
+        pass
     httpd = ThreadedHTTPServer((HOST, PORT), OmniTacticaDevHandler)
     try:
         httpd.serve_forever()

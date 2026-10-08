@@ -872,7 +872,9 @@ function prefetchNextLeaderboardItcPage(category, nextPage, pageSize, sortState,
   }, 450);
 }
 
-async function loadLeaderboardItc(isPrefetch = false) {
+let _leaderboardItcSyncPollTimer = null;
+
+async function loadLeaderboardItc(isPrefetch = false, isSilentSync = false) {
   const tbody = document.getElementById('lead-itc-body');
   const searchInput = document.getElementById('itc-search-input');
   const queryStr = searchInput ? (searchInput.value || '').trim() : '';
@@ -881,11 +883,13 @@ async function loadLeaderboardItc(isPrefetch = false) {
   const regId = leaderboardItcRegionId || '61vXu5vli4';
   const cacheKey = `lb_itc_${gs}_${cat}_${regId}_${leaderboardItcPagination.page}_${leaderboardItcPagination.pageSize}_${leaderboardItcSortState.field}_${leaderboardItcSortState.asc ? 'ASC' : 'DESC'}_${queryStr}`;
 
-  renderLeaderboardItcHeader();
-  updateItcTitleLabel();
+  if (!isSilentSync) {
+    renderLeaderboardItcHeader();
+    updateItcTitleLabel();
+  }
 
   // 1. Stale-While-Revalidate: Instant cache hit rendering
-  const cached = leaderboardItcCache.get(cacheKey);
+  const cached = isSilentSync ? null : leaderboardItcCache.get(cacheKey);
   if (cached && !isPrefetch) {
     leaderboardItcData = cached.items || [];
     leaderboardItcPagination.total = cached.total || 0;
@@ -897,12 +901,12 @@ async function loadLeaderboardItc(isPrefetch = false) {
     renderPaginationBar('lead-itc-pagination', leaderboardItcPagination, 'setLeaderboardItcPage', 'setLeaderboardItcPageSize');
   }
 
-  // 2. Visual indication while fetching
-  if (!cached && tbody && leaderboardItcData && leaderboardItcData.length > 0 && !isPrefetch) {
+  // 2. Visual indication while fetching (skip dimming during silent background sync poll)
+  if (!cached && !isSilentSync && tbody && leaderboardItcData && leaderboardItcData.length > 0 && !isPrefetch) {
     tbody.style.opacity = '0.45';
     tbody.style.pointerEvents = 'none';
     tbody.style.transition = 'opacity 0.15s ease';
-  } else if (!cached && tbody && (!leaderboardItcData || leaderboardItcData.length === 0) && !isPrefetch) {
+  } else if (!cached && !isSilentSync && tbody && (!leaderboardItcData || leaderboardItcData.length === 0) && !isPrefetch) {
     tbody.innerHTML = '<tr class="loading-row"><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading ITC Rankings...</div></td></tr>';
   }
 
@@ -925,6 +929,7 @@ async function loadLeaderboardItc(isPrefetch = false) {
       leaderboardItcCache.set(cacheKey, res);
 
       if (!isPrefetch) {
+        const prevLen = Array.isArray(leaderboardItcData) ? leaderboardItcData.length : 0;
         leaderboardItcData = res.items;
         leaderboardItcPagination.total = res.total || 0;
         leaderboardItcPagination.page = res.page || 1;
@@ -935,8 +940,23 @@ async function loadLeaderboardItc(isPrefetch = false) {
           tbody.style.opacity = '1';
           tbody.style.pointerEvents = '';
         }
-        renderLeaderboardItcRows();
+        if (!isSilentSync || prevLen !== res.items.length) {
+          renderLeaderboardItcRows();
+        }
         renderPaginationBar('lead-itc-pagination', leaderboardItcPagination, 'setLeaderboardItcPage', 'setLeaderboardItcPageSize');
+
+        if (res.sync_in_progress) {
+          if (_leaderboardItcSyncPollTimer) clearTimeout(_leaderboardItcSyncPollTimer);
+          _leaderboardItcSyncPollTimer = setTimeout(() => {
+            const prefix = `lb_itc_${gs}_${cat}_${regId}_`;
+            Array.from(leaderboardItcCache.keys()).forEach((k) => {
+              if (k.startsWith(prefix)) leaderboardItcCache.delete(k);
+            });
+            if (typeof currentLeaderboardCategory !== 'undefined' && currentLeaderboardCategory === 'itc') {
+              loadLeaderboardItc(false, true);
+            }
+          }, 2000);
+        }
       }
     }
 
@@ -945,7 +965,7 @@ async function loadLeaderboardItc(isPrefetch = false) {
     }
   } catch (err) {
     console.error('Error loading Global ITC Rankings:', err);
-    if (tbody && !cached) {
+    if (tbody && !cached && !isSilentSync) {
       tbody.style.opacity = '1';
       tbody.style.pointerEvents = '';
       tbody.innerHTML = `<tr class="empty-row"><td colspan="8" class="empty-state" style="color:var(--loss);"><p>Error loading ITC Rankings: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboardItc()">🔄 Retry</button></td></tr>`;

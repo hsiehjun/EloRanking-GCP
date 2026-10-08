@@ -219,6 +219,22 @@ function scheduleFactionPresetsPrefetch(sys) {
   }, 350);
 }
 
+const _lastKnownMetaMatchesByKey = new Map();
+
+function _checkAndInvalidateModalCacheOnMetaChange(cacheKey, data) {
+  if (!data || !data.summary_kpis) return false;
+  const newTotal = Number(data.summary_kpis.total_matches || 0);
+  const prevTotal = _lastKnownMetaMatchesByKey.get(cacheKey);
+  _lastKnownMetaMatchesByKey.set(cacheKey, newTotal);
+  if (prevTotal !== undefined && prevTotal !== newTotal) {
+    if (typeof window.clearFactionModalClientCache === 'function') {
+      window.clearFactionModalClientCache();
+    }
+    return true;
+  }
+  return false;
+}
+
 async function loadFactionMeta() {
   const tbody = document.getElementById('faction-meta-body');
   const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
@@ -232,6 +248,21 @@ async function loadFactionMeta() {
   if (cached && (now - cached.timestamp) < 600000) {
     _applyFactionMetaDataToUI(cached.data);
     scheduleFactionPresetsPrefetch(sys);
+    // If cached entry is older than 60s, silently revalidate in the background so newly ingested tournaments show up
+    if ((now - cached.timestamp) >= 60000) {
+      const reqStartBg = isCustom ? factionCustomStart : null;
+      const reqEndBg = isCustom ? factionCustomEnd : null;
+      const reqTfBg = factionTimeframe;
+      window.api.getFactionMeta(reqStartBg, reqEndBg, reqTfBg).then((freshData) => {
+        if (freshData && Array.isArray(freshData.factions)) {
+          factionMetaClientCache.set(cacheKey, { timestamp: Date.now(), data: freshData });
+          const changed = _checkAndInvalidateModalCacheOnMetaChange(cacheKey, freshData);
+          if (changed && factionTimeframe === reqTfBg) {
+            _applyFactionMetaDataToUI(freshData);
+          }
+        }
+      }).catch(() => {});
+    }
     return;
   }
 
@@ -245,6 +276,7 @@ async function loadFactionMeta() {
     const data = await window.api.getFactionMeta(reqStart, reqEnd, factionTimeframe);
     if (data && Array.isArray(data.factions)) {
       factionMetaClientCache.set(cacheKey, { timestamp: Date.now(), data });
+      _checkAndInvalidateModalCacheOnMetaChange(cacheKey, data);
     }
     _applyFactionMetaDataToUI(data);
     scheduleFactionPresetsPrefetch(sys);

@@ -117,9 +117,11 @@ async def api_itc_leaderboard(
     order: str = Query("DESC"),
     game_system: Optional[str] = Query("40k"),
     region_id: Optional[str] = Query(None),
-    region: Optional[str] = Query(None)
+    region: Optional[str] = Query(None),
+    refresh: bool = Query(False)
 ):
     eff_region = (region_id or region or "61vXu5vli4").strip()
+    raw_refresh = refresh.default if hasattr(refresh, "default") else refresh
     def _fetch():
         return get_database().get_itc_leaderboard(
             category=category,
@@ -131,7 +133,8 @@ async def api_itc_leaderboard(
             sort_by=sort_by,
             order=order,
             game_system=game_system,
-            region_id=eff_region
+            region_id=eff_region,
+            force_refresh=bool(raw_refresh)
         )
     return await asyncio.to_thread(_fetch)
 
@@ -2547,13 +2550,15 @@ async def api_faction_meta(
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     timeframe: Optional[str] = Query(None, description="Timeframe preset: '30d', '60d', '90d', '180d', '1yr', 'ytd', 'all', 'custom'"),
-    game_system: Optional[str] = Query("40k")
+    game_system: Optional[str] = Query("40k"),
+    refresh: bool = Query(False)
 ):
     try:
         raw_start = start_date.default if hasattr(start_date, "default") else start_date
         raw_end = end_date.default if hasattr(end_date, "default") else end_date
         raw_tf = timeframe.default if hasattr(timeframe, "default") else timeframe
         raw_sys = game_system.default if hasattr(game_system, "default") else game_system
+        raw_refresh = refresh.default if hasattr(refresh, "default") else refresh
         sys_val = raw_sys or "40k"
 
         resolved_start = raw_start
@@ -2589,7 +2594,8 @@ async def api_faction_meta(
                 start_date=resolved_start,
                 end_date=resolved_end,
                 game_system=sys_val,
-                timeframe=tf_norm or None
+                timeframe=tf_norm or None,
+                _force_refresh=bool(raw_refresh)
             )
         return await asyncio.to_thread(_fetch_meta)
     except Exception as e:
@@ -2603,15 +2609,18 @@ async def api_faction_details(
     limit: int = Query(350, ge=1, le=500),
     game_system: Optional[str] = Query("40k"),
     timeframe: Optional[str] = Query("1yr"),
-    search: Optional[str] = Query(None)
+    search: Optional[str] = Query(None),
+    refresh: bool = Query(False)
 ):
+    raw_refresh = refresh.default if hasattr(refresh, "default") else refresh
     return await asyncio.to_thread(
         get_database().get_faction_details,
         faction_name.strip(),
         limit=limit,
         game_system=game_system,
         timeframe=timeframe,
-        search=search.strip() if search else None
+        search=search.strip() if search else None,
+        _force_refresh=bool(raw_refresh)
     )
 
 # API: Match Win Probability Predictor

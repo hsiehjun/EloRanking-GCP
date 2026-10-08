@@ -388,6 +388,7 @@ async def on_server_startup():
                 lambda: lh_svc.get_league_group_chats("sd40k"),
                 lambda: lh_svc.get_unified_floor_ops("sd40k"),
                 lambda: lh_svc.get_player_league_summary("Jun Hsieh"),
+                lambda: db.prewarm_itc_rankings_cache(),
             ]
             for fn in core_tasks:
                 try:
