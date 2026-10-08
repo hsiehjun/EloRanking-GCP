@@ -5628,6 +5628,17 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
+        if clean_path in ("api/leaderboard/itc/regions", "api/leaderboard/itc/regions/"):
+            from database import PostgresDatabase
+            db_inst = PostgresDatabase.__new__(PostgresDatabase)
+            res = {"regions": db_inst.get_itc_regions()}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
         if clean_path in ("api/leaderboard/itc", "api/leaderboard/itc/", "api/itc", "api/itc/"):
             from database import PostgresDatabase
             db_inst = PostgresDatabase.__new__(PostgresDatabase)
@@ -5639,6 +5650,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             sb = query_params.get("sort_by", ["itc_points"])[0]
             od = query_params.get("order", ["DESC"])[0]
             gs = (query_params.get("game_system", ["40k"])[0]).lower()
+            reg_id = query_params.get("region_id", [None])[0] or query_params.get("region", [None])[0] or "61vXu5vli4"
             res = db_inst.get_itc_leaderboard(
                 category=cat,
                 page=p,
@@ -5647,7 +5659,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 faction=fac,
                 sort_by=sb,
                 order=od,
-                game_system=gs
+                game_system=gs,
+                region_id=reg_id
             )
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")

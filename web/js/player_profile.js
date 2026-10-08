@@ -517,8 +517,18 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
   }
 
   // Compute Faction Mastery & Matchup Matrix for Profile Tabs
-  const profileFactionMastery = computeProfileFactionMastery(rawHistory, data.factions_breakdown);
-  const profileMatchupMatrix = computeProfileMatchupMatrix(rawHistory, data.matchup_matrix);
+  const profileFactionMastery = computeProfileFactionMastery(
+    rawHistory,
+    data.faction_mastery || data.factions_breakdown,
+    rawTournaments,
+    data.tracker_history || data.completed_history
+  );
+  const profileMatchupMatrix = computeProfileMatchupMatrix(
+    rawHistory,
+    data.matchup_matrix,
+    rawTournaments,
+    data.tracker_history || data.completed_history
+  );
   const totalFactionGames = profileFactionMastery.reduce((acc, f) => acc + f.games, 0);
 
   // Faction breakdown list for Hero Card Top Armies
@@ -976,7 +986,7 @@ function _extractNormalizedShareData(rawData, fallbackPlayerId, sys) {
   const p = d.player || d || {};
   const history = Array.isArray(d.history) ? d.history : (Array.isArray(d.win_path) ? d.win_path : []);
   const factionMastery = typeof computeProfileFactionMastery === 'function'
-    ? computeProfileFactionMastery(history, d.faction_mastery || d.factions_breakdown)
+    ? computeProfileFactionMastery(history, d.faction_mastery || d.factions_breakdown, d.tournaments || d.events_attended, d.tracker_history || d.completed_history)
     : (d.faction_mastery || d.factions_breakdown || []);
 
   const currentElo = Number(p.current_elo ?? d.current_elo ?? 1500.0);
@@ -2218,13 +2228,100 @@ function openDedicatedPlayerProfileFromModal() {
   }
 }
 
+function _enrichHistoryWithTournamentsAndTracker(history, tournamentsMeta, trackerHistory) {
+  const tFactionById = new Map();
+  const tFactionByName = new Map();
+  if (Array.isArray(tournamentsMeta)) {
+    tournamentsMeta.forEach(t => {
+      if (!t) return;
+      const rf = String(t.registered_faction || t.faction || '').trim();
+      if (!rf || rf.toLowerCase() === 'unknown' || rf.toLowerCase() === 'none') return;
+      const tid = String(t.tournament_id || t.event_id || t.id || '').trim();
+      const tname = String(t.tournament_name || t.event_name || t.name || '').trim().toLowerCase();
+      if (tid && !tFactionById.has(tid)) tFactionById.set(tid, rf);
+      if (tname && !tFactionByName.has(tname)) tFactionByName.set(tname, rf);
+    });
+  }
+
+  const seenIds = new Set();
+  const seenSigs = new Set();
+  const merged = [];
+
+  if (Array.isArray(history)) {
+    history.forEach(m => {
+      if (!m) return;
+      const copy = Object.assign({}, m);
+      let pf = String(copy.player_faction || '').trim();
+      if (!pf || pf.toLowerCase() === 'unknown' || pf.toLowerCase() === 'none') {
+        const tid = String(copy.tournament_id || copy.event_id || '').trim();
+        const tname = String(copy.tournament_name || copy.event_name || '').trim().toLowerCase();
+        if (tid && tFactionById.has(tid)) {
+          copy.player_faction = tFactionById.get(tid);
+        } else if (tname && tFactionByName.has(tname)) {
+          copy.player_faction = tFactionByName.get(tname);
+        }
+      }
+      const mid = String(copy.match_id || copy.id || '').trim();
+      if (mid) seenIds.add(mid);
+      const sig = `${String(copy.tournament_id || copy.tournament_name || '').toLowerCase()}|${copy.round || ''}|${String(copy.opponent_id || copy.opponent_name || '').toLowerCase()}|${String(copy.date || copy.date_played || '').slice(0, 10)}`;
+      seenSigs.add(sig);
+      merged.push(copy);
+    });
+  }
+
+  if (Array.isArray(trackerHistory)) {
+    trackerHistory.forEach(tm => {
+      if (!tm) return;
+      const status = String(tm.status || '').toLowerCase();
+      if (status && status !== 'completed' && status !== 'finished') return;
+      const mid = String(tm.match_id || tm.id || '').trim();
+      if (mid && seenIds.has(mid)) return;
+
+      const isP2 = !!(tm.is_player2 || tm.user_side === 'p2');
+      const pf = String(tm.player_faction || (isP2 ? tm.p2_faction : tm.p1_faction) || '').trim();
+      const of = String(tm.opponent_faction || tm.enemy_faction || (isP2 ? tm.p1_faction : tm.p2_faction) || '').trim();
+      const oppName = String(tm.opponent_name || (isP2 ? tm.p1_name : tm.p2_name) || '').trim();
+      const tname = String(tm.tournament_name || tm.event_name || '').trim();
+      const sig = `${String(tm.tournament_id || tname || '').toLowerCase()}|${tm.round || ''}|${oppName.toLowerCase()}|${String(tm.date || tm.updated_at || tm.created_at || '').slice(0, 10)}`;
+      if (seenSigs.has(sig) && (tname || oppName)) return;
+
+      let res = String(tm.result || '').toUpperCase();
+      if (res !== 'W' && res !== 'L' && res !== 'D') {
+        const myScore = Number(tm.player_score ?? (isP2 ? tm.p2_total : tm.p1_total) ?? NaN);
+        const oppScore = Number(tm.opponent_score ?? (isP2 ? tm.p1_total : tm.p2_total) ?? NaN);
+        if (!Number.isNaN(myScore) && !Number.isNaN(oppScore)) {
+          if (myScore > oppScore) res = 'W';
+          else if (myScore < oppScore) res = 'L';
+          else res = 'D';
+        } else {
+          return;
+        }
+      }
+      if (mid) seenIds.add(mid);
+      seenSigs.add(sig);
+      merged.push({
+        match_id: mid,
+        player_faction: pf,
+        opponent_faction: of,
+        opponent_name: oppName,
+        result: res,
+        delta_elo: Number(tm.delta_elo || 0),
+        is_bye: !!tm.is_bye
+      });
+    });
+  }
+
+  return merged;
+}
+
 /**
  * Compute Faction Mastery Breakdown from player match history
  */
-function computeProfileFactionMastery(history, existingBreakdown) {
+function computeProfileFactionMastery(history, existingBreakdown, tournamentsMeta, trackerHistory) {
   const map = new Map();
-  if (Array.isArray(history) && history.length > 0) {
-    history.forEach(m => {
+  const enrichedHistory = _enrichHistoryWithTournamentsAndTracker(history, tournamentsMeta, trackerHistory);
+  if (Array.isArray(enrichedHistory) && enrichedHistory.length > 0) {
+    enrichedHistory.forEach(m => {
       if (m.is_bye || (m.opponent_name && m.opponent_name.toUpperCase() === 'BYE')) return;
       const factionName = (m.player_faction || '').trim();
       if (!factionName || factionName.toLowerCase() === 'unknown' || factionName.toLowerCase() === 'none') return;
@@ -2243,9 +2340,12 @@ function computeProfileFactionMastery(history, existingBreakdown) {
   // Merge or fallback to existingBreakdown if history had unrecorded factions
   if (Array.isArray(existingBreakdown)) {
     existingBreakdown.forEach(eb => {
+      if (!eb) return;
       const fn = (eb.faction || '').trim();
-      if (!fn || fn.toLowerCase() === 'unknown') return;
-      const g = Number(eb.games || eb.matches || 0);
+      if (!fn || fn.toLowerCase() === 'unknown' || fn.toLowerCase() === 'none') return;
+      const g = Number(eb.games ?? eb.matches ?? 0);
+      if (g <= 0) return;
+      const hasWl = eb.wins !== undefined || eb.losses !== undefined;
       const w = Number(eb.wins || 0);
       const l = Number(eb.losses || 0);
       const d = Number(eb.draws || 0);
@@ -2262,12 +2362,16 @@ function computeProfileFactionMastery(history, existingBreakdown) {
       } else {
         const item = map.get(fn);
         if (g > item.games) {
-          item.games = g;
-          item.wins = w;
-          item.losses = l;
-          item.draws = d;
-          if (eb.net_elo !== undefined && eb.net_elo !== null) {
-            item.net_elo = Number(eb.net_elo);
+          if (hasWl && (w + l + d) > 0) {
+            item.games = g;
+            item.wins = w;
+            item.losses = l;
+            item.draws = d;
+            if (eb.net_elo !== undefined && eb.net_elo !== null) {
+              item.net_elo = Number(eb.net_elo);
+            }
+          } else {
+            item.games = g;
           }
         }
       }
@@ -2284,10 +2388,11 @@ function computeProfileFactionMastery(history, existingBreakdown) {
 /**
  * Compute Opponent Matchup Matrix from player match history
  */
-function computeProfileMatchupMatrix(history, existingMatrix) {
+function computeProfileMatchupMatrix(history, existingMatrix, tournamentsMeta, trackerHistory) {
   const map = new Map();
-  if (Array.isArray(history) && history.length > 0) {
-    history.forEach(m => {
+  const enrichedHistory = _enrichHistoryWithTournamentsAndTracker(history, tournamentsMeta, trackerHistory);
+  if (Array.isArray(enrichedHistory) && enrichedHistory.length > 0) {
+    enrichedHistory.forEach(m => {
       if (m.is_bye || (m.opponent_name && m.opponent_name.toUpperCase() === 'BYE')) return;
       const oppFaction = (m.opponent_faction || m.enemy_faction || '').trim();
       if (!oppFaction || oppFaction.toLowerCase() === 'unknown' || oppFaction.toLowerCase() === 'none') return;
@@ -2305,9 +2410,12 @@ function computeProfileMatchupMatrix(history, existingMatrix) {
 
   if (Array.isArray(existingMatrix)) {
     existingMatrix.forEach(em => {
+      if (!em) return;
       const fn = (em.enemy_faction || em.faction || '').trim();
-      if (!fn || fn.toLowerCase() === 'unknown') return;
-      const g = Number(em.total_encounters || em.games || 0);
+      if (!fn || fn.toLowerCase() === 'unknown' || fn.toLowerCase() === 'none') return;
+      const g = Number(em.total_encounters ?? em.games ?? 0);
+      if (g <= 0) return;
+      const hasWl = em.wins !== undefined || em.losses !== undefined;
       const w = Number(em.wins || 0);
       const l = Number(em.losses || 0);
       const d = Number(em.draws || 0);
@@ -2324,12 +2432,16 @@ function computeProfileMatchupMatrix(history, existingMatrix) {
       } else {
         const item = map.get(fn);
         if (g > item.total_encounters) {
-          item.total_encounters = g;
-          item.wins = w;
-          item.losses = l;
-          item.draws = d;
-          if (em.net_elo !== undefined && em.net_elo !== null) {
-            item.net_elo = Number(em.net_elo);
+          if (hasWl && (w + l + d) > 0) {
+            item.total_encounters = g;
+            item.wins = w;
+            item.losses = l;
+            item.draws = d;
+            if (em.net_elo !== undefined && em.net_elo !== null) {
+              item.net_elo = Number(em.net_elo);
+            }
+          } else {
+            item.total_encounters = g;
           }
         }
       }

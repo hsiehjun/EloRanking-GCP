@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=dd239cbacb">
+  <link rel="manifest" href="/manifest.json?v=0441f6d134">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=dd239cbacb">
-  <link rel="stylesheet" href="/css/styles.min.css?v=dd239cbacb">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=dd239cbacb">
-  <link rel="preload" href="/js/app.bundle.min.js?v=dd239cbacb" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=0441f6d134">
+  <link rel="stylesheet" href="/css/styles.min.css?v=0441f6d134">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=0441f6d134">
+  <link rel="preload" href="/js/app.bundle.min.js?v=0441f6d134" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "dd239cbacb";</script>
+  <script>window.APP_VERSION = "0441f6d134";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -1188,9 +1188,9 @@
       <!-- View 3: Global ITC Rankings (Individual & Team) -->
       <div id="lead-view-itc" style="display: none;">
         <div class="controls-bar" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
             <div style="font-weight: 700; font-size: 0.95rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
-              <span>🌍 Warhammer Global ITC Rankings</span>
+              <span id="itc-title-label">🌍 Warhammer Global ITC Rankings</span>
               <span id="itc-season-badge" class="badge" style="background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-size: 0.7rem; padding: 0.2rem 0.55rem;">2026 Season • Top 6 Events</span>
             </div>
             <div style="display: inline-flex; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 8px; padding: 2px;">
@@ -1203,8 +1203,50 @@
             </div>
           </div>
 
-          <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; max-width: 320px; min-width: 200px;">
-            <input type="text" id="itc-search-input" class="search-input" placeholder="Search player, team, or faction..." oninput="debounceItcSearch()" style="width: 100%; padding: 0.42rem 0.75rem; font-size: 0.82rem;" />
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; flex: 1; justify-content: flex-end;">
+            <div id="itc-region-filters-group" style="display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              <select id="itc-region-continent" class="filter-select" aria-label="ITC Region" onchange="onItcRegionContinentChange(this.value)" style="padding: 0.38rem 0.65rem; font-size: 0.78rem; font-weight: 600; min-width: 155px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.3); color: #e2e8f0; border-radius: 7px;">
+                <option value="61vXu5vli4">🌍 Global (Worldwide)</option>
+                <option value="P8bXpfDq998z">🌎 North America</option>
+                <option value="fC2TUH8MXe">🇬🇧 United Kingdom</option>
+                <option value="V4oYeyTAPe">🇪🇺 Europe</option>
+                <option value="8caheRYkYV">🇦🇺 Oceania</option>
+                <option value="fJzMxTL0SLTd">🌎 Central America</option>
+                <option value="0WH37ApZWl3r">🌎 South America</option>
+                <option value="bMNjVABtAu0r">🌏 Asia</option>
+                <option value="67ba5d52bf62de059769285d">🌍 Africa</option>
+              </select>
+              <select id="itc-region-country" class="filter-select" aria-label="ITC Country" onchange="onItcRegionCountryChange(this.value)" style="padding: 0.38rem 0.65rem; font-size: 0.78rem; font-weight: 600; min-width: 150px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(148, 163, 184, 0.25); color: #e2e8f0; border-radius: 7px;">
+                <option value="">All Countries</option>
+                <option value="VgQKgqmTPU">🇺🇸 United States</option>
+                <option value="I9x1u9bn5b">🇨🇦 Canada</option>
+                <option value="fC2TUH8MXe">🇬🇧 United Kingdom</option>
+                <option value="YPl3gSwfYa">🇦🇺 Australia</option>
+                <option value="XN1WCNY5Uq">🇳🇿 New Zealand</option>
+                <option value="eDAe4MN5bU">🇫🇷 France</option>
+                <option value="3ASOJvOnsN">🇩🇪 Germany</option>
+                <option value="QgC0EmMN6l">🇵🇱 Poland</option>
+                <option value="7oVuO1Cse6">🇪🇸 Spain</option>
+                <option value="3DGHTEfjRp">🇸🇪 Sweden</option>
+                <option value="oDgmJ4LBCm">🇮🇹 Italy</option>
+                <option value="KSw8EBXD6a">🇩🇰 Denmark</option>
+                <option value="p6roL5CBjJ">🇳🇱 Netherlands</option>
+                <option value="7gdTJtwwlj">🇧🇪 Belgium</option>
+                <option value="PN9BPGyIFo">🇮🇪 Ireland</option>
+                <option value="fstPY41ASjxc">🇲🇽 Mexico</option>
+              </select>
+              <select id="itc-region-subregion" class="filter-select" aria-label="ITC Sub-Region" onchange="onItcRegionSubregionChange(this.value)" style="display: none; padding: 0.38rem 0.65rem; font-size: 0.78rem; font-weight: 600; min-width: 138px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(148, 163, 184, 0.25); color: #e2e8f0; border-radius: 7px;">
+                <option value="">Sub-Region (All US)</option>
+                <option value="o71JAFvyjt">US-Midwest</option>
+                <option value="9FmG4A5zta">US-Northeast</option>
+                <option value="FUtsJUxsHL">US-South</option>
+                <option value="6DuBXuvlK9">US-Southwest</option>
+                <option value="ERrHMJo9H5">US-West</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; max-width: 260px; min-width: 180px;">
+              <input type="text" id="itc-search-input" class="search-input" placeholder="Search player, team, or faction..." oninput="debounceItcSearch()" style="width: 100%; padding: 0.42rem 0.75rem; font-size: 0.82rem;" />
+            </div>
           </div>
         </div>
 
@@ -3659,7 +3701,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=dd239cbacb"></script>
+  <script src="/js/app.bundle.min.js?v=0441f6d134"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

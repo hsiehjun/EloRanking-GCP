@@ -99,8 +99,12 @@ async def api_teams(
         )
     return await asyncio.to_thread(_fetch)
 
-# API: Global ITC Rankings (Individual & Team)
-@router.get("/api/leaderboard/itc", summary="Get Global ITC Rankings (Individual and Team)")
+# API: Global & Regional ITC Rankings (Individual & Team)
+@router.get("/api/leaderboard/itc/regions", summary="Get official BCP ITC region hierarchy tree")
+async def api_itc_regions():
+    return {"regions": get_database().get_itc_regions()}
+
+@router.get("/api/leaderboard/itc", summary="Get Global or Regional ITC Rankings (Individual and Team)")
 @router.get("/api/itc", include_in_schema=False)
 async def api_itc_leaderboard(
     category: str = Query("players"),
@@ -111,8 +115,11 @@ async def api_itc_leaderboard(
     faction: str = Query("All"),
     sort_by: str = Query("itc_points"),
     order: str = Query("DESC"),
-    game_system: Optional[str] = Query("40k")
+    game_system: Optional[str] = Query("40k"),
+    region_id: Optional[str] = Query(None),
+    region: Optional[str] = Query(None)
 ):
+    eff_region = (region_id or region or "61vXu5vli4").strip()
     def _fetch():
         return get_database().get_itc_leaderboard(
             category=category,
@@ -123,7 +130,8 @@ async def api_itc_leaderboard(
             faction=faction.strip() if faction else "All",
             sort_by=sort_by,
             order=order,
-            game_system=game_system
+            game_system=game_system,
+            region_id=eff_region
         )
     return await asyncio.to_thread(_fetch)
 
@@ -260,6 +268,11 @@ async def api_player_profile(player_id: str, request: Request, game_system: Opti
                         hp["placement"] = int(t_meta["placement"])
                     if int(t_meta.get("total_players") or 0) > 0:
                         hp["total_players"] = int(t_meta["total_players"])
+                    cur_pf = str(hp.get("player_faction") or "").strip()
+                    if not cur_pf or cur_pf.lower() in ("unknown", "unknown faction", "none", "null", "-"):
+                        reg_fac = str(t_meta.get("registered_faction") or t_meta.get("faction") or "").strip()
+                        if reg_fac and reg_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
+                            hp["player_faction"] = reg_fac
 
         user_pinned = user_row.get("pinned_badges") if (user_row and user_row.get("pinned_badges")) else None
         b_eval = badges.evaluate_player_badges(

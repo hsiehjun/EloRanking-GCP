@@ -2762,7 +2762,22 @@ class AuthManager:
                 SELECT 
                     rh.player_id, rh.match_id,
                     rh.match_date, rh.round, rh.old_elo, rh.new_elo, rh.delta_elo,
-                    rh.result, rh.player_faction, rh.opponent_id, rh.opponent_name, rh.opponent_elo, rh.opponent_faction,
+                    rh.result,
+                    COALESCE(
+                        NULLIF(NULLIF(TRIM(rh.player_faction), ''), 'Unknown'),
+                        CASE WHEN m.player1_id = rh.player_id THEN NULLIF(NULLIF(TRIM(m.player1_faction), ''), 'Unknown')
+                             WHEN m.player2_id = rh.player_id THEN NULLIF(NULLIF(TRIM(m.player2_faction), ''), 'Unknown')
+                             ELSE NULL END,
+                        rh.player_faction
+                    ) AS player_faction,
+                    rh.opponent_id, rh.opponent_name, rh.opponent_elo,
+                    COALESCE(
+                        NULLIF(NULLIF(TRIM(rh.opponent_faction), ''), 'Unknown'),
+                        CASE WHEN m.player1_id = rh.player_id THEN NULLIF(NULLIF(TRIM(m.player2_faction), ''), 'Unknown')
+                             WHEN m.player2_id = rh.player_id THEN NULLIF(NULLIF(TRIM(m.player1_faction), ''), 'Unknown')
+                             ELSE NULL END,
+                        rh.opponent_faction
+                    ) AS opponent_faction,
                     rh.player_score, rh.opponent_score,
                     e.name as event_name, e.city, e.state, e.country, e.id as event_id,
                     COALESCE(e.total_players, 0) as total_players,
@@ -2792,39 +2807,11 @@ class AuthManager:
                 """, (target_pid, target_sys))
                 history_points = [dict(r) for r in cur.fetchall()]
 
-                # 3. Faction Mastery Breakdown (Stats per army played)
+                # 3 & 4. Faction Mastery & Opponent Matchup Matrix (SQL fallback for mock/non-PG)
                 is_pg_db = getattr(getattr(self, "db", None).__class__, "__name__", "") == "PostgresDatabase"
-                if is_pg_db and history_points:
-                    fm_by_fac: Dict[str, Dict[str, float]] = {}
-                    for hp in history_points:
-                        pf = str(hp.get("player_faction") or "").strip()
-                        if not pf:
-                            continue
-                        bucket = fm_by_fac.setdefault(pf, {"games": 0, "wins": 0, "losses": 0, "draws": 0, "score_sum": 0.0})
-                        bucket["games"] += 1
-                        res_code = str(hp.get("result") or "").upper()
-                        if res_code == "W":
-                            bucket["wins"] += 1
-                        elif res_code == "L":
-                            bucket["losses"] += 1
-                        elif res_code == "D":
-                            bucket["draws"] += 1
-                        bucket["score_sum"] += float(hp.get("player_score") or 0.0)
-                    faction_mastery = []
-                    for fac_name, b in fm_by_fac.items():
-                        g_cnt = int(b["games"])
-                        w_cnt = int(b["wins"])
-                        faction_mastery.append({
-                            "faction": fac_name,
-                            "games": g_cnt,
-                            "wins": w_cnt,
-                            "losses": int(b["losses"]),
-                            "draws": int(b["draws"]),
-                            "win_rate": round((w_cnt * 100.0) / g_cnt, 1) if g_cnt > 0 else 0.0,
-                            "avg_score": round(b["score_sum"] / g_cnt, 1) if g_cnt > 0 else 0.0,
-                        })
-                    faction_mastery.sort(key=lambda x: (x["games"], x["win_rate"]), reverse=True)
-                else:
+                faction_mastery = []
+                matchup_matrix = []
+                if not is_pg_db:
                     cur.execute("""
                     WITH player_games AS (
                         SELECT player1_faction as faction, (winner_id = player1_id) as is_win, is_draw, player1_score as score
@@ -2847,36 +2834,6 @@ class AuthManager:
                     """, (target_pid, target_sys, target_pid, target_sys))
                     faction_mastery = [dict(r) for r in cur.fetchall()]
 
-                # 4. Opponent Matchup Matrix (Computed directly from rating_history for 100% fidelity)
-                if is_pg_db:
-                    mm_by_fac: Dict[str, Dict[str, int]] = {}
-                    for hp in history_points:
-                        opp_f = str(hp.get("opponent_faction") or "").strip()
-                        if not opp_f:
-                            continue
-                        bucket = mm_by_fac.setdefault(opp_f, {"total_encounters": 0, "wins": 0, "losses": 0, "draws": 0})
-                        bucket["total_encounters"] += 1
-                        res_code = str(hp.get("result") or "").upper()
-                        if res_code == "W":
-                            bucket["wins"] += 1
-                        elif res_code == "L":
-                            bucket["losses"] += 1
-                        elif res_code == "D":
-                            bucket["draws"] += 1
-                    matchup_matrix = []
-                    for ef, b in mm_by_fac.items():
-                        tot_e = b["total_encounters"]
-                        wr = round((b["wins"] * 100.0) / tot_e, 1) if tot_e > 0 else 0.0
-                        matchup_matrix.append({
-                            "enemy_faction": ef,
-                            "total_encounters": tot_e,
-                            "wins": b["wins"],
-                            "losses": b["losses"],
-                            "draws": b["draws"],
-                            "win_rate": wr,
-                        })
-                    matchup_matrix.sort(key=lambda x: (x["total_encounters"], x["win_rate"]), reverse=True)
-                else:
                     cur.execute("""
                     SELECT 
                         COALESCE(NULLIF(TRIM(opponent_faction), ''), 'Unknown Faction') as enemy_faction,
@@ -2894,6 +2851,47 @@ class AuthManager:
 
         # 5. Tournaments Attended & Performance Summary (outside conn scope to avoid nested pool checkout)
         events_attended = self.db.get_player_tournaments(target_pid, game_system=target_sys)
+
+        # Supplement history_points with any recent completed matches not yet in rating_history
+        if is_pg_db and (not history_points or int(p_stat.get("matches_played") or 0) > len(history_points)):
+            try:
+                seen_mids = {str(hp.get("match_id")) for hp in history_points if hp.get("match_id") is not None}
+                raw_matches = self.db.get_player_matches(target_pid, game_system=target_sys)
+                for m in (raw_matches or []):
+                    mid = m.get("id")
+                    if mid is not None and str(mid) in seen_mids:
+                        continue
+                    is_p1 = (m.get("player1_id") == target_pid)
+                    is_win = (m.get("winner_id") == target_pid)
+                    is_loss = (m.get("loser_id") == target_pid)
+                    is_draw = bool(m.get("is_draw"))
+                    if not (m.get("is_done") or is_win or is_loss or is_draw):
+                        continue
+                    if mid is not None:
+                        seen_mids.add(str(mid))
+                    history_points.append({
+                        "player_id": target_pid,
+                        "match_id": mid,
+                        "match_date": m.get("match_date"),
+                        "round": m.get("round"),
+                        "old_elo": p_stat.get("current_elo", 1500.0),
+                        "new_elo": p_stat.get("current_elo", 1500.0),
+                        "delta_elo": 0.0,
+                        "result": "W" if is_win else ("L" if is_loss else ("D" if is_draw else "-")),
+                        "player_faction": m.get("player1_faction") if is_p1 else m.get("player2_faction"),
+                        "opponent_id": m.get("player2_id") if is_p1 else m.get("player1_id"),
+                        "opponent_name": (m.get("player2_name") if is_p1 else m.get("player1_name")) or ("BYE" if m.get("is_bye") else "Opponent"),
+                        "opponent_elo": 1500.0,
+                        "opponent_faction": m.get("player2_faction") if is_p1 else m.get("player1_faction"),
+                        "player_score": m.get("player1_score") if is_p1 else m.get("player2_score"),
+                        "opponent_score": m.get("player2_score") if is_p1 else m.get("player1_score"),
+                        "event_name": m.get("event_name"),
+                        "event_id": m.get("event_id"),
+                        "table_number": m.get("table_number"),
+                        "is_bye": bool(m.get("is_bye"))
+                    })
+            except Exception as e:
+                logger.debug(f"Notice supplementing hub matches for {target_pid}: {e}")
 
         ev_meta_by_id = {}
         ev_meta_by_name = {}
@@ -2913,6 +2911,78 @@ class AuthManager:
                     hp["placement"] = int(t_meta["placement"])
                 if int(t_meta.get("total_players") or 0) > 0:
                     hp["total_players"] = int(t_meta["total_players"])
+                cur_pf = str(hp.get("player_faction") or "").strip()
+                if not cur_pf or cur_pf.lower() in ("unknown", "unknown faction", "none", "null", "-"):
+                    reg_fac = str(t_meta.get("registered_faction") or t_meta.get("faction") or "").strip()
+                    if reg_fac and reg_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
+                        hp["player_faction"] = reg_fac
+
+        # Compute Faction Mastery & Matchup Matrix after backfilling event factions and recent matches
+        if is_pg_db:
+            fm_by_fac: Dict[str, Dict[str, float]] = {}
+            mm_by_fac: Dict[str, Dict[str, float]] = {}
+            for hp in history_points:
+                is_bye_hp = bool(hp.get("is_bye")) or str(hp.get("opponent_name") or "").strip().upper() == "BYE"
+                if is_bye_hp:
+                    continue
+                pf = str(hp.get("player_faction") or "").strip()
+                if pf and pf.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
+                    bucket = fm_by_fac.setdefault(pf, {"games": 0, "wins": 0, "losses": 0, "draws": 0, "score_sum": 0.0, "net_elo": 0.0})
+                    bucket["games"] += 1
+                    res_code = str(hp.get("result") or "").upper()
+                    if res_code == "W":
+                        bucket["wins"] += 1
+                    elif res_code == "L":
+                        bucket["losses"] += 1
+                    elif res_code == "D":
+                        bucket["draws"] += 1
+                    bucket["score_sum"] += float(hp.get("player_score") or 0.0)
+                    bucket["net_elo"] += float(hp.get("delta_elo") or 0.0)
+
+                opp_f = str(hp.get("opponent_faction") or "").strip()
+                if opp_f and opp_f.lower() not in ("unknown", "unknown faction", "none", "null", "-", "bye"):
+                    mb = mm_by_fac.setdefault(opp_f, {"total_encounters": 0, "wins": 0, "losses": 0, "draws": 0, "net_elo": 0.0})
+                    mb["total_encounters"] += 1
+                    res_code = str(hp.get("result") or "").upper()
+                    if res_code == "W":
+                        mb["wins"] += 1
+                    elif res_code == "L":
+                        mb["losses"] += 1
+                    elif res_code == "D":
+                        mb["draws"] += 1
+                    mb["net_elo"] += float(hp.get("delta_elo") or 0.0)
+
+            faction_mastery = []
+            for fac_name, b in fm_by_fac.items():
+                g_cnt = int(b["games"])
+                w_cnt = int(b["wins"])
+                faction_mastery.append({
+                    "faction": fac_name,
+                    "games": g_cnt,
+                    "wins": w_cnt,
+                    "losses": int(b["losses"]),
+                    "draws": int(b["draws"]),
+                    "win_rate": round((w_cnt * 100.0) / g_cnt, 1) if g_cnt > 0 else 0.0,
+                    "avg_score": round(b["score_sum"] / g_cnt, 1) if g_cnt > 0 else 0.0,
+                    "net_elo": round(float(b["net_elo"]), 1),
+                })
+            faction_mastery.sort(key=lambda x: (x["games"], x["win_rate"]), reverse=True)
+
+            matchup_matrix = []
+            for ef, b in mm_by_fac.items():
+                tot_e = int(b["total_encounters"])
+                w_cnt = int(b["wins"])
+                wr = round((w_cnt * 100.0) / tot_e, 1) if tot_e > 0 else 0.0
+                matchup_matrix.append({
+                    "enemy_faction": ef,
+                    "total_encounters": tot_e,
+                    "wins": w_cnt,
+                    "losses": int(b["losses"]),
+                    "draws": int(b["draws"]),
+                    "win_rate": wr,
+                    "net_elo": round(float(b["net_elo"]), 1),
+                })
+            matchup_matrix.sort(key=lambda x: (x["total_encounters"], x["win_rate"]), reverse=True)
 
 
         upcoming_events = []

@@ -463,8 +463,304 @@ function renderLeaderboardTeamsRows() {
 window.renderLeaderboardTeamsRows = renderLeaderboardTeamsRows;
 
 /* ==========================================================================
-   GLOBAL ITC RANKINGS (INDIVIDUAL & TEAM)
+   GLOBAL & REGIONAL ITC RANKINGS (INDIVIDUAL & TEAM)
    ========================================================================== */
+
+let leaderboardItcRegionId = '61vXu5vli4';
+let leaderboardItcRegionsTree = null;
+
+const ITC_DEFAULT_CONTINENT_CHILDREN = {
+  'P8bXpfDq998z': [
+    { id: 'VgQKgqmTPU', name: '🇺🇸 United States', children: [
+      { id: 'o71JAFvyjt', name: 'US-Midwest' },
+      { id: '9FmG4A5zta', name: 'US-Northeast' },
+      { id: 'FUtsJUxsHL', name: 'US-South' },
+      { id: '6DuBXuvlK9', name: 'US-Southwest' },
+      { id: 'ERrHMJo9H5', name: 'US-West' }
+    ]},
+    { id: 'I9x1u9bn5b', name: '🇨🇦 Canada' },
+    { id: 'fstPY41ASjxc', name: '🇲🇽 Mexico' },
+    { id: '5RGA3586HL', name: 'Puerto Rico' },
+    { id: 'CTH0TH5P6B', name: 'Republic of Cuba' },
+    { id: 'N0WBYFTRDW', name: 'U.S. Virgin Islands' }
+  ],
+  'fC2TUH8MXe': [
+    { id: 'OzhrppjUig', name: '🏴󠁧󠁢󠁥󠁮󠁧󠁿 England' },
+    { id: 'uG7qOI9KFt', name: '🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland' },
+    { id: 'NeFukKLS1X', name: '🏴󠁧󠁢󠁷󠁬󠁳󠁿 Wales' },
+    { id: 'lr7uBQmznA', name: 'Northern Ireland' }
+  ],
+  'V4oYeyTAPe': [
+    { id: 'eDAe4MN5bU', name: '🇫🇷 France' },
+    { id: '3ASOJvOnsN', name: '🇩🇪 Germany' },
+    { id: 'QgC0EmMN6l', name: '🇵🇱 Poland' },
+    { id: '7oVuO1Cse6', name: '🇪🇸 Spain' },
+    { id: '3DGHTEfjRp', name: '🇸🇪 Sweden' },
+    { id: 'oDgmJ4LBCm', name: '🇮🇹 Italy' },
+    { id: 'KSw8EBXD6a', name: '🇩🇰 Denmark' },
+    { id: 'p6roL5CBjJ', name: '🇳🇱 Netherlands' },
+    { id: '7gdTJtwwlj', name: '🇧🇪 Belgium' },
+    { id: 'PN9BPGyIFo', name: '🇮🇪 Ireland' }
+  ],
+  '8caheRYkYV': [
+    { id: 'YPl3gSwfYa', name: '🇦🇺 Australia' },
+    { id: 'XN1WCNY5Uq', name: '🇳🇿 New Zealand' },
+    { id: 'Q03AW4NM3M', name: 'Guam' }
+  ],
+  'fJzMxTL0SLTd': [
+    { id: '2c7f3b8a1d9e', name: 'Costa Rica' },
+    { id: 'd1e94c7a2f8b', name: 'Panama' },
+    { id: '7f4e2d9c3a1b', name: 'Guatemala' },
+    { id: 'b8d6c2e58f4a', name: 'El Salvador' },
+    { id: 'c3d81f5a6b7e', name: 'Honduras' },
+    { id: '8a5f7e2b4d3c', name: 'Nicaragua' },
+    { id: 'a9a784f47063', name: 'Belize' }
+  ],
+  '0WH37ApZWl3r': [
+    { id: 'ef0123456789', name: '🇧🇷 Brazil' }
+  ],
+  'bMNjVABtAu0r': [
+    { id: 'GH8LG9EMM3', name: '🇯🇵 Japan' },
+    { id: 'RE25FA2V5K', name: '🇸🇬 Singapore' }
+  ],
+  '67ba5d52bf62de059769285d': [
+    { id: 'bcde0123456k2', name: '🇿🇦 South Africa' }
+  ]
+};
+
+const ITC_COUNTRY_TO_CONTINENT = {
+  'VgQKgqmTPU': 'P8bXpfDq998z',
+  'I9x1u9bn5b': 'P8bXpfDq998z',
+  'fstPY41ASjxc': 'P8bXpfDq998z',
+  '5RGA3586HL': 'P8bXpfDq998z',
+  'fC2TUH8MXe': 'fC2TUH8MXe',
+  'OzhrppjUig': 'fC2TUH8MXe',
+  'uG7qOI9KFt': 'fC2TUH8MXe',
+  'NeFukKLS1X': 'fC2TUH8MXe',
+  'lr7uBQmznA': 'fC2TUH8MXe',
+  'YPl3gSwfYa': '8caheRYkYV',
+  'XN1WCNY5Uq': '8caheRYkYV',
+  'eDAe4MN5bU': 'V4oYeyTAPe',
+  '3ASOJvOnsN': 'V4oYeyTAPe',
+  'QgC0EmMN6l': 'V4oYeyTAPe',
+  '7oVuO1Cse6': 'V4oYeyTAPe',
+  '3DGHTEfjRp': 'V4oYeyTAPe',
+  'oDgmJ4LBCm': 'V4oYeyTAPe',
+  'KSw8EBXD6a': 'V4oYeyTAPe',
+  'p6roL5CBjJ': 'V4oYeyTAPe',
+  '7gdTJtwwlj': 'V4oYeyTAPe',
+  'PN9BPGyIFo': 'V4oYeyTAPe',
+  'ef0123456789': '0WH37ApZWl3r',
+  'GH8LG9EMM3': 'bMNjVABtAu0r',
+  'RE25FA2V5K': 'bMNjVABtAu0r',
+  'bcde0123456k2': '67ba5d52bf62de059769285d'
+};
+
+const ITC_CONTINENT_LABELS = {
+  '61vXu5vli4': 'Global',
+  'P8bXpfDq998z': 'North America',
+  'fC2TUH8MXe': 'United Kingdom',
+  'V4oYeyTAPe': 'Europe',
+  '8caheRYkYV': 'Oceania',
+  'fJzMxTL0SLTd': 'Central America',
+  '0WH37ApZWl3r': 'South America',
+  'bMNjVABtAu0r': 'Asia',
+  '67ba5d52bf62de059769285d': 'Africa'
+};
+
+async function ensureItcRegionsTreeLoaded() {
+  if (leaderboardItcRegionsTree) return leaderboardItcRegionsTree;
+  try {
+    if (window.api && typeof window.api.getItcRegions === 'function') {
+      const res = await window.api.getItcRegions();
+      if (res && Array.isArray(res.regions) && res.regions.length > 0) {
+        leaderboardItcRegionsTree = res.regions;
+        const root = res.regions[0];
+        if (root && Array.isArray(root.children)) {
+          root.children.forEach(cont => {
+            if (cont && cont.id && Array.isArray(cont.children)) {
+              cont.children.forEach(c => {
+                if (c && c.id) ITC_COUNTRY_TO_CONTINENT[c.id] = cont.id;
+              });
+            }
+          });
+        }
+      }
+    }
+  } catch (e) {
+    // Non-critical fallback to built-in region tree
+  }
+  return leaderboardItcRegionsTree;
+}
+
+function getContinentChildrenList(continentId) {
+  if (leaderboardItcRegionsTree && leaderboardItcRegionsTree[0] && Array.isArray(leaderboardItcRegionsTree[0].children)) {
+    const found = leaderboardItcRegionsTree[0].children.find(c => c.id === continentId);
+    if (found && Array.isArray(found.children) && found.children.length > 0) {
+      return found.children;
+    }
+  }
+  return ITC_DEFAULT_CONTINENT_CHILDREN[continentId] || [];
+}
+
+function populateItcCountryDropdown(continentId, selectedCountryId = '') {
+  const countrySelect = document.getElementById('itc-region-country');
+  const subSelect = document.getElementById('itc-region-subregion');
+  if (!countrySelect) return;
+
+  if (!continentId || continentId === '61vXu5vli4') {
+    countrySelect.innerHTML = `
+      <option value="">All Countries</option>
+      <option value="VgQKgqmTPU">🇺🇸 United States</option>
+      <option value="I9x1u9bn5b">🇨🇦 Canada</option>
+      <option value="fC2TUH8MXe">🇬🇧 United Kingdom</option>
+      <option value="YPl3gSwfYa">🇦🇺 Australia</option>
+      <option value="XN1WCNY5Uq">🇳🇿 New Zealand</option>
+      <option value="eDAe4MN5bU">🇫🇷 France</option>
+      <option value="3ASOJvOnsN">🇩🇪 Germany</option>
+      <option value="QgC0EmMN6l">🇵🇱 Poland</option>
+      <option value="7oVuO1Cse6">🇪🇸 Spain</option>
+      <option value="3DGHTEfjRp">🇸🇪 Sweden</option>
+      <option value="oDgmJ4LBCm">🇮🇹 Italy</option>
+      <option value="KSw8EBXD6a">🇩🇰 Denmark</option>
+      <option value="p6roL5CBjJ">🇳🇱 Netherlands</option>
+      <option value="7gdTJtwwlj">🇧🇪 Belgium</option>
+      <option value="PN9BPGyIFo">🇮🇪 Ireland</option>
+      <option value="fstPY41ASjxc">🇲🇽 Mexico</option>
+    `;
+    countrySelect.value = selectedCountryId || '';
+    if (subSelect) {
+      subSelect.style.display = 'none';
+      subSelect.value = '';
+    }
+    return;
+  }
+
+  const contLabel = ITC_CONTINENT_LABELS[continentId] || 'Region';
+  const kids = getContinentChildrenList(continentId);
+  let html = `<option value="">All ${escapeHtml(contLabel)}</option>`;
+  kids.forEach(k => {
+    const cleanName = k.name || k.id;
+    html += `<option value="${escapeHtml(k.id)}">${escapeHtml(cleanName)}</option>`;
+  });
+  countrySelect.innerHTML = html;
+  countrySelect.value = selectedCountryId || '';
+
+  if (subSelect) {
+    if (countrySelect.value === 'VgQKgqmTPU') {
+      subSelect.style.display = 'inline-block';
+    } else {
+      subSelect.style.display = 'none';
+      subSelect.value = '';
+    }
+  }
+}
+
+function updateItcTitleLabel() {
+  const titleEl = document.getElementById('itc-title-label');
+  if (!titleEl) return;
+  const contSelect = document.getElementById('itc-region-continent');
+  const countrySelect = document.getElementById('itc-region-country');
+  const subSelect = document.getElementById('itc-region-subregion');
+
+  let regionLabel = 'Global';
+  if (subSelect && subSelect.style.display !== 'none' && subSelect.value) {
+    const opt = subSelect.options[subSelect.selectedIndex];
+    if (opt) regionLabel = opt.textContent.trim();
+  } else if (countrySelect && countrySelect.value) {
+    const opt = countrySelect.options[countrySelect.selectedIndex];
+    if (opt) regionLabel = opt.textContent.replace(/^[^\w\s]+\s*/, '').trim();
+  } else if (contSelect && contSelect.value && contSelect.value !== '61vXu5vli4') {
+    regionLabel = ITC_CONTINENT_LABELS[contSelect.value] || 'Regional';
+  }
+
+  if (!leaderboardItcRegionId || leaderboardItcRegionId === '61vXu5vli4') {
+    titleEl.textContent = '🌍 Warhammer Global ITC Rankings';
+  } else {
+    titleEl.textContent = `🌍 Warhammer ITC Rankings • ${regionLabel}`;
+  }
+}
+
+function onItcRegionContinentChange(continentId) {
+  const subSelect = document.getElementById('itc-region-subregion');
+  if (!continentId || continentId === '61vXu5vli4') {
+    populateItcCountryDropdown('61vXu5vli4', '');
+    leaderboardItcRegionId = '61vXu5vli4';
+  } else if (continentId === 'P8bXpfDq998z') {
+    // Match BCP's defaultRegion behavior: selecting North America defaults Country to United States
+    populateItcCountryDropdown('P8bXpfDq998z', 'VgQKgqmTPU');
+    if (subSelect) {
+      subSelect.style.display = 'inline-block';
+      subSelect.value = '';
+    }
+    leaderboardItcRegionId = 'VgQKgqmTPU';
+  } else {
+    populateItcCountryDropdown(continentId, '');
+    leaderboardItcRegionId = continentId;
+  }
+  leaderboardItcPagination.page = 1;
+  updateItcTitleLabel();
+  loadLeaderboardItc();
+  ensureItcRegionsTreeLoaded().then(() => {
+    const contEl = document.getElementById('itc-region-continent');
+    const ctryEl = document.getElementById('itc-region-country');
+    if (contEl && contEl.value === continentId && continentId !== '61vXu5vli4') {
+      populateItcCountryDropdown(continentId, ctryEl ? ctryEl.value : '');
+    }
+  });
+}
+window.onItcRegionContinentChange = onItcRegionContinentChange;
+
+function onItcRegionCountryChange(countryId) {
+  const contSelect = document.getElementById('itc-region-continent');
+  const subSelect = document.getElementById('itc-region-subregion');
+
+  if (countryId === 'fC2TUH8MXe') {
+    if (contSelect) contSelect.value = 'fC2TUH8MXe';
+    populateItcCountryDropdown('fC2TUH8MXe', '');
+    leaderboardItcRegionId = 'fC2TUH8MXe';
+  } else if (countryId) {
+    const parentContinent = ITC_COUNTRY_TO_CONTINENT[countryId];
+    if (parentContinent && contSelect && contSelect.value !== parentContinent) {
+      contSelect.value = parentContinent;
+      populateItcCountryDropdown(parentContinent, countryId);
+    }
+    if (subSelect) {
+      if (countryId === 'VgQKgqmTPU') {
+        subSelect.style.display = 'inline-block';
+        subSelect.value = '';
+      } else {
+        subSelect.style.display = 'none';
+        subSelect.value = '';
+      }
+    }
+    leaderboardItcRegionId = countryId;
+  } else {
+    if (subSelect) {
+      subSelect.style.display = 'none';
+      subSelect.value = '';
+    }
+    leaderboardItcRegionId = (contSelect && contSelect.value) ? contSelect.value : '61vXu5vli4';
+  }
+
+  leaderboardItcPagination.page = 1;
+  updateItcTitleLabel();
+  loadLeaderboardItc();
+}
+window.onItcRegionCountryChange = onItcRegionCountryChange;
+
+function onItcRegionSubregionChange(subregionId) {
+  const countrySelect = document.getElementById('itc-region-country');
+  if (subregionId) {
+    leaderboardItcRegionId = subregionId;
+  } else {
+    leaderboardItcRegionId = (countrySelect && countrySelect.value) ? countrySelect.value : 'VgQKgqmTPU';
+  }
+  leaderboardItcPagination.page = 1;
+  updateItcTitleLabel();
+  loadLeaderboardItc();
+}
+window.onItcRegionSubregionChange = onItcRegionSubregionChange;
 
 function setItcLeaderboardCategory(cat) {
   const normalized = (cat === 'teams' || cat === 'team') ? 'teams' : 'players';
@@ -553,10 +849,11 @@ function renderLeaderboardItcHeader() {
 }
 window.renderLeaderboardItcHeader = renderLeaderboardItcHeader;
 
-function prefetchNextLeaderboardItcPage(category, nextPage, pageSize, sortState, queryStr) {
+function prefetchNextLeaderboardItcPage(category, nextPage, pageSize, sortState, queryStr, regionId) {
   if (leaderboardItcPrefetchTimer) clearTimeout(leaderboardItcPrefetchTimer);
   const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
-  const cacheKey = `lb_itc_${gs}_${category}_${nextPage}_${pageSize}_${sortState.field}_${sortState.asc ? 'ASC' : 'DESC'}_${queryStr || ''}`;
+  const regId = regionId || leaderboardItcRegionId || '61vXu5vli4';
+  const cacheKey = `lb_itc_${gs}_${category}_${regId}_${nextPage}_${pageSize}_${sortState.field}_${sortState.asc ? 'ASC' : 'DESC'}_${queryStr || ''}`;
   if (leaderboardItcCache.has(cacheKey)) return;
 
   leaderboardItcPrefetchTimer = setTimeout(async () => {
@@ -564,7 +861,7 @@ function prefetchNextLeaderboardItcPage(category, nextPage, pageSize, sortState,
       const res = await window.api.getItcLeaderboard(
         category, nextPage, pageSize,
         sortState.field, sortState.asc ? 'ASC' : 'DESC',
-        queryStr || '', 'All', gs
+        queryStr || '', 'All', gs, regId
       );
       if (res && res.items) {
         leaderboardItcCache.set(cacheKey, res);
@@ -581,9 +878,11 @@ async function loadLeaderboardItc(isPrefetch = false) {
   const queryStr = searchInput ? (searchInput.value || '').trim() : '';
   const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
   const cat = leaderboardItcCategory || 'players';
-  const cacheKey = `lb_itc_${gs}_${cat}_${leaderboardItcPagination.page}_${leaderboardItcPagination.pageSize}_${leaderboardItcSortState.field}_${leaderboardItcSortState.asc ? 'ASC' : 'DESC'}_${queryStr}`;
+  const regId = leaderboardItcRegionId || '61vXu5vli4';
+  const cacheKey = `lb_itc_${gs}_${cat}_${regId}_${leaderboardItcPagination.page}_${leaderboardItcPagination.pageSize}_${leaderboardItcSortState.field}_${leaderboardItcSortState.asc ? 'ASC' : 'DESC'}_${queryStr}`;
 
   renderLeaderboardItcHeader();
+  updateItcTitleLabel();
 
   // 1. Stale-While-Revalidate: Instant cache hit rendering
   const cached = leaderboardItcCache.get(cacheKey);
@@ -604,7 +903,7 @@ async function loadLeaderboardItc(isPrefetch = false) {
     tbody.style.pointerEvents = 'none';
     tbody.style.transition = 'opacity 0.15s ease';
   } else if (!cached && tbody && (!leaderboardItcData || leaderboardItcData.length === 0) && !isPrefetch) {
-    tbody.innerHTML = '<tr class="loading-row"><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading Global ITC Rankings...</div></td></tr>';
+    tbody.innerHTML = '<tr class="loading-row"><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading ITC Rankings...</div></td></tr>';
   }
 
   try {
@@ -616,7 +915,8 @@ async function loadLeaderboardItc(isPrefetch = false) {
       leaderboardItcSortState.asc ? 'ASC' : 'DESC',
       queryStr,
       'All',
-      gs
+      gs,
+      regId
     );
     if (res && res.error) {
       throw new Error(res.error);
@@ -641,14 +941,14 @@ async function loadLeaderboardItc(isPrefetch = false) {
     }
 
     if (!isPrefetch && leaderboardItcPagination.page < leaderboardItcPagination.totalPages) {
-      prefetchNextLeaderboardItcPage(cat, leaderboardItcPagination.page + 1, leaderboardItcPagination.pageSize, leaderboardItcSortState, queryStr);
+      prefetchNextLeaderboardItcPage(cat, leaderboardItcPagination.page + 1, leaderboardItcPagination.pageSize, leaderboardItcSortState, queryStr, regId);
     }
   } catch (err) {
     console.error('Error loading Global ITC Rankings:', err);
     if (tbody && !cached) {
       tbody.style.opacity = '1';
       tbody.style.pointerEvents = '';
-      tbody.innerHTML = `<tr class="empty-row"><td colspan="8" class="empty-state" style="color:var(--loss);"><p>Error loading Global ITC Rankings: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboardItc()">🔄 Retry</button></td></tr>`;
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="8" class="empty-state" style="color:var(--loss);"><p>Error loading ITC Rankings: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboardItc()">🔄 Retry</button></td></tr>`;
     }
   }
 }
@@ -663,7 +963,7 @@ function renderLeaderboardItcRows() {
 
   const list = Array.isArray(leaderboardItcData) ? leaderboardItcData : (leaderboardItcData && Array.isArray(leaderboardItcData.items) ? leaderboardItcData.items : []);
   if (!list || list.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="8" class="empty-state">No Global ITC ${leaderboardItcCategory === 'teams' ? 'teams' : 'players'} found.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8" class="empty-state">No ITC ${leaderboardItcCategory === 'teams' ? 'teams' : 'players'} found for this region.</td></tr>`;
     return;
   }
 

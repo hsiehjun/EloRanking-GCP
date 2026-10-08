@@ -1734,10 +1734,14 @@ class EloEngine:
                     "team": None
                 }
 
-        # Fallback to matches table if rating_history is empty
-        if not history:
-            raw_matches = self.db.get_player_matches(player_id, game_system=game_system)
+        # Fallback or supplement from matches table if rating_history is empty or missing recent games
+        seen_match_ids = {str(h.get("match_id")) for h in history if isinstance(h, dict) and h.get("match_id") is not None}
+        raw_matches = self.db.get_player_matches(player_id, game_system=game_system) if hasattr(self.db, "get_player_matches") else []
+        if isinstance(raw_matches, list):
             for m in raw_matches:
+                mid = m.get("id") if m.get("id") is not None else m.get("match_id")
+                if mid is not None and str(mid) in seen_match_ids:
+                    continue
                 is_p1 = (m.get("player1_id") == player_id)
                 opp_id = m.get("player2_id") if is_p1 else m.get("player1_id")
                 opp_name = m.get("player2_name") if is_p1 else m.get("player1_name")
@@ -1747,18 +1751,26 @@ class EloEngine:
                 opp_score = m.get("player2_score") if is_p1 else m.get("player1_score")
 
                 is_win = (m.get("winner_id") == player_id)
-                is_loss = (m.get("loser_id") == player_id)
+                is_loss = (m.get("loser_id") == player_id) or (m.get("winner_id") and m.get("winner_id") != player_id)
                 is_draw = bool(m.get("is_draw"))
+                if not (m.get("is_done") or is_win or is_loss or is_draw):
+                    continue
                 res = "W" if is_win else ("L" if is_loss else ("D" if is_draw else "-"))
 
+                if mid is not None:
+                    seen_match_ids.add(str(mid))
+                ev_id_val = m.get("event_id") or m.get("tournament_id")
+                ev_name_val = m.get("event_name") or m.get("tournament_name")
                 history.append({
                     "player_id": player_id,
-                    "match_id": m.get("id"),
-                    "event_id": m.get("event_id"),
-                    "event_name": m.get("event_name"),
+                    "match_id": mid,
+                    "event_id": ev_id_val,
+                    "tournament_id": ev_id_val,
+                    "event_name": ev_name_val,
+                    "tournament_name": ev_name_val,
                     "round": m.get("round"),
                     "table_number": m.get("table_number"),
-                    "match_date": m.get("match_date"),
+                    "match_date": m.get("match_date") or m.get("date_played") or m.get("date"),
                     "old_elo": player_meta.get("current_elo", self.initial_elo),
                     "new_elo": player_meta.get("current_elo", self.initial_elo),
                     "delta_elo": 0.0,
@@ -1769,8 +1781,39 @@ class EloEngine:
                     "player_faction": my_fac,
                     "opponent_faction": opp_fac,
                     "player_score": my_score,
-                    "opponent_score": opp_score
+                    "opponent_score": opp_score,
+                    "is_bye": bool(m.get("is_bye"))
                 })
+
+        tournaments_list = self.db.get_player_tournaments(player_id, game_system=game_system) if hasattr(self.db, "get_player_tournaments") else []
+
+        if tournaments_list and history:
+            ev_by_id = {
+                str(t.get("event_id") or t.get("tournament_id") or t.get("id") or "").strip(): t
+                for t in tournaments_list
+                if isinstance(t, dict) and (t.get("event_id") or t.get("tournament_id") or t.get("id"))
+            }
+            ev_by_name = {
+                str(t.get("event_name") or t.get("tournament_name") or t.get("name") or "").strip().lower(): t
+                for t in tournaments_list
+                if isinstance(t, dict) and (t.get("event_name") or t.get("tournament_name") or t.get("name"))
+            }
+            for h in history:
+                if not isinstance(h, dict):
+                    continue
+                h_eid = str(h.get("event_id") or h.get("tournament_id") or "").strip()
+                h_ename = str(h.get("event_name") or h.get("tournament_name") or "").strip().lower()
+                t_m = ev_by_id.get(h_eid) or ev_by_name.get(h_ename)
+                if t_m:
+                    if int(t_m.get("placement") or 0) > 0:
+                        h["placement"] = int(t_m["placement"])
+                    if int(t_m.get("total_players") or 0) > 0:
+                        h["total_players"] = int(t_m["total_players"])
+                    cur_pf = str(h.get("player_faction") or "").strip()
+                    if not cur_pf or cur_pf.lower() in ("unknown", "unknown faction", "none", "null", "-"):
+                        reg_fac = str(t_m.get("registered_faction") or t_m.get("faction") or "").strip()
+                        if reg_fac and reg_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
+                            h["player_faction"] = reg_fac
 
         current_streak = 0
         max_streak = 0
@@ -1800,28 +1843,94 @@ class EloEngine:
                 "opponent_faction": h.get("opponent_faction")
             })
 
-        # Collect all factions played with their counts
+        # Compute Faction Mastery & Opponent Matchup Matrix from enriched history
         player_fac_counts = collections.Counter()
+        fm_by_fac: Dict[str, Dict[str, float]] = {}
+        mm_by_fac: Dict[str, Dict[str, float]] = {}
         for h in history:
-            fac = h.get("player_faction")
-            if fac:
+            if not isinstance(h, dict):
+                continue
+            is_bye_match = bool(h.get("is_bye")) or str(h.get("opponent_name") or "").strip().upper() == "BYE"
+            fac = str(h.get("player_faction") or "").strip()
+            if fac and fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
                 player_fac_counts[fac] += 1
-        factions_breakdown = [{"faction": f, "matches": c} for f, c in player_fac_counts.most_common() if f]
+                if not is_bye_match:
+                    fb = fm_by_fac.setdefault(fac, {"games": 0, "wins": 0, "losses": 0, "draws": 0, "net_elo": 0.0, "score_sum": 0.0})
+                    fb["games"] += 1
+                    res_code = str(h.get("result") or "").upper()
+                    if res_code == "W":
+                        fb["wins"] += 1
+                    elif res_code == "L":
+                        fb["losses"] += 1
+                    else:
+                        fb["draws"] += 1
+                    fb["net_elo"] += float(h.get("delta_elo") or 0.0)
+                    fb["score_sum"] += float(h.get("player_score") or 0.0)
 
-        tournaments_list = self.db.get_player_tournaments(player_id, game_system=game_system) if hasattr(self.db, "get_player_tournaments") else []
+            if not is_bye_match:
+                opp_fac = str(h.get("opponent_faction") or h.get("enemy_faction") or "").strip()
+                if opp_fac and opp_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-", "bye"):
+                    mb = mm_by_fac.setdefault(opp_fac, {"total_encounters": 0, "wins": 0, "losses": 0, "draws": 0, "net_elo": 0.0})
+                    mb["total_encounters"] += 1
+                    res_code = str(h.get("result") or "").upper()
+                    if res_code == "W":
+                        mb["wins"] += 1
+                    elif res_code == "L":
+                        mb["losses"] += 1
+                    else:
+                        mb["draws"] += 1
+                    mb["net_elo"] += float(h.get("delta_elo") or 0.0)
 
-        if tournaments_list and history:
-            ev_by_id = {str(t.get("event_id") or "").strip(): t for t in tournaments_list if isinstance(t, dict) and t.get("event_id")}
-            ev_by_name = {str(t.get("event_name") or "").strip().lower(): t for t in tournaments_list if isinstance(t, dict) and t.get("event_name")}
-            for h in history:
-                if not isinstance(h, dict):
-                    continue
-                t_m = ev_by_id.get(str(h.get("event_id") or "").strip()) or ev_by_name.get(str(h.get("event_name") or "").strip().lower())
-                if t_m:
-                    if int(t_m.get("placement") or 0) > 0:
-                        h["placement"] = int(t_m["placement"])
-                    if int(t_m.get("total_players") or 0) > 0:
-                        h["total_players"] = int(t_m["total_players"])
+        faction_mastery = []
+        for fac_name, b in fm_by_fac.items():
+            g_cnt = int(b["games"])
+            w_cnt = int(b["wins"])
+            faction_mastery.append({
+                "faction": fac_name,
+                "games": g_cnt,
+                "matches": g_cnt,
+                "wins": w_cnt,
+                "losses": int(b["losses"]),
+                "draws": int(b["draws"]),
+                "win_rate": round((w_cnt * 100.0) / g_cnt, 1) if g_cnt > 0 else 0.0,
+                "net_elo": round(float(b["net_elo"]), 1),
+                "avg_score": round(float(b["score_sum"]) / g_cnt, 1) if g_cnt > 0 else 0.0,
+            })
+        faction_mastery.sort(key=lambda x: (x["games"], x["win_rate"]), reverse=True)
+
+        factions_breakdown = [
+            {
+                "faction": f,
+                "matches": c,
+                **(
+                    {
+                        "games": int(fm_by_fac[f]["games"]),
+                        "wins": int(fm_by_fac[f]["wins"]),
+                        "losses": int(fm_by_fac[f]["losses"]),
+                        "draws": int(fm_by_fac[f]["draws"]),
+                        "win_rate": round((fm_by_fac[f]["wins"] * 100.0) / fm_by_fac[f]["games"], 1) if fm_by_fac[f]["games"] > 0 else 0.0,
+                        "net_elo": round(float(fm_by_fac[f]["net_elo"]), 1),
+                    }
+                    if f in fm_by_fac else {}
+                )
+            }
+            for f, c in player_fac_counts.most_common() if f
+        ]
+
+        matchup_matrix = []
+        for ef, b in mm_by_fac.items():
+            tot_e = int(b["total_encounters"])
+            w_cnt = int(b["wins"])
+            matchup_matrix.append({
+                "enemy_faction": ef,
+                "total_encounters": tot_e,
+                "wins": w_cnt,
+                "losses": int(b["losses"]),
+                "draws": int(b["draws"]),
+                "win_rate": round((w_cnt * 100.0) / tot_e, 1) if tot_e > 0 else 0.0,
+                "net_elo": round(float(b["net_elo"]), 1),
+            })
+        matchup_matrix.sort(key=lambda x: (x["total_encounters"], x["win_rate"]), reverse=True)
 
         # Collect distinct teams for this player ordered by recency
         all_teams_list = []
@@ -1862,6 +1971,8 @@ class EloEngine:
             "all_teams": all_teams_str,
             "teams_history": all_teams_list,
             "factions_breakdown": factions_breakdown,
+            "faction_mastery": faction_mastery,
+            "matchup_matrix": matchup_matrix,
             "longest_win_streak": max_streak,
             "history": history,
             "win_path": history,

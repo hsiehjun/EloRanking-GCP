@@ -8109,7 +8109,7 @@ function buildCasterFactionMasteryHtml(playerObj, opponentObj, profileData, acce
   let masteryList = [];
 
   if (typeof computeProfileFactionMastery === 'function' && (history.length > 0 || rawBreakdown.length > 0)) {
-    masteryList = computeProfileFactionMastery(history, rawBreakdown);
+    masteryList = computeProfileFactionMastery(history, rawBreakdown, profileData?.tournaments || profileData?.events_attended, profileData?.tracker_history || profileData?.completed_history);
   } else if (Array.isArray(rawBreakdown) && rawBreakdown.length > 0) {
     masteryList = rawBreakdown.map(f => {
       const g = Number(f.games || f.matches || (Number(f.wins || 0) + Number(f.losses || 0) + Number(f.draws || 0)) || 0);

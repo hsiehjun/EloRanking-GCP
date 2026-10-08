@@ -5615,16 +5615,67 @@ class PostgresDatabase:
 
         return enriched
 
-    def _fetch_itc_rankings_from_bcp(self, ptype: str, sys_key: str, limit: int = 500, timeout_sec: float = 8.0) -> Optional[List[Dict[str, Any]]]:
-        """Fetches official Warhammer Global ITC Rankings from BCP /v1/placings endpoint."""
+    _ITC_REGION_ALIASES = {
+        "all": "61vXu5vli4",
+        "global": "61vXu5vli4",
+        "world": "61vXu5vli4",
+        "worldwide": "61vXu5vli4",
+        "us": "VgQKgqmTPU",
+        "usa": "VgQKgqmTPU",
+        "united states": "VgQKgqmTPU",
+        "na": "P8bXpfDq998z",
+        "north america": "P8bXpfDq998z",
+        "uk": "fC2TUH8MXe",
+        "united kingdom": "fC2TUH8MXe",
+        "eu": "V4oYeyTAPe",
+        "europe": "V4oYeyTAPe",
+        "oceania": "8caheRYkYV",
+        "ca": "I9x1u9bn5b",
+        "canada": "I9x1u9bn5b",
+        "au": "YPl3gSwfYa",
+        "australia": "YPl3gSwfYa",
+    }
+
+    @classmethod
+    def _normalize_itc_region_id(cls, region_id: Optional[str]) -> str:
+        raw = str(region_id or "").strip()
+        if not raw:
+            return "61vXu5vli4"
+        return cls._ITC_REGION_ALIASES.get(raw.lower(), raw)
+
+    def _ensure_itc_seed_loaded(self) -> Dict[str, Any]:
+        if not hasattr(PostgresDatabase, "_itc_seed_cache") or PostgresDatabase._itc_seed_cache is None:
+            seed_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "itc_global_rankings_seed.json")
+            if os.path.exists(seed_path):
+                try:
+                    with open(seed_path, "r", encoding="utf-8") as f:
+                        PostgresDatabase._itc_seed_cache = json.load(f)
+                except Exception as e:
+                    logger.debug(f"Notice reading ITC seed file: {e}")
+                    PostgresDatabase._itc_seed_cache = {}
+            else:
+                PostgresDatabase._itc_seed_cache = {}
+        return PostgresDatabase._itc_seed_cache or {}
+
+    def get_itc_regions(self) -> List[Dict[str, Any]]:
+        """Returns the official BCP Global/Regional hierarchy tree in <1ms from memory."""
+        seed = self._ensure_itc_seed_loaded()
+        regions = seed.get("regions")
+        if isinstance(regions, list) and regions:
+            return regions
+        return [{"id": "61vXu5vli4", "name": "Global", "children": []}]
+
+    def _fetch_itc_rankings_from_bcp(self, ptype: str, sys_key: str, limit: int = 500, timeout_sec: float = 8.0, region_id: str = "61vXu5vli4") -> Optional[List[Dict[str, Any]]]:
+        """Fetches official Warhammer Global/Regional ITC Rankings from BCP /v1/placings endpoint."""
         league_id = "RtgcexBzqjCM" if sys_key == "aos" else "BYaaUfKum7z0"
-        url = f"{BCP_API_BASE}/placings?placingsType={ptype}&limit={limit}&leagueId={league_id}&sortAscending=false"
+        reg_id = self._normalize_itc_region_id(region_id)
+        url = f"{BCP_API_BASE}/placings?placingsType={ptype}&limit={limit}&leagueId={league_id}&regionId={ urllib.parse.quote(reg_id) }&sortAscending=false"
         try:
             req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
             with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
                 raw = json.loads(resp.read().decode("utf-8"))
                 rows = raw.get("data", []) if isinstance(raw, dict) else []
-                if not rows:
+                if rows is None:
                     return None
                 cleaned = []
                 for idx, item in enumerate(rows, 1):
@@ -5658,7 +5709,8 @@ class PostgresDatabase:
                             "matches_played": matches,
                             "win_rate": wr,
                             "updated_at": str(item.get("updated_at") or "")[:10],
-                            "game_system": sys_key
+                            "game_system": sys_key,
+                            "region_id": reg_id
                         })
                     else:
                         tm = item.get("team") or {}
@@ -5677,16 +5729,18 @@ class PostgresDatabase:
                             "total_matches": matches,
                             "team_win_rate": wr,
                             "updated_at": str(item.get("updated_at") or "")[:10],
-                            "game_system": sys_key
+                            "game_system": sys_key,
+                            "region_id": reg_id
                         })
                 return cleaned
         except Exception as e:
-            logger.debug(f"Notice fetching BCP ITC rankings ({sys_key}:{ptype}): {e}")
+            logger.debug(f"Notice fetching BCP ITC rankings ({sys_key}:{ptype}:{reg_id}): {e}")
             return None
 
-    def _schedule_bg_itc_refresh(self, ptype: str, sys_key: str) -> None:
-        """Schedules a non-blocking background refresh of Global ITC Rankings so API calls never wait on network I/O."""
-        cache_key = f"{sys_key}:{ptype}"
+    def _schedule_bg_itc_refresh(self, ptype: str, sys_key: str, region_id: str = "61vXu5vli4") -> None:
+        """Schedules a non-blocking background refresh of Global/Regional ITC Rankings so API calls never wait on network I/O."""
+        reg_id = self._normalize_itc_region_id(region_id)
+        cache_key = f"{sys_key}:{ptype}:{reg_id}"
         if not hasattr(PostgresDatabase, "_itc_bg_refreshing"):
             PostgresDatabase._itc_bg_refreshing = set()
         if cache_key in PostgresDatabase._itc_bg_refreshing:
@@ -5695,25 +5749,29 @@ class PostgresDatabase:
 
         def _bg_worker():
             try:
-                fresh = self._fetch_itc_rankings_from_bcp(ptype=ptype, sys_key=sys_key, limit=500, timeout_sec=10.0)
-                if fresh:
+                lim = 500 if reg_id in ("61vXu5vli4", "VgQKgqmTPU") else 300
+                fresh = self._fetch_itc_rankings_from_bcp(ptype=ptype, sys_key=sys_key, limit=lim, timeout_sec=10.0, region_id=reg_id)
+                if fresh is not None:
                     enriched = self._enrich_itc_rankings_rows(fresh, ptype=ptype, sys_key=sys_key)
                     now_ts = time.time()
                     if not hasattr(PostgresDatabase, "_itc_rankings_cache_map"):
                         PostgresDatabase._itc_rankings_cache_map = {}
                     PostgresDatabase._itc_rankings_cache_map[cache_key] = (enriched, now_ts)
+                    if reg_id == "61vXu5vli4":
+                        PostgresDatabase._itc_rankings_cache_map[f"{sys_key}:{ptype}"] = (enriched, now_ts)
                     try:
                         with self.get_connection() as conn:
                             with conn.cursor() as cur_store:
                                 if not type(cur_store).__module__.startswith("unittest.mock"):
                                     cur_store.execute("SET LOCAL statement_timeout = '2000ms';")
+                                    setting_key = f"itc_rankings_cache_v1_{sys_key}_{ptype}" if reg_id == "61vXu5vli4" else f"itc_rankings_cache_v1_{sys_key}_{ptype}_{reg_id}"
                                     cur_store.execute(
                                         """
                                         INSERT INTO system_settings (key, value, updated_at)
                                         VALUES (%s, %s, NOW())
                                         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
                                         """,
-                                        (f"itc_rankings_cache_v1_{sys_key}_{ptype}", json.dumps(enriched, default=str))
+                                        (setting_key, json.dumps(enriched, default=str))
                                     )
                                     conn.commit()
                     except Exception:
@@ -5723,37 +5781,35 @@ class PostgresDatabase:
 
         threading.Thread(target=_bg_worker, daemon=True).start()
 
-    def _get_itc_rankings_list(self, category: str = "players", game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
-        """Returns precomputed/cached Global ITC Rankings in <15ms using L1 memory + L2 seed/DB + SWR background sync."""
+    def _get_itc_rankings_list(self, category: str = "players", game_system: Optional[str] = "40k", region_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Returns precomputed/cached Global or Regional ITC Rankings in <15ms using L1 memory + L2 seed/DB + SWR background sync."""
         now = time.time()
         sys_key = "aos" if str(game_system or "40k").strip().lower() == "aos" else "40k"
         ptype = "team" if str(category or "players").strip().lower() in ("team", "teams", "club", "clubs") else "player"
-        cache_key = f"{sys_key}:{ptype}"
+        reg_id = self._normalize_itc_region_id(region_id)
+        cache_key = f"{sys_key}:{ptype}:{reg_id}"
 
         if not hasattr(PostgresDatabase, "_itc_rankings_cache_map"):
             PostgresDatabase._itc_rankings_cache_map = {}
-        if not hasattr(PostgresDatabase, "_itc_seed_cache"):
-            PostgresDatabase._itc_seed_cache = None
 
         cached = PostgresDatabase._itc_rankings_cache_map.get(cache_key)
+        if cached is None and reg_id == "61vXu5vli4":
+            cached = PostgresDatabase._itc_rankings_cache_map.get(f"{sys_key}:{ptype}")
         if cached is not None:
             rows_cached, ts_cached = cached
             if (now - ts_cached) >= 1800:
-                self._schedule_bg_itc_refresh(ptype=ptype, sys_key=sys_key)
+                self._schedule_bg_itc_refresh(ptype=ptype, sys_key=sys_key, region_id=reg_id)
             return rows_cached
 
         # Cold start: load immediately from bundled seed file (<2ms) or system_settings (<10ms)
         seed_rows: List[Dict[str, Any]] = []
         try:
-            if PostgresDatabase._itc_seed_cache is None:
-                seed_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "itc_global_rankings_seed.json")
-                if os.path.exists(seed_path):
-                    with open(seed_path, "r", encoding="utf-8") as f:
-                        PostgresDatabase._itc_seed_cache = json.load(f)
-                else:
-                    PostgresDatabase._itc_seed_cache = {}
-            seed_sys = (PostgresDatabase._itc_seed_cache or {}).get(sys_key) or {}
-            if isinstance(seed_sys.get(ptype), list):
+            seed = self._ensure_itc_seed_loaded()
+            seed_sys = (seed or {}).get(sys_key) or {}
+            by_reg = seed_sys.get("by_region") or {}
+            if reg_id in by_reg and isinstance(by_reg[reg_id].get(ptype), list):
+                seed_rows = [dict(x) for x in by_reg[reg_id][ptype]]
+            elif reg_id == "61vXu5vli4" and isinstance(seed_sys.get(ptype), list):
                 seed_rows = [dict(x) for x in seed_sys[ptype]]
         except Exception as e:
             logger.debug(f"Notice reading ITC seed file ({cache_key}): {e}")
@@ -5767,9 +5823,10 @@ class PostgresDatabase:
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                         if not type(cur).__module__.startswith("unittest.mock"):
                             cur.execute("SET LOCAL statement_timeout = '250ms';")
+                            setting_key = f"itc_rankings_cache_v1_{sys_key}_{ptype}" if reg_id == "61vXu5vli4" else f"itc_rankings_cache_v1_{sys_key}_{ptype}_{reg_id}"
                             cur.execute(
                                 "SELECT value, EXTRACT(EPOCH FROM updated_at) as ts FROM system_settings WHERE key = %s;",
-                                (f"itc_rankings_cache_v1_{sys_key}_{ptype}",)
+                                (setting_key,)
                             )
                             p_row = cur.fetchone()
                             if p_row:
@@ -5784,13 +5841,22 @@ class PostgresDatabase:
                 pass
 
         base_rows = db_rows if db_rows else seed_rows
+        if not base_rows and not is_mock_self:
+            # Un-seeded smaller country: fast bounded fetch (<700ms) so latency stays strictly <1s
+            fast_live = self._fetch_itc_rankings_from_bcp(ptype=ptype, sys_key=sys_key, limit=150, timeout_sec=0.72, region_id=reg_id)
+            if fast_live is not None:
+                base_rows = fast_live
+                db_ts = now
+
         enriched = self._enrich_itc_rankings_rows(base_rows, ptype=ptype, sys_key=sys_key)
-        effective_ts = db_ts if (db_rows and db_ts > 0) else (now - 1700)
+        effective_ts = db_ts if (db_ts > 0) else (now - 1700)
         PostgresDatabase._itc_rankings_cache_map[cache_key] = (enriched, effective_ts)
+        if reg_id == "61vXu5vli4":
+            PostgresDatabase._itc_rankings_cache_map[f"{sys_key}:{ptype}"] = (enriched, effective_ts)
 
         if not db_rows or (now - db_ts) >= 1800:
             if not is_mock_self:
-                self._schedule_bg_itc_refresh(ptype=ptype, sys_key=sys_key)
+                self._schedule_bg_itc_refresh(ptype=ptype, sys_key=sys_key, region_id=reg_id)
 
         return enriched
 
@@ -5804,17 +5870,23 @@ class PostgresDatabase:
         faction: str = "All",
         sort_by: str = "itc_points",
         order: str = "DESC",
-        game_system: Optional[str] = "40k"
+        game_system: Optional[str] = "40k",
+        region_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Returns paginated Global ITC Rankings (Individual or Team) in <15ms."""
+        """Returns paginated Global or Regional ITC Rankings (Individual or Team) in <15ms."""
         if limit is not None and limit > 0:
             page_size = limit
         page = max(1, int(page or 1))
         page_size = max(1, min(int(page_size or 25), 200))
         offset = (page - 1) * page_size
 
+        reg_id = self._normalize_itc_region_id(region_id)
         is_teams = str(category or "players").strip().lower() in ("team", "teams", "club", "clubs")
-        all_rows = self._get_itc_rankings_list(category="teams" if is_teams else "players", game_system=game_system)
+        all_rows = self._get_itc_rankings_list(
+            category="teams" if is_teams else "players",
+            game_system=game_system,
+            region_id=reg_id
+        )
         filtered = [dict(r) for r in all_rows]
 
         if not is_teams and faction and faction.lower() != "all":
@@ -5868,6 +5940,7 @@ class PostgresDatabase:
             "items": items,
             "category": "teams" if is_teams else "players",
             "game_system": "aos" if str(game_system or "40k").strip().lower() == "aos" else "40k",
+            "region_id": reg_id,
             "season": "2026",
             "total": total_count,
             "page": page,
@@ -8142,7 +8215,22 @@ class PostgresDatabase:
                 try:
                     cursor.execute(f"""
                     WITH player_hist AS MATERIALIZED (
-                        SELECT h.*, e.name as event_name, m.table_number, m.event_id as m_event_id, m.round as m_round
+                        SELECT h.*,
+                               COALESCE(
+                                   NULLIF(NULLIF(TRIM(h.player_faction), ''), 'Unknown'),
+                                   CASE WHEN m.player1_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player1_faction), ''), 'Unknown')
+                                        WHEN m.player2_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player2_faction), ''), 'Unknown')
+                                        ELSE NULL END,
+                                   h.player_faction
+                               ) AS enriched_player_faction,
+                               COALESCE(
+                                   NULLIF(NULLIF(TRIM(h.opponent_faction), ''), 'Unknown'),
+                                   CASE WHEN m.player1_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player2_faction), ''), 'Unknown')
+                                        WHEN m.player2_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player1_faction), ''), 'Unknown')
+                                        ELSE NULL END,
+                                   h.opponent_faction
+                               ) AS enriched_opponent_faction,
+                               e.name as event_name, m.table_number, m.event_id as m_event_id, m.round as m_round
                         FROM rating_history h
                         LEFT JOIN events e ON h.event_id = e.id
                         LEFT JOIN matches m ON h.match_id = m.id
@@ -8180,6 +8268,13 @@ class PostgresDatabase:
                     ORDER BY ph.match_date ASC, ph.round ASC;
                     """, tuple(params))
                     rows = [dict(r) for r in cursor.fetchall()]
+                    for r in rows:
+                        epf = r.pop("enriched_player_faction", None)
+                        if epf:
+                            r["player_faction"] = epf
+                        eof = r.pop("enriched_opponent_faction", None)
+                        if eof:
+                            r["opponent_faction"] = eof
                     if not is_mock_self:
                         PostgresDatabase.set_cached(PostgresDatabase._player_history_cache_dict, cache_key, rows, max_size=500)
                     return rows

@@ -1492,11 +1492,13 @@ function renderMyHub(data) {
   const p = data.player || {};
   const rankings = data.rankings || {};
   const history = data.history || [];
+  const hubTournaments = data.events_attended || data.tournaments || [];
+  const hubTrackerHistory = data.tracker_history || data.completed_history || [];
   const factionMastery = typeof computeProfileFactionMastery === 'function'
-    ? computeProfileFactionMastery(history, data.faction_mastery || data.factions_breakdown)
+    ? computeProfileFactionMastery(history, data.faction_mastery || data.factions_breakdown, hubTournaments, hubTrackerHistory)
     : (data.faction_mastery || []);
   const matchups = typeof computeProfileMatchupMatrix === 'function'
-    ? computeProfileMatchupMatrix(history, data.matchup_matrix)
+    ? computeProfileMatchupMatrix(history, data.matchup_matrix, hubTournaments, hubTrackerHistory)
     : (data.matchup_matrix || []);
   const upcoming = data.upcoming_events || [];
   const registeredTournaments = (data.registered_tournaments || []).filter(isValidRegisteredTournament);
