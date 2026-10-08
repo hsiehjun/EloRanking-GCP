@@ -293,7 +293,7 @@ async def _periodic_firestore_cleanup():
         await asyncio.sleep(12 * 3600)  # Run every 12 hours
 
 async def _prewarm_meta_intel_cache():
-    """Pre-warms the 90-day Meta Intel and Faction Details caches for 40k and AoS shortly after server startup."""
+    """Pre-warms all Meta Intel presets (30d, 60d, 90d, 180d, 1yr, ytd, all) and Faction Details caches for 40k and AoS."""
     try:
         now = datetime.now(timezone.utc)
         d90 = now - timedelta(days=90)
@@ -302,11 +302,14 @@ async def _prewarm_meta_intel_cache():
         db = await asyncio.to_thread(get_database)
         await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k")
         await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos")
+        if hasattr(db, "prewarm_meta_intel_presets"):
+            await asyncio.to_thread(db.prewarm_meta_intel_presets, "40k")
+            await asyncio.to_thread(db.prewarm_meta_intel_presets, "aos")
         await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 3)
         await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "6mo", 2)
         await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr", 2)
         await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo", 1)
-        logger.info(f"🔥 Meta Intel & Faction Details caches pre-warmed for 40k and AoS ({start_str} to {end_str})")
+        logger.info(f"🔥 Meta Intel (all presets) & Faction Details caches pre-warmed for 40k and AoS ({start_str} to {end_str})")
     except Exception as me:
         logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
 

@@ -2463,39 +2463,54 @@ async def api_factions(game_system: Optional[str] = Query("40k"), grouped: Optio
 
 # API: Faction Meta & Balance Analytics
 @router.get("/api/factions/meta", summary="Get global faction win rates and balance tier ratings")
-def api_faction_meta(
+async def api_faction_meta(
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    timeframe: Optional[str] = Query(None, description="Timeframe preset: '30d', '60d', '90d', 'ytd', 'all'"),
+    timeframe: Optional[str] = Query(None, description="Timeframe preset: '30d', '60d', '90d', '180d', '1yr', 'ytd', 'all', 'custom'"),
     game_system: Optional[str] = Query("40k")
 ):
     try:
-        resolved_start = start_date
-        resolved_end = end_date
+        raw_start = start_date.default if hasattr(start_date, "default") else start_date
+        raw_end = end_date.default if hasattr(end_date, "default") else end_date
+        raw_tf = timeframe.default if hasattr(timeframe, "default") else timeframe
+        raw_sys = game_system.default if hasattr(game_system, "default") else game_system
+        sys_val = raw_sys or "40k"
 
-        if timeframe == "all" or start_date == "all":
+        resolved_start = raw_start
+        resolved_end = raw_end
+        tf_norm = (raw_tf or "").strip().lower()
+        now = datetime.now(timezone.utc)
+        today_str = now.strftime("%Y-%m-%d")
+
+        preset_days_map = {
+            "30d": 30, "1m": 30, "1mo": 30,
+            "60d": 60, "2m": 60, "2mo": 60,
+            "90d": 90, "3m": 90, "3mo": 90,
+            "180d": 180, "6m": 180, "6mo": 180,
+            "1yr": 365, "1y": 365, "365d": 365, "12m": 365, "12mo": 365,
+        }
+
+        if tf_norm == "all" or str(raw_start or "").strip().lower() == "all":
             resolved_start = None
             resolved_end = None
+        elif tf_norm == "ytd":
+            resolved_start = f"{now.year}-01-01"
+            resolved_end = today_str
+        elif tf_norm in preset_days_map:
+            days = preset_days_map[tf_norm]
+            resolved_start = (now - timedelta(days=days)).strftime("%Y-%m-%d")
+            resolved_end = today_str
         elif not resolved_start and not resolved_end:
-            now = datetime.now(timezone.utc)
-            preset = (timeframe or "90d").lower()
-            if preset == "30d":
-                resolved_start = (now - timedelta(days=30)).strftime("%Y-%m-%d")
-                resolved_end = now.strftime("%Y-%m-%d")
-            elif preset == "60d":
-                resolved_start = (now - timedelta(days=60)).strftime("%Y-%m-%d")
-                resolved_end = now.strftime("%Y-%m-%d")
-            elif preset == "ytd":
-                resolved_start = f"{now.year}-01-01"
-                resolved_end = now.strftime("%Y-%m-%d")
-            elif preset == "all":
-                resolved_start = None
-                resolved_end = None
-            else:  # Default to 90d (Last 3 Months)
-                resolved_start = (now - timedelta(days=90)).strftime("%Y-%m-%d")
-                resolved_end = now.strftime("%Y-%m-%d")
+            resolved_start = (now - timedelta(days=90)).strftime("%Y-%m-%d")
+            resolved_end = today_str
 
-        return get_database().get_faction_meta_stats(start_date=resolved_start, end_date=resolved_end, game_system=game_system)
+        def _fetch_meta():
+            return get_database().get_faction_meta_stats(
+                start_date=resolved_start,
+                end_date=resolved_end,
+                game_system=sys_val
+            )
+        return await asyncio.to_thread(_fetch_meta)
     except Exception as e:
         logger.error(f"Error in /api/factions/meta: {e}")
         return {"factions": [], "monthly_trends": [], "error": str(e)}

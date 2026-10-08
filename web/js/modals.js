@@ -1010,7 +1010,7 @@ let currentFactionPlayers = [];
 let currentFactionMatchups = [];
 
 function updateFactionModalTfButtons() {
-  ['6mo', '1yr', 'all'].forEach(tf => {
+  ['30d', '3mo', '6mo', '1yr', 'all'].forEach(tf => {
     const btn = document.getElementById(`faction-tf-${tf}`);
     if (btn) {
       const isActive = tf === currentFactionTimeframe;
@@ -1108,7 +1108,7 @@ function applyFactionModalData(data, sys, tf) {
   currentFactionPlayers = topPlayers;
   currentFactionMatchups = matchups;
 
-  const tfLabels = { '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
+  const tfLabels = { '30d': '1 Month', '3mo': '3 Months', '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
   const sysLabel = sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K';
 
   // Calculate total games across all faction matchups in this window
@@ -1166,7 +1166,7 @@ async function loadFactionModalData(factionName, tf = '1yr') {
     // Keep existing data visible and show non-intrusive revalidating status
     const subEl = document.getElementById('modal-faction-subtitle');
     if (subEl) {
-      const tfLabels = { '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
+      const tfLabels = { '30d': '1 Month', '3mo': '3 Months', '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
       subEl.innerHTML = `Refreshing ${escapeHtml(tfLabels[tf] || tf)} data... <span style="display:inline-block; width:12px; height:12px; border:2px solid var(--accent); border-right-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite; vertical-align:middle; margin-left:6px;"></span>`;
     }
   }
@@ -1206,7 +1206,7 @@ async function loadFactionModalData(factionName, tf = '1yr') {
 }
 window.loadFactionModalData = loadFactionModalData;
 
-async function openFactionModal(factionName, initialTf = '1yr') {
+async function openFactionModal(factionName, initialTf = null, initialSubtab = 'matches') {
   const modal = document.getElementById('faction-modal');
   if (!modal) return;
   bringModalToFront(modal);
@@ -1217,14 +1217,19 @@ async function openFactionModal(factionName, initialTf = '1yr') {
     currentFactionMatchups = [];
   }
 
+  let resolvedTf = initialTf;
+  if (!resolvedTf && typeof factionTimeframe !== 'undefined') {
+    const mapFromMeta = { '30d': '30d', '60d': '3mo', '90d': '3mo', '180d': '6mo', 'ytd': '6mo', '1yr': '1yr', 'all': 'all' };
+    resolvedTf = mapFromMeta[factionTimeframe] || '1yr';
+  }
   currentFactionName = factionName || '';
-  currentFactionTimeframe = initialTf || '1yr';
+  currentFactionTimeframe = resolvedTf || '1yr';
   updateFactionModalTfButtons();
 
   const titleEl = document.getElementById('modal-faction-title');
   if (titleEl) titleEl.innerText = factionName || 'Faction Meta';
 
-  switchFactionModalTab('matches');
+  switchFactionModalTab(initialSubtab || 'matches');
   await loadFactionModalData(currentFactionName, currentFactionTimeframe);
 }
 

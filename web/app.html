@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=7ee15e7bfb">
+  <link rel="manifest" href="/manifest.json?v=ffa0c30d72">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=7ee15e7bfb">
-  <link rel="stylesheet" href="/css/styles.min.css?v=7ee15e7bfb">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=7ee15e7bfb">
-  <link rel="preload" href="/js/app.bundle.min.js?v=7ee15e7bfb" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=ffa0c30d72">
+  <link rel="stylesheet" href="/css/styles.min.css?v=ffa0c30d72">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=ffa0c30d72">
+  <link rel="preload" href="/js/app.bundle.min.js?v=ffa0c30d72" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "7ee15e7bfb";</script>
+  <script>window.APP_VERSION = "ffa0c30d72";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -1198,18 +1198,22 @@
       <!-- View 1: Faction Meta & Balance Zone -->
       <div id="lead-view-factions">
         <div class="controls-bar" style="flex-wrap: wrap; gap: 0.75rem; justify-content: space-between;">
-          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-            <span style="font-weight: 700; font-size: 0.9rem; color: #fff; margin-right: 0.2rem;">⏱️ Timeframe:</span>
-            <button id="faction-preset-all" class="subtab-btn" onclick="setFactionTimeframe('all')">All Time</button>
-            <button id="faction-preset-30d" class="subtab-btn" onclick="setFactionTimeframe('30d')">Last 30 Days</button>
-            <button id="faction-preset-60d" class="subtab-btn" onclick="setFactionTimeframe('60d')">Last 60 Days</button>
-            <button id="faction-preset-90d" class="subtab-btn active" onclick="setFactionTimeframe('90d')">Last 90 Days</button>
-            <button id="faction-preset-ytd" class="subtab-btn" onclick="setFactionTimeframe('ytd')">2026 YTD</button>
-            <button id="faction-preset-custom" class="subtab-btn" onclick="setFactionTimeframe('custom')">Custom ⚙️</button>
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <span style="font-weight: 700; font-size: 0.88rem; color: #fff; margin-right: 0.15rem;">⏱️ Window:</span>
+            <button id="faction-preset-30d" class="subtab-btn" onclick="setFactionTimeframe('30d')" title="Last 30 Days">1M</button>
+            <button id="faction-preset-60d" class="subtab-btn" onclick="setFactionTimeframe('60d')" title="Last 60 Days">2M</button>
+            <button id="faction-preset-90d" class="subtab-btn active" onclick="setFactionTimeframe('90d')" title="Last 90 Days (Default)">3M</button>
+            <button id="faction-preset-180d" class="subtab-btn" onclick="setFactionTimeframe('180d')" title="Last 6 Months">6M</button>
+            <button id="faction-preset-1yr" class="subtab-btn" onclick="setFactionTimeframe('1yr')" title="Last 12 Months">1Y</button>
+            <button id="faction-preset-ytd" class="subtab-btn" onclick="setFactionTimeframe('ytd')" title="2026 Year-To-Date">2026 YTD</button>
+            <button id="faction-preset-all" class="subtab-btn" onclick="setFactionTimeframe('all')" title="All Historical Matches">All Time</button>
+            <button id="faction-preset-custom" class="subtab-btn" onclick="setFactionTimeframe('custom')" title="Custom Date Range">Custom ⚙️</button>
           </div>
 
-          <div style="display: flex; align-items: center; gap: 0.4rem;">
-            <button id="faction-mode-btn-table" class="subtab-btn active" onclick="setFactionViewMode('table')">📋 Table View</button>
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <button id="faction-mode-btn-table" class="subtab-btn active" onclick="setFactionViewMode('table')">📋 Tier &amp; Stats</button>
+            <button id="faction-mode-btn-quadrant" class="subtab-btn" onclick="setFactionViewMode('quadrant')">🎯 Meta Quadrant</button>
+            <button id="faction-mode-btn-matrix" class="subtab-btn" onclick="setFactionViewMode('matrix')">🔥 Matchup Matrix</button>
             <button id="faction-mode-btn-chart" class="subtab-btn" onclick="setFactionViewMode('chart')">📈 Meta Timeline</button>
           </div>
         </div>
@@ -1253,50 +1257,134 @@
           </div>
         </div>
 
-        <div class="info-callout" style="margin-top: 1rem; margin-bottom: 1.25rem;">
-          <span style="font-size: 1.2rem; margin-right: 0.4rem;">⚖️</span>
-          <div>
-            <b style="color: #fff;">Goldilocks Balance Zone (45% - 55%):</b> 
-            <span style="color: var(--text-secondary);">
-              Factions above <b>55% Win Rate</b> are considered <span style="color:#a855f7; font-weight:600;">S-Tier</span>, while factions below <b>45%</b> are underperforming.
-            </span>
+        <!-- Executive Competitive Meta KPIs Strip -->
+        <div id="faction-meta-kpis-strip" class="meta-kpis-strip" style="margin-top: 1rem; margin-bottom: 1rem;"></div>
+
+        <!-- Goldilocks & Tier Distribution Bar -->
+        <div class="info-callout" style="margin-top: 0.5rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 1.2rem;">⚖️</span>
+            <div>
+              <b style="color: #fff;">Goldilocks Balance Zone (45% - 55%):</b>
+              <span style="color: var(--text-secondary);">
+                Factions above <b>55% Win Rate</b> are <span style="color:#a855f7; font-weight:600;">S-Tier</span>; below <b>45%</b> are underperforming. Click any army for Top Commanders, Matchups &amp; Lists.
+              </span>
+            </div>
           </div>
+          <div id="faction-meta-dist" style="font-size: 0.8rem; color: var(--text-secondary);"></div>
         </div>
 
-        <!-- Faction View 1: Table -->
+        <!-- Faction View 1: Enhanced Tier & Competitive Stats Table -->
         <div id="faction-view-table-container">
+          <div class="meta-table-toolbar">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <div class="search-box" style="min-width: 210px; max-width: 260px;">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="faction-search-input" placeholder="Filter faction..." oninput="onFactionTableFilterChange()">
+              </div>
+              <div class="meta-tier-pills" role="group" aria-label="Filter by balance tier">
+                <button type="button" class="meta-pill-btn active" data-tier="ALL" onclick="setFactionTierFilter('ALL')">All Tiers</button>
+                <button type="button" class="meta-pill-btn" data-tier="S" onclick="setFactionTierFilter('S')"><span class="tier-dot tier-S-dot"></span>S-Tier</button>
+                <button type="button" class="meta-pill-btn" data-tier="A" onclick="setFactionTierFilter('A')"><span class="tier-dot tier-A-dot"></span>A-Tier</button>
+                <button type="button" class="meta-pill-btn" data-tier="B" onclick="setFactionTierFilter('B')"><span class="tier-dot tier-B-dot"></span>B-Tier</button>
+                <button type="button" class="meta-pill-btn" data-tier="C" onclick="setFactionTierFilter('C')"><span class="tier-dot tier-C-dot"></span>C-Tier</button>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+              <label class="meta-toggle-label" title="Toggle between Overall Win Rate and Pure Non-Mirror Win Rate">
+                <input type="checkbox" id="faction-exclude-mirrors-toggle" onchange="onFactionTableFilterChange()">
+                <span>Exclude Mirror Matches</span>
+              </label>
+              <select id="faction-min-games-select" class="select-input" style="padding: 0.35rem 0.65rem; font-size: 0.78rem; height: auto;" onchange="onFactionTableFilterChange()">
+                <option value="0">All Sample Sizes</option>
+                <option value="15">Min 15 Games</option>
+                <option value="50">Min 50 Games</option>
+                <option value="100">Min 100 Games</option>
+              </select>
+            </div>
+          </div>
+
           <div class="table-container">
             <table id="faction-meta-table">
               <thead>
                 <tr>
-                  <th>Rank</th>
+                  <th style="width: 48px;">Rank</th>
                   <th class="sortable" onclick="sortTable('factions', 'faction')">Faction / Army</th>
                   <th class="sortable" onclick="sortTable('factions', 'tier')">Balance Tier</th>
-                  <th class="sortable sorted-desc" onclick="sortTable('factions', 'win_rate')">Win Rate</th>
-                  <th class="sortable" onclick="sortTable('factions', 'total_matches')">Sample Size</th>
+                  <th class="sortable sorted-desc" onclick="sortTable('factions', 'win_rate')">Win Rate &amp; Zone</th>
+                  <th class="sortable" onclick="sortTable('factions', 'meta_share')">Meta Share</th>
+                  <th class="sortable" onclick="sortTable('factions', 'x0_runs')" title="Undefeated 4-0+ Tournament Finishes &amp; Over-Representation Ratio (X-0 Share ÷ Meta Share)">Event X-0 &amp; TiWP</th>
                   <th class="sortable" onclick="sortTable('factions', 'wins')">Record (W-L-D)</th>
-                  <th class="sortable" onclick="sortTable('factions', 'avg_score')">Avg Score</th>
+                  <th class="sortable" onclick="sortTable('factions', 'avg_margin')" title="Average Victory Points Scored &amp; VP Differential per Game">Avg VP &amp; Margin</th>
+                  <th>Best / Worst Matchups</th>
                 </tr>
               </thead>
               <tbody id="faction-meta-body">
-                <tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top: 0.5rem;">Loading faction meta analytics...</div></td></tr>
+                <tr><td colspan="9" class="empty-state"><div class="spinner"></div><div style="margin-top: 0.5rem;">Loading faction meta analytics...</div></td></tr>
               </tbody>
             </table>
           </div>
         </div>
 
-        <!-- Faction View 2: Chart Timeline -->
+        <!-- Faction View 2: StatCheck Meta Quadrant (Popularity vs. Win Rate 2D Scatter) -->
+        <div id="faction-view-quadrant-container" style="display: none; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div>
+              <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem;">🎯 Competitive Meta Quadrant: Popularity vs. Win Rate</h3>
+              <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                Plots <b>Field Meta Share % (X-Axis)</b> against <b>Win Rate % (Y-Axis)</b>. Bubble size scales with games played; click any bubble to inspect top pilots &amp; matchups.
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <span style="font-size: 0.75rem; color: var(--text-secondary);">Y-Axis Metric:</span>
+              <button type="button" id="quadrant-metric-overall" class="faction-quick-btn active" onclick="setQuadrantMetric('overall')">Overall WR %</button>
+              <button type="button" id="quadrant-metric-nonmirror" class="faction-quick-btn" onclick="setQuadrantMetric('non_mirror')">Non-Mirror WR %</button>
+              <button type="button" id="quadrant-metric-margin" class="faction-quick-btn" onclick="setQuadrantMetric('margin')">Avg VP Margin (+/-)</button>
+            </div>
+          </div>
+          <div style="overflow-x: auto; position: relative;">
+            <svg id="faction-quadrant-svg" style="width: 100%; height: 440px; display: block;"></svg>
+            <div id="faction-quadrant-tooltip" class="meta-floating-tooltip" style="display: none;"></div>
+          </div>
+        </div>
+
+        <!-- Faction View 3: StatCheck N×N Faction Matchup Matrix Heatmap -->
+        <div id="faction-view-matrix-container" style="display: none; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div>
+              <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem;">🔥 Head-to-Head Faction Matchup Matrix</h3>
+              <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                Read across each <b>Row Army</b> against each <b>Column Opponent</b>. Colors show row faction win rate; click any cell to open full faction breakdown.
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              <span style="font-size: 0.75rem; color: var(--text-secondary);">Grid Size:</span>
+              <button type="button" id="matrix-size-10" class="faction-quick-btn" onclick="setMatchupMatrixSize(10)">Top 10</button>
+              <button type="button" id="matrix-size-14" class="faction-quick-btn active" onclick="setMatchupMatrixSize(14)">Top 14</button>
+              <button type="button" id="matrix-size-16" class="faction-quick-btn" onclick="setMatchupMatrixSize(16)">Top 16</button>
+            </div>
+          </div>
+          <div id="faction-matrix-grid-wrap" style="overflow-x: auto; position: relative;"></div>
+        </div>
+
+        <!-- Faction View 4: Chart Timeline -->
         <div id="faction-view-chart-container" style="display: none; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.25rem;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
             <div>
-              <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem;">📈 Faction Win Rate Trends Over Time</h3>
+              <h3 id="faction-chart-title" style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem;">📈 Faction Win Rate Trends Over Time</h3>
               <div id="faction-chart-subtitle" style="font-size: 0.8rem; color: var(--text-secondary);">Monthly win rate trajectory of competitive armies relative to the 45%-55% balance window</div>
             </div>
-            <div class="faction-quick-btns">
-              <button class="faction-quick-btn" onclick="selectFactionPreset('top8')">Top 8</button>
-              <button class="faction-quick-btn" onclick="selectFactionPreset('top15')">Top 15</button>
-              <button class="faction-quick-btn" onclick="selectFactionPreset('all')">Select All</button>
-              <button class="faction-quick-btn" onclick="selectFactionPreset('none')">Clear All</button>
+            <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+              <div style="display: inline-flex; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px;">
+                <button type="button" id="timeline-metric-wr" class="faction-quick-btn active" style="border: none;" onclick="setTimelineMetric('win_rate')">Win Rate %</button>
+                <button type="button" id="timeline-metric-share" class="faction-quick-btn" style="border: none;" onclick="setTimelineMetric('meta_share')">Meta Share %</button>
+              </div>
+              <div class="faction-quick-btns">
+                <button class="faction-quick-btn" onclick="selectFactionPreset('top8')">Top 8</button>
+                <button class="faction-quick-btn" onclick="selectFactionPreset('top15')">Top 15</button>
+                <button class="faction-quick-btn" onclick="selectFactionPreset('all')">Select All</button>
+                <button class="faction-quick-btn" onclick="selectFactionPreset('none')">Clear All</button>
+              </div>
             </div>
           </div>
 
@@ -1304,7 +1392,7 @@
           <div id="faction-toggle-chips" class="faction-chip-container"></div>
 
           <div style="overflow-x: auto; position: relative;">
-            <svg id="faction-trend-svg" style="width: 100%; height: 280px;"></svg>
+            <svg id="faction-trend-svg" style="width: 100%; height: 310px;"></svg>
             <div id="faction-chart-tooltip" style="position: absolute; display: none; background: #0f172a; border: 1px solid var(--accent); padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; pointer-events: none; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></div>
           </div>
           <div id="faction-trend-legend" style="display: flex; flex-wrap: wrap; gap: 0.85rem; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);"></div>
@@ -3410,6 +3498,8 @@
         </div>
         <div style="display: flex; align-items: center; gap: 0.5rem;">
           <div class="faction-timeframe-selector" style="display: inline-flex; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
+            <button type="button" id="faction-tf-30d" class="faction-tf-btn" onclick="changeFactionModalTimeframe('30d')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.55rem; border-radius:4px; cursor:pointer;">1M</button>
+            <button type="button" id="faction-tf-3mo" class="faction-tf-btn" onclick="changeFactionModalTimeframe('3mo')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.55rem; border-radius:4px; cursor:pointer;">3M</button>
             <button type="button" id="faction-tf-6mo" class="faction-tf-btn" onclick="changeFactionModalTimeframe('6mo')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;">6 Months</button>
             <button type="button" id="faction-tf-1yr" class="faction-tf-btn active" onclick="changeFactionModalTimeframe('1yr')" style="border:none; background:var(--accent); color:#fff; font-size:0.75rem; font-weight:700; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;">1 Year</button>
             <button type="button" id="faction-tf-all" class="faction-tf-btn" onclick="changeFactionModalTimeframe('all')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;">All Time</button>
@@ -3504,7 +3594,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=7ee15e7bfb"></script>
+  <script src="/js/app.bundle.min.js?v=ffa0c30d72"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

@@ -97,7 +97,7 @@ class Test40kDeepBackendVerification(unittest.TestCase):
         self.mock_db.get_unranked_matches.return_value = []
 
         result = self.elo_engine.reconstruct_incremental(batch_limit=1000, game_system="40k")
-        self.mock_db.get_unranked_matches.assert_called_once_with(limit=1000, game_system="40k")
+        self.mock_db.get_unranked_matches.assert_called_once_with(limit=1000, game_system="40k", since_date=None)
         self.assertEqual(result["total_new_matches"], 0)
         self.assertEqual(result["game_system"], "40k")
         self.assertEqual(result["status"], "UP_TO_DATE")
