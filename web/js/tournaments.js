@@ -8013,12 +8013,12 @@ function renderEventCreatorHub(ev) {
       <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'caster' ? 'active' : ''}" onclick="switchCreatorHubMode('caster')">
         <span>🎙️ Caster Desk</span>
       </button>
+      <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'meta' ? 'active' : ''}" onclick="switchCreatorHubMode('meta')">
+        <span>🧬 Deep Meta & Lists</span>
+      </button>
       <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'stream' ? 'active' : ''}" onclick="switchCreatorHubMode('stream')">
         <span>📺 Live Stream & OBS</span>
         <span class="badge" style="background:#ef4444; color:#fff; font-size:0.65rem; padding:1px 5px; border-radius:4px;">LIVE</span>
-      </button>
-      <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'meta' ? 'active' : ''}" onclick="switchCreatorHubMode('meta')">
-        <span>🧬 Deep Meta & Lists</span>
       </button>
       <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'export' ? 'active' : ''}" onclick="switchCreatorHubMode('export')">
         <span>📸 Media & Export Kit</span>
