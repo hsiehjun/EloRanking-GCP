@@ -11898,36 +11898,6 @@ async function renderEventToHub(ev, skipFetch = false) {
 
   container.innerHTML = `
     <div class="to-hub-shell" style="display:flex; flex-direction:column; gap:0.9rem;">
-      <!-- Compact TO Operational Strip -->
-      <div class="to-hub-header-bar" style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; padding:0.75rem 1rem; background:linear-gradient(135deg, rgba(30,41,59,0.92), rgba(15,23,42,0.95)); border:1px solid rgba(245,158,11,0.35); border-radius:10px;">
-        <div style="display:flex; align-items:center; gap:0.65rem; flex-wrap:wrap;">
-          <span class="badge" style="background:rgba(245,158,11,0.2); color:#fbbf24; border:1px solid rgba(245,158,11,0.45); font-size:0.74rem; font-weight:800; padding:0.28rem 0.65rem;">
-            🏛️ TO HUB • ${escapeHtml(roleLabel)}
-          </span>
-          <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap; font-size:0.78rem; color:#cbd5e1;">
-            <span style="padding:0.2rem 0.55rem; background:rgba(255,255,255,0.06); border-radius:6px;">
-              ✅ Check-In: <strong style="color:#fff;">${checkedInCount}/${activeRoster.length}</strong>
-            </span>
-            <span style="padding:0.2rem 0.55rem; background:rgba(255,255,255,0.06); border-radius:6px;">
-              📄 Lists: <strong style="color:${missingListCount > 0 ? '#fbbf24' : '#4ade80'};">${listsSubmittedCount}/${activeRoster.length}</strong>
-            </span>
-            <span style="padding:0.2rem 0.55rem; background:rgba(255,255,255,0.06); border-radius:6px;">
-              🎲 R${_toHubRadarRound} Tables: <strong style="color:${unfinishedRoundMatches.length > 0 ? '#38bdf8' : '#4ade80'};">${completedRoundMatches.length}/${currentRoundMatches.length} Done</strong>
-            </span>
-            ${openJudgeCalls.length > 0 ? `
-              <span style="padding:0.2rem 0.55rem; background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.4); border-radius:6px; color:#fca5a5; font-weight:700;">
-                🚨 ${openJudgeCalls.length} Active Judge Call${openJudgeCalls.length === 1 ? '' : 's'}
-              </span>
-            ` : ''}
-          </div>
-        </div>
-        <div style="display:flex; align-items:center; gap:0.45rem;">
-          <button type="button" class="btn btn-outline" onclick="loadEventToHubState('${escapeHtml(eventId)}', true)" style="font-size:0.75rem; font-weight:700; padding:0.35rem 0.7rem;">
-            🔄 Sync TO State
-          </button>
-        </div>
-      </div>
-
       <!-- 4 Operational Sub-Tabs Bar -->
       <div class="to-hub-subtabs-nav" style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:0.45rem; background:rgba(15,23,42,0.75); padding:0.35rem; border-radius:10px; border:1px solid rgba(255,255,255,0.08);">
         <button type="button" class="to-hub-subtab-btn ${_currentToHubSubtab === 'radar' ? 'active' : ''}" onclick="switchEventToHubSubtab('radar')" style="padding:0.55rem 0.65rem; border-radius:8px; border:1px solid ${_currentToHubSubtab === 'radar' ? 'rgba(245,158,11,0.5)' : 'transparent'}; background:${_currentToHubSubtab === 'radar' ? 'rgba(245,158,11,0.18)' : 'transparent'}; color:${_currentToHubSubtab === 'radar' ? '#fbbf24' : 'var(--text-secondary)'}; font-weight:700; font-size:0.8rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.4rem;">
