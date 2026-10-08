@@ -548,7 +548,6 @@ class PlayerNameSync:
                         counts["tracker_games"] += cur.rowcount
 
                         try:
-                            cur.execute("UPDATE user_army_lists SET user_id = %s WHERE user_id = %s;", (target_id, pid))
                             cur.execute("UPDATE player_lfg_profiles SET player_id = %s WHERE player_id = %s;", (target_id, pid))
                         except Exception:
                             pass

@@ -368,27 +368,13 @@ def _resolve_canonical_event_id(
         with db.get_connection() as conn:
             with conn.cursor() as cur:
                 # Primary PostgreSQL table for tournaments is events
-                for tbl in ("events", "tournaments"):
-                    try:
-                        cur.execute(
-                            f"SELECT id FROM {tbl} WHERE LOWER(id) = %s OR LOWER(id) = %s LIMIT 1;", 
-                            (target_lower, f"event/{target_lower}")
-                        )
-                        row = cur.fetchone()
-                        if row and row[0]:
-                            clean = str(row[0]).replace("event/", "").strip()
-                            if clean and clean.lower() == target_lower:
-                                return clean
-                    except Exception:
-                        pass
-
                 cur.execute(
-                    "SELECT id FROM studio_events WHERE LOWER(id) = %s LIMIT 1;", 
-                    (target_lower,)
+                    "SELECT id FROM events WHERE LOWER(id) = %s OR LOWER(id) = %s LIMIT 1;", 
+                    (target_lower, f"event/{target_lower}")
                 )
-                srow = cur.fetchone()
-                if srow and srow[0]:
-                    clean = str(srow[0]).replace("event/", "").strip()
+                row = cur.fetchone()
+                if row and row[0]:
+                    clean = str(row[0]).replace("event/", "").strip()
                     if clean and clean.lower() == target_lower:
                         return clean
     except Exception as e:

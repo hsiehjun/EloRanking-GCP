@@ -8,8 +8,10 @@ player career dossiers, and match reports) is read from and written to the Postg
 - native_league_pods
 - native_league_participants
 - native_league_standings
-- native_league_matches
 - native_league_careers
+- native_league_finals_history
+- native_league_faction_stats
+- native_league_announcements
 
 Zero hardcoded season/pod/participant data or runtime JSON file dependencies.
 """
@@ -2498,24 +2500,6 @@ class LeaguesHubService:
 
         p1_final_name = (p1_record.get("name") if p1_record else p1_name) or p1_name
         p2_final_name = (p2_record.get("name") if p2_record else p2_name) or p2_name
-        if db is not None and hasattr(db, "record_league_match_in_db"):
-            try:
-                db.record_league_match_in_db(
-                    league_id=lid,
-                    season_num=s_num,
-                    pod_num=pod_number,
-                    round_num=round_number,
-                    p1_name=p1_final_name,
-                    p2_name=p2_final_name,
-                    p1_score=p1_score,
-                    p2_score=p2_score,
-                    p1_bp=p1_bp,
-                    p2_bp=p2_bp,
-                    scorecard_id=scorecard_id,
-                    is_ringer=is_ringer
-                )
-            except Exception as rec_err:
-                logger.warning(f"record_league_match_in_db fallback: {rec_err}")
 
         return {
             "success": True,

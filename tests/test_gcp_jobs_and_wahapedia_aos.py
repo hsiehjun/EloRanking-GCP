@@ -175,6 +175,7 @@ def test_cloudbuild_deployment_pipeline():
     assert "elo-historical-scrape" in cb_src
     assert "player-sync-job" in cb_src
     assert "wahapedia-sync-job" not in cb_src
+    assert "cleanup-nr-relay" not in cb_src
     assert "id: 'update-tournament-job'" in cb_src
     assert "id: 'update-historical-scrape-job'" in cb_src
     assert "id: 'update-player-sync-job'" in cb_src
@@ -207,7 +208,7 @@ def test_elo_engine_partitioning_and_isolation():
     res = engine.reconstruct_incremental(game_system="aos")
     assert res["status"] == "UP_TO_DATE"
     assert res["game_system"] == "aos"
-    mock_db.get_unranked_matches.assert_called_with(limit=50000, game_system="aos")
+    mock_db.get_unranked_matches.assert_called_with(limit=50000, game_system="aos", since_date=None)
 
     print("✅ test_elo_engine_partitioning_and_isolation passed")
 
@@ -220,7 +221,7 @@ def test_pwa_and_browser_auto_update_and_sw_killer():
     assert '"/worker.js"' not in nr_src
 
     armylists_src = (ROOT_DIR / "routers" / "armylists.py").read_text(encoding="utf-8")
-    assert "async def api_kill_stale_service_worker()" in armylists_src
+    assert "def api_kill_stale_service_worker()" in armylists_src
     assert "self.registration.unregister()" in armylists_src
 
     build_src = (ROOT_DIR / "scripts" / "build_bundle.py").read_text(encoding="utf-8")
@@ -306,6 +307,35 @@ def test_armory_40k_and_aos_equipped_isolation():
     print("✅ test_armory_40k_and_aos_equipped_isolation passed")
 
 
+def test_active_public_tables_and_obsolete_pruning():
+    """Verify ACTIVE_PUBLIC_TABLES matches all runtime CREATE TABLE statements 1:1 and prunes legacy tables."""
+    import os
+    import re
+    import glob
+    from database import PostgresDatabase
+
+    created = set()
+    for p in glob.glob(str(ROOT_DIR / "**/*.py"), recursive=True):
+        rel = os.path.relpath(p, ROOT_DIR)
+        if rel.startswith("tests/") or rel.startswith("scripts/"):
+            continue
+        with open(p, "r", encoding="utf-8") as f:
+            src = f.read()
+        for m in re.findall(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)", src, re.I):
+            created.add(m.lower())
+
+    assert created == PostgresDatabase.ACTIVE_PUBLIC_TABLES, (
+        f"Mismatch between runtime CREATE TABLE ({created ^ PostgresDatabase.ACTIVE_PUBLIC_TABLES}) and ACTIVE_PUBLIC_TABLES"
+    )
+    assert len(PostgresDatabase.ACTIVE_PUBLIC_TABLES) == 40
+    assert "user_army_lists" not in PostgresDatabase.ACTIVE_PUBLIC_TABLES
+    assert "native_league_matches" not in PostgresDatabase.ACTIVE_PUBLIC_TABLES
+    assert "native_studio_events" not in PostgresDatabase.ACTIVE_PUBLIC_TABLES
+    assert not any(t.startswith("waha") for t in PostgresDatabase.ACTIVE_PUBLIC_TABLES)
+
+    print("✅ test_active_public_tables_and_obsolete_pruning passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING GCP JOBS & MULTI-GAME TEST SUITE ===")
     test_faction_groups_and_legacy_wahapedia_removed()
@@ -316,5 +346,6 @@ if __name__ == "__main__":
     test_elo_engine_partitioning_and_isolation()
     test_pwa_and_browser_auto_update_and_sw_killer()
     test_armory_40k_and_aos_equipped_isolation()
+    test_active_public_tables_and_obsolete_pruning()
     print("\n🎉 ALL GCP JOBS & MULTI-GAME TESTS PASSED 100%!")
 

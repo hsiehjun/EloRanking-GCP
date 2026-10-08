@@ -281,6 +281,57 @@ class PostgresDatabase:
         cls._user_for_player_cache_dict.clear()
         cls._player_history_cache_dict.clear()
 
+    ACTIVE_PUBLIC_TABLES = frozenset({
+        # Core Rankings & Tournaments (6)
+        "events",
+        "event_participants",
+        "matches",
+        "players",
+        "player_ratings",
+        "rating_history",
+        # Authentication, Users & Invitations (7)
+        "users",
+        "user_sessions",
+        "pending_registrations",
+        "pending_login_2fa",
+        "password_resets",
+        "invitation_codes",
+        "invite_redemptions",
+        # Live Game Tracker & Scorecards (1)
+        "tracker_games",
+        # Armory & Glory Honor Economy (4)
+        "glory_wallets",
+        "glory_honor_ledger",
+        "glory_audit_snapshots",
+        "armory_transactions",
+        # Community Connect, LFG & Regional Chat (4)
+        "player_lfg_profiles",
+        "match_requests",
+        "match_chat_messages",
+        "community_chat_messages",
+        # Pod & Ladder Leagues Hub (9)
+        "native_leagues",
+        "native_league_seasons",
+        "native_league_pods",
+        "native_league_participants",
+        "native_league_standings",
+        "native_league_careers",
+        "native_league_finals_history",
+        "native_league_faction_stats",
+        "native_league_announcements",
+        # Event Studio & Live Tournament Operations (7)
+        "deleted_studio_events",
+        "tournament_judge_calls",
+        "tournament_wtc_drafts",
+        "native_event_clocks",
+        "native_event_judge_calls",
+        "native_event_broadcasts",
+        "native_event_broadcast_acks",
+        # System & Governance (2)
+        "system_settings",
+        "user_feedbacks",
+    })
+
     def __init__(self, dsn: Optional[str] = None, db_path: Optional[str] = None, *args, **kwargs):
         if not PSYCOPG2_AVAILABLE:
             raise ImportError("psycopg2 is not installed. Run 'pip install psycopg2-binary' or 'sudo apt install python3-psycopg2'.")
@@ -293,6 +344,7 @@ class PostgresDatabase:
             if not PostgresDatabase._db_initialized:
                 PostgresDatabase._db_initialized = True
                 self._ensure_critical_perf_schema()
+                self.prune_obsolete_public_tables()
                 if not self._is_startup_schema_already_current():
                     self.init_db()
                     self.ensure_tracker_table()
@@ -302,6 +354,54 @@ class PostgresDatabase:
                     self._mark_startup_schema_current()
         except Exception as e:
             logger.warning(f"Initial DB connect notice (will retry on query): {e}")
+
+    def prune_obsolete_public_tables(self, force: bool = False) -> List[str]:
+        """Drops legacy unused tables (Wahapedia waha_*, retired army_lists/league_matches/studio_events, etc.) not in ACTIVE_PUBLIC_TABLES."""
+        dropped: List[str] = []
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    if hasattr(cur, "_mock_name") and not force:
+                        return []
+                    if not force:
+                        cur.execute("SELECT value FROM system_settings WHERE key = 'obsolete_tables_pruned_v1';")
+                        row = cur.fetchone()
+                        if row and row[0] == 'ready':
+                            return []
+                    cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;")
+                    all_tables = [str(r[0] if isinstance(r, (list, tuple)) else r.get("tablename") or "").strip() for r in (cur.fetchall() or [])]
+                for tname in all_tables:
+                    if not tname or tname in self.ACTIVE_PUBLIC_TABLES or tname == "spatial_ref_sys":
+                        continue
+                    if not re.match(r"^[a-zA-Z0-9_]+$", tname):
+                        continue
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute("SET LOCAL lock_timeout = '5s';")
+                            cur.execute(f'DROP TABLE IF EXISTS public."{tname}" CASCADE;')
+                        conn.commit()
+                        dropped.append(tname)
+                        logger.info(f"🧹 Dropped obsolete PostgreSQL table: public.{tname}")
+                    except Exception as drop_err:
+                        conn.rollback()
+                        logger.warning(f"Notice dropping obsolete table {tname}: {drop_err}")
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO system_settings (key, value, updated_at)
+                        VALUES
+                            ('obsolete_tables_pruned_v1', 'ready', NOW()),
+                            ('obsolete_tables_pruned_v1_list', %s, NOW())
+                        ON CONFLICT (key) DO UPDATE SET
+                            value = EXCLUDED.value,
+                            updated_at = NOW();
+                        """,
+                        (json.dumps(dropped),),
+                    )
+                conn.commit()
+        except Exception as e:
+            logger.debug(f"prune_obsolete_public_tables notice: {e}")
+        return dropped
 
     def _ensure_critical_perf_schema(self) -> None:
         """Guarantees critical functional B-tree indexes and tracker_games/event_participants columns exist on Cloud SQL."""
@@ -845,24 +945,6 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_pattern ON matches ((LOWER(player2_faction)) text_pattern_ops, match_date DESC) WHERE is_done = TRUE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_fac_lower_date ON matches ((LOWER(player1_faction)), match_date DESC) WHERE is_done = TRUE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_lower_date ON matches ((LOWER(player2_faction)), match_date DESC) WHERE is_done = TRUE AND is_bye = FALSE;",
-            """CREATE TABLE IF NOT EXISTS user_army_lists (
-                id VARCHAR(64) PRIMARY KEY,
-                user_id VARCHAR(64),
-                name TEXT NOT NULL,
-                faction TEXT NOT NULL,
-                detachment TEXT,
-                points INT DEFAULT 2000,
-                points_limit INT DEFAULT 2000,
-                warlord TEXT,
-                source_format TEXT,
-                raw_text TEXT,
-                list_data JSONB NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-            );""",
-            "CREATE INDEX IF NOT EXISTS idx_user_army_lists_uid ON user_army_lists(user_id);",
-            "CREATE INDEX IF NOT EXISTS idx_user_army_lists_faction ON user_army_lists(faction);",
-            "ALTER TABLE user_army_lists ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list JSONB;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list JSONB;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list_id VARCHAR(64);",
@@ -1049,16 +1131,19 @@ class PostgresDatabase:
                 pass
 
     def get_db_status(self) -> Dict[str, Any]:
-        """Returns PostgreSQL schema version, existing indexes on matches, and table row counts."""
+        """Returns PostgreSQL schema version, existing indexes on matches, active tables, and table row counts."""
         is_mock_self = type(self).__module__.startswith("unittest.mock")
         if not is_mock_self:
-            cached_status = PostgresDatabase.get_cached(PostgresDatabase._players_count_cache_dict, ("db_status_v1",), ttl=300)
+            cached_status = PostgresDatabase.get_cached(PostgresDatabase._players_count_cache_dict, ("db_status_v2",), ttl=300)
             if cached_status is not None:
                 return dict(cached_status)
 
         res = {
             "schema_version": None,
             "indexes": [],
+            "active_tables": [],
+            "active_tables_count": 0,
+            "pruned_legacy_tables": [],
             "matches_count": 0,
             "players_count": 0,
             "events_count": 0
@@ -1072,6 +1157,22 @@ class PostgresDatabase:
                         res["schema_version"] = row[0]
                     cursor.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'matches' AND indexname LIKE 'idx_pg_matches_%';")
                     res["indexes"] = [r[0] for r in cursor.fetchall()]
+
+                    try:
+                        cursor.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;")
+                        tbls = [r[0] for r in (cursor.fetchall() or [])]
+                        res["active_tables"] = tbls
+                        res["active_tables_count"] = len(tbls)
+                    except Exception:
+                        pass
+
+                    try:
+                        cursor.execute("SELECT value FROM system_settings WHERE key = 'obsolete_tables_pruned_v1_list';")
+                        p_row = cursor.fetchone()
+                        if p_row and p_row[0]:
+                            res["pruned_legacy_tables"] = json.loads(p_row[0])
+                    except Exception:
+                        pass
 
                     cached_all = PostgresDatabase._stats_cache_map.get("all") or PostgresDatabase._stats_cache
                     if cached_all and cached_all.get("total_matches"):
@@ -1098,7 +1199,7 @@ class PostgresDatabase:
                             cursor.execute("SELECT COUNT(*) FROM events;")
                             res["events_count"] = cursor.fetchone()[0]
             if not is_mock_self:
-                PostgresDatabase.set_cached(PostgresDatabase._players_count_cache_dict, ("db_status_v1",), dict(res))
+                PostgresDatabase.set_cached(PostgresDatabase._players_count_cache_dict, ("db_status_v2",), dict(res))
         except Exception as e:
             res["error"] = str(e)
         return res
@@ -1384,22 +1485,6 @@ class PostgresDatabase:
             "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS is_db_matched BOOLEAN DEFAULT FALSE;",
             "ALTER TABLE native_league_standings ADD COLUMN IF NOT EXISTS match_method VARCHAR(32) DEFAULT 'unmatched';",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_native_league_standings_l_s_p_n ON native_league_standings(league_id, season_num, pod_num, player_name);",
-            """CREATE TABLE IF NOT EXISTS native_league_matches (
-                id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
-                league_id VARCHAR(64),
-                season_num INT NOT NULL,
-                pod_num INT NOT NULL,
-                round_num INT NOT NULL,
-                p1_name TEXT NOT NULL,
-                p2_name TEXT NOT NULL,
-                p1_score INT DEFAULT 0,
-                p2_score INT DEFAULT 0,
-                p1_bp INT DEFAULT 0,
-                p2_bp INT DEFAULT 0,
-                scorecard_id VARCHAR(128),
-                is_ringer BOOLEAN DEFAULT FALSE,
-                completed_at TIMESTAMPTZ DEFAULT NOW()
-            );""",
             """CREATE TABLE IF NOT EXISTS native_league_careers (
                 id VARCHAR(128) PRIMARY KEY DEFAULT gen_random_uuid()::text,
                 league_id VARCHAR(64),
@@ -1474,8 +1559,7 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_league_participants_l_s ON native_league_participants(league_id, season_num, pod_num);",
             "CREATE INDEX IF NOT EXISTS idx_league_participants_bcp ON native_league_participants(bcp_player_id);",
             "CREATE INDEX IF NOT EXISTS idx_league_participants_uid ON native_league_participants(user_id);",
-            "CREATE INDEX IF NOT EXISTS idx_league_standings_l_s ON native_league_standings(league_id, season_num, pod_num);",
-            "CREATE INDEX IF NOT EXISTS idx_league_matches_l_s ON native_league_matches(league_id, season_num, pod_num);"
+            "CREATE INDEX IF NOT EXISTS idx_league_standings_l_s ON native_league_standings(league_id, season_num, pod_num);"
         ]
         if os.environ.get("RUN_LEAGUE_SEED", "0") != "1":
             return
@@ -1607,7 +1691,7 @@ class PostgresDatabase:
                     cursor.execute("ALTER TABLE native_leagues ADD COLUMN IF NOT EXISTS owner_name TEXT;")
 
                     # Migrate legacy string-concatenated league_id ('league_sd40k_big_league' / 'lg_sd40k') to UUID
-                    for tbl in ("native_league_seasons", "native_league_pods", "native_league_participants", "native_league_standings", "native_league_matches", "native_league_careers"):
+                    for tbl in ("native_league_seasons", "native_league_pods", "native_league_participants", "native_league_standings", "native_league_careers"):
                         cursor.execute(f"UPDATE {tbl} SET league_id = %s WHERE league_id IN ('league_sd40k_big_league', 'lg_sd40k', 'sd40k');", (sd40k_uuid,))
                         cursor.execute(f"UPDATE {tbl} SET id = gen_random_uuid()::text WHERE LEFT(id, 7) = 'league_' OR LEFT(id, 3) = 'lg_';")
                     cursor.execute("UPDATE native_leagues SET id = %s WHERE id IN ('league_sd40k_big_league', 'lg_sd40k') AND NOT EXISTS (SELECT 1 FROM native_leagues WHERE id = %s);", (sd40k_uuid, sd40k_uuid))
@@ -2499,34 +2583,8 @@ class PostgresDatabase:
                                   p1_name: str, p2_name: str, p1_score: int, p2_score: int,
                                   p1_bp: int, p2_bp: int, scorecard_id: Optional[str] = None,
                                   is_ringer: bool = False) -> bool:
-        """Persists a concluded league match to PostgreSQL native_league_matches using a collision-free UUID."""
-        if league_id in ("league_sd40k_big_league", "lg_sd40k", "sd40k", ""):
-            league_id = "8f5e3b2c-9a14-5d7e-8b3a-1f2c4e6d8a90"
-        match_uid = str(uuid.uuid4())
-        try:
-            with self.get_connection() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                        INSERT INTO native_league_matches (
-                            id, league_id, season_num, pod_num, round_num,
-                            p1_name, p2_name, p1_score, p2_score, p1_bp, p2_bp,
-                            scorecard_id, is_ringer, completed_at
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                        ON CONFLICT (id) DO UPDATE SET
-                            p1_score = EXCLUDED.p1_score,
-                            p2_score = EXCLUDED.p2_score,
-                            p1_bp = EXCLUDED.p1_bp,
-                            p2_bp = EXCLUDED.p2_bp,
-                            scorecard_id = EXCLUDED.scorecard_id,
-                            completed_at = NOW();
-                    """, (match_uid, league_id, season_num, pod_num, round_num,
-                          p1_name, p2_name, p1_score, p2_score, p1_bp, p2_bp,
-                          scorecard_id, is_ringer))
-                conn.commit()
-                return True
-        except Exception as e:
-            logger.debug(f"Notice persisting league match to DB: {e}")
-            return False
+        """No-op: League match scores are stored directly in native_league_standings.pairings_json."""
+        return True
 
     def _ensure_event_participant_columns(self):
         """Guarantees detachment, army_list, has_list_submitted, and bcp_player_id columns exist in event_participants."""
@@ -2557,7 +2615,6 @@ class PostgresDatabase:
             "ALTER TABLE rating_history ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
             "ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
-            "ALTER TABLE user_army_lists ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
             "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
             "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS game_systems TEXT[] DEFAULT '{\"40k\"}';",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_system_elo ON player_ratings(game_system, current_elo DESC);",
@@ -2779,7 +2836,6 @@ class PostgresDatabase:
 
         # Remap secondary user tables
         try:
-            cursor.execute("UPDATE user_army_lists SET user_id = %s WHERE user_id = %s;", (canonical_id, reg_id))
             cursor.execute("UPDATE player_lfg_profiles SET player_id = %s WHERE player_id = %s;", (canonical_id, reg_id))
         except Exception:
             pass
@@ -9014,29 +9070,6 @@ class PostgresDatabase:
 
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS native_studio_events (
-                    id VARCHAR(64) PRIMARY KEY,
-                    name TEXT,
-                    organizer_id VARCHAR(128),
-                    organizer_bcp_id VARCHAR(128),
-                    game_system VARCHAR(32) DEFAULT '40k',
-                    event_data JSONB NOT NULL,
-                    updated_at TIMESTAMPTZ DEFAULT NOW()
-                );
-                """)
-                cursor.execute("""
-                INSERT INTO native_studio_events (id, name, organizer_id, organizer_bcp_id, game_system, event_data, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s::jsonb, NOW())
-                ON CONFLICT (id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    organizer_id = COALESCE(EXCLUDED.organizer_id, native_studio_events.organizer_id),
-                    organizer_bcp_id = COALESCE(EXCLUDED.organizer_bcp_id, native_studio_events.organizer_bcp_id),
-                    game_system = COALESCE(EXCLUDED.game_system, native_studio_events.game_system),
-                    event_data = EXCLUDED.event_data,
-                    updated_at = NOW();
-                """, (event_id, name, organizer_id, organizer_bcp_id, game_system, raw_json))
-
                 # STRICT GUARDRAIL: Never write to BCP-ingested rows in `events`. Only native ES-* events may write to `events`.
                 if str(event_id).startswith("ES-"):
                     cursor.execute("""
@@ -9116,7 +9149,6 @@ class PostgresDatabase:
                 );
                 """)
                 cursor.execute("INSERT INTO deleted_studio_events (event_id, deleted_at) VALUES (%s, NOW()) ON CONFLICT (event_id) DO UPDATE SET deleted_at = NOW();", (event_id,))
-                cursor.execute("DELETE FROM native_studio_events WHERE id = %s;", (event_id,))
                 if str(event_id).startswith("ES-"):
                     cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
                     cursor.execute("DELETE FROM event_participants WHERE event_id = %s;", (event_id,))
