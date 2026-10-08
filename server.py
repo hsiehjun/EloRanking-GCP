@@ -465,24 +465,27 @@ async def serve_tracker_asset(rel_path: str) -> Response:
     raise HTTPException(status_code=404, detail="Asset not found")
 
 def _clear_stale_auth_cookies(resp: Response) -> Response:
-    for ck in ("session_token", "elo_auth_token", "native_session_token"):
-        resp.delete_cookie(key=ck, path="/", samesite="lax")
+    if hasattr(resp, "delete_cookie"):
+        for ck in ("session_token", "elo_auth_token", "native_session_token"):
+            resp.delete_cookie(key=ck, path="/", samesite="lax")
     return resp
 
-async def serve_tracker_html(path: str, request: Request) -> Response:
-    """Serves local Tracker HTML page (play.html, aos.html, or lobby.html) with SSO authentication."""
-    # Enforce SSO authentication on all Tracker routes
-    if "tracker" in path.lower():
-        user = await asyncio.to_thread(_get_request_user, request)
-        if not user:
-            redirect_target = f"/{path}"
-            if request.url.query:
-                redirect_target += f"?{request.url.query}"
-            redirect_target = _sanitize_redirect_target(redirect_target, default="/11th/tracker")
-            return _clear_stale_auth_cookies(
-                RedirectResponse(url=f"/login?redirect={urllib.parse.quote(redirect_target)}", status_code=303)
-            )
+_SHARED_MATCH_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{3,64}$")
 
+def _has_valid_shared_match_params(request: Request) -> bool:
+    """Return True only if request carries a syntactically valid shared match room key or tournament pairing params."""
+    qp = request.query_params
+    raw_mid = (qp.get("match_id") or qp.get("room") or qp.get("id") or qp.get("match") or "").strip()
+    if raw_mid and _SHARED_MATCH_ID_RE.match(raw_mid):
+        return True
+    ev_id = (qp.get("eventId") or qp.get("event_id") or "").strip()
+    tbl = (qp.get("table") or qp.get("table_num") or "").strip()
+    if ev_id and tbl and re.match(r"^[A-Za-z0-9_\-]{1,64}$", ev_id) and re.match(r"^[0-9]{1,5}$", tbl):
+        return True
+    return False
+
+async def serve_tracker_html(path: str, request: Request) -> Response:
+    """Serves local Tracker HTML page (play.html, aos.html, or lobby.html) with SSO authentication (or Guest P2 access on valid shared match links)."""
     is_aos = "aos" in path.lower()
     is_play_page = (
         "play" in path.lower()
@@ -498,6 +501,19 @@ async def serve_tracker_html(path: str, request: Request) -> Response:
         match_id = request.query_params.get("match_id") or request.query_params.get("room") or request.query_params.get("id")
         if (role == "spectator" or spectate == "true") and match_id:
             return RedirectResponse(url=f"/scorecard/{urllib.parse.quote(match_id)}", status_code=303)
+
+    # Enforce SSO authentication on Tracker Lobby and room creation; allow unauthenticated Guest P2 only on valid shared match play URLs
+    if "tracker" in path.lower():
+        can_join_as_guest = bool(is_play_page and _has_valid_shared_match_params(request))
+        user = await asyncio.to_thread(_get_request_user, request)
+        if not user and not can_join_as_guest:
+            redirect_target = f"/{path}"
+            if request.url.query:
+                redirect_target += f"?{request.url.query}"
+            redirect_target = _sanitize_redirect_target(redirect_target, default="/11th/tracker")
+            return _clear_stale_auth_cookies(
+                RedirectResponse(url=f"/login?redirect={urllib.parse.quote(redirect_target)}", status_code=303)
+            )
 
     if is_aos and is_play_page:
         local_html_file = web_dir / "tracker" / "aos.html"
@@ -738,7 +754,8 @@ def serve_tracker_alias(request: Request, token: Optional[str] = Query(None)):
         target = f"/11th/tracker{query_str}"
 
     target = _sanitize_redirect_target(target, default="/11th/tracker")
-    if not user:
+    can_proceed_as_guest = target.startswith("/scorecard/") or _has_valid_shared_match_params(request)
+    if not user and not can_proceed_as_guest:
         return _clear_stale_auth_cookies(RedirectResponse(url=f"/login?redirect={urllib.parse.quote_plus(target)}", status_code=303))
     return RedirectResponse(url=target, status_code=303)
 

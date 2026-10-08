@@ -530,7 +530,7 @@ def _is_match_in_season(match: Dict[str, Any], season_year: str = "2026") -> boo
 
 def _is_session_in_season(session: Dict[str, Any], season_year: str = "2026") -> bool:
     """Check if a tracker session falls within the calendar season year."""
-    d = str(session.get("created_at") or session.get("date") or session.get("updated_at") or "").strip()
+    d = str(session.get("created_at") or session.get("date") or session.get("game_date") or session.get("updated_at") or "").strip()
     return d.startswith(season_year)
 
 def _is_tournament_in_season(t: Dict[str, Any], season_year: str = "2026") -> bool:
@@ -585,7 +585,7 @@ def evaluate_player_seasonal_badges(
     # Sort matches chronologically for streak calculation
     sorted_matches = sorted(
         season_matches,
-        key=lambda m: str(m.get("date") or m.get("event_date") or m.get("created_at") or "")
+        key=lambda m: str(m.get("date") or m.get("event_date") or m.get("match_date") or m.get("created_at") or "")
     )
 
     for m in sorted_matches:
@@ -651,6 +651,8 @@ def evaluate_player_seasonal_badges(
 
     # Army rosters (NewRecruit Studio rosters + submitted tournament/tracker rosters)
     vault_roster_count = len(raw_armylists)
+    if vault_roster_count == 0 and (player_data.get("has_saved_roster") or player_data.get("nr_connected")):
+        vault_roster_count = 1
     if vault_roster_count == 0:
         for r in (raw_registrations or []):
             if isinstance(r, dict) and (r.get("has_list_submitted") or r.get("has_list") or r.get("army_list") or r.get("list_id")):
@@ -807,8 +809,14 @@ def evaluate_player_seasonal_badges(
             unlocked_count += 1
             total_glory += b.get("glory", 0)
 
+        rarity_key = str(b.get("rarity") or "common").lower()
+        rarity_label = SEASONAL_RARITY_CONFIG.get(rarity_key, {}).get("label", rarity_key.title())
         badge_entry = dict(b)
+        badge_entry["glory_points"] = int(b.get("glory", 0))
+        badge_entry["rarity_label"] = rarity_label
+        badge_entry["tier_name"] = f"Season {season} • {rarity_label}"
         badge_entry["unlocked"] = unlocked
+        badge_entry["unlocked_at"] = season if unlocked else None
         badge_entry["progress"] = progress
         badge_entry["provenance"] = provenance
         evaluated.append(badge_entry)
@@ -817,8 +825,14 @@ def evaluate_player_seasonal_badges(
     capstone_target = 15
     capstone_badge = [b for b in catalog if b.get("category") == "capstone"][0]
     capstone_unlocked = unlocked_count >= capstone_target
+    cap_rarity_key = str(capstone_badge.get("rarity") or "mythic").lower()
+    cap_rarity_label = SEASONAL_RARITY_CONFIG.get(cap_rarity_key, {}).get("label", cap_rarity_key.title())
     capstone_entry = dict(capstone_badge)
+    capstone_entry["glory_points"] = int(capstone_badge.get("glory", 500))
+    capstone_entry["rarity_label"] = cap_rarity_label
+    capstone_entry["tier_name"] = f"Season {season} • {cap_rarity_label}"
     capstone_entry["unlocked"] = capstone_unlocked
+    capstone_entry["unlocked_at"] = season if capstone_unlocked else None
     capstone_entry["progress"] = {
         "current": min(unlocked_count, capstone_target),
         "target": capstone_target,
@@ -838,9 +852,11 @@ def evaluate_player_seasonal_badges(
         "season": season,
         "season_title": f"Season {season}",
         "badge_count": unlocked_count,
+        "unlocked_count": unlocked_count,
         "total_badges": total_season_badges,
         "completion_pct": completion_pct,
         "glory_score": total_glory,
+        "total_glory": total_glory,
         "capstone_unlocked": capstone_unlocked,
         "badges": evaluated,
         "categories": categories

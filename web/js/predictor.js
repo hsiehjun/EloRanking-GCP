@@ -64,7 +64,11 @@ function selectPredictPlayer(colNum, p) {
 
 function updatePredictCard(colNum, p) {
   document.getElementById(`p${colNum}-card-name`).innerText = p.player_name || p.full_name;
-  document.getElementById(`p${colNum}-card-faction`).innerText = p.top_faction || 'Various';
+  const facEl = document.getElementById(`p${colNum}-card-faction`);
+  if (facEl) {
+    facEl.innerText = p.top_faction || 'Various';
+    facEl.style.display = 'inline-block';
+  }
   document.getElementById(`p${colNum}-card-elo`).innerText = Number(p.current_elo).toFixed(1);
   document.getElementById(`p${colNum}-card-record`).innerText = `${p.wins || 0}W - ${p.losses || 0}L`;
   const wr = p.win_rate !== undefined ? p.win_rate : (p.matches_played > 0 ? ((p.wins / p.matches_played) * 100).toFixed(1) : 0);
@@ -110,9 +114,9 @@ async function runPrediction() {
     const elNewP2Loss = document.getElementById('new-p2-loss-elo');
 
     if (elDeltaP1Win) elDeltaP1Win.innerText = `+${dP1Win.toFixed(1)}`;
-    if (elNewP1Win) elNewP1Win.innerText = (elo1 + dP1Win).toFixed(1);
+    if (elNewP1Win) elNewP1Win.innerText = `(${(elo1 + dP1Win).toFixed(1)})`;
     if (elDeltaP2Loss) elDeltaP2Loss.innerText = `-${dP1Win.toFixed(1)}`;
-    if (elNewP2Loss) elNewP2Loss.innerText = (elo2 - dP1Win).toFixed(1);
+    if (elNewP2Loss) elNewP2Loss.innerText = `(${(elo2 - dP1Win).toFixed(1)})`;
 
     const elDeltaP1Loss = document.getElementById('delta-p1-upset-loss');
     const elNewP1Loss = document.getElementById('new-p1-loss-elo');
@@ -120,9 +124,9 @@ async function runPrediction() {
     const elNewP2Win = document.getElementById('new-p2-win-elo');
 
     if (elDeltaP1Loss) elDeltaP1Loss.innerText = `-${dP2Win.toFixed(1)}`;
-    if (elNewP1Loss) elNewP1Loss.innerText = (elo1 - dP2Win).toFixed(1);
+    if (elNewP1Loss) elNewP1Loss.innerText = `(${(elo1 - dP2Win).toFixed(1)})`;
     if (elDeltaP2Win) elDeltaP2Win.innerText = `+${dP2Win.toFixed(1)}`;
-    if (elNewP2Win) elNewP2Win.innerText = (elo2 + dP2Win).toFixed(1);
+    if (elNewP2Win) elNewP2Win.innerText = `(${(elo2 + dP2Win).toFixed(1)})`;
 
     const elDeltaP1Draw = document.getElementById('delta-p1-draw');
     const elDeltaP2Draw = document.getElementById('delta-p2-draw');
@@ -209,13 +213,46 @@ function renderHeadToHeadHistory(h2h) {
 function resetPredictorState() {
   predP1 = null;
   predP2 = null;
-  const i1 = document.getElementById('p1-name-input');
-  const i2 = document.getElementById('p2-name-input');
-  if (i1) i1.value = '';
-  if (i2) i2.value = '';
-  const d1 = document.getElementById('p1-ac-dropdown');
-  const d2 = document.getElementById('p2-ac-dropdown');
-  if (d1) d1.style.display = 'none';
-  if (d2) d2.style.display = 'none';
+  [1, 2].forEach(colNum => {
+    const inp = document.getElementById(`p${colNum}-name-input`);
+    if (inp) inp.value = '';
+    const dd = document.getElementById(`p${colNum}-ac-dropdown`);
+    if (dd) dd.style.display = 'none';
+    const nameEl = document.getElementById(`p${colNum}-card-name`);
+    if (nameEl) nameEl.innerText = `Player ${colNum}`;
+    const facEl = document.getElementById(`p${colNum}-card-faction`);
+    if (facEl) {
+      facEl.innerText = '';
+      facEl.style.display = 'none';
+    }
+    const eloEl = document.getElementById(`p${colNum}-card-elo`);
+    if (eloEl) eloEl.innerText = '1500';
+    const recEl = document.getElementById(`p${colNum}-card-record`);
+    if (recEl) recEl.innerText = '';
+    const wrEl = document.getElementById(`p${colNum}-card-winrate`);
+    if (wrEl) wrEl.innerText = '';
+    const peakEl = document.getElementById(`p${colNum}-card-peak`);
+    if (peakEl) peakEl.innerText = '';
+  });
+
+  [
+    'pred-p1-prob', 'pred-p2-prob',
+    'delta-p1-win', 'new-p1-win-elo', 'delta-p2-loss', 'new-p2-loss-elo',
+    'delta-p1-upset-loss', 'new-p1-loss-elo', 'delta-p2-upset-win', 'new-p2-win-elo',
+    'delta-p1-draw', 'delta-p2-draw'
+  ].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerText = '';
+  });
+
+  const barEl1 = document.getElementById('pred-bar-p1');
+  const barEl2 = document.getElementById('pred-bar-p2');
+  if (barEl1) barEl1.style.width = '50%';
+  if (barEl2) barEl2.style.width = '50%';
+
+  const tbody = document.getElementById('h2h-table-body');
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Select two players to view past match records.</td></tr>';
+  }
 }
 window.resetPredictorState = resetPredictorState;

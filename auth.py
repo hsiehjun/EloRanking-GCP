@@ -2521,11 +2521,18 @@ class AuthManager:
         if not target_pid:
             return 0
         import time
-        cache_key = (str(target_pid), str(game_system or "40k").lower())
+        sys_key = str(game_system or "40k").lower()
+        cache_key = (str(target_pid), sys_key)
         now_ts = time.time()
         cached_g = self._SYSTEM_GLORY_CACHE.get(cache_key)
         if cached_g and (now_ts - cached_g[0]) < 900.0:
             return cached_g[1]
+        for hk, hval in list(self._HUB_CACHE.items()):
+            if len(hk) == 3 and hk[1] == str(target_pid) and hk[2] == sys_key and (now_ts - hval[0]) < 900.0:
+                hub_glory = int(hval[1].get("glory_score") or 0)
+                if hub_glory > 0:
+                    self._SYSTEM_GLORY_CACHE[cache_key] = (now_ts, hub_glory)
+                    return hub_glory
         try:
             from psycopg2 import extras
             with self.db.get_connection() as conn:
@@ -2572,6 +2579,26 @@ class AuthManager:
                         WHERE ep.player_id = %s AND COALESCE(e.game_system, '40k') = %s;
                         """, (target_pid, game_system))
                         events = [dict(r) for r in cur.fetchall()]
+                        if hist and events:
+                            ev_stats: Dict[str, Dict[str, int]] = {}
+                            for m in hist:
+                                eid = str(m.get("event_id") or "")
+                                if not eid:
+                                    continue
+                                st = ev_stats.setdefault(eid, {"matches_played": 0, "wins": 0, "losses": 0})
+                                st["matches_played"] += 1
+                                r_str = str(m.get("result") or "").upper()
+                                if r_str == "W":
+                                    st["wins"] += 1
+                                elif r_str == "L":
+                                    st["losses"] += 1
+                            for ev in events:
+                                eid = str(ev.get("event_id") or "")
+                                if eid in ev_stats:
+                                    ev.setdefault("matches_played", ev_stats[eid]["matches_played"])
+                                    ev.setdefault("num_rounds", ev_stats[eid]["matches_played"])
+                                    ev.setdefault("wins", ev_stats[eid]["wins"])
+                                    ev.setdefault("losses", ev_stats[eid]["losses"])
 
             import badges
             eval_res = badges.evaluate_player_badges(
@@ -2929,10 +2956,13 @@ class AuthManager:
         user_lists = self.db.get_user_army_lists(user_id) if (user_id and hasattr(self.db, "get_user_army_lists")) else []
         if not user_lists and user_id:
             try:
-                from newrecruit_integration import _resolve_nr_cloud_account, fetch_nr_cloud_lists_for_user
-                nr_acct = _resolve_nr_cloud_account(str(user_id))
-                if nr_acct and nr_acct.get("connected") and nr_acct.get("access"):
-                    user_lists = fetch_nr_cloud_lists_for_user(str(user_id), nr_acct.get("access"), target_sys) or []
+                from newrecruit_integration import user_has_saved_roster, _resolve_nr_cloud_account, fetch_nr_cloud_lists_for_user
+                if user_has_saved_roster(str(user_id)):
+                    user_lists = [{"id": "nr_studio_roster", "source_format": "NewRecruit Studio"}]
+                else:
+                    nr_acct = _resolve_nr_cloud_account(str(user_id))
+                    if nr_acct and nr_acct.get("connected") and nr_acct.get("access"):
+                        user_lists = fetch_nr_cloud_lists_for_user(str(user_id), nr_acct.get("access"), target_sys) or [{"id": "nr_cloud_roster", "source_format": "NewRecruit Cloud"}]
             except Exception as e:
                 logger.debug(f"Notice fetching NewRecruit cloud lists for badge evaluation: {e}")
         b_eval = badges.evaluate_player_badges(

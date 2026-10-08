@@ -746,8 +746,8 @@ window.api = {
   },
 
   // Single Faction Details & Pilots
-  async getFactionDetails(factionName, limitOrSystem = 100, gameSystem = '', timeframe = '1yr', options = {}) {
-    let limit = 100;
+  async getFactionDetails(factionName, limitOrSystem = 350, gameSystem = '', timeframe = '1yr', options = {}) {
+    let limit = 350;
     let sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     let tf = timeframe || '1yr';
 
@@ -767,6 +767,7 @@ window.api = {
     if (limit) params.set('limit', limit);
     if (sys) params.set('game_system', sys);
     if (tf) params.set('timeframe', tf);
+    if (options && options.search) params.set('search', String(options.search).trim());
 
     return this._fetchJson(`/api/faction/${encodeURIComponent(factionName)}?${params.toString()}`, options);
   },

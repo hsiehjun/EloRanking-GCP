@@ -5975,6 +5975,42 @@ def build_synthetic_nr_row(roster: Dict[str, Any]) -> Dict[str, Any]:
     return out_row
 
 
+def mark_user_has_saved_roster(user_key: str = "default") -> None:
+    """Marks that a user has saved at least 1 battle roster in NewRecruit Studio or Cloud and invalidates stale glory caches."""
+    ukey = str(user_key or "default").strip() or "default"
+    acct = _NR_CLOUD_ACCOUNTS.setdefault(ukey, {})
+    was_marked = bool(acct.get("has_saved_roster"))
+    acct["has_saved_roster"] = True
+    if ukey != "default":
+        _NR_CLOUD_ACCOUNTS.setdefault("default", {})["has_saved_roster"] = True
+    if not was_marked and ukey != "default":
+        try:
+            from auth import get_auth_manager
+            auth_mgr = get_auth_manager()
+            if auth_mgr and hasattr(auth_mgr, "clear_user_hub_cache"):
+                auth_mgr.clear_user_hub_cache(user_id=ukey)
+        except Exception:
+            pass
+        try:
+            from routers.armory import _invalidate_armory_glory_cache
+            _invalidate_armory_glory_cache(ukey)
+        except Exception:
+            pass
+
+
+def user_has_saved_roster(user_key: str = "default") -> bool:
+    """Fast O(1) check whether a user has saved a NewRecruit Studio roster or connected NewRecruit Cloud."""
+    ukey = str(user_key or "default").strip() or "default"
+    mem_acct = _NR_CLOUD_ACCOUNTS.get(ukey) or {}
+    if mem_acct.get("has_saved_roster") or mem_acct.get("connected") or int(mem_acct.get("synced_count") or 0) > 0:
+        return True
+    def_acct = _NR_CLOUD_ACCOUNTS.get("default") or {}
+    if def_acct.get("has_saved_roster"):
+        return True
+    acct = _resolve_nr_cloud_account(ukey)
+    return bool(acct.get("has_saved_roster") or acct.get("connected") or int(acct.get("synced_count") or 0) > 0)
+
+
 def _resolve_nr_cloud_account(user_key: str = "default") -> Dict[str, Any]:
     """Resolves the per-user NewRecruit Cloud account state from memory or PostgreSQL AuthManager."""
     ukey = str(user_key or "default").strip() or "default"
@@ -6004,7 +6040,11 @@ def _resolve_nr_cloud_account(user_key: str = "default") -> Dict[str, Any]:
 def _persist_nr_cloud_account(user_key: str, acct: Dict[str, Any]) -> None:
     """Persists the per-user NewRecruit Cloud account state to memory and PostgreSQL AuthManager."""
     ukey = str(user_key or "default").strip() or "default"
-    _NR_CLOUD_ACCOUNTS[ukey] = dict(acct)
+    existing = _NR_CLOUD_ACCOUNTS.get(ukey) or {}
+    merged = dict(acct)
+    if existing.get("has_saved_roster") and "has_saved_roster" not in merged:
+        merged["has_saved_roster"] = True
+    _NR_CLOUD_ACCOUNTS[ukey] = merged
     if ukey != "default":
         try:
             from auth import get_auth_manager
@@ -6043,6 +6083,7 @@ def get_nr_state_payload(
             "access": acct.get("access") or "",
             "refresh": acct.get("refresh") or "",
             "client_key": acct.get("client_key") or "",
+            "has_saved_roster": bool(acct.get("has_saved_roster")),
         },
     }
 
@@ -6067,6 +6108,7 @@ def process_nr_sync_payload(
     save_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
     delete_fn: Optional[Callable[[str], bool]] = None,
     list_fn: Optional[Callable[[], List[Dict[str, Any]]]] = None,
+    user_key: str = "default",
 ) -> Dict[str, Any]:
     """
     Statelessly processes a POST /api/armylists/nr_sync payload from the browser's NewRecruit storage.
@@ -6116,6 +6158,9 @@ def process_nr_sync_payload(
                 parsed = save_fn(parsed) or parsed
             parsed_lists.append(parsed)
 
+        if parsed_lists:
+            mark_user_has_saved_roster(user_key)
+
         return {
             "success": True,
             "action": "bulk_sync",
@@ -6149,6 +6194,7 @@ def process_nr_sync_payload(
     parsed = _enrich_parsed_nr_item(parsed)
     if save_fn:
         parsed = save_fn(parsed) or parsed
+    mark_user_has_saved_roster(user_key)
     return {
         "success": True,
         "action": "upsert",

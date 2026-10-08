@@ -1906,11 +1906,11 @@ tbody tr:hover {
     display: none !important;
   }
 
-  /* Faction Modal 3-Column Non-Scrolling Segmented Bar */
+  /* Faction Modal 2-Column Non-Scrolling Segmented Bar */
   #faction-modal .faction-modal-subtabs,
   #faction-modal .subtabs-bar {
     display: grid !important;
-    grid-template-columns: repeat(3, 1fr) !important;
+    grid-template-columns: repeat(2, 1fr) !important;
     gap: 4px !important;
     overflow-x: visible !important;
     white-space: normal !important;
@@ -17046,15 +17046,61 @@ table.desktop-only,
   white-space: nowrap;
 }
 
+.fmodal-tabs-bar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-bottom: 0.85rem;
+  padding: 0.3rem;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+}
+
+.fmodal-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fmodal-tab-btn:hover {
+  color: #fff;
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.fmodal-tab-btn.active {
+  background: rgba(56, 189, 248, 0.16);
+  color: #fff;
+  border-color: rgba(56, 189, 248, 0.42);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.fmodal-tab-btn.active .fmodal-count-pill {
+  background: var(--accent);
+  color: #0f172a;
+  border-color: var(--accent);
+}
+
+.fmodal-table-scroll {
+  max-height: 440px;
+  overflow-y: auto;
+}
+
 .fmodal-section-card {
   background: rgba(15, 23, 42, 0.42);
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 12px;
   overflow: hidden;
-  margin-bottom: 1rem;
-}
-
-.fmodal-section-card:last-child {
   margin-bottom: 0;
 }
 

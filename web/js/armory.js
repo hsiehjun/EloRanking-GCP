@@ -1788,12 +1788,47 @@
     };
   }
 
+  function detectLocalSavedRoster() {
+    if (window.hasSavedRosterInVault) return true;
+    if (window.hubSavedLists && Array.isArray(window.hubSavedLists) && window.hubSavedLists.length > 0) return true;
+    var hub = window.myHubData || window.currentHubData;
+    if (hub && hub.seasonal) {
+      var s26 = hub.seasonal[hub.active_season || '2026'] || hub.seasonal['2026'] || hub.seasonal;
+      if (s26 && Array.isArray(s26.badges)) {
+        var found = s26.badges.some(function(b) {
+          return b && b.unlocked && String(b.id || '').indexOf('roster_in_vault') !== -1;
+        });
+        if (found) return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Fetch itemized Glory transaction ledger
    */
   async function fetchArmoryLedger() {
+    var hasRoster = detectLocalSavedRoster();
+    if (!hasRoster && typeof window.readSameOriginNewRecruitIdbRows === 'function') {
+      try {
+        var idbRows = await Promise.race([
+          window.readSameOriginNewRecruitIdbRows(),
+          new Promise(function(resolve) { setTimeout(function() { resolve([]); }, 120); })
+        ]);
+        if (Array.isArray(idbRows) && idbRows.length > 0) {
+          window.hasSavedRosterInVault = true;
+          hasRoster = true;
+          if (typeof window.reconcileHubRosterVaultBadge === 'function') {
+            window.reconcileHubRosterVaultBadge(idbRows);
+          }
+        }
+      } catch (e) {}
+    }
     try {
-      var res = await fetch('/api/armory/transactions', { credentials: 'include' });
+      var token = window.api ? window.api.getAuthToken() : (localStorage.getItem('auth_token') || '');
+      var headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+      var url = '/api/armory/transactions' + (hasRoster ? '?has_roster=1' : '');
+      var res = await fetch(url, { headers: headers, credentials: 'include' });
       if (res.ok) {
         var data = await res.json();
         if (data && data.summary) {
@@ -1817,8 +1852,11 @@
     var grantedBucket = Number(currentGlory.granted_glory_total || 0);
     var totalSpent = Number(currentGlory.glory_spent || 0);
     var spendable = Number(currentGlory.spendable_glory != null ? currentGlory.spendable_glory : Math.max(0, earnedBucket - totalSpent));
-    var g40k = Number(currentGlory.glory_40k || 8780);
     var gAos = Number(currentGlory.glory_aos || 110);
+    var g40k = Number(currentGlory.glory_40k || Math.max(8780, earnedBucket - gAos));
+    if (earnedBucket > (g40k + gAos)) {
+      g40k = Math.max(g40k, earnedBucket - gAos);
+    }
 
     var debits = [];
     var debitsSum = 0;
@@ -1874,6 +1912,35 @@
         });
       });
     }
+    var hubRef = window.myHubData || window.currentHubData;
+    var sObj = hubRef && hubRef.seasonal && (hubRef.seasonal[hubRef.active_season || '2026'] || hubRef.seasonal['2026'] || hubRef.seasonal);
+    if (sObj && Array.isArray(sObj.badges)) {
+      sObj.badges.forEach(function(sb) {
+        var pts = Number(sb.glory_points || sb.glory || 0);
+        if (sb.unlocked && pts > 0) {
+          credits.push({
+            id: 'seasonal_' + sb.id,
+            type: 'credit',
+            category: 'Season 2026 Trophy',
+            name: (sb.icon || '🏆') + ' ' + (sb.name || 'Season 2026 Honor'),
+            detail: (sb.tier_name || ('Season 2026 • ' + (sb.rarity_label || sb.rarity || 'Honor'))) + ' • ' + (sb.provenance || sb.description || ''),
+            amount: pts,
+            date: sb.unlocked_at || '2026'
+          });
+        }
+      });
+    }
+    if (detectLocalSavedRoster() && !credits.some(function(c) { return String(c.id || '').indexOf('roster_in_vault') !== -1 || String(c.name || '').indexOf('Roster In the Vault') !== -1; })) {
+      credits.push({
+        id: 'seasonal_s26_40k_roster_in_vault',
+        type: 'credit',
+        category: 'Season 2026 Trophy',
+        name: "📜 Roster In the Vault '26",
+        detail: 'Season 2026 • Common • Saved battle roster in NewRecruit Studio',
+        amount: 25,
+        date: '2026'
+      });
+    }
     if (window.myHubData && Array.isArray(window.myHubData.badges)) {
       window.myHubData.badges.forEach(function(b) {
         var pts = Number(b.glory_points || b.glory || 0);
@@ -1883,7 +1950,7 @@
             type: 'credit',
             category: 'Battlefield Honor',
             name: '🎖️ ' + (b.name || 'Badge Honor'),
-            detail: (b.tier_name || 'Honor') + ' • ' + (b.description || ''),
+            detail: (b.tier_name || 'Honor') + ' • ' + (b.provenance || b.description || ''),
             amount: pts,
             date: b.unlocked_at || ''
           });
@@ -1942,14 +2009,68 @@
   function buildLedgerHtml(data) {
     var summary = (data && data.summary) ? data.summary : {};
     var debitsList = (data && Array.isArray(data.debits)) ? data.debits : [];
-    var creditsList = (data && Array.isArray(data.credits)) ? data.credits : [];
+    var creditsList = (data && Array.isArray(data.credits)) ? data.credits.slice() : [];
     var debitsSum = debitsList.reduce(function(acc, d) { return acc + Number(d.cost || 0); }, 0);
+
+    // Reconcile any unlocked Season 2026 Trophies (including Roster In the Vault '26) from My Hub state
+    var hubRef = window.myHubData || window.currentHubData;
+    var sObj = hubRef && hubRef.seasonal && (hubRef.seasonal[hubRef.active_season || '2026'] || hubRef.seasonal['2026'] || hubRef.seasonal);
+    var seasonalToInject = [];
+    if (sObj && Array.isArray(sObj.badges)) {
+      sObj.badges.forEach(function(sb) {
+        var pts = Number(sb && (sb.glory_points || sb.glory || 0));
+        if (sb && sb.unlocked && pts > 0) {
+          var sid = 'seasonal_' + sb.id;
+          var already = creditsList.some(function(c) {
+            return c.id === sid || c.id === ('badge_' + sb.id) || (c.name && sb.name && String(c.name).indexOf(sb.name) !== -1);
+          });
+          if (!already) {
+            seasonalToInject.push({
+              id: sid,
+              type: 'credit',
+              category: 'Season 2026 Trophy',
+              name: (sb.icon || '🏆') + ' ' + sb.name,
+              detail: (sb.tier_name || ('Season 2026 • ' + (sb.rarity_label || sb.rarity || 'Honor'))) + ' • ' + (sb.provenance || sb.description || ''),
+              amount: pts,
+              date: sb.unlocked_at || '2026'
+            });
+          }
+        }
+      });
+    }
+    if (detectLocalSavedRoster() && !creditsList.some(function(c) { return String(c.id || '').indexOf('roster_in_vault') !== -1 || String(c.name || '').indexOf('Roster In the Vault') !== -1; }) && !seasonalToInject.some(function(c) { return String(c.id || '').indexOf('roster_in_vault') !== -1; })) {
+      seasonalToInject.push({
+        id: 'seasonal_s26_40k_roster_in_vault',
+        type: 'credit',
+        category: 'Season 2026 Trophy',
+        name: "📜 Roster In the Vault '26",
+        detail: 'Season 2026 • Common • Saved battle roster in NewRecruit Studio',
+        amount: 25,
+        date: '2026'
+      });
+    }
+    if (seasonalToInject.length > 0) {
+      var insertIdx = 0;
+      while (insertIdx < creditsList.length && (String(creditsList[insertIdx].category || '').indexOf('Grant') !== -1 || String(creditsList[insertIdx].category || '').indexOf('Silverware') !== -1)) {
+        insertIdx++;
+      }
+      creditsList = creditsList.slice(0, insertIdx).concat(seasonalToInject, creditsList.slice(insertIdx));
+      if (data && Array.isArray(data.credits)) {
+        data.credits = creditsList;
+      }
+    }
 
     var earnedBucket = Number(summary.earned_glory_total != null ? summary.earned_glory_total : (summary.total_earned || 0));
     var purchasedBucket = Number(summary.purchased_glory_total || 0);
     var grantedBucket = Number(summary.granted_glory_total || 0);
     var totalSpent = Math.max(Number(summary.total_spent || 0), debitsSum);
     var spendable = Number(summary.spendable_glory || 0);
+
+    var gAosDisplay = Number(summary.glory_aos || 0);
+    var g40kDisplay = Number(summary.glory_40k || 0);
+    if (earnedBucket > (g40kDisplay + gAosDisplay)) {
+      g40kDisplay = Math.max(g40kDisplay, earnedBucket - gAosDisplay);
+    }
 
     if ((earnedBucket + purchasedBucket + grantedBucket - totalSpent) !== spendable) {
       var neededGrant = Math.max(0, (totalSpent + spendable) - (earnedBucket + purchasedBucket));
@@ -2036,7 +2157,7 @@
       '      <div class="ledger-metric-box">',
       '        <div class="ledger-metric-lbl">Career Earned Glory</div>',
       '        <div class="ledger-metric-val" style="color: #10b981;">+' + earnedBucket.toLocaleString() + '</div>',
-      '        <div class="ledger-metric-sub">(' + Number(summary.glory_40k || 0).toLocaleString() + ' 40K + ' + Number(summary.glory_aos || 0).toLocaleString() + ' AoS)</div>',
+      '        <div class="ledger-metric-sub">(' + g40kDisplay.toLocaleString() + ' 40K + ' + gAosDisplay.toLocaleString() + ' AoS)</div>',
       '      </div>',
       '      <div class="ledger-metric-box">',
       '        <div class="ledger-metric-lbl">Account Grants &amp; Credits</div>',

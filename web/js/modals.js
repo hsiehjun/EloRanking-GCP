@@ -1031,7 +1031,7 @@ async function changeFactionModalTimeframe(tf) {
 }
 window.changeFactionModalTimeframe = changeFactionModalTimeframe;
 
-const FACTION_MODAL_STORAGE_KEY = 'omni_faction_modal_cache_v2';
+const FACTION_MODAL_STORAGE_KEY = 'omni_faction_modal_cache_v3';
 const factionModalDataCache = new Map();
 const factionModalInflightPromises = new Map();
 let factionModalAbortController = null;
@@ -1216,7 +1216,7 @@ function fetchFactionDetailsShared(factionName, sys, tf) {
   if (factionModalInflightPromises.has(cacheKey)) {
     return factionModalInflightPromises.get(cacheKey);
   }
-  const p = window.api.getFactionDetails(factionName, 50, sys, tf)
+  const p = window.api.getFactionDetails(factionName, 350, sys, tf)
     .then(data => {
       factionModalInflightPromises.delete(cacheKey);
       if (data && !data.error && !data.aborted) {
@@ -1624,7 +1624,11 @@ async function loadFactionModalData(factionName, tf = '1yr') {
 }
 window.loadFactionModalData = loadFactionModalData;
 
-async function openFactionModal(factionName, initialTf = null, initialSubtab = 'matches') {
+let currentFactionActiveTab = 'matchups';
+let _factionMatchSearchDebounce = null;
+let _factionMatchSearchLastKey = '';
+
+async function openFactionModal(factionName, initialTf = null, initialSubtab = null) {
   const modal = document.getElementById('faction-modal');
   if (!modal) return;
   bringModalToFront(modal);
@@ -1637,6 +1641,11 @@ async function openFactionModal(factionName, initialTf = null, initialSubtab = '
 
   fmodalMatchupVerdictFilter = 'ALL';
   fmodalMatchOutcomeFilter = 'ALL';
+  _factionMatchSearchLastKey = '';
+  if (_factionMatchSearchDebounce) {
+    clearTimeout(_factionMatchSearchDebounce);
+    _factionMatchSearchDebounce = null;
+  }
   const muSearch = document.getElementById('fmodal-mu-search');
   if (muSearch) muSearch.value = '';
   const mSearch = document.getElementById('fmodal-matches-search');
@@ -1649,6 +1658,9 @@ async function openFactionModal(factionName, initialTf = null, initialSubtab = '
     const btn = document.getElementById(`fmodal-match-filter-${k.toLowerCase()}`);
     if (btn) btn.classList.toggle('active', k === 'ALL');
   });
+
+  const targetTab = (initialSubtab === 'matches' || initialSubtab === 'matchups') ? initialSubtab : 'matchups';
+  switchFactionModalTab(targetTab);
 
   let resolvedTf = initialTf;
   if (!resolvedTf && typeof factionTimeframe !== 'undefined') {
@@ -1666,12 +1678,24 @@ async function openFactionModal(factionName, initialTf = null, initialSubtab = '
 }
 
 function switchFactionModalTab(tabName) {
-  const targetId = tabName === 'matchups' ? 'faction-view-matchups' : 'faction-view-matches';
-  const el = document.getElementById(targetId);
-  if (el && typeof el.scrollIntoView === 'function') {
-    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const isMatches = tabName === 'matches';
+  currentFactionActiveTab = isMatches ? 'matches' : 'matchups';
+  const muTab = document.getElementById('faction-subtab-matchups');
+  const mTab = document.getElementById('faction-subtab-matches');
+  const muView = document.getElementById('faction-view-matchups');
+  const mView = document.getElementById('faction-view-matches');
+  if (muTab) {
+    muTab.classList.toggle('active', !isMatches);
+    muTab.setAttribute('aria-selected', !isMatches ? 'true' : 'false');
   }
+  if (mTab) {
+    mTab.classList.toggle('active', isMatches);
+    mTab.setAttribute('aria-selected', isMatches ? 'true' : 'false');
+  }
+  if (muView) muView.style.display = isMatches ? 'none' : '';
+  if (mView) mView.style.display = isMatches ? '' : 'none';
 }
+window.switchFactionModalTab = switchFactionModalTab;
 
 function setFactionModalMatchupFilter(verdict) {
   fmodalMatchupVerdictFilter = verdict || 'ALL';
@@ -1700,6 +1724,52 @@ window.setFactionModalMatchOutcomeFilter = setFactionModalMatchOutcomeFilter;
 
 function onFactionModalMatchControlChange() {
   renderFactionMatchesRows(currentFactionMatches);
+
+  const searchInput = document.getElementById('fmodal-matches-search');
+  const q = searchInput ? String(searchInput.value || '').trim() : '';
+  if (_factionMatchSearchDebounce) {
+    clearTimeout(_factionMatchSearchDebounce);
+    _factionMatchSearchDebounce = null;
+  }
+  if (q.length < 2 || !currentFactionName) return;
+
+  const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+  const tf = currentFactionTimeframe || '1yr';
+  const reqFac = currentFactionName;
+  const searchKey = `${reqFac.toLowerCase()}_${sys}_${tf}_${q.toLowerCase()}`;
+  if (_factionMatchSearchLastKey === searchKey) return;
+
+  _factionMatchSearchDebounce = setTimeout(async () => {
+    try {
+      const res = await window.api.getFactionDetails(reqFac, 350, sys, tf, { search: q });
+      if (currentFactionName !== reqFac || currentFactionTimeframe !== tf) return;
+      _factionMatchSearchLastKey = searchKey;
+      const remoteMatches = (res && Array.isArray(res.matches)) ? res.matches : [];
+      if (remoteMatches.length > 0) {
+        const byId = new Map();
+        (currentFactionMatches || []).forEach(m => {
+          if (m && m.id !== undefined) byId.set(String(m.id), m);
+        });
+        let added = 0;
+        remoteMatches.forEach(m => {
+          const mid = m && m.id !== undefined ? String(m.id) : `${m.event_id}_${m.round}_${m.player_id}`;
+          if (!byId.has(mid)) {
+            byId.set(mid, m);
+            added++;
+          }
+        });
+        if (added > 0) {
+          currentFactionMatches = Array.from(byId.values()).sort((a, b) => {
+            const da = String(a.match_date || '');
+            const db = String(b.match_date || '');
+            if (da !== db) return db.localeCompare(da);
+            return (Number(b.round) || 0) - (Number(a.round) || 0);
+          });
+          renderFactionMatchesRows(currentFactionMatches);
+        }
+      }
+    } catch (e) {}
+  }, 180);
 }
 window.onFactionModalMatchControlChange = onFactionModalMatchControlChange;
 
@@ -1709,21 +1779,9 @@ function renderFactionMatchesRows(matches) {
   tbody.innerHTML = '';
 
   const allMatches = Array.isArray(matches) ? matches : [];
-  const summaryEl = document.getElementById('fmodal-recent-summary-pill');
-  if (summaryEl) {
-    if (allMatches.length > 0) {
-      const w = allMatches.filter(m => m.outcome === 'W').length;
-      const l = allMatches.filter(m => m.outcome === 'L').length;
-      const d = allMatches.filter(m => m.outcome === 'D').length;
-      const wr = ((w / allMatches.length) * 100).toFixed(1);
-      summaryEl.innerHTML = `• Sample Record: <strong style="color:var(--win);">${w}W</strong>-<strong style="color:var(--loss);">${l}L</strong>${d ? `-${d}D` : ''} (<strong>${wr}%</strong>)`;
-    } else {
-      summaryEl.innerHTML = '';
-    }
-  }
-
   const searchInput = document.getElementById('fmodal-matches-search');
   const q = searchInput ? String(searchInput.value || '').trim().toLowerCase() : '';
+  const hasActiveFilter = Boolean(q) || fmodalMatchOutcomeFilter !== 'ALL';
 
   const filtered = allMatches.filter(m => {
     if (fmodalMatchOutcomeFilter !== 'ALL' && m.outcome !== fmodalMatchOutcomeFilter) return false;
@@ -1733,6 +1791,26 @@ function renderFactionMatchesRows(matches) {
     }
     return true;
   });
+
+  const mCount = document.getElementById('faction-tab-matches-count');
+  if (mCount) {
+    mCount.innerText = (hasActiveFilter ? filtered.length : allMatches.length).toLocaleString();
+  }
+
+  const summaryEl = document.getElementById('fmodal-recent-summary-pill');
+  if (summaryEl) {
+    const targetPool = hasActiveFilter ? filtered : allMatches;
+    if (targetPool.length > 0) {
+      const w = targetPool.filter(m => m.outcome === 'W').length;
+      const l = targetPool.filter(m => m.outcome === 'L').length;
+      const d = targetPool.filter(m => m.outcome === 'D').length;
+      const wr = ((w / targetPool.length) * 100).toFixed(1);
+      const labelPrefix = hasActiveFilter ? `Matching Filter (${targetPool.length})` : `Sample Record (${targetPool.length})`;
+      summaryEl.innerHTML = `• ${labelPrefix}: <strong style="color:var(--win);">${w}W</strong>-<strong style="color:var(--loss);">${l}L</strong>${d ? `-${d}D` : ''} (<strong>${wr}%</strong>)`;
+    } else {
+      summaryEl.innerHTML = '';
+    }
+  }
 
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No recent games match the selected filter in this timeframe.</td></tr>';

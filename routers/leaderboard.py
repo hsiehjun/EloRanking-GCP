@@ -2520,16 +2520,18 @@ async def api_faction_meta(
 @router.get("/api/faction/{faction_name}", summary="Get faction detailed metrics, top players, and match history")
 async def api_faction_details(
     faction_name: str,
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(350, ge=1, le=500),
     game_system: Optional[str] = Query("40k"),
-    timeframe: Optional[str] = Query("1yr")
+    timeframe: Optional[str] = Query("1yr"),
+    search: Optional[str] = Query(None)
 ):
     return await asyncio.to_thread(
         get_database().get_faction_details,
         faction_name.strip(),
         limit=limit,
         game_system=game_system,
-        timeframe=timeframe
+        timeframe=timeframe,
+        search=search.strip() if search else None
     )
 
 # API: Match Win Probability Predictor

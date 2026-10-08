@@ -8258,15 +8258,87 @@ class PostgresDatabase:
         sys_clause: str,
         date_clause: str,
         date_params: list = None,
-        cursor = None
+        cursor = None,
+        search_query: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         clean_fac = (faction_name or "").strip()
         fac_lower = clean_fac.lower()
         if fac_lower in ("space marines (astartes)", "adeptus astartes"):
             fac_lower = "space marines"
         d_params = date_params or []
+        clean_q = (search_query or "").strip()
 
         def _do_query(cur):
+            if clean_q:
+                q_like = f"%{clean_q}%"
+                scan_limit = max(int(limit or 350), 2500)
+                cur.execute(f"""
+                WITH p1_faction_matches AS MATERIALIZED (
+                    SELECT id, match_date, round, table_number
+                    FROM matches
+                    WHERE LOWER(player1_faction) = %s
+                      AND is_done = TRUE{sys_clause}{date_clause}
+                    ORDER BY LOWER(player1_faction), match_date DESC
+                    LIMIT %s
+                ),
+                p1_matches AS (
+                    SELECT id, match_date, round, table_number, TRUE as is_p1
+                    FROM p1_faction_matches
+                ),
+                p2_faction_matches AS MATERIALIZED (
+                    SELECT id, match_date, round, table_number
+                    FROM matches
+                    WHERE LOWER(player2_faction) = %s
+                      AND is_done = TRUE AND is_bye = FALSE{sys_clause}{date_clause}
+                    ORDER BY LOWER(player2_faction), match_date DESC
+                    LIMIT %s
+                ),
+                p2_matches AS (
+                    SELECT id, match_date, round, table_number, FALSE as is_p1
+                    FROM p2_faction_matches
+                ),
+                candidate_matches AS (
+                    SELECT DISTINCT ON (id) id, match_date, round, table_number, is_p1
+                    FROM (
+                        SELECT id, match_date, round, table_number, is_p1 FROM p1_matches
+                        UNION ALL
+                        SELECT id, match_date, round, table_number, is_p1 FROM p2_matches
+                    ) combined
+                    ORDER BY id, match_date DESC NULLS LAST, round DESC
+                )
+                SELECT m.id, m.event_id, COALESCE(e.name, 'Tournament') as event_name, m.round, m.table_number, m.match_date,
+                       CASE WHEN cm.is_p1 THEN m.player1_id ELSE m.player2_id END as player_id,
+                       CASE WHEN cm.is_p1 THEN m.player1_name ELSE m.player2_name END as player_name,
+                       CASE WHEN cm.is_p1 THEN m.player1_faction ELSE m.player2_faction END as player_faction,
+                       CASE WHEN cm.is_p1 THEN m.player1_score ELSE m.player2_score END as player_score,
+                       CASE WHEN cm.is_p1 THEN m.player2_id ELSE m.player1_id END as opponent_id,
+                       CASE WHEN cm.is_p1 THEN m.player2_name ELSE m.player1_name END as opponent_name,
+                       CASE WHEN cm.is_p1 THEN m.player2_faction ELSE m.player1_faction END as opponent_faction,
+                       CASE WHEN cm.is_p1 THEN m.player2_score ELSE m.player1_score END as opponent_score,
+                       CASE 
+                           WHEN m.is_draw THEN 'D'
+                           WHEN (m.winner_id = m.player1_id AND cm.is_p1) OR (m.winner_id = m.player2_id AND NOT cm.is_p1) THEN 'W'
+                           ELSE 'L'
+                       END as outcome
+                FROM candidate_matches cm
+                JOIN matches m ON cm.id = m.id
+                LEFT JOIN events e ON m.event_id = e.id
+                WHERE (
+                    COALESCE(e.name, '') ILIKE %s
+                    OR COALESCE(CASE WHEN cm.is_p1 THEN m.player1_name ELSE m.player2_name END, '') ILIKE %s
+                    OR COALESCE(CASE WHEN cm.is_p1 THEN m.player2_name ELSE m.player1_name END, '') ILIKE %s
+                    OR COALESCE(CASE WHEN cm.is_p1 THEN m.player2_faction ELSE m.player1_faction END, '') ILIKE %s
+                )
+                ORDER BY m.match_date DESC NULLS LAST, m.round DESC
+                LIMIT %s;
+                """, (
+                    fac_lower, *sys_params, *d_params, scan_limit,
+                    fac_lower, *sys_params, *d_params, scan_limit,
+                    q_like, q_like, q_like, q_like,
+                    limit
+                ))
+                return [dict(r) for r in cur.fetchall()]
+
             cur.execute(f"""
             WITH p1_faction_matches AS MATERIALIZED (
                 SELECT id, match_date, round, table_number
@@ -8371,7 +8443,7 @@ class PostgresDatabase:
                       AND LOWER(player2_faction) != %s
                       AND is_done = TRUE{sys_clause}{date_clause}
                     ORDER BY LOWER(player1_faction), match_date DESC
-                    LIMIT 300
+                    LIMIT 1500
                 )
                 UNION ALL
                 (
@@ -8390,7 +8462,7 @@ class PostgresDatabase:
                       AND LOWER(player1_faction) != %s
                       AND is_done = TRUE{sys_clause}{date_clause}
                     ORDER BY LOWER(player2_faction), match_date DESC
-                    LIMIT 300
+                    LIMIT 1500
                 )
             )
             SELECT 
@@ -8426,11 +8498,12 @@ class PostgresDatabase:
     def get_faction_details(
         self,
         faction_name: str,
-        limit: int = 100,
+        limit: int = 350,
         game_system: Optional[str] = "40k",
         timeframe: Optional[str] = "1yr",
         _from_bg_warm: bool = False,
-        include_top_players: bool = False
+        include_top_players: bool = False,
+        search: Optional[str] = None
     ) -> Dict[str, Any]:
         """Returns match-level faction analytics and matchups with sub-second (<1s) latency and multi-tier caching."""
         if not faction_name:
@@ -8438,6 +8511,7 @@ class PostgresDatabase:
 
         system = (game_system or "40k").lower()
         tf = (timeframe or "1yr").lower().strip()
+        clean_search = (search or "").strip()
         tf_canon_map = {
             "30d": "30d", "1m": "30d", "1mo": "30d",
             "60d": "60d", "2m": "60d", "2mo": "60d",
@@ -8450,14 +8524,13 @@ class PostgresDatabase:
         canon_tf = tf_canon_map.get(tf, tf or "1yr")
         raw_fac_lower = faction_name.strip().lower()
         norm_fac_lower = "space marines" if raw_fac_lower in ("space marines (astartes)", "adeptus astartes") else raw_fac_lower
-        cache_key = (norm_fac_lower, system, tf, int(limit))
-        canon_cache_key = (norm_fac_lower, system, canon_tf, int(limit))
+        cache_key = (norm_fac_lower, system, tf, int(limit), clean_search.lower()) if clean_search else (norm_fac_lower, system, tf, int(limit))
+        canon_cache_key = (norm_fac_lower, system, canon_tf, int(limit), clean_search.lower()) if clean_search else (norm_fac_lower, system, canon_tf, int(limit))
         cached = (
             self.get_cached(self._faction_details_cache_dict, cache_key, ttl=86400)
             or self.get_cached(self._faction_details_cache_dict, canon_cache_key, ttl=86400)
-            or self.get_cached(self._faction_details_cache_dict, (raw_fac_lower, system, tf, int(limit)), ttl=86400)
-            or self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 100), ttl=86400)
-            or self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 50), ttl=86400)
+            or (None if clean_search else self.get_cached(self._faction_details_cache_dict, (raw_fac_lower, system, tf, int(limit)), ttl=86400))
+            or (None if clean_search else self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 350), ttl=86400))
         )
         if cached:
             if cached.get("faction") != faction_name or cached.get("timeframe") != tf:
@@ -8474,9 +8547,8 @@ class PostgresDatabase:
             cached = (
                 self.get_cached(self._faction_details_cache_dict, cache_key, ttl=86400)
                 or self.get_cached(self._faction_details_cache_dict, canon_cache_key, ttl=86400)
-                or self.get_cached(self._faction_details_cache_dict, (raw_fac_lower, system, tf, int(limit)), ttl=86400)
-                or self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 100), ttl=86400)
-                or self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 50), ttl=86400)
+                or (None if clean_search else self.get_cached(self._faction_details_cache_dict, (raw_fac_lower, system, tf, int(limit)), ttl=86400))
+                or (None if clean_search else self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 350), ttl=86400))
             )
             if cached:
                 if cached.get("faction") != faction_name or cached.get("timeframe") != tf:
@@ -8484,8 +8556,9 @@ class PostgresDatabase:
                 return cached
 
             is_mock_self = hasattr(getattr(self, "get_connection", None), "assert_called") or type(self).__module__.startswith("unittest.mock") or not getattr(self, "pool", None)
-            l2_fac_key = f"faction_details_v2_{system}_{canon_tf}_{norm_fac_lower}_{int(limit)}"
-            l2_fac_key_100 = f"faction_details_v2_{system}_{canon_tf}_{norm_fac_lower}_100"
+            eff_limit = min(max(int(limit or 350), 350), 500) if not is_mock_self else int(limit)
+            l2_fac_key = f"faction_details_v3_{system}_{canon_tf}_{norm_fac_lower}_{eff_limit}"
+            l2_fac_key_350 = f"faction_details_v3_{system}_{canon_tf}_{norm_fac_lower}_350"
 
             sys_clause = ""
             sys_params = []
@@ -8586,32 +8659,35 @@ class PostgresDatabase:
                             except Exception:
                                 pass
 
-                            # 1. Check L2 persistent cache on the same cursor
-                            try:
-                                cursor.execute(
-                                    "SELECT value FROM system_settings WHERE key IN (%s, %s) ORDER BY updated_at DESC LIMIT 1;",
-                                    (l2_fac_key, l2_fac_key_100)
-                                )
-                                p_row = cursor.fetchone()
-                                raw_val = p_row.get("value") if isinstance(p_row, dict) else (p_row[0] if p_row else None)
-                                if raw_val:
-                                    parsed = json.loads(raw_val)
-                                    if isinstance(parsed, dict) and "matches" in parsed and "matchups" in parsed:
-                                        self.set_cached(self._faction_details_cache_dict, cache_key, parsed, max_size=1500)
-                                        self.set_cached(self._faction_details_cache_dict, canon_cache_key, parsed, max_size=1500)
-                                        if parsed.get("faction") != faction_name or parsed.get("timeframe") != tf:
-                                            return {**parsed, "faction": faction_name, "timeframe": tf}
-                                        return parsed
-                            except Exception:
-                                pass
+                            # 1. Check L2 persistent cache on the same cursor (only when not executing a filtered search)
+                            if not clean_search:
+                                try:
+                                    cursor.execute(
+                                        "SELECT value FROM system_settings WHERE key IN (%s, %s) AND updated_at >= NOW() - INTERVAL '6 hours' ORDER BY updated_at DESC LIMIT 1;",
+                                        (l2_fac_key, l2_fac_key_350)
+                                    )
+                                    p_row = cursor.fetchone()
+                                    raw_val = p_row.get("value") if isinstance(p_row, dict) else (p_row[0] if p_row else None)
+                                    if raw_val:
+                                        parsed = json.loads(raw_val)
+                                        if isinstance(parsed, dict) and "matches" in parsed and "matchups" in parsed:
+                                            self.set_cached(self._faction_details_cache_dict, cache_key, parsed, max_size=1500)
+                                            self.set_cached(self._faction_details_cache_dict, canon_cache_key, parsed, max_size=1500)
+                                            self.set_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, eff_limit), parsed, max_size=1500)
+                                            if parsed.get("faction") != faction_name or parsed.get("timeframe") != tf:
+                                                return {**parsed, "faction": faction_name, "timeframe": tf}
+                                            return parsed
+                                except Exception:
+                                    pass
 
-                            # 2. If matchups not in L1 memory yet, check L2 meta_intel_v2 cache on the same cursor (0ms vs full table scan)
+                            # 2. If matchups not in L1 memory yet, check L2 meta_intel_v4/v2 cache on the same cursor (0ms vs full table scan)
                             if not matchups and meta_p:
                                 try:
-                                    l2_meta_key = f"meta_intel_v2_{system}_preset_{meta_p}"
+                                    l2_meta_key_v4 = f"meta_intel_v4_{system}_{meta_p}"
+                                    l2_meta_key_v2 = f"meta_intel_v2_{system}_preset_{meta_p}"
                                     cursor.execute(
-                                        "SELECT value FROM system_settings WHERE key = %s LIMIT 1;",
-                                        (l2_meta_key,)
+                                        "SELECT value FROM system_settings WHERE key IN (%s, %s) ORDER BY updated_at DESC LIMIT 1;",
+                                        (l2_meta_key_v4, l2_meta_key_v2)
                                     )
                                     m_row = cursor.fetchone()
                                     m_val = m_row.get("value") if isinstance(m_row, dict) else (m_row[0] if m_row else None)
@@ -8627,9 +8703,8 @@ class PostgresDatabase:
                             top_players = self._query_faction_top_players(
                                 faction_name, system, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
                             )
-                        eff_limit = min(int(limit), 50) if not is_mock_self else limit
                         recent_matches = self._query_faction_recent_matches(
-                            faction_name, eff_limit, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
+                            faction_name, eff_limit, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor, search_query=clean_search or None
                         )
                         if not matchups or is_mock_self:
                             matchups = self._query_faction_matchups(
@@ -8660,14 +8735,15 @@ class PostgresDatabase:
             mu_total_losses = sum(int(m.get("losses") or 0) for m in matchups) if matchups else total_l
             mu_total_draws = sum(int(m.get("draws") or 0) for m in matchups) if matchups else total_d
 
-            total_faction_matches = int(meta_fac_info.get("total_matches") or mu_total_matches) if meta_fac_info else mu_total_matches
-            total_faction_wins = int(meta_fac_info.get("wins") or mu_total_wins) if meta_fac_info else mu_total_wins
-            total_faction_losses = int(meta_fac_info.get("losses") or mu_total_losses) if meta_fac_info else mu_total_losses
-            total_faction_draws = int(meta_fac_info.get("draws") or mu_total_draws) if meta_fac_info else mu_total_draws
-            faction_win_rate = float(meta_fac_info.get("win_rate")) if (meta_fac_info and meta_fac_info.get("win_rate") is not None) else (
+            use_meta_totals = bool(meta_fac_info and int(meta_fac_info.get("total_matches") or 0) >= mu_total_matches)
+            total_faction_matches = int(meta_fac_info.get("total_matches") or mu_total_matches) if use_meta_totals else mu_total_matches
+            total_faction_wins = int(meta_fac_info.get("wins") or mu_total_wins) if use_meta_totals else mu_total_wins
+            total_faction_losses = int(meta_fac_info.get("losses") or mu_total_losses) if use_meta_totals else mu_total_losses
+            total_faction_draws = int(meta_fac_info.get("draws") or mu_total_draws) if use_meta_totals else mu_total_draws
+            faction_win_rate = float(meta_fac_info.get("win_rate")) if (use_meta_totals and meta_fac_info.get("win_rate") is not None) else (
                 round((total_faction_wins * 100.0 / total_faction_matches), 1) if total_faction_matches > 0 else 0.0
             )
-            non_mirror_wr = float(meta_fac_info.get("non_mirror_win_rate")) if (meta_fac_info and meta_fac_info.get("non_mirror_win_rate") is not None) else (
+            non_mirror_wr = float(meta_fac_info.get("non_mirror_win_rate")) if (use_meta_totals and meta_fac_info.get("non_mirror_win_rate") is not None) else (
                 round((mu_total_wins * 100.0 / mu_total_matches), 1) if mu_total_matches > 0 else faction_win_rate
             )
 
@@ -8754,7 +8830,9 @@ class PostgresDatabase:
             }
             self.set_cached(self._faction_details_cache_dict, cache_key, res, max_size=1500)
             self.set_cached(self._faction_details_cache_dict, canon_cache_key, res, max_size=1500)
-            if not is_mock_self:
+            if not clean_search:
+                self.set_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, eff_limit), res, max_size=1500)
+            if not is_mock_self and not clean_search:
                 def _persist_l2_async(k_str: str, payload_obj: Dict[str, Any]):
                     try:
                         with self.get_connection() as c_bg:

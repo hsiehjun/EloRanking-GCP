@@ -802,7 +802,7 @@
         setTimeout(() => {
           const m = document.getElementById('gt-complete-modal');
           if (m) m.remove();
-          window.location.href = leagueId ? `/app.html#/40k/league/${encodeURIComponent(leagueId)}` : '/11th/tracker';
+          window.location.href = leagueId ? `/app.html#/40k/league/${encodeURIComponent(leagueId)}` : (clientState.isGuest && matchId ? `/scorecard/${encodeURIComponent(matchId)}` : '/11th/tracker');
         }, 700);
         return;
       }
@@ -814,7 +814,7 @@
     setTimeout(() => {
       const m = document.getElementById('gt-complete-modal');
       if (m) m.remove();
-      window.location.href = '/11th/tracker';
+      window.location.href = (clientState.isGuest && matchId) ? `/scorecard/${encodeURIComponent(matchId)}` : '/11th/tracker';
     }, 600);
   };
 
@@ -1558,7 +1558,7 @@
           }
           if (!chk.ok || !chkData.exists) {
             alert(`❌ Room Key "${matchId}" does not exist or has expired.`);
-            window.location.href = '/11th/tracker';
+            window.location.href = clientState.isGuest ? '/' : '/11th/tracker';
             return;
           }
         } catch (e) {}
@@ -5198,7 +5198,8 @@ Space Marines - Gladius Task Force (2000 pts)
       round_remaining: times.round,
       duration_minutes: chessClock.durationMinutes || 75,
       last_start_time: chessClock.running ? chessClock.lastStartTime : null,
-      updated_at: chessClock.updatedAt
+      updated_at: chessClock.updatedAt,
+      guest_id: getOrCreateGuestId()
     };
     if (typeof firebase !== 'undefined' && firebase.firestore) {
       try {
@@ -5211,7 +5212,11 @@ Space Marines - Gladius Task Force (2000 pts)
     }
     fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/clock`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getAuthToken()}`,
+        'X-Guest-Id': getOrCreateGuestId()
+      },
       body: JSON.stringify(payload)
     }).catch(() => {});
   }
@@ -5357,10 +5362,12 @@ Space Marines - Gladius Task Force (2000 pts)
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getAuthToken()}`
+          'Authorization': `Bearer ${getAuthToken()}`,
+          'X-Guest-Id': getOrCreateGuestId()
         },
         body: JSON.stringify({
           client_id: clientState.clientId,
+          guest_id: getOrCreateGuestId(),
           tray: diceRollerState.p1.tray,
           trays: traysPayload,
           target: 0,
@@ -6161,9 +6168,10 @@ Space Marines - Gladius Task Force (2000 pts)
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getAuthToken()}`
+        'Authorization': `Bearer ${getAuthToken()}`,
+        'X-Guest-Id': getOrCreateGuestId()
       },
-      body: JSON.stringify(rollData)
+      body: JSON.stringify(Object.assign({}, rollData, { guest_id: getOrCreateGuestId() }))
     }).catch(() => {});
   }
 

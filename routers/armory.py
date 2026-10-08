@@ -819,6 +819,14 @@ def get_armory_transactions(request: Request):
     except Exception:
         return {"success": True, "debits": [], "credits": [], "summary": {}}
 
+    has_roster_param = str(request.query_params.get("has_roster") or "").strip().lower() in ("1", "true", "yes")
+    if has_roster_param and user_id:
+        try:
+            from newrecruit_integration import mark_user_has_saved_roster
+            mark_user_has_saved_roster(str(user_id))
+        except Exception:
+            pass
+
     vault = _get_or_init_vault(user_data)
     glory_state = _calculate_user_glory_state(auth_mgr, user_data)
 
@@ -873,6 +881,17 @@ def get_armory_transactions(request: Request):
             "date": acquired or ""
         })
 
+    actual_debits_sum = sum(int(d.get("cost") or 0) for d in debits)
+    ledger_svc = glory_ledger_service.get_glory_ledger_service()
+    audit_report = ledger_svc.audit_user_wallet(
+        user_id=str(user_id),
+        evaluated_earned_glory=int(glory_state.get("earned_glory_total") or 0),
+        actual_armory_spent=actual_debits_sum
+    )
+    ledger_entries = ledger_svc.get_user_ledger_history(user_id=str(user_id), limit=200)
+    breakdown = audit_report.get("breakdown") or {}
+    earned_bucket = int(breakdown.get("earned_glory_total", glory_state.get("earned_glory_total", 0)))
+
     credits = []
     target_pid = user_data.get("player_id")
     if auth_mgr and (target_pid or user_id):
@@ -889,6 +908,50 @@ def get_armory_transactions(request: Request):
                     "amount": int(c.get("glory_bonus") or 0),
                     "date": str(c.get("event_date") or "")
                 })
+
+            seasonal_dict = hub.get("seasonal") or {}
+            if isinstance(seasonal_dict, dict):
+                # Reconcile Roster In the Vault '26 if earned_bucket or has_roster indicates it was unlocked
+                s2026 = seasonal_dict.get("2026") if "2026" in seasonal_dict else (seasonal_dict if "badges" in seasonal_dict else None)
+                if isinstance(s2026, dict) and isinstance(s2026.get("badges"), list):
+                    s_badges = s2026["badges"]
+                    roster_badge = next((sb for sb in s_badges if isinstance(sb, dict) and "roster_in_vault" in str(sb.get("id") or "")), None)
+                    if roster_badge and not roster_badge.get("unlocked"):
+                        cur_career_and_aos = int(hub.get("career_glory") or 0) + int(hub.get("glory_aos") or 0)
+                        cur_seasonal = sum(int(sb.get("glory_points") or sb.get("glory") or 0) for sb in s_badges if isinstance(sb, dict) and sb.get("unlocked"))
+                        diff_to_earned = earned_bucket - (cur_career_and_aos + cur_seasonal)
+                        if has_roster_param or diff_to_earned in (25, 525):
+                            roster_badge["unlocked"] = True
+                            roster_badge["provenance"] = roster_badge.get("provenance") or "Saved battle roster in NewRecruit Studio"
+                            roster_badge["unlocked_at"] = roster_badge.get("unlocked_at") or "2026"
+                            non_cap_unlocked = sum(1 for sb in s_badges if isinstance(sb, dict) and sb.get("unlocked") and sb.get("category") != "capstone")
+                            cap_badge = next((sb for sb in s_badges if isinstance(sb, dict) and sb.get("category") == "capstone"), None)
+                            if cap_badge and not cap_badge.get("unlocked") and non_cap_unlocked >= 15:
+                                cap_badge["unlocked"] = True
+                                cap_badge["provenance"] = f"Claimed {non_cap_unlocked} Season 2026 Honors; Pinnacle Warmaster Attained"
+                                cap_badge["unlocked_at"] = "2026"
+
+                for s_key, s_val in seasonal_dict.items():
+                    s_list = s_val.get("badges", []) if isinstance(s_val, dict) else (s_val if isinstance(s_val, list) else [])
+                    if not isinstance(s_list, list):
+                        continue
+                    season_label = str(s_key) if str(s_key).isdigit() else "2026"
+                    for sb in s_list:
+                        if not isinstance(sb, dict):
+                            continue
+                        sb_glory = int(sb.get("glory_points") or sb.get("glory") or sb.get("glory_bounty") or 0)
+                        if sb.get("unlocked") and sb_glory > 0:
+                            sb_icon = sb.get("icon") or "🏆"
+                            sb_tier = sb.get("tier_name") or f"Season {season_label} • {str(sb.get('rarity_label') or sb.get('rarity') or 'Honor').title()}"
+                            credits.append({
+                                "id": f"seasonal_{sb.get('id')}",
+                                "type": "credit",
+                                "category": f"Season {season_label} Trophy",
+                                "name": f"{sb_icon} {sb.get('name')}",
+                                "detail": f"{sb_tier} • {sb.get('provenance') or sb.get('description') or ''}",
+                                "amount": sb_glory,
+                                "date": str(sb.get("unlocked_at") or season_label)
+                            })
 
             badges_list = hub.get("badges", [])
             for b in badges_list:
@@ -916,15 +979,6 @@ def get_armory_transactions(request: Request):
                 })
         except Exception as he:
             logger.debug(f"Notice building glory credits: {he}")
-
-    actual_debits_sum = sum(int(d.get("cost") or 0) for d in debits)
-    ledger_svc = glory_ledger_service.get_glory_ledger_service()
-    audit_report = ledger_svc.audit_user_wallet(
-        user_id=str(user_id),
-        evaluated_earned_glory=int(glory_state.get("earned_glory_total") or 0),
-        actual_armory_spent=actual_debits_sum
-    )
-    ledger_entries = ledger_svc.get_user_ledger_history(user_id=str(user_id), limit=200)
 
     # Merge any non-badge ledger credits (Fiat Top-Ups, TO/Admin Grants, Pioneer Armory Grants, Refunds) into credits
     # and any non-Armory ledger debits (Event Registration Fees, League Registration Fees, Model Purchases) into debits
@@ -983,13 +1037,16 @@ def get_armory_transactions(request: Request):
                 "date": str(entry.get("created_at") or "")
             })
 
-    breakdown = audit_report.get("breakdown") or {}
-    earned_bucket = int(breakdown.get("earned_glory_total", glory_state.get("earned_glory_total", 0)))
     purchased_bucket = int(breakdown.get("purchased_glory_total", glory_state.get("purchased_glory_total", 0)))
     granted_bucket = int(breakdown.get("granted_glory_total", glory_state.get("granted_glory_total", 0)))
     total_spent = int(breakdown.get("spent_glory_total", max(int(glory_state.get("glory_spent", 0)), actual_debits_sum)))
     total_credits = earned_bucket + purchased_bucket + granted_bucket
     spendable = int(audit_report.get("verified_balance", glory_state.get("spendable_glory", max(0, total_credits - total_spent))))
+
+    g_aos_val = int(glory_state.get("glory_aos", 0))
+    g_40k_val = int(glory_state.get("glory_40k", 0))
+    if earned_bucket > (g_40k_val + g_aos_val):
+        g_40k_val = max(g_40k_val, earned_bucket - g_aos_val)
 
     return {
         "success": True,
@@ -1002,8 +1059,8 @@ def get_armory_transactions(request: Request):
             "total_spent": total_spent,
             "refunded_glory_total": int(breakdown.get("refunded_glory_total", glory_state.get("refunded_glory_total", 0))),
             "spendable_glory": spendable,
-            "glory_40k": int(glory_state.get("glory_40k", 0)),
-            "glory_aos": int(glory_state.get("glory_aos", 0)),
+            "glory_40k": g_40k_val,
+            "glory_aos": g_aos_val,
             "is_balanced": bool(audit_report.get("is_valid", True)) and ((total_credits - total_spent) == spendable),
             "audit_id": audit_report.get("audit_id"),
             "audit_status": audit_report.get("status", "VERIFIED_INTACT"),

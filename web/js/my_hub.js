@@ -3363,6 +3363,7 @@ async function loadHubArmyLists() {
 
 function reconcileHubRosterVaultBadge(lists) {
   if (!Array.isArray(lists) || lists.length === 0) return;
+  window.hasSavedRosterInVault = true;
   const targets = [typeof myHubData !== 'undefined' ? myHubData : null, window.currentHubData].filter(Boolean);
   let didUnlock = false;
   targets.forEach(data => {
@@ -3377,19 +3378,48 @@ function reconcileHubRosterVaultBadge(lists) {
         b.description = 'Save at least 1 army roster in NewRecruit Studio or submit a tournament roster.';
         b.progress = { current: 1, target: 1, unit: 'rosters' };
         b.provenance = 'Saved battle roster in NewRecruit Studio';
+        b.unlocked_at = b.unlocked_at || '2026';
         if (!b.unlocked) {
           b.unlocked = true;
           didUnlock = true;
-          const gloryAdd = Number(b.glory || 25);
+          let gloryAdd = Number(b.glory_points || b.glory || 25);
           if (isSeasonal) {
-            container.unlocked_count = Number(container.unlocked_count || 0) + 1;
-            container.total_glory = Number(container.total_glory || 0) + gloryAdd;
-            if (container.total_badges) {
-              container.completion_pct = Math.round((container.unlocked_count / container.total_badges) * 100);
+            const curCount = Number(container.badge_count != null ? container.badge_count : (container.unlocked_count || 0)) + 1;
+            container.badge_count = curCount;
+            container.unlocked_count = curCount;
+            const nonCapCount = badges.filter(sb => sb && sb.unlocked && sb.category !== 'capstone').length;
+            const capBadge = badges.find(sb => sb && sb.category === 'capstone');
+            if (capBadge && !capBadge.unlocked && nonCapCount >= 15) {
+              capBadge.unlocked = true;
+              capBadge.unlocked_at = '2026';
+              capBadge.provenance = `Claimed ${nonCapCount} Season 2026 Honors; Pinnacle Warmaster Attained`;
+              container.capstone_unlocked = true;
+              container.badge_count = curCount + 1;
+              container.unlocked_count = curCount + 1;
+              gloryAdd += Number(capBadge.glory_points || capBadge.glory || 500);
             }
+            const curSGlory = Number(container.glory_score != null ? container.glory_score : (container.total_glory || 0)) + gloryAdd;
+            container.glory_score = curSGlory;
+            container.total_glory = curSGlory;
+            if (container.total_badges) {
+              container.completion_pct = Math.round((container.badge_count / container.total_badges) * 100);
+            }
+            data.seasonal_glory = Number(data.seasonal_glory || 0) + gloryAdd;
           } else {
             container.badge_count = Number(container.badge_count || 0) + 1;
           }
+          data.glory_score = Number(data.glory_score || 0) + gloryAdd;
+          const isAosSys = String((data.player && data.player.game_system) || '40k').toLowerCase() === 'aos';
+          if (isAosSys) {
+            data.glory_aos = Number(data.glory_aos || 0) + gloryAdd;
+          } else {
+            data.glory_40k = Number(data.glory_40k || 0) + gloryAdd;
+          }
+          if (data.unified_glory != null) data.unified_glory = Number(data.unified_glory) + gloryAdd;
+          if (data.total_earned != null) data.total_earned = Number(data.total_earned) + gloryAdd;
+          if (data.total_glory != null) data.total_glory = Number(data.total_glory) + gloryAdd;
+          if (data.spendable_glory != null) data.spendable_glory = Number(data.spendable_glory) + gloryAdd;
+          if (data.glory_balance != null) data.glory_balance = Number(data.glory_balance) + gloryAdd;
         }
       });
     });

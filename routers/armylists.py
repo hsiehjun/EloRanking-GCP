@@ -138,7 +138,7 @@ async def api_post_nr_refresh_bundle(force_books: bool = False):
 
 @router.get("/api/armylists", summary="Get army lists for current user directly from NewRecruit Cloud (if connected)")
 async def api_get_armylists(request: Request, game_system: Optional[str] = Query(None)):
-    from newrecruit_integration import fetch_nr_cloud_lists_for_user
+    from newrecruit_integration import fetch_nr_cloud_lists_for_user, mark_user_has_saved_roster
     user_id = _resolve_user_id(request)
     explicit_access = request.headers.get("X-NR-Access")
     lists = await asyncio.to_thread(
@@ -152,6 +152,8 @@ async def api_get_armylists(request: Request, game_system: Optional[str] = Query
         parser._finalize_roster_compatibility(dict(item)) if isinstance(item, dict) else item
         for item in (lists or [])
     ]
+    if enriched:
+        mark_user_has_saved_roster(user_id or "default")
     return {"success": True, "army_lists": enriched, "source": "newrecruit"}
 
 def _normalize_in_memory_army_list(list_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -248,11 +250,15 @@ def _clear_deleted_list_from_tracker_rooms(list_id: str) -> bool:
 
 @router.post("/api/armylists", summary="Normalize army list in-memory (no backend DB storage)")
 async def api_save_armylist(request: Request):
+    from newrecruit_integration import mark_user_has_saved_roster
     try:
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
+    user_id = _resolve_user_id(request)
     saved = _propagate_saved_list_to_tracker_rooms(body)
+    if saved:
+        mark_user_has_saved_roster(user_id or "default")
     return {"success": True, "army_list": saved}
 
 @router.get("/api/armylists/nr_state", summary="Get NewRecruit cloud connection status (never injects backend DB lists)")
@@ -270,12 +276,14 @@ async def api_post_nr_sync(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    user_id = _resolve_user_id(request)
     return await asyncio.to_thread(
         process_nr_sync_payload,
         body,
         _propagate_saved_list_to_tracker_rooms,
         _clear_deleted_list_from_tracker_rooms,
         lambda: [],
+        user_id or "default",
     )
 
 

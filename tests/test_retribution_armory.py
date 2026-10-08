@@ -414,6 +414,86 @@ class TestRetributionArmory(unittest.TestCase):
         self.assertTrue(items_by_id["title_major_conqueror"]["is_owned"])
         self.assertTrue(items_by_id["frame_champion_laurel"]["is_owned"])
 
+    def test_seasonal_trophies_and_roster_in_vault_in_armory_transactions(self):
+        """Verifies Season 2026 Trophies (including Roster In the Vault '26 +25 Glory) appear in the Armory audit log in < 1s."""
+        import asyncio
+        import time
+        from unittest.mock import patch, MagicMock
+        import seasonal_badges
+        from routers import armory
+
+        # 1. Verify seasonal_badges unlocks Roster In the Vault '26 via has_saved_roster and populates glory_points=25
+        seasonal_res = seasonal_badges.evaluate_player_seasonal_badges(
+            player_data={"player_id": "p_vault", "has_saved_roster": True},
+            season="2026",
+            game_system="40k"
+        )
+        roster_badge = next(
+            (b for b in seasonal_res["badges"] if b["id"] == "s26_40k_roster_in_vault"),
+            None
+        )
+        self.assertIsNotNone(roster_badge)
+        self.assertTrue(roster_badge["unlocked"])
+        self.assertEqual(roster_badge["glory"], 25)
+        self.assertEqual(roster_badge["glory_points"], 25)
+        self.assertEqual(seasonal_res["glory_score"], 25)
+
+        # 2. Verify /api/armory/transactions includes Season 2026 Trophies in credits and executes in < 1s
+        fake_hub = {
+            "badges": [
+                {
+                    "id": "first_blood",
+                    "name": "First Blood",
+                    "icon": "🩸",
+                    "category": "milestone",
+                    "unlocked": True,
+                    "glory_points": 50,
+                    "tier_name": "Bronze",
+                    "unlocked_at": "2026-01-10"
+                }
+            ],
+            "seasonal": seasonal_res,
+            "championships": {"events": [], "total": 0, "championship_glory": 0},
+            "glory_40k": 75,
+            "glory_aos": 110,
+            "unified_glory": 185
+        }
+        fake_req = MagicMock()
+        fake_req.headers = {}
+        fake_req.query_params = {"has_roster": "1"}
+
+        mock_auth = MagicMock()
+        mock_auth.db = None
+        mock_auth.get_user_by_id.return_value = {"id": "u_vault_test", "linked_player_id": "p_vault"}
+        mock_auth.get_user_competitor_hub.side_effect = lambda user_id=None, player_id=None, game_system="40k", **kw: (
+            fake_hub if game_system == "40k" else {"badges": [], "seasonal": {"badges": []}, "championships": {"events": []}}
+        )
+
+        fake_glory_state = {
+            "total_earned": 185,
+            "total_spent": 0,
+            "spendable_glory": 185,
+            "glory_40k": 75,
+            "glory_aos": 110
+        }
+
+        with patch.object(armory, "_get_user_session_or_401", return_value={"user_id": "u_vault_test"}), \
+             patch.object(armory, "get_auth_manager", return_value=mock_auth), \
+             patch.object(armory, "_calculate_user_glory_state", return_value=fake_glory_state):
+            t0 = time.perf_counter()
+            res = armory.get_armory_transactions(fake_req)
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+        self.assertLess(elapsed_ms, 1000.0, f"Armory transactions took {elapsed_ms:.2f}ms (must be < 1000ms)")
+        self.assertTrue(res["success"])
+        credits = res["credits"]
+        roster_credit = next((c for c in credits if c["id"] == "seasonal_s26_40k_roster_in_vault"), None)
+        self.assertIsNotNone(roster_credit, "Roster In the Vault '26 must appear in Armory transaction credits")
+        self.assertIn("Roster In the Vault '26", roster_credit["name"])
+        self.assertEqual(roster_credit["amount"], 25)
+        self.assertEqual(roster_credit["category"], "Season 2026 Trophy")
+
 
 if __name__ == "__main__":
     unittest.main()
+

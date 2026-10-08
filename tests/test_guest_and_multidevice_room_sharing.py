@@ -293,6 +293,235 @@ class TestGuestAndMultiDeviceRoomSharing(unittest.TestCase):
         self.assertIn("applyLiveScorecardStatePatch", scorecard_html)
         print("✓ test_frontend_guest_bypass_and_share_modal_wired passed")
 
+    def test_server_html_guest_access_on_shared_match_id_and_sso_on_lobby(self):
+        """Verify server.py serves play.html/aos.html to unauthenticated Guest P2 ONLY when a valid shared match_id is in the URL, and enforces /login on Lobby or bare /play."""
+        import server
+        from types import SimpleNamespace
+
+        def make_server_req(query_dict=None, query_str=""):
+            req = DummyRequest(query_params=query_dict or {})
+            req.url = SimpleNamespace(query=query_str)
+            return req
+
+        with patch.object(server, "_get_request_user", return_value=None):
+            # 1. Shared 40k match URL in Incognito (no user session) -> 200 HTMLResponse (NOT redirected to /login!)
+            resp_play = asyncio.run(
+                server.serve_tracker_html(
+                    "11th/tracker/play",
+                    make_server_req({"match_id": "WH40K-54E7-04BE"}, "match_id=WH40K-54E7-04BE"),
+                )
+            )
+            self.assertEqual(resp_play.status_code, 200)
+
+            # 2. Shared AoS match URL in Incognito -> 200 HTMLResponse
+            resp_aos = asyncio.run(
+                server.serve_tracker_html(
+                    "11th/tracker/aos",
+                    make_server_req({"match_id": "AOS-54E7-04BE"}, "match_id=AOS-54E7-04BE"),
+                )
+            )
+            self.assertEqual(resp_aos.status_code, 200)
+
+            def _redirect_loc(r):
+                return getattr(r, "url", None) or (r.headers.get("location", "") if hasattr(r, "headers") else "")
+
+            # 3. /tracker?match_id=WH40K-54E7-04BE alias in Incognito -> 303 redirect to /11th/tracker/play?match_id=WH40K-54E7-04BE
+            resp_alias = server.serve_tracker_alias(
+                make_server_req({"match_id": "WH40K-54E7-04BE"}, "match_id=WH40K-54E7-04BE"),
+                token=None,
+            )
+            self.assertEqual(resp_alias.status_code, 303)
+            self.assertEqual(_redirect_loc(resp_alias), "/11th/tracker/play?match_id=WH40K-54E7-04BE")
+
+            # 4. Unauthenticated access to Tracker Lobby (/11th/tracker) -> MUST redirect to /login!
+            resp_lobby = asyncio.run(
+                server.serve_tracker_html("11th/tracker", make_server_req({}, ""))
+            )
+            self.assertEqual(resp_lobby.status_code, 303)
+            self.assertTrue(_redirect_loc(resp_lobby).startswith("/login?redirect="))
+
+            # 5. Unauthenticated access to bare /11th/tracker/play (no match_id) -> MUST redirect to /login!
+            resp_bare_play = asyncio.run(
+                server.serve_tracker_html("11th/tracker/play", make_server_req({}, ""))
+            )
+            self.assertEqual(resp_bare_play.status_code, 303)
+            self.assertTrue(_redirect_loc(resp_bare_play).startswith("/login?redirect="))
+
+            # 6. Malformed/injected match_id -> rejected by _has_valid_shared_match_params and redirected to /login
+            resp_bad_mid = asyncio.run(
+                server.serve_tracker_html(
+                    "11th/tracker/play",
+                    make_server_req({"match_id": "../../etc/passwd"}, "match_id=../../etc/passwd"),
+                )
+            )
+            self.assertEqual(resp_bad_mid.status_code, 303)
+            self.assertTrue(_redirect_loc(resp_bad_mid).startswith("/login?redirect="))
+
+        print("✓ test_server_html_guest_access_on_shared_match_id_and_sso_on_lobby passed")
+
+    @patch("core.get_auth_manager")
+    @patch("routers.tracker.get_auth_manager")
+    def test_guest_endpoint_security_and_anti_spoofing(self, mock_get_auth, mock_core_auth):
+        """Verify guest endpoints reject user_id spoofing, prevent P1 seat/list overwrite, block 3rd-party writes, and gate debug endpoints."""
+        from core import HTTPException
+        from routers.tracker import (
+            _extract_guest_id,
+            api_tracker_attach_armylist,
+            api_tracker_debug_test_save,
+            api_tracker_firestore_inspect,
+            api_tracker_roll_dice,
+            api_tracker_sync_dice_tray,
+            api_tracker_update_clock,
+        )
+
+        mock_get_auth.return_value = self._make_mock_auth_mgr()
+        mock_core_auth.return_value = self._make_mock_auth_mgr()
+
+        # 1. _extract_guest_id MUST reject non-guest_ strings (prevents spoofing real user IDs like 'user_p1_account')
+        spoof_req = DummyRequest(
+            headers={"X-Guest-Id": "user_p1_account"},
+            query_params={"guest_id": "user_p1_account"},
+        )
+        self.assertIsNone(_extract_guest_id(spoof_req))
+        valid_req = DummyRequest(headers={"X-Guest-Id": "guest_valid_abc123"})
+        self.assertEqual(_extract_guest_id(valid_req), "guest_valid_abc123")
+
+        # 2. P1 creates room, Guest P2 joins
+        req_p1 = DummyRequest(headers={"Authorization": "Bearer token_p1"})
+        create_data = asyncio.run(
+            api_tracker_create_room(
+                req_p1,
+                TrackerCreatePayload(token="token_p1", p1_name="Commander Alpha"),
+            )
+        )
+        match_id = create_data["match_id"]
+
+        guest_p2_id = "guest_p2_legit_999"
+        req_guest_p2 = DummyRequest(headers={"X-Guest-Id": guest_p2_id})
+        join_p2 = asyncio.run(
+            api_tracker_join_room(
+                match_id,
+                req_guest_p2,
+                TrackerJoinPayload(guest_id=guest_p2_id, player_name="Guest Opponent"),
+            )
+        )
+        self.assertEqual(join_p2["role"], "player2")
+
+        # 3. Attacker tries to spoof P1's user_id via X-Guest-Id after both seats are claimed -> gets spectator, and 403 on state save!
+        chk_spoof = asyncio.run(api_tracker_check_room(match_id, spoof_req))
+        self.assertEqual(chk_spoof["role"], "spectator")
+        self.assertTrue(chk_spoof["is_spectator"])
+
+        with self.assertRaises(HTTPException) as ctx_state:
+            asyncio.run(
+                api_tracker_save_state(
+                    match_id,
+                    TrackerStatePayload(
+                        match_id=match_id,
+                        role="editor",  # Even if attacker sends role='editor'
+                        version=99,
+                        state={"p1": {"score": 99}},
+                        guest_id="user_p1_account",
+                    ),
+                    spoof_req,
+                )
+            )
+        self.assertEqual(ctx_state.exception.status_code, 403)
+
+        # 4. Guest P2 tries to overwrite room['user_id_p1'] inside state payload -> server preserves true user_id_p1!
+        tamper_res = asyncio.run(
+            api_tracker_save_state(
+                match_id,
+                TrackerStatePayload(
+                    match_id=match_id,
+                    role="player2",
+                    version=10,
+                    state={"user_id_p1": guest_p2_id, "user_id_p2": guest_p2_id, "p2": {"score": 25}},
+                    guest_id=guest_p2_id,
+                ),
+                req_guest_p2,
+            )
+        )
+        self.assertTrue(tamper_res["success"])
+        self.assertEqual(TRACKER_ROOMS[match_id]["user_id_p1"], "user_p1_account")
+        self.assertEqual(TRACKER_ROOMS[match_id]["state"]["user_id_p1"], "user_p1_account")
+
+        # 5. Guest P2 CAN update clock, dice tray, dice roll, and P2 army list, but CANNOT overwrite P1's army list
+        def make_json_req(body_dict, headers=None):
+            r = DummyRequest(headers=headers or {})
+            async def _json():
+                return body_dict
+            r.json = _json
+            return r
+
+        clock_res = asyncio.run(
+            api_tracker_update_clock(
+                match_id,
+                make_json_req({"running": True, "active_player": 2, "guest_id": guest_p2_id}, {"X-Guest-Id": guest_p2_id}),
+            )
+        )
+        self.assertTrue(clock_res["success"])
+
+        tray_res = asyncio.run(
+            api_tracker_sync_dice_tray(
+                match_id,
+                make_json_req({"tray": [{"id": 1, "val": 6, "rolled": True}], "guest_id": guest_p2_id}, {"X-Guest-Id": guest_p2_id}),
+            )
+        )
+        self.assertTrue(tray_res["success"])
+
+        roll_res = asyncio.run(
+            api_tracker_roll_dice(
+                match_id,
+                make_json_req({"player_num": 2, "dice_count": 5, "results": [6, 5, 4, 3, 2], "guest_id": guest_p2_id}, {"X-Guest-Id": guest_p2_id}),
+            )
+        )
+        self.assertTrue(roll_res["success"])
+
+        # Guest P2 attaches P2 army list -> allowed
+        p2_list_res = asyncio.run(
+            api_tracker_attach_armylist(
+                match_id,
+                make_json_req({"role": "player2", "army_list": {"faction": "Necrons"}, "guest_id": guest_p2_id}, {"X-Guest-Id": guest_p2_id}),
+            )
+        )
+        self.assertTrue(p2_list_res["success"])
+
+        # Guest P2 attempts to overwrite P1 army list -> 403 Forbidden!
+        with self.assertRaises(HTTPException) as ctx_list:
+            asyncio.run(
+                api_tracker_attach_armylist(
+                    match_id,
+                    make_json_req({"role": "player1", "army_list": {"faction": "Hacked"}, "guest_id": guest_p2_id}, {"X-Guest-Id": guest_p2_id}),
+                )
+            )
+        self.assertEqual(ctx_list.exception.status_code, 403)
+
+        # 3rd-party guest attempts to modify clock or dice -> 403 Forbidden!
+        third_guest = "guest_outsider_777"
+        with self.assertRaises(HTTPException):
+            asyncio.run(
+                api_tracker_update_clock(
+                    match_id,
+                    make_json_req({"running": False, "guest_id": third_guest}, {"X-Guest-Id": third_guest}),
+                )
+            )
+        with self.assertRaises(HTTPException):
+            asyncio.run(
+                api_tracker_sync_dice_tray(
+                    match_id,
+                    make_json_req({"tray": [], "guest_id": third_guest}, {"X-Guest-Id": third_guest}),
+                )
+            )
+
+        # 6. Debug endpoints reject unauthenticated callers
+        with self.assertRaises(HTTPException):
+            api_tracker_debug_test_save(DummyRequest())
+        with self.assertRaises(HTTPException):
+            api_tracker_firestore_inspect(match_id, DummyRequest())
+
+        print("✓ test_guest_endpoint_security_and_anti_spoofing passed")
+
 
 if __name__ == "__main__":
     unittest.main()

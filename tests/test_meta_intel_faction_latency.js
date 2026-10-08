@@ -180,7 +180,7 @@ async function runMetaIntelFactionLatencyTests() {
 
     const modalDataRendered = await client.eval(`
       (function() {
-        const subtabs = document.querySelectorAll('#faction-modal .faction-modal-subtabs');
+        const subtabs = document.querySelectorAll('#faction-modal .faction-modal-subtabs .fmodal-tab-btn');
         const kpiCards = document.querySelectorAll('#faction-modal-kpis .fmodal-kpi-card');
         const matchRows = document.querySelectorAll('#faction-matches-body tr:not(.skeleton-row)');
         const matchupRows = document.querySelectorAll('#faction-matchups-body tr:not(.skeleton-row)');
@@ -190,7 +190,7 @@ async function runMetaIntelFactionLatencyTests() {
         const muCount = document.getElementById('faction-tab-matchups-count');
         const tierBadge = document.getElementById('modal-faction-tier-badge');
         return {
-          legacySubtabsCount: subtabs.length,
+          tabButtonsCount: subtabs.length,
           kpiCardsCount: kpiCards.length,
           matchesCount: matchRows.length,
           matchupsCount: matchupRows.length,
@@ -205,33 +205,48 @@ async function runMetaIntelFactionLatencyTests() {
       })()
     `);
     console.log(`  ✓ Unified Faction Modal state:`, modalDataRendered);
-    if (modalDataRendered.legacySubtabsCount !== 0) {
-      throw new Error('Legacy faction-modal-subtabs should be removed!');
+    if (modalDataRendered.tabButtonsCount !== 2) {
+      throw new Error(`Expected 2 top-level faction modal tabs, got ${modalDataRendered.tabButtonsCount}`);
     }
     if (modalDataRendered.kpiCardsCount !== 4) {
       throw new Error(`Expected 4 KPI cards, got ${modalDataRendered.kpiCardsCount}`);
     }
-    if (!modalDataRendered.matchupsVisible || !modalDataRendered.matchesVisible) {
-      throw new Error('Both Matchups and Recent Games sections must be visible in unified view!');
+    if (!modalDataRendered.matchupsVisible || modalDataRendered.matchesVisible) {
+      throw new Error('Matchups tab should be visible initially and Recent Games tab should be hidden until clicked!');
     }
     if (modalDataRendered.matchesCount === 0 || modalDataRendered.matchupsCount === 0) {
       throw new Error('Faction matchups or matches failed to render inside modal!');
     }
     await takeScreenshot(client, 'revamped_faction_modal_desktop.png', { width: 1440, height: 950 });
 
-    // Scroll to Recent Tournament Games section and capture screenshot
-    await client.eval(`
+    // Switch to Recent Tournament Games tab and capture screenshot
+    await client.eval(`switchFactionModalTab('matches');`);
+    await sleep(250);
+    const matchesTabState = await client.eval(`
       (function() {
-        const el = document.getElementById('faction-view-matches');
-        if (el) el.scrollIntoView({ behavior: 'instant', block: 'start' });
+        const muView = document.getElementById('faction-view-matchups');
+        const mView = document.getElementById('faction-view-matches');
+        const bodyText = document.getElementById('faction-matches-body') ? document.getElementById('faction-matches-body').innerText : '';
+        return {
+          matchupsVisible: muView ? getComputedStyle(muView).display !== 'none' : false,
+          matchesVisible: mView ? getComputedStyle(mView).display !== 'none' : false,
+          hasLvo2026: bodyText.toLowerCase().includes('lvo 2026')
+        };
       })()
     `);
-    await sleep(300);
+    console.log(`  ✓ Switched to Recent Tournament Games tab:`, matchesTabState);
+    if (matchesTabState.matchupsVisible || !matchesTabState.matchesVisible) {
+      throw new Error('Clicking Recent Tournament Games tab failed to switch views!');
+    }
+    if (!matchesTabState.hasLvo2026) {
+      throw new Error('Recent Tournament Games tab should include LVO 2026 matches!');
+    }
     await takeScreenshot(client, 'revamped_faction_modal_desktop_games.png', { width: 1440, height: 950 });
 
-    // Scroll back to top and capture Mobile screenshot (390x844)
+    // Switch back to Matchups tab, scroll back to top and capture Mobile screenshot (390x844)
     await client.eval(`
       (function() {
+        switchFactionModalTab('matchups');
         const body = document.querySelector('#faction-modal .modal-body');
         if (body) body.scrollTop = 0;
       })()
@@ -248,18 +263,45 @@ async function runMetaIntelFactionLatencyTests() {
     await sleep(250);
 
     // ------------------------------------------------------------------
-    // TEST 3: Interactive Matchup & Match Filter Pills
+    // TEST 3: Interactive Matchup & Match Filter Pills + LVO Search
     // ------------------------------------------------------------------
-    console.log('\n[Test 3] Testing Interactive Matchup Verdict & Match Outcome Filters...');
+    console.log('\n[Test 3] Testing Interactive Matchup Verdict, Match Outcome Filters & LVO Search...');
     await client.eval(`setFactionModalMatchupFilter('FAVORED');`);
     const favoredCount = await client.eval(`document.querySelectorAll('#faction-matchups-body tr').length;`);
     console.log(`  ✓ Favored matchups filtered rows: ${favoredCount}`);
     await client.eval(`setFactionModalMatchupFilter('ALL');`);
 
+    await client.eval(`switchFactionModalTab('matches');`);
     await client.eval(`setFactionModalMatchOutcomeFilter('W');`);
     const winsCount = await client.eval(`document.querySelectorAll('#faction-matches-body tr').length;`);
     console.log(`  ✓ Victory matches filtered rows: ${winsCount}`);
     await client.eval(`setFactionModalMatchOutcomeFilter('ALL');`);
+
+    await client.eval(`
+      (function() {
+        const searchEl = document.getElementById('fmodal-matches-search');
+        if (searchEl) {
+          searchEl.value = 'lvo';
+          onFactionModalMatchControlChange();
+        }
+      })()
+    `);
+    await sleep(300);
+    const lvoFilteredCount = await client.eval(`document.querySelectorAll('#faction-matches-body tr').length;`);
+    console.log(`  ✓ LVO search filtered rows: ${lvoFilteredCount}`);
+    if (lvoFilteredCount === 0) {
+      throw new Error('Searching "lvo" in Recent Tournament Games returned 0 rows!');
+    }
+    await client.eval(`
+      (function() {
+        const searchEl = document.getElementById('fmodal-matches-search');
+        if (searchEl) {
+          searchEl.value = '';
+          onFactionModalMatchControlChange();
+        }
+        switchFactionModalTab('matchups');
+      })()
+    `);
 
     // ------------------------------------------------------------------
     // TEST 4: Timeframe Switching (6mo, 1yr, all)

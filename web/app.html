@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=ebd73e921c">
+  <link rel="manifest" href="/manifest.json?v=10eaaf3253">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=ebd73e921c">
-  <link rel="stylesheet" href="/css/styles.min.css?v=ebd73e921c">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=ebd73e921c">
-  <link rel="preload" href="/js/app.bundle.min.js?v=ebd73e921c" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=10eaaf3253">
+  <link rel="stylesheet" href="/css/styles.min.css?v=10eaaf3253">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=10eaaf3253">
+  <link rel="preload" href="/js/app.bundle.min.js?v=10eaaf3253" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "ebd73e921c";</script>
+  <script>window.APP_VERSION = "10eaaf3253";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -1407,25 +1407,25 @@
             <label style="font-weight: 600; font-size: 0.82rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 1</label>
             <div class="search-input-group" style="max-width: 100%;">
               <span class="search-icon">🔍</span>
-              <input type="text" id="p1-name-input" class="search-input" placeholder="Type player name (e.g. Jack Murphy)..." oninput="searchPlayerAc(1)" autocomplete="off">
+              <input type="text" id="p1-name-input" class="search-input" placeholder="Type player name..." oninput="searchPlayerAc(1)" autocomplete="off">
               <div id="p1-ac-dropdown" class="autocomplete-dropdown"></div>
             </div>
 
             <div id="p1-card" class="player-match-card p1-active">
               <div class="pm-header">
                 <div>
-                  <div class="pm-name" id="p1-card-name">Jack Murphy</div>
-                  <div id="p1-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: inline-block;">Emperor's Children</div>
+                  <div class="pm-name" id="p1-card-name">Player 1</div>
+                  <div id="p1-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: none;"></div>
                 </div>
                 <div style="text-align: right;">
-                  <div class="pm-elo-display" style="color: #38bdf8;" id="p1-card-elo">1667.8</div>
+                  <div class="pm-elo-display" style="color: #38bdf8;" id="p1-card-elo">1500</div>
                   <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
                 </div>
               </div>
               <div class="pm-stats-row">
-                <div><b>Record:</b> <span id="p1-card-record" style="color: var(--win);">7W - 0L</span></div>
-                <div><b>Win %:</b> <span id="p1-card-winrate">100%</span></div>
-                <div><b>Peak:</b> <span id="p1-card-peak" style="font-family: var(--font-mono);">1667.8</span></div>
+                <div><b>Record:</b> <span id="p1-card-record" style="color: var(--win);"></span></div>
+                <div><b>Win %:</b> <span id="p1-card-winrate"></span></div>
+                <div><b>Peak:</b> <span id="p1-card-peak" style="font-family: var(--font-mono);"></span></div>
               </div>
             </div>
           </div>
@@ -1437,25 +1437,25 @@
             <label style="font-weight: 600; font-size: 0.82rem; color: #f43f5e; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 2</label>
             <div class="search-input-group" style="max-width: 100%;">
               <span class="search-icon">🔍</span>
-              <input type="text" id="p2-name-input" class="search-input" placeholder="Type player name (e.g. Jeremy Atkinson)..." oninput="searchPlayerAc(2)" autocomplete="off">
+              <input type="text" id="p2-name-input" class="search-input" placeholder="Type player name..." oninput="searchPlayerAc(2)" autocomplete="off">
               <div id="p2-ac-dropdown" class="autocomplete-dropdown"></div>
             </div>
 
             <div id="p2-card" class="player-match-card p2-active">
               <div class="pm-header">
                 <div>
-                  <div class="pm-name" id="p2-card-name">Jeremy Atkinson</div>
-                  <div id="p2-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: inline-block;">Dark Angels</div>
+                  <div class="pm-name" id="p2-card-name">Player 2</div>
+                  <div id="p2-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: none;"></div>
                 </div>
                 <div style="text-align: right;">
-                  <div class="pm-elo-display" style="color: #f43f5e;" id="p2-card-elo">1618.3</div>
+                  <div class="pm-elo-display" style="color: #f43f5e;" id="p2-card-elo">1500</div>
                   <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
                 </div>
               </div>
               <div class="pm-stats-row">
-                <div><b>Record:</b> <span id="p2-card-record" style="color: var(--win);">6W - 1L</span></div>
-                <div><b>Win %:</b> <span id="p2-card-winrate">85.7%</span></div>
-                <div><b>Peak:</b> <span id="p2-card-peak" style="font-family: var(--font-mono);">1642.2</span></div>
+                <div><b>Record:</b> <span id="p2-card-record" style="color: var(--win);"></span></div>
+                <div><b>Win %:</b> <span id="p2-card-winrate"></span></div>
+                <div><b>Peak:</b> <span id="p2-card-peak" style="font-family: var(--font-mono);"></span></div>
               </div>
             </div>
           </div>
@@ -1465,32 +1465,32 @@
         <div class="predict-result-box">
           <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Expected Win Probability</div>
           <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 1.5rem; margin-top: 0.5rem;">
-            <span style="color: #38bdf8;" id="pred-p1-prob">57.1%</span>
-            <span style="color: #f43f5e;" id="pred-p2-prob">42.9%</span>
+            <span style="color: #38bdf8;" id="pred-p1-prob"></span>
+            <span style="color: #f43f5e;" id="pred-p2-prob"></span>
           </div>
 
           <div class="win-prob-bar">
-            <div id="pred-bar-p1" class="p1-bar" style="width: 57.1%;"></div>
-            <div id="pred-bar-p2" class="p2-bar" style="width: 42.9%;"></div>
+            <div id="pred-bar-p1" class="p1-bar" style="width: 50%;"></div>
+            <div id="pred-bar-p2" class="p2-bar" style="width: 50%;"></div>
           </div>
 
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.5rem; text-align: left;">
             <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
               <div style="font-size: 0.78rem; font-weight: 700; color: var(--win); text-transform: uppercase;">IF PLAYER 1 WINS</div>
-              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-win" style="color: var(--win);">+13.7</b> (<span id="new-p1-win-elo">1681.5</span>)</div>
-              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-loss" style="color: var(--loss);">-13.7</b> (<span id="new-p2-loss-elo">1604.6</span>)</div>
+              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-win" style="color: var(--win);"></b> <span id="new-p1-win-elo"></span></div>
+              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-loss" style="color: var(--loss);"></b> <span id="new-p2-loss-elo"></span></div>
             </div>
 
             <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
               <div style="font-size: 0.78rem; font-weight: 700; color: var(--loss); text-transform: uppercase;">IF PLAYER 2 WINS (UPSET)</div>
-              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-upset-loss" style="color: var(--loss);">-18.3</b> (<span id="new-p1-loss-elo">1649.5</span>)</div>
-              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-upset-win" style="color: var(--win);">+18.3</b> (<span id="new-p2-win-elo">1636.6</span>)</div>
+              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-upset-loss" style="color: var(--loss);"></b> <span id="new-p1-loss-elo"></span></div>
+              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-upset-win" style="color: var(--win);"></b> <span id="new-p2-win-elo"></span></div>
             </div>
 
             <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
               <div style="font-size: 0.78rem; font-weight: 700; color: var(--draw); text-transform: uppercase;">IF MATCH DRAWS</div>
-              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-draw">-2.3</b></div>
-              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-draw">+2.3</b></div>
+              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-draw"></b></div>
+              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-draw"></b></div>
             </div>
           </div>
         </div>
@@ -3515,12 +3515,25 @@
         <!-- Period Performance & Matchup Insights Strip -->
         <div id="faction-modal-kpis" class="fmodal-kpi-grid"></div>
 
+        <!-- Top-Level Dossier Tabs (No Scrolling Needed to Discover Recent Tournament Games) -->
+        <div class="fmodal-tabs-bar faction-modal-subtabs" role="tablist" aria-label="Faction Dossier Views">
+          <button type="button" id="faction-subtab-matchups" class="fmodal-tab-btn subtab-btn active" role="tab" aria-selected="true" onclick="switchFactionModalTab('matchups')">
+            <span class="subtab-text-desktop">📊 Faction Matchup Breakdown</span>
+            <span class="subtab-text-mobile">📊 Matchups</span>
+            <span id="faction-tab-matchups-count" class="fmodal-count-pill">0</span>
+          </button>
+          <button type="button" id="faction-subtab-matches" class="fmodal-tab-btn subtab-btn" role="tab" aria-selected="false" onclick="switchFactionModalTab('matches')">
+            <span class="subtab-text-desktop">⚔️ Recent Tournament Games</span>
+            <span class="subtab-text-mobile">⚔️ Recent Games</span>
+            <span id="faction-tab-matches-count" class="fmodal-count-pill">0</span>
+          </button>
+        </div>
+
         <!-- Section 1: Faction Matchup Breakdown -->
         <div id="faction-view-matchups" class="fmodal-section-card">
           <div class="fmodal-section-header">
             <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <h3 class="fmodal-section-title">📊 Faction Matchup Breakdown</h3>
-              <span id="faction-tab-matchups-count" class="fmodal-count-pill">0</span>
               <span id="fmodal-matchup-spread-summary" style="font-size: 0.75rem; color: var(--text-secondary);"></span>
             </div>
             <div class="fmodal-section-controls">
@@ -3555,11 +3568,10 @@
         </div>
 
         <!-- Section 2: Recent Tournament Games -->
-        <div id="faction-view-matches" class="fmodal-section-card">
+        <div id="faction-view-matches" class="fmodal-section-card" style="display: none;">
           <div class="fmodal-section-header">
             <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <h3 class="fmodal-section-title">⚔️ Recent Tournament Games</h3>
-              <span id="faction-tab-matches-count" class="fmodal-count-pill">0</span>
               <span id="fmodal-recent-summary-pill" style="font-size: 0.75rem; color: var(--text-secondary);"></span>
             </div>
             <div class="fmodal-section-controls">
@@ -3599,7 +3611,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=ebd73e921c"></script>
+  <script src="/js/app.bundle.min.js?v=10eaaf3253"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

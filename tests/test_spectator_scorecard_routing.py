@@ -150,8 +150,8 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn("visibilitychange", sc_html)
         self.assertIn("firebase-firestore-compat.js", sc_html)
 
-        # 4. Tournament back link
-        self.assertIn('id="sc-event-back-btn"', sc_html)
+        # 4. Top header bar (.sc-top-bar) is removed for both mobile and desktop
+        self.assertNotIn('<div class="sc-top-bar"', sc_html)
         print("✓ test_scorecard_html_live_badges_and_streaming passed")
 
     def test_to_spectator_role_in_tournament_match(self):

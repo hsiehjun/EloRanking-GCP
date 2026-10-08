@@ -3007,7 +3007,34 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     })
             try:
                 import badges
-                b_eval = badges.evaluate_player_badges(player_data=DEV_USER, history=[], tournaments=DEV_EVENTS_ATTENDED, game_system='40k')
+                has_roster_q = str(query_params.get("has_roster", [""])[0] or "").strip().lower() in ("1", "true", "yes")
+                dev_lists = [{"id": "nr_dev_roster"}] if has_roster_q or DEV_USER.get("has_saved_roster") else (DEV_USER.get("army_lists") or [{"id": "nr_dev_roster"}])
+                b_eval = badges.evaluate_player_badges(
+                    player_data=DEV_USER,
+                    history=[],
+                    tournaments=DEV_EVENTS_ATTENDED,
+                    game_system='40k',
+                    armylists=dev_lists,
+                )
+                seasonal_dict = b_eval.get("seasonal") or {}
+                if isinstance(seasonal_dict, dict):
+                    for s_key, s_val in seasonal_dict.items():
+                        s_list = s_val.get("badges", []) if isinstance(s_val, dict) else []
+                        season_label = str(s_key) if str(s_key).isdigit() else "2026"
+                        for sb in s_list:
+                            if not isinstance(sb, dict):
+                                continue
+                            sb_pts = int(sb.get("glory_points") or sb.get("glory") or 0)
+                            if sb.get("unlocked") and sb_pts > 0:
+                                credits.append({
+                                    'id': f'seasonal_{sb.get("id")}',
+                                    'type': 'credit',
+                                    'category': f'Season {season_label} Trophy',
+                                    'name': f'{sb.get("icon") or "🏆"} {sb.get("name")}',
+                                    'detail': f'{sb.get("tier_name") or ("Season " + season_label + " • Honor")} • {sb.get("provenance") or sb.get("description") or ""}',
+                                    'amount': sb_pts,
+                                    'date': sb.get('unlocked_at') or season_label
+                                })
                 for b in b_eval.get('badges', []):
                     pts = b.get('glory_points') or b.get('glory') or 0
                     if b.get('unlocked') and pts > 0:
@@ -7082,6 +7109,24 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             tot_d = sum(m["draws"] for m in matchups_list)
             wr_pct = round(tot_w * 100.0 / max(1, tot_m), 1)
 
+            all_dev_matches = [
+                {"id": "m_fac_lvo_1", "event_id": "7ohG0RuDqC1k", "event_name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open", "round": 6, "match_date": "2026-10-04", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 96, "opponent_id": "p_opp_lvo1", "opponent_name": "John Lennon", "opponent_faction": "Adeptus Custodes", "opponent_score": 74, "outcome": "W"},
+                {"id": "m_fac_lvo_2", "event_id": "7ohG0RuDqC1k", "event_name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open", "round": 5, "match_date": "2026-10-03", "player_id": "p_david", "player_name": "David Gaylard", "player_faction": fname, "player_score": 88, "opponent_id": "p_opp_lvo2", "opponent_name": "tamamo cross", "opponent_faction": "Adeptus Mechanicus", "opponent_score": 77, "outcome": "W"},
+                {"id": "m_fac_lvo_3", "event_id": "7ohG0RuDqC1k", "event_name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open", "round": 1, "match_date": "2026-10-02", "player_id": "p_jack", "player_name": "Jack Harpster", "player_faction": fname, "player_score": 77, "opponent_id": "p_opp_lvo3", "opponent_name": "Joshua Vernon", "opponent_faction": "Imperial Knights", "opponent_score": 94, "outcome": "L"},
+                {"id": "m_fac_1", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 5, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 92, "opponent_id": "p_opp1", "opponent_name": "John Lennon", "opponent_faction": "Ultramarines", "opponent_score": 78, "outcome": "W"},
+                {"id": "m_fac_2", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 4, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 85, "opponent_id": "p_opp2", "opponent_name": "David Gaylard", "opponent_faction": "Necrons", "opponent_score": 72, "outcome": "W"},
+                {"id": "m_fac_3", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 3, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 90, "opponent_id": "p_opp3", "opponent_name": "Manny Cheema", "opponent_faction": "Aeldari", "opponent_score": 68, "outcome": "W"},
+                {"id": "m_fac_4", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 2, "match_date": "2026-09-14", "player_id": "p_david", "player_name": "David Gaylard", "player_faction": fname, "player_score": 65, "opponent_id": "p_opp4", "opponent_name": "Richard Siegler", "opponent_faction": "Adeptus Custodes", "opponent_score": 88, "outcome": "L"},
+                {"id": "m_fac_5", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 1, "match_date": "2026-09-14", "player_id": "p_jack", "player_name": "Jack Harpster", "player_faction": fname, "player_score": 75, "opponent_id": "p_opp5", "opponent_name": "Brad Chester", "opponent_faction": "Genestealer Cults", "opponent_score": 75, "outcome": "D"}
+            ]
+            qp_fac = urllib.parse.parse_qs(query_str)
+            search_q = (qp_fac.get("search", [""])[0] or "").strip().lower()
+            if search_q:
+                all_dev_matches = [
+                    m for m in all_dev_matches
+                    if search_q in f"{m.get('event_name', '')} {m.get('player_name', '')} {m.get('opponent_name', '')} {m.get('opponent_faction', '')}".lower()
+                ]
+
             res = {
                 "faction": fname,
                 "game_system": sys_val,
@@ -7110,11 +7155,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "unfavored_matchups_count": sum(1 for m in matchups_list if m["win_rate"] < 45.0),
                     "best_matchup": {"faction": matchups_list[0]["opponent_faction"], "win_rate": matchups_list[0]["win_rate"], "matches": matchups_list[0]["total_matches"], "wins": matchups_list[0]["wins"], "losses": matchups_list[0]["losses"]},
                     "worst_matchup": {"faction": matchups_list[-1]["opponent_faction"], "win_rate": matchups_list[-1]["win_rate"], "matches": matchups_list[-1]["total_matches"], "wins": matchups_list[-1]["wins"], "losses": matchups_list[-1]["losses"]},
-                    "total_recent_sample": 5,
-                    "recent_wins": 3,
-                    "recent_losses": 1,
-                    "recent_draws": 1,
-                    "recent_win_rate": 60.0,
+                    "total_recent_sample": len(all_dev_matches),
+                    "recent_wins": sum(1 for m in all_dev_matches if m["outcome"] == "W"),
+                    "recent_losses": sum(1 for m in all_dev_matches if m["outcome"] == "L"),
+                    "recent_draws": sum(1 for m in all_dev_matches if m["outcome"] == "D"),
+                    "recent_win_rate": round(sum(1 for m in all_dev_matches if m["outcome"] == "W") * 100.0 / max(1, len(all_dev_matches)), 1),
                     "top_player_count": 5
                 },
                 "total_matches": tot_m,
@@ -7125,13 +7170,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     {"player_id": "p_vik", "player_name": "Vik Vijay", "team": "Team Ignite", "current_elo": 2042.1, "matches_played": 16, "wins": 11, "losses": 5, "draws": 0, "win_rate": 68.8, "avg_score": 79.5},
                     {"player_id": "p_liam", "player_name": "Liam Hackett", "team": "Down Under", "current_elo": 1998.0, "matches_played": 14, "wins": 9, "losses": 5, "draws": 0, "win_rate": 64.3, "avg_score": 77.0}
                 ],
-                "matches": [
-                    {"id": "m_fac_1", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 5, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 92, "opponent_id": "p_opp1", "opponent_name": "John Lennon", "opponent_faction": "Ultramarines", "opponent_score": 78, "outcome": "W"},
-                    {"id": "m_fac_2", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 4, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 85, "opponent_id": "p_opp2", "opponent_name": "David Gaylard", "opponent_faction": "Necrons", "opponent_score": 72, "outcome": "W"},
-                    {"id": "m_fac_3", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 3, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 90, "opponent_id": "p_opp3", "opponent_name": "Manny Cheema", "opponent_faction": "Aeldari", "opponent_score": 68, "outcome": "W"},
-                    {"id": "m_fac_4", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 2, "match_date": "2026-09-14", "player_id": "p_david", "player_name": "David Gaylard", "player_faction": fname, "player_score": 65, "opponent_id": "p_opp4", "opponent_name": "Richard Siegler", "opponent_faction": "Adeptus Custodes", "opponent_score": 88, "outcome": "L"},
-                    {"id": "m_fac_5", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 1, "match_date": "2026-09-14", "player_id": "p_jack", "player_name": "Jack Harpster", "player_faction": fname, "player_score": 75, "opponent_id": "p_opp5", "opponent_name": "Brad Chester", "opponent_faction": "Genestealer Cults", "opponent_score": 75, "outcome": "D"}
-                ],
+                "matches": all_dev_matches,
                 "matchups": matchups_list
             }
             self.send_response(200)
