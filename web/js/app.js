@@ -397,12 +397,12 @@ function switchTab(tabName) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#event-studio');
       return;
     }
-    const canAccessTO = typeof isUserTO === 'function' ? isUserTO(currentUser) : (() => {
+    const canAccessTO = Boolean(window.ENABLE_EVENT_STUDIO_TAB) && (typeof isUserTO === 'function' ? isUserTO(currentUser) : (() => {
       const userRole = ((currentUser && currentUser.role) ? currentUser.role : 'player').toLowerCase();
       return userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || Boolean(currentUser && (currentUser.is_admin || currentUser.can_access_to));
-    })();
+    })());
     if (!canAccessTO) {
-      return switchTab('community');
+      return switchTab('my-hub');
     }
     if (typeof initStudio === 'function') {
       return initStudio();
@@ -1058,12 +1058,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     targetTab = 'community';
   }
   if (targetTab === 'event-studio') {
-    const canAccessTO = typeof isUserTO === 'function' ? isUserTO(currentUser) : (() => {
+    const canAccessTO = Boolean(window.ENABLE_EVENT_STUDIO_TAB) && (typeof isUserTO === 'function' ? isUserTO(currentUser) : (() => {
       const userRole = ((currentUser && currentUser.role) ? currentUser.role : 'player').toLowerCase();
       return userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || Boolean(currentUser && (currentUser.is_admin || currentUser.can_access_to));
-    })();
+    })());
     if (!canAccessTO) {
-      targetTab = 'community';
+      targetTab = 'my-hub';
     }
   }
   const tabPromise = targetTab ? switchTab(targetTab) : switchTab('my-hub');
@@ -1088,7 +1088,7 @@ function openMobileMoreSheet() {
       if (avatarEl) avatarEl.textContent = (currentUser.faction_icon || '⚔️');
       const esBtn = document.getElementById('mobile-sheet-eventstudio-btn');
       if (esBtn && typeof isUserTO === 'function') {
-        esBtn.style.display = isUserTO(currentUser) ? 'flex' : 'none';
+        esBtn.style.display = (window.ENABLE_EVENT_STUDIO_TAB && isUserTO(currentUser)) ? 'flex' : 'none';
       }
     }
     sheet.style.display = 'flex';

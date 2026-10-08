@@ -183,6 +183,9 @@ function isUserCC(user) {
   return isAdmin || isCC;
 }
 window.isUserCC = isUserCC;
+if (typeof window.ENABLE_EVENT_STUDIO_TAB === 'undefined') {
+  window.ENABLE_EVENT_STUDIO_TAB = false;
+}
 
 /**
  * Synchronize mobile navigation dropdown options based on auth status and user role.
@@ -194,11 +197,11 @@ function syncMobileNavDropdown() {
   const select = document.getElementById('mobile-nav-select');
   if (!select) return;
 
-  const isTO = Boolean(currentUser && typeof isUserTO === 'function' && isUserTO(currentUser));
+  const isTO = Boolean(window.ENABLE_EVENT_STUDIO_TAB && currentUser && typeof isUserTO === 'function' && isUserTO(currentUser));
   const divider = document.getElementById('mobile-opt-divider') || select.querySelector('option[disabled]');
   let esOpt = document.getElementById('mobile-opt-event-studio');
 
-  // Event Studio Option: STRICTLY restricted to Tournament Organizers (TO) and Platform Admins
+  // Event Studio Option: Hidden by default (window.ENABLE_EVENT_STUDIO_TAB = false)
   if (isTO) {
     if (!esOpt) {
       esOpt = document.createElement('option');
@@ -321,7 +324,7 @@ function syncAppAuthView() {
   const foucGuard = document.getElementById('auth-fouc-guard');
   const esNavBtn = document.getElementById('nav-btn-event-studio');
 
-  const canAccessTO = isUserTO(currentUser);
+  const canAccessTO = Boolean(window.ENABLE_EVENT_STUDIO_TAB && isUserTO(currentUser));
   if (esNavBtn) {
     esNavBtn.style.display = (currentUser && canAccessTO) ? 'flex' : 'none';
   }
@@ -992,7 +995,7 @@ function renderHeaderAuth() {
   }
 
   if (esNavBtn) {
-    esNavBtn.style.display = (currentUser && isUserTO(currentUser)) ? 'flex' : 'none';
+    esNavBtn.style.display = (window.ENABLE_EVENT_STUDIO_TAB && currentUser && isUserTO(currentUser)) ? 'flex' : 'none';
   }
 
   const mobileProfileBtn = document.getElementById('mobile-btn-more');
