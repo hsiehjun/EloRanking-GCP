@@ -18,15 +18,6 @@ steps:
       - '--all-tags'
       - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking'
 
-  # 2b. Ensure legacy elo-nr-relay service in us-west1 is deleted
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'cleanup-nr-relay'
-    entrypoint: bash
-    args:
-      - '-c'
-      - |
-        gcloud run services delete elo-nr-relay --region us-west1 --platform managed --quiet || true
-
   # 3. Deploy Cloud Run Web Service: elo-ranking (min-instances=1 to eliminate cold starts)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'deploy-web-service'
@@ -48,8 +39,6 @@ steps:
       - '--max'
       - '10'
       - '--cpu-throttling'
-      - '--remove-env-vars'
-      - 'NR_RELAY_URL'
 
   # 3b. Run Sequential Production Endpoint & DB Latency Gate (<1000ms budget)
   - name: 'python:3.11-slim'
