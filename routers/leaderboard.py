@@ -99,6 +99,34 @@ async def api_teams(
         )
     return await asyncio.to_thread(_fetch)
 
+# API: Global ITC Rankings (Individual & Team)
+@router.get("/api/leaderboard/itc", summary="Get Global ITC Rankings (Individual and Team)")
+@router.get("/api/itc", include_in_schema=False)
+async def api_itc_leaderboard(
+    category: str = Query("players"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=5, le=200),
+    limit: Optional[int] = Query(None),
+    query: Optional[str] = Query(None),
+    faction: str = Query("All"),
+    sort_by: str = Query("itc_points"),
+    order: str = Query("DESC"),
+    game_system: Optional[str] = Query("40k")
+):
+    def _fetch():
+        return get_database().get_itc_leaderboard(
+            category=category,
+            page=page,
+            page_size=page_size,
+            limit=limit,
+            query=query.strip() if query else None,
+            faction=faction.strip() if faction else "All",
+            sort_by=sort_by,
+            order=order,
+            game_system=game_system
+        )
+    return await asyncio.to_thread(_fetch)
+
 # API: Team Roster
 @router.get("/api/team/{team_name}", summary="Get team member roster and power metrics")
 async def api_team_roster(team_name: str, game_system: Optional[str] = Query("40k")):

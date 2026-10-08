@@ -148,6 +148,9 @@ function switchGameSystem(sys) {
   if (typeof leaderboardTeamsPagination !== 'undefined') {
     leaderboardTeamsPagination.page = 1;
   }
+  if (typeof leaderboardItcPagination !== 'undefined') {
+    leaderboardItcPagination.page = 1;
+  }
   if (typeof playersPagination !== 'undefined') {
     playersPagination.page = 1;
   }
@@ -166,7 +169,10 @@ function switchGameSystem(sys) {
 
   if (activeTab === 'leaderboard') {
     const teamsBtn = document.getElementById('lead-subtab-teams');
-    if (teamsBtn && teamsBtn.classList.contains('active')) {
+    const itcBtn = document.getElementById('lead-subtab-itc');
+    if (itcBtn && itcBtn.classList.contains('active')) {
+      if (typeof loadLeaderboardItc === 'function') loadLeaderboardItc();
+    } else if (teamsBtn && teamsBtn.classList.contains('active')) {
       if (typeof loadLeaderboardTeams === 'function') loadLeaderboardTeams();
     } else {
       if (typeof loadLeaderboard === 'function') loadLeaderboard();
@@ -369,7 +375,10 @@ function switchTab(tabName) {
   // Trigger lazy loading of view data
   if (tabName === 'leaderboard') {
     const teamsBtn = document.getElementById('lead-subtab-teams');
-    if (teamsBtn && teamsBtn.classList.contains('active')) {
+    const itcBtn = document.getElementById('lead-subtab-itc');
+    if (itcBtn && itcBtn.classList.contains('active')) {
+      if (typeof loadLeaderboardItc === 'function') return loadLeaderboardItc();
+    } else if (teamsBtn && teamsBtn.classList.contains('active')) {
       if (typeof loadLeaderboardTeams === 'function') return loadLeaderboardTeams();
     } else {
       if (typeof loadLeaderboard === 'function') return loadLeaderboard();

@@ -403,6 +403,7 @@ const currentSort = {
   'events': { field: 'event_date', asc: false },
   'teams': { field: 'power_rating', asc: false },
   'lead-teams': { field: 'power_rating', asc: false },
+  'lead-itc': { field: 'itc_points', asc: false },
   'players-dir': { field: 'current_elo', asc: false },
   'factions': { field: 'win_rate', asc: false },
   'player-matches': { field: 'match_date', asc: false },
@@ -437,6 +438,10 @@ function sortTable(tableKey, field) {
     if (typeof leaderboardTeamsSortState !== 'undefined') leaderboardTeamsSortState = config;
     if (typeof leaderboardTeamsPagination !== 'undefined') leaderboardTeamsPagination.page = 1;
     loadLeaderboardTeams();
+  } else if (tableKey === 'lead-itc') {
+    if (typeof leaderboardItcSortState !== 'undefined') leaderboardItcSortState = config;
+    if (typeof leaderboardItcPagination !== 'undefined') leaderboardItcPagination.page = 1;
+    if (typeof loadLeaderboardItc === 'function') loadLeaderboardItc();
   } else if (tableKey === 'players-dir') {
     if (typeof playersSortState !== 'undefined') playersSortState = config;
     loadPlayersDirectory();
@@ -478,6 +483,7 @@ function updateHeaderIcons(tableKey, field, asc) {
     'events': 'events-table',
     'teams': 'teams-table',
     'lead-teams': 'lead-teams-table',
+    'lead-itc': 'lead-itc-table',
     'players-dir': 'players-table',
     'factions': 'faction-meta-table',
     'player-matches': 'player-matches-table',

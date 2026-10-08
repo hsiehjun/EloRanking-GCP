@@ -656,6 +656,16 @@ window.api = {
     return this._fetchJson(`/api/teams?${params}`);
   },
 
+  // Leaderboard (Global ITC Rankings - Individual & Team)
+  async getItcLeaderboard(category = 'players', page = 1, pageSize = 25, sortBy = 'itc_points', order = 'DESC', query = '', faction = 'All', gameSystem = '') {
+    const params = new URLSearchParams({ category, page, page_size: pageSize, sort_by: sortBy, order });
+    if (query) params.set('query', query);
+    if (faction && faction !== 'All') params.set('faction', faction);
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.set('game_system', currentSys);
+    return this._fetchJson(`/api/leaderboard/itc?${params}`);
+  },
+
   // Teams Directory
   async getTeamsDirectory(query = '', minRoster = 1, sortBy = 'power_rating', order = 'DESC', page = 1, pageSize = 25, gameSystem = '') {
     const params = new URLSearchParams({ query, min_roster: minRoster, sort_by: sortBy, order, page, page_size: pageSize });

@@ -5628,6 +5628,34 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
+        if clean_path in ("api/leaderboard/itc", "api/leaderboard/itc/", "api/itc", "api/itc/"):
+            from database import PostgresDatabase
+            db_inst = PostgresDatabase.__new__(PostgresDatabase)
+            cat = query_params.get("category", ["players"])[0]
+            p = int(query_params.get("page", [1])[0])
+            ps = int(query_params.get("page_size", [25])[0])
+            q = query_params.get("query", [None])[0] or query_params.get("search", [None])[0]
+            fac = query_params.get("faction", ["All"])[0]
+            sb = query_params.get("sort_by", ["itc_points"])[0]
+            od = query_params.get("order", ["DESC"])[0]
+            gs = (query_params.get("game_system", ["40k"])[0]).lower()
+            res = db_inst.get_itc_leaderboard(
+                category=cat,
+                page=p,
+                page_size=ps,
+                query=q,
+                faction=fac,
+                sort_by=sb,
+                order=od,
+                game_system=gs
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
         if "leaderboard" in clean_path or "players" in clean_path:
             players_data = [
                 {

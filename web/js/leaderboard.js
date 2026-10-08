@@ -7,17 +7,23 @@ function switchLeaderboardSubtab(subtab) {
 
   const btnPlayers = document.getElementById('lead-subtab-players');
   const btnTeams = document.getElementById('lead-subtab-teams');
+  const btnItc = document.getElementById('lead-subtab-itc');
   const viewPlayers = document.getElementById('lead-view-players');
   const viewTeams = document.getElementById('lead-view-teams');
+  const viewItc = document.getElementById('lead-view-itc');
 
   if (btnPlayers) btnPlayers.classList.toggle('active', subtab === 'players');
   if (btnTeams) btnTeams.classList.toggle('active', subtab === 'teams');
+  if (btnItc) btnItc.classList.toggle('active', subtab === 'itc');
 
   if (viewPlayers) viewPlayers.style.display = (subtab === 'players') ? 'block' : 'none';
   if (viewTeams) viewTeams.style.display = (subtab === 'teams') ? 'block' : 'none';
+  if (viewItc) viewItc.style.display = (subtab === 'itc') ? 'block' : 'none';
 
   if (subtab === 'teams') {
     loadLeaderboardTeams();
+  } else if (subtab === 'itc') {
+    loadLeaderboardItc();
   } else {
     loadLeaderboard();
   }
@@ -44,15 +50,22 @@ window.switchMetaSubtab = switchMetaSubtab;
 
 const leaderboardCache = new Map();
 const leaderboardTeamsCache = new Map();
+const leaderboardItcCache = new Map();
 let leaderboardPrefetchTimer = null;
 let leaderboardTeamsPrefetchTimer = null;
+let leaderboardItcPrefetchTimer = null;
+let leaderboardItcSearchTimer = null;
 
 let leaderboardData = [];
 let leaderboardTeamsData = [];
+let leaderboardItcData = [];
+let leaderboardItcCategory = 'players';
 let leaderboardPagination = { page: 1, pageSize: 25, total: 0, totalPages: 1 };
 let leaderboardTeamsPagination = { page: 1, pageSize: 25, total: 0, totalPages: 1 };
+let leaderboardItcPagination = { page: 1, pageSize: 25, total: 0, totalPages: 1 };
 let leaderboardSortState = { field: 'current_elo', asc: false };
 let leaderboardTeamsSortState = { field: 'power_rating', asc: false };
+let leaderboardItcSortState = { field: 'itc_points', asc: false };
 
 function setLeaderboardPage(newPage) {
   leaderboardPagination.page = newPage;
@@ -448,3 +461,345 @@ function renderLeaderboardTeamsRows() {
   });
 }
 window.renderLeaderboardTeamsRows = renderLeaderboardTeamsRows;
+
+/* ==========================================================================
+   GLOBAL ITC RANKINGS (INDIVIDUAL & TEAM)
+   ========================================================================== */
+
+function setItcLeaderboardCategory(cat) {
+  const normalized = (cat === 'teams' || cat === 'team') ? 'teams' : 'players';
+  leaderboardItcCategory = normalized;
+  leaderboardItcPagination.page = 1;
+  leaderboardItcSortState = { field: 'itc_points', asc: false };
+  if (typeof currentSort !== 'undefined' && currentSort['lead-itc']) {
+    currentSort['lead-itc'] = { field: 'itc_points', asc: false };
+  }
+
+  const btnPlayers = document.getElementById('itc-mode-players');
+  const btnTeams = document.getElementById('itc-mode-teams');
+  if (btnPlayers) btnPlayers.classList.toggle('active', normalized === 'players');
+  if (btnTeams) btnTeams.classList.toggle('active', normalized === 'teams');
+
+  const badge = document.getElementById('itc-season-badge');
+  if (badge) {
+    badge.textContent = normalized === 'teams' ? '2026 Season • Top 10 Events' : '2026 Season • Top 6 Events';
+  }
+
+  const searchInput = document.getElementById('itc-search-input');
+  if (searchInput) {
+    searchInput.placeholder = normalized === 'teams' ? 'Search team or top player...' : 'Search player, team, or faction...';
+  }
+
+  renderLeaderboardItcHeader();
+  loadLeaderboardItc();
+}
+window.setItcLeaderboardCategory = setItcLeaderboardCategory;
+
+function debounceItcSearch() {
+  if (leaderboardItcSearchTimer) clearTimeout(leaderboardItcSearchTimer);
+  leaderboardItcSearchTimer = setTimeout(() => {
+    leaderboardItcPagination.page = 1;
+    loadLeaderboardItc();
+  }, 180);
+}
+window.debounceItcSearch = debounceItcSearch;
+
+function setLeaderboardItcPage(newPage) {
+  leaderboardItcPagination.page = newPage;
+  loadLeaderboardItc();
+}
+window.setLeaderboardItcPage = setLeaderboardItcPage;
+
+function setLeaderboardItcPageSize(newSize) {
+  leaderboardItcPagination.pageSize = newSize;
+  leaderboardItcPagination.page = 1;
+  loadLeaderboardItc();
+}
+window.setLeaderboardItcPageSize = setLeaderboardItcPageSize;
+
+function renderLeaderboardItcHeader() {
+  const thead = document.getElementById('lead-itc-thead');
+  if (!thead) return;
+  const f = leaderboardItcSortState.field || 'itc_points';
+  const cls = (col) => `sortable ${f === col ? (leaderboardItcSortState.asc ? 'sorted-asc' : 'sorted-desc') : ''}`.trim();
+
+  if (leaderboardItcCategory === 'teams') {
+    thead.innerHTML = `
+      <tr>
+        <th class="${cls('rank')}" onclick="sortTable('lead-itc', 'rank')">ITC Rank</th>
+        <th class="${cls('team')}" onclick="sortTable('lead-itc', 'team')">Team / Gaming Club</th>
+        <th class="${cls('itc_points')}" onclick="sortTable('lead-itc', 'itc_points')">ITC Points</th>
+        <th class="${cls('events_scored')}" onclick="sortTable('lead-itc', 'events_scored')">Events Scored</th>
+        <th class="${cls('power_rating')}" onclick="sortTable('lead-itc', 'power_rating')">OmniTactica Power</th>
+        <th class="${cls('avg_elo')}" onclick="sortTable('lead-itc', 'avg_elo')">Top Rated Player</th>
+        <th class="${cls('total_matches')}" onclick="sortTable('lead-itc', 'total_matches')">Season Record (W-L-D)</th>
+        <th class="${cls('team_win_rate')}" onclick="sortTable('lead-itc', 'team_win_rate')">Win Rate</th>
+      </tr>
+    `;
+  } else {
+    thead.innerHTML = `
+      <tr>
+        <th class="${cls('rank')}" onclick="sortTable('lead-itc', 'rank')">ITC Rank</th>
+        <th class="${cls('player_name')}" onclick="sortTable('lead-itc', 'player_name')">Player</th>
+        <th class="${cls('itc_points')}" onclick="sortTable('lead-itc', 'itc_points')">ITC Points</th>
+        <th class="${cls('events_scored')}" onclick="sortTable('lead-itc', 'events_scored')">Events Scored</th>
+        <th class="${cls('current_elo')}" onclick="sortTable('lead-itc', 'current_elo')">OmniTactica Elo</th>
+        <th class="col-faction">Factions</th>
+        <th class="${cls('matches_played')}" onclick="sortTable('lead-itc', 'matches_played')">Season Record (W-L-D)</th>
+        <th class="${cls('win_rate')}" onclick="sortTable('lead-itc', 'win_rate')">Win Rate</th>
+      </tr>
+    `;
+  }
+}
+window.renderLeaderboardItcHeader = renderLeaderboardItcHeader;
+
+function prefetchNextLeaderboardItcPage(category, nextPage, pageSize, sortState, queryStr) {
+  if (leaderboardItcPrefetchTimer) clearTimeout(leaderboardItcPrefetchTimer);
+  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  const cacheKey = `lb_itc_${gs}_${category}_${nextPage}_${pageSize}_${sortState.field}_${sortState.asc ? 'ASC' : 'DESC'}_${queryStr || ''}`;
+  if (leaderboardItcCache.has(cacheKey)) return;
+
+  leaderboardItcPrefetchTimer = setTimeout(async () => {
+    try {
+      const res = await window.api.getItcLeaderboard(
+        category, nextPage, pageSize,
+        sortState.field, sortState.asc ? 'ASC' : 'DESC',
+        queryStr || '', 'All', gs
+      );
+      if (res && res.items) {
+        leaderboardItcCache.set(cacheKey, res);
+      }
+    } catch (e) {
+      // Non-critical background prefetch
+    }
+  }, 450);
+}
+
+async function loadLeaderboardItc(isPrefetch = false) {
+  const tbody = document.getElementById('lead-itc-body');
+  const searchInput = document.getElementById('itc-search-input');
+  const queryStr = searchInput ? (searchInput.value || '').trim() : '';
+  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  const cat = leaderboardItcCategory || 'players';
+  const cacheKey = `lb_itc_${gs}_${cat}_${leaderboardItcPagination.page}_${leaderboardItcPagination.pageSize}_${leaderboardItcSortState.field}_${leaderboardItcSortState.asc ? 'ASC' : 'DESC'}_${queryStr}`;
+
+  renderLeaderboardItcHeader();
+
+  // 1. Stale-While-Revalidate: Instant cache hit rendering
+  const cached = leaderboardItcCache.get(cacheKey);
+  if (cached && !isPrefetch) {
+    leaderboardItcData = cached.items || [];
+    leaderboardItcPagination.total = cached.total || 0;
+    leaderboardItcPagination.page = cached.page || leaderboardItcPagination.page;
+    leaderboardItcPagination.pageSize = cached.page_size || leaderboardItcPagination.pageSize;
+    leaderboardItcPagination.totalPages = cached.total_pages || 1;
+
+    renderLeaderboardItcRows();
+    renderPaginationBar('lead-itc-pagination', leaderboardItcPagination, 'setLeaderboardItcPage', 'setLeaderboardItcPageSize');
+  }
+
+  // 2. Visual indication while fetching
+  if (!cached && tbody && leaderboardItcData && leaderboardItcData.length > 0 && !isPrefetch) {
+    tbody.style.opacity = '0.45';
+    tbody.style.pointerEvents = 'none';
+    tbody.style.transition = 'opacity 0.15s ease';
+  } else if (!cached && tbody && (!leaderboardItcData || leaderboardItcData.length === 0) && !isPrefetch) {
+    tbody.innerHTML = '<tr class="loading-row"><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading Global ITC Rankings...</div></td></tr>';
+  }
+
+  try {
+    const res = await window.api.getItcLeaderboard(
+      cat,
+      leaderboardItcPagination.page,
+      leaderboardItcPagination.pageSize,
+      leaderboardItcSortState.field,
+      leaderboardItcSortState.asc ? 'ASC' : 'DESC',
+      queryStr,
+      'All',
+      gs
+    );
+    if (res && res.error) {
+      throw new Error(res.error);
+    }
+    if (res && res.items) {
+      leaderboardItcCache.set(cacheKey, res);
+
+      if (!isPrefetch) {
+        leaderboardItcData = res.items;
+        leaderboardItcPagination.total = res.total || 0;
+        leaderboardItcPagination.page = res.page || 1;
+        leaderboardItcPagination.pageSize = res.page_size || 25;
+        leaderboardItcPagination.totalPages = res.total_pages || 1;
+
+        if (tbody) {
+          tbody.style.opacity = '1';
+          tbody.style.pointerEvents = '';
+        }
+        renderLeaderboardItcRows();
+        renderPaginationBar('lead-itc-pagination', leaderboardItcPagination, 'setLeaderboardItcPage', 'setLeaderboardItcPageSize');
+      }
+    }
+
+    if (!isPrefetch && leaderboardItcPagination.page < leaderboardItcPagination.totalPages) {
+      prefetchNextLeaderboardItcPage(cat, leaderboardItcPagination.page + 1, leaderboardItcPagination.pageSize, leaderboardItcSortState, queryStr);
+    }
+  } catch (err) {
+    console.error('Error loading Global ITC Rankings:', err);
+    if (tbody && !cached) {
+      tbody.style.opacity = '1';
+      tbody.style.pointerEvents = '';
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="8" class="empty-state" style="color:var(--loss);"><p>Error loading Global ITC Rankings: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboardItc()">🔄 Retry</button></td></tr>`;
+    }
+  }
+}
+window.loadLeaderboardItc = loadLeaderboardItc;
+
+function renderLeaderboardItcRows() {
+  const tbody = document.getElementById('lead-itc-body');
+  if (!tbody) return;
+  tbody.style.opacity = '1';
+  tbody.style.pointerEvents = '';
+  tbody.innerHTML = '';
+
+  const list = Array.isArray(leaderboardItcData) ? leaderboardItcData : (leaderboardItcData && Array.isArray(leaderboardItcData.items) ? leaderboardItcData.items : []);
+  if (!list || list.length === 0) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8" class="empty-state">No Global ITC ${leaderboardItcCategory === 'teams' ? 'teams' : 'players'} found.</td></tr>`;
+    return;
+  }
+
+  const page = (leaderboardItcPagination && leaderboardItcPagination.page) ? Math.max(1, Number(leaderboardItcPagination.page)) : 1;
+  const pageSize = (leaderboardItcPagination && leaderboardItcPagination.pageSize) ? Number(leaderboardItcPagination.pageSize) : 25;
+  const offset = (page - 1) * pageSize;
+
+  list.forEach((item, idx) => {
+    const tr = document.createElement('tr');
+    const rank = item.rank != null ? Number(item.rank) : (offset + idx + 1);
+    let rankClass = '';
+    if (rank === 1) rankClass = 'rank-top-1';
+    else if (rank === 2) rankClass = 'rank-top-2';
+    else if (rank === 3) rankClass = 'rank-top-3';
+
+    const pts = Number(item.itc_points || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const eventsScored = Number(item.events_scored || 0);
+    const maxEvents = Number(item.max_events || (leaderboardItcCategory === 'teams' ? 10 : 6));
+
+    if (leaderboardItcCategory === 'teams') {
+      const teamName = item.team || item.name || 'Unknown Team';
+      tr.onclick = (e) => { e.stopPropagation(); openTeamModal(teamName); };
+
+      const hasPower = item.power_rating != null && Number(item.power_rating) > 0;
+      const pRating = hasPower ? Number(item.power_rating).toFixed(1) : null;
+      const powerCellHtml = hasPower
+        ? (typeof renderEloBadgePill === 'function' ? renderEloBadgePill(pRating, 10) : `<span style="font-family:var(--font-mono); font-weight:800; color:#a855f7;">${pRating}</span>`)
+        : `<span class="badge" style="background:rgba(148,163,184,0.1); color:var(--text-muted); border:1px solid rgba(148,163,184,0.2); font-size:0.7rem;">Unrated</span>`;
+
+      const safeTopName = String(item.top_player_name || '').replace(/'/g, "\\'");
+      const topPlayerHtml = item.top_player_name
+        ? `<div style="display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+             <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${item.top_player_id || ''}', '${escapeHtml(safeTopName)}')">
+               ${escapeHtml(item.top_player_name)}
+             </span>
+             ${item.top_player_elo ? (typeof renderEloBadgePill === 'function' ? renderEloBadgePill(Number(item.top_player_elo).toFixed(1), 10) : `<span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);">(${Number(item.top_player_elo).toFixed(1)})</span>`) : ''}
+           </div>`
+        : `<span style="color:var(--text-muted); font-size:0.8rem;">—</span>`;
+
+      const wr = Number(item.team_win_rate != null ? item.team_win_rate : (item.win_rate || 0)).toFixed(1);
+
+      tr.innerHTML = `
+        <td class="rank-cell ${rankClass}">#${rank}</td>
+        <td>
+          <div style="font-weight:600; color:#fff; display:flex; align-items:center; gap:0.4rem;">
+            <span>🛡️</span>
+            <span class="player-link">${escapeHtml(teamName)}</span>
+          </div>
+        </td>
+        <td>
+          <span class="badge" style="background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-family: var(--font-mono); font-weight: 700; font-size: 0.86rem; padding: 0.25rem 0.6rem;">
+            🏆 ${pts}
+          </span>
+        </td>
+        <td>
+          <span class="roster-badge" title="${eventsScored} of ${maxEvents} maximum counting events scored">
+            <span class="roster-badge-num">${eventsScored}</span> <span class="roster-badge-label">/ ${maxEvents} Events</span>
+          </span>
+        </td>
+        <td>${powerCellHtml}</td>
+        <td>${topPlayerHtml}</td>
+        <td style="font-family:var(--font-mono); font-size:0.85rem;">
+          <span style="color:var(--win); font-weight:600;">${item.total_wins || 0}W</span> - 
+          <span style="color:var(--loss); font-weight:600;">${item.total_losses || 0}L</span>
+          ${item.total_draws ? ` - <span style="color:var(--draw); font-weight:600;">${item.total_draws}D</span>` : ''}
+        </td>
+        <td style="font-family:var(--font-mono); font-weight:600;">
+          <span style="color: ${wr >= 55 ? 'var(--win)' : (wr >= 45 ? 'var(--accent)' : 'var(--text-secondary)')};">
+            ${wr}%
+          </span>
+        </td>
+      `;
+    } else {
+      const playerName = item.player_name || 'Unknown Player';
+      tr.onclick = (e) => {
+        e.stopPropagation();
+        openPlayerModal(item.player_id, playerName);
+      };
+
+      const hasElo = item.current_elo != null && Number(item.current_elo) > 0;
+      const eloCellHtml = hasElo
+        ? (typeof renderEloBadgePill === 'function' ? renderEloBadgePill(item.current_elo, item.matches_played || 10) : `<span class="elo-badge">${Number(item.current_elo).toFixed(1)}</span>`)
+        : `<span class="badge" style="background:rgba(148,163,184,0.1); color:var(--text-muted); border:1px solid rgba(148,163,184,0.2); font-size:0.7rem;">Unrated</span>`;
+
+      const teamHtml = item.team
+        ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); font-size:0.68rem; margin-top:0.2rem; cursor:pointer;" onclick="event.stopPropagation(); openTeamModal('${escapeHtml(item.team)}')" title="View ${escapeHtml(item.team)} Roster">🛡️ ${escapeHtml(item.team)}</span>`
+        : '';
+
+      const wr = Number(item.win_rate || 0).toFixed(1);
+      const factionCellHtml = (() => {
+        const rawFacs = (item.top_faction || '').split(',').map(f => f.trim()).filter(Boolean);
+        if (!rawFacs.length) return `<span style="color:var(--text-muted); font-size:0.8rem;">—</span>`;
+        const showCount = 2;
+        const visible = rawFacs.slice(0, showCount);
+        const remaining = rawFacs.length - visible.length;
+        return visible.map(f => `<span class="faction-pill" title="${escapeHtml(f)}" style="margin:2px 3px 2px 0; display:inline-block;">${escapeHtml(f)}</span>`).join('') +
+          (remaining > 0 ? `<span class="faction-pill" title="${escapeHtml(rawFacs.slice(showCount).join(', '))}" style="margin:2px 3px 2px 0; display:inline-block; opacity:0.85; font-size:0.72rem; cursor:help;">+${remaining}</span>` : '');
+      })();
+
+      tr.innerHTML = `
+        <td class="rank-cell ${rankClass}">#${rank}</td>
+        <td>
+          <div class="player-name-cell">
+            <div style="display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              <span class="player-link">${escapeHtml(playerName)}</span>
+            </div>
+            ${teamHtml}
+          </div>
+        </td>
+        <td>
+          <span class="badge" style="background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-family: var(--font-mono); font-weight: 700; font-size: 0.86rem; padding: 0.25rem 0.6rem;">
+            🏆 ${pts}
+          </span>
+        </td>
+        <td>
+          <span class="roster-badge" title="${eventsScored} of ${maxEvents} maximum counting events scored">
+            <span class="roster-badge-num">${eventsScored}</span> <span class="roster-badge-label">/ ${maxEvents} Events</span>
+          </span>
+        </td>
+        <td>${eloCellHtml}</td>
+        <td class="col-faction">${factionCellHtml}</td>
+        <td style="font-family:var(--font-mono); font-size:0.85rem;">
+          <span style="color:var(--win); font-weight:600;">${item.wins || 0}W</span> - 
+          <span style="color:var(--loss); font-weight:600;">${item.losses || 0}L</span>
+          ${item.draws ? ` - <span style="color:var(--draw); font-weight:600;">${item.draws}D</span>` : ''}
+        </td>
+        <td style="font-family:var(--font-mono); font-weight:600;">
+          <span style="color: ${wr >= 60 ? 'var(--win)' : (wr >= 45 ? 'var(--accent)' : 'var(--text-secondary)')};">
+            ${wr}%
+          </span>
+        </td>
+      `;
+    }
+
+    tbody.appendChild(tr);
+  });
+}
+window.renderLeaderboardItcRows = renderLeaderboardItcRows;
+

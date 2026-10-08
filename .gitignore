@@ -5,6 +5,7 @@ __pycache__/
 data/*
 !data/wahapedia/
 !data/nr_offline_bundle.zip
+!data/itc_global_rankings_seed.json
 scratch/
 *.sql
 *.tar.gz
