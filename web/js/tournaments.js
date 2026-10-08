@@ -12117,8 +12117,8 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
       ${slowTablesBannerHtml}
 
       <!-- Filter Pills & Search -->
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.85rem;">
-        <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+      <div class="to-hub-radar-toolbar" style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.85rem;">
+        <div class="to-hub-filter-pills" style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
           <button type="button" class="btn ${_toHubRadarFilter === 'all' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRadarFilter('all')" style="font-size:0.74rem; padding:0.3rem 0.65rem;">
             All (${totalTables})
           </button>
@@ -12132,11 +12132,11 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
             🚨 Judge Call (${openJudgeCalls.length})
           </button>
         </div>
-        <input type="text" placeholder="Search table # or player..." value="${escapeHtml(_toHubRadarSearch)}" oninput="handleToHubRadarSearch(this.value)" style="padding:0.38rem 0.75rem; border-radius:8px; border:1px solid rgba(255,255,255,0.14); background:rgba(15,23,42,0.85); color:#fff; font-size:0.8rem; min-width:210px;" />
+        <input class="to-hub-radar-search-input" type="text" placeholder="Search table # or player..." value="${escapeHtml(_toHubRadarSearch)}" oninput="handleToHubRadarSearch(this.value)" style="padding:0.38rem 0.75rem; border-radius:8px; border:1px solid rgba(255,255,255,0.14); background:rgba(15,23,42,0.85); color:#fff; font-size:0.8rem; min-width:210px; box-sizing:border-box;" />
       </div>
 
       <!-- Table Radar Grid -->
-      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:0.7rem;">
+      <div class="to-hub-radar-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:0.7rem;">
         ${tablesGridHtml}
       </div>
     </div>
@@ -12340,7 +12340,7 @@ function renderToHubClockAndJudgeSubtab(eventId, ev, roundNums, bcpCfg, clockObj
         const isResolved = String(c.status || '').toLowerCase() === 'resolved';
         return `
           <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; padding:0.65rem 0.85rem; background:rgba(15,23,42,0.65); border:1px solid ${isResolved ? 'rgba(255,255,255,0.07)' : 'rgba(239,68,68,0.45)'}; border-radius:8px;">
-            <div>
+            <div style="min-width:0; flex:1;">
               <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
                 <span style="font-family:var(--font-mono); font-weight:800; color:#fff; font-size:0.84rem;">Table ${escapeHtml(String(c.table_num || '?'))}</span>
                 <span class="badge" style="background:${isResolved ? 'rgba(34,197,94,0.16)' : 'rgba(239,68,68,0.2)'}; color:${isResolved ? '#4ade80' : '#fca5a5'}; font-size:0.66rem;">
@@ -12348,17 +12348,17 @@ function renderToHubClockAndJudgeSubtab(eventId, ev, roundNums, bcpCfg, clockObj
                 </span>
                 <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">${escapeHtml(c.category || 'Ruling')}</span>
               </div>
-              ${c.notes ? `<div style="font-size:0.78rem; color:#cbd5e1; margin-top:0.2rem;">${escapeHtml(c.notes)}</div>` : ''}
+              ${c.notes ? `<div style="font-size:0.78rem; color:#cbd5e1; margin-top:0.2rem; word-break:break-word;">${escapeHtml(c.notes)}</div>` : ''}
             </div>
             ${!isResolved ? `
-              <button type="button" class="btn btn-outline" onclick="resolveToHubJudgeCall('${escapeHtml(String(c.id || ''))}')" style="font-size:0.72rem; font-weight:700; padding:0.28rem 0.6rem; color:#4ade80; border-color:rgba(34,197,94,0.4);">
+              <button type="button" class="btn btn-outline" onclick="resolveToHubJudgeCall('${escapeHtml(String(c.id || ''))}')" style="font-size:0.72rem; font-weight:700; padding:0.28rem 0.6rem; color:#4ade80; border-color:rgba(34,197,94,0.4); flex-shrink:0;">
                 ✅ Resolve
               </button>
             ` : ''}
           </div>
         `;
       }).join('')
-    : `<div style="padding:1.25rem; text-align:center; color:var(--text-muted); font-size:0.82rem;">No floor judge calls logged for this event.</div>`;
+    : `<div style="padding:1.25rem; text-align:center; color:var(--text-muted); font-size:0.82rem; background:rgba(2,6,23,0.45); border:1px dashed rgba(255,255,255,0.08); border-radius:8px;">No floor judge calls logged for this event.</div>`;
 
   const visibilityBadgeHtml = isRunning
     ? `<span class="badge" style="background:rgba(34,197,94,0.18); color:#4ade80; border:1px solid rgba(34,197,94,0.45); font-size:0.68rem; font-weight:800;">🟢 LIVE • SHOWN TO PLAYERS</span>`
@@ -12367,10 +12367,10 @@ function renderToHubClockAndJudgeSubtab(eventId, ev, roundNums, bcpCfg, clockObj
         : `<span class="badge" style="background:rgba(148,163,184,0.15); color:#94a3b8; border:1px solid rgba(148,163,184,0.3); font-size:0.68rem; font-weight:800;">⚫ STOPPED • HIDDEN FROM PLAYERS</span>`);
 
   return `
-    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:1rem;">
+    <div class="to-hub-two-col-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:1rem; align-items:stretch;">
       <!-- Master Round Clock Control Card -->
-      <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid ${isRunning ? 'rgba(34,197,94,0.35)' : 'rgba(255,255,255,0.09)'}; border-radius:10px;">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+      <div class="card to-hub-symmetric-card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid ${isRunning ? 'rgba(34,197,94,0.35)' : 'rgba(255,255,255,0.09)'}; border-radius:10px; display:flex; flex-direction:column; gap:0.7rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap;">
           <h4 style="margin:0; font-size:0.95rem; font-weight:800; color:#fff;">⏱️ Master Round Clock</h4>
           <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
             ${visibilityBadgeHtml}
@@ -12378,73 +12378,78 @@ function renderToHubClockAndJudgeSubtab(eventId, ev, roundNums, bcpCfg, clockObj
           </div>
         </div>
 
-        <div style="text-align:center; padding:1rem; background:rgba(2,6,23,0.75); border:1px solid ${isRunning ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)'}; border-radius:10px; margin-bottom:0.85rem;">
-          <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; color:${isRunning ? '#4ade80' : (isPaused ? '#fbbf24' : 'var(--text-muted)')}; margin-bottom:0.2rem;">
+        <div style="text-align:center; padding:0.9rem 0.75rem; background:rgba(2,6,23,0.75); border:1px solid ${isRunning ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)'}; border-radius:10px;">
+          <div style="font-size:0.7rem; font-weight:800; text-transform:uppercase; color:${isRunning ? '#4ade80' : (isPaused ? '#fbbf24' : 'var(--text-muted)')}; margin-bottom:0.2rem;">
             ${isRunning ? '🔴 ROUND IN PROGRESS (VISIBLE TO PLAYERS)' : (isPaused ? '⏸️ ROUND CLOCK PAUSED (VISIBLE TO PLAYERS)' : '⏹️ ROUND STOPPED (CLOCK HIDDEN FROM PLAYERS)')}
           </div>
-          <div class="live-event-master-clock-readout" style="font-family:var(--font-mono); font-size:2.35rem; font-weight:900; color:${isRunning ? '#fbbf24' : '#f8fafc'}; letter-spacing:0.04em;">
+          <div class="live-event-master-clock-readout" style="font-family:var(--font-mono); font-size:2.25rem; font-weight:900; color:${isRunning ? '#fbbf24' : '#f8fafc'}; letter-spacing:0.04em;">
             ${formatClockDurationHms(remSec)}
           </div>
         </div>
 
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; margin-bottom:0.75rem; padding:0.5rem 0.7rem; background:rgba(15,23,42,0.55); border:1px solid rgba(255,255,255,0.07); border-radius:8px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; padding:0.45rem 0.7rem; background:rgba(15,23,42,0.55); border:1px solid rgba(255,255,255,0.07); border-radius:8px;">
           <label for="to-hub-clock-mins-input" style="font-size:0.76rem; font-weight:700; color:#cbd5e1;">Round Duration (Minutes)</label>
-          <input id="to-hub-clock-mins-input" type="number" min="15" max="600" value="${configuredMins}" style="width:110px; padding:0.35rem 0.6rem; border-radius:6px; background:rgba(15,23,42,0.95); border:1px solid rgba(255,255,255,0.18); color:#fff; font-size:0.84rem; font-family:var(--font-mono); font-weight:700; text-align:right;" />
+          <input id="to-hub-clock-mins-input" type="number" min="15" max="600" value="${configuredMins}" style="width:100px; padding:0.35rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.95); border:1px solid rgba(255,255,255,0.18); color:#fff; font-size:0.84rem; font-family:var(--font-mono); font-weight:700; text-align:right; box-sizing:border-box;" />
         </div>
 
-        <div style="display:flex; flex-wrap:wrap; gap:0.45rem; margin-bottom:0.55rem;">
+        <div class="to-hub-clock-primary-btns" style="display:flex; flex-wrap:wrap; gap:0.45rem;">
           ${!isRunning ? `
-            <button type="button" class="btn btn-primary" onclick="updateToHubMasterClockAction('start')" style="flex:1.4; font-size:0.78rem; font-weight:800; padding:0.5rem 0.75rem; background:linear-gradient(135deg, #059669, #10b981); border-color:#34d399; color:#fff;">
+            <button type="button" class="btn btn-primary" onclick="updateToHubMasterClockAction('start')" style="flex:1.4; min-width:180px; font-size:0.78rem; font-weight:800; padding:0.5rem 0.75rem; background:linear-gradient(135deg, #059669, #10b981); border-color:#34d399; color:#fff;">
               ${isPaused ? '▶️ Resume Round Clock' : '▶️ Start Round (Show Clock to Players)'}
             </button>
           ` : `
-            <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('pause')" style="flex:1; font-size:0.78rem; font-weight:800; padding:0.5rem 0.75rem; border-color:rgba(245,158,11,0.5); color:#fbbf24;">
+            <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('pause')" style="flex:1; min-width:130px; font-size:0.78rem; font-weight:800; padding:0.5rem 0.75rem; border-color:rgba(245,158,11,0.5); color:#fbbf24;">
               ⏸️ Pause Clock
             </button>
           `}
           ${isVisibleToPlayers ? `
-            <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('stop')" style="flex:1; font-size:0.78rem; font-weight:800; padding:0.5rem 0.75rem; border-color:rgba(239,68,68,0.5); color:#f87171; background:rgba(239,68,68,0.1);">
+            <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('stop')" style="flex:1; min-width:150px; font-size:0.78rem; font-weight:800; padding:0.5rem 0.75rem; border-color:rgba(239,68,68,0.5); color:#f87171; background:rgba(239,68,68,0.1);">
               ⏹️ Stop Round (Hide Clock)
             </button>
           ` : ''}
         </div>
 
-        <div style="display:flex; flex-wrap:wrap; gap:0.45rem; margin-bottom:0.65rem;">
-          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('adjust', 300)" style="flex:1; font-size:0.75rem; padding:0.38rem 0.6rem;">+5m</button>
-          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('adjust', -300)" style="flex:1; font-size:0.75rem; padding:0.38rem 0.6rem;">-5m</button>
-          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('reset')" style="flex:1; font-size:0.75rem; padding:0.38rem 0.6rem;">🔄 Reset Timer</button>
+        <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:0.45rem;">
+          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('adjust', 300)" style="font-size:0.75rem; padding:0.38rem 0.5rem;">+5m</button>
+          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('adjust', -300)" style="font-size:0.75rem; padding:0.38rem 0.5rem;">-5m</button>
+          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('reset')" style="font-size:0.75rem; padding:0.38rem 0.5rem;">🔄 Reset Timer</button>
         </div>
 
-        <button type="button" class="btn btn-outline" onclick="broadcastToHubClockStatus()" style="width:100%; font-size:0.78rem; font-weight:700; padding:0.45rem; border-color:rgba(245,158,11,0.4); color:#fbbf24;">
+        <button type="button" class="btn btn-outline" onclick="broadcastToHubClockStatus()" style="width:100%; margin-top:auto; font-size:0.78rem; font-weight:700; padding:0.48rem; border-color:rgba(245,158,11,0.4); color:#fbbf24;">
           📢 Broadcast Live Time Remaining Banner
         </button>
       </div>
 
       <!-- Judge Call Dispatch & Floor Log Card -->
-      <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; gap:0.75rem;">
-        <h4 style="margin:0; font-size:0.95rem; font-weight:800; color:#fff;">⚖️ Dispatch Floor Judge Call / Table Ruling</h4>
-        <div style="display:grid; grid-template-columns:80px 1fr 1fr; gap:0.45rem;">
-          <input id="to-hub-judge-table" type="text" placeholder="Table #" style="padding:0.4rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;" />
-          <select id="to-hub-judge-category" style="padding:0.4rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;">
+      <div class="card to-hub-symmetric-card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; gap:0.7rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap;">
+          <h4 style="margin:0; font-size:0.95rem; font-weight:800; color:#fff;">⚖️ Dispatch Floor Judge Call / Table Ruling</h4>
+          <span class="badge" style="background:rgba(239,68,68,0.15); color:#fca5a5; font-size:0.68rem;">${judgeCalls.filter(c => String(c.status || '').toLowerCase() !== 'resolved').length} Active</span>
+        </div>
+
+        <div class="to-hub-judge-form-grid" style="display:grid; grid-template-columns:84px minmax(0, 1fr) minmax(0, 1fr); gap:0.45rem;">
+          <input id="to-hub-judge-table" type="text" placeholder="Table #" style="width:100%; min-width:0; box-sizing:border-box; padding:0.42rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;" />
+          <select id="to-hub-judge-category" style="width:100%; min-width:0; box-sizing:border-box; padding:0.42rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;">
             <option value="Rules Question">Rules Question</option>
             <option value="Terrain / LOS Check">Terrain / LOS Check</option>
             <option value="Clock / Slow Play">Clock / Slow Play</option>
             <option value="Score Correction">Score Correction</option>
             <option value="Sportsmanship">Sportsmanship</option>
           </select>
-          <select id="to-hub-judge-staff" style="padding:0.4rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;">
+          <select id="to-hub-judge-staff" style="width:100%; min-width:0; box-sizing:border-box; padding:0.42rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;">
             <option value="">Assign Staff (Any)</option>
             ${staffList.map(st => `<option value="${escapeHtml(st.name)}">${escapeHtml(st.name)} (${escapeHtml(st.role)})</option>`).join('')}
           </select>
         </div>
-        <div style="display:flex; gap:0.45rem;">
-          <input id="to-hub-judge-notes" type="text" placeholder="Ruling details or table notes..." style="flex:1; padding:0.4rem 0.65rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;" />
-          <button type="button" class="btn btn-primary" onclick="submitToHubJudgeCall()" style="font-size:0.78rem; font-weight:700; padding:0.4rem 0.85rem; white-space:nowrap;">
+
+        <div class="to-hub-judge-notes-row" style="display:flex; gap:0.45rem; align-items:stretch;">
+          <input id="to-hub-judge-notes" type="text" placeholder="Ruling details or table notes..." style="flex:1; min-width:0; box-sizing:border-box; padding:0.42rem 0.65rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;" />
+          <button type="button" class="btn btn-primary" onclick="submitToHubJudgeCall()" style="font-size:0.78rem; font-weight:700; padding:0.42rem 0.85rem; white-space:nowrap; flex-shrink:0;">
             🚨 Log Call
           </button>
         </div>
 
-        <div style="display:flex; flex-direction:column; gap:0.45rem; max-height:230px; overflow-y:auto; margin-top:0.25rem;">
+        <div style="display:flex; flex-direction:column; gap:0.45rem; flex:1; max-height:230px; overflow-y:auto;">
           ${judgeListHtml}
         </div>
       </div>
@@ -12460,6 +12465,15 @@ function applyToHubAnnouncementPreset(text, level = 'info') {
   const select = document.getElementById('to-hub-banner-level');
   if (input) input.value = text;
   if (select) select.value = level;
+}
+
+function applyToHubNewsPreset(title, category = 'announcement', body = '') {
+  const titleEl = document.getElementById('to-hub-news-title');
+  const catEl = document.getElementById('to-hub-news-category');
+  const bodyEl = document.getElementById('to-hub-news-body');
+  if (titleEl) titleEl.value = title;
+  if (catEl) catEl.value = category;
+  if (bodyEl) bodyEl.value = body;
 }
 
 async function publishToHubBannerAnnouncement() {
@@ -12562,83 +12576,105 @@ function renderToHubAnnouncementsSubtab(eventId, ev, state) {
   const newsPosts = Array.isArray(state?.news_posts) ? state.news_posts : [];
 
   return `
-    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:1rem;">
-      <!-- App-Wide Live Banner Broadcast -->
-      <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; gap:0.75rem;">
-        <div>
-          <h4 style="margin:0 0 0.2rem 0; font-size:0.95rem; font-weight:800; color:#fbbf24;">📢 App-Wide Event Banner Broadcast</h4>
-          <div style="font-size:0.76rem; color:var(--text-secondary);">Displays a high-visibility alert banner across the app for all players in this tournament.</div>
-        </div>
-
-        ${activeBroadcast ? `
-          <div style="padding:0.75rem 0.9rem; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.45); border-radius:8px; display:flex; align-items:flex-start; justify-content:space-between; gap:0.6rem;">
-            <div>
-              <div style="font-size:0.68rem; font-weight:800; color:#fbbf24; text-transform:uppercase;">ACTIVE LIVE BANNER (${escapeHtml(activeBroadcast.level || 'info')})</div>
-              <div style="font-size:0.85rem; font-weight:700; color:#fff; margin-top:0.2rem;">${escapeHtml(activeBroadcast.message)}</div>
+    <div style="display:flex; flex-direction:column; gap:0.85rem;">
+      ${activeBroadcast ? `
+        <div class="card" style="padding:0.75rem 1rem; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.45); border-radius:10px; display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+          <div style="min-width:0; flex:1;">
+            <div style="font-size:0.68rem; font-weight:800; color:#fbbf24; text-transform:uppercase; letter-spacing:0.04em;">
+              🟢 ACTIVE LIVE BANNER (${escapeHtml(activeBroadcast.level || 'info')})
             </div>
-            <button type="button" class="btn btn-outline" onclick="clearToHubBannerAnnouncement()" style="font-size:0.72rem; padding:0.28rem 0.6rem; color:#f87171; border-color:rgba(239,68,68,0.4); white-space:nowrap;">
-              ✕ Clear
-            </button>
+            <div style="font-size:0.84rem; font-weight:700; color:#fff; margin-top:0.15rem; word-break:break-word;">
+              ${escapeHtml(activeBroadcast.message)}
+            </div>
           </div>
-        ` : ''}
+          <button type="button" class="btn btn-outline" onclick="clearToHubBannerAnnouncement()" style="font-size:0.74rem; font-weight:700; padding:0.32rem 0.65rem; color:#f87171; border-color:rgba(239,68,68,0.4); white-space:nowrap; flex-shrink:0;">
+            ✕ Clear Banner
+          </button>
+        </div>
+      ` : ''}
 
-        <div style="display:flex; flex-wrap:wrap; gap:0.35rem;">
-          <button type="button" class="btn btn-outline" onclick="applyToHubAnnouncementPreset('⚔️ Round Pairings are LIVE! Report to your assigned table.', 'info')" style="font-size:0.7rem; padding:0.25rem 0.55rem;">Preset: Pairings Live</button>
-          <button type="button" class="btn btn-outline" onclick="applyToHubAnnouncementPreset('⏳ 15 Minutes Remaining in the Round — finish current Battle Round.', 'warning')" style="font-size:0.7rem; padding:0.25rem 0.55rem;">Preset: 15m Warning</button>
-          <button type="button" class="btn btn-outline" onclick="applyToHubAnnouncementPreset('🎲 Dice Down! Please submit final scores immediately.', 'urgent')" style="font-size:0.7rem; padding:0.25rem 0.55rem;">Preset: Dice Down</button>
+      <div class="to-hub-two-col-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:1rem; align-items:stretch;">
+        <!-- App-Wide Live Banner Broadcast -->
+        <div class="card to-hub-symmetric-card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; gap:0.65rem;">
+          <div>
+            <h4 style="margin:0 0 0.2rem 0; font-size:0.95rem; font-weight:800; color:#fbbf24;">📢 App-Wide Event Banner Broadcast</h4>
+            <div style="font-size:0.76rem; color:var(--text-secondary); line-height:1.35;">Displays a high-visibility alert banner across the app for all players in this tournament.</div>
+          </div>
+
+          <div class="to-hub-preset-pills-row" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:0.35rem;">
+            <button type="button" class="btn btn-outline" onclick="applyToHubAnnouncementPreset('⚔️ Round Pairings are LIVE! Report to your assigned table.', 'info')" style="font-size:0.7rem; padding:0.28rem 0.4rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">⚔️ Pairings Live</button>
+            <button type="button" class="btn btn-outline" onclick="applyToHubAnnouncementPreset('⏳ 15 Minutes Remaining in the Round — finish current Battle Round.', 'warning')" style="font-size:0.7rem; padding:0.28rem 0.4rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">⏳ 15m Warning</button>
+            <button type="button" class="btn btn-outline" onclick="applyToHubAnnouncementPreset('🎲 Dice Down! Please submit final scores immediately.', 'urgent')" style="font-size:0.7rem; padding:0.28rem 0.4rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">🎲 Dice Down</button>
+          </div>
+
+          <div class="to-hub-ann-control-row" style="display:grid; grid-template-columns:135px minmax(0, 1fr); gap:0.45rem; align-items:center;">
+            <select id="to-hub-banner-level" style="width:100%; height:36px; box-sizing:border-box; padding:0.4rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.78rem;">
+              <option value="info">📢 Info</option>
+              <option value="warning">⚠️ Important</option>
+              <option value="urgent">🚨 Urgent</option>
+            </select>
+            <div style="height:36px; box-sizing:border-box; padding:0 0.65rem; border-radius:6px; background:rgba(2,6,23,0.55); border:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:space-between; gap:0.4rem; font-size:0.74rem; color:#94a3b8; overflow:hidden;">
+              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">🌐 Audience: All Event Players</span>
+              <span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; font-size:0.64rem; flex-shrink:0;">LIVE</span>
+            </div>
+          </div>
+
+          <textarea id="to-hub-banner-message" rows="3" placeholder="Type live announcement banner message to broadcast across all screens..." style="width:100%; flex:1; min-height:78px; box-sizing:border-box; padding:0.5rem 0.65rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem; resize:vertical;"></textarea>
+
+          <button type="button" class="btn btn-primary" onclick="publishToHubBannerAnnouncement()" style="width:100%; margin-top:auto; font-size:0.8rem; font-weight:700; padding:0.5rem;">
+            📢 Publish App-Wide Event Banner
+          </button>
         </div>
 
-        <div style="display:flex; gap:0.45rem;">
-          <select id="to-hub-banner-level" style="padding:0.45rem 0.6rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;">
-            <option value="info">📢 Info</option>
-            <option value="warning">⚠️ Important</option>
-            <option value="urgent">🚨 Urgent</option>
-          </select>
-          <input id="to-hub-banner-message" type="text" placeholder="Type live announcement banner message..." style="flex:1; padding:0.45rem 0.7rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.82rem;" />
-        </div>
+        <!-- Public News & Info Feed Publisher -->
+        <div class="card to-hub-symmetric-card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; gap:0.65rem;">
+          <div>
+            <h4 style="margin:0 0 0.2rem 0; font-size:0.95rem; font-weight:800; color:#38bdf8;">📰 Publish to Public News & Info Tab</h4>
+            <div style="font-size:0.76rem; color:var(--text-secondary); line-height:1.35;">Create permanent tournament bulletins, mission clarifications, or schedule posts.</div>
+          </div>
 
-        <button type="button" class="btn btn-primary" onclick="publishToHubBannerAnnouncement()" style="font-size:0.8rem; font-weight:700; padding:0.5rem;">
-          📢 Publish App-Wide Event Banner
-        </button>
+          <div class="to-hub-preset-pills-row" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:0.35rem;">
+            <button type="button" class="btn btn-outline" onclick="applyToHubNewsPreset('Round Mission & Terrain Layout', 'mission', 'Verify your table terrain layout and mission primary/secondary rules before deployment.')" style="font-size:0.7rem; padding:0.28rem 0.4rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">🗺️ Mission Info</button>
+            <button type="button" class="btn btn-outline" onclick="applyToHubNewsPreset('Updated Round Schedule', 'schedule', 'Please check the updated round start times and break window in the event schedule.')" style="font-size:0.7rem; padding:0.28rem 0.4rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">⏱️ Schedule Note</button>
+            <button type="button" class="btn btn-outline" onclick="applyToHubNewsPreset('Paint Judging & Awards Showcase', 'awards', 'Set out your painted armies during the break for Best Painted showcase judging.')" style="font-size:0.7rem; padding:0.28rem 0.4rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">🏆 Paint Showcase</button>
+          </div>
+
+          <div class="to-hub-news-meta-grid" style="display:grid; grid-template-columns:minmax(0, 1fr) 130px auto; gap:0.45rem; align-items:center;">
+            <input id="to-hub-news-title" type="text" placeholder="Bulletin Title (e.g. Round 2 Mission & Terrain)" style="width:100%; height:36px; min-width:0; box-sizing:border-box; padding:0.4rem 0.65rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;" />
+            <select id="to-hub-news-category" style="width:100%; height:36px; min-width:0; box-sizing:border-box; padding:0.4rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.78rem;">
+              <option value="announcement">📢 Bulletin</option>
+              <option value="mission">🗺️ Mission</option>
+              <option value="schedule">⏱️ Schedule</option>
+              <option value="awards">🏆 Awards</option>
+            </select>
+            <label style="height:36px; box-sizing:border-box; padding:0 0.55rem; border-radius:6px; background:rgba(2,6,23,0.55); border:1px solid rgba(255,255,255,0.08); display:inline-flex; align-items:center; gap:0.3rem; font-size:0.75rem; color:#cbd5e1; cursor:pointer; white-space:nowrap;">
+              <input id="to-hub-news-pinned" type="checkbox" /> 📌 Pin
+            </label>
+          </div>
+
+          <textarea id="to-hub-news-body" rows="3" placeholder="Write full announcement details, mission layout notes, or schedule updates..." style="width:100%; flex:1; min-height:78px; box-sizing:border-box; padding:0.5rem 0.65rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem; resize:vertical;"></textarea>
+
+          <button type="button" class="btn btn-primary" onclick="submitToHubNewsPost()" style="width:100%; margin-top:auto; font-size:0.8rem; font-weight:700; padding:0.5rem;">
+            📰 Post to News & Info Tab
+          </button>
+        </div>
       </div>
 
-      <!-- Public News & Info Feed Publisher -->
-      <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; gap:0.65rem;">
-        <div>
-          <h4 style="margin:0 0 0.2rem 0; font-size:0.95rem; font-weight:800; color:#38bdf8;">📰 Publish to Public News & Info Tab</h4>
-          <div style="font-size:0.76rem; color:var(--text-secondary);">Create permanent tournament bulletins, mission clarifications, or schedule posts.</div>
-        </div>
-
-        <div style="display:grid; grid-template-columns:1fr 140px auto; gap:0.45rem; align-items:center;">
-          <input id="to-hub-news-title" type="text" placeholder="Bulletin Title (e.g. Round 2 Mission & Terrain)" style="padding:0.42rem 0.65rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;" />
-          <select id="to-hub-news-category" style="padding:0.42rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.78rem;">
-            <option value="announcement">📢 Bulletin</option>
-            <option value="mission">🗺️ Mission</option>
-            <option value="schedule">⏱️ Schedule</option>
-            <option value="awards">🏆 Awards</option>
-          </select>
-          <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.76rem; color:#cbd5e1; cursor:pointer; white-space:nowrap;">
-            <input id="to-hub-news-pinned" type="checkbox" /> 📌 Pin
-          </label>
-        </div>
-
-        <textarea id="to-hub-news-body" rows="3" placeholder="Write full announcement details, mission layout notes, or schedule updates..." style="width:100%; padding:0.5rem 0.65rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem; resize:vertical;"></textarea>
-
-        <button type="button" class="btn btn-primary" onclick="submitToHubNewsPost()" style="font-size:0.8rem; font-weight:700; padding:0.48rem;">
-          📰 Post to News & Info Tab
-        </button>
-
-        ${newsPosts.length > 0 ? `
-          <div style="margin-top:0.35rem; padding-top:0.55rem; border-top:1px solid rgba(255,255,255,0.08); max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:0.4rem;">
+      ${newsPosts.length > 0 ? `
+        <div class="card" style="padding:0.85rem 1.05rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px; display:flex; flex-direction:column; gap:0.45rem;">
+          <div style="font-size:0.75rem; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;">
+            📚 Published Bulletins (${newsPosts.length})
+          </div>
+          <div style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:0.4rem;">
             ${newsPosts.map(p => `
-              <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.4rem 0.6rem; background:rgba(2,6,23,0.55); border-radius:6px; font-size:0.78rem;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.45rem 0.65rem; background:rgba(2,6,23,0.55); border-radius:6px; font-size:0.78rem;">
                 <span style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${p.pinned ? '📌 ' : ''}${escapeHtml(p.title || 'Update')}</span>
-                <button type="button" class="btn btn-outline" onclick="removeToHubNewsPost('${escapeHtml(String(p.id || ''))}')" style="font-size:0.68rem; padding:0.18rem 0.45rem; color:#f87171;">Delete</button>
+                <button type="button" class="btn btn-outline" onclick="removeToHubNewsPost('${escapeHtml(String(p.id || ''))}')" style="font-size:0.68rem; padding:0.18rem 0.45rem; color:#f87171; flex-shrink:0;">Delete</button>
               </div>
             `).join('')}
           </div>
-        ` : ''}
-      </div>
+        </div>
+      ` : ''}
     </div>
   `;
 }
@@ -12729,19 +12765,21 @@ function renderToHubRosterAuditSubtab(eventId, ev, players) {
         const safeNameJs = escapeHtml(name.replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
         const safeFacJs = escapeHtml((fac || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
         return `
-          <tr>
-            <td style="padding:0.5rem 0.65rem; font-family:var(--font-mono); color:var(--text-muted); font-size:0.78rem;">${i + 1}</td>
-            <td style="padding:0.5rem 0.65rem; font-weight:700; color:#f8fafc; font-size:0.84rem;">
-              <span onclick="openToHubPlayerCommsModal('${escapeHtml(pid)}', '${safeNameJs}', '${safeFacJs}', '${escapeHtml(lid)}')" style="cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; color:#f8fafc; text-decoration:underline; text-decoration-color:rgba(56,189,248,0.45); text-underline-offset:3px;" title="Click to message or alert ${escapeHtml(name)}">
-                ${escapeHtml(name)} <span style="font-size:0.72rem; opacity:0.8;">💬</span>
+          <tr class="to-hub-roster-row">
+            <td class="to-hub-col-idx" style="padding:0.5rem 0.65rem; font-family:var(--font-mono); color:var(--text-muted); font-size:0.78rem;">${i + 1}</td>
+            <td class="to-hub-col-name" style="padding:0.5rem 0.65rem; font-weight:700; color:#f8fafc; font-size:0.84rem;">
+              <span onclick="openToHubPlayerCommsModal('${escapeHtml(pid)}', '${safeNameJs}', '${safeFacJs}', '${escapeHtml(lid)}')" style="cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; max-width:100%; color:#f8fafc; text-decoration:underline; text-decoration-color:rgba(56,189,248,0.45); text-underline-offset:3px;" title="Click to message or alert ${escapeHtml(name)}">
+                <span class="to-hub-mobile-row-idx" style="display:none; font-family:var(--font-mono); font-size:0.72rem; color:#94a3b8; text-decoration:none; flex-shrink:0;">#${i + 1}</span>
+                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(name)}</span>
+                <span style="font-size:0.72rem; opacity:0.85; text-decoration:none; flex-shrink:0;">💬</span>
               </span>
             </td>
-            <td style="padding:0.5rem 0.65rem;">${statusBadge}</td>
-            <td style="padding:0.5rem 0.65rem; font-size:0.8rem; color:${(!fac || fac === 'Unknown') ? '#f87171' : '#38bdf8'}; font-weight:600;">
+            <td class="to-hub-col-status" style="padding:0.5rem 0.65rem;">${statusBadge}</td>
+            <td class="to-hub-col-faction" style="padding:0.5rem 0.65rem; font-size:0.8rem; color:${(!fac || fac === 'Unknown') ? '#f87171' : '#38bdf8'}; font-weight:600;">
               ${escapeHtml(fac || 'Unassigned')}
               ${det ? `<div style="font-size:0.7rem; color:var(--text-muted); font-weight:500;">${escapeHtml(det)}</div>` : ''}
             </td>
-            <td style="padding:0.5rem 0.65rem; text-align:right;">
+            <td class="to-hub-col-actions" style="padding:0.5rem 0.65rem; text-align:right;">
               <div style="display:inline-flex; align-items:center; gap:0.35rem; justify-content:flex-end; flex-wrap:wrap;">
                 <button type="button" class="btn btn-outline" onclick="openToHubPlayerCommsModal('${escapeHtml(pid)}', '${safeNameJs}', '${safeFacJs}', '${escapeHtml(lid)}')" style="font-size:0.72rem; padding:0.25rem 0.55rem; color:#38bdf8; border-color:rgba(56,189,248,0.35);" title="Send announcement or direct chat to ${escapeHtml(name)}">
                   💬 Message
@@ -12761,10 +12799,10 @@ function renderToHubRosterAuditSubtab(eventId, ev, players) {
     : `<tr><td colspan="5" style="padding:1.5rem; text-align:center; color:var(--text-muted);">No players match this compliance filter.</td></tr>`;
 
   return `
-    <div class="card" style="padding:1rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px;">
+    <div class="card to-hub-roster-card" style="padding:1rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px;">
       <!-- Compliance Filter Pills -->
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.85rem;">
-        <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+      <div class="to-hub-roster-toolbar" style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.85rem;">
+        <div class="to-hub-roster-filter-pills" style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
           <button type="button" class="btn ${_toHubRosterFilter === 'all' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRosterFilter('all')" style="font-size:0.73rem; padding:0.3rem 0.6rem;">
             All (${allPlayers.length})
           </button>
@@ -12788,17 +12826,17 @@ function renderToHubRosterAuditSubtab(eventId, ev, players) {
           </button>
         </div>
 
-        <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
-          <input type="text" placeholder="Search player or faction..." value="${escapeHtml(_toHubRosterSearch)}" oninput="handleToHubRosterSearch(this.value)" style="padding:0.36rem 0.7rem; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:rgba(15,23,42,0.9); color:#fff; font-size:0.78rem; min-width:190px;" />
-          <button type="button" class="btn btn-outline" onclick="copyToHubFilteredRosterNames()" style="font-size:0.74rem; font-weight:700; padding:0.36rem 0.7rem;">
+        <div class="to-hub-roster-search-bar" style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+          <input class="to-hub-roster-search-input" type="text" placeholder="Search player or faction..." value="${escapeHtml(_toHubRosterSearch)}" oninput="handleToHubRosterSearch(this.value)" style="padding:0.36rem 0.7rem; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:rgba(15,23,42,0.9); color:#fff; font-size:0.78rem; min-width:190px; box-sizing:border-box;" />
+          <button type="button" class="btn btn-outline to-hub-copy-roster-btn" onclick="copyToHubFilteredRosterNames()" style="font-size:0.74rem; font-weight:700; padding:0.36rem 0.7rem;">
             📋 Copy Filtered Names (${filtered.length})
           </button>
         </div>
       </div>
 
       <!-- Roster Table -->
-      <div class="table-responsive" style="max-height:460px; overflow-y:auto;">
-        <table class="data-table" style="width:100%; border-collapse:collapse;">
+      <div class="table-responsive to-hub-roster-table-wrap" style="max-height:460px; overflow-y:auto;">
+        <table class="data-table to-hub-roster-table" style="width:100%; border-collapse:collapse;">
           <thead>
             <tr>
               <th style="width:45px; padding:0.5rem 0.65rem;">#</th>

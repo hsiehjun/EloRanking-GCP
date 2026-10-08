@@ -17587,6 +17587,144 @@ table.desktop-only,
   .global-event-announcement-inner {
     padding: 0.5rem 0.75rem !important;
   }
+
+  /* TO Hub Two-Column & Symmetric Cards on Mobile */
+  #event-to-hub-container input:not([type="checkbox"]),
+  #event-to-hub-container select {
+    font-size: 0.8rem !important;
+    min-height: 36px !important;
+    height: 36px !important;
+    padding-top: 0.3rem !important;
+    padding-bottom: 0.3rem !important;
+  }
+  #event-to-hub-container input[type="checkbox"] {
+    width: 15px !important;
+    height: 15px !important;
+    min-width: 15px !important;
+    min-height: 15px !important;
+    margin: 0 !important;
+    accent-color: #38bdf8;
+  }
+  #event-to-hub-container textarea {
+    font-family: var(--font-sans, inherit) !important;
+    font-size: 0.82rem !important;
+    line-height: 1.4 !important;
+    min-height: 72px !important;
+  }
+  .to-hub-two-col-grid {
+    grid-template-columns: 1fr !important;
+    gap: 0.85rem !important;
+  }
+  .to-hub-symmetric-card,
+  .to-hub-roster-card {
+    padding: 0.85rem 0.9rem !important;
+  }
+
+  /* Judge Call Form Grid: prevent right-edge select clipping on mobile */
+  .to-hub-judge-form-grid {
+    grid-template-columns: 92px minmax(0, 1fr) !important;
+  }
+  #to-hub-judge-staff {
+    grid-column: 1 / -1 !important;
+  }
+
+  /* Announcements & News Control Bars on Mobile */
+  .to-hub-ann-control-row {
+    grid-template-columns: 118px minmax(0, 1fr) !important;
+  }
+  .to-hub-news-meta-grid {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+  }
+  #to-hub-news-title {
+    grid-column: 1 / -1 !important;
+  }
+
+  /* Floor Radar & Roster Toolbars on Mobile */
+  .to-hub-radar-toolbar,
+  .to-hub-roster-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.5rem !important;
+  }
+  .to-hub-roster-filter-pills .btn,
+  .to-hub-filter-pills .btn {
+    font-size: 0.7rem !important;
+    padding: 0.26rem 0.5rem !important;
+  }
+  .to-hub-radar-search-input,
+  .to-hub-roster-search-input {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .to-hub-roster-search-bar {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 0.4rem !important;
+  }
+  .to-hub-copy-roster-btn {
+    white-space: nowrap !important;
+    height: 36px !important;
+    padding: 0 0.65rem !important;
+    font-size: 0.72rem !important;
+  }
+
+  /* Roster & Compliance Audit Mobile Card Layout (No Horizontal Clipping) */
+  .to-hub-roster-table-wrap {
+    overflow-x: hidden !important;
+  }
+  .to-hub-roster-table,
+  .to-hub-roster-table tbody {
+    display: block !important;
+    width: 100% !important;
+  }
+  .to-hub-roster-table thead {
+    display: none !important;
+  }
+  .to-hub-roster-table tr.to-hub-roster-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.35rem 0.5rem !important;
+    padding: 0.65rem 0.75rem !important;
+    margin-bottom: 0.45rem !important;
+    background: rgba(2, 6, 23, 0.55) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 8px !important;
+    box-sizing: border-box !important;
+  }
+  .to-hub-roster-table td {
+    padding: 0 !important;
+    border: none !important;
+    min-width: 0 !important;
+  }
+  .to-hub-roster-table td.to-hub-col-idx {
+    display: none !important;
+  }
+  .to-hub-mobile-row-idx {
+    display: inline-block !important;
+  }
+  .to-hub-roster-table td.to-hub-col-name {
+    flex: 1 1 45% !important;
+    max-width: calc(100% - 142px) !important;
+    overflow: hidden !important;
+  }
+  .to-hub-roster-table td.to-hub-col-status {
+    flex: 0 0 auto !important;
+    margin-left: auto !important;
+    text-align: right !important;
+  }
+  .to-hub-roster-table td.to-hub-col-faction {
+    flex: 1 1 32% !important;
+    max-width: calc(100% - 185px) !important;
+    font-size: 0.76rem !important;
+  }
+  .to-hub-roster-table td.to-hub-col-actions {
+    flex: 0 0 auto !important;
+    margin-left: auto !important;
+    text-align: right !important;
+  }
 }
 
 .to-hub-table-card:hover {
@@ -17598,4 +17736,5 @@ table.desktop-only,
 .to-hub-player-click-row:hover {
   background: rgba(56, 189, 248, 0.14);
 }
+
 
