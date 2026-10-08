@@ -17550,6 +17550,41 @@ table.desktop-only,
   #faction-view-matchups td:nth-child(5)::before { content: "Verdict"; color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; font-weight: 600; }
 }
 
+/* ============================================================================
+   TO HUB, PUBLIC NEWS & INFO TAB & MY HUB HOSTED EVENTS RESPONSIVE STYLES
+   ============================================================================ */
+.event-bcp-description-body a {
+  color: #38bdf8;
+  text-decoration: underline;
+}
+.event-bcp-description-body p {
+  margin: 0 0 0.75rem 0;
+}
+.event-bcp-description-body ul,
+.event-bcp-description-body ol {
+  margin: 0 0 0.75rem 1.25rem;
+}
 
-
-
+@media (max-width: 768px) {
+  .hub-reg-events-tabs {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.35rem !important;
+  }
+  .to-hub-subtabs-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .to-hub-subtab-btn {
+    font-size: 0.74rem !important;
+    padding: 0.45rem 0.4rem !important;
+  }
+  .to-hub-header-bar {
+    padding: 0.65rem 0.75rem !important;
+  }
+  .event-news-top-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .global-event-announcement-inner {
+    padding: 0.5rem 0.75rem !important;
+  }
+}

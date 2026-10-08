@@ -921,29 +921,237 @@ class FirestoreRoomEngine:
         return self._fallback_tournaments.get(event_id, {}).get("broadcast")
 
     def publish_tournament_broadcast(self, event_id: str, broadcast_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Publishes broadcast announcement to tournaments/{event_id}."""
+        """Publishes broadcast announcement to tournaments/{event_id} and records in announcements history."""
         event_id = str(event_id).strip()
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
         import uuid as _uuid
         if not broadcast_data.get("id"):
             broadcast_data["id"] = f"msg_{int(now_ts)}_{_uuid.uuid4().hex[:6]}"
+        broadcast_data["eventId"] = event_id
+        broadcast_data["event_id"] = event_id
+        broadcast_data["active"] = bool(broadcast_data.get("active", True))
+        lvl = broadcast_data.get("level") or broadcast_data.get("type") or "info"
+        broadcast_data["level"] = lvl
+        broadcast_data["type"] = lvl
+        auth = broadcast_data.get("author_name") or broadcast_data.get("author") or "Tournament Organizer"
+        broadcast_data["author_name"] = auth
+        broadcast_data["author"] = auth
+        iso_now = datetime.now(timezone.utc).isoformat()
         broadcast_data["timestamp"] = now_ts
         broadcast_data["createdAt"] = now_ts
-        broadcast_data["created_at"] = datetime.now(timezone.utc).isoformat()
+        broadcast_data["created_at"] = iso_now
+        broadcast_data["published_at"] = iso_now
+
+        existing_history = []
+        if self._client:
+            try:
+                ref = self.get_tournament_doc_ref(event_id)
+                if ref:
+                    snap = ref.get()
+                    if snap.exists:
+                        d = snap.to_dict() or {}
+                        if isinstance(d.get("announcements"), list):
+                            existing_history = [a for a in d["announcements"] if isinstance(a, dict) and a.get("id") != broadcast_data["id"]]
+            except Exception as e:
+                logger.warning(f"Notice reading announcement history from Firestore: {e}")
+
+        if not existing_history:
+            fb_hist = self._fallback_tournaments.get(event_id, {}).get("announcements")
+            if isinstance(fb_hist, list):
+                existing_history = [a for a in fb_hist if isinstance(a, dict) and a.get("id") != broadcast_data["id"]]
+
+        existing_history.insert(0, dict(broadcast_data))
+        existing_history = existing_history[:30]
 
         if self._client:
             try:
                 ref = self.get_tournament_doc_ref(event_id)
                 if ref:
-                    ref.set({"eventId": event_id, "broadcast": broadcast_data, "updatedAt": now_ts}, merge=True)
+                    ref.set({
+                        "eventId": event_id,
+                        "broadcast": broadcast_data,
+                        "announcements": existing_history,
+                        "updatedAt": now_ts
+                    }, merge=True)
             except Exception as e:
                 logger.warning(f"Notice publishing broadcast to Firestore: {e}")
 
         if event_id not in self._fallback_tournaments:
             self._fallback_tournaments[event_id] = {}
         self._fallback_tournaments[event_id]["broadcast"] = broadcast_data
+        self._fallback_tournaments[event_id]["announcements"] = existing_history
         self._fallback_tournaments[event_id]["updatedAt"] = now_ts
         return broadcast_data
+
+    def clear_tournament_broadcast(self, event_id: str) -> bool:
+        """Clears the active broadcast banner for a tournament while preserving announcement history."""
+        event_id = str(event_id).strip()
+        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if self._client:
+            try:
+                ref = self.get_tournament_doc_ref(event_id)
+                if ref:
+                    ref.set({"eventId": event_id, "broadcast": None, "updatedAt": now_ts}, merge=True)
+            except Exception as e:
+                logger.warning(f"Notice clearing broadcast in Firestore: {e}")
+        if event_id in self._fallback_tournaments:
+            self._fallback_tournaments[event_id]["broadcast"] = None
+            self._fallback_tournaments[event_id]["updatedAt"] = now_ts
+        return True
+
+    def get_event_news_posts(self, event_id: str) -> List[Dict[str, Any]]:
+        """Fetches news & info posts published by the TO for an event."""
+        event_id = str(event_id).strip()
+        posts = None
+        if self._client:
+            try:
+                ref = self.get_tournament_doc_ref(event_id)
+                if ref:
+                    snap = ref.get()
+                    if snap.exists:
+                        data = snap.to_dict() or {}
+                        if isinstance(data.get("news_posts"), list):
+                            posts = data.get("news_posts")
+            except Exception as e:
+                logger.warning(f"Notice reading news_posts from Firestore: {e}")
+        if posts is None:
+            posts = self._fallback_tournaments.get(event_id, {}).get("news_posts")
+        if not isinstance(posts, list):
+            return []
+        valid = [p for p in posts if isinstance(p, dict)]
+        valid.sort(key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt") or 0), reverse=True)
+        return valid
+
+    def save_event_news_post(self, event_id: str, post_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Creates or updates a TO news/info post on tournaments/{event_id}."""
+        import uuid as _uuid
+        event_id = str(event_id).strip()
+        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        existing = self.get_event_news_posts(event_id)
+
+        post_id = str(post_data.get("id") or f"news_{int(now_ts)}_{_uuid.uuid4().hex[:6]}").strip()
+        prev = next((p for p in existing if str(p.get("id")) == post_id), None)
+
+        record = {
+            "id": post_id,
+            "event_id": event_id,
+            "title": str(post_data.get("title") or "Event Update").strip(),
+            "category": str(post_data.get("category") or "General Info").strip(),
+            "body": str(post_data.get("body") or post_data.get("content") or "").strip(),
+            "pinned": bool(post_data.get("pinned", False)),
+            "author": str(post_data.get("author") or "Tournament Organizer").strip(),
+            "createdAt": (prev.get("createdAt") if prev else None) or now_ts,
+            "created_at": (prev.get("created_at") if prev else None) or now_iso,
+            "updatedAt": now_ts,
+            "updated_at": now_iso,
+        }
+
+        updated = [p for p in existing if str(p.get("id")) != post_id]
+        updated.insert(0, record)
+        updated.sort(key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt") or 0), reverse=True)
+
+        if self._client:
+            try:
+                ref = self.get_tournament_doc_ref(event_id)
+                if ref:
+                    ref.set({"eventId": event_id, "news_posts": updated, "updatedAt": now_ts}, merge=True)
+            except Exception as e:
+                logger.warning(f"Notice saving news_posts to Firestore: {e}")
+
+        if event_id not in self._fallback_tournaments:
+            self._fallback_tournaments[event_id] = {}
+        self._fallback_tournaments[event_id]["news_posts"] = updated
+        self._fallback_tournaments[event_id]["updatedAt"] = now_ts
+        return record
+
+    def delete_event_news_post(self, event_id: str, post_id: str) -> bool:
+        """Deletes a TO news post from tournaments/{event_id}."""
+        event_id = str(event_id).strip()
+        post_id = str(post_id).strip()
+        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        existing = self.get_event_news_posts(event_id)
+        updated = [p for p in existing if str(p.get("id")) != post_id]
+
+        if self._client:
+            try:
+                ref = self.get_tournament_doc_ref(event_id)
+                if ref:
+                    ref.set({"eventId": event_id, "news_posts": updated, "updatedAt": now_ts}, merge=True)
+            except Exception as e:
+                logger.warning(f"Notice deleting news_post from Firestore: {e}")
+
+        if event_id not in self._fallback_tournaments:
+            self._fallback_tournaments[event_id] = {}
+        self._fallback_tournaments[event_id]["news_posts"] = updated
+        self._fallback_tournaments[event_id]["updatedAt"] = now_ts
+        return True
+
+    def get_event_to_hub_state(self, event_id: str) -> Dict[str, Any]:
+        """Single-read retrieval of masterClock, broadcast, announcements, news_posts, and judge_calls for TO Hub & News tab."""
+        event_id = str(event_id).strip()
+        doc_data: Dict[str, Any] = {}
+        if self._client:
+            try:
+                ref = self.get_tournament_doc_ref(event_id)
+                if ref:
+                    snap = ref.get()
+                    if snap.exists:
+                        doc_data = snap.to_dict() or {}
+            except Exception as e:
+                logger.warning(f"Notice reading TO Hub state from Firestore for {event_id}: {e}")
+
+        fb_data = self._fallback_tournaments.get(event_id, {})
+        master_clock = doc_data.get("masterClock") or fb_data.get("masterClock")
+        broadcast = doc_data.get("broadcast") if "broadcast" in doc_data else fb_data.get("broadcast")
+        if isinstance(broadcast, dict) and broadcast.get("active") is False:
+            broadcast = None
+
+        announcements = doc_data.get("announcements") if isinstance(doc_data.get("announcements"), list) else (
+            fb_data.get("announcements") if isinstance(fb_data.get("announcements"), list) else []
+        )
+        if not announcements and isinstance(broadcast, dict) and broadcast.get("message"):
+            announcements = [broadcast]
+
+        news_posts = doc_data.get("news_posts") if isinstance(doc_data.get("news_posts"), list) else (
+            fb_data.get("news_posts") if isinstance(fb_data.get("news_posts"), list) else []
+        )
+        news_posts = [p for p in news_posts if isinstance(p, dict)]
+        news_posts.sort(key=lambda p: (1 if p.get("pinned") else 0, p.get("createdAt") or 0), reverse=True)
+
+        judge_calls = self.list_judge_calls(event_id, active_only=False)
+
+        return {
+            "event_id": event_id,
+            "master_clock": master_clock,
+            "clock": master_clock,
+            "broadcast": broadcast,
+            "active_broadcast": broadcast,
+            "announcements": announcements,
+            "news_posts": news_posts,
+            "judge_calls": judge_calls,
+        }
+
+    def get_active_broadcasts_for_events(self, event_ids: List[str]) -> List[Dict[str, Any]]:
+        """Fetches active announcement banners across a list of event IDs for the app-wide banner."""
+        results = []
+        seen_eids = set()
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        for raw_eid in (event_ids or []):
+            eid = str(raw_eid or "").strip()
+            if not eid or eid in seen_eids:
+                continue
+            seen_eids.add(eid)
+            b = self.get_tournament_broadcast(eid)
+            if isinstance(b, dict) and b.get("message") and b.get("active", True) is not False:
+                exp = b.get("expiresAt") or b.get("expires_at")
+                if exp and isinstance(exp, (int, float)) and exp < now_ms:
+                    continue
+                b_copy = dict(b)
+                b_copy["event_id"] = b_copy.get("event_id") or b_copy.get("eventId") or eid
+                results.append(b_copy)
+        results.sort(key=lambda x: x.get("timestamp") or x.get("createdAt") or 0, reverse=True)
+        return results
 
     @staticmethod
     def _parse_stream_embed(url: str, platform: Optional[str] = None) -> Tuple[str, str]:

@@ -4142,3 +4142,190 @@ def api_eventstudio_get_wtc_draft(event_id: str, round_num: int):
     return {"success": True, "event_id": event_id, "round_num": round_num, "draft": res}
 
 
+# =========================================================================
+# TO HUB, EVENT NEWS & APP-WIDE ANNOUNCEMENT BANNER APIS (< 15ms)
+# =========================================================================
+
+class ToHubAnnouncementPayload(BaseModel):
+    message: Optional[str] = ""
+    type: Optional[str] = None
+    level: Optional[str] = None
+    round: Optional[int] = None
+    event_name: Optional[str] = None
+    author: Optional[str] = None
+    author_name: Optional[str] = None
+    active: Optional[bool] = True
+
+
+class ToHubNewsPostPayload(BaseModel):
+    id: Optional[str] = None
+    title: str
+    category: Optional[str] = "General Info"
+    body: str
+    pinned: Optional[bool] = False
+    author: Optional[str] = None
+    author_name: Optional[str] = None
+
+
+@router.get("/api/events/active-announcements", summary="Get active TO announcements across events for app-wide banner")
+def api_get_active_event_announcements(
+    event_ids: Optional[str] = Query(None, description="Comma-separated list of event IDs")
+):
+    fs_engine = get_firestore_engine()
+    if not event_ids:
+        return {"ok": True, "success": True, "announcements": []}
+    raw_list = [eid.strip() for eid in str(event_ids).split(",") if eid.strip()][:25]
+    active = fs_engine.get_active_broadcasts_for_events(raw_list)
+    return {"ok": True, "success": True, "announcements": active}
+
+
+@router.get("/api/events/{event_id}/to-hub", summary="Get unified TO Hub and News state for an event in a single read")
+def api_get_event_to_hub_state(event_id: str):
+    fs_engine = get_firestore_engine()
+    state = fs_engine.get_event_to_hub_state(event_id)
+
+    active_tracker_tables: List[Dict[str, Any]] = []
+    try:
+        from routers.tracker import TRACKER_ROOMS
+        clean_eid = str(event_id).replace("bcp_", "").replace("ES-", "").replace("es-", "").strip().upper()
+        for mid, rdata in list(TRACKER_ROOMS.items()):
+            if not isinstance(rdata, dict):
+                continue
+            mid_u = str(mid).upper()
+            if (
+                rdata.get("eventId") == event_id or
+                rdata.get("event_id") == event_id or
+                rdata.get("tournament_id") == event_id or
+                (clean_eid and clean_eid in mid_u)
+            ):
+                t_num = rdata.get("tableNum") or rdata.get("table_number") or rdata.get("table")
+                active_tracker_tables.append({
+                    "match_id": mid,
+                    "table_number": t_num,
+                    "table_num": t_num,
+                    "round": rdata.get("round") or rdata.get("round_number"),
+                    "battle_round": rdata.get("battleRound") or rdata.get("currentRound") or 1,
+                    "p1_score": (rdata.get("p1") or {}).get("totalScore") if isinstance(rdata.get("p1"), dict) else rdata.get("p1_score"),
+                    "p2_score": (rdata.get("p2") or {}).get("totalScore") if isinstance(rdata.get("p2"), dict) else rdata.get("p2_score"),
+                    "status": rdata.get("status") or "live",
+                })
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "success": True,
+        **state,
+        "active_tracker_tables": active_tracker_tables,
+        "active_sessions": active_tracker_tables,
+    }
+
+
+@router.post("/api/events/{event_id}/to-hub/announcement", summary="Publish or clear an app-wide event announcement banner")
+def api_publish_event_to_hub_announcement(event_id: str, payload: ToHubAnnouncementPayload):
+    fs_engine = get_firestore_engine()
+    msg = (payload.message or "").strip()
+    if payload.active is False or not msg:
+        fs_engine.clear_tournament_broadcast(event_id)
+        state = fs_engine.get_event_to_hub_state(event_id)
+        return {
+            "ok": True,
+            "success": True,
+            "event_id": event_id,
+            "broadcast": None,
+            "active_broadcast": None,
+            "announcements": state.get("announcements", []),
+        }
+
+    lvl = payload.level or payload.type or "info"
+    auth = payload.author_name or payload.author or "Tournament Organizer"
+    broadcast_data = {
+        "message": msg,
+        "type": lvl,
+        "level": lvl,
+        "round": payload.round,
+        "event_name": payload.event_name or "",
+        "author": auth,
+        "author_name": auth,
+        "active": True,
+    }
+    res = fs_engine.publish_tournament_broadcast(event_id, broadcast_data)
+
+    # Propagate to active Game Tracker rooms and SSE listeners
+    try:
+        from routers.tracker import TRACKER_ROOMS, TRACKER_LISTENERS
+        clean_eid = str(event_id).replace("bcp_", "").replace("ES-", "").replace("es-", "").strip().upper()
+        for mid, rdata in list(TRACKER_ROOMS.items()):
+            mid_u = str(mid).upper()
+            if (
+                rdata.get("eventId") == event_id or
+                rdata.get("event_id") == event_id or
+                rdata.get("tournament_id") == event_id or
+                (clean_eid and clean_eid in mid_u)
+            ):
+                rdata["broadcast"] = res
+                listeners = TRACKER_LISTENERS.get(mid, [])
+                b_msg = {"type": "broadcast_update", "broadcast": res}
+                for q in list(listeners):
+                    try:
+                        q.put_nowait(b_msg)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    state = fs_engine.get_event_to_hub_state(event_id)
+    return {
+        "ok": True,
+        "success": True,
+        "event_id": event_id,
+        "broadcast": res,
+        "active_broadcast": res,
+        "announcements": state.get("announcements", []),
+    }
+
+
+@router.delete("/api/events/{event_id}/to-hub/announcement", summary="Clear active event announcement banner")
+def api_clear_event_to_hub_announcement(event_id: str):
+    fs_engine = get_firestore_engine()
+    fs_engine.clear_tournament_broadcast(event_id)
+    state = fs_engine.get_event_to_hub_state(event_id)
+    return {
+        "ok": True,
+        "success": True,
+        "event_id": event_id,
+        "broadcast": None,
+        "active_broadcast": None,
+        "announcements": state.get("announcements", []),
+    }
+
+
+@router.post("/api/events/{event_id}/to-hub/news", summary="Create or update a TO News & Info post for an event")
+def api_save_event_to_hub_news_post(event_id: str, payload: ToHubNewsPostPayload):
+    fs_engine = get_firestore_engine()
+    saved = fs_engine.save_event_news_post(event_id, payload.dict())
+    all_posts = fs_engine.get_event_news_posts(event_id)
+    return {
+        "ok": True,
+        "success": True,
+        "event_id": event_id,
+        "post": saved,
+        "news_posts": all_posts,
+    }
+
+
+@router.delete("/api/events/{event_id}/to-hub/news/{post_id}", summary="Delete a TO News & Info post for an event")
+def api_delete_event_to_hub_news_post(event_id: str, post_id: str):
+    fs_engine = get_firestore_engine()
+    ok = fs_engine.delete_event_news_post(event_id, post_id)
+    all_posts = fs_engine.get_event_news_posts(event_id)
+    return {
+        "ok": ok,
+        "success": ok,
+        "event_id": event_id,
+        "deleted_id": post_id,
+        "news_posts": all_posts,
+    }
+
+
+

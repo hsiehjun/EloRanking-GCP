@@ -533,6 +533,8 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   const subtabPlayerInit = document.getElementById('event-subtab-player');
   const subtabTeamsInit = document.getElementById('event-subtab-teams');
   const subtabEloInit = document.getElementById('event-subtab-elo');
+  const subtabNewsInit = document.getElementById('event-subtab-news');
+  const subtabToHubInit = document.getElementById('event-subtab-to-hub');
   const subtabCreatorInit = document.getElementById('event-subtab-creator');
   if (subtabPlayerInit) subtabPlayerInit.style.setProperty('display', 'none', 'important');
   if (subtabTeamsInit) {
@@ -543,6 +545,11 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     }
   }
   if (subtabEloInit) subtabEloInit.style.setProperty('display', 'none', 'important');
+  if (subtabNewsInit) subtabNewsInit.style.setProperty('display', 'inline-flex', 'important');
+  if (subtabToHubInit) {
+    const canToInit = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(currentEventData));
+    subtabToHubInit.style.setProperty('display', canToInit ? 'inline-flex' : 'none', 'important');
+  }
   if (subtabCreatorInit) {
     const isCCInit = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
     subtabCreatorInit.style.setProperty('display', isCCInit ? 'inline-flex' : 'none', 'important');
@@ -853,6 +860,17 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const subtabEloInit = document.getElementById('event-subtab-elo');
     if (subtabEloInit) subtabEloInit.style.setProperty('display', 'none', 'important');
 
+    const subtabNews = document.getElementById('event-subtab-news');
+    if (subtabNews) {
+      subtabNews.style.setProperty('display', 'inline-flex', 'important');
+    }
+
+    const canAccessToHub = typeof canUserAccessEventToHub === 'function' ? canUserAccessEventToHub(ev) : false;
+    const subtabToHub = document.getElementById('event-subtab-to-hub');
+    if (subtabToHub) {
+      subtabToHub.style.setProperty('display', canAccessToHub ? 'inline-flex' : 'none', 'important');
+    }
+
     const subtabCreator = document.getElementById('event-subtab-creator');
     const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
     if (subtabCreator) {
@@ -938,7 +956,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       ? isTournamentOngoing(ev)
       : (!isEnded && eventMatchesCache.length > 0);
 
-    if (initialTab && initialTab !== 'elo' && (initialTab !== 'player' || shouldShowPlayerTab)) {
+    if (initialTab && initialTab !== 'elo' && (initialTab !== 'player' || shouldShowPlayerTab) && (initialTab !== 'to-hub' || canAccessToHub)) {
       switchEventModalTab(initialTab);
     } else if (shouldShowPlayerTab) {
       switchEventModalTab('player');
@@ -948,6 +966,10 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       switchEventModalTab('teams');
     } else {
       switchEventModalTab('results');
+    }
+
+    if (typeof loadEventToHubState === 'function') {
+      loadEventToHubState(eventId, Boolean(forceSync)).catch(() => {});
     }
 
     if (typeof renderQuickEventModal === 'function') {
@@ -1479,6 +1501,8 @@ function switchEventModalTab(tabKey) {
   const btnElo = document.getElementById('event-subtab-elo');
   const btnMatches = document.getElementById('event-subtab-matches');
   const btnMeta = document.getElementById('event-subtab-meta');
+  const btnNews = document.getElementById('event-subtab-news');
+  const btnToHub = document.getElementById('event-subtab-to-hub');
   const btnCreator = document.getElementById('event-subtab-creator');
   const viewPlayer = document.getElementById('event-view-player');
   const viewTeams = document.getElementById('event-view-teams');
@@ -1486,12 +1510,14 @@ function switchEventModalTab(tabKey) {
   const viewElo = document.getElementById('event-view-elo');
   const viewMatches = document.getElementById('event-view-matches');
   const viewMeta = document.getElementById('event-view-meta');
+  const viewNews = document.getElementById('event-view-news');
+  const viewToHub = document.getElementById('event-view-to-hub');
   const viewCreator = document.getElementById('event-view-creator');
   const searchRow = document.getElementById('event-modal-search-row') || document.querySelector('.event-modal-search-wrap');
   const facFilterWrap = document.getElementById('event-hub-faction-filter-wrap');
 
-  [btnPlayer, btnTeams, btnResults, btnElo, btnMatches, btnMeta, btnCreator].forEach(b => b && b.classList.remove('active'));
-  [viewPlayer, viewTeams, viewResults, viewElo, viewMatches, viewMeta, viewCreator].forEach(v => v && (v.style.display = 'none'));
+  [btnPlayer, btnTeams, btnResults, btnElo, btnMatches, btnMeta, btnNews, btnToHub, btnCreator].forEach(b => b && b.classList.remove('active'));
+  [viewPlayer, viewTeams, viewResults, viewElo, viewMatches, viewMeta, viewNews, viewToHub, viewCreator].forEach(v => v && (v.style.display = 'none'));
 
   if (tabKey === 'player') {
     if (btnPlayer) btnPlayer.classList.add('active');
@@ -1503,6 +1529,26 @@ function switchEventModalTab(tabKey) {
     if (searchRow) searchRow.style.display = 'none';
     if (typeof renderEventMetaAndHighlights === 'function' && currentEventData) {
       renderEventMetaAndHighlights(currentEventData);
+    }
+  } else if (tabKey === 'news') {
+    if (btnNews) btnNews.classList.add('active');
+    if (viewNews) viewNews.style.display = 'block';
+    if (searchRow) searchRow.style.display = 'none';
+    if (typeof renderEventNewsHub === 'function' && currentEventData) {
+      renderEventNewsHub(currentEventData);
+    }
+  } else if (tabKey === 'to-hub') {
+    const canTo = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(currentEventData));
+    if (!canTo) {
+      console.warn('Unauthorized TO Hub tab switch blocked for current user');
+      switchEventModalTab('results');
+      return;
+    }
+    if (btnToHub) btnToHub.classList.add('active');
+    if (viewToHub) viewToHub.style.display = 'block';
+    if (searchRow) searchRow.style.display = 'none';
+    if (typeof renderEventToHub === 'function' && currentEventData) {
+      renderEventToHub(currentEventData);
     }
   } else if (tabKey === 'creator') {
     const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin)));
@@ -4412,6 +4458,17 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
       if (subtabTeams) subtabTeams.style.setProperty('display', 'none', 'important');
     }
 
+    const subtabNews = document.getElementById('event-subtab-news');
+    if (subtabNews) {
+      subtabNews.style.setProperty('display', 'inline-flex', 'important');
+    }
+
+    const canAccessToHub = typeof canUserAccessEventToHub === 'function' ? canUserAccessEventToHub(ev) : false;
+    const subtabToHub = document.getElementById('event-subtab-to-hub');
+    if (subtabToHub) {
+      subtabToHub.style.setProperty('display', canAccessToHub ? 'inline-flex' : 'none', 'important');
+    }
+
     const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
     const subtabCreator = document.getElementById('event-subtab-creator');
     if (subtabCreator) {
@@ -4436,6 +4493,9 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     if (targetTab === 'creator' && !isCC) {
       targetTab = 'results';
     }
+    if (targetTab === 'to-hub' && !canAccessToHub) {
+      targetTab = 'results';
+    }
     if (targetTab === 'teams' && !isTeamEvent && teamsList.length === 0) {
       targetTab = 'results';
     }
@@ -4457,6 +4517,10 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
       }
     }
     switchEventModalTab(targetTab);
+
+    if (typeof loadEventToHubState === 'function') {
+      loadEventToHubState(eventId, Boolean(options.forceSync)).catch(() => {});
+    }
 
   } catch (err) {
     if (heroSection) {
@@ -11166,3 +11230,1564 @@ window.normalizeStreamRecord = normalizeStreamRecord;
 window.loadEventLivestreams = loadEventLivestreams;
 window.exportPairingsCsv = exportPairingsCsv;
 window.exportRosterJson = exportRosterJson;
+
+// ============================================================================
+// TO HUB, PUBLIC NEWS & INFO TAB & GLOBAL EVENT ANNOUNCEMENT BANNER
+// ============================================================================
+
+const _eventToHubStateCache = new Map();
+let _currentToHubSubtab = 'radar'; // 'radar' | 'clock' | 'announcements' | 'roster'
+let _toHubRadarRound = null;
+let _toHubRadarFilter = 'all'; // 'all' | 'unfinished' | 'completed' | 'tracker' | 'judge'
+let _toHubRadarSearch = '';
+let _toHubRosterFilter = 'all'; // 'all' | 'checked_in' | 'not_checked_in' | 'list_submitted' | 'missing_list' | 'unassigned_faction' | 'dropped'
+let _toHubRosterSearch = '';
+let _toHubMasterClockInterval = null;
+
+function normalizeBcpEventUsersList(rawEventUsers) {
+  if (!rawEventUsers) return [];
+  if (Array.isArray(rawEventUsers)) return rawEventUsers.filter(u => u && typeof u === 'object');
+  if (typeof rawEventUsers === 'object') {
+    return Object.entries(rawEventUsers)
+      .map(([k, v]) => (v && typeof v === 'object' ? Object.assign({ _keyId: k }, v) : null))
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function formatBcpStaffRoleName(eu) {
+  if (!eu || typeof eu !== 'object') return 'Tournament Organizer';
+  if (eu.role && typeof eu.role === 'object') {
+    return String(eu.role.name || eu.role.type || eu.type || 'Tournament Organizer').trim();
+  }
+  return String(eu.type || eu.role || 'Tournament Organizer').trim();
+}
+
+function getUserEventOrganizerRole(ev, userOverride = null) {
+  if (!ev) return null;
+  const u = userOverride || (typeof currentUser !== 'undefined' ? currentUser : null);
+  if (!u) return null;
+
+  const isAdmin = Boolean(u.role === 'admin' || u.is_admin);
+  const raw = (ev.raw_json && typeof ev.raw_json === 'object') ? ev.raw_json : ev;
+  const userBcpId = String(u.bcp_user_id || u.player_id || '').trim();
+  const userEmail = String(u.email || '').trim().toLowerCase();
+  const userFullName = String(u.full_name || `${u.first_name || ''} ${u.last_name || ''}`).trim().toLowerCase();
+
+  if (ev.organizer_role) return String(ev.organizer_role);
+  if (ev.is_owner) return 'Event Owner';
+  if (ev.is_to) return 'Tournament Organizer';
+
+  const ownerId = String(raw.ownerId || raw.owner_Id || ev.owner_id || '').trim();
+  if (userBcpId && ownerId && userBcpId === ownerId) {
+    return 'Event Owner';
+  }
+  const ownerFullName = `${raw.ownerFirstName || ''} ${raw.ownerLastName || ''}`.trim().toLowerCase();
+  if (userFullName && ownerFullName && userFullName.length > 3 && userFullName === ownerFullName) {
+    return 'Event Owner';
+  }
+
+  const eventUsers = normalizeBcpEventUsersList(raw.eventUsers || ev.event_users);
+  for (const eu of eventUsers) {
+    const euUid = String(eu.userId || eu.user_id || eu.id || eu._keyId || '').trim();
+    const euEmail = String(eu.email || '').trim().toLowerCase();
+    const euName = `${eu.firstName || eu.first_name || ''} ${eu.lastName || eu.last_name || ''}`.trim().toLowerCase();
+    if (
+      (userBcpId && euUid && userBcpId === euUid) ||
+      (userEmail && euEmail && userEmail === euEmail) ||
+      (userFullName && euName && userFullName.length > 3 && userFullName === euName)
+    ) {
+      return formatBcpStaffRoleName(eu);
+    }
+  }
+
+  const evId = String(ev.id || ev.event_id || '').trim();
+  if (evId && Array.isArray(window.myHubHostedTournaments)) {
+    const matchedHosted = window.myHubHostedTournaments.find(t => String(t.event_id || t.id || '') === evId);
+    if (matchedHosted) {
+      return String(matchedHosted.organizer_role || 'Tournament Organizer');
+    }
+  }
+
+  if (isAdmin) return 'Platform Admin / TO Override';
+  return null;
+}
+
+function canUserAccessEventToHub(ev, userOverride = null) {
+  return Boolean(getUserEventOrganizerRole(ev, userOverride));
+}
+
+function extractEventStaffDirectory(ev) {
+  if (!ev) return [];
+  const raw = (ev.raw_json && typeof ev.raw_json === 'object') ? ev.raw_json : ev;
+  const staff = [];
+  const seen = new Set();
+
+  const ownerId = String(raw.ownerId || raw.owner_Id || ev.owner_id || '').trim();
+  const ownerFirst = String(raw.ownerFirstName || '').trim();
+  const ownerLast = String(raw.ownerLastName || '').trim();
+  const ownerName = `${ownerFirst} ${ownerLast}`.trim();
+  if (ownerName) {
+    const key = (ownerId || ownerName).toLowerCase();
+    seen.add(key);
+    seen.add(ownerName.toLowerCase());
+    staff.push({
+      id: ownerId || key,
+      name: ownerName,
+      role: 'Event Owner',
+      badgeIcon: '🏛️',
+      isOwner: true,
+    });
+  }
+
+  const eventUsers = normalizeBcpEventUsersList(raw.eventUsers || ev.event_users);
+  for (const eu of eventUsers) {
+    const uid = String(eu.userId || eu.user_id || eu.id || eu._keyId || '').trim();
+    const first = String(eu.firstName || eu.first_name || '').trim();
+    const last = String(eu.lastName || eu.last_name || '').trim();
+    const fullName = `${first} ${last}`.trim() || String(eu.name || eu.full_name || '').trim();
+    if (!fullName && !uid) continue;
+    const key = (uid || fullName).toLowerCase();
+    if (seen.has(key) || (fullName && seen.has(fullName.toLowerCase()))) continue;
+    seen.add(key);
+    if (fullName) seen.add(fullName.toLowerCase());
+    const isOwnerMatch = Boolean(ownerId && uid && ownerId === uid);
+    const roleStr = isOwnerMatch ? 'Event Owner' : formatBcpStaffRoleName(eu);
+    const isJudge = /judge/i.test(roleStr);
+    const isStreamer = /stream/i.test(roleStr);
+    staff.push({
+      id: uid || key,
+      name: fullName || 'Event Staff',
+      role: roleStr,
+      badgeIcon: isOwnerMatch ? '🏛️' : (isJudge ? '⚖️' : (isStreamer ? '🎥' : '📋')),
+      isOwner: isOwnerMatch,
+    });
+  }
+  return staff;
+}
+
+function getEventBcpRoundConfig(ev) {
+  const raw = (ev && ev.raw_json && typeof ev.raw_json === 'object') ? ev.raw_json : (ev || {});
+  const rawLen = Number(raw.defaultRoundLength || ev?.default_round_length || 180) || 180;
+  // BCP stores defaultRoundLength in seconds (e.g. 10800 = 180m); normalize to minutes
+  const defaultLengthMins = rawLen > 600 ? Math.round(rawLen / 60) : rawLen;
+  const roundTimers = Array.isArray(raw.roundTimers)
+    ? raw.roundTimers
+    : (Array.isArray(ev?.round_timers) ? ev.round_timers : []);
+  return {
+    defaultLengthMins,
+    roundTimers,
+  };
+}
+
+async function loadEventToHubState(eventId, forceRefresh = false) {
+  if (!eventId || !window.api || typeof window.api.getEventToHubState !== 'function') return null;
+  const eid = String(eventId);
+  if (!forceRefresh && _eventToHubStateCache.has(eid)) {
+    const cached = _eventToHubStateCache.get(eid);
+    if (Date.now() - (cached._fetchedAt || 0) < 12000) {
+      updateEventNewsTabBadge(eid);
+      return cached;
+    }
+  }
+  try {
+    const res = await window.api.getEventToHubState(eid, forceRefresh);
+    if (res && !res.error) {
+      res._fetchedAt = Date.now();
+      _eventToHubStateCache.set(eid, res);
+      updateEventNewsTabBadge(eid);
+      if (currentOpenEventId && String(currentOpenEventId) === eid) {
+        if (currentEventModalTab === 'news' && currentEventData) {
+          renderEventNewsHub(currentEventData, true);
+        } else if (currentEventModalTab === 'to-hub' && currentEventData) {
+          renderEventToHub(currentEventData, true);
+        }
+      }
+      if (typeof syncGlobalEventAnnouncementBanner === 'function') {
+        syncGlobalEventAnnouncementBanner().catch(() => {});
+      }
+      return res;
+    }
+  } catch (err) {
+    console.warn('loadEventToHubState warning:', err);
+  }
+  return _eventToHubStateCache.get(eid) || null;
+}
+
+function updateEventNewsTabBadge(eventId) {
+  const badge = document.getElementById('event-tab-news-count');
+  if (!badge) return;
+  const eid = String(eventId || currentOpenEventId || '');
+  const state = _eventToHubStateCache.get(eid);
+  let count = 0;
+  if (state) {
+    if (state.active_broadcast && state.active_broadcast.message) count += 1;
+    if (Array.isArray(state.news_posts)) count += state.news_posts.length;
+  }
+  if (count > 0) {
+    badge.textContent = String(count);
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function sanitizeEventDescriptionHtml(rawDesc) {
+  if (!rawDesc) return '';
+  let text = String(rawDesc).trim();
+  if (!text) return '';
+  // Strip any script/style/iframe tags while preserving safe formatting tags from BCP
+  text = text
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '')
+    .replace(/<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '');
+  if (!/<(p|div|br|ul|ol|li|h[1-6]|strong|b|em|i|a)\b/i.test(text)) {
+    return escapeHtml(text).replace(/\n/g, '<br>');
+  }
+  return text;
+}
+
+function computeClockRemainingSeconds(clockObj, defaultLengthMins = 180) {
+  if (!clockObj || typeof clockObj !== 'object') {
+    return Math.max(0, Math.round(defaultLengthMins * 60));
+  }
+  const baseRem = Number(clockObj.remaining_seconds ?? (defaultLengthMins * 60));
+  if (clockObj.status === 'running' && clockObj.updated_at) {
+    const updatedMs = Date.parse(clockObj.updated_at);
+    if (!Number.isNaN(updatedMs)) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - updatedMs) / 1000));
+      return Math.max(0, baseRem - elapsed);
+    }
+  }
+  return Math.max(0, Math.round(baseRem));
+}
+
+function formatClockDurationHms(totalSeconds) {
+  const sec = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function startToHubClockTicker(eventId) {
+  if (_toHubMasterClockInterval) {
+    clearInterval(_toHubMasterClockInterval);
+    _toHubMasterClockInterval = null;
+  }
+  _toHubMasterClockInterval = setInterval(() => {
+    const eid = String(eventId || currentOpenEventId || '');
+    if (!eid || String(currentOpenEventId) !== eid) {
+      clearInterval(_toHubMasterClockInterval);
+      _toHubMasterClockInterval = null;
+      return;
+    }
+    const state = _eventToHubStateCache.get(eid);
+    const bcpCfg = getEventBcpRoundConfig(currentEventData);
+    const clockObj = (state && state.clock) ? state.clock : null;
+    if (!clockObj || clockObj.status !== 'running') return;
+    const rem = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
+    const formatted = formatClockDurationHms(rem);
+    const clockDisplays = document.querySelectorAll('.live-event-master-clock-readout');
+    clockDisplays.forEach(el => {
+      el.textContent = formatted;
+      if (rem <= 900) {
+        el.style.color = '#f87171';
+      } else {
+        el.style.color = '#fbbf24';
+      }
+    });
+  }, 1000);
+}
+
+// ----------------------------------------------------------------------------
+// PUBLIC 📰 NEWS & INFO TAB
+// ----------------------------------------------------------------------------
+async function renderEventNewsHub(ev, skipFetch = false) {
+  const container = document.getElementById('event-news-hub-container');
+  if (!container) return;
+  const eventObj = ev || currentEventData;
+  if (!eventObj) return;
+
+  const eventId = String(eventObj.id || eventObj.event_id || currentOpenEventId || '');
+  if (!skipFetch && !_eventToHubStateCache.has(eventId)) {
+    loadEventToHubState(eventId, false).catch(() => {});
+  }
+
+  const state = _eventToHubStateCache.get(eventId) || {};
+  const raw = (eventObj.raw_json && typeof eventObj.raw_json === 'object') ? eventObj.raw_json : eventObj;
+  const canTo = canUserAccessEventToHub(eventObj);
+  const staffList = extractEventStaffDirectory(eventObj);
+  const bcpCfg = getEventBcpRoundConfig(eventObj);
+  const activeBroadcast = state.active_broadcast && state.active_broadcast.message ? state.active_broadcast : null;
+  const newsPosts = Array.isArray(state.news_posts) ? state.news_posts : [];
+  const clockObj = state.clock || null;
+  const remSec = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
+  const clockStatus = (clockObj && clockObj.status) ? String(clockObj.status) : 'idle';
+  const clockRound = (clockObj && clockObj.round_num) ? clockObj.round_num : 1;
+
+  if (clockStatus === 'running') {
+    startToHubClockTicker(eventId);
+  }
+
+  const externalUrl = String(raw.externalUrl || eventObj.external_url || '').trim();
+  const descriptionRaw = raw.description || raw.eventDescription || eventObj.description || '';
+  const descriptionHtml = sanitizeEventDescriptionHtml(descriptionRaw);
+
+  const broadcastBannerHtml = activeBroadcast ? (() => {
+    const lvl = String(activeBroadcast.level || 'info').toLowerCase();
+    const borderCol = lvl === 'urgent' ? 'rgba(239,68,68,0.55)' : (lvl === 'warning' ? 'rgba(245,158,11,0.55)' : 'rgba(56,189,248,0.45)');
+    const bgCol = lvl === 'urgent' ? 'rgba(127,29,29,0.28)' : (lvl === 'warning' ? 'rgba(120,53,15,0.28)' : 'rgba(12,74,110,0.28)');
+    const icon = lvl === 'urgent' ? '🚨' : (lvl === 'warning' ? '⚠️' : '📢');
+    const timeStr = activeBroadcast.published_at ? new Date(activeBroadcast.published_at).toLocaleString() : 'Live Now';
+    return `
+      <div class="news-pinned-broadcast-card" style="background:${bgCol}; border:1px solid ${borderCol}; border-radius:10px; padding:0.95rem 1.15rem; margin-bottom:1.1rem; display:flex; align-items:flex-start; justify-content:space-between; gap:0.85rem; flex-wrap:wrap;">
+        <div style="display:flex; align-items:flex-start; gap:0.75rem; flex:1; min-width:240px;">
+          <span style="font-size:1.35rem; line-height:1;">${icon}</span>
+          <div>
+            <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.25rem;">
+              <span style="font-size:0.7rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; padding:0.15rem 0.5rem; border-radius:999px; background:rgba(255,255,255,0.12); color:#fff;">PINNED TO BROADCAST</span>
+              <span style="font-size:0.75rem; color:var(--text-secondary);">By ${escapeHtml(activeBroadcast.author_name || 'Tournament Organizer')} • ${escapeHtml(timeStr)}</span>
+            </div>
+            <div style="font-size:0.98rem; font-weight:700; color:#f8fafc; line-height:1.45;">${escapeHtml(activeBroadcast.message)}</div>
+          </div>
+        </div>
+        ${canTo ? `<button type="button" class="btn btn-outline" onclick="switchEventModalTab('to-hub'); switchEventToHubSubtab('announcements');" style="font-size:0.75rem; padding:0.35rem 0.7rem;">⚙️ Manage in TO Hub</button>` : ''}
+      </div>
+    `;
+  })() : '';
+
+  const roundTimersHtml = bcpCfg.roundTimers.length > 0
+    ? bcpCfg.roundTimers.map((rt, idx) => {
+        const rNum = rt.round || (idx + 1);
+        const st = rt.startTime ? new Date(rt.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
+        const et = rt.endTime ? new Date(rt.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
+        const datePart = rt.startTime ? new Date(rt.startTime).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+        const isPaused = Boolean(rt.paused);
+        return `
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:0.45rem 0.65rem; background:rgba(15,23,42,0.55); border:1px solid rgba(255,255,255,0.07); border-radius:6px; font-size:0.8rem;">
+            <span style="font-weight:700; color:#e2e8f0;">Round ${rNum} ${datePart ? `<span style="color:var(--text-muted); font-weight:500;">(${escapeHtml(datePart)})</span>` : ''}</span>
+            <span style="font-family:var(--font-mono); color:#38bdf8;">${escapeHtml(st)} – ${escapeHtml(et)} ${isPaused ? '<span style="color:#fbbf24;">(Paused)</span>' : ''}</span>
+          </div>
+        `;
+      }).join('')
+    : `<div style="font-size:0.8rem; color:var(--text-muted);">Standard Round Length: <strong style="color:#e2e8f0;">${bcpCfg.defaultLengthMins} mins (${(bcpCfg.defaultLengthMins / 60).toFixed(1)} hrs)</strong></div>`;
+
+  const newsPostsHtml = newsPosts.length > 0
+    ? newsPosts.map(post => {
+        const cat = String(post.category || 'announcement').toLowerCase();
+        const catBadge = cat === 'schedule'
+          ? `<span class="badge" style="background:rgba(56,189,248,0.16); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.68rem;">⏱️ Schedule</span>`
+          : (cat === 'mission'
+              ? `<span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35); font-size:0.68rem;">🗺️ Mission / Pairings</span>`
+              : (cat === 'awards'
+                  ? `<span class="badge" style="background:rgba(250,204,21,0.16); color:#facc15; border:1px solid rgba(250,204,21,0.35); font-size:0.68rem;">🏆 Awards</span>`
+                  : `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-size:0.68rem;">📢 Bulletin</span>`));
+        const pinnedBadge = post.pinned
+          ? `<span class="badge" style="background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.35); font-size:0.68rem;">📌 Pinned</span>`
+          : '';
+        const dtStr = post.created_at ? new Date(post.created_at).toLocaleString() : '';
+        return `
+          <div class="card" style="padding:0.95rem 1.1rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.09); border-radius:10px; margin-bottom:0.75rem;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.4rem;">
+              <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+                ${pinnedBadge}
+                ${catBadge}
+                <h4 style="margin:0; font-size:0.96rem; font-weight:800; color:#f8fafc;">${escapeHtml(post.title || 'Event Update')}</h4>
+              </div>
+              <span style="font-size:0.72rem; color:var(--text-muted);">${escapeHtml(post.author_name || 'TO')} • ${escapeHtml(dtStr)}</span>
+            </div>
+            <div style="font-size:0.86rem; color:#cbd5e1; line-height:1.55; white-space:pre-wrap;">${escapeHtml(post.body || '')}</div>
+          </div>
+        `;
+      }).join('')
+    : `
+      <div style="padding:1.35rem; text-align:center; background:rgba(15,23,42,0.45); border:1px dashed rgba(255,255,255,0.12); border-radius:10px; color:var(--text-muted); font-size:0.85rem;">
+        No TO bulletin posts published yet for this event.
+        ${canTo ? `<div style="margin-top:0.6rem;"><button type="button" class="btn btn-primary" onclick="switchEventModalTab('to-hub'); switchEventToHubSubtab('announcements');" style="font-size:0.78rem; padding:0.4rem 0.85rem;">📢 Publish First Bulletin in TO Hub</button></div>` : ''}
+      </div>
+    `;
+
+  const staffHtml = staffList.length > 0
+    ? staffList.map(st => {
+        const shortRole = st.isOwner ? 'Event Owner' : (String(st.role || '').toLowerCase().includes('judge') ? 'Judge' : 'TO / Staff');
+        return `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.55rem 0.75rem; background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.07); border-radius:8px;">
+          <div style="display:flex; align-items:center; gap:0.45rem; min-width:0; flex:1;">
+            <span style="font-size:0.95rem; flex-shrink:0;">${st.badgeIcon}</span>
+            <span style="font-weight:700; color:#f1f5f9; font-size:0.84rem; line-height:1.25; overflow-wrap: anywhere;">${escapeHtml(st.name)}</span>
+          </div>
+          <span class="badge" style="background:${st.isOwner ? 'rgba(245,158,11,0.16)' : 'rgba(56,189,248,0.14)'}; color:${st.isOwner ? '#fbbf24' : '#38bdf8'}; border:1px solid ${st.isOwner ? 'rgba(245,158,11,0.35)' : 'rgba(56,189,248,0.3)'}; font-size:0.66rem; font-weight:700; white-space:nowrap; flex-shrink:0;">
+            ${escapeHtml(shortRole)}
+          </span>
+        </div>
+      `;
+      }).join('')
+    : `<div style="font-size:0.82rem; color:var(--text-muted);">No public staff roster listed on BCP.</div>`;
+
+  container.innerHTML = `
+    <div class="event-news-hub-wrap" style="padding:0.25rem 0;">
+      ${broadcastBannerHtml}
+
+      <div class="event-news-top-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:1rem; margin-bottom:1.15rem;">
+        <!-- Live Round Clock & Schedule Card -->
+        <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.09); border-radius:10px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.65rem;">
+            <div style="font-size:0.78rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:#38bdf8;">⏱️ Round Clock & Schedule</div>
+            <span class="badge" style="background:${clockStatus === 'running' ? 'rgba(34,197,94,0.18)' : 'rgba(148,163,184,0.15)'}; color:${clockStatus === 'running' ? '#4ade80' : '#94a3b8'}; border:1px solid ${clockStatus === 'running' ? 'rgba(34,197,94,0.35)' : 'rgba(148,163,184,0.25)'}; font-size:0.68rem; font-weight:700;">
+              ${clockStatus === 'running' ? `🔴 Round ${clockRound} Live` : (clockStatus === 'paused' ? `⏸️ Round ${clockRound} Paused` : `Standard ${bcpCfg.defaultLengthMins}m Rounds`)}
+            </span>
+          </div>
+          <div style="display:flex; align-items:baseline; justify-content:space-between; gap:0.75rem; padding:0.6rem 0.85rem; background:rgba(2,6,23,0.65); border:1px solid rgba(255,255,255,0.07); border-radius:8px; margin-bottom:0.75rem;">
+            <div>
+              <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Master Round Timer</div>
+              <div style="font-size:0.78rem; color:var(--text-secondary);">Round ${clockRound} (${bcpCfg.defaultLengthMins} min limit)</div>
+            </div>
+            <div class="live-event-master-clock-readout" style="font-family:var(--font-mono); font-size:1.45rem; font-weight:800; color:${clockStatus === 'running' ? '#fbbf24' : '#e2e8f0'};">
+              ${formatClockDurationHms(remSec)}
+            </div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:0.4rem; max-height:175px; overflow-y:auto;">
+            ${roundTimersHtml}
+          </div>
+        </div>
+
+        <!-- Staff Directory & Official Links Card -->
+        <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; justify-content:space-between; gap:0.85rem;">
+          <div>
+            <div style="font-size:0.78rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:#fbbf24; margin-bottom:0.65rem;">🏛️ Tournament Organizers & Judges (${staffList.length})</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:0.45rem; max-height:175px; overflow-y:auto;">
+              ${staffHtml}
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap; padding-top:0.5rem; border-top:1px solid rgba(255,255,255,0.07);">
+            ${externalUrl ? `
+              <a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="font-size:0.78rem; font-weight:700; padding:0.42rem 0.85rem; text-decoration:none;">
+                📘 Official Player Pack / Rules Doc ↗
+              </a>
+            ` : ''}
+            <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.78rem; font-weight:600; padding:0.42rem 0.85rem; text-decoration:none;">
+              🔗 BCP Event Page ↗
+            </a>
+            ${canTo ? `
+              <button type="button" class="btn btn-outline" onclick="switchEventModalTab('to-hub')" style="font-size:0.78rem; font-weight:700; padding:0.42rem 0.85rem; border-color:rgba(245,158,11,0.45); color:#fbbf24;">
+                🏛️ Open TO Hub
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+
+      <!-- TO News & Bulletins Feed -->
+      <div class="card" style="padding:1.1rem 1.2rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:1.15rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.85rem;">
+          <div>
+            <h3 style="margin:0; font-size:1.05rem; font-weight:800; color:#fff;">📰 Tournament Bulletins & News Feed</h3>
+            <div style="font-size:0.78rem; color:var(--text-secondary);">Official announcements, mission updates, and schedule notes posted by the TO staff.</div>
+          </div>
+          ${canTo ? `
+            <button type="button" class="btn btn-primary" onclick="switchEventModalTab('to-hub'); switchEventToHubSubtab('announcements');" style="font-size:0.78rem; font-weight:700; padding:0.42rem 0.85rem;">
+              + Post Bulletin
+            </button>
+          ` : ''}
+        </div>
+        <div>
+          ${newsPostsHtml}
+        </div>
+      </div>
+
+      <!-- Official BCP Event Description & Rules Pack -->
+      ${descriptionHtml ? `
+        <div class="card" style="padding:1.15rem 1.25rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem; padding-bottom:0.6rem; border-bottom:1px solid rgba(255,255,255,0.08);">
+            <h3 style="margin:0; font-size:1.02rem; font-weight:800; color:#f8fafc;">📜 Official Event Details & Player Pack Information</h3>
+            <span style="font-size:0.72rem; color:var(--text-muted);">Synced from Best Coast Pairings</span>
+          </div>
+          <div class="event-bcp-description-body" style="font-size:0.88rem; color:#cbd5e1; line-height:1.65; overflow-wrap:break-word;">
+            ${descriptionHtml}
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+// ----------------------------------------------------------------------------
+// RESTRICTED 🏛️ TO HUB (4 OPERATIONAL SUB-TABS)
+// ----------------------------------------------------------------------------
+function isToHubMatchCompleted(m) {
+  if (!m) return false;
+  if (m.completed === true || m.is_completed === true) return true;
+  if (m.winner_id || m.result !== undefined && m.result !== null && m.result !== '') {
+    const s1 = Number(m.player1_score ?? m.score1 ?? 0);
+    const s2 = Number(m.player2_score ?? m.score2 ?? 0);
+    if (s1 > 0 || s2 > 0 || m.winner_id || Number(m.result) > 0) return true;
+  }
+  const s1 = Number(m.player1_score ?? m.score1 ?? -1);
+  const s2 = Number(m.player2_score ?? m.score2 ?? -1);
+  return (s1 > 0 || s2 > 0);
+}
+
+function switchEventToHubSubtab(subtab) {
+  if (!['radar', 'clock', 'announcements', 'roster'].includes(subtab)) {
+    subtab = 'radar';
+  }
+  _currentToHubSubtab = subtab;
+  if (currentEventData) {
+    renderEventToHub(currentEventData, true);
+  }
+}
+
+async function renderEventToHub(ev, skipFetch = false) {
+  const container = document.getElementById('event-to-hub-container');
+  if (!container) return;
+  const eventObj = ev || currentEventData;
+  if (!eventObj) return;
+
+  const roleLabel = getUserEventOrganizerRole(eventObj);
+  if (!roleLabel) {
+    container.innerHTML = `
+      <div class="card" style="padding:2rem; text-align:center; color:var(--text-muted);">
+        🔒 TO Hub is restricted to verified Event Owners, Tournament Organizers, and Judges for this tournament.
+      </div>
+    `;
+    return;
+  }
+
+  const eventId = String(eventObj.id || eventObj.event_id || currentOpenEventId || '');
+  if (!skipFetch && !_eventToHubStateCache.has(eventId)) {
+    loadEventToHubState(eventId, false).catch(() => {});
+  }
+
+  const state = _eventToHubStateCache.get(eventId) || {};
+  const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0
+    ? eventPlayersCache
+    : (Array.isArray(eventObj.players) ? eventObj.players : []);
+  const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0
+    ? eventMatchesCache
+    : (Array.isArray(eventObj.matches) ? eventObj.matches : []);
+  const judgeCalls = Array.isArray(state.judge_calls) ? state.judge_calls : [];
+  const openJudgeCalls = judgeCalls.filter(c => String(c.status || 'open').toLowerCase() !== 'resolved');
+  const activeSessions = Array.isArray(state.active_sessions) ? state.active_sessions : [];
+
+  // Rounds calculation
+  const roundNums = Array.from(new Set(matches.map(m => Number(m.round || m.round_number || 1)).filter(n => n > 0))).sort((a, b) => a - b);
+  const maxRound = roundNums.length > 0 ? roundNums[roundNums.length - 1] : 1;
+  if (!_toHubRadarRound || !roundNums.includes(Number(_toHubRadarRound))) {
+    _toHubRadarRound = maxRound;
+  }
+
+  const currentRoundMatches = matches.filter(m => Number(m.round || m.round_number || 1) === Number(_toHubRadarRound));
+  const completedRoundMatches = currentRoundMatches.filter(m => isToHubMatchCompleted(m));
+  const unfinishedRoundMatches = currentRoundMatches.filter(m => !isToHubMatchCompleted(m));
+
+  // Roster compliance KPIs
+  const activeRoster = players.filter(p => !p.dropped);
+  const checkedInCount = activeRoster.filter(p => Boolean(p.checked_in)).length;
+  const listsSubmittedCount = activeRoster.filter(p => Boolean(p.list_id || p.army_list || p.list_text || p.has_list || p.has_list_submitted)).length;
+  const missingListCount = Math.max(0, activeRoster.length - listsSubmittedCount);
+
+  const bcpCfg = getEventBcpRoundConfig(eventObj);
+  const clockObj = state.clock || null;
+  if (clockObj && clockObj.status === 'running') {
+    startToHubClockTicker(eventId);
+  }
+
+  let subtabBodyHtml = '';
+  if (_currentToHubSubtab === 'radar') {
+    subtabBodyHtml = renderToHubFloorRadarSubtab(eventId, eventObj, roundNums, currentRoundMatches, completedRoundMatches, unfinishedRoundMatches, openJudgeCalls, activeSessions);
+  } else if (_currentToHubSubtab === 'clock') {
+    subtabBodyHtml = renderToHubClockAndJudgeSubtab(eventId, eventObj, roundNums, bcpCfg, clockObj, judgeCalls);
+  } else if (_currentToHubSubtab === 'announcements') {
+    subtabBodyHtml = renderToHubAnnouncementsSubtab(eventId, eventObj, state);
+  } else if (_currentToHubSubtab === 'roster') {
+    subtabBodyHtml = renderToHubRosterAuditSubtab(eventId, eventObj, players);
+  }
+
+  container.innerHTML = `
+    <div class="to-hub-shell" style="display:flex; flex-direction:column; gap:0.9rem;">
+      <!-- Compact TO Operational Strip -->
+      <div class="to-hub-header-bar" style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; padding:0.75rem 1rem; background:linear-gradient(135deg, rgba(30,41,59,0.92), rgba(15,23,42,0.95)); border:1px solid rgba(245,158,11,0.35); border-radius:10px;">
+        <div style="display:flex; align-items:center; gap:0.65rem; flex-wrap:wrap;">
+          <span class="badge" style="background:rgba(245,158,11,0.2); color:#fbbf24; border:1px solid rgba(245,158,11,0.45); font-size:0.74rem; font-weight:800; padding:0.28rem 0.65rem;">
+            🏛️ TO HUB • ${escapeHtml(roleLabel)}
+          </span>
+          <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap; font-size:0.78rem; color:#cbd5e1;">
+            <span style="padding:0.2rem 0.55rem; background:rgba(255,255,255,0.06); border-radius:6px;">
+              ✅ Check-In: <strong style="color:#fff;">${checkedInCount}/${activeRoster.length}</strong>
+            </span>
+            <span style="padding:0.2rem 0.55rem; background:rgba(255,255,255,0.06); border-radius:6px;">
+              📄 Lists: <strong style="color:${missingListCount > 0 ? '#fbbf24' : '#4ade80'};">${listsSubmittedCount}/${activeRoster.length}</strong>
+            </span>
+            <span style="padding:0.2rem 0.55rem; background:rgba(255,255,255,0.06); border-radius:6px;">
+              🎲 R${_toHubRadarRound} Tables: <strong style="color:${unfinishedRoundMatches.length > 0 ? '#38bdf8' : '#4ade80'};">${completedRoundMatches.length}/${currentRoundMatches.length} Done</strong>
+            </span>
+            ${openJudgeCalls.length > 0 ? `
+              <span style="padding:0.2rem 0.55rem; background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.4); border-radius:6px; color:#fca5a5; font-weight:700;">
+                🚨 ${openJudgeCalls.length} Active Judge Call${openJudgeCalls.length === 1 ? '' : 's'}
+              </span>
+            ` : ''}
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:0.45rem;">
+          <button type="button" class="btn btn-outline" onclick="loadEventToHubState('${escapeHtml(eventId)}', true)" style="font-size:0.75rem; font-weight:700; padding:0.35rem 0.7rem;">
+            🔄 Sync TO State
+          </button>
+        </div>
+      </div>
+
+      <!-- 4 Operational Sub-Tabs Bar -->
+      <div class="to-hub-subtabs-nav" style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:0.45rem; background:rgba(15,23,42,0.75); padding:0.35rem; border-radius:10px; border:1px solid rgba(255,255,255,0.08);">
+        <button type="button" class="to-hub-subtab-btn ${_currentToHubSubtab === 'radar' ? 'active' : ''}" onclick="switchEventToHubSubtab('radar')" style="padding:0.55rem 0.65rem; border-radius:8px; border:1px solid ${_currentToHubSubtab === 'radar' ? 'rgba(245,158,11,0.5)' : 'transparent'}; background:${_currentToHubSubtab === 'radar' ? 'rgba(245,158,11,0.18)' : 'transparent'}; color:${_currentToHubSubtab === 'radar' ? '#fbbf24' : 'var(--text-secondary)'}; font-weight:700; font-size:0.8rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.4rem;">
+          <span>📊 Floor & Table Radar</span>
+          ${unfinishedRoundMatches.length > 0 ? `<span class="badge" style="background:rgba(245,158,11,0.25); color:#fbbf24; font-size:0.68rem;">${unfinishedRoundMatches.length} left</span>` : ''}
+        </button>
+        <button type="button" class="to-hub-subtab-btn ${_currentToHubSubtab === 'clock' ? 'active' : ''}" onclick="switchEventToHubSubtab('clock')" style="padding:0.55rem 0.65rem; border-radius:8px; border:1px solid ${_currentToHubSubtab === 'clock' ? 'rgba(245,158,11,0.5)' : 'transparent'}; background:${_currentToHubSubtab === 'clock' ? 'rgba(245,158,11,0.18)' : 'transparent'}; color:${_currentToHubSubtab === 'clock' ? '#fbbf24' : 'var(--text-secondary)'}; font-weight:700; font-size:0.8rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.4rem;">
+          <span>⏱️ Clock & Judge Calls</span>
+          ${openJudgeCalls.length > 0 ? `<span class="badge" style="background:rgba(239,68,68,0.28); color:#fca5a5; font-size:0.68rem;">${openJudgeCalls.length}</span>` : ''}
+        </button>
+        <button type="button" class="to-hub-subtab-btn ${_currentToHubSubtab === 'announcements' ? 'active' : ''}" onclick="switchEventToHubSubtab('announcements')" style="padding:0.55rem 0.65rem; border-radius:8px; border:1px solid ${_currentToHubSubtab === 'announcements' ? 'rgba(245,158,11,0.5)' : 'transparent'}; background:${_currentToHubSubtab === 'announcements' ? 'rgba(245,158,11,0.18)' : 'transparent'}; color:${_currentToHubSubtab === 'announcements' ? '#fbbf24' : 'var(--text-secondary)'}; font-weight:700; font-size:0.8rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.4rem;">
+          <span>📢 Announcements & News</span>
+        </button>
+        <button type="button" class="to-hub-subtab-btn ${_currentToHubSubtab === 'roster' ? 'active' : ''}" onclick="switchEventToHubSubtab('roster')" style="padding:0.55rem 0.65rem; border-radius:8px; border:1px solid ${_currentToHubSubtab === 'roster' ? 'rgba(245,158,11,0.5)' : 'transparent'}; background:${_currentToHubSubtab === 'roster' ? 'rgba(245,158,11,0.18)' : 'transparent'}; color:${_currentToHubSubtab === 'roster' ? '#fbbf24' : 'var(--text-secondary)'}; font-weight:700; font-size:0.8rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.4rem;">
+          <span>📋 Roster & Audit</span>
+          ${missingListCount > 0 ? `<span class="badge" style="background:rgba(239,68,68,0.22); color:#fca5a5; font-size:0.68rem;">${missingListCount}</span>` : ''}
+        </button>
+      </div>
+
+      <!-- Active Subtab Content -->
+      <div class="to-hub-subtab-body">
+        ${subtabBodyHtml}
+      </div>
+    </div>
+  `;
+}
+
+// ----------------------------------------------------------------------------
+// SUB-TAB 1: 📊 FLOOR & TABLE RADAR
+// ----------------------------------------------------------------------------
+function setToHubRadarRound(roundNum) {
+  _toHubRadarRound = Number(roundNum) || 1;
+  if (currentEventData) renderEventToHub(currentEventData, true);
+}
+
+function setToHubRadarFilter(filter) {
+  _toHubRadarFilter = filter || 'all';
+  if (currentEventData) renderEventToHub(currentEventData, true);
+}
+
+function handleToHubRadarSearch(val) {
+  _toHubRadarSearch = String(val || '').trim().toLowerCase();
+  if (currentEventData) renderEventToHub(currentEventData, true);
+}
+
+function copyUnfinishedTablesList(eventId, roundNum) {
+  const matches = (eventMatchesCache || []).filter(m => Number(m.round || m.round_number || 1) === Number(roundNum) && !isToHubMatchCompleted(m));
+  if (matches.length === 0) {
+    if (typeof showToast === 'function') showToast('All tables in this round are completed!', 'info');
+    return;
+  }
+  const lines = matches.map((m, idx) => {
+    const tNum = m.table || m.table_number || (idx + 1);
+    return `Table ${tNum}: ${m.player1_name || 'Player 1'} vs ${m.player2_name || 'Player 2'}`;
+  });
+  const text = `⏳ Round ${roundNum} Unfinished Tables (${matches.length}):\n` + lines.join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      if (typeof showToast === 'function') showToast(`Copied ${matches.length} unfinished table(s) to clipboard!`, 'success');
+    }).catch(() => {});
+  }
+}
+
+async function broadcastUnfinishedTablesPing(eventId, roundNum) {
+  const matches = (eventMatchesCache || []).filter(m => Number(m.round || m.round_number || 1) === Number(roundNum) && !isToHubMatchCompleted(m));
+  if (matches.length === 0) return;
+  const tableNums = matches.map((m, idx) => `Table ${m.table || m.table_number || (idx + 1)}`).slice(0, 12).join(', ');
+  const msg = `⏳ Round ${roundNum} Score Submission Reminder: Waiting on ${matches.length} table(s) (${tableNums}${matches.length > 12 ? '...' : ''}). Please submit final scores now!`;
+  try {
+    await window.api.publishEventToHubAnnouncement(eventId, { message: msg, level: 'warning' });
+    await loadEventToHubState(eventId, true);
+    if (typeof showToast === 'function') showToast('Published live score reminder banner to all players!', 'success');
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to publish reminder', 'error');
+  }
+}
+
+function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, completedMatches, unfinishedMatches, openJudgeCalls, activeSessions) {
+  const totalTables = roundMatches.length;
+  const doneCount = completedMatches.length;
+  const pct = totalTables > 0 ? Math.round((doneCount / totalTables) * 100) : 0;
+
+  const judgeTableSet = new Set(openJudgeCalls.map(c => String(c.table_num || '').trim()).filter(Boolean));
+  const trackerTableSet = new Set(activeSessions.map(s => String(s.table_num || s.table_number || '').trim()).filter(Boolean));
+
+  const enrichedTables = roundMatches.map((m, idx) => {
+    const tNum = String(m.table ?? m.table_number ?? (idx + 1));
+    const isDone = isToHubMatchCompleted(m);
+    const hasJudge = judgeTableSet.has(tNum);
+    const hasTracker = trackerTableSet.has(tNum) || Boolean(m.live_session_id || m.tracker_active);
+    return {
+      match: m,
+      tableNum: tNum,
+      isDone,
+      hasJudge,
+      hasTracker,
+    };
+  });
+
+  const filteredTables = enrichedTables.filter(item => {
+    if (_toHubRadarFilter === 'unfinished' && item.isDone) return false;
+    if (_toHubRadarFilter === 'completed' && !item.isDone) return false;
+    if (_toHubRadarFilter === 'tracker' && !item.hasTracker) return false;
+    if (_toHubRadarFilter === 'judge' && !item.hasJudge) return false;
+    if (_toHubRadarSearch) {
+      const m = item.match;
+      const hay = `table ${item.tableNum} ${m.player1_name || ''} ${m.player2_name || ''} ${m.player1_faction || ''} ${m.player2_faction || ''}`.toLowerCase();
+      if (!hay.includes(_toHubRadarSearch)) return false;
+    }
+    return true;
+  });
+
+  const roundPillsHtml = (roundNums.length > 0 ? roundNums : [1]).map(r => `
+    <button type="button" class="btn ${_toHubRadarRound === r ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRadarRound(${r})" style="font-size:0.76rem; font-weight:700; padding:0.32rem 0.7rem;">
+      Round ${r}
+    </button>
+  `).join('');
+
+  const slowTablesBannerHtml = (unfinishedMatches.length > 0 && totalTables > 0) ? (() => {
+    const chips = enrichedTables.filter(t => !t.isDone).slice(0, 18).map(t => `
+      <span style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.2rem 0.55rem; background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.4); border-radius:6px; font-size:0.75rem; font-weight:700; color:#fde68a;">
+        ⏳ Table ${escapeHtml(t.tableNum)} <span style="font-weight:500; color:#cbd5e1;">(${escapeHtml((t.match.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((t.match.player2_name || 'P2').split(' ')[0])})</span>
+      </span>
+    `).join('');
+    return `
+      <div class="card" style="padding:0.85rem 1.05rem; background:rgba(120,53,15,0.22); border:1px solid rgba(245,158,11,0.45); border-radius:10px; margin-bottom:0.85rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+          <div style="font-size:0.84rem; font-weight:800; color:#fbbf24;">
+            ⏳ ${unfinishedMatches.length} Unfinished Table${unfinishedMatches.length === 1 ? '' : 's'} Holding Up Round ${_toHubRadarRound}
+          </div>
+          <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline" onclick="copyUnfinishedTablesList('${escapeHtml(eventId)}', ${_toHubRadarRound})" style="font-size:0.74rem; font-weight:700; padding:0.3rem 0.65rem;">
+              📋 Copy Unfinished Tables
+            </button>
+            <button type="button" class="btn btn-primary" onclick="broadcastUnfinishedTablesPing('${escapeHtml(eventId)}', ${_toHubRadarRound})" style="font-size:0.74rem; font-weight:700; padding:0.3rem 0.7rem;">
+              📢 Ping Unfinished Tables
+            </button>
+          </div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:0.4rem;">
+          ${chips}
+          ${unfinishedMatches.length > 18 ? `<span style="font-size:0.75rem; color:var(--text-muted); align-self:center;">+${unfinishedMatches.length - 18} more</span>` : ''}
+        </div>
+      </div>
+    `;
+  })() : '';
+
+  const tablesGridHtml = filteredTables.length > 0
+    ? filteredTables.map(item => {
+        const m = item.match;
+        const s1 = m.player1_score ?? m.score1 ?? '-';
+        const s2 = m.player2_score ?? m.score2 ?? '-';
+        const borderCol = item.hasJudge
+          ? 'rgba(239,68,68,0.55)'
+          : (item.isDone ? 'rgba(34,197,94,0.32)' : 'rgba(245,158,11,0.4)');
+        const statusBadge = item.hasJudge
+          ? `<span class="badge" style="background:rgba(239,68,68,0.22); color:#fca5a5; border:1px solid rgba(239,68,68,0.45); font-size:0.66rem;">🚨 JUDGE CALL</span>`
+          : (item.isDone
+              ? `<span class="badge" style="background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.35); font-size:0.66rem;">✅ FINAL</span>`
+              : `<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.38); font-size:0.66rem;">⏳ IN PROGRESS</span>`);
+        return `
+          <div class="card to-hub-table-card" style="padding:0.75rem 0.9rem; background:rgba(15,23,42,0.82); border:1px solid ${borderCol}; border-radius:10px; display:flex; flex-direction:column; gap:0.45rem;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.4rem;">
+              <span style="font-family:var(--font-mono); font-weight:800; font-size:0.84rem; color:#f8fafc;">Table ${escapeHtml(item.tableNum)}</span>
+              <div style="display:flex; align-items:center; gap:0.3rem;">
+                ${item.hasTracker ? `<span class="badge" style="background:rgba(56,189,248,0.16); color:#38bdf8; font-size:0.64rem;">📱 Tracker</span>` : ''}
+                ${statusBadge}
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem;">
+              <div style="min-width:0; flex:1;">
+                <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(m.player1_name || 'Player 1')}</div>
+                <div style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(formatEventPlayerFaction(m.player1_faction || ''))}</div>
+              </div>
+              <span style="font-family:var(--font-mono); font-weight:800; font-size:0.92rem; color:${item.isDone ? '#4ade80' : '#94a3b8'};">${escapeHtml(String(s1))}</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding-top:0.3rem; border-top:1px solid rgba(255,255,255,0.06);">
+              <div style="min-width:0; flex:1;">
+                <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(m.player2_name || 'Player 2')}</div>
+                <div style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(formatEventPlayerFaction(m.player2_faction || ''))}</div>
+              </div>
+              <span style="font-family:var(--font-mono); font-weight:800; font-size:0.92rem; color:${item.isDone ? '#38bdf8' : '#94a3b8'};">${escapeHtml(String(s2))}</span>
+            </div>
+          </div>
+        `;
+      }).join('')
+    : `
+      <div class="card" style="grid-column:1 / -1; padding:1.75rem; text-align:center; color:var(--text-muted); background:rgba(15,23,42,0.5);">
+        ${totalTables === 0 ? 'No pairings published yet for this round on BCP.' : 'No tables match the selected floor filter.'}
+      </div>
+    `;
+
+  return `
+    <div>
+      <!-- Round Selector & Completion Progress -->
+      <div class="card" style="padding:0.9rem 1.05rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:0.85rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.65rem;">
+          <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+            ${roundPillsHtml}
+          </div>
+          <div style="font-size:0.84rem; font-weight:800; color:#f8fafc; font-family:var(--font-mono);">
+            Round ${_toHubRadarRound} Progress: <span style="color:#4ade80;">${doneCount}</span> / ${totalTables} Tables Completed (${pct}%)
+          </div>
+        </div>
+        <div style="width:100%; height:8px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden;">
+          <div style="width:${pct}%; height:100%; background:linear-gradient(90deg, #38bdf8, #4ade80); transition:width 0.3s ease;"></div>
+        </div>
+      </div>
+
+      ${slowTablesBannerHtml}
+
+      <!-- Filter Pills & Search -->
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.85rem;">
+        <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+          <button type="button" class="btn ${_toHubRadarFilter === 'all' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRadarFilter('all')" style="font-size:0.74rem; padding:0.3rem 0.65rem;">
+            All (${totalTables})
+          </button>
+          <button type="button" class="btn ${_toHubRadarFilter === 'unfinished' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRadarFilter('unfinished')" style="font-size:0.74rem; padding:0.3rem 0.65rem;">
+            ⏳ Unfinished (${unfinishedMatches.length})
+          </button>
+          <button type="button" class="btn ${_toHubRadarFilter === 'completed' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRadarFilter('completed')" style="font-size:0.74rem; padding:0.3rem 0.65rem;">
+            ✅ Completed (${doneCount})
+          </button>
+          <button type="button" class="btn ${_toHubRadarFilter === 'judge' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRadarFilter('judge')" style="font-size:0.74rem; padding:0.3rem 0.65rem;">
+            🚨 Judge Call (${openJudgeCalls.length})
+          </button>
+        </div>
+        <input type="text" placeholder="Search table # or player..." value="${escapeHtml(_toHubRadarSearch)}" oninput="handleToHubRadarSearch(this.value)" style="padding:0.38rem 0.75rem; border-radius:8px; border:1px solid rgba(255,255,255,0.14); background:rgba(15,23,42,0.85); color:#fff; font-size:0.8rem; min-width:210px;" />
+      </div>
+
+      <!-- Table Radar Grid -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:0.7rem;">
+        ${tablesGridHtml}
+      </div>
+    </div>
+  `;
+}
+
+// ----------------------------------------------------------------------------
+// SUB-TAB 2: ⏱️ CLOCK & JUDGE CALLS
+// ----------------------------------------------------------------------------
+async function updateToHubMasterClockAction(action, deltaSeconds = 0) {
+  const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
+  if (!eventId) return;
+  const state = _eventToHubStateCache.get(eventId) || {};
+  const bcpCfg = getEventBcpRoundConfig(currentEventData);
+  const currentClock = state.clock || {};
+  const roundSelect = document.getElementById('to-hub-clock-round-select');
+  const minsInput = document.getElementById('to-hub-clock-mins-input');
+  const roundNum = roundSelect ? Number(roundSelect.value) || 1 : (Number(currentClock.round_num) || 1);
+  const configuredMins = minsInput ? Number(minsInput.value) || bcpCfg.defaultLengthMins : bcpCfg.defaultLengthMins;
+
+  let rem = computeClockRemainingSeconds(currentClock, configuredMins);
+  let nextStatus = currentClock.status || 'idle';
+
+  if (action === 'start') {
+    if (rem <= 0) rem = configuredMins * 60;
+    nextStatus = 'running';
+  } else if (action === 'pause') {
+    nextStatus = 'paused';
+  } else if (action === 'reset') {
+    rem = configuredMins * 60;
+    nextStatus = 'paused';
+  } else if (action === 'adjust') {
+    rem = Math.max(0, rem + Number(deltaSeconds || 0));
+  }
+
+  try {
+    await window.api.updateEventMasterClock(eventId, {
+      round_num: roundNum,
+      status: nextStatus,
+      remaining_seconds: rem,
+    });
+    await loadEventToHubState(eventId, true);
+    if (typeof showToast === 'function') showToast(`Master Round Clock updated (${nextStatus.toUpperCase()})`, 'success');
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to update clock', 'error');
+  }
+}
+
+async function broadcastToHubClockStatus() {
+  const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
+  if (!eventId) return;
+  const state = _eventToHubStateCache.get(eventId) || {};
+  const bcpCfg = getEventBcpRoundConfig(currentEventData);
+  const clockObj = state.clock || {};
+  const rem = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
+  const rNum = clockObj.round_num || 1;
+  const minsLeft = Math.ceil(rem / 60);
+  const msg = `⏱️ Round ${rNum} Time Check: ${minsLeft} minutes remaining (${formatClockDurationHms(rem)} on Master Clock).`;
+  try {
+    await window.api.publishEventToHubAnnouncement(eventId, {
+      message: msg,
+      level: minsLeft <= 20 ? 'urgent' : 'warning',
+    });
+    await loadEventToHubState(eventId, true);
+    if (typeof showToast === 'function') showToast('Broadcasted live round time check!', 'success');
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to broadcast time check', 'error');
+  }
+}
+
+async function submitToHubJudgeCall() {
+  const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
+  if (!eventId) return;
+  const tableEl = document.getElementById('to-hub-judge-table');
+  const catEl = document.getElementById('to-hub-judge-category');
+  const staffEl = document.getElementById('to-hub-judge-staff');
+  const notesEl = document.getElementById('to-hub-judge-notes');
+  const tableNum = tableEl ? tableEl.value.trim() : '';
+  const category = catEl ? catEl.value : 'Rules Question';
+  const staffName = staffEl ? staffEl.value : '';
+  const notes = notesEl ? notesEl.value.trim() : '';
+  if (!tableNum) {
+    if (typeof showToast === 'function') showToast('Please enter a Table #', 'warning');
+    return;
+  }
+  const combinedNotes = staffName ? `[Assigned: ${staffName}] ${notes}` : notes;
+  try {
+    await window.api.post('/api/eventstudio/judge_calls', {
+      event_id: eventId,
+      round_num: _toHubRadarRound || 1,
+      table_num: tableNum,
+      category,
+      notes: combinedNotes,
+      status: 'open',
+    });
+    if (tableEl) tableEl.value = '';
+    if (notesEl) notesEl.value = '';
+    await loadEventToHubState(eventId, true);
+    if (typeof showToast === 'function') showToast(`Logged Judge Call for Table ${tableNum}`, 'success');
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to log judge call', 'error');
+  }
+}
+
+async function resolveToHubJudgeCall(callId) {
+  const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
+  if (!eventId || !callId) return;
+  try {
+    await window.api.request(`/api/eventstudio/judge_calls/${encodeURIComponent(callId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ event_id: eventId, status: 'resolved', resolution: 'Resolved by TO Hub' }),
+    });
+    await loadEventToHubState(eventId, true);
+    if (typeof showToast === 'function') showToast('Judge call marked resolved!', 'success');
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to resolve call', 'error');
+  }
+}
+
+function renderToHubClockAndJudgeSubtab(eventId, ev, roundNums, bcpCfg, clockObj, judgeCalls) {
+  const remSec = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
+  const clockStatus = (clockObj && clockObj.status) ? String(clockObj.status) : 'idle';
+  const clockRound = (clockObj && clockObj.round_num) ? Number(clockObj.round_num) : (_toHubRadarRound || 1);
+  const staffList = extractEventStaffDirectory(ev);
+  const rList = roundNums.length > 0 ? roundNums : [1, 2, 3, 4, 5];
+
+  const judgeListHtml = judgeCalls.length > 0
+    ? judgeCalls.map(c => {
+        const isResolved = String(c.status || '').toLowerCase() === 'resolved';
+        return `
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; padding:0.65rem 0.85rem; background:rgba(15,23,42,0.65); border:1px solid ${isResolved ? 'rgba(255,255,255,0.07)' : 'rgba(239,68,68,0.45)'}; border-radius:8px;">
+            <div>
+              <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+                <span style="font-family:var(--font-mono); font-weight:800; color:#fff; font-size:0.84rem;">Table ${escapeHtml(String(c.table_num || '?'))}</span>
+                <span class="badge" style="background:${isResolved ? 'rgba(34,197,94,0.16)' : 'rgba(239,68,68,0.2)'}; color:${isResolved ? '#4ade80' : '#fca5a5'}; font-size:0.66rem;">
+                  ${isResolved ? '✅ Resolved' : '🚨 Active'}
+                </span>
+                <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">${escapeHtml(c.category || 'Ruling')}</span>
+              </div>
+              ${c.notes ? `<div style="font-size:0.78rem; color:#cbd5e1; margin-top:0.2rem;">${escapeHtml(c.notes)}</div>` : ''}
+            </div>
+            ${!isResolved ? `
+              <button type="button" class="btn btn-outline" onclick="resolveToHubJudgeCall('${escapeHtml(String(c.id || ''))}')" style="font-size:0.72rem; font-weight:700; padding:0.28rem 0.6rem; color:#4ade80; border-color:rgba(34,197,94,0.4);">
+                ✅ Resolve
+              </button>
+            ` : ''}
+          </div>
+        `;
+      }).join('')
+    : `<div style="padding:1.25rem; text-align:center; color:var(--text-muted); font-size:0.82rem;">No floor judge calls logged for this event.</div>`;
+
+  return `
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:1rem;">
+      <!-- Master Round Clock Control Card -->
+      <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+          <h4 style="margin:0; font-size:0.95rem; font-weight:800; color:#fff;">⏱️ Master Round Clock</h4>
+          <span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; font-size:0.7rem;">BCP Default: ${bcpCfg.defaultLengthMins} mins</span>
+        </div>
+
+        <div style="text-align:center; padding:1rem; background:rgba(2,6,23,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:0.85rem;">
+          <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:0.2rem;">
+            ROUND ${clockRound} • ${clockStatus.toUpperCase()}
+          </div>
+          <div class="live-event-master-clock-readout" style="font-family:var(--font-mono); font-size:2.35rem; font-weight:900; color:${clockStatus === 'running' ? '#fbbf24' : '#f8fafc'}; letter-spacing:0.04em;">
+            ${formatClockDurationHms(remSec)}
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.55rem; margin-bottom:0.75rem;">
+          <div>
+            <label style="font-size:0.7rem; color:var(--text-muted); display:block; margin-bottom:0.2rem;">Active Round</label>
+            <select id="to-hub-clock-round-select" style="width:100%; padding:0.4rem 0.6rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;">
+              ${rList.map(r => `<option value="${r}" ${r === clockRound ? 'selected' : ''}>Round ${r}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:0.7rem; color:var(--text-muted); display:block; margin-bottom:0.2rem;">Round Duration (Mins)</label>
+            <input id="to-hub-clock-mins-input" type="number" min="15" max="600" value="${bcpCfg.defaultLengthMins}" style="width:100%; padding:0.4rem 0.6rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;" />
+          </div>
+        </div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:0.45rem; margin-bottom:0.65rem;">
+          <button type="button" class="btn btn-primary" onclick="updateToHubMasterClockAction('start')" style="flex:1; font-size:0.78rem; font-weight:700; padding:0.45rem 0.7rem;">
+            ▶️ Start / Resume
+          </button>
+          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('pause')" style="flex:1; font-size:0.78rem; font-weight:700; padding:0.45rem 0.7rem;">
+            ⏸️ Pause
+          </button>
+          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('adjust', 300)" style="font-size:0.76rem; padding:0.45rem 0.65rem;">+5m</button>
+          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('adjust', -300)" style="font-size:0.76rem; padding:0.45rem 0.65rem;">-5m</button>
+          <button type="button" class="btn btn-outline" onclick="updateToHubMasterClockAction('reset')" style="font-size:0.76rem; padding:0.45rem 0.65rem;">🔄 Reset</button>
+        </div>
+
+        <button type="button" class="btn btn-outline" onclick="broadcastToHubClockStatus()" style="width:100%; font-size:0.78rem; font-weight:700; padding:0.45rem; border-color:rgba(245,158,11,0.4); color:#fbbf24;">
+          📢 Broadcast Live Time Remaining Banner
+        </button>
+      </div>
+
+      <!-- Judge Call Dispatch & Floor Log Card -->
+      <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; gap:0.75rem;">
+        <h4 style="margin:0; font-size:0.95rem; font-weight:800; color:#fff;">⚖️ Dispatch Floor Judge Call / Table Ruling</h4>
+        <div style="display:grid; grid-template-columns:80px 1fr 1fr; gap:0.45rem;">
+          <input id="to-hub-judge-table" type="text" placeholder="Table #" style="padding:0.4rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;" />
+          <select id="to-hub-judge-category" style="padding:0.4rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;">
+            <option value="Rules Question">Rules Question</option>
+            <option value="Terrain / LOS Check">Terrain / LOS Check</option>
+            <option value="Clock / Slow Play">Clock / Slow Play</option>
+            <option value="Score Correction">Score Correction</option>
+            <option value="Sportsmanship">Sportsmanship</option>
+          </select>
+          <select id="to-hub-judge-staff" style="padding:0.4rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;">
+            <option value="">Assign Staff (Any)</option>
+            ${staffList.map(st => `<option value="${escapeHtml(st.name)}">${escapeHtml(st.name)} (${escapeHtml(st.role)})</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:flex; gap:0.45rem;">
+          <input id="to-hub-judge-notes" type="text" placeholder="Ruling details or table notes..." style="flex:1; padding:0.4rem 0.65rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;" />
+          <button type="button" class="btn btn-primary" onclick="submitToHubJudgeCall()" style="font-size:0.78rem; font-weight:700; padding:0.4rem 0.85rem; white-space:nowrap;">
+            🚨 Log Call
+          </button>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:0.45rem; max-height:230px; overflow-y:auto; margin-top:0.25rem;">
+          ${judgeListHtml}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ----------------------------------------------------------------------------
+// SUB-TAB 3: 📢 ANNOUNCEMENTS & NEWS
+// ----------------------------------------------------------------------------
+function applyToHubAnnouncementPreset(text, level = 'info') {
+  const input = document.getElementById('to-hub-banner-message');
+  const select = document.getElementById('to-hub-banner-level');
+  if (input) input.value = text;
+  if (select) select.value = level;
+}
+
+async function publishToHubBannerAnnouncement() {
+  const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
+  if (!eventId) return;
+  const input = document.getElementById('to-hub-banner-message');
+  const select = document.getElementById('to-hub-banner-level');
+  const message = input ? input.value.trim() : '';
+  const level = select ? select.value : 'info';
+  if (!message) {
+    if (typeof showToast === 'function') showToast('Please enter an announcement message', 'warning');
+    return;
+  }
+  try {
+    await window.api.publishEventToHubAnnouncement(eventId, { message, level });
+    if (input) input.value = '';
+    await loadEventToHubState(eventId, true);
+    if (typeof syncGlobalEventAnnouncementBanner === 'function') {
+      await syncGlobalEventAnnouncementBanner(true);
+    }
+    if (typeof showToast === 'function') showToast('App-wide event announcement banner published!', 'success');
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to publish announcement', 'error');
+  }
+}
+
+async function clearToHubBannerAnnouncement() {
+  const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
+  if (!eventId) return;
+  try {
+    await window.api.clearEventToHubAnnouncement(eventId);
+    await loadEventToHubState(eventId, true);
+    if (typeof syncGlobalEventAnnouncementBanner === 'function') {
+      await syncGlobalEventAnnouncementBanner(true);
+    }
+    if (typeof showToast === 'function') showToast('Active announcement banner cleared', 'info');
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to clear banner', 'error');
+  }
+}
+
+async function submitToHubNewsPost() {
+  const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
+  if (!eventId) return;
+  const titleEl = document.getElementById('to-hub-news-title');
+  const catEl = document.getElementById('to-hub-news-category');
+  const pinEl = document.getElementById('to-hub-news-pinned');
+  const bodyEl = document.getElementById('to-hub-news-body');
+
+  const title = titleEl ? titleEl.value.trim() : '';
+  const category = catEl ? catEl.value : 'announcement';
+  const pinned = Boolean(pinEl && pinEl.checked);
+  const body = bodyEl ? bodyEl.value.trim() : '';
+
+  if (!title && !body) {
+    if (typeof showToast === 'function') showToast('Please enter a title or body for the news post', 'warning');
+    return;
+  }
+
+  try {
+    await window.api.saveEventToHubNewsPost(eventId, { title: title || 'Tournament Update', body, category, pinned });
+    if (titleEl) titleEl.value = '';
+    if (bodyEl) bodyEl.value = '';
+    if (pinEl) pinEl.checked = false;
+    await loadEventToHubState(eventId, true);
+    if (typeof showToast === 'function') showToast('Published bulletin to News & Info tab!', 'success');
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to publish news post', 'error');
+  }
+}
+
+async function removeToHubNewsPost(postId) {
+  const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
+  if (!eventId || !postId) return;
+  try {
+    await window.api.deleteEventToHubNewsPost(eventId, postId);
+    await loadEventToHubState(eventId, true);
+    if (typeof showToast === 'function') showToast('Deleted news post', 'info');
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to delete news post', 'error');
+  }
+}
+
+function renderToHubAnnouncementsSubtab(eventId, ev, state) {
+  const activeBroadcast = (state && state.active_broadcast && state.active_broadcast.message) ? state.active_broadcast : null;
+  const newsPosts = Array.isArray(state?.news_posts) ? state.news_posts : [];
+
+  return `
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:1rem;">
+      <!-- App-Wide Live Banner Broadcast -->
+      <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; gap:0.75rem;">
+        <div>
+          <h4 style="margin:0 0 0.2rem 0; font-size:0.95rem; font-weight:800; color:#fbbf24;">📢 App-Wide Event Banner Broadcast</h4>
+          <div style="font-size:0.76rem; color:var(--text-secondary);">Displays a high-visibility alert banner across the app for all players in this tournament.</div>
+        </div>
+
+        ${activeBroadcast ? `
+          <div style="padding:0.75rem 0.9rem; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.45); border-radius:8px; display:flex; align-items:flex-start; justify-content:space-between; gap:0.6rem;">
+            <div>
+              <div style="font-size:0.68rem; font-weight:800; color:#fbbf24; text-transform:uppercase;">ACTIVE LIVE BANNER (${escapeHtml(activeBroadcast.level || 'info')})</div>
+              <div style="font-size:0.85rem; font-weight:700; color:#fff; margin-top:0.2rem;">${escapeHtml(activeBroadcast.message)}</div>
+            </div>
+            <button type="button" class="btn btn-outline" onclick="clearToHubBannerAnnouncement()" style="font-size:0.72rem; padding:0.28rem 0.6rem; color:#f87171; border-color:rgba(239,68,68,0.4); white-space:nowrap;">
+              ✕ Clear
+            </button>
+          </div>
+        ` : ''}
+
+        <div style="display:flex; flex-wrap:wrap; gap:0.35rem;">
+          <button type="button" class="btn btn-outline" onclick="applyToHubAnnouncementPreset('⚔️ Round Pairings are LIVE! Report to your assigned table.', 'info')" style="font-size:0.7rem; padding:0.25rem 0.55rem;">Preset: Pairings Live</button>
+          <button type="button" class="btn btn-outline" onclick="applyToHubAnnouncementPreset('⏳ 15 Minutes Remaining in the Round — finish current Battle Round.', 'warning')" style="font-size:0.7rem; padding:0.25rem 0.55rem;">Preset: 15m Warning</button>
+          <button type="button" class="btn btn-outline" onclick="applyToHubAnnouncementPreset('🎲 Dice Down! Please submit final scores immediately.', 'urgent')" style="font-size:0.7rem; padding:0.25rem 0.55rem;">Preset: Dice Down</button>
+        </div>
+
+        <div style="display:flex; gap:0.45rem;">
+          <select id="to-hub-banner-level" style="padding:0.45rem 0.6rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;">
+            <option value="info">📢 Info</option>
+            <option value="warning">⚠️ Important</option>
+            <option value="urgent">🚨 Urgent</option>
+          </select>
+          <input id="to-hub-banner-message" type="text" placeholder="Type live announcement banner message..." style="flex:1; padding:0.45rem 0.7rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.82rem;" />
+        </div>
+
+        <button type="button" class="btn btn-primary" onclick="publishToHubBannerAnnouncement()" style="font-size:0.8rem; font-weight:700; padding:0.5rem;">
+          📢 Publish App-Wide Event Banner
+        </button>
+      </div>
+
+      <!-- Public News & Info Feed Publisher -->
+      <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; gap:0.65rem;">
+        <div>
+          <h4 style="margin:0 0 0.2rem 0; font-size:0.95rem; font-weight:800; color:#38bdf8;">📰 Publish to Public News & Info Tab</h4>
+          <div style="font-size:0.76rem; color:var(--text-secondary);">Create permanent tournament bulletins, mission clarifications, or schedule posts.</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 140px auto; gap:0.45rem; align-items:center;">
+          <input id="to-hub-news-title" type="text" placeholder="Bulletin Title (e.g. Round 2 Mission & Terrain)" style="padding:0.42rem 0.65rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem;" />
+          <select id="to-hub-news-category" style="padding:0.42rem 0.55rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.78rem;">
+            <option value="announcement">📢 Bulletin</option>
+            <option value="mission">🗺️ Mission</option>
+            <option value="schedule">⏱️ Schedule</option>
+            <option value="awards">🏆 Awards</option>
+          </select>
+          <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.76rem; color:#cbd5e1; cursor:pointer; white-space:nowrap;">
+            <input id="to-hub-news-pinned" type="checkbox" /> 📌 Pin
+          </label>
+        </div>
+
+        <textarea id="to-hub-news-body" rows="3" placeholder="Write full announcement details, mission layout notes, or schedule updates..." style="width:100%; padding:0.5rem 0.65rem; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.8rem; resize:vertical;"></textarea>
+
+        <button type="button" class="btn btn-primary" onclick="submitToHubNewsPost()" style="font-size:0.8rem; font-weight:700; padding:0.48rem;">
+          📰 Post to News & Info Tab
+        </button>
+
+        ${newsPosts.length > 0 ? `
+          <div style="margin-top:0.35rem; padding-top:0.55rem; border-top:1px solid rgba(255,255,255,0.08); max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:0.4rem;">
+            ${newsPosts.map(p => `
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.4rem 0.6rem; background:rgba(2,6,23,0.55); border-radius:6px; font-size:0.78rem;">
+                <span style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${p.pinned ? '📌 ' : ''}${escapeHtml(p.title || 'Update')}</span>
+                <button type="button" class="btn btn-outline" onclick="removeToHubNewsPost('${escapeHtml(String(p.id || ''))}')" style="font-size:0.68rem; padding:0.18rem 0.45rem; color:#f87171;">Delete</button>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+}
+
+// ----------------------------------------------------------------------------
+// SUB-TAB 4: 📋 ROSTER & COMPLIANCE AUDIT
+// ----------------------------------------------------------------------------
+function setToHubRosterFilter(filter) {
+  _toHubRosterFilter = filter || 'all';
+  if (currentEventData) renderEventToHub(currentEventData, true);
+}
+
+function handleToHubRosterSearch(val) {
+  _toHubRosterSearch = String(val || '').trim().toLowerCase();
+  if (currentEventData) renderEventToHub(currentEventData, true);
+}
+
+function getFilteredToHubRoster(players) {
+  const list = Array.isArray(players) ? players : [];
+  return list.filter(p => {
+    if (!p) return false;
+    const isDropped = Boolean(p.dropped);
+    const isCheckedIn = Boolean(p.checked_in);
+    const hasList = Boolean(p.list_id || p.army_list || p.list_text || p.has_list || p.has_list_submitted);
+    const fac = formatEventPlayerFaction(p.faction || p.army_name);
+    const isUnassignedFac = !fac || fac === 'Unknown' || fac === 'Unassigned';
+
+    if (_toHubRosterFilter === 'checked_in' && (!isCheckedIn || isDropped)) return false;
+    if (_toHubRosterFilter === 'not_checked_in' && (isCheckedIn || isDropped)) return false;
+    if (_toHubRosterFilter === 'list_submitted' && (!hasList || isDropped)) return false;
+    if (_toHubRosterFilter === 'missing_list' && (hasList || isDropped)) return false;
+    if (_toHubRosterFilter === 'unassigned_faction' && (!isUnassignedFac || isDropped)) return false;
+    if (_toHubRosterFilter === 'dropped' && !isDropped) return false;
+
+    if (_toHubRosterSearch) {
+      const hay = `${p.full_name || ''} ${fac} ${p.detachment || ''} ${p.team || ''}`.toLowerCase();
+      if (!hay.includes(_toHubRosterSearch)) return false;
+    }
+    return true;
+  });
+}
+
+function copyToHubFilteredRosterNames() {
+  const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0
+    ? eventPlayersCache
+    : (Array.isArray(currentEventData?.players) ? currentEventData.players : []);
+  const filtered = getFilteredToHubRoster(players);
+  if (filtered.length === 0) {
+    if (typeof showToast === 'function') showToast('No players match the current filter', 'warning');
+    return;
+  }
+  const names = filtered.map(p => p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Player').join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(names).then(() => {
+      if (typeof showToast === 'function') showToast(`Copied ${filtered.length} player name(s) to clipboard!`, 'success');
+    }).catch(() => {});
+  }
+}
+
+function renderToHubRosterAuditSubtab(eventId, ev, players) {
+  const allPlayers = Array.isArray(players) ? players : [];
+  const activePlayers = allPlayers.filter(p => !p.dropped);
+  const droppedCount = allPlayers.filter(p => Boolean(p.dropped)).length;
+  const checkedInCount = activePlayers.filter(p => Boolean(p.checked_in)).length;
+  const notCheckedInCount = Math.max(0, activePlayers.length - checkedInCount);
+  const hasListCount = activePlayers.filter(p => Boolean(p.list_id || p.army_list || p.list_text || p.has_list || p.has_list_submitted)).length;
+  const missingListCount = Math.max(0, activePlayers.length - hasListCount);
+  const unassignedFacCount = activePlayers.filter(p => {
+    const f = formatEventPlayerFaction(p.faction || p.army_name);
+    return !f || f === 'Unknown' || f === 'Unassigned';
+  }).length;
+
+  const filtered = getFilteredToHubRoster(allPlayers);
+
+  const rowsHtml = filtered.length > 0
+    ? filtered.map((p, i) => {
+        const name = p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Player';
+        const fac = formatEventPlayerFaction(p.faction || p.army_name);
+        const det = p.detachment && p.detachment !== 'Unknown' ? p.detachment : '';
+        const hasList = Boolean(p.list_id || p.army_list || p.list_text || p.has_list || p.has_list_submitted);
+        const statusBadge = p.dropped
+          ? `<span class="badge" style="background:rgba(239,68,68,0.18); color:#f87171; font-size:0.68rem;">🚪 Dropped</span>`
+          : (p.checked_in
+              ? `<span class="badge" style="background:rgba(34,197,94,0.16); color:#4ade80; font-size:0.68rem;">✅ Checked In</span>`
+              : `<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; font-size:0.68rem;">⚠️ Not Checked In</span>`);
+        const pid = String(p.player_id || p.id || '');
+        const lid = String(p.list_id || '');
+        return `
+          <tr>
+            <td style="padding:0.5rem 0.65rem; font-family:var(--font-mono); color:var(--text-muted); font-size:0.78rem;">${i + 1}</td>
+            <td style="padding:0.5rem 0.65rem; font-weight:700; color:#f8fafc; font-size:0.84rem;">${escapeHtml(name)}</td>
+            <td style="padding:0.5rem 0.65rem;">${statusBadge}</td>
+            <td style="padding:0.5rem 0.65rem; font-size:0.8rem; color:${(!fac || fac === 'Unknown') ? '#f87171' : '#38bdf8'}; font-weight:600;">
+              ${escapeHtml(fac || 'Unassigned')}
+              ${det ? `<div style="font-size:0.7rem; color:var(--text-muted); font-weight:500;">${escapeHtml(det)}</div>` : ''}
+            </td>
+            <td style="padding:0.5rem 0.65rem; text-align:right;">
+              ${hasList ? `
+                <button type="button" class="btn btn-outline" onclick="openEventPlayerListModal('${escapeHtml(pid)}', '${escapeHtml(name.replace(/'/g, "\\'"))}', '${escapeHtml(lid)}')" style="font-size:0.72rem; padding:0.25rem 0.55rem; color:#4ade80; border-color:rgba(34,197,94,0.35);">
+                  📄 View List
+                </button>
+              ` : `
+                <span class="badge" style="background:rgba(239,68,68,0.16); color:#fca5a5; border:1px solid rgba(239,68,68,0.35); font-size:0.68rem;">❌ Missing List</span>
+              `}
+            </td>
+          </tr>
+        `;
+      }).join('')
+    : `<tr><td colspan="5" style="padding:1.5rem; text-align:center; color:var(--text-muted);">No players match this compliance filter.</td></tr>`;
+
+  return `
+    <div class="card" style="padding:1rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px;">
+      <!-- Compliance Filter Pills -->
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.85rem;">
+        <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+          <button type="button" class="btn ${_toHubRosterFilter === 'all' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRosterFilter('all')" style="font-size:0.73rem; padding:0.3rem 0.6rem;">
+            All (${allPlayers.length})
+          </button>
+          <button type="button" class="btn ${_toHubRosterFilter === 'checked_in' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRosterFilter('checked_in')" style="font-size:0.73rem; padding:0.3rem 0.6rem;">
+            ✅ Checked In (${checkedInCount})
+          </button>
+          <button type="button" class="btn ${_toHubRosterFilter === 'not_checked_in' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRosterFilter('not_checked_in')" style="font-size:0.73rem; padding:0.3rem 0.6rem;">
+            ⚠️ Not Checked In (${notCheckedInCount})
+          </button>
+          <button type="button" class="btn ${_toHubRosterFilter === 'list_submitted' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRosterFilter('list_submitted')" style="font-size:0.73rem; padding:0.3rem 0.6rem;">
+            📄 List Submitted (${hasListCount})
+          </button>
+          <button type="button" class="btn ${_toHubRosterFilter === 'missing_list' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRosterFilter('missing_list')" style="font-size:0.73rem; padding:0.3rem 0.6rem;">
+            ❌ Missing List (${missingListCount})
+          </button>
+          <button type="button" class="btn ${_toHubRosterFilter === 'unassigned_faction' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRosterFilter('unassigned_faction')" style="font-size:0.73rem; padding:0.3rem 0.6rem;">
+            ❓ Unassigned Faction (${unassignedFacCount})
+          </button>
+          <button type="button" class="btn ${_toHubRosterFilter === 'dropped' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRosterFilter('dropped')" style="font-size:0.73rem; padding:0.3rem 0.6rem;">
+            🚪 Dropped (${droppedCount})
+          </button>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+          <input type="text" placeholder="Search player or faction..." value="${escapeHtml(_toHubRosterSearch)}" oninput="handleToHubRosterSearch(this.value)" style="padding:0.36rem 0.7rem; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:rgba(15,23,42,0.9); color:#fff; font-size:0.78rem; min-width:190px;" />
+          <button type="button" class="btn btn-outline" onclick="copyToHubFilteredRosterNames()" style="font-size:0.74rem; font-weight:700; padding:0.36rem 0.7rem;">
+            📋 Copy Filtered Names (${filtered.length})
+          </button>
+        </div>
+      </div>
+
+      <!-- Roster Table -->
+      <div class="table-responsive" style="max-height:460px; overflow-y:auto;">
+        <table class="data-table" style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="width:45px; padding:0.5rem 0.65rem;">#</th>
+              <th style="padding:0.5rem 0.65rem;">Competitor</th>
+              <th style="padding:0.5rem 0.65rem;">Registration Status</th>
+              <th style="padding:0.5rem 0.65rem;">Faction / Detachment</th>
+              <th style="padding:0.5rem 0.65rem; text-align:right;">Army List</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ----------------------------------------------------------------------------
+// APP-WIDE GLOBAL EVENT ANNOUNCEMENT BANNER
+// ----------------------------------------------------------------------------
+function dismissGlobalEventAnnouncement(broadcastId) {
+  if (broadcastId) {
+    try {
+      localStorage.setItem(`dismissed_event_broadcast_${broadcastId}`, '1');
+    } catch (_) {}
+  }
+  const banner = document.getElementById('global-event-announcement-banner');
+  if (banner) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+  }
+}
+
+function openGlobalAnnouncementEvent(eventId, gameSystem = '40k') {
+  if (!eventId) return;
+  openEventHubPage(eventId, gameSystem || '40k', { initialTab: 'news' });
+}
+
+async function syncGlobalEventAnnouncementBanner(force = false) {
+  const banner = document.getElementById('global-event-announcement-banner');
+  if (!banner || !window.api || typeof window.api.getActiveEventAnnouncements !== 'function') return;
+
+  const candidateIds = new Set();
+  if (currentOpenEventId) candidateIds.add(String(currentOpenEventId));
+  const regList = [
+    ...(Array.isArray(window.myHubRegisteredTournaments) ? window.myHubRegisteredTournaments : []),
+    ...(Array.isArray(window._hubRegisteredEventsCache) ? window._hubRegisteredEventsCache : [])
+  ];
+  regList.forEach(t => {
+    const id = String(t?.event_id || t?.bcp_event_id || t?.id || '').trim();
+    if (id) candidateIds.add(id);
+  });
+  const hostedList = [
+    ...(Array.isArray(window.myHubHostedTournaments) ? window.myHubHostedTournaments : []),
+    ...(Array.isArray(window._hubHostedEventsCache) ? window._hubHostedEventsCache : [])
+  ];
+  hostedList.forEach(t => {
+    const id = String(t?.event_id || t?.bcp_event_id || t?.id || '').trim();
+    if (id) candidateIds.add(id);
+  });
+
+  const eventIds = Array.from(candidateIds).slice(0, 25);
+  if (eventIds.length === 0) {
+    banner.style.display = 'none';
+    return;
+  }
+
+  try {
+    const res = await window.api.getActiveEventAnnouncements(eventIds);
+    const announcements = Array.isArray(res?.announcements) ? res.announcements : [];
+    const active = announcements.find(a => {
+      if (!a || !a.message) return false;
+      const bid = String(a.id || `${a.event_id}_${a.published_at || ''}`);
+      try {
+        if (!force && localStorage.getItem(`dismissed_event_broadcast_${bid}`) === '1') {
+          return false;
+        }
+      } catch (_) {}
+      return true;
+    });
+
+    if (!active) {
+      banner.style.display = 'none';
+      banner.innerHTML = '';
+      return;
+    }
+
+    const bid = String(active.id || `${active.event_id}_${active.published_at || ''}`);
+    const evId = String(active.event_id || '');
+    let evName = active.event_name || '';
+    if (!evName) {
+      if (currentEventData && String(currentEventData.id) === evId) {
+        evName = currentEventData.name || currentEventData.event_name || '';
+      }
+      if (!evName && hostedList.length > 0) {
+        const found = hostedList.find(t => String(t.event_id || t.bcp_event_id || t.id) === evId);
+        if (found) evName = found.event_name || found.name || '';
+      }
+      if (!evName && regList.length > 0) {
+        const found = regList.find(t => String(t.event_id || t.bcp_event_id || t.id) === evId);
+        if (found) evName = found.event_name || found.name || '';
+      }
+    }
+
+    const lvl = String(active.level || 'info').toLowerCase();
+    const bgGrad = lvl === 'urgent'
+      ? 'linear-gradient(90deg, rgba(153,27,27,0.95), rgba(127,29,29,0.92))'
+      : (lvl === 'warning'
+          ? 'linear-gradient(90deg, rgba(146,64,14,0.95), rgba(120,53,15,0.92))'
+          : 'linear-gradient(90deg, rgba(12,74,110,0.95), rgba(30,58,138,0.92))');
+    const borderCol = lvl === 'urgent' ? 'rgba(248,113,113,0.6)' : (lvl === 'warning' ? 'rgba(251,191,36,0.6)' : 'rgba(56,189,248,0.55)');
+    const icon = lvl === 'urgent' ? '🚨' : (lvl === 'warning' ? '⚠️' : '📢');
+
+    banner.style.display = 'block';
+    banner.innerHTML = `
+      <div class="global-event-announcement-inner" style="background:${bgGrad}; border-bottom:1px solid ${borderCol}; padding:0.5rem 0.9rem; display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; box-sizing:border-box; max-width:100vw; overflow:hidden;">
+        <div class="global-event-announcement-content" style="display:flex; align-items:center; gap:0.5rem; flex:1; min-width:0; flex-wrap:wrap;">
+          <span style="font-size:1rem; flex-shrink:0;">${icon}</span>
+          <span class="badge global-event-announcement-badge" style="background:rgba(0,0,0,0.35); color:#fde68a; border:1px solid rgba(255,255,255,0.22); font-size:0.68rem; font-weight:800; max-width:min(280px, 62vw); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${escapeHtml(evName || 'LIVE TOURNAMENT')}">
+            ${escapeHtml(evName || 'LIVE TOURNAMENT')}
+          </span>
+          <span class="global-event-announcement-msg" style="font-size:0.82rem; font-weight:700; color:#fff; line-height:1.35; min-width:180px; flex:1;">
+            ${escapeHtml(active.message)}
+          </span>
+        </div>
+        <div class="global-event-announcement-actions" style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
+          <button type="button" class="btn btn-outline" onclick="openGlobalAnnouncementEvent('${escapeHtml(evId)}')" style="font-size:0.71rem; font-weight:700; padding:0.24rem 0.6rem; background:rgba(255,255,255,0.14); color:#fff; border-color:rgba(255,255,255,0.32); white-space:nowrap;">
+            📰 View Bulletin
+          </button>
+          <button type="button" onclick="dismissGlobalEventAnnouncement('${escapeHtml(bid)}')" title="Dismiss Announcement" style="background:transparent; border:none; color:rgba(255,255,255,0.85); font-size:0.95rem; cursor:pointer; padding:0.2rem 0.35rem; line-height:1;">
+            ✕
+          </button>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    // Non-blocking
+  }
+}
+
+window.canUserAccessEventToHub = canUserAccessEventToHub;
+window.getUserEventOrganizerRole = getUserEventOrganizerRole;
+window.extractEventStaffDirectory = extractEventStaffDirectory;
+window.loadEventToHubState = loadEventToHubState;
+window.renderEventNewsHub = renderEventNewsHub;
+window.renderEventToHub = renderEventToHub;
+window.switchEventToHubSubtab = switchEventToHubSubtab;
+window.setToHubRadarRound = setToHubRadarRound;
+window.setToHubRadarFilter = setToHubRadarFilter;
+window.handleToHubRadarSearch = handleToHubRadarSearch;
+window.copyUnfinishedTablesList = copyUnfinishedTablesList;
+window.broadcastUnfinishedTablesPing = broadcastUnfinishedTablesPing;
+window.updateToHubMasterClockAction = updateToHubMasterClockAction;
+window.broadcastToHubClockStatus = broadcastToHubClockStatus;
+window.submitToHubJudgeCall = submitToHubJudgeCall;
+window.resolveToHubJudgeCall = resolveToHubJudgeCall;
+window.applyToHubAnnouncementPreset = applyToHubAnnouncementPreset;
+window.publishToHubBannerAnnouncement = publishToHubBannerAnnouncement;
+window.clearToHubBannerAnnouncement = clearToHubBannerAnnouncement;
+window.submitToHubNewsPost = submitToHubNewsPost;
+window.removeToHubNewsPost = removeToHubNewsPost;
+window.setToHubRosterFilter = setToHubRosterFilter;
+window.handleToHubRosterSearch = handleToHubRosterSearch;
+window.copyToHubFilteredRosterNames = copyToHubFilteredRosterNames;
+window.syncGlobalEventAnnouncementBanner = syncGlobalEventAnnouncementBanner;
+window.dismissGlobalEventAnnouncement = dismissGlobalEventAnnouncement;
+window.openGlobalAnnouncementEvent = openGlobalAnnouncementEvent;
+

@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=b935e295b2">
+  <link rel="manifest" href="/manifest.json?v=4747836602">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=b935e295b2">
-  <link rel="stylesheet" href="/css/styles.min.css?v=b935e295b2">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=b935e295b2">
-  <link rel="preload" href="/js/app.bundle.min.js?v=b935e295b2" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=4747836602">
+  <link rel="stylesheet" href="/css/styles.min.css?v=4747836602">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=4747836602">
+  <link rel="preload" href="/js/app.bundle.min.js?v=4747836602" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "b935e295b2";</script>
+  <script>window.APP_VERSION = "4747836602";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -447,6 +447,8 @@
 
   <!-- Main Content Area -->
   <main>
+    <!-- App-Wide Active Event Announcement Banner (visible across all tabs for event participants/hosts/viewers) -->
+    <div id="global-event-announcement-banner" style="display: none; width: 100%; max-width: 1440px; margin: 0.45rem auto 0.25rem; padding: 0 1rem; box-sizing: border-box;"></div>
 
     <!-- TAB 1: MY COMPETITOR HUB -->
     <section id="tab-my-hub" class="tab-panel active">
@@ -860,9 +862,17 @@
           <button id="event-subtab-meta" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('meta')">
             <span>📊 Field Meta<span class="subtab-label-extra"> & Highlights</span></span>
           </button>
+          <button id="event-subtab-news" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('news')">
+            <span>📰 News<span class="subtab-label-extra"> & Info</span></span>
+            <span id="event-tab-news-count" class="subtab-count-badge profile-subtab-count" style="display: none;">0</span>
+          </button>
           <button id="event-subtab-elo" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('elo')" style="display: none !important;">
             <span>⭐ Participant Elo</span>
             <span id="event-tab-elo-count" class="subtab-count-badge profile-subtab-count">0</span>
+          </button>
+          <button id="event-subtab-to-hub" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('to-hub')" style="display: none;">
+            <span>🏛️ TO Hub</span>
+            <span id="event-tab-to-hub-badge" class="subtab-count-badge" style="background: linear-gradient(135deg, #a855f7, #38bdf8); color: #fff; font-size: 0.65rem; font-weight: 800; padding: 1px 6px; border: none;">HOST</span>
           </button>
           <button id="event-subtab-creator" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('creator')" style="display: none;">
             <span>🎙️ Creator Hub</span>
@@ -1098,6 +1108,16 @@
         <!-- View 5: Creator Hub (CC & Admin only) -->
         <div id="event-view-creator" style="display: none;">
           <div id="event-creator-hub-container"></div>
+        </div>
+
+        <!-- View 6: News & Info (Public Event Feed & BCP Details) -->
+        <div id="event-view-news" style="display: none;">
+          <div id="event-news-hub-container"></div>
+        </div>
+
+        <!-- View 7: TO Hub (Event Host / TO / Judge & Admin only) -->
+        <div id="event-view-to-hub" style="display: none;">
+          <div id="event-to-hub-container"></div>
         </div>
       </div>
     </section>
@@ -3711,7 +3731,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=b935e295b2"></script>
+  <script src="/js/app.bundle.min.js?v=4747836602"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

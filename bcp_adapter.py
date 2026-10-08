@@ -1545,26 +1545,13 @@ class BcpAdapter:
         user_email = (user_info.get("bcp_email") or (user_info.get("email") if user_info else "") or "").lower().strip()
 
         events_list = []
+        hosted_list = []
+        cache_user_key = str(user_id or tok or "anon")
         for item in raw_items:
             if not isinstance(item, dict):
                 continue
             ev_id = str(item.get("id") or item.get("_id") or "")
             if not ev_id:
-                continue
-
-            # Exclude concluded/ended tournaments so only active or upcoming events remain in Registered Events
-            if bool(item.get("ended") or item.get("is_ended")):
-                continue
-            item_status = item.get("status")
-            if isinstance(item_status, dict) and bool(item_status.get("ended") or item_status.get("is_ended")):
-                continue
-            if isinstance(item_status, str) and item_status.strip().lower() in ("ended", "completed", "finished", "concluded"):
-                continue
-
-            ev_start_raw = str(item.get("eventDate") or item.get("startDate") or item.get("eventStartDate") or "").strip()
-            ev_end_raw = str(item.get("endDate") or item.get("eventEndDate") or "").strip()
-            ref_date_str = ev_end_raw or ev_start_raw
-            if len(ref_date_str) >= 10 and ref_date_str[:10] < today_cutoff_str:
                 continue
 
             loc = item.get("location") if isinstance(item.get("location"), dict) else {}
@@ -1590,11 +1577,13 @@ class BcpAdapter:
             # Check if user is organizer via ownerId, isOwner, isTO, or eventUsers role
             event_users = item.get("eventUsers") if isinstance(item.get("eventUsers"), dict) else {}
             has_organizer_role = False
+            matched_role_title = ""
             for eu_id, eu in event_users.items():
                 if isinstance(eu, dict):
                     role_obj = eu.get("role")
-                    role_name = (role_obj.get("name") if isinstance(role_obj, dict) else str(role_obj or "")).lower()
-                    if "organizer" in role_name or "to" in role_name or "admin" in role_name:
+                    role_raw = role_obj.get("name") if isinstance(role_obj, dict) else str(role_obj or "")
+                    role_name = role_raw.lower()
+                    if "organizer" in role_name or "to" in role_name or "admin" in role_name or "judge" in role_name:
                         eu_fn = (eu.get("firstName") or "").lower().strip()
                         eu_ln = (eu.get("lastName") or "").lower().strip()
                         eu_email = (eu.get("email") or "").lower().strip()
@@ -1611,6 +1600,7 @@ class BcpAdapter:
                         )
                         if is_same_user:
                             has_organizer_role = True
+                            matched_role_title = role_raw or "Tournament Organizer"
                             break
 
             is_owner_user = bool(
@@ -1627,6 +1617,52 @@ class BcpAdapter:
                 has_organizer_role or
                 is_owner_user
             )
+
+            gamesystem_id = item.get("gameSystemId") or item.get("gamesystem") or item.get("systemId") or "WGMSzfKFYA"
+            ev_game_sys = "aos" if (gamesystem_id == AOS_GAME_SYSTEM_ID or str(gamesystem_id) in ("OY8FCPBf6O", "23qDprPABN")) else "40k"
+            ev_start_raw = str(item.get("eventDate") or item.get("startDate") or item.get("eventStartDate") or "").strip()
+            ev_end_raw = str(item.get("endDate") or item.get("eventEndDate") or "").strip()
+            item_status = item.get("status")
+            is_item_ended = bool(
+                item.get("ended") or item.get("is_ended") or
+                (isinstance(item_status, dict) and bool(item_status.get("ended") or item_status.get("is_ended"))) or
+                (isinstance(item_status, str) and item_status.strip().lower() in ("ended", "completed", "finished", "concluded"))
+            )
+
+            if is_organizer:
+                hosted_list.append({
+                    "id": ev_id,
+                    "bcp_event_id": ev_id,
+                    "event_name": item.get("name") or "Tournament",
+                    "event_date": ev_start_raw,
+                    "end_date": ev_end_raw,
+                    "venue_name": venue_name,
+                    "city": city,
+                    "state": state,
+                    "country": country,
+                    "gamesystem_id": gamesystem_id,
+                    "game_system": ev_game_sys,
+                    "points_limit": item.get("points") or item.get("pointsValue") or 2000,
+                    "rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
+                    "total_players": item.get("totalPlayers") or item.get("activePlayers") or item.get("capacity") or (len(item.get("players")) if isinstance(item.get("players"), list) else 0),
+                    "checked_in_players": item.get("checkedInPlayers") or 0,
+                    "started": bool(item.get("started")),
+                    "ended": is_item_ended,
+                    "owner_id": owner_id,
+                    "is_organizer": True,
+                    "is_hosted": True,
+                    "isOwner": bool(item.get("isOwner") or is_owner_user),
+                    "isTO": True,
+                    "host_role": "Event Owner" if (item.get("isOwner") or is_owner_user) else (matched_role_title or "Tournament Organizer"),
+                    "bcp_url": f"https://www.bestcoastpairings.com/event/{ev_id}"
+                })
+
+            # Exclude concluded/ended tournaments so only active or upcoming events remain in Registered Events
+            if is_item_ended:
+                continue
+            ref_date_str = ev_end_raw or ev_start_raw
+            if len(ref_date_str) >= 10 and ref_date_str[:10] < today_cutoff_str:
+                continue
 
             # Determine if this event has actual competitor/player participation for the user
             has_competitor_registration = bool(
@@ -1654,8 +1690,6 @@ class BcpAdapter:
             team_name = p_data.get("teamName") or team_obj.get("name") or p_data.get("team") or ""
             army_id = p_data.get("armyId") or p_data.get("army_id") or ""
             sub_faction_id = p_data.get("subFactionId") or p_data.get("sub_faction_id") or ""
-            gamesystem_id = item.get("gameSystemId") or item.get("gamesystem") or item.get("systemId") or "WGMSzfKFYA"
-            ev_game_sys = "aos" if (gamesystem_id == AOS_GAME_SYSTEM_ID or str(gamesystem_id) in ("OY8FCPBf6O", "23qDprPABN")) else "40k"
 
             events_list.append({
                 "bcp_event_id": ev_id,
@@ -1690,8 +1724,19 @@ class BcpAdapter:
                 "bcp_url": f"https://www.bestcoastpairings.com/event/{ev_id}"
             })
 
-        logger.info(f"✅ Fetched {len(events_list)} registered events for user {user_id} from BCP")
+        if not hasattr(cls, "_last_hosted_events_by_user"):
+            cls._last_hosted_events_by_user = {}
+        cls._last_hosted_events_by_user[cache_user_key] = hosted_list
+
+        logger.info(f"✅ Fetched {len(events_list)} registered events and {len(hosted_list)} hosted events for user {user_id} from BCP")
         return True, None, events_list
+
+    @classmethod
+    def get_user_hosted_events_cached(cls, user_id: Optional[str] = None, explicit_token: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Returns the hosted events discovered during the most recent fetch_user_registered_events call."""
+        store = getattr(cls, "_last_hosted_events_by_user", {})
+        key = str(user_id or explicit_token or "anon")
+        return list(store.get(key) or [])
 
     @classmethod
     def configure_event_registration(

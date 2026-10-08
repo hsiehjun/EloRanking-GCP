@@ -1695,8 +1695,80 @@ window.api = {
     if (bcpToken) headers['X-BCP-Token'] = bcpToken;
     const cleanId = encodeURIComponent(String(listId || '').replace(/^\/list\//, '').trim());
     return this._fetchJson(`/api/bcp/armylist/${cleanId}`, { headers });
+  },
+
+  // TO Hub & Event News: Unified single-read state (< 15ms)
+  async getEventToHubState(eventId) {
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/to-hub`);
+  },
+
+  // TO Hub: Publish or clear App-Wide Event Announcement Banner
+  async publishEventToHubAnnouncement(eventId, payload) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/to-hub/announcement`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(payload || {})
+    });
+  },
+
+  // TO Hub: Clear active Event Announcement Banner
+  async clearEventToHubAnnouncement(eventId) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/to-hub/announcement`, {
+      method: 'DELETE',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+  },
+
+  // TO Hub: Create or update Event News & Info post
+  async saveEventToHubNewsPost(eventId, payload) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/to-hub/news`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(payload || {})
+    });
+  },
+
+  // TO Hub: Delete Event News & Info post
+  async deleteEventToHubNewsPost(eventId, postId) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/to-hub/news/${encodeURIComponent(postId)}`, {
+      method: 'DELETE',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+  },
+
+  // TO Hub: Update Master Round Clock
+  async updateEventMasterClock(eventId, payload) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/clock`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(payload || {})
+    });
+  },
+
+  // Global App-Wide Event Announcements Banner
+  async getActiveEventAnnouncements(eventIds = []) {
+    const cleanIds = (Array.isArray(eventIds) ? eventIds : [eventIds])
+      .map(id => String(id || '').trim())
+      .filter(Boolean);
+    if (cleanIds.length === 0) return { success: true, announcements: [] };
+    return this._fetchJson(`/api/events/active-announcements?event_ids=${encodeURIComponent(cleanIds.join(','))}`);
   }
 };
 
 window.API = window.api;
 window.getBcpToken = function() { return window.api?.getBcpToken?.() || ''; };
+

@@ -4104,22 +4104,37 @@ class PostgresDatabase:
                                    'activeRound', raw_json->'activeRound',
                                    'ended', raw_json->'ended',
                                    'isEnded', raw_json->'isEnded',
+                                   'started', raw_json->'started',
                                    'status', raw_json->'status',
                                    'teamEvent', raw_json->'teamEvent',
                                    'doublesEvent', raw_json->'doublesEvent',
                                    'totalTeamPlayers', raw_json->'totalTeamPlayers',
                                    'totalPlayers', raw_json->'totalPlayers',
+                                   'checkedInPlayers', raw_json->'checkedInPlayers',
                                    'gameSystemId', raw_json->'gameSystemId',
                                    'usingOnlineReg', raw_json->'usingOnlineReg',
                                    'ticketPrice', raw_json->'ticketPrice',
                                    'numTickets', raw_json->'numTickets',
                                    'capacity', raw_json->'capacity',
                                    'externalUrl', raw_json->'externalUrl',
+                                   'photoUrl', raw_json->'photoUrl',
                                    'privateEvent', raw_json->'privateEvent',
                                    'hasAccessCode', raw_json->'hasAccessCode',
                                    'requireAccessCode', raw_json->'requireAccessCode',
                                    'ticketing', raw_json->'ticketing',
                                    'rounds', raw_json->'rounds',
+                                   'roundTimers', COALESCE(raw_json->'roundTimers', '{}'::jsonb),
+                                   'defaultRoundLength', raw_json->'defaultRoundLength',
+                                   'points', raw_json->'points',
+                                   'pointsValue', raw_json->'pointsValue',
+                                   'ownerId', raw_json->'ownerId',
+                                   'owner_Id', raw_json->'owner_Id',
+                                   'ownerFirstName', raw_json->'ownerFirstName',
+                                   'ownerLastName', raw_json->'ownerLastName',
+                                   'eventUsers', COALESCE(raw_json->'eventUsers', '{}'::jsonb),
+                                   'description', raw_json->'description',
+                                   'eventDescription', raw_json->'eventDescription',
+                                   'eventDescriptionMarkup', raw_json->'eventDescriptionMarkup',
                                    'venueName', raw_json->'venueName',
                                    'location', raw_json->'location',
                                    'eventDate', raw_json->'eventDate',
@@ -10556,6 +10571,86 @@ class PostgresDatabase:
                         if item.get("player_id") and not existing.get("player_id"):
                             existing["player_id"] = item["player_id"]
                 return list(by_event.values())
+
+    def get_user_hosted_tournaments(self, user_id: str, bcp_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieves tournaments hosted or staffed by the user from the events table."""
+        if not user_id and not bcp_user_id:
+            return []
+        target_ids = [str(x).strip() for x in (user_id, bcp_user_id) if x and str(x).strip()]
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    if user_id:
+                        cur.execute("SELECT player_id, bcp_user_id FROM users WHERE id = %s;", (user_id,))
+                        row = cur.fetchone()
+                        if row:
+                            for col_val in row:
+                                if col_val and str(col_val).strip() not in target_ids:
+                                    target_ids.append(str(col_val).strip())
+        except Exception as e:
+            logger.debug(f"Could not fetch user bcp_user_id for hosted tournaments: {e}")
+
+        if not target_ids:
+            return []
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                    cursor.execute("""
+                    SELECT
+                        e.id,
+                        e.id AS bcp_event_id,
+                        e.name AS event_name,
+                        e.name,
+                        e.event_date,
+                        e.end_date,
+                        COALESCE(e.venue_name, e.venue, e.raw_json->>'venueName', '') AS venue_name,
+                        COALESCE(e.city, '') AS city,
+                        COALESCE(e.state, '') AS state,
+                        COALESCE(e.country, '') AS country,
+                        COALESCE(e.points, 2000) AS points_limit,
+                        COALESCE(e.num_rounds, 5) AS rounds,
+                        COALESCE(e.current_round, 0) AS current_round,
+                        COALESCE(e.total_players, 0) AS total_players,
+                        COALESCE(e.is_ended, FALSE) AS ended,
+                        COALESCE(e.is_ended, FALSE) AS is_ended,
+                        COALESCE(e.started, FALSE) AS started,
+                        COALESCE(e.game_system, '40k') AS game_system,
+                        COALESCE(e.organizer_bcp_id, e.raw_json->>'ownerId', e.raw_json->>'owner_Id', '') AS owner_id,
+                        COALESCE((e.raw_json->>'checkedInPlayers')::int, 0) AS checked_in_players,
+                        CONCAT('https://www.bestcoastpairings.com/event/', e.id) AS bcp_url
+                    FROM events e
+                    WHERE e.organizer_id = ANY(%s)
+                       OR e.organizer_bcp_id = ANY(%s)
+                       OR (
+                           e.raw_json IS NOT NULL
+                           AND jsonb_typeof(e.raw_json) = 'object'
+                           AND (
+                               e.raw_json->>'ownerId' = ANY(%s)
+                               OR e.raw_json->>'owner_Id' = ANY(%s)
+                               OR (jsonb_typeof(e.raw_json->'eventUsers') = 'object' AND (e.raw_json->'eventUsers' ?| %s))
+                           )
+                       )
+                    ORDER BY COALESCE(e.is_ended, FALSE) ASC, COALESCE(e.event_date, e.end_date) DESC NULLS LAST
+                    LIMIT 20;
+                    """, (target_ids, target_ids, target_ids, target_ids, target_ids))
+                    rows = cursor.fetchall()
+                    out = []
+                    for r in rows:
+                        item = dict(r)
+                        if item.get("event_date") and hasattr(item["event_date"], "isoformat"):
+                            item["event_date"] = item["event_date"].isoformat()
+                        if item.get("end_date") and hasattr(item["end_date"], "isoformat"):
+                            item["end_date"] = item["end_date"].isoformat()
+                        item["is_organizer"] = True
+                        item["is_hosted"] = True
+                        item["isOwner"] = True
+                        item["organizer_role"] = "Tournament Organizer"
+                        out.append(item)
+                    return out
+        except Exception as e:
+            logger.debug(f"get_user_hosted_tournaments notice: {e}")
+            return []
 
     def save_user_registered_tournaments(self, user_id: str, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """

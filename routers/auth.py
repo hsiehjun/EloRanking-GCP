@@ -548,17 +548,28 @@ def _sync_api_user_registered_tournaments(
             logger.debug(f"Error fetching user registered leagues: {e}")
 
     if not bcp_connected and not native_tournaments:
+        hosted_db_only = []
+        if hasattr(db, "get_user_hosted_tournaments"):
+            try:
+                hosted_db_only = db.get_user_hosted_tournaments(user_id, bcp_user_id=user_info.get("bcp_user_id") or user_info.get("player_id")) or []
+                if not isinstance(hosted_db_only, list):
+                    hosted_db_only = []
+            except Exception:
+                hosted_db_only = []
         res_empty = {
             "success": True,
             "bcp_connected": False,
             "count": 0,
             "tournaments": [],
+            "hosted_count": len(hosted_db_only),
+            "hosted_tournaments": hosted_db_only,
             "message": "Player is not linked to Best Coast Pairings"
         }
         _REG_TOURNAMENTS_CACHE[cache_key] = (time.time(), res_empty)
         return res_empty
 
     bcp_tournaments = []
+    bcp_hosted = []
     bcp_fetch_ok = False
 
     # Fetch live registered events directly from BCP API (zero DB writes)
@@ -569,6 +580,10 @@ def _sync_api_user_registered_tournaments(
             if ok and events is not None:
                 bcp_tournaments = list(events)
                 bcp_fetch_ok = True
+                if hasattr(bcp_adapter, "get_user_hosted_events_cached"):
+                    cached_hosted = bcp_adapter.get_user_hosted_events_cached(user_id, explicit_token=x_bcp_token)
+                    if isinstance(cached_hosted, list):
+                        bcp_hosted = list(cached_hosted)
             elif not ok:
                 logger.info(f"BCP registered tournaments fetch returned notice: {err}")
         except Exception as e:
@@ -597,6 +612,48 @@ def _sync_api_user_registered_tournaments(
         gs_id = str(t.get("gamesystem_id") or t.get("game_system_id") or "")
         if not t.get("game_system"):
             t["game_system"] = "aos" if (gs_id in (AOS_GAME_SYSTEM_ID, "OY8FCPBf6O", "23qDprPABN")) else "40k"
+
+    # Build hosted_tournaments list from BCP hosted cache, organizer-flagged items, and DB hosted events
+    hosted_by_id: Dict[str, Dict[str, Any]] = {}
+    for ht in bcp_hosted:
+        if isinstance(ht, dict):
+            hid = str(ht.get("bcp_event_id") or ht.get("id") or "").strip()
+            if hid:
+                ht["id"] = ht.get("id") or hid
+                ht["bcp_event_id"] = hid
+                ht["is_hosted"] = True
+                ht["is_organizer"] = True
+                hosted_by_id[hid] = dict(ht)
+
+    for t in combined_tournaments:
+        if isinstance(t, dict) and (t.get("isOwner") or t.get("isTO") or t.get("is_organizer")):
+            hid = str(t.get("bcp_event_id") or t.get("id") or "").strip()
+            if hid and hid not in hosted_by_id:
+                ht_copy = dict(t)
+                ht_copy["id"] = hid
+                ht_copy["bcp_event_id"] = hid
+                ht_copy["is_hosted"] = True
+                ht_copy["is_organizer"] = True
+                ht_copy["host_role"] = ht_copy.get("host_role") or ("Event Owner" if ht_copy.get("isOwner") else "Tournament Organizer")
+                hosted_by_id[hid] = ht_copy
+
+    if hasattr(db, "get_user_hosted_tournaments"):
+        try:
+            db_hosted = db.get_user_hosted_tournaments(user_id, bcp_user_id=user_info.get("bcp_user_id") or user_info.get("player_id"))
+            if isinstance(db_hosted, list):
+                for ht in db_hosted:
+                    if isinstance(ht, dict):
+                        hid = str(ht.get("bcp_event_id") or ht.get("id") or "").strip()
+                        if hid and hid not in hosted_by_id:
+                            ht["id"] = ht.get("id") or hid
+                            ht["bcp_event_id"] = hid
+                            ht["is_hosted"] = True
+                            ht["is_organizer"] = True
+                            hosted_by_id[hid] = dict(ht)
+        except Exception as db_h_err:
+            logger.debug(f"Error fetching hosted tournaments from DB: {db_h_err}")
+
+    hosted_tournaments = list(hosted_by_id.values())
 
     # Enrich active BCP tournaments with live currentPlayer endpoint concurrently (purely in-memory, ZERO DB WRITES)
     if combined_tournaments:
@@ -704,12 +761,15 @@ def _sync_api_user_registered_tournaments(
     if game_system:
         target_sys = game_system.strip().lower()
         combined_tournaments = [t for t in combined_tournaments if t.get("game_system", "40k") == target_sys]
+        hosted_tournaments = [ht for ht in hosted_tournaments if ht.get("game_system", "40k") == target_sys]
 
     result = {
         "success": True,
         "bcp_connected": bool(bcp_connected),
         "count": len(combined_tournaments),
-        "tournaments": combined_tournaments
+        "tournaments": combined_tournaments,
+        "hosted_count": len(hosted_tournaments),
+        "hosted_tournaments": hosted_tournaments
     }
     _REG_TOURNAMENTS_CACHE[cache_key] = (time.time(), result)
     return result
