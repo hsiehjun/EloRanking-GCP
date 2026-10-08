@@ -1724,6 +1724,19 @@ window.api = {
     });
   },
 
+  // TO Hub: Send direct OmniChat message to a table or player (with optional banner fallback)
+  async sendEventToHubDirectChat(eventId, payload) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/to-hub/direct-chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(payload || {})
+    });
+  },
+
   // TO Hub: Create or update Event News & Info post
   async saveEventToHubNewsPost(eventId, payload) {
     const token = this.getAuthToken();

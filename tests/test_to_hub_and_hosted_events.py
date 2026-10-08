@@ -18,9 +18,12 @@ from routers.eventstudio import (
     api_clear_event_to_hub_announcement,
     api_save_event_to_hub_news_post,
     api_delete_event_to_hub_news_post,
+    api_send_event_to_hub_direct_chat,
     api_eventstudio_update_clock,
     StudioMasterClockPayload,
     ToHubAnnouncementPayload,
+    ToHubDirectChatPayload,
+    ToHubDirectChatTarget,
     ToHubNewsPostPayload,
 )
 
@@ -142,6 +145,82 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
         self.assertEqual(len(act_after.get("announcements", [])), 0)
         self.assertIsNone(self.fs._fallback_rooms[room_mid].get("broadcast"))
 
+    def test_to_hub_table_and_player_direct_chat_and_targeted_banner(self):
+        room_t1 = f"BCP-{self.test_event_id.upper()}-R1-T1"
+        room_t2 = f"BCP-{self.test_event_id.upper()}-R1-T2"
+        self.fs._fallback_rooms[room_t1] = {"match_id": room_t1, "eventId": self.test_event_id, "tableNumber": 1}
+        self.fs._fallback_rooms[room_t2] = {"match_id": room_t2, "eventId": self.test_event_id, "tableNumber": 2}
+
+        # 1. Targeted Table 1 announcement should push to Table 1 room and NOT Table 2 room
+        pub_targeted = api_publish_event_to_hub_announcement(
+            self.test_event_id,
+            ToHubAnnouncementPayload(
+                message="🎲 Table 1 (Anthony vs John): Please submit your final score now!",
+                level="urgent",
+                round=1,
+                target_table="1",
+                target_player_name="Anthony vs John",
+                author_name="Chief TO",
+            ),
+        )
+        self.assertTrue(pub_targeted["ok"])
+        self.assertEqual(pub_targeted["active_broadcast"]["target_table"], "1")
+        self.assertEqual(pub_targeted["active_broadcast"]["target_player_name"], "Anthony vs John")
+        self.assertIsNotNone(self.fs._fallback_rooms[room_t1].get("broadcast"))
+        self.assertIsNone(self.fs._fallback_rooms[room_t2].get("broadcast"))
+
+        # 2. Direct Chat to Table 1 where Player 1 has an OmniChat account and Player 2 does not
+        mock_db = MagicMock()
+        mock_db.get_event_by_id.return_value = {"id": self.test_event_id, "name": "Try Hard - 40K RTT"}
+
+        def fake_direct_chat(sender_id, player_id, player_name, event_name="", message_text=""):
+            if player_name == "Anthony Vanella":
+                return {
+                    "ok": True,
+                    "request_id": 777,
+                    "recipient_id": "u_anthony",
+                    "recipient_name": "Anthony Vanella",
+                    "message": {
+                        "id": 9001,
+                        "request_id": 777,
+                        "sender_id": sender_id,
+                        "sender_name": "Chief TO",
+                        "message": f"🏛️ [TO • {event_name}] {message_text}",
+                        "created_at": "2026-10-08T22:55:00Z",
+                    },
+                }
+            return {"ok": False, "reason": "no_linked_account"}
+
+        mock_db.send_to_hub_direct_chat_message.side_effect = fake_direct_chat
+        mock_auth = MagicMock()
+        mock_auth.get_session.return_value = {"id": "u_to_admin", "display_name": "Chief TO"}
+        mock_req = MagicMock()
+        mock_req.headers = {"Authorization": "Bearer test_to_token"}
+        mock_req.cookies = {}
+
+        with patch("routers.eventstudio.get_database", return_value=mock_db), \
+             patch("routers.eventstudio.get_auth_manager", return_value=mock_auth):
+            chat_res = api_send_event_to_hub_direct_chat(
+                self.test_event_id,
+                ToHubDirectChatPayload(
+                    message="Please submit your Round 1 score at the TO Desk.",
+                    table_number="1",
+                    round=1,
+                    targets=[
+                        ToHubDirectChatTarget(player_id="p_anthony", player_name="Anthony Vanella"),
+                        ToHubDirectChatTarget(player_id="p_john", player_name="John Lennon"),
+                    ],
+                    fallback_to_banner=True,
+                    level="warning",
+                ),
+                request=mock_req,
+            )
+            self.assertTrue(chat_res["ok"])
+            self.assertEqual(chat_res["delivered_count"], 1)
+            self.assertEqual(chat_res["delivered"][0]["request_id"], 777)
+            self.assertEqual(chat_res["unmatched"], ["John Lennon"])
+            self.assertTrue(chat_res["banner_fallback_used"])
+
     def test_news_and_info_tab_is_first_after_player_station(self):
         app_html = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
         idx_player = app_html.find('id="event-subtab-player"')
@@ -164,6 +243,12 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
         self.assertGreater(idx_details, 0)
         self.assertGreater(idx_bulletins, idx_details, "Official Event Details must be on top of News & Info tab")
 
+        # Verify TO Table & Player Comms Modal functions exist in tournaments.js
+        self.assertIn("function openToHubTableCommsModal(", tournaments_js)
+        self.assertIn("function openToHubPlayerCommsModal(", tournaments_js)
+        self.assertIn("function sendToHubCommsDirectChat()", tournaments_js)
+        self.assertIn("function sendToHubCommsBanner()", tournaments_js)
+
         # Verify syncGlobalEventAnnouncementBanner always queries wildcard '*' and runs on switchTab & startup
         sync_fn_start = tournaments_js.find("async function syncGlobalEventAnnouncementBanner(")
         sync_fn_body = tournaments_js[sync_fn_start:]
@@ -176,6 +261,7 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
         api_js = (root_dir / "web" / "js" / "api.js").read_text(encoding="utf-8")
         self.assertIn("url.includes('/active-announcements')", api_js)
         self.assertIn("url.includes('/to-hub')", api_js)
+        self.assertIn("async sendEventToHubDirectChat(", api_js)
 
     def test_bcp_hosted_events_and_registered_endpoint(self):
         bcp_adapter.BcpAdapter._last_hosted_events_by_user = {
@@ -239,3 +325,4 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -4162,7 +4162,30 @@ class ToHubAnnouncementPayload(BaseModel):
     event_name: Optional[str] = None
     author: Optional[str] = None
     author_name: Optional[str] = None
+    target_table: Optional[str] = None
+    target_player_id: Optional[str] = None
+    target_player_name: Optional[str] = None
     active: Optional[bool] = True
+
+
+class ToHubDirectChatTarget(BaseModel):
+    player_id: Optional[str] = None
+    player_name: Optional[str] = None
+
+
+class ToHubDirectChatPayload(BaseModel):
+    message: str
+    level: Optional[str] = "info"
+    event_name: Optional[str] = ""
+    round: Optional[int] = None
+    table_num: Optional[str] = None
+    table_number: Optional[str] = None
+    player_id: Optional[str] = None
+    player_name: Optional[str] = None
+    recipients: Optional[List[Dict[str, Optional[str]]]] = None
+    targets: Optional[List[Any]] = None
+    also_broadcast_banner: Optional[bool] = False
+    fallback_to_banner: Optional[bool] = True
 
 
 class ToHubNewsPostPayload(BaseModel):
@@ -4180,6 +4203,7 @@ def _push_broadcast_to_tracker_rooms(event_id: str, broadcast_obj: Optional[Dict
     try:
         from routers.tracker import TRACKER_ROOMS, TRACKER_LISTENERS
         clean_eid = str(event_id).replace("bcp_", "").replace("ES-", "").replace("es-", "").strip().upper()
+        target_tbl = str((broadcast_obj or {}).get("target_table") or "").strip() if isinstance(broadcast_obj, dict) else ""
         for mid, rdata in list(TRACKER_ROOMS.items()):
             if not isinstance(rdata, dict):
                 continue
@@ -4190,6 +4214,10 @@ def _push_broadcast_to_tracker_rooms(event_id: str, broadcast_obj: Optional[Dict
                 str(rdata.get("tournament_id") or "").lower() == event_id.lower() or
                 (clean_eid and clean_eid in mid_u)
             ):
+                if target_tbl:
+                    r_tbl = str(rdata.get("tableNum") or rdata.get("table_number") or rdata.get("table") or "").strip()
+                    if (r_tbl and r_tbl != target_tbl) or (not r_tbl and f"-T{target_tbl.upper()}" not in mid_u):
+                        continue
                 rdata["broadcast"] = broadcast_obj
                 listeners = TRACKER_LISTENERS.get(mid, [])
                 b_msg = {"type": "broadcast_update", "broadcast": broadcast_obj}
@@ -4293,6 +4321,9 @@ def api_publish_event_to_hub_announcement(event_id: str, payload: ToHubAnnouncem
         "event_name": ev_name,
         "author": auth,
         "author_name": auth,
+        "target_table": str(payload.target_table).strip() if payload.target_table is not None and str(payload.target_table).strip() else None,
+        "target_player_id": str(payload.target_player_id).strip() if payload.target_player_id else None,
+        "target_player_name": str(payload.target_player_name).strip() if payload.target_player_name else None,
         "active": True,
     }
     res = fs_engine.publish_tournament_broadcast(event_id, broadcast_data)
@@ -4306,6 +4337,165 @@ def api_publish_event_to_hub_announcement(event_id: str, payload: ToHubAnnouncem
         "broadcast": res,
         "active_broadcast": res,
         "announcements": state.get("announcements", []),
+        "state": state,
+    }
+
+
+@router.post("/api/events/{event_id}/to-hub/direct-chat", summary="Send a direct OmniChat message from TO Hub to a table or player (with optional live banner fallback)")
+def api_send_event_to_hub_direct_chat(event_id: str, payload: ToHubDirectChatPayload, request: Request):
+    user = None
+    try:
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "") if request and hasattr(request, "headers") else ""
+        session_token = (
+            (request.cookies.get("session_token") if request and hasattr(request, "cookies") else None)
+            or (request.cookies.get("elo_auth_token") if request and hasattr(request, "cookies") else None)
+            or (request.cookies.get("native_session_token") if request and hasattr(request, "cookies") else None)
+            or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        )
+        user = auth_mgr.get_session(session_token) if session_token else None
+    except Exception:
+        user = None
+    if not user and "_resolve_optional_user" in globals() and callable(globals()["_resolve_optional_user"]):
+        try:
+            user = globals()["_resolve_optional_user"](request)
+        except Exception:
+            user = None
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required to send direct chat messages")
+
+    msg = (payload.message or "").strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    fs_engine = get_firestore_engine()
+    ev_name = (payload.event_name or "").strip()
+    if not ev_name:
+        try:
+            doc_d = fs_engine._read_tournament_doc_dict(event_id)
+            ev_name = str(doc_d.get("name") or doc_d.get("event_name") or "").strip()
+        except Exception:
+            pass
+
+    raw_recipients: List[Dict[str, str]] = []
+    source_list = payload.targets if isinstance(payload.targets, list) and len(payload.targets) > 0 else payload.recipients
+    if isinstance(source_list, list) and len(source_list) > 0:
+        for r in source_list:
+            if isinstance(r, dict):
+                pid_val = str(r.get("player_id") or "").strip()
+                pname_val = str(r.get("player_name") or "").strip()
+            else:
+                pid_val = str(getattr(r, "player_id", "") or "").strip()
+                pname_val = str(getattr(r, "player_name", "") or "").strip()
+            if pid_val or pname_val:
+                raw_recipients.append({"player_id": pid_val, "player_name": pname_val})
+    elif payload.player_id or payload.player_name:
+        raw_recipients.append({
+            "player_id": str(payload.player_id or "").strip(),
+            "player_name": str(payload.player_name or "").strip(),
+        })
+
+    tbl_str = str(payload.table_number or payload.table_num or "").strip()
+    db = get_database()
+    if not ev_name:
+        try:
+            ev_row = db.get_event_by_id(event_id)
+            if isinstance(ev_row, dict):
+                ev_name = str(ev_row.get("name") or ev_row.get("event_name") or "").strip()
+        except Exception:
+            pass
+
+    chat_prefix = f"🏛️ [TO{f' • {ev_name}' if ev_name else ''}{f' • Table {tbl_str}' if tbl_str else ''}] "
+    formatted_chat_msg = msg if msg.startswith("🏛️") else f"{chat_prefix}{msg}"
+
+    delivered_chats: List[Dict[str, Any]] = []
+    unregistered_names: List[str] = []
+
+    for rec in raw_recipients:
+        pid = rec.get("player_id", "")
+        pname = rec.get("player_name", "")
+        if not pid and not pname:
+            continue
+        if pname.upper() == "BYE":
+            continue
+        try:
+            res = db.send_to_hub_direct_chat_message(
+                sender_id=user["id"],
+                player_id=pid,
+                player_name=pname,
+                event_name=ev_name or f"Event {event_id}",
+                message_text=formatted_chat_msg,
+            )
+            if res and (res.get("success") or res.get("ok")) and res.get("request_id"):
+                req_id = res["request_id"]
+                recv_id = res.get("receiver_id") or res.get("recipient_id")
+                res_norm = {
+                    **res,
+                    "request_id": req_id,
+                    "receiver_id": recv_id,
+                    "player_name": res.get("player_name") or res.get("recipient_name") or pname or "Player",
+                }
+                delivered_chats.append(res_norm)
+                try:
+                    from routers.connect import _invalidate_unread_count
+                    _invalidate_unread_count([user["id"], recv_id])
+                except Exception:
+                    pass
+                try:
+                    fs_engine.update_chat_status(req_id, "accepted", participants=[user["id"], recv_id])
+                    fs_engine.append_chat_message(req_id, {
+                        "id": res.get("message_id") or (res.get("message") or {}).get("id"),
+                        "request_id": req_id,
+                        "sender_id": user["id"],
+                        "sender_name": user.get("display_name") or "Tournament Organizer",
+                        "message_text": formatted_chat_msg,
+                        "room_key": None,
+                        "created_at": res.get("created_at") or datetime.now(timezone.utc).isoformat(),
+                    })
+                    if recv_id:
+                        fs_engine.notify_user_requests_updated([user["id"], recv_id], reason="new_message")
+                except Exception:
+                    pass
+            else:
+                unregistered_names.append(pname or pid or "Player")
+        except Exception as e:
+            logger.debug(f"Notice sending TO Hub direct chat to {pname or pid}: {e}")
+            unregistered_names.append(pname or pid or "Player")
+
+    broadcast_res = None
+    should_banner = bool(payload.also_broadcast_banner) or (bool(payload.fallback_to_banner) and (len(unregistered_names) > 0 or len(delivered_chats) == 0))
+    if should_banner:
+        target_names = ", ".join([r.get("player_name") for r in raw_recipients if r.get("player_name") and r.get("player_name").upper() != "BYE"])
+        b_data = {
+            "message": msg,
+            "type": payload.level or "info",
+            "level": payload.level or "info",
+            "round": payload.round,
+            "event_name": ev_name,
+            "author": user.get("display_name") or "Tournament Organizer",
+            "author_name": user.get("display_name") or "Tournament Organizer",
+            "target_table": tbl_str if tbl_str else None,
+            "target_player_id": raw_recipients[0].get("player_id") if len(raw_recipients) == 1 else None,
+            "target_player_name": target_names or None,
+            "active": True,
+        }
+        broadcast_res = fs_engine.publish_tournament_broadcast(event_id, b_data)
+        _push_broadcast_to_tracker_rooms(event_id, broadcast_res)
+
+    state = fs_engine.get_event_to_hub_state(event_id)
+    return {
+        "ok": True,
+        "success": True,
+        "event_id": event_id,
+        "delivered_count": len(delivered_chats),
+        "delivered": delivered_chats,
+        "delivered_chats": delivered_chats,
+        "primary_request_id": delivered_chats[0]["request_id"] if delivered_chats else None,
+        "unmatched": unregistered_names,
+        "unregistered_players": unregistered_names,
+        "banner_fallback_used": bool(broadcast_res is not None and not payload.also_broadcast_banner),
+        "broadcast": broadcast_res,
+        "state": state,
     }
 
 

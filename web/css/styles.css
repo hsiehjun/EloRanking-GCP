@@ -17588,3 +17588,14 @@ table.desktop-only,
     padding: 0.5rem 0.75rem !important;
   }
 }
+
+.to-hub-table-card:hover {
+  border-color: rgba(56, 189, 248, 0.55) !important;
+  box-shadow: 0 4px 16px rgba(14, 165, 233, 0.16);
+  transform: translateY(-1px);
+}
+
+.to-hub-player-click-row:hover {
+  background: rgba(56, 189, 248, 0.14);
+}
+

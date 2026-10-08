@@ -11983,6 +11983,7 @@ async function broadcastUnfinishedTablesPing(eventId, roundNum) {
 }
 
 function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, completedMatches, unfinishedMatches, openJudgeCalls, activeSessions) {
+  window._toHubCurrentRoundMatches = Array.isArray(roundMatches) ? roundMatches : [];
   const totalTables = roundMatches.length;
   const doneCount = completedMatches.length;
   const pct = totalTables > 0 ? Math.round((doneCount / totalTables) * 100) : 0;
@@ -11997,6 +11998,7 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
     const hasTracker = trackerTableSet.has(tNum) || Boolean(m.live_session_id || m.tracker_active);
     return {
       match: m,
+      matchIdx: idx,
       tableNum: tNum,
       isDone,
       hasJudge,
@@ -12025,8 +12027,8 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
 
   const slowTablesBannerHtml = (unfinishedMatches.length > 0 && totalTables > 0) ? (() => {
     const chips = enrichedTables.filter(t => !t.isDone).slice(0, 18).map(t => `
-      <span style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.2rem 0.55rem; background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.4); border-radius:6px; font-size:0.75rem; font-weight:700; color:#fde68a;">
-        ⏳ Table ${escapeHtml(t.tableNum)} <span style="font-weight:500; color:#cbd5e1;">(${escapeHtml((t.match.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((t.match.player2_name || 'P2').split(' ')[0])})</span>
+      <span onclick="openToHubTableCommsModal(${t.matchIdx}, 'table')" title="Click to message or ping Table ${escapeHtml(t.tableNum)}" style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.2rem 0.55rem; background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.4); border-radius:6px; font-size:0.75rem; font-weight:700; color:#fde68a; cursor:pointer;">
+        ⏳ Table ${escapeHtml(t.tableNum)} <span style="font-weight:500; color:#cbd5e1;">(${escapeHtml((t.match.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((t.match.player2_name || 'P2').split(' ')[0])})</span> 💬
       </span>
     `).join('');
     return `
@@ -12057,6 +12059,8 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
         const m = item.match;
         const s1 = m.player1_score ?? m.score1 ?? '-';
         const s2 = m.player2_score ?? m.score2 ?? '-';
+        const p2NameRaw = String(m.player2_name || 'Player 2').trim();
+        const isByeP2 = p2NameRaw.toUpperCase() === 'BYE';
         const borderCol = item.hasJudge
           ? 'rgba(239,68,68,0.55)'
           : (item.isDone ? 'rgba(34,197,94,0.32)' : 'rgba(245,158,11,0.4)');
@@ -12066,24 +12070,33 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
               ? `<span class="badge" style="background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.35); font-size:0.66rem;">✅ FINAL</span>`
               : `<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.38); font-size:0.66rem;">⏳ IN PROGRESS</span>`);
         return `
-          <div class="card to-hub-table-card" style="padding:0.75rem 0.9rem; background:rgba(15,23,42,0.82); border:1px solid ${borderCol}; border-radius:10px; display:flex; flex-direction:column; gap:0.45rem;">
+          <div class="card to-hub-table-card" onclick="openToHubTableCommsModal(${item.matchIdx}, 'table')" title="Click Table or Player to send Announcement or Direct Chat" style="padding:0.75rem 0.9rem; background:rgba(15,23,42,0.82); border:1px solid ${borderCol}; border-radius:10px; display:flex; flex-direction:column; gap:0.45rem; cursor:pointer; transition:transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:0.4rem;">
-              <span style="font-family:var(--font-mono); font-weight:800; font-size:0.84rem; color:#f8fafc;">Table ${escapeHtml(item.tableNum)}</span>
+              <span style="font-family:var(--font-mono); font-weight:800; font-size:0.84rem; color:#f8fafc; display:inline-flex; align-items:center; gap:0.35rem;">
+                Table ${escapeHtml(item.tableNum)}
+                <span class="to-hub-table-comms-hint" style="font-size:0.68rem; color:#38bdf8; font-weight:700; opacity:0.85;">📢 💬</span>
+              </span>
               <div style="display:flex; align-items:center; gap:0.3rem;">
                 ${item.hasTracker ? `<span class="badge" style="background:rgba(56,189,248,0.16); color:#38bdf8; font-size:0.64rem;">📱 Tracker</span>` : ''}
                 ${statusBadge}
               </div>
             </div>
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem;">
+            <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openToHubTableCommsModal(${item.matchIdx}, 'p1')" title="Message or announce to ${escapeHtml(m.player1_name || 'Player 1')}" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.2rem 0.35rem; margin:0 -0.35rem; border-radius:6px;">
               <div style="min-width:0; flex:1;">
-                <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(m.player1_name || 'Player 1')}</div>
+                <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:0.3rem;">
+                  <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(m.player1_name || 'Player 1')}</span>
+                  <span class="to-hub-player-msg-icon" style="font-size:0.68rem; color:#38bdf8; flex-shrink:0;">💬</span>
+                </div>
                 <div style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(formatEventPlayerFaction(m.player1_faction || ''))}</div>
               </div>
               <span style="font-family:var(--font-mono); font-weight:800; font-size:0.92rem; color:${item.isDone ? '#4ade80' : '#94a3b8'};">${escapeHtml(String(s1))}</span>
             </div>
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding-top:0.3rem; border-top:1px solid rgba(255,255,255,0.06);">
+            <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openToHubTableCommsModal(${item.matchIdx}, '${isByeP2 ? 'table' : 'p2'}')" title="${isByeP2 ? 'Table Actions' : `Message or announce to ${escapeHtml(p2NameRaw)}`}" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.3rem 0.35rem 0.2rem; margin:0 -0.35rem; border-top:1px solid rgba(255,255,255,0.06); border-radius:0 0 6px 6px;">
               <div style="min-width:0; flex:1;">
-                <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(m.player2_name || 'Player 2')}</div>
+                <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:0.3rem;">
+                  <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(p2NameRaw)}</span>
+                  ${!isByeP2 ? `<span class="to-hub-player-msg-icon" style="font-size:0.68rem; color:#38bdf8; flex-shrink:0;">💬</span>` : ''}
+                </div>
                 <div style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(formatEventPlayerFaction(m.player2_faction || ''))}</div>
               </div>
               <span style="font-family:var(--font-mono); font-weight:800; font-size:0.92rem; color:${item.isDone ? '#38bdf8' : '#94a3b8'};">${escapeHtml(String(s2))}</span>
@@ -12692,23 +12705,34 @@ function renderToHubRosterAuditSubtab(eventId, ev, players) {
               : `<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; font-size:0.68rem;">⚠️ Not Checked In</span>`);
         const pid = String(p.player_id || p.id || '');
         const lid = String(p.list_id || '');
+        const safeNameJs = escapeHtml(name.replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+        const safeFacJs = escapeHtml((fac || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
         return `
           <tr>
             <td style="padding:0.5rem 0.65rem; font-family:var(--font-mono); color:var(--text-muted); font-size:0.78rem;">${i + 1}</td>
-            <td style="padding:0.5rem 0.65rem; font-weight:700; color:#f8fafc; font-size:0.84rem;">${escapeHtml(name)}</td>
+            <td style="padding:0.5rem 0.65rem; font-weight:700; color:#f8fafc; font-size:0.84rem;">
+              <span onclick="openToHubPlayerCommsModal('${escapeHtml(pid)}', '${safeNameJs}', '${safeFacJs}', '${escapeHtml(lid)}')" style="cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; color:#f8fafc; text-decoration:underline; text-decoration-color:rgba(56,189,248,0.45); text-underline-offset:3px;" title="Click to message or alert ${escapeHtml(name)}">
+                ${escapeHtml(name)} <span style="font-size:0.72rem; opacity:0.8;">💬</span>
+              </span>
+            </td>
             <td style="padding:0.5rem 0.65rem;">${statusBadge}</td>
             <td style="padding:0.5rem 0.65rem; font-size:0.8rem; color:${(!fac || fac === 'Unknown') ? '#f87171' : '#38bdf8'}; font-weight:600;">
               ${escapeHtml(fac || 'Unassigned')}
               ${det ? `<div style="font-size:0.7rem; color:var(--text-muted); font-weight:500;">${escapeHtml(det)}</div>` : ''}
             </td>
             <td style="padding:0.5rem 0.65rem; text-align:right;">
-              ${hasList ? `
-                <button type="button" class="btn btn-outline" onclick="openEventPlayerListModal('${escapeHtml(pid)}', '${escapeHtml(name.replace(/'/g, "\\'"))}', '${escapeHtml(lid)}')" style="font-size:0.72rem; padding:0.25rem 0.55rem; color:#4ade80; border-color:rgba(34,197,94,0.35);">
-                  📄 View List
+              <div style="display:inline-flex; align-items:center; gap:0.35rem; justify-content:flex-end; flex-wrap:wrap;">
+                <button type="button" class="btn btn-outline" onclick="openToHubPlayerCommsModal('${escapeHtml(pid)}', '${safeNameJs}', '${safeFacJs}', '${escapeHtml(lid)}')" style="font-size:0.72rem; padding:0.25rem 0.55rem; color:#38bdf8; border-color:rgba(56,189,248,0.35);" title="Send announcement or direct chat to ${escapeHtml(name)}">
+                  💬 Message
                 </button>
-              ` : `
-                <span class="badge" style="background:rgba(239,68,68,0.16); color:#fca5a5; border:1px solid rgba(239,68,68,0.35); font-size:0.68rem;">❌ Missing List</span>
-              `}
+                ${hasList ? `
+                  <button type="button" class="btn btn-outline" onclick="openEventPlayerListModal('${escapeHtml(pid)}', '${safeNameJs}', '${escapeHtml(lid)}')" style="font-size:0.72rem; padding:0.25rem 0.55rem; color:#4ade80; border-color:rgba(34,197,94,0.35);">
+                    📄 View List
+                  </button>
+                ` : `
+                  <span class="badge" style="background:rgba(239,68,68,0.16); color:#fca5a5; border:1px solid rgba(239,68,68,0.35); font-size:0.68rem;">❌ Missing List</span>
+                `}
+              </div>
             </td>
           </tr>
         `;
@@ -12760,7 +12784,7 @@ function renderToHubRosterAuditSubtab(eventId, ev, players) {
               <th style="padding:0.5rem 0.65rem;">Competitor</th>
               <th style="padding:0.5rem 0.65rem;">Registration Status</th>
               <th style="padding:0.5rem 0.65rem;">Faction / Detachment</th>
-              <th style="padding:0.5rem 0.65rem; text-align:right;">Army List</th>
+              <th style="padding:0.5rem 0.65rem; text-align:right;">Actions & List</th>
             </tr>
           </thead>
           <tbody>
@@ -12770,6 +12794,484 @@ function renderToHubRosterAuditSubtab(eventId, ev, players) {
       </div>
     </div>
   `;
+}
+
+// ----------------------------------------------------------------------------
+// TO TABLE & PLAYER COMMS MODAL (DIRECT OMNICHAT + TARGETED TABLE/PLAYER BANNER)
+// ----------------------------------------------------------------------------
+let _toHubCommsContext = null;
+
+function closeToHubCommsModal() {
+  const modal = document.getElementById('to-hub-comms-modal');
+  if (modal) {
+    modal.remove();
+  }
+}
+
+function openToHubTableCommsModal(matchIdx, initialTarget = 'table') {
+  const matches = Array.isArray(window._toHubCurrentRoundMatches) ? window._toHubCurrentRoundMatches : [];
+  const m = matches[matchIdx];
+  if (!m) {
+    if (typeof showToast === 'function') showToast('Could not load table details', 'warning');
+    return;
+  }
+
+  const eventId = currentOpenEventId || (currentEventData && currentEventData.id) || '';
+  const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || 'Live Tournament';
+  const tableNum = m.tableNum || m.table_number || m.table || (matchIdx + 1);
+  const roundNum = m.round || m.round_number || _toHubSelectedRound || 1;
+
+  const p1Name = m.player1_name || 'Player 1';
+  const p2Name = m.player2_name || (m.is_bye ? 'BYE' : 'Player 2');
+  const p1Id = String(m.player1_id || '');
+  const p2Id = String(m.player2_id || '');
+  const p1Fac = formatEventPlayerFaction(m.player1_faction);
+  const p2Fac = m.is_bye ? 'BYE' : formatEventPlayerFaction(m.player2_faction);
+  const p1ListId = String(m.player1_list_id || '');
+  const p2ListId = String(m.player2_list_id || '');
+
+  _toHubCommsContext = {
+    mode: 'table',
+    eventId: String(eventId),
+    eventName: evName,
+    tableNum,
+    roundNum,
+    selectedTarget: (initialTarget === 'p2' && m.is_bye) ? 'p1' : (initialTarget || 'table'),
+    isBye: Boolean(m.is_bye),
+    p1: { id: p1Id, name: p1Name, faction: p1Fac, listId: p1ListId },
+    p2: { id: p2Id, name: p2Name, faction: p2Fac, listId: p2ListId },
+  };
+
+  renderToHubCommsModalDom();
+}
+
+function openToHubPlayerCommsModal(playerId, playerName, faction = '', listId = '') {
+  const eventId = currentOpenEventId || (currentEventData && currentEventData.id) || '';
+  const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || 'Live Tournament';
+
+  // Check if this player is seated at a table in the current round
+  const matches = Array.isArray(window._toHubCurrentRoundMatches) ? window._toHubCurrentRoundMatches : [];
+  const normName = String(playerName || '').trim().toLowerCase();
+  const seatedIdx = matches.findIndex(m => {
+    if (!m) return false;
+    if (playerId && (String(m.player1_id) === String(playerId) || String(m.player2_id) === String(playerId))) return true;
+    if (normName && (String(m.player1_name || '').trim().toLowerCase() === normName || String(m.player2_name || '').trim().toLowerCase() === normName)) return true;
+    return false;
+  });
+
+  if (seatedIdx >= 0) {
+    const m = matches[seatedIdx];
+    const isP2 = (playerId && String(m.player2_id) === String(playerId)) ||
+      (normName && String(m.player2_name || '').trim().toLowerCase() === normName);
+    openToHubTableCommsModal(seatedIdx, isP2 ? 'p2' : 'p1');
+    return;
+  }
+
+  _toHubCommsContext = {
+    mode: 'player',
+    eventId: String(eventId),
+    eventName: evName,
+    tableNum: null,
+    roundNum: _toHubSelectedRound || 1,
+    selectedTarget: 'p1',
+    isBye: true,
+    p1: { id: String(playerId || ''), name: playerName || 'Player', faction: faction || '', listId: String(listId || '') },
+    p2: null,
+  };
+
+  renderToHubCommsModalDom();
+}
+
+function getToHubCommsTargetSummary(ctx) {
+  if (!ctx) return { label: 'Table', targets: [], targetTable: null, targetPlayerId: null, targetPlayerName: null };
+  if (ctx.selectedTarget === 'p1' && ctx.p1) {
+    return {
+      label: ctx.tableNum ? `${ctx.p1.name} (Table ${ctx.tableNum})` : ctx.p1.name,
+      shortPrefix: ctx.tableNum ? `Table ${ctx.tableNum} • ${ctx.p1.name}` : ctx.p1.name,
+      targets: [{ player_id: ctx.p1.id, player_name: ctx.p1.name }],
+      targetTable: ctx.tableNum || null,
+      targetPlayerId: ctx.p1.id || null,
+      targetPlayerName: ctx.p1.name || null,
+    };
+  }
+  if (ctx.selectedTarget === 'p2' && ctx.p2 && !ctx.isBye) {
+    return {
+      label: ctx.tableNum ? `${ctx.p2.name} (Table ${ctx.tableNum})` : ctx.p2.name,
+      shortPrefix: ctx.tableNum ? `Table ${ctx.tableNum} • ${ctx.p2.name}` : ctx.p2.name,
+      targets: [{ player_id: ctx.p2.id, player_name: ctx.p2.name }],
+      targetTable: ctx.tableNum || null,
+      targetPlayerId: ctx.p2.id || null,
+      targetPlayerName: ctx.p2.name || null,
+    };
+  }
+  const bothTargets = [];
+  if (ctx.p1 && ctx.p1.name) bothTargets.push({ player_id: ctx.p1.id, player_name: ctx.p1.name });
+  if (ctx.p2 && ctx.p2.name && !ctx.isBye) bothTargets.push({ player_id: ctx.p2.id, player_name: ctx.p2.name });
+  const namesPair = bothTargets.map(t => t.player_name).join(' vs ');
+  return {
+    label: ctx.tableNum ? `Table ${ctx.tableNum} (${namesPair})` : namesPair,
+    shortPrefix: ctx.tableNum ? `Table ${ctx.tableNum} (${namesPair})` : namesPair,
+    targets: bothTargets,
+    targetTable: ctx.tableNum || null,
+    targetPlayerId: null,
+    targetPlayerName: bothTargets.length === 1 ? bothTargets[0].player_name : `${namesPair}`,
+  };
+}
+
+function selectToHubCommsTarget(targetMode) {
+  if (!_toHubCommsContext) return;
+  _toHubCommsContext.selectedTarget = targetMode;
+  // Preserve draft message if user typed something custom, otherwise update target pills
+  const msgEl = document.getElementById('to-hub-comms-message-input');
+  const lvlEl = document.getElementById('to-hub-comms-level-select');
+  const currentMsg = msgEl ? msgEl.value : '';
+  const currentLvl = lvlEl ? lvlEl.value : 'info';
+  renderToHubCommsModalDom(currentMsg, currentLvl);
+}
+
+function applyToHubCommsPreset(presetType) {
+  if (!_toHubCommsContext) return;
+  const ctx = _toHubCommsContext;
+  const info = getToHubCommsTargetSummary(ctx);
+  const msgInput = document.getElementById('to-hub-comms-message-input');
+  const lvlSelect = document.getElementById('to-hub-comms-level-select');
+  if (!msgInput) return;
+
+  let text = '';
+  let level = 'info';
+  if (presetType === 'submit_score') {
+    text = `🎲 ${info.shortPrefix}: Please submit your final Round ${ctx.roundNum || ''} score in BCP / Game Tracker now!`.replace(/\s+/g, ' ');
+    level = 'urgent';
+  } else if (presetType === 'clock_warning') {
+    text = `⏱️ ${info.shortPrefix}: 15 minutes remaining in Round ${ctx.roundNum || ''}. Please finish your current battle round and prepare final scores.`.replace(/\s+/g, ' ');
+    level = 'warning';
+  } else if (presetType === 'judge_en_route') {
+    text = `⚖️ ${info.shortPrefix}: A Tournament Judge has been dispatched and is heading to your table now.`;
+    level = 'info';
+  } else if (presetType === 'report_to_desk') {
+    text = `🏛️ ${info.shortPrefix}: Please report to the TO Desk at your earliest convenience.`;
+    level = 'warning';
+  } else if (presetType === 'list_check') {
+    text = `📄 ${info.shortPrefix}: Please verify your registration check-in or army list submission with the Tournament Organizer.`;
+    level = 'warning';
+  }
+
+  msgInput.value = text;
+  if (lvlSelect) lvlSelect.value = level;
+  msgInput.focus();
+}
+
+function renderToHubCommsModalDom(preserveMsg = '', preserveLevel = 'warning') {
+  const ctx = _toHubCommsContext;
+  if (!ctx) return;
+
+  let modal = document.getElementById('to-hub-comms-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'to-hub-comms-modal';
+    modal.style.cssText = 'position:fixed; inset:0; z-index:10050; background:rgba(2,6,23,0.82); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; padding:1rem; box-sizing:border-box;';
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeToHubCommsModal();
+    });
+    document.body.appendChild(modal);
+  }
+
+  const info = getToHubCommsTargetSummary(ctx);
+  const isTableMode = Boolean(ctx.tableNum);
+  const p1SafeName = escapeHtml((ctx.p1?.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+  const p2SafeName = escapeHtml((ctx.p2?.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+
+  const defaultMsg = preserveMsg || (
+    ctx.selectedTarget === 'table' && ctx.tableNum
+      ? `🎲 Table ${ctx.tableNum} (${ctx.p1?.name || 'Player 1'}${!ctx.isBye && ctx.p2 ? ` vs ${ctx.p2.name}` : ''}): `
+      : `👋 ${info.shortPrefix}: `
+  );
+
+  modal.innerHTML = `
+    <div class="card" style="width:100%; max-width:580px; background:linear-gradient(165deg, rgba(15,23,42,0.98), rgba(9,14,28,0.99)); border:1px solid rgba(56,189,248,0.4); border-radius:14px; padding:1.2rem 1.3rem; box-shadow:0 24px 60px rgba(0,0,0,0.75); color:#f8fafc; max-height:92vh; overflow-y:auto;">
+      <!-- Modal Header -->
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:0.75rem; margin-bottom:0.95rem; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:0.75rem;">
+        <div>
+          <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+            <span class="badge" style="background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-size:0.7rem; font-weight:800;">
+              🏛️ TO DIRECT COMMS
+            </span>
+            ${ctx.tableNum ? `
+              <span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-size:0.7rem; font-weight:800;">
+                🎲 TABLE ${escapeHtml(String(ctx.tableNum))} • ROUND ${escapeHtml(String(ctx.roundNum))}
+              </span>
+            ` : ''}
+          </div>
+          <h3 style="margin:0.4rem 0 0; font-size:1.05rem; font-weight:800; color:#fff;">
+            Message or Alert ${escapeHtml(info.label)}
+          </h3>
+          <div style="font-size:0.76rem; color:var(--text-muted); margin-top:0.15rem;">
+            Send a targeted live alert banner (App + Game Tracker) or direct OmniChat message.
+          </div>
+        </div>
+        <button type="button" onclick="closeToHubCommsModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; border-radius:8px; width:32px; height:32px; cursor:pointer; font-size:0.95rem; line-height:1;">
+          ✕
+        </button>
+      </div>
+
+      <!-- Target Selector -->
+      <div style="margin-bottom:0.95rem;">
+        <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; margin-bottom:0.45rem;">
+          🎯 1. Select Recipient Target
+        </div>
+        <div style="display:grid; grid-template-columns:${isTableMode && !ctx.isBye ? 'repeat(auto-fit, minmax(155px, 1fr))' : '1fr'}; gap:0.45rem;">
+          ${isTableMode ? `
+            <button type="button" onclick="selectToHubCommsTarget('table')" style="text-align:left; padding:0.55rem 0.7rem; border-radius:9px; cursor:pointer; transition:all 0.15s; border:1px solid ${ctx.selectedTarget === 'table' ? '#38bdf8' : 'rgba(255,255,255,0.12)'}; background:${ctx.selectedTarget === 'table' ? 'rgba(56,189,248,0.18)' : 'rgba(15,23,42,0.75)'}; color:#fff;">
+              <div style="font-size:0.78rem; font-weight:800; color:${ctx.selectedTarget === 'table' ? '#38bdf8' : '#f8fafc'};">
+                🎲 Table ${escapeHtml(String(ctx.tableNum))} (Both)
+              </div>
+              <div style="font-size:0.68rem; color:var(--text-muted); margin-top:0.12rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                ${escapeHtml(ctx.p1?.name || 'P1')}${!ctx.isBye && ctx.p2 ? ` & ${escapeHtml(ctx.p2.name)}` : ''}
+              </div>
+            </button>
+          ` : ''}
+
+          ${ctx.p1 ? `
+            <div style="display:flex; align-items:stretch; gap:0.25rem;">
+              <button type="button" onclick="selectToHubCommsTarget('p1')" style="flex:1; text-align:left; padding:0.55rem 0.7rem; border-radius:9px; cursor:pointer; transition:all 0.15s; border:1px solid ${ctx.selectedTarget === 'p1' ? '#38bdf8' : 'rgba(255,255,255,0.12)'}; background:${ctx.selectedTarget === 'p1' ? 'rgba(56,189,248,0.18)' : 'rgba(15,23,42,0.75)'}; color:#fff; min-width:0;">
+                <div style="font-size:0.78rem; font-weight:800; color:${ctx.selectedTarget === 'p1' ? '#38bdf8' : '#f8fafc'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                  👤 ${escapeHtml(ctx.p1.name)}
+                </div>
+                <div style="font-size:0.68rem; color:var(--text-muted); margin-top:0.12rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                  ${escapeHtml(ctx.p1.faction || 'Competitor')}
+                </div>
+              </button>
+              ${ctx.p1.listId ? `
+                <button type="button" class="btn btn-outline" onclick="openEventPlayerListModal('${escapeHtml(ctx.p1.id)}', '${p1SafeName}', '${escapeHtml(ctx.p1.listId)}')" title="View ${escapeHtml(ctx.p1.name)}'s Army List" style="padding:0 0.5rem; font-size:0.75rem; border-radius:9px;">
+                  📄
+                </button>
+              ` : ''}
+            </div>
+          ` : ''}
+
+          ${ctx.p2 && !ctx.isBye ? `
+            <div style="display:flex; align-items:stretch; gap:0.25rem;">
+              <button type="button" onclick="selectToHubCommsTarget('p2')" style="flex:1; text-align:left; padding:0.55rem 0.7rem; border-radius:9px; cursor:pointer; transition:all 0.15s; border:1px solid ${ctx.selectedTarget === 'p2' ? '#38bdf8' : 'rgba(255,255,255,0.12)'}; background:${ctx.selectedTarget === 'p2' ? 'rgba(56,189,248,0.18)' : 'rgba(15,23,42,0.75)'}; color:#fff; min-width:0;">
+                <div style="font-size:0.78rem; font-weight:800; color:${ctx.selectedTarget === 'p2' ? '#38bdf8' : '#f8fafc'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                  👤 ${escapeHtml(ctx.p2.name)}
+                </div>
+                <div style="font-size:0.68rem; color:var(--text-muted); margin-top:0.12rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                  ${escapeHtml(ctx.p2.faction || 'Competitor')}
+                </div>
+              </button>
+              ${ctx.p2.listId ? `
+                <button type="button" class="btn btn-outline" onclick="openEventPlayerListModal('${escapeHtml(ctx.p2.id)}', '${p2SafeName}', '${escapeHtml(ctx.p2.listId)}')" title="View ${escapeHtml(ctx.p2.name)}'s Army List" style="padding:0 0.5rem; font-size:0.75rem; border-radius:9px;">
+                  📄
+                </button>
+              ` : ''}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+
+      <!-- Quick Presets -->
+      <div style="margin-bottom:0.85rem;">
+        <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; margin-bottom:0.4rem;">
+          ⚡ 2. Quick TO Templates (Optional)
+        </div>
+        <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+          <button type="button" class="btn btn-outline" onclick="applyToHubCommsPreset('submit_score')" style="font-size:0.72rem; padding:0.26rem 0.55rem; color:#fca5a5; border-color:rgba(239,68,68,0.35);">
+            🎲 Submit Score Now
+          </button>
+          <button type="button" class="btn btn-outline" onclick="applyToHubCommsPreset('clock_warning')" style="font-size:0.72rem; padding:0.26rem 0.55rem; color:#fde047; border-color:rgba(245,158,11,0.35);">
+            ⏱️ 15m Left Warning
+          </button>
+          <button type="button" class="btn btn-outline" onclick="applyToHubCommsPreset('judge_en_route')" style="font-size:0.72rem; padding:0.26rem 0.55rem; color:#38bdf8; border-color:rgba(56,189,248,0.35);">
+            ⚖️ Judge On The Way
+          </button>
+          <button type="button" class="btn btn-outline" onclick="applyToHubCommsPreset('report_to_desk')" style="font-size:0.72rem; padding:0.26rem 0.55rem;">
+            🏛️ Report to TO Desk
+          </button>
+          <button type="button" class="btn btn-outline" onclick="applyToHubCommsPreset('list_check')" style="font-size:0.72rem; padding:0.26rem 0.55rem;">
+            📄 Verify Check-In / List
+          </button>
+        </div>
+      </div>
+
+      <!-- Message & Priority -->
+      <div style="margin-bottom:0.9rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.4rem;">
+          <label for="to-hub-comms-message-input" style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8;">
+            ✍️ 3. Message Content
+          </label>
+          <div style="display:flex; align-items:center; gap:0.35rem;">
+            <span style="font-size:0.7rem; color:var(--text-muted);">Priority:</span>
+            <select id="to-hub-comms-level-select" style="padding:0.22rem 0.5rem; border-radius:6px; border:1px solid rgba(255,255,255,0.16); background:rgba(15,23,42,0.95); color:#fff; font-size:0.74rem; font-weight:700;">
+              <option value="info" ${preserveLevel === 'info' ? 'selected' : ''}>📢 Info (Blue)</option>
+              <option value="warning" ${preserveLevel === 'warning' ? 'selected' : ''}>⚠️ Warning (Amber)</option>
+              <option value="urgent" ${preserveLevel === 'urgent' ? 'selected' : ''}>🚨 Urgent (Red)</option>
+            </select>
+          </div>
+        </div>
+        <textarea id="to-hub-comms-message-input" rows="3" placeholder="Type your message or announcement for ${escapeHtml(info.label)}..." style="width:100%; box-sizing:border-box; padding:0.65rem 0.75rem; border-radius:9px; border:1px solid rgba(56,189,248,0.35); background:rgba(2,6,23,0.85); color:#fff; font-size:0.86rem; line-height:1.4; resize:vertical;">${escapeHtml(defaultMsg)}</textarea>
+      </div>
+
+      <!-- Delivery Status / Live Chat Result Container -->
+      <div id="to-hub-comms-result-box" style="display:none; margin-bottom:0.85rem;"></div>
+
+      <!-- Action Buttons -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.55rem;">
+        <button type="button" id="to-hub-comms-chat-btn" class="btn btn-primary" onclick="sendToHubCommsDirectChat()" style="padding:0.6rem 0.85rem; font-size:0.8rem; font-weight:800; display:flex; align-items:center; justify-content:center; gap:0.4rem; background:linear-gradient(135deg, #0284c7, #2563eb); border:1px solid rgba(56,189,248,0.5);">
+          💬 Send Direct Chat Message
+        </button>
+        <button type="button" id="to-hub-comms-banner-btn" class="btn btn-outline" onclick="sendToHubCommsBanner()" style="padding:0.6rem 0.85rem; font-size:0.8rem; font-weight:800; display:flex; align-items:center; justify-content:center; gap:0.4rem; color:#fde047; border-color:rgba(250,204,21,0.45); background:rgba(250,204,21,0.1);">
+          📢 Push Targeted Live Banner
+        </button>
+      </div>
+      <div style="font-size:0.7rem; color:var(--text-muted); margin-top:0.55rem; line-height:1.35;">
+        💡 <strong>Direct Chat</strong> messages the player(s) in OmniChat (and automatically falls back to a Targeted Live Banner if they haven't linked an OmniTactica login yet). <strong>Push Targeted Live Banner</strong> flashes across the app &amp; Table ${escapeHtml(String(ctx.tableNum || ''))} Game Tracker immediately.
+      </div>
+    </div>
+  `;
+}
+
+async function sendToHubCommsBanner() {
+  const ctx = _toHubCommsContext;
+  if (!ctx || !ctx.eventId) return;
+  const msgInput = document.getElementById('to-hub-comms-message-input');
+  const lvlSelect = document.getElementById('to-hub-comms-level-select');
+  const btn = document.getElementById('to-hub-comms-banner-btn');
+  const resultBox = document.getElementById('to-hub-comms-result-box');
+
+  const message = String(msgInput ? msgInput.value : '').trim();
+  const level = String(lvlSelect ? lvlSelect.value : 'warning');
+  if (!message) {
+    if (typeof showToast === 'function') showToast('Please enter a message first', 'warning');
+    return;
+  }
+
+  const info = getToHubCommsTargetSummary(ctx);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Broadcasting...';
+  }
+
+  try {
+    const res = await window.api.postEventToHubAnnouncement(ctx.eventId, {
+      message,
+      level,
+      round: ctx.roundNum || null,
+      target_table: info.targetTable ? String(info.targetTable) : null,
+      target_player_id: info.targetPlayerId ? String(info.targetPlayerId) : null,
+      target_player_name: info.targetPlayerName ? String(info.targetPlayerName) : null,
+      also_post_bulletin: false,
+    });
+    if (res && res.state) {
+      _eventToHubStateCache.set(String(ctx.eventId), res.state);
+    }
+    syncGlobalEventAnnouncementBanner(true).catch(() => {});
+    if (typeof showToast === 'function') {
+      showToast(`📢 Targeted Live Banner sent to ${info.label}!`, 'success');
+    }
+    if (resultBox) {
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = `
+        <div style="padding:0.6rem 0.75rem; border-radius:8px; background:rgba(34,197,94,0.14); border:1px solid rgba(34,197,94,0.4); color:#bbf7d0; font-size:0.78rem; font-weight:700;">
+          ✅ Targeted Live Alert Banner is now active across the app &amp; ${info.targetTable ? `Table ${escapeHtml(String(info.targetTable))} Game Tracker` : 'Event Hub'}!
+        </div>
+      `;
+    }
+    renderEventToHub(ctx.eventId);
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to publish targeted banner', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '📢 Push Targeted Live Banner';
+    }
+  }
+}
+
+async function sendToHubCommsDirectChat() {
+  const ctx = _toHubCommsContext;
+  if (!ctx || !ctx.eventId) return;
+  const msgInput = document.getElementById('to-hub-comms-message-input');
+  const lvlSelect = document.getElementById('to-hub-comms-level-select');
+  const btn = document.getElementById('to-hub-comms-chat-btn');
+  const resultBox = document.getElementById('to-hub-comms-result-box');
+
+  const message = String(msgInput ? msgInput.value : '').trim();
+  const level = String(lvlSelect ? lvlSelect.value : 'warning');
+  if (!message) {
+    if (typeof showToast === 'function') showToast('Please enter a message first', 'warning');
+    return;
+  }
+
+  const info = getToHubCommsTargetSummary(ctx);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Sending Chat...';
+  }
+
+  try {
+    const res = await window.api.sendEventToHubDirectChat(ctx.eventId, {
+      message,
+      table_number: info.targetTable ? String(info.targetTable) : null,
+      round: ctx.roundNum || null,
+      targets: info.targets,
+      fallback_to_banner: true,
+      level,
+    });
+
+    if (res && res.state) {
+      _eventToHubStateCache.set(String(ctx.eventId), res.state);
+    }
+    if (res && res.banner_fallback_used) {
+      syncGlobalEventAnnouncementBanner(true).catch(() => {});
+    }
+
+    const delivered = Array.isArray(res?.delivered) ? res.delivered : [];
+    const unmatched = Array.isArray(res?.unmatched) ? res.unmatched : [];
+
+    if (delivered.length > 0 && typeof showToast === 'function') {
+      showToast(`💬 Direct OmniChat sent to ${delivered.map(d => d.player_name).join(' & ')}!`, 'success');
+    } else if (res?.banner_fallback_used && typeof showToast === 'function') {
+      showToast(`📢 Player hasn't linked OmniChat yet — delivered via Targeted Live Alert Banner!`, 'info');
+    }
+
+    if (resultBox) {
+      resultBox.style.display = 'block';
+      const chatButtonsHtml = delivered.map(d => {
+        const safePName = escapeHtml(String(d.player_name || 'Player').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+        return `
+          <button type="button" class="btn btn-primary" onclick="closeToHubCommsModal(); if (typeof window.openMatchChat === 'function') window.openMatchChat(${Number(d.request_id)}, '${safePName}');" style="font-size:0.73rem; font-weight:800; padding:0.3rem 0.65rem;">
+            💬 Open Live Chat with ${escapeHtml(d.player_name || 'Player')}
+          </button>
+        `;
+      }).join('');
+
+      resultBox.innerHTML = `
+        <div style="padding:0.65rem 0.8rem; border-radius:9px; background:rgba(14,165,233,0.14); border:1px solid rgba(56,189,248,0.4); color:#e0f2fe; font-size:0.78rem;">
+          ${delivered.length > 0 ? `
+            <div style="font-weight:800; color:#7dd3fc; margin-bottom:0.35rem;">
+              ✅ Direct OmniChat delivered to ${escapeHtml(delivered.map(d => d.player_name).join(', '))}!
+            </div>
+            <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; margin-bottom:${unmatched.length > 0 ? '0.4rem' : '0'};">
+              ${chatButtonsHtml}
+            </div>
+          ` : ''}
+          ${unmatched.length > 0 ? `
+            <div style="color:#fde68a; font-weight:600; font-size:0.74rem;">
+              📢 ${escapeHtml(unmatched.join(', '))} hasn't linked an OmniTactica chat account yet — your message was automatically pushed as a <strong>Targeted Live Alert Banner</strong> across the app &amp; Game Tracker!
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+    renderEventToHub(ctx.eventId);
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Failed to send direct chat', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '💬 Send Direct Chat Message';
+    }
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -12896,6 +13398,12 @@ async function syncGlobalEventAnnouncementBanner(force = false) {
     const borderCol = lvl === 'urgent' ? 'rgba(248,113,113,0.6)' : (lvl === 'warning' ? 'rgba(251,191,36,0.6)' : 'rgba(56,189,248,0.55)');
     const icon = lvl === 'urgent' ? '🚨' : (lvl === 'warning' ? '⚠️' : '📢');
 
+    const targetBadgeHtml = (active.target_table || active.target_player_name)
+      ? `<span class="badge" style="background:rgba(250,204,21,0.22); color:#fef08a; border:1px solid rgba(250,204,21,0.5); font-size:0.68rem; font-weight:800; white-space:nowrap;">
+          🎯 ${active.target_table ? `TABLE ${escapeHtml(String(active.target_table))}` : ''}${active.target_table && active.target_player_name ? ' • ' : ''}${active.target_player_name ? escapeHtml(String(active.target_player_name)) : ''}
+        </span>`
+      : '';
+
     banner.style.display = 'block';
     banner.innerHTML = `
       <div class="global-event-announcement-inner" style="background:${bgGrad}; border-bottom:1px solid ${borderCol}; padding:0.5rem 0.9rem; display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; box-sizing:border-box; max-width:100vw; overflow:hidden;">
@@ -12904,6 +13412,7 @@ async function syncGlobalEventAnnouncementBanner(force = false) {
           <span class="badge global-event-announcement-badge" style="background:rgba(0,0,0,0.35); color:#fde68a; border:1px solid rgba(255,255,255,0.22); font-size:0.68rem; font-weight:800; max-width:min(280px, 62vw); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${escapeHtml(evName || 'LIVE TOURNAMENT')}">
             ${escapeHtml(evName || 'LIVE TOURNAMENT')}
           </span>
+          ${targetBadgeHtml}
           <span class="global-event-announcement-msg" style="font-size:0.82rem; font-weight:700; color:#fff; line-height:1.35; min-width:180px; flex:1;">
             ${escapeHtml(active.message)}
           </span>
@@ -12991,8 +13500,16 @@ window.removeToHubNewsPost = removeToHubNewsPost;
 window.setToHubRosterFilter = setToHubRosterFilter;
 window.handleToHubRosterSearch = handleToHubRosterSearch;
 window.copyToHubFilteredRosterNames = copyToHubFilteredRosterNames;
+window.openToHubTableCommsModal = openToHubTableCommsModal;
+window.openToHubPlayerCommsModal = openToHubPlayerCommsModal;
+window.selectToHubCommsTarget = selectToHubCommsTarget;
+window.applyToHubCommsPreset = applyToHubCommsPreset;
+window.sendToHubCommsBanner = sendToHubCommsBanner;
+window.sendToHubCommsDirectChat = sendToHubCommsDirectChat;
+window.closeToHubCommsModal = closeToHubCommsModal;
 window.syncGlobalEventAnnouncementBanner = syncGlobalEventAnnouncementBanner;
 window.startGlobalAppAnnouncementSync = startGlobalAppAnnouncementSync;
 window.dismissGlobalEventAnnouncement = dismissGlobalEventAnnouncement;
 window.openGlobalAnnouncementEvent = openGlobalAnnouncementEvent;
+
 

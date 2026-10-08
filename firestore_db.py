@@ -957,8 +957,18 @@ class FirestoreRoomEngine:
             return 0
         event_id = str(event_id).strip()
         clean_id = event_id.replace("bcp_", "").replace("ES-", "").replace("es-", "").strip()
+        target_tbl = str((broadcast_data or {}).get("target_table") or "").strip() if isinstance(broadcast_data, dict) else ""
         count = 0
         seen_mids = set()
+
+        def _matches_target_table(mid_str: str, rdata_dict: Optional[Dict[str, Any]]) -> bool:
+            if not target_tbl:
+                return True
+            r_tbl = str((rdata_dict or {}).get("tableNum") or (rdata_dict or {}).get("table_number") or (rdata_dict or {}).get("table") or "").strip()
+            mid_u = str(mid_str or "").upper()
+            if r_tbl:
+                return r_tbl == target_tbl
+            return f"-T{target_tbl.upper()}" in mid_u
 
         prefixes = (
             f"BCP-{event_id}-", f"ES-{event_id}-", f"WH40K-BCP-{event_id}-", f"WH40K-ES-{event_id}-",
@@ -978,8 +988,9 @@ class FirestoreRoomEngine:
                                 mid = doc.id
                                 if mid not in seen_mids:
                                     seen_mids.add(mid)
-                                    doc.reference.set({"broadcast": broadcast_data}, merge=True)
-                                    count += 1
+                                    if _matches_target_table(mid, doc.to_dict() if hasattr(doc, "to_dict") else None):
+                                        doc.reference.set({"broadcast": broadcast_data}, merge=True)
+                                        count += 1
                         except Exception:
                             pass
 
@@ -990,8 +1001,9 @@ class FirestoreRoomEngine:
                     mid_upper = mid.upper()
                     if any(mid_upper.startswith(p.upper()) for p in prefixes):
                         seen_mids.add(mid)
-                        doc.reference.set({"broadcast": broadcast_data}, merge=True)
-                        count += 1
+                        if _matches_target_table(mid, doc.to_dict() if hasattr(doc, "to_dict") else None):
+                            doc.reference.set({"broadcast": broadcast_data}, merge=True)
+                            count += 1
             except Exception as e:
                 logger.warning(f"Notice propagating broadcast to Firestore rooms: {e}")
 
@@ -1004,8 +1016,9 @@ class FirestoreRoomEngine:
                 str(rdata.get("event_id") or "").lower() in (event_id.lower(), clean_id.lower()) or
                 str(rdata.get("tournament_id") or "").lower() in (event_id.lower(), clean_id.lower())
             ):
-                rdata["broadcast"] = broadcast_data
-                count += 1
+                if _matches_target_table(mid, rdata):
+                    rdata["broadcast"] = broadcast_data
+                    count += 1
         return count
 
     def _sync_active_broadcast_index(self, event_id: str, broadcast_data: Optional[Dict[str, Any]], write_firestore: bool = False) -> None:

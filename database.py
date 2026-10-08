@@ -12027,6 +12027,98 @@ class PostgresDatabase:
                 conn.commit()
                 return {"success": True, "request_id": req_id}
 
+    def send_to_hub_direct_chat_message(
+        self,
+        sender_id: str,
+        player_id: str = "",
+        player_name: str = "",
+        event_name: str = "",
+        message_text: str = "",
+    ) -> Dict[str, Any]:
+        """Creates or activates an accepted direct chat thread from a TO to a tournament player and appends the message."""
+        if not sender_id or not (player_id or player_name) or not (message_text or "").strip():
+            return {"success": False, "error": "Missing sender, recipient, or message"}
+
+        clean_pid = str(player_id or "").strip()
+        clean_name = str(player_name or "").strip()
+        clean_msg = str(message_text or "").strip()
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                user_match = None
+                if clean_pid:
+                    cursor.execute("""
+                        SELECT id, display_name FROM users
+                        WHERE id = %s OR player_id = %s OR bcp_user_id = %s
+                        LIMIT 1;
+                    """, (clean_pid, clean_pid, clean_pid))
+                    user_match = cursor.fetchone()
+
+                if not user_match and clean_name:
+                    cursor.execute("""
+                        SELECT id, display_name FROM users
+                        WHERE LOWER(TRIM(display_name)) = LOWER(TRIM(%s))
+                        LIMIT 1;
+                    """, (clean_name,))
+                    user_match = cursor.fetchone()
+
+                if not user_match:
+                    return {
+                        "success": False,
+                        "user_not_registered": True,
+                        "error": f"{clean_name or 'Player'} has not linked an OmniTactica account yet."
+                    }
+
+                resolved_receiver_id = user_match["id"]
+                resolved_receiver_name = user_match.get("display_name") or clean_name or "Player"
+                if sender_id == resolved_receiver_id:
+                    return {"success": False, "error": "Cannot send a direct chat message to yourself"}
+
+                cursor.execute("""
+                    SELECT id, status FROM match_requests
+                    WHERE ((sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s))
+                    ORDER BY updated_at DESC NULLS LAST
+                    LIMIT 1;
+                """, (sender_id, resolved_receiver_id, resolved_receiver_id, sender_id))
+                existing = cursor.fetchone()
+
+                import uuid
+                if existing:
+                    req_id = existing["id"]
+                    cursor.execute("""
+                        UPDATE match_requests
+                        SET status = 'accepted', updated_at = NOW()
+                        WHERE id = %s;
+                    """, (req_id,))
+                else:
+                    req_id = f"mrq_{uuid.uuid4().hex[:16]}"
+                    cursor.execute("""
+                        INSERT INTO match_requests (
+                            id, sender_id, receiver_id, status, proposed_venue,
+                            proposed_points, proposed_date, note, created_at, updated_at
+                        ) VALUES (%s, %s, %s, 'accepted', %s, 2000, '', %s, NOW(), NOW());
+                    """, (req_id, sender_id, resolved_receiver_id, event_name or "Tournament TO Hub", clean_msg))
+
+                msg_id = f"msg_{uuid.uuid4().hex[:16]}"
+                cursor.execute("""
+                    INSERT INTO match_chat_messages (
+                        id, request_id, sender_id, message_text, created_at
+                    ) VALUES (%s, %s, %s, %s, NOW())
+                    RETURNING id, created_at;
+                """, (msg_id, req_id, sender_id, clean_msg))
+                msg_row = cursor.fetchone()
+                conn.commit()
+                created_iso = msg_row["created_at"].isoformat() if (msg_row and hasattr(msg_row.get("created_at"), "isoformat")) else None
+                return {
+                    "success": True,
+                    "delivered_chat": True,
+                    "request_id": req_id,
+                    "message_id": msg_id,
+                    "receiver_id": resolved_receiver_id,
+                    "receiver_name": resolved_receiver_name,
+                    "created_at": created_iso,
+                }
+
     def respond_match_request(self, request_id: str, user_id: str, action: str, reply_message: Optional[str] = None) -> Dict[str, Any]:
         """Accepts, declines, blocks, or revokes a match request."""
         action = action.lower().strip()
