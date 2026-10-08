@@ -3043,27 +3043,71 @@ class TrackerMapEventMatchPayload(BaseModel):
     table_num: int = 1
 
 
+_COMMON_FIRST_NAME_EQUIV: Dict[str, str] = {
+    "joe": "joseph", "joseph": "joe",
+    "brad": "bradford", "bradford": "brad",
+    "jon": "jonathan", "jonathan": "jon",
+    "dan": "daniel", "daniel": "dan", "danny": "daniel",
+    "matt": "matthew", "matthew": "matt",
+    "mike": "michael", "michael": "mike",
+    "alex": "alexander", "alexander": "alex",
+    "ben": "benjamin", "benjamin": "ben",
+    "tim": "timothy", "timothy": "tim",
+    "chris": "christopher", "christopher": "chris",
+    "nick": "nicholas", "nicholas": "nick",
+    "dave": "david", "david": "dave",
+    "rob": "robert", "robert": "rob", "bobby": "robert", "bob": "robert",
+    "will": "william", "william": "will", "bill": "william",
+    "josh": "joshua", "joshua": "josh",
+    "jake": "jacob", "jacob": "jake",
+    "drew": "andrew", "andy": "andrew", "andrew": "andy",
+    "nate": "nathan", "nathan": "nate", "nathaniel": "nate",
+    "zach": "zachary", "zack": "zachary", "zachary": "zach",
+    "steve": "stephen", "stephen": "steve", "steven": "steve",
+    "greg": "gregory", "gregory": "greg",
+    "max": "maximosugus", "maximosugus": "max",
+}
+
+
+def _first_names_match(fa: str, fb: str) -> bool:
+    if not fa or not fb:
+        return False
+    if fa == fb and len(fa) >= 2:
+        return True
+    if _COMMON_FIRST_NAME_EQUIV.get(fa) == fb or _COMMON_FIRST_NAME_EQUIV.get(fb) == fa:
+        return True
+    if len(fa) >= 3 and len(fb) >= 3 and (fa.startswith(fb) or fb.startswith(fa)):
+        return True
+    return False
+
+
 def _names_roughly_match(name_a: Optional[str], name_b: Optional[str]) -> bool:
     if not name_a or not name_b:
         return False
-    na = re.sub(r"[^a-z0-9\s]", "", str(name_a).strip().lower()).strip()
-    nb = re.sub(r"[^a-z0-9\s]", "", str(name_b).strip().lower()).strip()
+    clean_a = re.sub(r"\s*\([^)]*\)\s*", " ", str(name_a).strip().lower())
+    clean_b = re.sub(r"\s*\([^)]*\)\s*", " ", str(name_b).strip().lower())
+    na = re.sub(r"[^a-z0-9\s]", "", clean_a).strip()
+    nb = re.sub(r"[^a-z0-9\s]", "", clean_b).strip()
     if not na or not nb:
         return False
-    if na in ("player 1", "player 2", "player1", "player2", "you", "opponent", "unknown"):
+    if na in ("player 1", "player 2", "player1", "player2", "you", "opponent", "unknown", "bye"):
         return False
-    if nb in ("player 1", "player 2", "player1", "player2", "you", "opponent", "unknown"):
+    if nb in ("player 1", "player 2", "player1", "player2", "you", "opponent", "unknown", "bye"):
         return False
     if na == nb:
         return True
     parts_a = na.split()
     parts_b = nb.split()
-    if len(parts_a) >= 2 and len(parts_b) >= 2 and parts_a[0] == parts_b[0] and parts_a[-1] == parts_b[-1]:
-        return True
+    if len(parts_a) >= 2 and len(parts_b) >= 2:
+        return _first_names_match(parts_a[0], parts_b[0]) and parts_a[-1] == parts_b[-1]
+    if len(parts_a) == 1 and len(parts_b) >= 1:
+        return _first_names_match(parts_a[0], parts_b[0])
+    if len(parts_b) == 1 and len(parts_a) >= 1:
+        return _first_names_match(parts_b[0], parts_a[0])
     return False
 
 
-_USER_PLAYER_IDS_CACHE: Dict[str, Tuple[float, List[str]]] = {}
+_USER_PLAYER_IDS_CACHE: Dict[str, Tuple[float, List[str], List[str]]] = {}
 _MAPPABLE_BASE_MATCHES_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 _MAPPABLE_CACHE_TTL_SEC = 180.0
 
@@ -3083,11 +3127,140 @@ def _event_id_variants(event_id: str) -> List[str]:
     return out
 
 
-def _lookup_event_pairing_record(db: Any, event_id: str, round_num: int, table_num: int) -> Optional[Dict[str, Any]]:
-    """Finds a specific tournament pairing from `matches` table or `events.pairings` JSONB using indexed event_id lookups."""
+def _parse_league_pairing_scores(pr: Dict[str, Any]) -> Tuple[Optional[int], Optional[int]]:
+    ps = pr.get("player_score")
+    os_val = pr.get("opponent_score")
+    if ps is not None and os_val is not None:
+        try:
+            p_i, o_i = int(ps), int(os_val)
+            if p_i > 0 or o_i > 0 or pr.get("is_completed"):
+                return p_i, o_i
+        except (ValueError, TypeError):
+            pass
+    raw_sc = str(pr.get("score") or pr.get("score_label") or "").strip()
+    if raw_sc:
+        m = re.search(r"(\d+)\s*-\s*(\d+)", raw_sc)
+        if m:
+            try:
+                return int(m.group(1)), int(m.group(2))
+            except (ValueError, TypeError):
+                pass
+    return None, None
+
+
+def _lookup_event_pairing_record(
+    db: Any,
+    event_id: str,
+    round_num: int,
+    table_num: int,
+    user: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Finds a specific tournament or league pairing from `matches`, `events.pairings`, or `native_league_standings`."""
     if not db or not event_id:
         return None
     from psycopg2 import extras
+    ev_clean = str(event_id).strip()
+    if ev_clean.upper().startswith("LEAGUE:"):
+        # Format: LEAGUE:{slug_or_id}:S{season_num}:P{pod_num}
+        parts = ev_clean.split(":")
+        lg_key = parts[1].strip() if len(parts) >= 2 else ""
+        s_num = None
+        p_num = int(table_num or 1)
+        for pt in parts[2:]:
+            pt_u = pt.strip().upper()
+            if pt_u.startswith("S") and pt_u[1:].isdigit():
+                s_num = int(pt_u[1:])
+            elif pt_u.startswith("P") and pt_u[1:].isdigit():
+                p_num = int(pt_u[1:])
+        try:
+            with db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    if s_num is not None:
+                        cur.execute("""
+                            SELECT s.league_id, COALESCE(l.slug, s.league_id) AS league_slug,
+                                   COALESCE(l.name, s.league_id) AS league_name,
+                                   COALESCE(l.game_system, '40k') AS game_system,
+                                   s.season_num, s.pod_num, s.player_name, s.primary_faction,
+                                   s.bcp_player_id, s.player_id, s.user_id, s.pairings_json,
+                                   COALESCE(ls.start_date::timestamptz, s.updated_at) AS event_date
+                            FROM native_league_standings s
+                            LEFT JOIN native_leagues l ON l.id = s.league_id OR l.slug = s.league_id
+                            LEFT JOIN native_league_seasons ls ON ls.league_id = s.league_id AND ls.season_num = s.season_num
+                            WHERE (LOWER(COALESCE(l.slug, '')) = LOWER(%s) OR LOWER(s.league_id) = LOWER(%s))
+                              AND s.season_num = %s
+                              AND s.pod_num = %s;
+                        """, (lg_key, lg_key, int(s_num), int(p_num)))
+                    else:
+                        cur.execute("""
+                            SELECT s.league_id, COALESCE(l.slug, s.league_id) AS league_slug,
+                                   COALESCE(l.name, s.league_id) AS league_name,
+                                   COALESCE(l.game_system, '40k') AS game_system,
+                                   s.season_num, s.pod_num, s.player_name, s.primary_faction,
+                                   s.bcp_player_id, s.player_id, s.user_id, s.pairings_json,
+                                   COALESCE(ls.start_date::timestamptz, s.updated_at) AS event_date
+                            FROM native_league_standings s
+                            LEFT JOIN native_leagues l ON l.id = s.league_id OR l.slug = s.league_id
+                            LEFT JOIN native_league_seasons ls ON ls.league_id = s.league_id AND ls.season_num = s.season_num
+                            WHERE (LOWER(COALESCE(l.slug, '')) = LOWER(%s) OR LOWER(s.league_id) = LOWER(%s))
+                              AND s.pod_num = %s
+                            ORDER BY s.season_num DESC;
+                        """, (lg_key, lg_key, int(p_num)))
+                    rows = [dict(r) for r in (cur.fetchall() or [])]
+                    fallback_cand = None
+                    for r in rows:
+                        p_json = r.get("pairings_json")
+                        if isinstance(p_json, str):
+                            try:
+                                p_json = json.loads(p_json)
+                            except Exception:
+                                p_json = []
+                        if not isinstance(p_json, list):
+                            continue
+                        for pr in p_json:
+                            if not isinstance(pr, dict):
+                                continue
+                            if int(pr.get("round") or 0) == int(round_num):
+                                p1_sc, p2_sc = _parse_league_pairing_scores(pr)
+                                slug_val = r.get("league_slug") or lg_key
+                                sn_val = int(r.get("season_num") or s_num or 1)
+                                pn_val = int(r.get("pod_num") or p_num or 1)
+                                canon_ev_id = f"LEAGUE:{slug_val}:S{sn_val}:P{pn_val}"
+                                p1_id_val = r.get("player_id") or r.get("bcp_player_id") or r.get("user_id")
+                                p1_nm_val = r.get("player_name") or "Player 1"
+                                p2_id_val = pr.get("opponent_bcp_player_id") or pr.get("opponent_user_id")
+                                p2_nm_val = pr.get("opponent_clean_name") or pr.get("opponent_name") or pr.get("scheduled_opponent_name") or "Player 2"
+                                cand = {
+                                    "id": f"{canon_ev_id}-R{round_num}",
+                                    "event_id": canon_ev_id,
+                                    "event_name": f"{r.get('league_name') or slug_val} • Season {sn_val} (Pod {pn_val})",
+                                    "event_date": r.get("event_date"),
+                                    "game_system": r.get("game_system") or "40k",
+                                    "round": int(round_num),
+                                    "table_number": pn_val,
+                                    "player1_id": p1_id_val,
+                                    "player1_name": p1_nm_val,
+                                    "player1_faction": r.get("primary_faction") or "",
+                                    "player1_score": p1_sc,
+                                    "player2_id": p2_id_val,
+                                    "player2_name": p2_nm_val,
+                                    "player2_faction": pr.get("opponent_faction") or "",
+                                    "player2_score": p2_sc,
+                                    "is_bye": False,
+                                    "is_done": bool(pr.get("is_completed") or p1_sc is not None),
+                                }
+                                if user and (
+                                    check_user_matches_player(user, p1_nm_val, p1_id_val)
+                                    or check_user_matches_player(user, p2_nm_val, p2_id_val)
+                                ):
+                                    return cand
+                                if fallback_cand is None:
+                                    fallback_cand = cand
+                    if fallback_cand is not None:
+                        return fallback_cand
+        except Exception as e:
+            logger.warning(f"Notice looking up league pairing ({event_id}, R{round_num}, T{table_num}): {e}")
+        return None
+
     ev_variants = _event_id_variants(event_id)
     try:
         with db.get_connection() as conn:
@@ -3260,31 +3433,93 @@ def _determine_p1_p2_alignment_swap(
     return False
 
 
+def _parse_date_to_ordinal(val: Any) -> Optional[int]:
+    if not val:
+        return None
+    if hasattr(val, "toordinal"):
+        try:
+            return int(val.toordinal())
+        except Exception:
+            pass
+    s = str(val).strip()
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d").toordinal()
+        except Exception:
+            pass
+    for fmt in ("%b %d, %Y", "%B %d, %Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(s[:20], fmt).toordinal()
+        except Exception:
+            pass
+    return None
+
+
 def _resolve_user_mappable_player_ids(cur: Any, user: Dict[str, Any], u_ids: List[str], u_names: List[str]) -> List[str]:
-    """Resolves canonical player_id values for the user via indexed player_ratings lookup (cached for 10 min)."""
+    """Resolves canonical player_id and player_name values for the user via indexed lookups (cached for 10 min)."""
     now_ts = time.time()
     cache_key = f"{'|'.join(sorted(u_ids))}::{'|'.join(sorted(u_names))}"
     cached = _USER_PLAYER_IDS_CACHE.get(cache_key)
     if cached and (now_ts - cached[0]) < 600.0:
+        for nm in cached[2]:
+            if nm and nm not in u_names:
+                u_names.append(nm)
+        if cached[2] and isinstance(user, dict) and not user.get("competitor_name"):
+            user["competitor_name"] = cached[2][0].title()
         return list(cached[1])
 
     resolved = list(u_ids)
-    if u_names:
+    resolved_names = list(u_names)
+
+    # Step 1: Discover canonical competitor full_name from linked player_id(s) (e.g., OAuth "Jun Hsieh" -> BCP "John Hsieh")
+    if resolved:
+        try:
+            cur.execute("""
+                SELECT DISTINCT LOWER(TRIM(full_name)) AS nm
+                FROM players
+                WHERE id = ANY(%s)
+                  AND full_name IS NOT NULL
+                  AND TRIM(full_name) != ''
+                LIMIT 10;
+            """, (resolved,))
+            for r in (cur.fetchall() or []):
+                nm = str((r.get("nm") if isinstance(r, dict) else r[0]) or "").strip().lower()
+                if nm and nm not in ("player", "player 1", "player 2", "unknown") and nm not in resolved_names:
+                    resolved_names.append(nm)
+        except Exception:
+            pass
+        try:
+            cur.execute("""
+                SELECT DISTINCT LOWER(TRIM(player_name)) AS nm
+                FROM player_ratings
+                WHERE player_id = ANY(%s)
+                  AND player_name IS NOT NULL
+                  AND TRIM(player_name) != ''
+                LIMIT 10;
+            """, (resolved,))
+            for r in (cur.fetchall() or []):
+                nm = str((r.get("nm") if isinstance(r, dict) else r[0]) or "").strip().lower()
+                if nm and nm not in ("player", "player 1", "player 2", "unknown") and nm not in resolved_names:
+                    resolved_names.append(nm)
+        except Exception:
+            pass
+
+    # Step 2: Resolve all player_id aliases matching any known name via idx_pg_ratings_player_name_lower / idx_pg_ratings_player_name_btree
+    if resolved_names:
         name_variants = []
-        for n in u_names:
+        for n in resolved_names:
             for v in (n, n.title(), n.upper()):
                 if v and v not in name_variants:
                     name_variants.append(v)
         try:
-            # First hit idx_pg_ratings_name on player_ratings(player_name) directly
             cur.execute("""
                 SELECT DISTINCT player_id
                 FROM player_ratings
-                WHERE player_name = ANY(%s)
+                WHERE (LOWER(TRIM(player_name)) = ANY(%s) OR player_name = ANY(%s))
                   AND player_id IS NOT NULL
                   AND player_id != ''
-                LIMIT 25;
-            """, (name_variants,))
+                LIMIT 35;
+            """, (resolved_names, name_variants))
             for pr_row in (cur.fetchall() or []):
                 pid = str((pr_row.get("player_id") if isinstance(pr_row, dict) else pr_row[0]) or "").strip()
                 if pid and pid not in resolved:
@@ -3292,7 +3527,13 @@ def _resolve_user_mappable_player_ids(cur: Any, user: Dict[str, Any], u_ids: Lis
         except Exception:
             pass
 
-    _USER_PLAYER_IDS_CACHE[cache_key] = (now_ts, resolved)
+    for nm in resolved_names:
+        if nm and nm not in u_names:
+            u_names.append(nm)
+    if resolved_names and isinstance(user, dict) and not user.get("competitor_name"):
+        user["competitor_name"] = resolved_names[0].title()
+
+    _USER_PLAYER_IDS_CACHE[cache_key] = (now_ts, resolved, resolved_names)
     return resolved
 
 
@@ -3302,7 +3543,7 @@ def api_get_mappable_event_matches(
     match_id: Optional[str] = None,
     search: Optional[str] = None,
     game_system: Optional[str] = None,
-    limit: int = 50,
+    limit: int = 500,
 ):
     user = _resolve_importing_user(request)
     if not user:
@@ -3320,7 +3561,7 @@ def api_get_mappable_event_matches(
             u_ids.append(str(v).strip())
 
     u_names = []
-    for k in ("display_name", "name", "username"):
+    for k in ("display_name", "name", "username", "competitor_name"):
         v = user.get(k)
         if v and str(v).strip().lower() not in u_names:
             u_names.append(str(v).strip().lower())
@@ -3329,7 +3570,7 @@ def api_get_mappable_event_matches(
     if game_system and game_system.lower() in ("40k", "aos"):
         sys_val = "aos" if "aos" in game_system.lower() else "40k"
 
-    safe_limit = max(10, min(200, int(limit)))
+    safe_limit = max(50, min(1000, int(limit)))
     search_clean = (search or "").strip().lower()
 
     from psycopg2 import extras
@@ -3380,6 +3621,7 @@ def api_get_mappable_event_matches(
                                 "p2_score": p2_sc,
                                 "user_id_p1": tg_d.get("user_id_p1"),
                                 "user_id_p2": tg_d.get("user_id_p2"),
+                                "game_date": raw_dt,
                                 "state": {},
                             }
                             source_game_summary = {
@@ -3407,6 +3649,7 @@ def api_get_mappable_event_matches(
                         t_p2 = t_st.get("p2") if isinstance(t_st.get("p2"), dict) else {}
                         raw_dt = t_st.get("game_date") or target_game.get("updated_at") or target_game.get("created_at")
                         dt_str = raw_dt.strftime("%b %d, %Y") if hasattr(raw_dt, "strftime") else (str(raw_dt)[:10] if raw_dt else "")
+                        target_game["game_date"] = raw_dt
                         source_game_summary = {
                             "match_id": target_game.get("match_id") or norm_mid,
                             "p1_name": target_game.get("p1_name") or t_g.get("p1Name") or t_p1.get("name") or "Player 1",
@@ -3421,7 +3664,7 @@ def api_get_mappable_event_matches(
                             "game_date": dt_str,
                         }
 
-                # 2. Resolve all player_ids for this user so we can query `matches` purely via idx_pg_matches_p1 / idx_pg_matches_p2
+                # 2. Resolve all player_ids and canonical names for this user
                 resolved_u_ids = _resolve_user_mappable_player_ids(cur, user, u_ids, u_names)
                 for extra_id in resolved_u_ids:
                     if extra_id not in u_ids:
@@ -3431,7 +3674,7 @@ def api_get_mappable_event_matches(
                     return {"success": True, "match_id": norm_mid, "source_game": source_game_summary, "matches": []}
 
                 now_ts = time.time()
-                base_cache_key = f"{'|'.join(sorted(resolved_u_ids))}::{sys_val or 'all'}"
+                base_cache_key = f"{'|'.join(sorted(resolved_u_ids))}::{'|'.join(sorted(u_names))}::{sys_val or 'all'}"
                 cached_base = _MAPPABLE_BASE_MATCHES_CACHE.get(base_cache_key)
                 base_rows: Optional[List[Dict[str, Any]]] = None
                 if cached_base and (now_ts - cached_base[0]) < _MAPPABLE_CACHE_TTL_SEC:
@@ -3444,7 +3687,7 @@ def api_get_mappable_event_matches(
                         q_params: List[Any] = [resolved_u_ids, resolved_u_ids]
                         if sys_val:
                             q_params.append(sys_val)
-                        q_params.append(200)
+                        q_params.append(800)
                         cur.execute(f"""
                             WITH p1_matches AS (
                                 SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
@@ -3455,7 +3698,7 @@ def api_get_mappable_event_matches(
                                 WHERE m.player1_id = ANY(%s)
                                   AND COALESCE(m.is_bye, FALSE) = FALSE
                                 ORDER BY m.match_date DESC NULLS LAST, m.round DESC
-                                LIMIT 250
+                                LIMIT 600
                             ),
                             p2_matches AS (
                                 SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
@@ -3466,7 +3709,7 @@ def api_get_mappable_event_matches(
                                 WHERE m.player2_id = ANY(%s)
                                   AND COALESCE(m.is_bye, FALSE) = FALSE
                                 ORDER BY m.match_date DESC NULLS LAST, m.round DESC
-                                LIMIT 250
+                                LIMIT 600
                             ),
                             combined AS (
                                 SELECT * FROM p1_matches
@@ -3487,9 +3730,87 @@ def api_get_mappable_event_matches(
                             LIMIT %s;
                         """, tuple(q_params))
                         base_rows = [dict(r) for r in (cur.fetchall() or [])]
+
+                    # Also include Pod League matches (SD40K, The Gauntlet, etc.) where the user is a participant
+                    if resolved_u_ids or u_names:
+                        try:
+                            cur.execute("""
+                                SELECT s.league_id, COALESCE(l.slug, s.league_id) AS league_slug,
+                                       COALESCE(l.name, s.league_id) AS league_name,
+                                       COALESCE(l.game_system, '40k') AS game_system,
+                                       s.season_num, s.pod_num, s.player_name, s.primary_faction,
+                                       s.bcp_player_id, s.player_id, s.user_id, s.pairings_json,
+                                       COALESCE(ls.start_date::timestamptz, s.updated_at) AS event_date
+                                FROM native_league_standings s
+                                LEFT JOIN native_leagues l ON l.id = s.league_id OR l.slug = s.league_id
+                                LEFT JOIN native_league_seasons ls ON ls.league_id = s.league_id AND ls.season_num = s.season_num
+                                WHERE (
+                                    s.user_id = ANY(%s)
+                                    OR s.player_id = ANY(%s)
+                                    OR s.bcp_player_id = ANY(%s)
+                                    OR LOWER(TRIM(s.player_name)) = ANY(%s)
+                                )
+                                ORDER BY s.season_num DESC, s.pod_num ASC
+                                LIMIT 30;
+                            """, (resolved_u_ids, resolved_u_ids, resolved_u_ids, u_names))
+                            lg_rows = [dict(r) for r in (cur.fetchall() or [])]
+                            seen_lg_sigs = set()
+                            for lr in lg_rows:
+                                lg_sys = str(lr.get("game_system") or "40k").lower()
+                                if sys_val and lg_sys != sys_val:
+                                    continue
+                                p_json = lr.get("pairings_json")
+                                if isinstance(p_json, str):
+                                    try:
+                                        p_json = json.loads(p_json)
+                                    except Exception:
+                                        p_json = []
+                                if not isinstance(p_json, list):
+                                    continue
+                                slug_val = str(lr.get("league_slug") or lr.get("league_id") or "league").strip()
+                                sn_val = int(lr.get("season_num") or 1)
+                                pn_val = int(lr.get("pod_num") or 1)
+                                p1_nm = str(lr.get("player_name") or "Player 1").strip()
+                                p1_id_val = lr.get("player_id") or lr.get("bcp_player_id") or lr.get("user_id")
+                                for pr in p_json:
+                                    if not isinstance(pr, dict):
+                                        continue
+                                    r_num = int(pr.get("round") or 1)
+                                    opp_nm = str(pr.get("opponent_clean_name") or pr.get("opponent_name") or pr.get("scheduled_opponent_name") or "").strip()
+                                    if not opp_nm or opp_nm.lower() in ("bye", "tbd", "unassigned"):
+                                        continue
+                                    sig = (slug_val.lower(), pn_val, r_num, p1_nm.lower(), opp_nm.lower())
+                                    if sig in seen_lg_sigs:
+                                        continue
+                                    seen_lg_sigs.add(sig)
+                                    p1_sc, p2_sc = _parse_league_pairing_scores(pr)
+                                    canon_ev_id = f"LEAGUE:{slug_val}:S{sn_val}:P{pn_val}"
+                                    base_rows.append({
+                                        "id": f"{canon_ev_id}-R{r_num}",
+                                        "event_id": canon_ev_id,
+                                        "event_name": f"{lr.get('league_name') or slug_val} • Season {sn_val} (Pod {pn_val})",
+                                        "event_date": lr.get("event_date"),
+                                        "match_date": lr.get("event_date"),
+                                        "game_system": lg_sys,
+                                        "round": r_num,
+                                        "table_number": pn_val,
+                                        "player1_id": p1_id_val,
+                                        "player1_name": p1_nm,
+                                        "player1_faction": lr.get("primary_faction") or "",
+                                        "player1_score": p1_sc,
+                                        "player2_id": pr.get("opponent_bcp_player_id") or pr.get("opponent_user_id"),
+                                        "player2_name": opp_nm,
+                                        "player2_faction": pr.get("opponent_faction") or "",
+                                        "player2_score": p2_sc,
+                                        "is_done": bool(pr.get("is_completed") or p1_sc is not None),
+                                        "existing_scorecard_id": pr.get("scorecard_id"),
+                                    })
+                        except Exception:
+                            conn.rollback()
+
                     _MAPPABLE_BASE_MATCHES_CACHE[base_cache_key] = (now_ts, base_rows)
 
-                # Filter by search query in memory (instant on <=200 rows)
+                # Filter by search query in memory (instant on <=800 rows)
                 if search_clean:
                     filtered_rows = [
                         r for r in base_rows
@@ -3497,6 +3818,8 @@ def api_get_mappable_event_matches(
                         or search_clean in str(r.get("event_id") or "").lower()
                         or search_clean in str(r.get("player1_name") or "").lower()
                         or search_clean in str(r.get("player2_name") or "").lower()
+                        or search_clean in str(r.get("player1_faction") or "").lower()
+                        or search_clean in str(r.get("player2_faction") or "").lower()
                     ][:safe_limit]
                 else:
                     filtered_rows = base_rows[:safe_limit]
@@ -3532,6 +3855,8 @@ def api_get_mappable_event_matches(
                             locked_map[k] = tg_d
 
                 user_id_set = set(resolved_u_ids)
+                tg_ord = _parse_date_to_ordinal(target_game.get("game_date") if target_game else (source_game_summary.get("game_date") if source_game_summary else None))
+
                 for d in filtered_rows:
                     ev_id = str(d.get("event_id") or "")
                     r_num = int(d.get("round") or 1)
@@ -3549,13 +3874,17 @@ def api_get_mappable_event_matches(
                         continue
 
                     tg_info = locked_map.get(key) or {}
-                    existing_mid = tg_info.get("match_id")
+                    existing_mid = tg_info.get("match_id") or d.get("existing_scorecard_id")
                     is_currently_mapped = bool(norm_mid and existing_mid and str(existing_mid).upper() == norm_mid.upper())
                     is_locked = bool(
                         existing_mid
                         and not is_currently_mapped
-                        and (tg_info.get("existing_tracker_locked") or tg_info.get("is_finished"))
+                        and (tg_info.get("existing_tracker_locked") or tg_info.get("is_finished") or d.get("existing_scorecard_id"))
                     )
+
+                    ev_dt = d.get("event_date") or d.get("match_date")
+                    date_str = ev_dt.strftime("%b %d, %Y") if hasattr(ev_dt, "strftime") else (str(ev_dt)[:10] if ev_dt else "")
+                    sort_iso = ev_dt.strftime("%Y-%m-%d") if hasattr(ev_dt, "strftime") else (str(ev_dt)[:10] if ev_dt else "")
 
                     will_swap = False
                     relevance = 0
@@ -3570,23 +3899,39 @@ def api_get_mappable_event_matches(
                             target_game,
                             t_state,
                         )
-                        opp_name_in_event = d.get("player2_name") if is_p1 else d.get("player1_name")
-                        if _names_roughly_match(target_game.get("p1_name"), opp_name_in_event) or _names_roughly_match(target_game.get("p2_name"), opp_name_in_event):
+                        user_name_in_event = str((d.get("player1_name") if is_p1 else d.get("player2_name")) or "")
+                        opp_name_in_event = str((d.get("player2_name") if is_p1 else d.get("player1_name")) or "")
+                        tg_p1_nm = str(target_game.get("p1_name") or "")
+                        tg_p2_nm = str(target_game.get("p2_name") or "")
+
+                        # Identify which scorecard slot is the user so we don't match the user's own first name ("John") against opponents named "John"
+                        p1_is_user = _names_roughly_match(tg_p1_nm, user_name_in_event) or check_user_matches_player(user, tg_p1_nm, target_game.get("user_id_p1"))
+                        p2_is_user = _names_roughly_match(tg_p2_nm, user_name_in_event) or check_user_matches_player(user, tg_p2_nm, target_game.get("user_id_p2"))
+                        if p1_is_user and not p2_is_user:
+                            opp_matched = _names_roughly_match(tg_p2_nm, opp_name_in_event)
+                        elif p2_is_user and not p1_is_user:
+                            opp_matched = _names_roughly_match(tg_p1_nm, opp_name_in_event)
+                        else:
+                            opp_matched = _names_roughly_match(tg_p1_nm, opp_name_in_event) or _names_roughly_match(tg_p2_nm, opp_name_in_event)
+
+                        if opp_matched:
                             relevance += 50
                         if d.get("player1_score") is not None and d.get("player2_score") is not None:
                             ev_s1, ev_s2 = int(d["player1_score"] or 0), int(d["player2_score"] or 0)
                             tg_s1, tg_s2 = int(target_game.get("p1_score") or 0), int(target_game.get("p2_score") or 0)
                             if (ev_s1 == tg_s1 and ev_s2 == tg_s2) or (ev_s1 == tg_s2 and ev_s2 == tg_s1):
                                 relevance += 40
-
-                    ev_dt = d.get("event_date") or d.get("match_date")
-                    date_str = ev_dt.strftime("%b %d, %Y") if hasattr(ev_dt, "strftime") else (str(ev_dt)[:10] if ev_dt else "")
+                        if tg_ord is not None:
+                            ev_ord = _parse_date_to_ordinal(ev_dt)
+                            if ev_ord is not None and abs(tg_ord - ev_ord) <= 4:
+                                relevance += 35
 
                     candidates.append({
                         "event_id": ev_id,
                         "event_name": d.get("event_name") or ev_id,
                         "event_date": date_str,
                         "match_date": date_str,
+                        "sort_date": sort_iso,
                         "game_system": d.get("game_system") or "40k",
                         "round_num": r_num,
                         "round": r_num,
@@ -3608,12 +3953,21 @@ def api_get_mappable_event_matches(
                         "is_currently_mapped": is_currently_mapped,
                         "locked_by_match_id": existing_mid if is_locked else None,
                         "relevance": relevance,
-                        "recommended": bool(relevance >= 50),
+                        "recommended": bool(relevance >= 50 and not is_locked),
                     })
     except Exception as e:
         logger.warning(f"Error querying mappable event matches: {e}")
 
-    candidates.sort(key=lambda x: (x.get("is_currently_mapped", False), not x.get("is_locked", False), x.get("relevance", 0)), reverse=True)
+    candidates.sort(
+        key=lambda x: (
+            x.get("is_currently_mapped", False),
+            not x.get("is_locked", False),
+            x.get("relevance", 0),
+            x.get("sort_date", ""),
+            int(x.get("round") or 0),
+        ),
+        reverse=True,
+    )
     return {
         "success": True,
         "match_id": norm_mid,
@@ -3649,8 +4003,20 @@ def api_map_tracker_game_to_event_match(
     if not ev_id:
         raise HTTPException(status_code=400, detail="event_id is required.")
 
+    # 0. Enrich user with canonical BCP competitor_name / resolved player_ids if needed
+    u_ids = [str(user.get(k)).strip() for k in ("id", "user_id", "player_id", "bcp_user_id", "bcp_id") if user.get(k) and str(user.get(k)).strip()]
+    u_names = [str(user.get(k)).strip().lower() for k in ("display_name", "name", "username", "competitor_name") if user.get(k) and str(user.get(k)).strip()]
+    try:
+        from psycopg2 import extras
+        with db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                resolved_u_ids = _resolve_user_mappable_player_ids(cur, user, u_ids, u_names)
+    except Exception:
+        resolved_u_ids = list(u_ids)
+    user_id_set = set(resolved_u_ids)
+
     # 1. Verify the tournament pairing exists
-    pairing = _lookup_event_pairing_record(db, ev_id, r_num, t_num)
+    pairing = _lookup_event_pairing_record(db, ev_id, r_num, t_num, user=user)
     if not pairing:
         raise HTTPException(
             status_code=404,
@@ -3669,8 +4035,8 @@ def api_map_tracker_game_to_event_match(
     ev_p2_fac = str(pairing.get("player2_faction") or "").strip()
 
     # 2. Strict Participant-Only Verification: ONLY player1 or player2 of the tournament match can map a scorecard to it
-    user_is_p1 = check_user_matches_player(user, ev_p1_name, ev_p1_id)
-    user_is_p2 = check_user_matches_player(user, ev_p2_name, ev_p2_id)
+    user_is_p1 = (str(ev_p1_id or "").strip() in user_id_set) or check_user_matches_player(user, ev_p1_name, ev_p1_id)
+    user_is_p2 = (str(ev_p2_id or "").strip() in user_id_set) or check_user_matches_player(user, ev_p2_name, ev_p2_id)
     if not (user_is_p1 or user_is_p2):
         raise HTTPException(
             status_code=403,

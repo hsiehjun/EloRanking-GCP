@@ -6196,23 +6196,59 @@ async function submitTrackerImport(mode) {
 let _hubMappableMatchesCache = [];
 let _hubActiveMapMatchId = '';
 let _hubActiveMapGameSystem = '40k';
+let _hubMappableStatusFilter = 'all';
 let _hubMappablePrefetchInFlight = {};
 if (typeof window !== 'undefined') {
   window.__omniMappableMatchesCacheBySys = window.__omniMappableMatchesCacheBySys || {};
 }
 
+const _HUB_FIRST_NAME_EQUIV = {
+  joe: 'joseph', joseph: 'joe',
+  brad: 'bradford', bradford: 'brad',
+  jon: 'jonathan', jonathan: 'jon',
+  dan: 'daniel', daniel: 'dan', danny: 'daniel',
+  matt: 'matthew', matthew: 'matt',
+  mike: 'michael', michael: 'mike',
+  alex: 'alexander', alexander: 'alex',
+  ben: 'benjamin', benjamin: 'ben',
+  tim: 'timothy', timothy: 'tim',
+  chris: 'christopher', christopher: 'chris',
+  nick: 'nicholas', nicholas: 'nick',
+  dave: 'david', david: 'dave',
+  rob: 'robert', robert: 'rob', bobby: 'robert', bob: 'robert',
+  will: 'william', william: 'will', bill: 'william',
+  josh: 'joshua', joshua: 'josh',
+  jake: 'jacob', jacob: 'jake',
+  drew: 'andrew', andy: 'andrew', andrew: 'andy',
+  nate: 'nathan', nathan: 'nate', nathaniel: 'nate',
+  zach: 'zachary', zack: 'zachary', zachary: 'zach',
+  steve: 'stephen', stephen: 'steve', steven: 'steve',
+  greg: 'gregory', gregory: 'greg',
+  max: 'maximosugus', maximosugus: 'max'
+};
+
+function _hubFirstNamesMatch(fa, fb) {
+  if (!fa || !fb) return false;
+  if (fa === fb && fa.length >= 2) return true;
+  if (_HUB_FIRST_NAME_EQUIV[fa] === fb || _HUB_FIRST_NAME_EQUIV[fb] === fa) return true;
+  if (fa.length >= 3 && fb.length >= 3 && (fa.startsWith(fb) || fb.startsWith(fa))) return true;
+  return false;
+}
+
 function _hubNamesRoughlyMatch(a, b) {
-  const na = String(a || '').trim().toLowerCase();
-  const nb = String(b || '').trim().toLowerCase();
-  if (!na || !nb) return false;
-  if (['player 1', 'player 2', 'player1', 'player2', 'you', 'opponent', 'unknown'].includes(na)) return false;
-  if (['player 1', 'player 2', 'player1', 'player2', 'you', 'opponent', 'unknown'].includes(nb)) return false;
-  if (na === nb) return true;
-  const pa = na.split(/\s+/);
-  const pb = nb.split(/\s+/);
-  if (pa.length >= 2 && pb.length >= 2 && pa[0] === pb[0] && pa[pa.length - 1] === pb[pb.length - 1]) return true;
-  if (pa.length === 1 && pb.length >= 1 && pa[0].length >= 3 && pa[0] === pb[0]) return true;
-  if (pb.length === 1 && pa.length >= 1 && pb[0].length >= 3 && pb[0] === pa[0]) return true;
+  const ca = String(a || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/[^a-zA-Z0-9\s]/g, '').trim().toLowerCase();
+  const cb = String(b || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/[^a-zA-Z0-9\s]/g, '').trim().toLowerCase();
+  if (!ca || !cb) return false;
+  if (['player 1', 'player 2', 'player1', 'player2', 'you', 'opponent', 'unknown', 'bye'].includes(ca)) return false;
+  if (['player 1', 'player 2', 'player1', 'player2', 'you', 'opponent', 'unknown', 'bye'].includes(cb)) return false;
+  if (ca === cb) return true;
+  const pa = ca.split(/\s+/);
+  const pb = cb.split(/\s+/);
+  if (pa.length >= 2 && pb.length >= 2) {
+    return _hubFirstNamesMatch(pa[0], pb[0]) && pa[pa.length - 1] === pb[pb.length - 1];
+  }
+  if (pa.length === 1 && pb.length >= 1) return _hubFirstNamesMatch(pa[0], pb[0]);
+  if (pb.length === 1 && pa.length >= 1) return _hubFirstNamesMatch(pb[0], pa[0]);
   return false;
 }
 
@@ -6222,7 +6258,8 @@ function _getHubCachedMappableMatchesBySys(sys) {
     return window.__omniMappableMatchesCacheBySys[s];
   }
   try {
-    const raw = localStorage.getItem('omni_mappable_matches_v1_' + s);
+    localStorage.removeItem('omni_mappable_matches_v1_' + s);
+    const raw = localStorage.getItem('omni_mappable_matches_v2_' + s);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.matches) && (Date.now() - (parsed.ts || 0)) < 600000) {
@@ -6244,7 +6281,8 @@ function _setHubCachedMappableMatchesBySys(sys, matches) {
     window.__omniMappableMatchesCacheBySys[s] = matches;
   }
   try {
-    localStorage.setItem('omni_mappable_matches_v1_' + s, JSON.stringify({ ts: Date.now(), matches }));
+    localStorage.removeItem('omni_mappable_matches_v1_' + s);
+    localStorage.setItem('omni_mappable_matches_v2_' + s, JSON.stringify({ ts: Date.now(), matches }));
   } catch (e) {}
 }
 
@@ -6255,6 +6293,7 @@ function _scoreHubMappableMatches(rawMatches, sourceGame, activeMatchId) {
   const sgP2 = sourceGame ? String(sourceGame.p2_name || '') : '';
   const sgS1 = sourceGame && sourceGame.p1_score != null ? Number(sourceGame.p1_score) : null;
   const sgS2 = sourceGame && sourceGame.p2_score != null ? Number(sourceGame.p2_score) : null;
+  const sgDateMs = sourceGame && sourceGame.game_date && sourceGame.game_date !== '-' ? Date.parse(sourceGame.game_date) : NaN;
 
   const scored = rawMatches.map(m => {
     const copy = Object.assign({}, m);
@@ -6266,8 +6305,20 @@ function _scoreHubMappableMatches(rawMatches, sourceGame, activeMatchId) {
     }
     if (sourceGame) {
       let rel = 0;
+      const userNameInEvent = (copy.user_slot === 'player1' ? copy.player1_name : copy.player2_name) || '';
       const oppName = copy.opponent_name || (copy.user_slot === 'player1' ? copy.player2_name : copy.player1_name) || '';
-      if (_hubNamesRoughlyMatch(sgP1, oppName) || _hubNamesRoughlyMatch(sgP2, oppName)) {
+
+      const p1IsUser = _hubNamesRoughlyMatch(sgP1, userNameInEvent);
+      const p2IsUser = _hubNamesRoughlyMatch(sgP2, userNameInEvent);
+      let oppMatched = false;
+      if (p1IsUser && !p2IsUser) {
+        oppMatched = _hubNamesRoughlyMatch(sgP2, oppName);
+      } else if (p2IsUser && !p1IsUser) {
+        oppMatched = _hubNamesRoughlyMatch(sgP1, oppName);
+      } else {
+        oppMatched = _hubNamesRoughlyMatch(sgP1, oppName) || _hubNamesRoughlyMatch(sgP2, oppName);
+      }
+      if (oppMatched) {
         rel += 50;
       }
       if (copy.player1_score != null && copy.player2_score != null && sgS1 != null && sgS2 != null) {
@@ -6277,8 +6328,18 @@ function _scoreHubMappableMatches(rawMatches, sourceGame, activeMatchId) {
           rel += 40;
         }
       }
+      const evDateRaw = copy.sort_date || copy.event_date || copy.match_date;
+      const evDateMs = evDateRaw ? Date.parse(evDateRaw) : NaN;
+      if (!isNaN(sgDateMs) && !isNaN(evDateMs)) {
+        const diffDays = Math.abs(sgDateMs - evDateMs) / 86400000;
+        if (diffDays <= 4.5) {
+          rel += 35;
+        }
+      }
       copy.relevance = rel;
-      copy.recommended = rel >= 50;
+      copy.recommended = Boolean(rel >= 50 && !copy.is_locked);
+    } else {
+      copy.recommended = Boolean(copy.recommended && !copy.is_locked);
     }
     return copy;
   });
@@ -6290,7 +6351,13 @@ function _scoreHubMappableMatches(rawMatches, sourceGame, activeMatchId) {
     if (Boolean(!a.is_locked) !== Boolean(!b.is_locked)) {
       return !a.is_locked ? -1 : 1;
     }
-    return (b.relevance || 0) - (a.relevance || 0);
+    if ((b.relevance || 0) !== (a.relevance || 0)) {
+      return (b.relevance || 0) - (a.relevance || 0);
+    }
+    const da = String(a.sort_date || a.match_date || '');
+    const db = String(b.sort_date || b.match_date || '');
+    if (da !== db) return db.localeCompare(da);
+    return (Number(b.round) || 0) - (Number(a.round) || 0);
   });
   return scored;
 }
@@ -6303,7 +6370,7 @@ async function prefetchHubMappableEventMatches(gameSystem) {
   _hubMappablePrefetchInFlight[s] = (async () => {
     try {
       const headers = tok ? { 'Authorization': 'Bearer ' + tok } : {};
-      const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(s)}`, { headers });
+      const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(s)}&limit=500`, { headers });
       if (resp.ok) {
         const data = await resp.json().catch(() => ({}));
         if (data && Array.isArray(data.matches)) {
@@ -6392,9 +6459,15 @@ function _renderHubMapSourceGameBanner(sg) {
   `;
 }
 
+function setHubMappableStatusFilter(mode) {
+  _hubMappableStatusFilter = mode || 'all';
+  filterHubMappableEventMatches();
+}
+
 async function openMapGameToEventModal(matchId, gameSystem) {
   _hubActiveMapMatchId = matchId || '';
   _hubActiveMapGameSystem = gameSystem || (String(matchId || '').startsWith('AOS-') ? 'aos' : '40k');
+  _hubMappableStatusFilter = 'all';
 
   let modal = document.getElementById('omni-map-game-event-modal');
   if (!modal) {
@@ -6415,11 +6488,12 @@ async function openMapGameToEventModal(matchId, gameSystem) {
       <div style="padding:1rem 1.15rem; overflow-y:auto; flex:1;">
         <div id="omni-map-source-banner"></div>
         <div style="font-size:0.78rem; color:#cbd5e1; line-height:1.45; margin-bottom:0.85rem; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.25); padding:0.65rem 0.85rem; border-radius:10px;">
-          🔒 <b>Participant-Only &amp; Auto-Aligned:</b> You can only map a scorecard to a tournament pairing you participated in. Player 1 and Player 2 columns are automatically aligned to the official pairing and locked once mapped.
+          🔒 <b>Participant-Only &amp; Auto-Aligned:</b> You can only map a scorecard to a tournament or league pairing you participated in. Player 1 and Player 2 columns are automatically aligned to the official pairing and locked once mapped.
         </div>
-        <div style="display:flex; gap:0.5rem; margin-bottom:0.85rem;">
-          <input id="omni-map-event-search" type="text" placeholder="Search event name or opponent..." style="flex:1; background:#020617; border:1px solid #334155; color:#fff; padding:0.55rem 0.75rem; border-radius:8px; font-size:0.84rem;" oninput="filterHubMappableEventMatches()">
+        <div style="display:flex; gap:0.5rem; margin-bottom:0.55rem;">
+          <input id="omni-map-event-search" type="text" placeholder="Search event, league, opponent, faction, or year..." style="flex:1; background:#020617; border:1px solid #334155; color:#fff; padding:0.55rem 0.75rem; border-radius:8px; font-size:0.84rem;" oninput="filterHubMappableEventMatches()">
         </div>
+        <div id="omni-map-event-filter-bar" style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; margin-bottom:0.75rem; flex-wrap:wrap;"></div>
         <div id="omni-map-event-status" style="display:none; margin-bottom:0.75rem; padding:0.6rem 0.85rem; border-radius:8px; font-size:0.8rem;"></div>
         <div id="omni-map-event-list" style="display:flex; flex-direction:column; gap:0.55rem;">
           <div style="padding:1.5rem; text-align:center; color:#94a3b8; font-size:0.84rem;">Loading your verified tournament matches...</div>
@@ -6436,14 +6510,14 @@ async function openMapGameToEventModal(matchId, gameSystem) {
   const hadInstantRender = Boolean(cachedList && cachedList.length > 0);
   if (hadInstantRender) {
     _hubMappableMatchesCache = _scoreHubMappableMatches(cachedList, localSg, _hubActiveMapMatchId);
-    renderHubMappableEventMatches(_hubMappableMatchesCache);
+    filterHubMappableEventMatches();
   }
 
   try {
     const headers = {};
     const tok = (window.api && typeof window.api.getAuthToken === 'function' ? window.api.getAuthToken() : '') || localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || localStorage.getItem('omnitactica_id_token') || localStorage.getItem('firebase_id_token') || '';
     if (tok) headers['Authorization'] = 'Bearer ' + tok;
-    const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(_hubActiveMapGameSystem)}&match_id=${encodeURIComponent(_hubActiveMapMatchId)}`, { headers });
+    const resp = await fetch(`/api/tracker/mappable_event_matches?game_system=${encodeURIComponent(_hubActiveMapGameSystem)}&match_id=${encodeURIComponent(_hubActiveMapMatchId)}&limit=500`, { headers });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
       if (!hadInstantRender) {
@@ -6473,16 +6547,46 @@ function closeMapGameToEventModal() {
 
 function filterHubMappableEventMatches() {
   const q = (document.getElementById('omni-map-event-search')?.value || '').toLowerCase().trim();
-  if (!q) {
-    renderHubMappableEventMatches(_hubMappableMatchesCache);
-    return;
+  const allList = Array.isArray(_hubMappableMatchesCache) ? _hubMappableMatchesCache : [];
+  const availCount = allList.filter(m => !m.is_locked).length;
+  const lockedCount = allList.filter(m => m.is_locked).length;
+
+  let filtered = allList;
+  if (_hubMappableStatusFilter === 'available') {
+    filtered = filtered.filter(m => !m.is_locked);
+  } else if (_hubMappableStatusFilter === 'locked') {
+    filtered = filtered.filter(m => m.is_locked);
   }
-  const filtered = _hubMappableMatchesCache.filter(m =>
-    String(m.event_name || '').toLowerCase().includes(q) ||
-    String(m.event_id || '').toLowerCase().includes(q) ||
-    String(m.player1_name || '').toLowerCase().includes(q) ||
-    String(m.player2_name || '').toLowerCase().includes(q)
-  );
+  if (q) {
+    filtered = filtered.filter(m =>
+      String(m.event_name || '').toLowerCase().includes(q) ||
+      String(m.event_id || '').toLowerCase().includes(q) ||
+      String(m.player1_name || '').toLowerCase().includes(q) ||
+      String(m.player2_name || '').toLowerCase().includes(q) ||
+      String(m.opponent_name || '').toLowerCase().includes(q) ||
+      String(m.player1_faction || '').toLowerCase().includes(q) ||
+      String(m.player2_faction || '').toLowerCase().includes(q) ||
+      String(m.match_date || '').toLowerCase().includes(q) ||
+      String(m.sort_date || '').toLowerCase().includes(q)
+    );
+  }
+
+  const barEl = document.getElementById('omni-map-event-filter-bar');
+  if (barEl && allList.length > 0) {
+    const btnStyle = (mode) => {
+      const active = _hubMappableStatusFilter === mode;
+      return `background:${active ? 'rgba(56,189,248,0.2)' : '#090f1e'}; border:1px solid ${active ? '#38bdf8' : '#1e293b'}; color:${active ? '#38bdf8' : '#94a3b8'}; font-size:0.72rem; font-weight:800; padding:3px 9px; border-radius:6px; cursor:pointer;`;
+    };
+    barEl.innerHTML = `
+      <div style="display:flex; gap:0.35rem; align-items:center;">
+        <button type="button" onclick="setHubMappableStatusFilter('all')" style="${btnStyle('all')}">All (${allList.length})</button>
+        <button type="button" onclick="setHubMappableStatusFilter('available')" style="${btnStyle('available')}">🔓 Available (${availCount})</button>
+        <button type="button" onclick="setHubMappableStatusFilter('locked')" style="${btnStyle('locked')}">🔒 Locked (${lockedCount})</button>
+      </div>
+      <div style="font-size:0.72rem; color:#64748b;">Showing ${filtered.length} of ${allList.length} matches</div>
+    `;
+  }
+
   renderHubMappableEventMatches(filtered);
 }
 
@@ -6490,21 +6594,28 @@ function renderHubMappableEventMatches(matches) {
   const listEl = document.getElementById('omni-map-event-list');
   if (!listEl) return;
   if (!matches || matches.length === 0) {
-    listEl.innerHTML = '<div style="padding:1.5rem; text-align:center; color:#94a3b8; font-size:0.84rem;">No eligible tournament matches found for your player profile.</div>';
+    listEl.innerHTML = '<div style="padding:1.5rem; text-align:center; color:#94a3b8; font-size:0.84rem;">No eligible tournament matches found for your current filter.</div>';
     return;
   }
   listEl.innerHTML = matches.map(m => {
     const isLocked = Boolean(m.is_locked);
-    const recBadge = m.recommended ? '<span style="background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.4); font-size:0.68rem; font-weight:800; padding:1px 6px; border-radius:4px;">★ Recommended Pairing</span>' : '';
+    const isCurr = Boolean(m.is_currently_mapped);
+    const isLeague = String(m.event_id || '').toUpperCase().startsWith('LEAGUE:');
+    const recBadge = (m.recommended && !isLocked) ? '<span style="background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.4); font-size:0.68rem; font-weight:800; padding:1px 6px; border-radius:4px;">★ Recommended Pairing</span>' : '';
+    const currBadge = isCurr ? '<span style="background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-size:0.68rem; font-weight:800; padding:1px 6px; border-radius:4px;">✓ Currently Mapped</span>' : '';
     const actionHtml = isLocked
       ? '<span style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.35); font-size:0.7rem; font-weight:800; padding:4px 8px; border-radius:6px;">🔒 Locked</span>'
       : `<button type="button" onclick="confirmMapGameToEventFromHub('${escapeHtml(m.event_id)}', ${Number(m.round || 1)}, ${m.table_number ? Number(m.table_number) : 'null'})" style="background:#0284c7; border:1px solid #38bdf8; color:#fff; font-weight:800; font-size:0.75rem; padding:5px 10px; border-radius:7px; cursor:pointer;">🔗 Map &amp; Lock</button>`;
+    const rtLabel = isLeague
+      ? `R${m.round || 1}${m.table_number ? ' • Pod ' + m.table_number : ''}`
+      : `R${m.round || 1}${m.table_number ? ' • T' + m.table_number : ''}`;
     return `
-      <div style="background:#090f1e; border:1px solid ${m.recommended ? '#10b981' : '#1e293b'}; border-radius:10px; padding:0.75rem 0.9rem; display:flex; justify-content:space-between; align-items:center; gap:0.75rem;">
+      <div style="background:#090f1e; border:1px solid ${(m.recommended && !isLocked) ? '#10b981' : (isCurr ? '#38bdf8' : '#1e293b')}; border-radius:10px; padding:0.75rem 0.9rem; display:flex; justify-content:space-between; align-items:center; gap:0.75rem;">
         <div style="min-width:0;">
           <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
-            <span style="font-weight:800; color:#f8fafc; font-size:0.86rem;">🏆 ${escapeHtml(m.event_name || 'Tournament')}</span>
-            <span style="font-family:monospace; font-size:0.74rem; color:#38bdf8;">R${m.round || 1}${m.table_number ? ' • T' + m.table_number : ''}</span>
+            <span style="font-weight:800; color:#f8fafc; font-size:0.86rem;">${isLeague ? '⚔️' : '🏆'} ${escapeHtml(m.event_name || 'Tournament')}</span>
+            <span style="font-family:monospace; font-size:0.74rem; color:#38bdf8;">${rtLabel}</span>
+            ${currBadge}
             ${recBadge}
           </div>
           <div style="font-size:0.78rem; color:#cbd5e1; margin-top:0.22rem;">
@@ -6614,6 +6725,7 @@ window.submitTrackerImport = submitTrackerImport;
 window.openMapGameToEventModal = openMapGameToEventModal;
 window.closeMapGameToEventModal = closeMapGameToEventModal;
 window.filterHubMappableEventMatches = filterHubMappableEventMatches;
+window.setHubMappableStatusFilter = setHubMappableStatusFilter;
 window.confirmMapGameToEventFromHub = confirmMapGameToEventFromHub;
 window.prefetchHubMappableEventMatches = prefetchHubMappableEventMatches;
 

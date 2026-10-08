@@ -376,7 +376,38 @@ class TestJourneyPlacings(unittest.TestCase):
         self.assertIn("parsed._journeySchemaVer === 4", my_hub_js)
         self.assertIn("data._journeySchemaVer = 4;", my_hub_js)
 
+    def test_mappable_event_matches_all_inclusive_and_opponent_only_recommendations(self):
+        from routers.tracker import _names_roughly_match
+
+        # Single-word Tabletop Battles opponent names match full tournament names & common nicknames
+        self.assertTrue(_names_roughly_match("Peter", "Peter Venner"))
+        self.assertTrue(_names_roughly_match("Justin", "Justin Salazar"))
+        self.assertTrue(_names_roughly_match("Seth", "Seth Gonzalez"))
+        self.assertTrue(_names_roughly_match("Evan", "Evan Berry"))
+        self.assertTrue(_names_roughly_match("Brad", "Bradford Fredrickson"))
+        self.assertTrue(_names_roughly_match("Joe", "Joseph Warren"))
+        self.assertTrue(_names_roughly_match("Max", "Max K"))
+
+        # Full 2-token names require last name match as well
+        self.assertFalse(_names_roughly_match("John Hsieh", "John Craig"))
+        self.assertFalse(_names_roughly_match("John Hsieh", "John Keller"))
+        self.assertTrue(_names_roughly_match("John Hsieh", "John Hsieh"))
+
+        with open("routers/tracker.py", "r", encoding="utf-8") as f:
+            tracker_py = f.read()
+        self.assertTrue("limit: int = 500" in tracker_py)
+        self.assertTrue("FROM native_league_standings" in tracker_py)
+        self.assertTrue('"recommended": bool(relevance >= 50 and not is_locked)' in tracker_py)
+
+        with open("web/js/my_hub.js", "r", encoding="utf-8") as f:
+            my_hub_js = f.read()
+        self.assertTrue("omni_mappable_matches_v2_" in my_hub_js)
+        self.assertTrue("limit=500" in my_hub_js)
+        self.assertTrue("window.setHubMappableStatusFilter = setHubMappableStatusFilter;" in my_hub_js)
+        self.assertTrue("copy.recommended = Boolean(rel >= 50 && !copy.is_locked);" in my_hub_js)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
