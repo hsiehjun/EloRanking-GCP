@@ -7191,13 +7191,17 @@ class PostgresDatabase:
             start_date=start_date, end_date=end_date, timeframe=timeframe
         )
 
-        raw_legacy_key = f"{start_date}_{end_date}_{game_system}"
-        resolved_legacy_key = f"{resolved_start}_{resolved_end}_{sys_norm}"
         cache_key = f"preset_{preset}_{sys_norm}" if preset else f"custom_{resolved_start}_{resolved_end}_{sys_norm}"
-        l2_setting_key = f"meta_intel_v3_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        resolved_legacy_key = f"{resolved_start}_{resolved_end}_{sys_norm}"
+        cache_keys = [cache_key, resolved_legacy_key]
+        if not timeframe and (start_date or end_date):
+            raw_legacy_key = f"{start_date}_{end_date}_{game_system}"
+            if raw_legacy_key not in cache_keys:
+                cache_keys.append(raw_legacy_key)
+        l2_setting_key = f"meta_intel_v4_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
 
         if not _force_refresh:
-            for k in (cache_key, resolved_legacy_key, raw_legacy_key):
+            for k in cache_keys:
                 cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, k, ttl=7200)
                 if cached and isinstance(cached, dict) and "summary_kpis" in cached:
                     return cached
@@ -7216,7 +7220,7 @@ class PostgresDatabase:
 
         with key_lock:
             if not _force_refresh:
-                for k in (cache_key, resolved_legacy_key, raw_legacy_key):
+                for k in cache_keys:
                     cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, k, ttl=7200)
                     if cached and isinstance(cached, dict) and "summary_kpis" in cached:
                         return cached
@@ -7242,7 +7246,7 @@ class PostgresDatabase:
                                     if p_val:
                                         parsed = json.loads(p_val)
                                         if isinstance(parsed, dict) and "factions" in parsed and "summary_kpis" in parsed:
-                                            for k in (cache_key, resolved_legacy_key, raw_legacy_key):
+                                            for k in cache_keys:
                                                 PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, parsed, max_size=200)
                                             age_s = (now_ts - float(p_ts)) if p_ts else 0.0
                                             if age_s >= 14400:
@@ -7265,14 +7269,14 @@ class PostgresDatabase:
 
             sample_limit_map = {
                 "30d": 15000,
-                "60d": 22000,
-                "90d": 30000,
-                "180d": 45000,
-                "ytd": 45000,
-                "1yr": 60000,
-                "all": 75000,
+                "60d": 20000,
+                "90d": 25000,
+                "180d": 32000,
+                "ytd": 32000,
+                "1yr": 40000,
+                "all": 50000,
             }
-            sample_limit = sample_limit_map.get(preset or "90d", 35000)
+            sample_limit = sample_limit_map.get(preset or "90d", 30000)
             period_format = "YYYY-MM-DD" if is_short_window else "YYYY-MM"
             period_trunc = "week" if is_short_window else "month"
 
@@ -7285,7 +7289,7 @@ class PostgresDatabase:
                         except Exception:
                             conn.rollback()
 
-                    where_clauses = ["is_done = TRUE"]
+                    where_clauses = ["is_done = TRUE", "match_date IS NOT NULL"]
                     params: List[Any] = []
                     if game_system and sys_norm != "all":
                         where_clauses.append("COALESCE(game_system, '40k') = %s")
@@ -7308,7 +7312,7 @@ class PostgresDatabase:
                     try:
                         cursor.execute(f"""
                         WITH recent_matches AS MATERIALIZED (
-                            SELECT id, event_id, match_date,
+                            SELECT event_id, match_date,
                                    player1_id,
                                    CASE
                                        WHEN LOWER(TRIM(player1_faction)) IN ('space marines (astartes)', 'adeptus astartes') THEN 'Space Marines'
@@ -7326,11 +7330,11 @@ class PostgresDatabase:
                                    COALESCE(is_bye, FALSE) AS is_bye
                             FROM matches
                             WHERE {date_filter_sql}
-                            ORDER BY match_date DESC NULLS LAST
+                            ORDER BY match_date DESC
                             LIMIT {sample_limit}
                         ),
-                        match_sides AS MATERIALIZED (
-                            SELECT id, event_id, match_date,
+                        match_sides AS (
+                            SELECT event_id, match_date,
                                    player1_id AS player_id,
                                    p1_fac AS faction,
                                    CASE
@@ -7347,7 +7351,7 @@ class PostgresDatabase:
                             WHERE p1_fac IS NOT NULL AND p1_fac != '' AND p1_fac != 'Unknown Faction'
                               AND LOWER(p1_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various')
                             UNION ALL
-                            SELECT id, event_id, match_date,
+                            SELECT event_id, match_date,
                                    player2_id AS player_id,
                                    p2_fac AS faction,
                                    CASE
@@ -7729,7 +7733,7 @@ class PostgresDatabase:
                         }
                     }
 
-                    for k in (cache_key, resolved_legacy_key, raw_legacy_key):
+                    for k in cache_keys:
                         PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, res, max_size=200)
 
                     if not is_mock_cur:
@@ -7755,12 +7759,20 @@ class PostgresDatabase:
         """Pre-warms L1 and L2 (system_settings) Meta Intel caches for all standard timeframe presets."""
         target_presets = presets or ["90d", "30d", "60d", "180d", "1yr", "ytd", "all"]
         warmed = 0
-        for p in target_presets:
+        import concurrent.futures
+
+        def _warm_one(p: str) -> bool:
             try:
                 self.get_faction_meta_stats(timeframe=p, game_system=game_system)
-                warmed += 1
+                return True
             except Exception as e:
                 logger.warning(f"Notice warming Meta Intel preset {p} ({game_system}): {e}")
+                return False
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            for ok in pool.map(_warm_one, target_presets):
+                if ok:
+                    warmed += 1
         return warmed
 
 

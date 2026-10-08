@@ -282,6 +282,24 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertIn("matchup_matrix", db_content)
         self.assertIn("summary_kpis", db_content)
 
+    def test_meta_preset_cache_key_isolation(self):
+        PostgresDatabase._faction_meta_cache_dict = {}
+        PostgresDatabase.set_cached(
+            PostgresDatabase._faction_meta_cache_dict,
+            "preset_30d_40k",
+            {"factions": [], "summary_kpis": {"total_matches": 15000}},
+        )
+        PostgresDatabase.set_cached(
+            PostgresDatabase._faction_meta_cache_dict,
+            "preset_all_40k",
+            {"factions": [], "summary_kpis": {"total_matches": 50000}},
+        )
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        r30 = db.get_faction_meta_stats(timeframe="30d", game_system="40k")
+        rall = db.get_faction_meta_stats(timeframe="all", game_system="40k")
+        self.assertEqual(r30["summary_kpis"]["total_matches"], 15000)
+        self.assertEqual(rall["summary_kpis"]["total_matches"], 50000)
+
 
 if __name__ == "__main__":
     unittest.main()

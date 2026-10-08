@@ -2508,7 +2508,8 @@ async def api_faction_meta(
             return get_database().get_faction_meta_stats(
                 start_date=resolved_start,
                 end_date=resolved_end,
-                game_system=sys_val
+                game_system=sys_val,
+                timeframe=tf_norm or None
             )
         return await asyncio.to_thread(_fetch_meta)
     except Exception as e:
