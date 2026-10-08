@@ -215,6 +215,8 @@ class PostgresDatabase:
     _team_roster_cache_dict = {}
     _recommended_events_cache_dict = {}
     _player_tournaments_cache_dict = {}
+    _multi_player_tournaments_cache_dict = {}
+    _player_norm_name_map = {}
     _bcp_event_placings_cache_dict = {}
     _event_details_cache_dict = {}
     _community_overview_cache_dict = {}
@@ -266,6 +268,8 @@ class PostgresDatabase:
         cls._team_roster_cache_dict.clear()
         cls._recommended_events_cache_dict.clear()
         cls._player_tournaments_cache_dict.clear()
+        cls._multi_player_tournaments_cache_dict.clear()
+        cls._player_norm_name_map.clear()
         cls._bcp_event_placings_cache_dict.clear()
         cls._event_details_cache_dict.clear()
         cls._community_overview_cache_dict.clear()
@@ -5937,7 +5941,7 @@ class PostgresDatabase:
 
     def _persist_bcp_event_players_to_db_async(self, eid: str, active: List[Dict[str, Any]]) -> None:
         """Asynchronously persists BCP official placings and listIds into event_participants in Cloud SQL."""
-        if os.environ.get("ENABLE_BG_BCP_DB_PERSIST", "0") != "1":
+        if os.environ.get("ENABLE_BG_BCP_DB_PERSIST", "1") == "0":
             return
         if not eid or not active:
             return
@@ -5950,7 +5954,7 @@ class PostgresDatabase:
         def _bg_persist():
             try:
                 updates_by_id = []
-                updates_by_name = []
+                seen_keys = set()
                 for p in active:
                     if not isinstance(p, dict):
                         continue
@@ -5973,49 +5977,32 @@ class PostgresDatabase:
                     has_list_val = bool(list_id)
                     det_obj = p.get("subFaction") or p.get("detachment") or {}
                     det_name = str((det_obj.get("name") or "") if isinstance(det_obj, dict) else (det_obj or "")).strip() or None
-                    fn = str(u.get("firstName") or p.get("firstName") or "").strip()
-                    ln = str(u.get("lastName") or p.get("lastName") or "").strip()
-                    full = f"{fn} {ln}".strip() or str(p.get("name") or "").strip()
 
                     if not placing_num and not list_id and not bcp_ep_id and not det_name:
                         continue
-                    cand_ids = [k for k in {user_id, bcp_ep_id} if k]
-                    if cand_ids:
-                        updates_by_id.append((placing_num, bcp_ep_id or None, det_name, army_list_val, has_list_val, eid, cand_ids))
-                    if full:
-                        updates_by_name.append((placing_num, bcp_ep_id or None, det_name, army_list_val, has_list_val, eid, full.lower()))
+                    for k_id in (user_id, bcp_ep_id):
+                        if k_id and k_id not in seen_keys:
+                            seen_keys.add(k_id)
+                            updates_by_id.append((eid, k_id, placing_num, bcp_ep_id or None, det_name, army_list_val, has_list_val))
 
                 with self.get_connection() as conn:
                     with conn.cursor() as cur:
                         if updates_by_id:
-                            extras.execute_batch(
+                            extras.execute_values(
                                 cur,
                                 """
-                                UPDATE event_participants
-                                SET placement = COALESCE(%s, placement),
-                                    bcp_player_id = COALESCE(%s, bcp_player_id),
-                                    detachment = COALESCE(%s, NULLIF(detachment, '')),
-                                    army_list = COALESCE(%s, NULLIF(army_list, '')),
-                                    has_list_submitted = (COALESCE(has_list_submitted, FALSE) OR %s)
-                                WHERE event_id = %s AND player_id = ANY(%s);
+                                UPDATE event_participants AS ep
+                                SET placement = COALESCE(v.placement, ep.placement),
+                                    bcp_player_id = COALESCE(v.bcp_ep_id, ep.bcp_player_id),
+                                    detachment = COALESCE(v.det_name, NULLIF(ep.detachment, '')),
+                                    army_list = COALESCE(v.army_list_val, NULLIF(ep.army_list, '')),
+                                    has_list_submitted = (COALESCE(ep.has_list_submitted, FALSE) OR v.has_list_val)
+                                FROM (VALUES %s) AS v(event_id, player_id, placement, bcp_ep_id, det_name, army_list_val, has_list_val)
+                                WHERE ep.event_id = v.event_id AND ep.player_id = v.player_id;
                                 """,
                                 updates_by_id,
-                                page_size=200,
-                            )
-                        if updates_by_name:
-                            extras.execute_batch(
-                                cur,
-                                """
-                                UPDATE event_participants
-                                SET placement = COALESCE(%s, placement),
-                                    bcp_player_id = COALESCE(%s, bcp_player_id),
-                                    detachment = COALESCE(%s, NULLIF(detachment, '')),
-                                    army_list = COALESCE(%s, NULLIF(army_list, '')),
-                                    has_list_submitted = (COALESCE(has_list_submitted, FALSE) OR %s)
-                                WHERE event_id = %s AND LOWER(TRIM(full_name)) = %s;
-                                """,
-                                updates_by_name,
-                                page_size=200,
+                                template="(%s::text, %s::text, %s::int, %s::text, %s::text, %s::text, %s::boolean)",
+                                page_size=500,
                             )
                         if len(active) > 0:
                             cur.execute(
@@ -6176,6 +6163,8 @@ class PostgresDatabase:
             return
         pid_clean = str(player_id or "").strip()
         norm_name = str(player_norm_name or "").strip().lower()
+        if pid_clean and norm_name:
+            PostgresDatabase._player_norm_name_map[pid_clean] = norm_name
 
         missing_eids: List[str] = []
         seen_eids: Set[str] = set()
@@ -6197,19 +6186,19 @@ class PostgresDatabase:
         if missing_eids:
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
-            def _fetch_one_bcp_placing(eid: str, req_timeout: float = 0.55):
-                plc_payload = self.fetch_and_cache_bcp_event_placings(eid, timeout=req_timeout, persist_async=False)
+            def _fetch_one_bcp_placing(eid: str, req_timeout: float = 0.35):
+                plc_payload = self.fetch_and_cache_bcp_event_placings(eid, timeout=req_timeout, persist_async=True)
                 return eid, plc_payload
 
-            sync_eids = missing_eids[:14]
+            sync_eids = missing_eids[:6]
             bg_eids_set = set(missing_eids[len(sync_eids):])
 
             if sync_eids:
-                pool = ThreadPoolExecutor(max_workers=min(14, len(sync_eids)))
-                futs = {pool.submit(_fetch_one_bcp_placing, eid, 0.55): eid for eid in sync_eids}
+                pool = ThreadPoolExecutor(max_workers=min(6, len(sync_eids)))
+                futs = {pool.submit(_fetch_one_bcp_placing, eid, 0.35): eid for eid in sync_eids}
                 completed_sync = set()
                 try:
-                    for fut in as_completed(futs, timeout=0.65):
+                    for fut in as_completed(futs, timeout=0.40):
                         eid_done = futs[fut]
                         try:
                             _, plc_payload = fut.result()
@@ -6228,37 +6217,30 @@ class PostgresDatabase:
             bg_eids = [eid for eid in missing_eids if eid in bg_eids_set]
             if bg_eids:
                 def _bg_warm_bcp_placings(eids_to_warm: List[str], p_id: str, p_norm: str, target_list: List[Dict[str, Any]]):
-                    try:
-                        with ThreadPoolExecutor(max_workers=min(8, len(eids_to_warm))) as bg_pool:
-                            futs_bg = [bg_pool.submit(_fetch_one_bcp_placing, b_eid, 2.5) for b_eid in eids_to_warm]
-                            for fut_b in as_completed(futs_bg, timeout=12.0):
-                                try:
-                                    fut_b.result()
-                                except Exception:
-                                    pass
+                    def _apply_to_list(t_list: List[Dict[str, Any]]):
+                        for t_item in t_list:
+                            if not isinstance(t_item, dict):
+                                continue
+                            t_eid = str(t_item.get("event_id") or "").strip()
+                            plc_i = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, t_eid, ttl=3600)
+                            if isinstance(plc_i, dict) and plc_i.get("fetched_ok"):
+                                b_pl = (plc_i.get("by_id") or {}).get(p_id) or ((plc_i.get("by_name") or {}).get(p_norm) if p_norm else None)
+                                if b_pl and int(b_pl) > 0:
+                                    t_item["placement"] = int(b_pl)
+                                act_cnt = int(plc_i.get("active_count") or 0)
+                                if act_cnt > 0 or int(t_item.get("placement") or 0) > int(t_item.get("total_players") or 0):
+                                    t_item["total_players"] = max(int(t_item.get("total_players") or 0), act_cnt, int(t_item.get("placement") or 0))
 
-                        def _apply_to_list(t_list: List[Dict[str, Any]]):
-                            for t_item in t_list:
-                                if not isinstance(t_item, dict):
-                                    continue
-                                t_eid = str(t_item.get("event_id") or "").strip()
-                                plc_i = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, t_eid, ttl=3600)
-                                if isinstance(plc_i, dict) and plc_i.get("fetched_ok"):
-                                    b_pl = (plc_i.get("by_id") or {}).get(p_id) or ((plc_i.get("by_name") or {}).get(p_norm) if p_norm else None)
-                                    if b_pl and int(b_pl) > 0:
-                                        t_item["placement"] = int(b_pl)
-                                    act_cnt = int(plc_i.get("active_count") or 0)
-                                    if act_cnt > 0 or int(t_item.get("placement") or 0) > int(t_item.get("total_players") or 0):
-                                        t_item["total_players"] = max(int(t_item.get("total_players") or 0), act_cnt, int(t_item.get("placement") or 0))
-
+                    def _sync_all_player_caches():
                         if isinstance(target_list, list):
                             _apply_to_list(target_list)
-
                         for sys_k in ("40k", "aos", "all"):
                             c_list = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, f"{sys_k}:{p_id}", ttl=1800)
                             if isinstance(c_list, list):
                                 _apply_to_list(c_list)
-
+                            m_list = PostgresDatabase.get_cached(PostgresDatabase._multi_player_tournaments_cache_dict, f"{sys_k}:{p_id}", ttl=300)
+                            if isinstance(m_list, list):
+                                _apply_to_list(m_list)
                         try:
                             from elo import EloEngine
                             for wp_key, wp_entry in list(EloEngine._player_win_path_cache_dict.items()):
@@ -6280,8 +6262,47 @@ class PostgresDatabase:
                                                                 hp["total_players"] = int(ev_m["total_players"])
                         except Exception:
                             pass
+                        try:
+                            from auth import AuthManager
+                            for h_key, h_entry in list(AuthManager._HUB_CACHE.items()):
+                                if isinstance(h_key, tuple) and len(h_key) >= 2 and h_key[1] == p_id:
+                                    if isinstance(h_entry, tuple) and len(h_entry) == 2 and isinstance(h_entry[1], dict):
+                                        h_payload = h_entry[1]
+                                        ev_att = h_payload.get("events_attended")
+                                        if isinstance(ev_att, list):
+                                            _apply_to_list(ev_att)
+                                            ev_by_id = {str(ev.get("event_id") or ""): ev for ev in ev_att if isinstance(ev, dict)}
+                                            for hp in (h_payload.get("history") or []):
+                                                if isinstance(hp, dict):
+                                                    ev_m = ev_by_id.get(str(hp.get("event_id") or ""))
+                                                    if ev_m:
+                                                        if int(ev_m.get("placement") or 0) > 0:
+                                                            hp["placement"] = int(ev_m["placement"])
+                                                        if int(ev_m.get("total_players") or 0) > 0:
+                                                            hp["total_players"] = int(ev_m["total_players"])
+                        except Exception:
+                            pass
+
+                    bg_pool = ThreadPoolExecutor(max_workers=min(8, len(eids_to_warm)))
+                    try:
+                        futs_bg = [bg_pool.submit(_fetch_one_bcp_placing, b_eid, 2.5) for b_eid in eids_to_warm]
+                        completed_cnt = 0
+                        try:
+                            for fut_b in as_completed(futs_bg, timeout=25.0):
+                                try:
+                                    fut_b.result()
+                                    completed_cnt += 1
+                                    if completed_cnt % 5 == 0:
+                                        _sync_all_player_caches()
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                        _sync_all_player_caches()
                     except Exception:
                         pass
+                    finally:
+                        bg_pool.shutdown(wait=False, cancel_futures=True)
 
                 threading.Thread(
                     target=_bg_warm_bcp_placings,
@@ -6315,12 +6336,13 @@ class PostgresDatabase:
         cache_key = f"{system}:{player_id}"
         cached = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, cache_key, ttl=1800)
         if cached is not None:
+            p_norm = PostgresDatabase._player_norm_name_map.get(player_id, "")
             for t_item in cached:
                 if isinstance(t_item, dict):
                     t_eid = str(t_item.get("event_id") or "").strip()
                     plc_i = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, t_eid, ttl=3600)
                     if isinstance(plc_i, dict) and plc_i.get("fetched_ok"):
-                        b_pl = (plc_i.get("by_id") or {}).get(player_id)
+                        b_pl = (plc_i.get("by_id") or {}).get(player_id) or ((plc_i.get("by_name") or {}).get(p_norm) if p_norm else None)
                         if b_pl and int(b_pl) > 0:
                             t_item["placement"] = int(b_pl)
                         act_cnt = int(plc_i.get("active_count") or 0)
@@ -6373,7 +6395,6 @@ class PostgresDatabase:
                             e.id AS event_id,
                             (
                                 COALESCE(dep.direct_placement, nep.name_placement, 0) = 0
-                                AND COALESCE(e.total_players, 0) <= 250
                             ) AS needs_full_rank,
                             GREATEST(
                                 COALESCE(
@@ -6440,7 +6461,7 @@ class PostgresDatabase:
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
                         WHERE m.player1_id IS NOT NULL AND m.player1_id != ''
-                          AND m.player1_id = %(pid)s
+                          AND (m.player1_id = %(pid)s OR te.needs_full_rank)
                           AND (
                               m.winner_id IS NOT NULL
                               OR COALESCE(m.is_draw, FALSE) = TRUE
@@ -6479,7 +6500,7 @@ class PostgresDatabase:
                         FROM matches m
                         JOIN target_events te ON te.event_id = m.event_id
                         WHERE m.player2_id IS NOT NULL AND m.player2_id != '' AND COALESCE(m.is_bye, FALSE) = FALSE
-                          AND m.player2_id = %(pid)s
+                          AND (m.player2_id = %(pid)s OR te.needs_full_rank)
                           AND (
                               m.winner_id IS NOT NULL
                               OR COALESCE(m.is_draw, FALSE) = TRUE
@@ -6514,8 +6535,9 @@ class PostgresDatabase:
                             AVG(GREATEST(0.33, COALESCE(opp.win_pct, 0.33)))::numeric AS sos,
                             AVG(COALESCE(opp.wins, 0)::numeric)::numeric AS wins_sos
                         FROM event_match_outcomes emo
+                        JOIN target_events te ON te.event_id = emo.event_id
                         JOIN agg_match_players opp ON opp.event_id = emo.event_id AND opp.pid = emo.opp_id
-                        WHERE emo.opp_id IS NOT NULL
+                        WHERE te.needs_full_rank AND emo.opp_id IS NOT NULL
                         GROUP BY emo.event_id, emo.pid
                     ),
                     raw_ep AS (
@@ -6534,7 +6556,7 @@ class PostgresDatabase:
                             COALESCE(ep.dropped, FALSE) AS dropped
                         FROM event_participants ep
                         JOIN target_events te ON te.event_id = ep.event_id
-                        WHERE ep.player_id = %(pid)s
+                        WHERE (ep.player_id = %(pid)s OR te.needs_full_rank)
                     ),
                     matched_ep AS (
                         SELECT
@@ -6553,7 +6575,7 @@ class PostgresDatabase:
                             SELECT amp.event_id, amp.pid, rep.ep_placement, rep.ep_pod_num, rep.ep_bp, rep.ep_faction, rep.dropped
                             FROM agg_match_players amp
                             JOIN raw_ep rep ON rep.event_id = amp.event_id AND amp.norm_name != '' AND rep.norm_name = amp.norm_name
-                            WHERE rep.pid != amp.pid
+                            WHERE amp.pid = %(pid)s AND rep.pid != amp.pid
                         ) mep_u
                         GROUP BY event_id, pid
                     ),
@@ -6569,7 +6591,8 @@ class PostgresDatabase:
                         FROM raw_ep rep
                         LEFT JOIN agg_match_players amp_id ON amp_id.event_id = rep.event_id AND amp_id.pid = rep.pid
                         LEFT JOIN agg_match_players amp_nm ON amp_nm.event_id = rep.event_id AND rep.norm_name != '' AND amp_nm.norm_name = rep.norm_name
-                        WHERE amp_id.pid IS NULL AND amp_nm.pid IS NULL
+                        WHERE (rep.pid = %(pid)s OR rep.ep_placement IS NOT NULL)
+                          AND amp_id.pid IS NULL AND amp_nm.pid IS NULL
                         GROUP BY rep.event_id, COALESCE(NULLIF(rep.norm_name, ''), rep.pid)
                     ),
                     combined_competitors AS (
@@ -6659,19 +6682,40 @@ class PostgresDatabase:
                         e.city,
                         e.state,
                         e.country,
-                        COALESCE(
-                            NULLIF(e.total_players, 0),
-                            CASE
-                                WHEN FALSE AND (e.raw_json->>'totalPlayers') ~ '^[0-9]+$'
-                                THEN NULLIF((e.raw_json->>'totalPlayers')::int, 0)
-                                ELSE NULL
-                            END,
-                            (SELECT COUNT(*)::int FROM event_participants ep_cnt WHERE ep_cnt.event_id = e.id),
-                            0
+                        GREATEST(
+                            COALESCE(
+                                NULLIF(e.total_players, 0),
+                                CASE
+                                    WHEN FALSE AND (e.raw_json->>'totalPlayers') ~ '^[0-9]+$'
+                                    THEN NULLIF((e.raw_json->>'totalPlayers')::int, 0)
+                                    ELSE NULL
+                                END,
+                                0
+                            ),
+                            COALESCE(rc.computed_total_players, 0),
+                            COALESCE(
+                                rc.ep_placement,
+                                nep.name_placement,
+                                CASE
+                                    WHEN te.needs_full_rank AND COALESCE(rc.matches_played, 0) > 0 AND COALESCE(rc.computed_total_players, 0) > 1
+                                    THEN rc.computed_rank
+                                    ELSE 0
+                                END,
+                                0
+                            )
                         ) AS total_players, 
                         COALESCE(e.num_rounds, 0) AS num_rounds,
                         COALESCE(rc.registered_faction, 'Unknown') AS registered_faction,
-                        COALESCE(rc.ep_placement, nep.name_placement, 0) AS placement,
+                        COALESCE(
+                            rc.ep_placement,
+                            nep.name_placement,
+                            CASE
+                                WHEN te.needs_full_rank AND COALESCE(rc.matches_played, 0) > 0 AND COALESCE(rc.computed_total_players, 0) > 1
+                                THEN rc.computed_rank
+                                ELSE NULL
+                            END,
+                            0
+                        ) AS placement,
                         COALESCE(rc.matches_played, 0) AS matches_played,
                         COALESCE(rc.wins, 0) AS wins,
                         COALESCE(rc.losses, 0) AS losses,
@@ -6754,7 +6798,9 @@ class PostgresDatabase:
 
         for pid in cleaned_pids:
             cache_key = f"{system}:{pid}"
-            cached = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, cache_key, ttl=300)
+            cached = PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, cache_key, ttl=1800)
+            if cached is None:
+                cached = PostgresDatabase.get_cached(PostgresDatabase._multi_player_tournaments_cache_dict, cache_key, ttl=300)
             if cached is not None:
                 results[pid] = cached
             else:
@@ -6977,8 +7023,11 @@ class PostgresDatabase:
                                 bcp_pl = (plc_info.get("by_id") or {}).get(pid)
                                 if bcp_pl and int(bcp_pl) > 0:
                                     t["placement"] = int(bcp_pl)
+                                act_cnt = int(plc_info.get("active_count") or 0)
+                                if act_cnt > 0 or int(t.get("placement") or 0) > int(t.get("total_players") or 0):
+                                    t["total_players"] = max(int(t.get("total_players") or 0), act_cnt, int(t.get("placement") or 0))
                         results[pid] = t_list
-                        PostgresDatabase.set_cached(PostgresDatabase._player_tournaments_cache_dict, f"{system}:{pid}", t_list)
+                        PostgresDatabase.set_cached(PostgresDatabase._multi_player_tournaments_cache_dict, f"{system}:{pid}", t_list)
                 except Exception as e:
                     conn.rollback()
                     logger.warning(f"Error in get_multiple_players_tournaments: {e}")

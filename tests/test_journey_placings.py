@@ -325,6 +325,57 @@ class TestJourneyPlacings(unittest.TestCase):
         self.assertIn("userRegData = synthesizeClientUserEventRegistration(ev, userRegData);", js_code)
         self.assertIn("event-hub-participant-banner", js_code)
 
+    def test_full_field_computed_rank_and_multi_player_cache_isolation(self):
+        PostgresDatabase._player_tournaments_cache_dict.clear()
+        PostgresDatabase._multi_player_tournaments_cache_dict.clear()
+
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_cursor.__enter__.return_value = mock_cursor
+        db.get_connection = MagicMock(return_value=mock_conn)
+        mock_conn.cursor.return_value = mock_cursor
+
+        mock_cursor.fetchall.return_value = [
+            {
+                "player_id": "Te1Q9Ip3By",
+                "event_id": "VAiZ9vjF61Rk",
+                "event_name": "Lone Star Open 2026 - Warhammer 40k Champs",
+                "event_date": "2026-07-19",
+                "city": "Allen",
+                "state": "TX",
+                "country": "US",
+                "total_players": 280,
+                "num_rounds": 6,
+                "registered_faction": "Genestealer Cults",
+                "placement": 0,
+                "matches_played": 6,
+                "wins": 6,
+                "losses": 0,
+                "draws": 0,
+                "total_battle_points": 546,
+            }
+        ]
+        multi_res = db.get_multiple_players_tournaments(["Te1Q9Ip3By"], game_system="40k")
+        self.assertIn("Te1Q9Ip3By", multi_res)
+        # Ensure get_multiple_players_tournaments does NOT pollute _player_tournaments_cache_dict
+        self.assertIsNone(PostgresDatabase.get_cached(PostgresDatabase._player_tournaments_cache_dict, "40k:Te1Q9Ip3By"))
+        self.assertIsNotNone(PostgresDatabase.get_cached(PostgresDatabase._multi_player_tournaments_cache_dict, "40k:Te1Q9Ip3By"))
+
+        mock_cursor.reset_mock()
+        mock_cursor.fetchall.return_value = []
+        with patch.object(db, "_enrich_tournaments_with_bcp_placings"):
+            db.get_player_tournaments("Te1Q9Ip3By", game_system="40k")
+        single_sql = mock_cursor.execute.call_args[0][0]
+        self.assertIn("OR te.needs_full_rank", single_sql)
+        self.assertIn("WHEN te.needs_full_rank AND COALESCE(rc.matches_played, 0) > 0 AND COALESCE(rc.computed_total_players, 0) > 1", single_sql)
+
+        with open("web/js/my_hub.js", "r", encoding="utf-8") as f:
+            my_hub_js = f.read()
+        self.assertIn("parsed._journeySchemaVer === 4", my_hub_js)
+        self.assertIn("data._journeySchemaVer = 4;", my_hub_js)
+
 
 if __name__ == "__main__":
     unittest.main()

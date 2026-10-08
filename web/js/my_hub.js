@@ -193,8 +193,12 @@ async function loadMyHubDashboard() {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && (!parsed.player_id || parsed.player_id !== 'p_innes')) {
-          const hasValidJourneyPlacements = !Array.isArray(parsed.history) || parsed.history.length === 0 || (Array.isArray(parsed.events_attended) && parsed.events_attended.length > 0);
-          if (parsed.player && typeof parsed.player === 'object' && parsed._journeySchemaVer === 3 && hasValidJourneyPlacements) {
+          const hasValidJourneyPlacements = !Array.isArray(parsed.history) || parsed.history.length === 0 || (
+            Array.isArray(parsed.events_attended) &&
+            parsed.events_attended.length > 0 &&
+            !parsed.events_attended.some(ev => Number(ev && ev.wins || 0) === 0 && Number(ev && ev.losses || 0) >= 2 && Number(ev && ev.placement || 0) === 1)
+          );
+          if (parsed.player && typeof parsed.player === 'object' && parsed._journeySchemaVer === 4 && hasValidJourneyPlacements) {
             cachedData = parsed;
           } else {
             localStorage.removeItem(cacheStorageKey);
@@ -380,7 +384,7 @@ async function loadMyHubDashboard() {
     }
 
     data._gameSystem = gs;
-    data._journeySchemaVer = 3;
+    data._journeySchemaVer = 4;
     myHubData = data;
     try {
       localStorage.setItem(cacheStorageKey, JSON.stringify(data));
