@@ -4550,6 +4550,7 @@ async def api_tracker_sync_dice_tray(match_id: str, request: Request):
 
     room = TRACKER_ROOMS[match_id]
     tray = body.get("tray", [])
+    trays = body.get("trays")
     target = int(body.get("target", 0))
     history = body.get("history")
 
@@ -4559,6 +4560,9 @@ async def api_tracker_sync_dice_tray(match_id: str, request: Request):
     room["state"]["dice_target"] = target
     room["dice_tray"] = tray
     room["dice_target"] = target
+    if isinstance(trays, dict):
+        room["state"]["dice_trays"] = trays
+        room["dice_trays"] = trays
     if history is not None:
         room["state"]["dice_history"] = history
         room["dice_history"] = history
@@ -4569,6 +4573,8 @@ async def api_tracker_sync_dice_tray(match_id: str, request: Request):
             "dice_tray": tray,
             "dice_target": target
         }
+        if isinstance(trays, dict):
+            update_fields["dice_trays"] = trays
         if history is not None:
             update_fields["dice_history"] = history
         fs_engine.update_room(match_id, update_fields)
@@ -4581,6 +4587,7 @@ async def api_tracker_sync_dice_tray(match_id: str, request: Request):
         "type": "dice_tray",
         "sender": body.get("client_id", "anon"),
         "tray": tray,
+        "trays": room.get("dice_trays"),
         "target": target
     }
     if history is not None:
@@ -4591,7 +4598,7 @@ async def api_tracker_sync_dice_tray(match_id: str, request: Request):
         except Exception:
             pass
 
-    return {"success": True, "tray": tray, "target": target}
+    return {"success": True, "tray": tray, "trays": room.get("dice_trays"), "target": target}
 
 @router.post("/api/tracker/room/{match_id}/dice_roll", summary="Broadcast live dice roll to both players in room")
 async def api_tracker_roll_dice(match_id: str, request: Request):
@@ -4618,6 +4625,7 @@ async def api_tracker_roll_dice(match_id: str, request: Request):
         "player_name": body.get("player_name") or "Player",
         "player_num": int(body.get("player_num") or 1),
         "label": body.get("label") or "Dice Roll",
+        "mode": body.get("mode") or "roll",
         "dice_count": int(body.get("dice_count") or 1),
         "die_type": body.get("die_type") or "D6",
         "target": int(body.get("target") or 0),
@@ -4629,14 +4637,15 @@ async def api_tracker_roll_dice(match_id: str, request: Request):
         "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
     }
 
-    # Keep last 50 rolls in room history
+    # Keep last 200 rolls in room history for accurate match-wide distribution
     if "dice_history" not in room:
         room["dice_history"] = []
     room["dice_history"].append(roll_data)
-    if len(room["dice_history"]) > 50:
-        room["dice_history"] = room["dice_history"][-50:]
+    if len(room["dice_history"]) > 200:
+        room["dice_history"] = room["dice_history"][-200:]
 
     tray = body.get("tray")
+    trays = body.get("trays")
     target = int(body.get("target", 0))
 
     if "state" not in room or not isinstance(room["state"], dict):
@@ -4644,6 +4653,9 @@ async def api_tracker_roll_dice(match_id: str, request: Request):
     if tray is not None:
         room["state"]["dice_tray"] = tray
         room["dice_tray"] = tray
+    if isinstance(trays, dict):
+        room["state"]["dice_trays"] = trays
+        room["dice_trays"] = trays
     room["state"]["dice_target"] = target
     room["state"]["dice_history"] = room["dice_history"]
     room["dice_target"] = target
@@ -4657,6 +4669,8 @@ async def api_tracker_roll_dice(match_id: str, request: Request):
         }
         if tray is not None:
             fs_updates["dice_tray"] = tray
+        if isinstance(trays, dict):
+            fs_updates["dice_trays"] = trays
         fs_engine.update_room(match_id, fs_updates)
     except Exception:
         pass
@@ -4668,6 +4682,7 @@ async def api_tracker_roll_dice(match_id: str, request: Request):
         "sender": body.get("client_id", "anon"),
         "roll": roll_data,
         "tray": tray,
+        "trays": room.get("dice_trays"),
         "target": target,
         "history": room["dice_history"]
     }
@@ -4681,6 +4696,7 @@ async def api_tracker_roll_dice(match_id: str, request: Request):
         "success": True,
         "roll": roll_data,
         "tray": tray,
+        "trays": room.get("dice_trays"),
         "target": target
     }
 

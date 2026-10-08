@@ -6,9 +6,27 @@ import asyncio
 import websockets
 import base64
 import os
+import socket
 
 ARTIFACT_DIR = '/usr/local/google/home/hsiehjun/.gemini/jetski/brain/a6253a1a-ca8f-4466-9cc6-340c885b9577'
 DEV_SERVER_PORT = 5178
+
+def is_port_in_use(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('127.0.0.1', port)) == 0
+
+server_proc = None
+if not is_port_in_use(DEV_SERVER_PORT):
+    print(f"Starting local server on port {DEV_SERVER_PORT}...")
+    server_proc = subprocess.Popen(
+        ['python3', 'server.py', '--host', '127.0.0.1', '--port', str(DEV_SERVER_PORT)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    for _ in range(50):
+        if is_port_in_use(DEV_SERVER_PORT):
+            break
+        time.sleep(0.3)
 
 chrome_proc = subprocess.Popen([
     '/usr/bin/google-chrome',
@@ -17,7 +35,7 @@ chrome_proc = subprocess.Popen([
     '--no-sandbox',
     '--disable-setuid-sandbox',
     '--remote-debugging-port=9250',
-    '--user-data-dir=/tmp/chrome_test_da_dice_v2',
+    '--user-data-dir=/tmp/chrome_test_dual_dice_v2',
     '--window-size=1440,900',
     '--hide-scrollbars'
 ])
@@ -60,79 +78,271 @@ try:
             cid += 1
             await cdp_call(ws, cid, 'Runtime.enable')
 
+            # Seed auth session & match state before page scripts run so verifySession() stays on /11th/tracker/play
+            cid += 1
+            await cdp_call(ws, cid, 'Page.addScriptToEvaluateOnNewDocument', {
+                'source': '''
+                    try {
+                        localStorage.setItem('elo_auth_token', 'test_token_dual_dice');
+                        localStorage.setItem('native_session_token', 'test_token_dual_dice');
+                        localStorage.setItem('native_user_profile', JSON.stringify({
+                            id: 1,
+                            email: 'commander@omnitactica.com',
+                            display_name: 'Commander Lion'
+                        }));
+                        localStorage.setItem('gdm-11e-tracker-state', JSON.stringify({
+                            match_id: 'WH40K-TEST01',
+                            round: 2,
+                            game: {
+                                p1Name: 'Commander Lion',
+                                p2Name: 'Kharn the Betrayer',
+                                p1Faction: 'Dark Angels',
+                                p2Faction: 'World Eaters'
+                            },
+                            p1: { score: 35, battleReady: true },
+                            p2: { score: 30, battleReady: true }
+                        }));
+                        sessionStorage.setItem('gt_room_handoff', JSON.stringify({
+                            matchId: 'WH40K-TEST01',
+                            ts: Date.now()
+                        }));
+                    } catch (e) {}
+                '''
+            })
+
             # -------------------------------------------------------------
-            # TEST 1: DESKTOP VIEWPORT (1440 x 900) - Game Tracker Dice Tray
+            # TEST 1: DESKTOP VIEWPORT (1440 x 900) - Dual-Player Dice Roller
             # -------------------------------------------------------------
-            print('\n=== 1. DESKTOP VIEWPORT TEST (1440x900) - DARK ANGELS DICE TRAY ===')
+            print('\n=== 1. DESKTOP VIEWPORT TEST (1440x900) - DUAL-PLAYER DICE ROLLER ===')
             cid += 1
             await cdp_call(ws, cid, 'Emulation.setDeviceMetricsOverride', {
                 'width': 1440, 'height': 900, 'deviceScaleFactor': 1, 'mobile': False
             })
             cid += 1
-            await cdp_call(ws, cid, 'Page.navigate', {'url': f'http://127.0.0.1:{DEV_SERVER_PORT}/11th/tracker/play'})
-            await asyncio.sleep(3.0)
+            await cdp_call(ws, cid, 'Page.navigate', {'url': f'http://127.0.0.1:{DEV_SERVER_PORT}/11th/tracker/play?match_id=WH40K-TEST01'})
+            await asyncio.sleep(2.5)
 
-            # Equip Dark Angels Caliban Dice in localStorage and open dice tray
+            # Open dice roller and equip custom Armory skins for Player 1 and Player 2
             cid += 1
-            await eval_js(ws, cid, '''
+            setup_info = await eval_js(ws, cid, '''
                 (() => {
-                    localStorage.setItem('omnitactica_active_dice', 'dice_40k_dark_angels');
-                    localStorage.setItem('gt-dice-visible', 'true');
-                    if (window.Armory && typeof window.Armory.equipItem === 'function') {
-                        window.Armory.equipItem('active_dice', 'dice_40k_dark_angels', true);
-                    }
-                    if (window.gtToggleDiceRoller) {
-                        const m = document.getElementById('gt-dice-roller-modal');
-                        if (!m || m.style.display === 'none') {
-                            window.gtToggleDiceRoller();
-                        }
-                    }
-                })()
-            ''')
-            await asyncio.sleep(1.0)
+                    document.body.classList.add('gt-role-verified');
+                    const ov = document.getElementById('gt-loading-overlay');
+                    if (ov) ov.classList.add('gt-loading-hidden');
 
-            # Add 20 dice and execute roll
-            cid += 1
-            await eval_js(ws, cid, '''
-                (() => {
-                    if (window.gtSetDiceTarget) window.gtSetDiceTarget(4);
-                    if (window.gtSetDiceCount) window.gtSetDiceCount(20);
-                    if (window.gtExecuteDiceRoll) window.gtExecuteDiceRoll();
-                })()
-            ''')
-            await asyncio.sleep(1.5)
+                    window.gtClearDiceHistory();
+                    window.gtClearTray(1);
+                    window.gtClearTray(2);
 
-            # Check dice tray elements for Dark Angels skin and 6s
-            tray_info = await eval_js(ws, cid, '''
-                (() => {
-                    const grid = document.querySelector('.gt-dice-grid');
-                    const skin = grid ? grid.getAttribute('data-dice-skin') : null;
-                    const isCustom = grid ? grid.getAttribute('data-custom-dice') : null;
-                    const sigils = document.querySelectorAll('.gt-die-faction-six-sigil');
-                    const svgIcons = Array.from(sigils).map(s => {
-                        const svg = s.querySelector('svg');
-                        return {
-                            title: s.getAttribute('title'),
-                            hasSvg: !!svg,
-                            svgClass: svg ? svg.getAttribute('class') : null,
-                            svgViewBox: svg ? svg.getAttribute('viewBox') : null
-                        };
-                    });
-                    const crits = document.querySelectorAll('.gt-die-crit');
+                    let m = document.getElementById('gt-dice-roller-modal');
+                    if (!m || m.style.display === 'none') {
+                        window.gtToggleDiceRoller();
+                        m = document.getElementById('gt-dice-roller-modal');
+                    }
+                    // Set Player 1 skin to Dark Angels Caliban Dice, Player 2 skin to World Eaters Skull-Brass Dice
+                    window.gtSetPlayerDiceSkin(1, 'dice_40k_dark_angels');
+                    window.gtSetPlayerDiceSkin(2, 'dice_40k_world_eaters');
                     return {
-                        gridSkin: skin,
-                        isCustomDice: isCustom,
-                        critsCount: crits.length,
-                        sigilsCount: sigils.length,
-                        svgIcons: svgIcons
+                        modalVisible: Boolean(m && m.style.display !== 'none'),
+                        hasP1Card: !!document.getElementById('gt-dice-panel-p1'),
+                        hasP2Card: !!document.getElementById('gt-dice-panel-p2'),
+                        oldThresholdButtonsCount: document.querySelectorAll('.gt-dice-target-btn').length
                     };
                 })()
             ''')
-            print("Dice Tray Dark Angels Verification:", json.dumps(tray_info, indent=2))
-            assert tray_info['gridSkin'] == 'dice_40k_dark_angels', f"Expected dice_40k_dark_angels, got {tray_info['gridSkin']}"
-            assert tray_info['sigilsCount'] > 0, "No 6th-face sigils found on critical 6s!"
-            assert "Winged Sword" in tray_info['svgIcons'][0]['title'], "Sigil title does not mention Winged Sword!"
-            await take_screenshot(ws, cid, 'test_final_desktop_dark_angels_dice_tracker_winged_sword_6s.png')
+            print("Initial Modal Setup:", json.dumps(setup_info, indent=2))
+            assert setup_info['modalVisible'], "Dice modal should be visible!"
+            assert setup_info['hasP1Card'] and setup_info['hasP2Card'], "Both Player 1 and Player 2 dice cards must exist!"
+            assert setup_info['oldThresholdButtonsCount'] == 0, "Old confusing threshold buttons must be removed!"
+
+            # Test +1, +5, +10, +20, and Clear buttons for Player 1
+            cid += 1
+            add_clear_test = await eval_js(ws, cid, '''
+                (() => {
+                    window.gtClearTray(1);
+                    const c0 = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip').length;
+                    window.gtAddDice(1, 1);
+                    window.gtAddDice(5, 1);
+                    window.gtAddDice(10, 1);
+                    const c16 = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip').length;
+                    window.gtClearTray(1);
+                    const afterClear = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip').length;
+                    window.gtAddDice(20, 1);
+                    const c20 = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip').length;
+                    return { c0, c16, afterClear, c20 };
+                })()
+            ''')
+            print("Add/Clear Tray Test:", json.dumps(add_clear_test, indent=2))
+            assert add_clear_test['c16'] == 16, f"Expected 16 dice after +1 +5 +10, got {add_clear_test['c16']}"
+            assert add_clear_test['afterClear'] == 0, f"Expected 0 dice after Clear, got {add_clear_test['afterClear']}"
+            assert add_clear_test['c20'] == 20, f"Expected 20 dice after +20, got {add_clear_test['c20']}"
+
+            # Roll 20 dice for Player 1 and 15 dice for Player 2
+            cid += 1
+            await eval_js(ws, cid, '''
+                (() => {
+                    window.gtExecuteDiceRoll(1, 'all');
+                    window.gtClearTray(2);
+                    window.gtAddDice(10, 2);
+                    window.gtAddDice(5, 2);
+                    window.gtExecuteDiceRoll(2, 'all');
+                })()
+            ''')
+            await asyncio.sleep(0.8)
+
+            # Verify initial distribution for Player 1 (20 Rolled) and Player 2 (15 Rolled)
+            cid += 1
+            dist_initial = await eval_js(ws, cid, '''
+                (() => {
+                    const p1DistText = document.getElementById('gt-dice-panel-p1').textContent;
+                    const p2DistText = document.getElementById('gt-dice-panel-p2').textContent;
+                    const d1 = window.computePlayerDiceDistribution(1);
+                    const d2 = window.computePlayerDiceDistribution(2);
+                    return {
+                        p1TotalRolled: d1.totalRolled,
+                        p2TotalRolled: d2.totalRolled,
+                        p1Has20Rolled: p1DistText.includes('(20 Rolled)'),
+                        p2Has15Rolled: p2DistText.includes('(15 Rolled)')
+                    };
+                })()
+            ''')
+            print("Initial Distribution Check:", json.dumps(dist_initial, indent=2))
+            assert dist_initial['p1TotalRolled'] == 20 and dist_initial['p1Has20Rolled'], "Player 1 distribution should show (20 Rolled) after initial roll of 20!"
+            assert dist_initial['p2TotalRolled'] == 15 and dist_initial['p2Has15Rolled'], "Player 2 distribution should show (15 Rolled) after initial roll of 15!"
+
+            # Test face selection (All, 6, 5, 4, 3, 2, 1, Unselect All) + clicking individual dice
+            cid += 1
+            selection_test = await eval_js(ws, cid, '''
+                (() => {
+                    // Select All
+                    window.gtSelectAll(true, 1);
+                    const allSelected = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip.selected').length;
+                    // Unselect All
+                    window.gtSelectAll(false, 1);
+                    const noneSelected = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip.selected').length;
+                    // Toggle face 1 and face 2 (e.g. to reroll 1s and 2s)
+                    window.gtToggleSelectFace(1, 1);
+                    window.gtToggleSelectFace(2, 1);
+                    const lowSelected = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip.selected').length;
+                    // Also click the first die in tray to toggle its selection
+                    window.gtToggleDieSelection(0, 1);
+                    const afterClickFirst = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip.selected').length;
+                    // Select exactly 4 dice on Player 1 for deterministic reroll math test
+                    window.gtSelectAll(false, 1);
+                    window.gtToggleDieSelection(0, 1);
+                    window.gtToggleDieSelection(1, 1);
+                    window.gtToggleDieSelection(2, 1);
+                    window.gtToggleDieSelection(3, 1);
+                    const exactFourSelected = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip.selected').length;
+
+                    // Also select 6 dice on Player 2 so screenshot shows selection states & Roll/Reroll buttons on both players
+                    window.gtSelectAll(false, 2);
+                    for (let i = 0; i < 6; i++) window.gtToggleDieSelection(i, 2);
+                    const p2Selected = document.querySelectorAll('#gt-dice-panel-p2 .gt-die-pip.selected').length;
+
+                    return {
+                        allSelected,
+                        noneSelected,
+                        lowSelected,
+                        afterClickFirst,
+                        exactFourSelected,
+                        p2Selected
+                    };
+                })()
+            ''')
+            print("Selection Controls Test:", json.dumps(selection_test, indent=2))
+            assert selection_test['allSelected'] == 20, "Select All should select all 20 dice!"
+            assert selection_test['noneSelected'] == 0, "Unselect All should select 0 dice!"
+            assert selection_test['exactFourSelected'] == 4, "Clicking 4 dice should select 4 dice!"
+            assert selection_test['p2Selected'] == 6, "Clicking 6 dice on P2 should select 6 dice!"
+
+            # Capture Desktop screenshot showing selection states & dual-action Roll Selected / Reroll in Tray buttons
+            await take_screenshot(ws, cid, 'test_dice_desktop_dual_selection.png')
+
+            # Now test REROLL in place on Player 1 (rerolling those 4 selected dice) -> Total dice rolled in distribution must become 20 + 4 = 24!
+            cid += 1
+            await eval_js(ws, cid, '''
+                (() => {
+                    window.gtExecuteDiceRoll(1, 'reroll_in_place');
+                })()
+            ''')
+            await asyncio.sleep(0.8)
+
+            cid += 1
+            reroll_dist_check = await eval_js(ws, cid, '''
+                (() => {
+                    const p1Card = document.getElementById('gt-dice-panel-p1');
+                    const p1Text = p1Card ? p1Card.textContent : '';
+                    const trayCount = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip').length;
+                    const dist = window.computePlayerDiceDistribution(1);
+                    return {
+                        trayCount,
+                        distTotalRolled: dist.totalRolled,
+                        has24RolledInDistribution: p1Text.includes('(24 Rolled)'),
+                        hasRerollBadgeInHistory: p1Text.includes('Reroll 4D6')
+                    };
+                })()
+            ''')
+            print("Reroll Distribution Verification (20 initial + 4 rerolled = 24 dice):", json.dumps(reroll_dist_check, indent=2))
+            assert reroll_dist_check['trayCount'] == 20, "Reroll in place should keep all 20 dice in the tray!"
+            assert reroll_dist_check['distTotalRolled'] == 24, f"Expected 24 total rolled dice in distribution, got {reroll_dist_check['distTotalRolled']}"
+            assert reroll_dist_check['has24RolledInDistribution'], "Rerolling 4 dice after rolling 20 dice must show (24 Rolled) in distribution!"
+            assert reroll_dist_check['hasRerollBadgeInHistory'], "Roll history should show Reroll 4D6 badge!"
+
+            # Now test "Roll X Selected" on Player 2 (rolling only the 6 selected dice) -> Total dice rolled becomes 15 + 6 = 21!
+            cid += 1
+            await eval_js(ws, cid, '''
+                (() => {
+                    window.gtExecuteDiceRoll(2, 'selected_only');
+                })()
+            ''')
+            await asyncio.sleep(0.8)
+
+            cid += 1
+            p2_after_selected_roll = await eval_js(ws, cid, '''
+                (() => {
+                    const p2Card = document.getElementById('gt-dice-panel-p2');
+                    const p2Text = p2Card ? p2Card.textContent : '';
+                    const trayCount = document.querySelectorAll('#gt-dice-panel-p2 .gt-die-pip').length;
+                    const dist = window.computePlayerDiceDistribution(2);
+                    return {
+                        trayCount,
+                        distTotalRolled: dist.totalRolled,
+                        has21RolledInDistribution: p2Text.includes('(21 Rolled)')
+                    };
+                })()
+            ''')
+            print("Player 2 Roll Selected Only Verification (15 initial + 6 selected = 21 total):", json.dumps(p2_after_selected_roll, indent=2))
+            assert p2_after_selected_roll['trayCount'] == 6, f"Expected 6 dice in tray after rolling 6 selected, got {p2_after_selected_roll['trayCount']}"
+            assert p2_after_selected_roll['distTotalRolled'] == 21, f"Expected 21 total rolled dice for P2, got {p2_after_selected_roll['distTotalRolled']}"
+            assert p2_after_selected_roll['has21RolledInDistribution'], "Player 2 distribution should show (21 Rolled)!"
+
+            # Capture Desktop screenshot after rerolls & distribution update
+            await take_screenshot(ws, cid, 'test_dice_desktop_after_reroll_distribution.png')
+
+            # Test Minimize and Expand on Desktop
+            cid += 1
+            min_check = await eval_js(ws, cid, '''
+                (() => {
+                    window.gtMinimizeDiceRoller(true);
+                    const m = document.getElementById('gt-dice-roller-modal');
+                    const rect = m.getBoundingClientRect();
+                    return {
+                        isMinimizedClass: m.classList.contains('is-minimized'),
+                        height: rect.height,
+                        width: rect.width
+                    };
+                })()
+            ''')
+            print("Minimized Bar Check:", json.dumps(min_check, indent=2))
+            assert min_check['isMinimizedClass'], "Modal should have is-minimized class!"
+            assert min_check['height'] < 90, f"Minimized pill should be compact (<90px tall), got {min_check['height']}"
+            await take_screenshot(ws, cid, 'test_dice_desktop_minimized.png')
+
+            # Expand back
+            cid += 1
+            await eval_js(ws, cid, 'window.gtMinimizeDiceRoller(false)')
+            await asyncio.sleep(0.4)
 
             # -------------------------------------------------------------
             # TEST 2: TABLET VIEWPORT (820 x 1180)
@@ -142,8 +352,8 @@ try:
             await cdp_call(ws, cid, 'Emulation.setDeviceMetricsOverride', {
                 'width': 820, 'height': 1180, 'deviceScaleFactor': 1.5, 'mobile': False
             })
-            await asyncio.sleep(1.5)
-            await take_screenshot(ws, cid, 'test_final_tablet_dark_angels_dice_tracker_winged_sword_6s.png')
+            await asyncio.sleep(0.8)
+            await take_screenshot(ws, cid, 'test_dice_tablet_dual_view.png')
 
             # -------------------------------------------------------------
             # TEST 3: MOBILE VIEWPORT (390 x 844)
@@ -153,13 +363,60 @@ try:
             await cdp_call(ws, cid, 'Emulation.setDeviceMetricsOverride', {
                 'width': 390, 'height': 844, 'deviceScaleFactor': 3, 'mobile': True
             })
-            await asyncio.sleep(1.5)
-            await take_screenshot(ws, cid, 'test_final_mobile_dark_angels_dice_tracker_winged_sword_6s.png')
+            await asyncio.sleep(0.8)
 
-            print("\n✅ All automated tests for Dark Angels Caliban Dice and Winged Sword 6s passed successfully!")
+            # Select a couple of dice on Player 1 so mobile screenshot shows selection bar + dual roll/reroll buttons
+            cid += 1
+            mobile_p1_info = await eval_js(ws, cid, '''
+                (() => {
+                    window.gtSwitchDicePlayerTab(1);
+                    window.gtSelectAll(false, 1);
+                    window.gtToggleDieSelection(0, 1);
+                    window.gtToggleDieSelection(1, 1);
+                    window.gtToggleDieSelection(2, 1);
+                    const m = document.getElementById('gt-dice-roller-modal');
+                    const rect = m.getBoundingClientRect();
+                    return {
+                        modalWidth: rect.width,
+                        modalHeight: rect.height,
+                        p1Visible: getComputedStyle(document.getElementById('gt-dice-panel-p1')).display !== 'none',
+                        p2Visible: getComputedStyle(document.getElementById('gt-dice-panel-p2')).display !== 'none'
+                    };
+                })()
+            ''')
+            print("Mobile Player 1 View Check:", json.dumps(mobile_p1_info, indent=2))
+            assert mobile_p1_info['p1Visible'] and not mobile_p1_info['p2Visible'], "On mobile, active tab Player 1 should be visible and Player 2 hidden!"
+            assert mobile_p1_info['modalHeight'] > 650, f"On mobile, dice roller should take up most of the screen (>650px), got {mobile_p1_info['modalHeight']}"
+            await take_screenshot(ws, cid, 'test_dice_mobile_p1_full.png')
+
+            # Switch to Player 2 tab on Mobile
+            cid += 1
+            mobile_p2_info = await eval_js(ws, cid, '''
+                (() => {
+                    window.gtSwitchDicePlayerTab(2);
+                    return {
+                        p1Visible: getComputedStyle(document.getElementById('gt-dice-panel-p1')).display !== 'none',
+                        p2Visible: getComputedStyle(document.getElementById('gt-dice-panel-p2')).display !== 'none'
+                    };
+                })()
+            ''')
+            print("Mobile Player 2 View Check:", json.dumps(mobile_p2_info, indent=2))
+            assert mobile_p2_info['p2Visible'] and not mobile_p2_info['p1Visible'], "On mobile, switching to Player 2 should show Player 2 and hide Player 1!"
+            await take_screenshot(ws, cid, 'test_dice_mobile_p2_full.png')
+
+            # Test Minimize on Mobile
+            cid += 1
+            await eval_js(ws, cid, 'window.gtMinimizeDiceRoller(true)')
+            await asyncio.sleep(0.4)
+            await take_screenshot(ws, cid, 'test_dice_mobile_minimized.png')
+
+            print("\n✅ All automated tests for Dual-Player Game Tracker Dice Roller passed successfully!")
 
     asyncio.run(run())
 
 finally:
     chrome_proc.terminate()
     chrome_proc.wait()
+    if server_proc:
+        server_proc.terminate()
+        server_proc.wait()

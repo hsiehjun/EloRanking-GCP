@@ -1008,6 +1008,10 @@ def start_server(port: int = 8080, host: str = "0.0.0.0"):
                     self.path = "/app.html"
                 elif clean_path in ("/login", "/login.html"):
                     self.path = "/login.html"
+                elif clean_path in ("/11th/tracker/play", "/40k/tracker/play", "/tracker/play", "/tracker/play.html"):
+                    self.path = "/tracker/play.html"
+                elif clean_path in ("/aos/tracker/play", "/tracker/aos", "/tracker/aos.html"):
+                    self.path = "/tracker/aos.html"
                 elif clean_path == "/api/version":
                     v_file = web_dir / "version.json"
                     v_data = b'{"version":"1.0.0","status":"ok"}'

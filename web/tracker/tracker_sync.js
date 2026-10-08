@@ -2808,10 +2808,12 @@
               startTournamentClockFallbackPoll(docTournId);
             }
             const remoteHist = data.dice_history || (data.state && data.state.dice_history) || [];
+            const remoteTrays = data.dice_trays || (data.state && data.state.dice_trays) || null;
             applyRemoteDiceTray(
               data.dice_tray || (data.state && data.state.dice_tray),
               data.dice_target !== undefined ? data.dice_target : (data.state ? data.state.dice_target : undefined),
-              remoteHist
+              remoteHist,
+              remoteTrays
             );
             if (data.rosters) {
               if (data.rosters.player1) clientState.p1ArmyList = data.rosters.player1;
@@ -3223,8 +3225,8 @@
       if (stateObj.chess_clock) {
         applyRemoteChessClock(stateObj.chess_clock);
       }
-      if (stateObj.dice_tray) {
-        applyRemoteDiceTray(stateObj.dice_tray, stateObj.dice_target, stateObj.dice_history);
+      if (stateObj.dice_tray || stateObj.dice_trays) {
+        applyRemoteDiceTray(stateObj.dice_tray, stateObj.dice_target, stateObj.dice_history, stateObj.dice_trays);
       }
 
       // Ensure CP Counter is enabled by default
@@ -3436,12 +3438,12 @@
             if (msg.roll) {
               applyRemoteDiceRoll(msg.roll, msg.sender === clientState.clientId);
             }
-            if (msg.tray && msg.sender !== clientState.clientId) {
-              applyRemoteDiceTray(msg.tray, msg.target, msg.history);
+            if ((msg.tray || msg.trays) && msg.sender !== clientState.clientId) {
+              applyRemoteDiceTray(msg.tray, msg.target, msg.history, msg.trays);
             }
           } else if (msg.type === 'dice_tray') {
-            if (msg.sender !== clientState.clientId && msg.tray) {
-              applyRemoteDiceTray(msg.tray, msg.target);
+            if (msg.sender !== clientState.clientId && (msg.tray || msg.trays)) {
+              applyRemoteDiceTray(msg.tray, msg.target, msg.history, msg.trays);
             }
           } else if (msg.type === 'presence') {
             clientState.onlineCount = msg.count || 1;
@@ -3755,7 +3757,6 @@
     }
 
     document.body.classList.add('has-mobile-dock');
-    dock.style.display = 'flex';
 
     const isSpectator = clientState.role === 'spectator';
     const isP1 = clientState.role === 'player1';
@@ -4843,37 +4844,95 @@ Space Marines - Gladius Task Force (2000 pts)
   }
 
   // ==========================================================================
-  // 10.5. Interactive Synchronized Live Dice Tray (Tabletop Physical Dice Model)
+  // 10.5. Interactive Synchronized Dual-Player Live Dice Roller
   // ==========================================================================
   const diceRollerState = {
     visible: localStorage.getItem('gt-dice-visible') === 'true',
-    target: (function() {
-      const v = localStorage.getItem('gt-dice-target');
-      if (v === null || v === undefined || v === '') return 3;
-      const n = parseInt(v, 10);
-      return isNaN(n) ? 3 : n;
-    })(),
-    tray: [], // Array of { id: number, val: number, selected: boolean, rolled: boolean }
-    history: [] // Strictly populated from active Firestore match room
+    minimized: false,
+    activePlayerTab: 1,
+    target: 0,
+    p1: {
+      tray: [], // Array of { id: number, val: number, selected: boolean, rolled: boolean }
+      skin: localStorage.getItem('gt-dice-skin-p1') || ''
+    },
+    p2: {
+      tray: [],
+      skin: localStorage.getItem('gt-dice-skin-p2') || ''
+    },
+    history: [], // Array of roll entries across the match
+    get tray() {
+      return this.p1.tray;
+    },
+    set tray(val) {
+      this.p1.tray = Array.isArray(val) ? val : [];
+    }
   };
+  window.diceRollerState = diceRollerState;
 
-  // Explicitly purge legacy localStorage cached roll history
+  // Restore saved dice trays from localStorage
   try {
-    localStorage.removeItem('gt-dice-history');
-  } catch(e) {}
-
-  // Restore saved dice tray or initialize empty
-  try {
-    const savedTray = localStorage.getItem('gt-dice-tray');
-    if (savedTray) {
-      diceRollerState.tray = JSON.parse(savedTray);
+    const savedTrays = localStorage.getItem('gt-dice-trays-v2');
+    if (savedTrays) {
+      const parsed = JSON.parse(savedTrays);
+      if (parsed && parsed.p1 && Array.isArray(parsed.p1.tray)) diceRollerState.p1.tray = parsed.p1.tray;
+      if (parsed && parsed.p2 && Array.isArray(parsed.p2.tray)) diceRollerState.p2.tray = parsed.p2.tray;
+      if (parsed && parsed.p1 && parsed.p1.skin) diceRollerState.p1.skin = parsed.p1.skin;
+      if (parsed && parsed.p2 && parsed.p2.skin) diceRollerState.p2.skin = parsed.p2.skin;
+    } else {
+      const legacyTray = localStorage.getItem('gt-dice-tray');
+      if (legacyTray) {
+        const parsedLegacy = JSON.parse(legacyTray);
+        if (Array.isArray(parsedLegacy)) diceRollerState.p1.tray = parsedLegacy;
+      }
+    }
+    const savedHist = localStorage.getItem('gt-dice-history-v2');
+    if (savedHist) {
+      const parsedHist = JSON.parse(savedHist);
+      if (Array.isArray(parsedHist)) diceRollerState.history = parsedHist;
     }
   } catch(e) {}
 
+  function getPlayerBucket(playerNum) {
+    return Number(playerNum) === 2 ? diceRollerState.p2 : diceRollerState.p1;
+  }
+
+  function resolvePlayerDiceSkin(playerNum) {
+    const pNum = Number(playerNum) === 2 ? 2 : 1;
+    const bucket = getPlayerBucket(pNum);
+    const armoryEquipped = (window.Armory && typeof window.Armory.getEquipped === 'function'
+      ? (window.Armory.getEquipped('active_dice', '40k') || window.Armory.getEquipped('active_dice', 'aos'))
+      : null) || localStorage.getItem('omnitactica_active_dice') || localStorage.getItem('omnitactica_active_dice_40k') || localStorage.getItem('omnitactica_active_dice_aos') || '';
+
+    if (pNum === 1) {
+      return bucket.skin || localStorage.getItem('gt-dice-skin-p1') || armoryEquipped || 'dice_warpfire_plasma';
+    } else {
+      if (clientState && clientState.clientRole === 'player2' && armoryEquipped && !bucket.skin) {
+        return armoryEquipped;
+      }
+      return bucket.skin || localStorage.getItem('gt-dice-skin-p2') || 'dice_molten_magma';
+    }
+  }
+
+  function getMatchPlayerNames() {
+    const raw = originalGetItem('gdm-11e-tracker-state');
+    let stateObj = {};
+    try { stateObj = JSON.parse(raw) || {}; } catch(e) {}
+    const game = stateObj.game || {};
+    const p1Name = (game.p1Name || stateObj.p1_name || 'Player 1').trim() || 'Player 1';
+    const p2Name = (game.p2Name || stateObj.p2_name || 'Player 2').trim() || 'Player 2';
+    return { p1Name, p2Name };
+  }
+
   function saveDiceTray(shouldBroadcast = true) {
     try {
-      localStorage.setItem('gt-dice-tray', JSON.stringify(diceRollerState.tray));
-      localStorage.setItem('gt-dice-count', diceRollerState.tray.length);
+      const traysPayload = {
+        p1: { tray: diceRollerState.p1.tray, skin: resolvePlayerDiceSkin(1) },
+        p2: { tray: diceRollerState.p2.tray, skin: resolvePlayerDiceSkin(2) }
+      };
+      localStorage.setItem('gt-dice-trays-v2', JSON.stringify(traysPayload));
+      localStorage.setItem('gt-dice-tray', JSON.stringify(diceRollerState.p1.tray));
+      localStorage.setItem('gt-dice-count', diceRollerState.p1.tray.length);
+      localStorage.setItem('gt-dice-history-v2', JSON.stringify(diceRollerState.history));
     } catch(e) {}
 
     if (shouldBroadcast) {
@@ -4886,20 +4945,23 @@ Space Marines - Gladius Task Force (2000 pts)
     clearTimeout(diceRollerState.syncTimer);
     diceRollerState.syncTimer = setTimeout(() => {
       if (clientState.isFinalizing || clientState.isDiscarded) return;
-      // 1. Direct write to Cloud Firestore if client SDK is loaded (use .update so deleted rooms are never resurrected)
+      const traysPayload = {
+        p1: { tray: diceRollerState.p1.tray, skin: resolvePlayerDiceSkin(1) },
+        p2: { tray: diceRollerState.p2.tray, skin: resolvePlayerDiceSkin(2) }
+      };
       if (typeof firebase !== 'undefined' && firebase.firestore) {
         try {
           const db = firebase.firestore();
           db.collection('rooms').doc(clientState.matchId).update({
-            dice_tray: diceRollerState.tray,
-            dice_target: diceRollerState.target,
+            dice_tray: diceRollerState.p1.tray,
+            dice_trays: traysPayload,
+            dice_target: 0,
             dice_history: diceRollerState.history,
             updatedAt: Date.now()
           }).catch(() => {});
         } catch(e) {}
       }
 
-      // 2. Broadcast via API
       fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/dice_tray`, {
         method: 'POST',
         headers: {
@@ -4908,21 +4970,23 @@ Space Marines - Gladius Task Force (2000 pts)
         },
         body: JSON.stringify({
           client_id: clientState.clientId,
-          tray: diceRollerState.tray,
-          target: diceRollerState.target
+          tray: diceRollerState.p1.tray,
+          trays: traysPayload,
+          target: 0,
+          history: diceRollerState.history
         })
       }).catch(() => {});
     }, 120);
   }
 
-  function applyRemoteDiceTray(remoteTray, remoteTarget, remoteHistory) {
-    if (Array.isArray(remoteTray)) {
-      diceRollerState.tray = remoteTray;
-    }
-    if (remoteTarget !== undefined && remoteTarget !== null) {
-      const n = parseInt(remoteTarget, 10);
-      diceRollerState.target = isNaN(n) ? 0 : n;
-      try { localStorage.setItem('gt-dice-target', diceRollerState.target); } catch(e) {}
+  function applyRemoteDiceTray(remoteTray, remoteTarget, remoteHistory, remoteTrays) {
+    if (remoteTrays && typeof remoteTrays === 'object') {
+      if (remoteTrays.p1 && Array.isArray(remoteTrays.p1.tray)) diceRollerState.p1.tray = remoteTrays.p1.tray;
+      if (remoteTrays.p1 && remoteTrays.p1.skin) diceRollerState.p1.skin = remoteTrays.p1.skin;
+      if (remoteTrays.p2 && Array.isArray(remoteTrays.p2.tray)) diceRollerState.p2.tray = remoteTrays.p2.tray;
+      if (remoteTrays.p2 && remoteTrays.p2.skin) diceRollerState.p2.skin = remoteTrays.p2.skin;
+    } else if (Array.isArray(remoteTray)) {
+      diceRollerState.p1.tray = remoteTray;
     }
     if (Array.isArray(remoteHistory)) {
       diceRollerState.history = remoteHistory;
@@ -4934,9 +4998,47 @@ Space Marines - Gladius Task Force (2000 pts)
   }
 
   window.gtToggleDiceRoller = function() {
-    diceRollerState.visible = !diceRollerState.visible;
-    localStorage.setItem('gt-dice-visible', diceRollerState.visible);
+    const existingModal = document.getElementById('gt-dice-roller-modal');
+    const isActuallyOpen = diceRollerState.visible && existingModal && existingModal.style.display !== 'none';
+    if (isActuallyOpen && diceRollerState.minimized) {
+      diceRollerState.minimized = false;
+    } else if (isActuallyOpen) {
+      diceRollerState.visible = false;
+    } else {
+      diceRollerState.visible = true;
+      diceRollerState.minimized = false;
+    }
+    try { localStorage.setItem('gt-dice-visible', diceRollerState.visible); } catch(e) {}
     mountDiceRollerModal();
+  };
+
+  window.gtMinimizeDiceRoller = function(minimize = true) {
+    diceRollerState.minimized = Boolean(minimize);
+    if (!diceRollerState.visible) {
+      diceRollerState.visible = true;
+      try { localStorage.setItem('gt-dice-visible', 'true'); } catch(e) {}
+    }
+    mountDiceRollerModal();
+  };
+
+  window.gtSwitchDicePlayerTab = function(playerNum) {
+    diceRollerState.activePlayerTab = Number(playerNum) === 2 ? 2 : 1;
+    renderDiceRollerContent();
+  };
+
+  window.gtSetPlayerDiceSkin = function(playerNum, skinId) {
+    const pNum = Number(playerNum) === 2 ? 2 : 1;
+    const bucket = getPlayerBucket(pNum);
+    bucket.skin = skinId || 'dice_warpfire_plasma';
+    try {
+      localStorage.setItem(`gt-dice-skin-p${pNum}`, bucket.skin);
+      if (pNum === 1) {
+        localStorage.setItem('omnitactica_active_dice', bucket.skin);
+        localStorage.setItem('omnitactica_active_dice_40k', bucket.skin);
+      }
+    } catch(e) {}
+    saveDiceTray(true);
+    renderDiceRollerContent();
   };
 
   function mountDiceRollerModal() {
@@ -4949,10 +5051,16 @@ Space Marines - Gladius Task Force (2000 pts)
 
     if (!diceRollerState.visible) {
       modal.style.display = 'none';
+      modal.classList.remove('is-minimized');
       return;
     }
 
     modal.style.display = 'flex';
+    if (diceRollerState.minimized) {
+      modal.classList.add('is-minimized');
+    } else {
+      modal.classList.remove('is-minimized');
+    }
     renderDiceRollerContent();
   }
 
@@ -5002,6 +5110,43 @@ Space Marines - Gladius Task Force (2000 pts)
     'dice_aos_flesheater': { name: 'Flesh-eater Courts Bone Chalice Dice', die_bg: 'linear-gradient(135deg, #450a0a 0%, #262626 100%)', pip_color: '#fecdd3', six_face_svg_id: 'avatar_flesh_eater_courts', six_face_label: 'Bone Chalice' }
   };
 
+  const ARMORY_DICE_SKIN_OPTIONS = [
+    { id: 'dice_warpfire_plasma', label: '🟢 Warpfire Plasma Dice' },
+    { id: 'dice_molten_magma', label: '🟠 Molten Magma Dice' },
+    { id: 'dice_ceramite_white', label: '⚪ Imperial Ceramite Dice' },
+    { id: 'dice_40k_dark_angels', label: '⚔️ Dark Angels Caliban Dice' },
+    { id: 'dice_40k_ultramarines', label: '🦅 Ultramarines Macragge Dice' },
+    { id: 'dice_40k_necrons', label: '🟢 Necron Dynastic Gauss Dice' },
+    { id: 'dice_40k_aeldari', label: '✨ Aeldari Spirit-Stone Dice' },
+    { id: 'dice_40k_world_eaters', label: '💀 World Eaters Skull-Brass Dice' },
+    { id: 'dice_40k_blood_angels', label: '🩸 Blood Angels Baal Crimson Dice' },
+    { id: 'dice_40k_black_templars', label: '✝️ Black Templars Crusade Dice' },
+    { id: 'dice_40k_custodes', label: '👑 Adeptus Custodes Auramite Dice' },
+    { id: 'dice_40k_space_wolves', label: '🐺 Space Wolves Fenrisian Dice' },
+    { id: 'dice_40k_orks', label: "💚 Ork WAAAGH! Krumpin' Dice" },
+    { id: 'dice_40k_chaos', label: '🔥 Chaos Undivided Warp Dice' },
+    { id: 'dice_40k_tyranids', label: '🟣 Tyranid Hive Mind Synapse Dice' },
+    { id: 'dice_40k_tau', label: "🟠 T'au Empire Sept Enclave Dice" },
+    { id: 'dice_40k_death_guard', label: '☣️ Death Guard Plague Rot Dice' },
+    { id: 'dice_40k_thousandsons', label: '🧿 Thousand Sons Rubric Dice' },
+    { id: 'dice_40k_grey_knights', label: '🛡️ Grey Knights Silver Dice' },
+    { id: 'dice_40k_sororitas', label: '⚜️ Adepta Sororitas Dice' },
+    { id: 'dice_40k_astramilitarum', label: '🎖️ Astra Militarum Cadia Dice' },
+    { id: 'dice_40k_mechanicus', label: '⚙️ Adeptus Mechanicus Mars Dice' },
+    { id: 'dice_40k_votann', label: '⛏️ Leagues of Votann Magma Dice' },
+    { id: 'dice_40k_drukhari', label: '🗡️ Drukhari Soul-Flayer Dice' },
+    { id: 'dice_40k_genestealercults', label: '🧬 Genestealer Cults Dice' },
+    { id: 'dice_aos_stormcast', label: '⚡ Stormcast Eternals Azyrite Dice' },
+    { id: 'dice_aos_khorne', label: '🩸 Blades of Khorne Brass Dice' },
+    { id: 'dice_aos_skaven', label: '🐀 Skaven Warpstone Toxic Dice' },
+    { id: 'dice_aos_soulblight', label: '🦇 Soulblight Gravelords Dice' },
+    { id: 'dice_aos_sylvaneth', label: '🌿 Sylvaneth Wyldwood Dice' },
+    { id: 'dice_aos_seraphon', label: '☀️ Seraphon Solar Star-Glyph Dice' },
+    { id: 'dice_aos_gloomspite', label: '🌙 Gloomspite Gitz Bad Moon Dice' },
+    { id: 'dice_aos_nighthaunt', label: '👻 Nighthaunt Spectral Mist Dice' },
+    { id: 'dice_aos_slaves_to_darkness', label: '⚔️ Slaves to Darkness Iron Dice' }
+  ];
+
   function getFallbackDiceMetadata(skinId) {
     if (!skinId) return null;
     const entry = FACTION_DICE_METADATA[skinId];
@@ -5015,146 +5160,184 @@ Space Marines - Gladius Task Force (2000 pts)
     return null;
   }
 
-  function renderDiceRollerContent() {
-    const modal = document.getElementById('gt-dice-roller-modal');
-    if (!modal || !diceRollerState.visible) return;
+  function computePlayerDiceDistribution(playerNum) {
+    const pNum = Number(playerNum) === 2 ? 2 : 1;
+    const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+    let totalRolled = 0;
+    let totalSum = 0;
+    let rollEvents = 0;
 
-    const tray = diceRollerState.tray || [];
+    (diceRollerState.history || []).forEach(h => {
+      const hPlayer = Number(h.player_num || 1);
+      if (hPlayer !== pNum) return;
+      const res = Array.isArray(h.results) ? h.results : [];
+      if (res.length > 0) {
+        rollEvents++;
+        res.forEach(val => {
+          const v = parseInt(val, 10);
+          if (v >= 1 && v <= 6) {
+            counts[v] = (counts[v] || 0) + 1;
+            totalRolled++;
+            totalSum += v;
+          }
+        });
+      }
+    });
+
+    const avg = totalRolled > 0 ? (totalSum / totalRolled) : 0;
+    const maxFaceCount = Math.max(1, counts[1], counts[2], counts[3], counts[4], counts[5], counts[6]);
+    return {
+      counts,
+      totalRolled,
+      totalSum,
+      rollEvents,
+      avg,
+      maxFaceCount
+    };
+  }
+  window.computePlayerDiceDistribution = computePlayerDiceDistribution;
+
+  function renderPlayerDicePanel(playerNum, pName) {
+    const pNum = Number(playerNum) === 2 ? 2 : 1;
+    const bucket = getPlayerBucket(pNum);
+    const tray = bucket.tray || [];
     const totalInTray = tray.length;
     const selectedCount = tray.filter(d => d.selected).length;
-    const target = diceRollerState.target;
-
     const rolledDice = tray.filter(d => d.rolled);
     const hasRolled = rolledDice.length > 0;
-    const passCount = target > 0 ? rolledDice.filter(d => d.val >= target).length : rolledDice.length;
-    const critCount = rolledDice.filter(d => d.val === 6).length;
-    const failCount = target > 0 ? rolledDice.filter(d => d.val < target).length : 0;
     const sum = rolledDice.reduce((a, b) => a + (b.val || 0), 0);
+    const selectedSum = tray.filter(d => d.rolled && d.selected).reduce((a, b) => a + (b.val || 0), 0);
 
-    modal.innerHTML = `
-      <div class="gt-dice-header">
-        <div style="display:flex; align-items:center; gap:6px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:12px; color:#f59e0b;">
-          <span>🎲</span>
-          <span>DICE TRAY</span>
-          <span style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); font-size:9px; padding:1px 5px; border-radius:4px; color:#f59e0b;">SYNCED</span>
-          <button type="button" onclick="if(window.Armory && window.Armory.openArmoryModal){ window.Armory.openArmoryModal('dice_forge'); } else if(window.parent && window.parent.Armory){ window.parent.Armory.openArmoryModal('dice_forge'); } else { alert('Visit Retribution Armory in My Hub to customize dice skins!'); }" style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.35); color:#fbbf24; border-radius:4px; font-size:9px; font-weight:700; padding:1px 6px; cursor:pointer;" title="Retribution Armory: Requisition Custom Dice Skins">🎲 Skins</button>
+    const activeSkinId = resolvePlayerDiceSkin(pNum);
+    let skinClass = 'skin-warpfire-plasma';
+    let customStyle = '';
+    let isCustom = false;
+    let eqItem = null;
+
+    if (activeSkinId === 'dice_molten_magma') {
+      skinClass = 'skin-molten-magma';
+    } else if (activeSkinId === 'dice_ceramite_white') {
+      skinClass = 'skin-ceramite-white';
+    } else if (activeSkinId === 'dice_warpfire_plasma') {
+      skinClass = 'skin-warpfire-plasma';
+    } else if (activeSkinId) {
+      eqItem = (window.Armory && typeof window.Armory.getEquippedItem === 'function'
+        ? (window.Armory.getEquippedItem('active_dice', '40k') || window.Armory.getEquippedItem(activeSkinId, '40k'))
+        : null) || getFallbackDiceMetadata(activeSkinId);
+      if (eqItem && eqItem.payload) {
+        skinClass = 'skin-faction-custom';
+        isCustom = true;
+        const bg = eqItem.payload.die_bg || '#1e293b';
+        const pip = eqItem.payload.pip_color || '#ffffff';
+        customStyle = ` style="--custom-die-bg:${bg}; --custom-pip-color:${pip};"`;
+      }
+    }
+
+    // Count faces in current tray
+    const trayFaceCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+    rolledDice.forEach(d => {
+      if (d.val >= 1 && d.val <= 6) trayFaceCounts[d.val]++;
+    });
+
+    // Check which face buttons are fully selected
+    const isFaceFullySelected = (f) => {
+      const matching = rolledDice.filter(d => d.val === f);
+      return matching.length > 0 && matching.every(d => d.selected);
+    };
+
+    const dist = computePlayerDiceDistribution(pNum);
+    const playerHistory = (diceRollerState.history || []).filter(h => Number(h.player_num || 1) === pNum);
+    const accentColor = pNum === 2 ? '#f43f5e' : '#38bdf8';
+    const isMobileHidden = diceRollerState.activePlayerTab !== pNum ? 'mobile-hidden' : '';
+
+    return `
+      <div class="gt-player-dice-card player-${pNum} ${isMobileHidden}" id="gt-dice-panel-p${pNum}" data-player="${pNum}">
+        <!-- 1. Player Header & Armory Skin Selector -->
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:8px;">
+          <div style="display:flex; align-items:center; gap:7px; min-width:0;">
+            <span style="width:10px; height:10px; border-radius:50%; background:${accentColor}; box-shadow:0 0 8px ${accentColor}; flex-shrink:0;"></span>
+            <span style="font-size:13px; font-weight:900; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(pName)}</span>
+            <span style="font-size:10px; font-weight:700; color:#94a3b8; background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px;">P${pNum}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+            <select class="gt-dice-skin-select" id="gt-dice-skin-select-p${pNum}" onchange="window.gtSetPlayerDiceSkin(${pNum}, this.value)" style="background:#090d16; color:#fbbf24; border:1px solid rgba(245,158,11,0.35); border-radius:6px; padding:3px 7px; font-size:10.5px; font-weight:700; cursor:pointer; max-width:195px;" title="Choose ${escapeHtml(pName)}'s Armory Dice Skin">
+              ${ARMORY_DICE_SKIN_OPTIONS.map(opt => `
+                <option value="${opt.id}" ${opt.id === activeSkinId ? 'selected' : ''}>${escapeHtml(opt.label)}</option>
+              `).join('')}
+            </select>
+          </div>
         </div>
-        <button onclick="window.gtToggleDiceRoller()" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:0 4px;" title="Close Dice Tray">✕</button>
-      </div>
 
-      <div class="gt-dice-body">
-        <!-- Dice Addition Bar -->
-        <div style="display:flex; flex-direction:column; gap:4px;">
+        <!-- 2. Add Dice & Clear Bar -->
+        <div style="display:flex; flex-direction:column; gap:5px;">
           <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#cbd5e1; font-weight:700;">
-            <span>DICE IN TRAY: <b id="gt-dice-count-display" style="color:#f59e0b; font-size:13px; font-family:'JetBrains Mono',monospace;">${totalInTray}</b> <span style="color:#94a3b8; font-size:10px;">(${selectedCount} selected)</span></span>
-            <span style="font-size:10px; color:#64748b;">(Max: 100)</span>
+            <span>DICE IN TRAY: <b id="${pNum === 1 ? 'gt-dice-count-display' : 'gt-dice-count-display-p2'}" style="color:#f59e0b; font-size:13px; font-family:'JetBrains Mono',monospace;">${totalInTray}</b> <span style="color:#38bdf8; font-size:10.5px;">(${selectedCount} selected)</span></span>
+            <span style="font-size:10px; color:#64748b;">Max 100</span>
           </div>
-          <div style="display:flex; gap:4px; align-items:center;">
-            <input type="number" id="gt-dice-input" value="${totalInTray}" min="0" max="100" class="form-input" style="width:56px; height:28px; padding:2px 6px; font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; text-align:center; background:#070b14; border:1px solid #334155; color:#fff; border-radius:6px;" onchange="window.gtSetDiceCount(parseInt(this.value, 10))">
-            <button class="gt-dice-quick-btn" onclick="window.gtAddDice(1)">+1</button>
-            <button class="gt-dice-quick-btn" onclick="window.gtAddDice(5)">+5</button>
-            <button class="gt-dice-quick-btn" onclick="window.gtAddDice(10)">+10</button>
-            <button class="gt-dice-quick-btn" onclick="window.gtAddDice(20)">+20</button>
-            <button class="gt-dice-quick-btn" style="color:#ef4444;" onclick="window.gtClearTray()">Clear (0)</button>
-          </div>
-        </div>
-
-        <!-- Target Threshold Selector -->
-        <div style="display:flex; flex-direction:column; gap:4px;">
-          <div style="font-size:11px; color:#cbd5e1; font-weight:700;">SUCCESS THRESHOLD:</div>
-          <div style="display:flex; gap:4px;">
-            ${[2, 3, 4, 5, 6].map(t => `
-              <button class="gt-dice-target-pill ${Number(target) === t ? 'active' : ''}" style="flex:1; text-align:center; font-family:'JetBrains Mono',monospace;" onclick="window.gtSetDiceTarget(${t})">
-                ${t}+
-              </button>
-            `).join('')}
-            <button class="gt-dice-target-pill ${Number(target) === 0 ? 'active' : ''}" style="flex:1; text-align:center;" onclick="window.gtSetDiceTarget(0)">
-              Raw
-            </button>
+          <div style="display:flex; gap:5px; align-items:center; flex-wrap:wrap;">
+            <input type="number" id="${pNum === 1 ? 'gt-dice-input' : 'gt-dice-input-p2'}" value="${totalInTray}" min="0" max="100" class="form-input" style="width:54px; height:30px; padding:2px 6px; font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; text-align:center; background:#070b14; border:1px solid #334155; color:#fff; border-radius:7px;" onchange="window.gtSetDiceCount(parseInt(this.value, 10), ${pNum})">
+            <button type="button" class="gt-dice-quick-btn" onclick="window.gtAddDice(1, ${pNum})">+1</button>
+            <button type="button" class="gt-dice-quick-btn" onclick="window.gtAddDice(5, ${pNum})">+5</button>
+            <button type="button" class="gt-dice-quick-btn" onclick="window.gtAddDice(10, ${pNum})">+10</button>
+            <button type="button" class="gt-dice-quick-btn" onclick="window.gtAddDice(20, ${pNum})">+20</button>
+            <button type="button" class="gt-dice-quick-btn" style="color:#f87171; border-color:rgba(239,68,68,0.35); margin-left:auto;" onclick="window.gtClearTray(${pNum})">Clear</button>
           </div>
         </div>
 
-        <!-- Interactive Dice Tray Display -->
+        <!-- 3. Select Dice in Tray Bar (All, 6, 5, 4, 3, 2, 1, Unselect All) -->
+        <div style="display:flex; flex-direction:column; gap:5px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:10.5px; color:#94a3b8; font-weight:800; text-transform:uppercase; letter-spacing:0.04em;">
+            <span>Select Dice in Tray:</span>
+            <span style="font-size:10px; color:#64748b; font-weight:600; text-transform:none;">Tap numbers or individual dice</span>
+          </div>
+          <div class="gt-dice-select-bar">
+            <button type="button" class="gt-dice-sel-btn ${totalInTray > 0 && selectedCount === totalInTray ? 'active' : ''}" onclick="window.gtSelectAll(true, ${pNum})">All</button>
+            ${[6, 5, 4, 3, 2, 1].map(face => {
+              const c = trayFaceCounts[face] || 0;
+              const isSel = isFaceFullySelected(face);
+              return `
+                <button type="button" class="gt-dice-sel-btn ${isSel ? 'active' : ''}" onclick="window.gtToggleSelectFace(${face}, ${pNum})" title="Select/Deselect all ${face}s in tray">
+                  <span>${face}</span>
+                  ${hasRolled ? `<span style="font-size:9.5px; opacity:0.75; color:${c > 0 ? '#fbbf24' : '#475569'};">(${c})</span>` : ''}
+                </button>
+              `;
+            }).join('')}
+            <button type="button" class="gt-dice-sel-btn ${selectedCount === 0 ? 'active' : ''}" style="color:#94a3b8; margin-left:auto;" onclick="window.gtSelectAll(false, ${pNum})">Unselect All</button>
+          </div>
+        </div>
+
+        <!-- 4. Clickable Dice Tray -->
         <div class="gt-dice-tray">
-          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:4px;">
-            <span style="font-size:10px; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px;">TABLETOP TRAY (${totalInTray})</span>
-            ${totalInTray > 0 ? `
-              <div style="display:flex; gap:4px; font-size:9px;">
-                <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px;" onclick="window.gtSelectAll(true)">All</button>
-                ${hasRolled && target > 0 ? `
-                  <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#10b981;" onclick="window.gtSelectPass()">Pass (${passCount})</button>
-                  <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#ef4444;" onclick="window.gtSelectFails()">Fails (${failCount})</button>
-                ` : ''}
-                ${hasRolled && rolledDice.some(d => d.val === 6) ? `
-                  <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#f59e0b;" onclick="window.gtSelectCrits()">6s (${critCount})</button>
-                ` : ''}
-                ${hasRolled && rolledDice.some(d => d.val === 1) ? `
-                  <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#38bdf8;" onclick="window.gtSelectOnes()">1s (${rolledDice.filter(d => d.val === 1).length})</button>
-                ` : ''}
-                <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#94a3b8;" onclick="window.gtSelectAll(false)">None</button>
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:5px; font-size:10.5px; flex-wrap:wrap; gap:4px;">
+            <span style="font-weight:800; color:#cbd5e1;">TRAY (${totalInTray} DICE)</span>
+            ${hasRolled ? `
+              <div style="display:flex; gap:8px; align-items:center; font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:800;">
+                <span style="color:#f59e0b;">⚅ 6s: ${trayFaceCounts[6]}</span>
+                <span style="color:#ef4444;">⚀ 1s: ${trayFaceCounts[1]}</span>
+                <span style="color:#94a3b8;">Sum: ${sum}</span>
+                ${selectedCount > 0 ? `<span style="color:#38bdf8;">Sel Sum: ${selectedSum}</span>` : ''}
               </div>
-            ` : ''}
+            ` : `<span style="color:#64748b; font-size:10px;">Ready to roll</span>`}
           </div>
 
-          <!-- Roll Results Summary Banner -->
-          ${hasRolled ? `
-            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.35); border-radius:6px; padding:4px 8px; font-size:11px; font-weight:800;">
-              ${target > 0 ? `
-                <span style="color:#10b981;">✅ ${passCount} Pass (${target}+)</span>
-                ${critCount > 0 ? `<span style="color:#f59e0b;">⭐ ${critCount} Crit (6s)</span>` : ''}
-                <span style="color:#ef4444;">❌ ${failCount} Fail</span>
-              ` : `
-                <span style="color:#38bdf8;">🎲 ${rolledDice.length} Dice Rolled</span>
-                <span style="color:#cbd5e1;">Sum: ${sum}</span>
-              `}
-            </div>
-          ` : ''}
-
-          <!-- Grid of Clickable Dice -->
-          ${(() => {
-            const activeSkinId = (window.Armory && typeof window.Armory.getEquipped === 'function' ? window.Armory.getEquipped('active_dice', '40k') : null) || localStorage.getItem('omnitactica_active_dice_40k') || 'dice_warpfire_plasma';
-            let skinClass = 'skin-warpfire-plasma';
-            let customStyle = '';
-            let isCustom = false;
-            if (activeSkinId === 'dice_molten_magma') {
-              skinClass = 'skin-molten-magma';
-            } else if (activeSkinId === 'dice_ceramite_white') {
-              skinClass = 'skin-ceramite-white';
-            } else if (activeSkinId === 'dice_warpfire_plasma') {
-              skinClass = 'skin-warpfire-plasma';
-            } else if (activeSkinId) {
-              const eqItem = (window.Armory && typeof window.Armory.getEquippedItem === 'function' ? (window.Armory.getEquippedItem('active_dice', '40k') || window.Armory.getEquippedItem(activeSkinId, '40k')) : null) || getFallbackDiceMetadata(activeSkinId);
-              if (eqItem && eqItem.payload) {
-                skinClass = 'skin-faction-custom';
-                isCustom = true;
-                const bg = eqItem.payload.die_bg || '#1e293b';
-                const pip = eqItem.payload.pip_color || '#ffffff';
-                customStyle = ` style="--custom-die-bg:${bg}; --custom-pip-color:${pip};"`;
-              }
-            }
-            return `<div class="gt-dice-grid ${skinClass}" data-dice-skin="${activeSkinId}" data-custom-dice="${isCustom}"${customStyle}>`;
-          })()}
+          <div class="gt-dice-grid ${skinClass}" id="${pNum === 1 ? 'gt-dice-grid-p1' : 'gt-dice-grid-p2'}" data-dice-skin="${activeSkinId}" data-custom-dice="${isCustom}"${customStyle}>
             ${totalInTray === 0 ? `
-              <div style="width:100%; text-align:center; color:#64748b; font-size:11px; padding:16px 0;">
-                Tray is empty. Tap <b style="color:#f59e0b;">+5</b> or <b style="color:#f59e0b;">+10</b> above to add dice.
+              <div style="width:100%; text-align:center; color:#64748b; font-size:11.5px; padding:18px 0;">
+                Tray is empty. Tap <b style="color:#f59e0b;">+1</b>, <b style="color:#f59e0b;">+5</b>, <b style="color:#f59e0b;">+10</b>, or <b style="color:#f59e0b;">+20</b> above to add dice.
               </div>
             ` : tray.map((die, idx) => {
               let cls = 'gt-die-unrolled';
               if (die.rolled) {
-                if (target > 0) {
-                  if (die.val === 6) cls = 'gt-die-crit';
-                  else if (die.val >= target) cls = 'gt-die-success';
-                  else cls = 'gt-die-fail';
-                } else {
-                  if (die.val === 6) cls = 'gt-die-crit';
-                  else cls = 'gt-die-neutral';
-                }
+                if (die.val === 6) cls = 'gt-die-crit';
+                else if (die.val === 1) cls = 'gt-die-fail';
+                else cls = 'gt-die-neutral';
               }
-              const selCls = die.selected ? 'selected' : 'unselected';
+              let selStateCls = 'ready';
+              if (selectedCount > 0) {
+                selStateCls = die.selected ? 'selected' : 'unselected';
+              }
               let displayVal = die.rolled ? die.val : '•';
               if (die.rolled && die.val === 6) {
-                const activeSkin = (window.Armory && typeof window.Armory.getEquipped === 'function' ? window.Armory.getEquipped('active_dice', '40k') : null) || localStorage.getItem('omnitactica_active_dice_40k') || 'dice_warpfire_plasma';
-                const eqItem = (window.Armory && typeof window.Armory.getEquippedItem === 'function' ? (window.Armory.getEquippedItem('active_dice', '40k') || window.Armory.getEquippedItem(activeSkin, '40k')) : null) || getFallbackDiceMetadata(activeSkin);
                 const svgId = eqItem && eqItem.payload ? eqItem.payload.six_face_svg_id : null;
                 if (svgId && typeof window.getArmoryAvatarSvg === 'function') {
                   const svg = window.getArmoryAvatarSvg(svgId);
@@ -5164,61 +5347,185 @@ Space Marines - Gladius Task Force (2000 pts)
                 }
               }
               return `
-                <span class="gt-die-pip ${cls} ${selCls}" onclick="window.gtToggleDieSelection(${idx})" title="Click to ${die.selected ? 'deselect' : 'select'} (Die #${idx + 1}: ${die.rolled ? die.val : 'Unrolled'})">
+                <span class="gt-die-pip ${cls} ${selStateCls}" onclick="window.gtToggleDieSelection(${idx}, ${pNum})" title="Click to ${die.selected ? 'unselect' : 'select'} (Die #${idx + 1}: ${die.rolled ? die.val : 'Unrolled'})">
                   ${displayVal}
                 </span>
               `;
             }).join('')}
           </div>
-          
-          ${totalInTray > 0 ? `
-            <div style="font-size:9px; color:#64748b; text-align:center;">
-              💡 <i>Click any die to select/deselect for next roll.</i>
-            </div>
-          ` : ''}
         </div>
 
-        <!-- Giant Single Main Action Button -->
-        <button id="btn-main-roll-dice" onclick="window.gtExecuteDiceRoll()" style="background:linear-gradient(135deg, #f59e0b, #d97706); color:#090d16; border:none; padding:10px; border-radius:8px; font-size:14px; font-weight:900; font-family:'Chakra Petch',sans-serif; letter-spacing:0.5px; cursor:pointer; box-shadow:0 4px 14px rgba(245,158,11,0.4); display:flex; justify-content:center; align-items:center; gap:6px; transition:transform 0.1s ease; ${(selectedCount === 0 && totalInTray === 0) ? 'opacity:0.6;' : ''}">
-          🎲 ${selectedCount > 0 ? `ROLL ${selectedCount} SELECTED DICE (${target > 0 ? target + '+' : 'Raw'})` : (totalInTray > 0 ? `ROLL ALL ${totalInTray} DICE (${target > 0 ? target + '+' : 'Raw'})` : 'ROLL DICE')}
-        </button>
+        <!-- 5. Roll Action Buttons -->
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          ${(selectedCount > 0 && selectedCount < totalInTray && hasRolled) ? `
+            <button type="button" id="${pNum === 1 ? 'btn-main-roll-dice' : 'btn-main-roll-dice-p2'}" onclick="window.gtExecuteDiceRoll(${pNum}, 'selected_only')" style="flex:1.25; min-width:160px; background:linear-gradient(135deg, #f59e0b, #d97706); color:#090d16; border:none; padding:10px 12px; border-radius:9px; font-size:13px; font-weight:900; cursor:pointer; box-shadow:0 4px 14px rgba(245,158,11,0.35); display:flex; justify-content:center; align-items:center; gap:6px;">
+              🎲 Roll ${selectedCount} Selected
+            </button>
+            <button type="button" id="btn-reroll-in-place-p${pNum}" onclick="window.gtExecuteDiceRoll(${pNum}, 'reroll_in_place')" style="flex:1; min-width:140px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.45); padding:10px 12px; border-radius:9px; font-size:12px; font-weight:800; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:5px;" title="Reroll the ${selectedCount} selected dice while keeping the other ${totalInTray - selectedCount} dice in the tray">
+              🔄 Reroll ${selectedCount} in Tray
+            </button>
+          ` : `
+            <button type="button" id="${pNum === 1 ? 'btn-main-roll-dice' : 'btn-main-roll-dice-p2'}" onclick="window.gtExecuteDiceRoll(${pNum}, 'all')" style="width:100%; background:linear-gradient(135deg, #f59e0b, #d97706); color:#090d16; border:none; padding:10px 14px; border-radius:9px; font-size:13.5px; font-weight:900; cursor:pointer; box-shadow:0 4px 14px rgba(245,158,11,0.35); display:flex; justify-content:center; align-items:center; gap:6px; ${totalInTray === 0 ? 'opacity:0.6;' : ''}">
+              🎲 ${totalInTray > 0 ? `Roll ${selectedCount > 0 ? selectedCount : totalInTray} Dice` : 'Add Dice Above to Roll'}
+            </button>
+          `}
+        </div>
 
-        <!-- Multi-Player Roll History Feed -->
-        <div style="border-top:1px solid rgba(255,255,255,0.08); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#64748b; font-weight:700;">
-            <span>MATCH ROLL HISTORY</span>
-            ${diceRollerState.history.length > 0 ? `<button onclick="window.gtClearDiceHistory()" style="background:transparent; border:none; color:#64748b; font-size:9px; cursor:pointer;">Clear</button>` : ''}
+        <!-- 6. Cumulative Dice Distribution (All Rolls & Rerolls Counted) -->
+        <div class="gt-dice-dist-box" id="gt-dice-dist-p${pNum}">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap;">
+            <span style="font-size:10.5px; font-weight:800; color:#cbd5e1; text-transform:uppercase; letter-spacing:0.04em;">
+              📊 Dice Distribution <span style="color:#38bdf8;">(${dist.totalRolled} Rolled)</span>
+            </span>
+            <div style="display:flex; align-items:center; gap:8px; font-size:10.5px; font-family:'JetBrains Mono',monospace;">
+              <span style="color:${dist.totalRolled > 0 ? (dist.avg >= 3.5 ? '#10b981' : '#f59e0b') : '#64748b'}; font-weight:800;">
+                Avg: ${dist.totalRolled > 0 ? dist.avg.toFixed(2) : '—'} <span style="color:#64748b; font-weight:600;">(Exp 3.50)</span>
+              </span>
+            </div>
           </div>
-          <div id="gt-dice-history-list" style="display:flex; flex-direction:column; gap:4px; max-height:90px; overflow-y:auto;">
-            ${diceRollerState.history.length === 0 ? `
-              <div style="font-size:10px; color:#475569; text-align:center; padding:4px 0;">No rolls in this match yet.</div>
-            ` : diceRollerState.history.slice(-8).reverse().map(h => `
-              <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:3px 6px; font-size:10px; display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                  <b style="color:${h.player_num === 2 ? '#10b981' : '#38bdf8'};">${escapeHtml(h.player_name)}</b>: 
-                  <span style="color:#cbd5e1;">${h.dice_count}D6${h.target ? ' @ ' + h.target + '+' : ''}</span>
+          <div class="gt-dice-dist-bars">
+            ${[1, 2, 3, 4, 5, 6].map(face => {
+              const count = dist.counts[face] || 0;
+              const pct = dist.totalRolled > 0 ? Math.round((count / dist.totalRolled) * 100) : 0;
+              const heightPct = dist.totalRolled > 0 ? Math.max(count > 0 ? 12 : 0, Math.round((count / dist.maxFaceCount) * 100)) : 0;
+              const barColor = face === 6 ? '#f59e0b' : (face >= 4 ? '#10b981' : (face >= 2 ? '#38bdf8' : '#ef4444'));
+              const pips = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+              return `
+                <div class="gt-dice-dist-col">
+                  <div style="font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:800; color:#e2e8f0;">
+                    ${count} <span style="font-size:8.5px; color:#64748b;">(${pct}%)</span>
+                  </div>
+                  <div class="gt-dice-dist-track">
+                    <div class="gt-dice-dist-fill" style="height:${heightPct}%; background:${barColor};"></div>
+                  </div>
+                  <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:800; color:${barColor};">
+                    ${pips[face]} ${face}
+                  </div>
                 </div>
-                <span style="font-weight:700; font-family:'JetBrains Mono',monospace; color:${h.target ? '#10b981' : '#f59e0b'};">
-                  ${h.target ? `${h.success_count}/${h.dice_count} pass` : `Sum ${h.sum}`}
-                </span>
-              </div>
-            `).join('')}
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- 7. Player Roll History -->
+        <div style="border-top:1px solid rgba(255,255,255,0.08); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#94a3b8; font-weight:800;">
+            <span>📜 ${escapeHtml(pName.toUpperCase())} ROLL HISTORY (${playerHistory.length})</span>
+            ${playerHistory.length > 0 ? `<button type="button" onclick="window.gtClearDiceHistory(${pNum})" style="background:transparent; border:none; color:#f87171; font-size:9.5px; font-weight:700; cursor:pointer;">Clear History</button>` : ''}
+          </div>
+          <div id="gt-dice-history-list-p${pNum}" style="display:flex; flex-direction:column; gap:4px; max-height:95px; overflow-y:auto;">
+            ${playerHistory.length === 0 ? `
+              <div style="font-size:10px; color:#475569; text-align:center; padding:6px 0;">No rolls recorded yet.</div>
+            ` : playerHistory.slice(-12).reverse().map((h, i) => {
+              const res = Array.isArray(h.results) ? h.results : [];
+              const fc = { 6:0, 5:0, 4:0, 3:0, 2:0, 1:0 };
+              res.forEach(v => { if (fc[v] !== undefined) fc[v]++; });
+              const breakdown = [6,5,4,3,2,1].filter(f => fc[f] > 0).map(f => `<span style="color:${f===6?'#fbbf24':(f===1?'#f87171':'#cbd5e1')};">${f}×${fc[f]}</span>`).join(' ');
+              const rollAvg = res.length > 0 ? (res.reduce((a,b)=>a+b,0) / res.length).toFixed(1) : '0.0';
+              const isReroll = h.mode === 'reroll';
+              return `
+                <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:4px 7px; font-size:10px; display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap;">
+                  <div style="display:flex; align-items:center; gap:5px;">
+                    <span style="font-weight:800; color:${isReroll ? '#38bdf8' : '#f59e0b'};">${isReroll ? '🔄 Reroll' : '🎲 Roll'} ${h.dice_count}D6:</span>
+                    <span style="font-family:'JetBrains Mono',monospace; font-size:9.5px;">${breakdown}</span>
+                  </div>
+                  <span style="font-weight:700; font-family:'JetBrains Mono',monospace; color:#94a3b8; font-size:9.5px;">
+                    Avg ${rollAvg} &bull; Sum ${h.sum}
+                  </span>
+                </div>
+              `;
+            }).join('')}
           </div>
         </div>
       </div>
     `;
   }
 
-  window.gtSetDiceCount = function(count) {
+  function renderDiceRollerContent() {
+    const modal = document.getElementById('gt-dice-roller-modal');
+    if (!modal || !diceRollerState.visible) return;
+
+    const { p1Name, p2Name } = getMatchPlayerNames();
+    const p1Count = (diceRollerState.p1.tray || []).length;
+    const p2Count = (diceRollerState.p2.tray || []).length;
+    const dist1 = computePlayerDiceDistribution(1);
+    const dist2 = computePlayerDiceDistribution(2);
+
+    if (diceRollerState.minimized) {
+      modal.classList.add('is-minimized');
+      modal.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 12px; background:rgba(15,23,42,0.98); width:100%; box-sizing:border-box;">
+          <div style="display:flex; align-items:center; gap:7px; flex:1; min-width:0; cursor:pointer;" onclick="window.gtMinimizeDiceRoller(false)" title="Tap to expand Dice Roller">
+            <span style="font-size:15px; flex-shrink:0;">🎲</span>
+            <div style="font-size:11.5px; font-weight:800; color:#f8fafc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+              <span style="color:#38bdf8;">${escapeHtml(p1Name)}: ${p1Count}d (${dist1.totalRolled})</span>
+              <span style="color:#475569; margin:0 4px;">|</span>
+              <span style="color:#fb7185;">${escapeHtml(p2Name)}: ${p2Count}d (${dist2.totalRolled})</span>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:5px; flex-shrink:0;">
+            <button type="button" class="gt-dice-header-btn" style="background:#f59e0b; color:#090d16; border-color:#f59e0b; padding:4px 9px; flex-shrink:0;" onclick="window.gtMinimizeDiceRoller(false)">
+              ⤢ Expand
+            </button>
+            <button type="button" class="gt-dice-header-btn close-btn" style="padding:4px 8px; flex-shrink:0;" onclick="window.gtToggleDiceRoller()" title="Close Dice Roller">
+              ✕
+            </button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    modal.classList.remove('is-minimized');
+    modal.innerHTML = `
+      <div class="gt-dice-header">
+        <div style="display:flex; align-items:center; gap:8px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:#f59e0b; flex-wrap:wrap;">
+          <span>🎲</span>
+          <span>DUAL TABLETOP DICE ROLLER</span>
+          <span style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); font-size:9.5px; padding:2px 6px; border-radius:4px; color:#f59e0b;">LIVE SYNC</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <button type="button" class="gt-dice-header-btn" onclick="window.gtMinimizeDiceRoller(true)" title="Minimize Dice Roller to enter scores">
+            <span>— Minimize</span>
+          </button>
+          <button type="button" class="gt-dice-header-btn close-btn" onclick="window.gtToggleDiceRoller()" title="Close Dice Roller">
+            <span>✕ Close</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="gt-dice-body">
+        <!-- Mobile Player Switcher Tabs (Visible on Mobile <= 767px) -->
+        <div class="gt-dice-mobile-tabs">
+          <button type="button" class="gt-dice-mobile-tab ${diceRollerState.activePlayerTab === 1 ? 'active-p1' : ''}" onclick="window.gtSwitchDicePlayerTab(1)">
+            🔵 ${escapeHtml(p1Name)} (${p1Count}d &bull; ${dist1.totalRolled} rolled)
+          </button>
+          <button type="button" class="gt-dice-mobile-tab ${diceRollerState.activePlayerTab === 2 ? 'active-p2' : ''}" onclick="window.gtSwitchDicePlayerTab(2)">
+            🔴 ${escapeHtml(p2Name)} (${p2Count}d &bull; ${dist2.totalRolled} rolled)
+          </button>
+        </div>
+
+        <!-- Dual Player Rollers Grid (Side-by-Side on Desktop/Tablet, Tabbed on Mobile) -->
+        <div class="gt-dice-dual-grid">
+          ${renderPlayerDicePanel(1, p1Name)}
+          ${renderPlayerDicePanel(2, p2Name)}
+        </div>
+      </div>
+    `;
+  }
+
+  window.gtSetDiceCount = function(count, playerNum = null) {
+    const pNum = playerNum ? (Number(playerNum) === 2 ? 2 : 1) : (diceRollerState.activePlayerTab || 1);
+    const bucket = getPlayerBucket(pNum);
     const targetCount = Math.min(100, Math.max(0, isNaN(count) ? 0 : count));
-    const current = diceRollerState.tray || [];
-    
+    const current = bucket.tray || [];
+
     if (targetCount === 0) {
-      diceRollerState.tray = [];
+      bucket.tray = [];
     } else if (targetCount > current.length) {
       const diff = targetCount - current.length;
       for (let i = 0; i < diff; i++) {
-        diceRollerState.tray.push({
+        bucket.tray.push({
           id: Date.now() + Math.random(),
           val: 0,
           selected: true,
@@ -5226,71 +5533,51 @@ Space Marines - Gladius Task Force (2000 pts)
         });
       }
     } else if (targetCount < current.length) {
-      diceRollerState.tray = current.slice(0, targetCount);
+      bucket.tray = current.slice(0, targetCount);
     }
-    
+
     saveDiceTray();
     renderDiceRollerContent();
   };
 
-  window.gtAddDice = function(delta) {
-    const current = diceRollerState.tray || [];
+  window.gtAddDice = function(delta, playerNum = null) {
+    const pNum = playerNum ? (Number(playerNum) === 2 ? 2 : 1) : (diceRollerState.activePlayerTab || 1);
+    const bucket = getPlayerBucket(pNum);
+    const current = bucket.tray || [];
     const newTotal = Math.min(100, current.length + delta);
     const toAdd = newTotal - current.length;
-    
+
     for (let i = 0; i < toAdd; i++) {
-      diceRollerState.tray.push({
+      bucket.tray.push({
         id: Date.now() + Math.random(),
         val: 0,
         selected: true,
         rolled: false
       });
     }
-    
+
     saveDiceTray();
     renderDiceRollerContent();
   };
 
-  window.gtClearTray = function() {
-    diceRollerState.tray = [];
+  window.gtClearTray = function(playerNum = null) {
+    const pNum = playerNum ? (Number(playerNum) === 2 ? 2 : 1) : (diceRollerState.activePlayerTab || 1);
+    const bucket = getPlayerBucket(pNum);
+    bucket.tray = [];
     saveDiceTray();
     renderDiceRollerContent();
   };
 
   window.gtSetDiceTarget = function(target) {
-    const parsedTarget = parseInt(target, 10);
-    const validTarget = isNaN(parsedTarget) ? 0 : parsedTarget;
-    diceRollerState.target = validTarget;
-    try { localStorage.setItem('gt-dice-target', validTarget); } catch(e) {}
-    
-    // Auto-update selection based on target
-    const tray = diceRollerState.tray || [];
-    const hasRolled = tray.some(d => d.rolled);
-    if (hasRolled) {
-      if (validTarget > 0) {
-        // Target threshold: select dice meeting or exceeding threshold
-        tray.forEach(d => {
-          if (d.rolled) d.selected = (d.val >= validTarget);
-        });
-      } else {
-        // Raw mode: no pass/fail filter, select all dice in tray
-        tray.forEach(d => {
-          d.selected = true;
-        });
-      }
-    } else {
-      // Unrolled dice in tray: ensure all are selected
-      tray.forEach(d => {
-        d.selected = true;
-      });
-    }
-    saveDiceTray();
-    
+    // Maintained as a no-op for legacy test callers
+    diceRollerState.target = 0;
     renderDiceRollerContent();
   };
 
-  window.gtToggleDieSelection = function(index) {
-    const tray = diceRollerState.tray || [];
+  window.gtToggleDieSelection = function(index, playerNum = null) {
+    const pNum = playerNum ? (Number(playerNum) === 2 ? 2 : 1) : (diceRollerState.activePlayerTab || 1);
+    const bucket = getPlayerBucket(pNum);
+    const tray = bucket.tray || [];
     if (tray[index]) {
       tray[index].selected = !tray[index].selected;
       saveDiceTray();
@@ -5298,185 +5585,170 @@ Space Marines - Gladius Task Force (2000 pts)
     }
   };
 
-  window.gtSelectAll = function(selectAll = true) {
-    const tray = diceRollerState.tray || [];
-    tray.forEach(d => { d.selected = selectAll; });
+  window.gtSelectAll = function(selectAll = true, playerNum = null) {
+    const pNum = playerNum ? (Number(playerNum) === 2 ? 2 : 1) : (diceRollerState.activePlayerTab || 1);
+    const bucket = getPlayerBucket(pNum);
+    const tray = bucket.tray || [];
+    tray.forEach(d => { d.selected = Boolean(selectAll); });
     saveDiceTray();
     renderDiceRollerContent();
   };
 
-  window.gtSelectPass = function() {
-    const target = diceRollerState.target;
-    const tray = diceRollerState.tray || [];
-    tray.forEach(d => {
-      d.selected = d.rolled && (target > 0 ? d.val >= target : true);
-    });
+  window.gtToggleSelectFace = function(faceVal, playerNum = null) {
+    const pNum = playerNum ? (Number(playerNum) === 2 ? 2 : 1) : (diceRollerState.activePlayerTab || 1);
+    const face = parseInt(faceVal, 10);
+    const bucket = getPlayerBucket(pNum);
+    const tray = bucket.tray || [];
+    const rolled = tray.filter(d => d.rolled);
+    if (rolled.length === 0) return;
+
+    const matching = rolled.filter(d => d.val === face);
+    if (matching.length === 0) return;
+
+    const allCurrentlySelected = tray.length > 0 && tray.every(d => d.selected);
+    const hasOtherFaces = rolled.some(d => d.val !== face);
+
+    if (allCurrentlySelected && hasOtherFaces) {
+      // If "All" was active, clicking a specific number selects just that number
+      tray.forEach(d => {
+        d.selected = Boolean(d.rolled && d.val === face);
+      });
+    } else {
+      // Otherwise toggle this specific face value on/off so user can combine e.g. 6, 5, 4
+      const isFaceAllSelected = matching.every(d => d.selected);
+      matching.forEach(d => {
+        d.selected = !isFaceAllSelected;
+      });
+    }
+
     saveDiceTray();
     renderDiceRollerContent();
   };
 
-  window.gtSelectFails = function() {
-    const target = diceRollerState.target;
-    const tray = diceRollerState.tray || [];
-    tray.forEach(d => {
-      d.selected = d.rolled && (target > 0 ? d.val < target : false);
-    });
-    saveDiceTray();
-    renderDiceRollerContent();
-  };
+  window.gtExecuteDiceRoll = function(playerNum = null, rollMode = 'selected_only') {
+    const pNum = playerNum ? (Number(playerNum) === 2 ? 2 : 1) : (diceRollerState.activePlayerTab || 1);
+    const bucket = getPlayerBucket(pNum);
+    let tray = bucket.tray || [];
 
-  window.gtSelectCrits = function() {
-    const tray = diceRollerState.tray || [];
-    tray.forEach(d => {
-      d.selected = d.rolled && d.val === 6;
-    });
-    saveDiceTray();
-    renderDiceRollerContent();
-  };
-
-  window.gtSelectOnes = function() {
-    const tray = diceRollerState.tray || [];
-    tray.forEach(d => {
-      d.selected = d.rolled && d.val === 1;
-    });
-    saveDiceTray();
-    renderDiceRollerContent();
-  };
-
-  function getLocalPlayerInfo() {
-    const raw = originalGetItem('gdm-11e-tracker-state');
-    let stateObj = {};
-    try { stateObj = JSON.parse(raw) || {}; } catch(e) {}
-    const game = stateObj.game || {};
-    
-    const p1Name = game.p1Name || 'Player 1';
-    const p2Name = game.p2Name || 'Player 2';
-    const isP2 = clientState.clientRole === 'player2';
-
-    return {
-      name: isP2 ? p2Name : p1Name,
-      num: isP2 ? 2 : 1
-    };
-  }
-
-  window.gtExecuteDiceRoll = function() {
-    let tray = diceRollerState.tray || [];
-    
-    // If tray is empty, prompt to add dice
     if (tray.length === 0) {
-      alert("Please add dice to the tray (+1, +5, +10) before rolling!");
+      alert("Please add dice to the tray (+1, +5, +10, +20) before rolling!");
       return;
     }
 
-    // Determine which dice to roll
     let selectedIndices = [];
     tray.forEach((d, idx) => {
       if (d.selected) selectedIndices.push(idx);
     });
 
-    // If none are selected, auto-select all dice in tray and roll them
-    if (selectedIndices.length === 0) {
-      tray.forEach((d, idx) => {
-        d.selected = true;
-        selectedIndices.push(idx);
-      });
+    // If no dice are selected (or rollMode is 'all'), roll all dice in the tray
+    const isPartialSelection = selectedIndices.length > 0 && selectedIndices.length < tray.length;
+    if (selectedIndices.length === 0 || rollMode === 'all') {
+      selectedIndices = tray.map((_, idx) => idx);
     }
 
     const rollCount = selectedIndices.length;
-    const target = diceRollerState.target;
-
-    // Secure RNG
     const array = new Uint32Array(rollCount);
     window.crypto.getRandomValues(array);
     const newValues = [];
     for (let i = 0; i < rollCount; i++) {
       newValues.push((array[i] % 6) + 1);
     }
-    // Sort newly rolled values descending
     newValues.sort((a, b) => b - a);
 
-    // Update the selected dice in the tray
-    selectedIndices.forEach((idx, i) => {
-      tray[idx].val = newValues[i];
-      tray[idx].rolled = true;
-    });
+    let effectiveMode = 'roll';
+    if (isPartialSelection && rollMode === 'reroll_in_place') {
+      // Reroll only the selected dice in place and keep the unselected dice in the tray
+      effectiveMode = 'reroll';
+      selectedIndices.forEach((idx, i) => {
+        tray[idx].val = newValues[i];
+        tray[idx].rolled = true;
+      });
+    } else if (isPartialSelection && rollMode === 'selected_only') {
+      // Roll only the selected dice (keeping just the selected dice in the tray)
+      effectiveMode = 'reroll';
+      tray = newValues.map(v => ({
+        id: Date.now() + Math.random(),
+        val: v,
+        selected: false,
+        rolled: true
+      }));
+    } else {
+      // Roll all dice in the tray
+      effectiveMode = tray.some(d => d.rolled) ? 'reroll' : 'roll';
+      tray = newValues.map(v => ({
+        id: Date.now() + Math.random(),
+        val: v,
+        selected: false,
+        rolled: true
+      }));
+    }
 
-    // Sort the entire tray descending by value
+    // Sort tray descending by face value and clear selection so user can cleanly select next faces
     tray.sort((a, b) => (b.val || 0) - (a.val || 0));
+    tray.forEach(d => { d.selected = false; });
+    bucket.tray = tray;
 
-    // AUTOMATIC POST-ROLL PRE-SELECTION:
-    // Successes (and 6s) are pre-selected for the next roll (e.g. wound roll).
-    // Fails are unselected (player can still click them or tap "Fails"/"1s" to reroll).
-    tray.forEach(d => {
-      if (d.rolled) {
-        if (target > 0) {
-          d.selected = (d.val >= target);
-        } else {
-          d.selected = true;
-        }
-      }
-    });
+    const { p1Name, p2Name } = getMatchPlayerNames();
+    const playerName = pNum === 2 ? p2Name : p1Name;
+    const rollSum = newValues.reduce((a, b) => a + b, 0);
+    const critCount = newValues.filter(v => v === 6).length;
+    const oneCount = newValues.filter(v => v === 1).length;
 
-    diceRollerState.tray = tray;
-    saveDiceTray();
-
-    const rolledDice = tray.filter(d => d.rolled);
-    const passCount = target > 0 ? rolledDice.filter(d => d.val >= target).length : rolledDice.length;
-    const critCount = rolledDice.filter(d => d.val === 6).length;
-    const failCount = target > 0 ? rolledDice.filter(d => d.val < target).length : 0;
-    const sum = rolledDice.reduce((a, b) => a + (b.val || 0), 0);
-
-    const player = getLocalPlayerInfo();
     const rollPayload = {
-      id: `roll_${Date.now()}`,
+      id: `roll_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       client_id: clientState.clientId,
-      player_name: player.name,
-      player_num: player.num,
+      player_name: playerName,
+      player_num: pNum,
+      mode: effectiveMode,
       dice_count: rollCount,
       die_type: 'D6',
-      target: target,
+      target: 0,
       results: newValues,
-      tray: diceRollerState.tray,
-      success_count: passCount,
-      fail_count: failCount,
+      tray: diceRollerState.p1.tray,
+      trays: {
+        p1: { tray: diceRollerState.p1.tray, skin: resolvePlayerDiceSkin(1) },
+        p2: { tray: diceRollerState.p2.tray, skin: resolvePlayerDiceSkin(2) }
+      },
+      success_count: rollCount - oneCount,
+      fail_count: oneCount,
       crit_count: critCount,
-      sum: sum
+      sum: rollSum,
+      timestamp: Date.now()
     };
 
     diceRollerState.history.push(rollPayload);
-    if (diceRollerState.history.length > 50) diceRollerState.history.shift();
+    if (diceRollerState.history.length > 200) diceRollerState.history.shift();
 
+    saveDiceTray(false);
     renderDiceRollerContent();
     broadcastDiceRoll(rollPayload);
   };
 
-  window.gtClearDiceHistory = function() {
-    diceRollerState.history = [];
-    try { localStorage.removeItem('gt-dice-history'); } catch(e) {}
-    renderDiceRollerContent();
-
-    if (!clientState.matchId || clientState.isFinalizing || clientState.isDiscarded) return;
-    if (typeof firebase !== 'undefined' && firebase.firestore) {
-      try {
-        const db = firebase.firestore();
-        db.collection('rooms').doc(clientState.matchId).update({
-          dice_history: [],
-          updatedAt: Date.now()
-        }).catch(() => {});
-      } catch(e) {}
+  window.gtClearDiceHistory = function(playerNum = null) {
+    if (playerNum === 1 || playerNum === 2) {
+      diceRollerState.history = (diceRollerState.history || []).filter(h => Number(h.player_num || 1) !== Number(playerNum));
+    } else {
+      diceRollerState.history = [];
     }
+    saveDiceTray(true);
+    renderDiceRollerContent();
   };
 
   function broadcastDiceRoll(rollData) {
     if (!clientState.matchId || clientState.isFinalizing || clientState.isDiscarded) return;
 
-    // Direct write to Cloud Firestore (use .update so deleted rooms are never resurrected)
+    const traysPayload = {
+      p1: { tray: diceRollerState.p1.tray, skin: resolvePlayerDiceSkin(1) },
+      p2: { tray: diceRollerState.p2.tray, skin: resolvePlayerDiceSkin(2) }
+    };
+
     if (typeof firebase !== 'undefined' && firebase.firestore) {
       try {
         const db = firebase.firestore();
         db.collection('rooms').doc(clientState.matchId).update({
-          dice_tray: diceRollerState.tray,
-          dice_target: diceRollerState.target,
+          dice_tray: diceRollerState.p1.tray,
+          dice_trays: traysPayload,
+          dice_target: 0,
           dice_history: diceRollerState.history,
           updatedAt: Date.now()
         }).catch(() => {});
@@ -5496,11 +5768,10 @@ Space Marines - Gladius Task Force (2000 pts)
   function applyRemoteDiceRoll(remoteRoll, isSelf) {
     if (!remoteRoll) return;
 
-    // Check if already in history
     if (!diceRollerState.history.some(h => h.id === remoteRoll.id)) {
       diceRollerState.history.push(remoteRoll);
-      if (diceRollerState.history.length > 50) diceRollerState.history.shift();
-      try { localStorage.setItem('gt-dice-history', JSON.stringify(diceRollerState.history)); } catch(e) {}
+      if (diceRollerState.history.length > 200) diceRollerState.history.shift();
+      saveDiceTray(false);
     }
 
     if (diceRollerState.visible) {
