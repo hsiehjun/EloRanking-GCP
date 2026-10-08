@@ -150,6 +150,19 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
         self.assertGreater(idx_player, 0)
         self.assertGreater(idx_news, idx_player, "News & Info tab must appear after Player Station/My Results")
         self.assertLess(idx_news, idx_results, "News & Info tab must appear before Standings & Placings")
+        self.assertIn('id="player-station-clock-schedule-wrap"', app_html)
+        self.assertIn('id="event-matches-clock-schedule-wrap"', app_html)
+
+        tournaments_js = (root_dir / "web" / "js" / "tournaments.js").read_text(encoding="utf-8")
+        self.assertNotIn("Tournament Organizers & Judges (", tournaments_js)
+        fn_start = tournaments_js.find("async function renderEventNewsHub(")
+        fn_end = tournaments_js.find("function isToHubMatchCompleted(", fn_start)
+        news_fn_body = tournaments_js[fn_start:fn_end]
+        self.assertNotIn("Round Clock & Schedule", news_fn_body)
+        idx_details = news_fn_body.find("📜 Official Event Details & Player Pack Information")
+        idx_bulletins = news_fn_body.find("📰 Tournament Bulletins & News Feed")
+        self.assertGreater(idx_details, 0)
+        self.assertGreater(idx_bulletins, idx_details, "Official Event Details must be on top of News & Info tab")
 
     def test_bcp_hosted_events_and_registered_endpoint(self):
         bcp_adapter.BcpAdapter._last_hosted_events_by_user = {

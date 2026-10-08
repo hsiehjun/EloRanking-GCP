@@ -1523,6 +1523,9 @@ function switchEventModalTab(tabKey) {
     if (btnPlayer) btnPlayer.classList.add('active');
     if (viewPlayer) viewPlayer.style.display = 'block';
     if (searchRow) searchRow.style.display = 'none';
+    if (typeof renderEventClockAndScheduleWidgets === 'function' && currentEventData) {
+      renderEventClockAndScheduleWidgets(currentEventData);
+    }
   } else if (tabKey === 'meta') {
     if (btnMeta) btnMeta.classList.add('active');
     if (viewMeta) viewMeta.style.display = 'block';
@@ -2223,6 +2226,9 @@ function setEventRoundFilter(roundVal) {
 function renderEventPairingsRows() {
   const tbody = document.getElementById('event-pairings-body');
   const roundsContainer = document.getElementById('event-rounds-filter');
+  if (typeof renderEventClockAndScheduleWidgets === 'function' && currentEventData) {
+    renderEventClockAndScheduleWidgets(currentEventData);
+  }
   if (!tbody) return;
 
   if (!eventMatchesCache || eventMatchesCache.length === 0) {
@@ -5316,6 +5322,11 @@ async function renderPlayerStation(ev, userRegData) {
       rosterAccordion.open = true;
       if (accordionHint) accordionHint.innerText = '(Pre-Event • Review & Check In)';
     }
+  }
+
+  // 2.5. Render Round Clock & Schedule in Player Station
+  if (typeof renderEventClockAndScheduleWidgets === 'function') {
+    renderEventClockAndScheduleWidgets(ev || currentEventData);
   }
 
   // 3. Render Personal Scorecard History
@@ -11419,6 +11430,7 @@ function ensureEventToHubFirestoreListener(eventId) {
           startToHubClockTicker(eid);
         }
         if (currentOpenEventId && String(currentOpenEventId) === eid && currentEventData) {
+          renderEventClockAndScheduleWidgets(currentEventData, true);
           if (currentEventModalTab === 'news') {
             renderEventNewsHub(currentEventData, true);
           } else if (currentEventModalTab === 'to-hub') {
@@ -11453,10 +11465,11 @@ async function loadEventToHubState(eventId, forceRefresh = false) {
       if (res.clock && res.clock.status === 'running') {
         startToHubClockTicker(eid);
       }
-      if (currentOpenEventId && String(currentOpenEventId) === eid) {
-        if (currentEventModalTab === 'news' && currentEventData) {
+      if (currentOpenEventId && String(currentOpenEventId) === eid && currentEventData) {
+        renderEventClockAndScheduleWidgets(currentEventData, true);
+        if (currentEventModalTab === 'news') {
           renderEventNewsHub(currentEventData, true);
-        } else if (currentEventModalTab === 'to-hub' && currentEventData) {
+        } else if (currentEventModalTab === 'to-hub') {
           renderEventToHub(currentEventData, true);
         }
       }
@@ -11565,6 +11578,91 @@ function startToHubClockTicker(eventId) {
   }, 1000);
 }
 
+function buildEventRoundClockAndScheduleCardHtml(ev, skipFetch = false) {
+  const eventObj = ev || currentEventData;
+  if (!eventObj) return '';
+  const eventId = String(eventObj.id || eventObj.event_id || currentOpenEventId || '');
+  if (!skipFetch && eventId && !_eventToHubStateCache.has(eventId)) {
+    loadEventToHubState(eventId, false).catch(() => {});
+  }
+  const state = _eventToHubStateCache.get(eventId) || {};
+  const bcpCfg = getEventBcpRoundConfig(eventObj);
+  const clockObj = state.clock || state.master_clock || null;
+  const remSec = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
+  const clockStatus = (clockObj && clockObj.status) ? String(clockObj.status) : 'idle';
+  const clockRound = (clockObj && (clockObj.round_num || clockObj.round)) ? (clockObj.round_num || clockObj.round) : 1;
+
+  if (clockStatus === 'running') {
+    startToHubClockTicker(eventId);
+  }
+
+  const roundTimersHtml = bcpCfg.roundTimers.length > 0
+    ? bcpCfg.roundTimers.map((rt, idx) => {
+        const rNum = rt.round || (idx + 1);
+        const st = rt.startTime ? new Date(rt.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
+        const et = rt.endTime ? new Date(rt.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
+        const datePart = rt.startTime ? new Date(rt.startTime).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+        const isPaused = Boolean(rt.paused);
+        return `
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:0.45rem 0.65rem; background:rgba(15,23,42,0.55); border:1px solid rgba(255,255,255,0.07); border-radius:6px; font-size:0.8rem;">
+            <span style="font-weight:700; color:#e2e8f0;">Round ${rNum} ${datePart ? `<span style="color:var(--text-muted); font-weight:500;">(${escapeHtml(datePart)})</span>` : ''}</span>
+            <span style="font-family:var(--font-mono); color:#38bdf8;">${escapeHtml(st)} – ${escapeHtml(et)} ${isPaused ? '<span style="color:#fbbf24;">(Paused)</span>' : ''}</span>
+          </div>
+        `;
+      }).join('')
+    : `<div style="font-size:0.8rem; color:var(--text-muted);">Standard Round Length: <strong style="color:#e2e8f0;">${bcpCfg.defaultLengthMins} mins (${(bcpCfg.defaultLengthMins / 60).toFixed(1)} hrs)</strong></div>`;
+
+  return `
+    <!-- Live Round Clock & Schedule Card -->
+    <div class="card event-round-clock-schedule-card" style="padding:0.95rem 1.15rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.09); border-radius:10px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.65rem; flex-wrap:wrap;">
+        <div style="font-size:0.78rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:#38bdf8;">⏱️ Round Clock & Schedule</div>
+        <span class="badge" style="background:${clockStatus === 'running' ? 'rgba(34,197,94,0.18)' : 'rgba(148,163,184,0.15)'}; color:${clockStatus === 'running' ? '#4ade80' : '#94a3b8'}; border:1px solid ${clockStatus === 'running' ? 'rgba(34,197,94,0.35)' : 'rgba(148,163,184,0.25)'}; font-size:0.68rem; font-weight:700;">
+          ${clockStatus === 'running' ? `🔴 Round ${clockRound} Live` : (clockStatus === 'paused' ? `⏸️ Round ${clockRound} Paused` : `Standard ${bcpCfg.defaultLengthMins}m Rounds`)}
+        </span>
+      </div>
+      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:0.75rem; padding:0.6rem 0.85rem; background:rgba(2,6,23,0.65); border:1px solid rgba(255,255,255,0.07); border-radius:8px; margin-bottom:0.65rem;">
+        <div>
+          <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Master Round Timer</div>
+          <div style="font-size:0.78rem; color:var(--text-secondary);">Round ${clockRound} (${bcpCfg.defaultLengthMins} min limit)</div>
+        </div>
+        <div class="live-event-master-clock-readout" style="font-family:var(--font-mono); font-size:1.45rem; font-weight:800; color:${clockStatus === 'running' ? '#fbbf24' : '#e2e8f0'};">
+          ${formatClockDurationHms(remSec)}
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.4rem; max-height:150px; overflow-y:auto;">
+        ${roundTimersHtml}
+      </div>
+    </div>
+  `;
+}
+
+function renderEventClockAndScheduleWidgets(ev, skipFetch = false) {
+  const eventObj = ev || currentEventData;
+  if (!eventObj) return;
+  const html = buildEventRoundClockAndScheduleCardHtml(eventObj, skipFetch);
+  const matchesWrap = document.getElementById('event-matches-clock-schedule-wrap');
+  if (matchesWrap) {
+    if (html) {
+      matchesWrap.innerHTML = html;
+      matchesWrap.style.display = 'block';
+    } else {
+      matchesWrap.innerHTML = '';
+      matchesWrap.style.display = 'none';
+    }
+  }
+  const playerWrap = document.getElementById('player-station-clock-schedule-wrap');
+  if (playerWrap) {
+    if (html) {
+      playerWrap.innerHTML = html;
+      playerWrap.style.display = 'block';
+    } else {
+      playerWrap.innerHTML = '';
+      playerWrap.style.display = 'none';
+    }
+  }
+}
+
 // ----------------------------------------------------------------------------
 // PUBLIC 📰 NEWS & INFO TAB
 // ----------------------------------------------------------------------------
@@ -11582,18 +11680,8 @@ async function renderEventNewsHub(ev, skipFetch = false) {
   const state = _eventToHubStateCache.get(eventId) || {};
   const raw = (eventObj.raw_json && typeof eventObj.raw_json === 'object') ? eventObj.raw_json : eventObj;
   const canTo = canUserAccessEventToHub(eventObj);
-  const staffList = extractEventStaffDirectory(eventObj);
-  const bcpCfg = getEventBcpRoundConfig(eventObj);
   const activeBroadcast = state.active_broadcast && state.active_broadcast.message ? state.active_broadcast : null;
   const newsPosts = Array.isArray(state.news_posts) ? state.news_posts : [];
-  const clockObj = state.clock || null;
-  const remSec = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
-  const clockStatus = (clockObj && clockObj.status) ? String(clockObj.status) : 'idle';
-  const clockRound = (clockObj && clockObj.round_num) ? clockObj.round_num : 1;
-
-  if (clockStatus === 'running') {
-    startToHubClockTicker(eventId);
-  }
 
   const externalUrl = String(raw.externalUrl || eventObj.external_url || '').trim();
   const descriptionRaw = raw.description || raw.eventDescription || eventObj.description || '';
@@ -11621,22 +11709,6 @@ async function renderEventNewsHub(ev, skipFetch = false) {
       </div>
     `;
   })() : '';
-
-  const roundTimersHtml = bcpCfg.roundTimers.length > 0
-    ? bcpCfg.roundTimers.map((rt, idx) => {
-        const rNum = rt.round || (idx + 1);
-        const st = rt.startTime ? new Date(rt.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
-        const et = rt.endTime ? new Date(rt.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
-        const datePart = rt.startTime ? new Date(rt.startTime).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
-        const isPaused = Boolean(rt.paused);
-        return `
-          <div style="display:flex; align-items:center; justify-content:space-between; padding:0.45rem 0.65rem; background:rgba(15,23,42,0.55); border:1px solid rgba(255,255,255,0.07); border-radius:6px; font-size:0.8rem;">
-            <span style="font-weight:700; color:#e2e8f0;">Round ${rNum} ${datePart ? `<span style="color:var(--text-muted); font-weight:500;">(${escapeHtml(datePart)})</span>` : ''}</span>
-            <span style="font-family:var(--font-mono); color:#38bdf8;">${escapeHtml(st)} – ${escapeHtml(et)} ${isPaused ? '<span style="color:#fbbf24;">(Paused)</span>' : ''}</span>
-          </div>
-        `;
-      }).join('')
-    : `<div style="font-size:0.8rem; color:var(--text-muted);">Standard Round Length: <strong style="color:#e2e8f0;">${bcpCfg.defaultLengthMins} mins (${(bcpCfg.defaultLengthMins / 60).toFixed(1)} hrs)</strong></div>`;
 
   const newsPostsHtml = newsPosts.length > 0
     ? newsPosts.map(post => {
@@ -11673,59 +11745,18 @@ async function renderEventNewsHub(ev, skipFetch = false) {
       </div>
     `;
 
-  const staffHtml = staffList.length > 0
-    ? staffList.map(st => {
-        const shortRole = st.isOwner ? 'Event Owner' : (String(st.role || '').toLowerCase().includes('judge') ? 'Judge' : 'TO / Staff');
-        return `
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.55rem 0.75rem; background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.07); border-radius:8px;">
-          <div style="display:flex; align-items:center; gap:0.45rem; min-width:0; flex:1;">
-            <span style="font-size:0.95rem; flex-shrink:0;">${st.badgeIcon}</span>
-            <span style="font-weight:700; color:#f1f5f9; font-size:0.84rem; line-height:1.25; overflow-wrap: anywhere;">${escapeHtml(st.name)}</span>
-          </div>
-          <span class="badge" style="background:${st.isOwner ? 'rgba(245,158,11,0.16)' : 'rgba(56,189,248,0.14)'}; color:${st.isOwner ? '#fbbf24' : '#38bdf8'}; border:1px solid ${st.isOwner ? 'rgba(245,158,11,0.35)' : 'rgba(56,189,248,0.3)'}; font-size:0.66rem; font-weight:700; white-space:nowrap; flex-shrink:0;">
-            ${escapeHtml(shortRole)}
-          </span>
-        </div>
-      `;
-      }).join('')
-    : `<div style="font-size:0.82rem; color:var(--text-muted);">No public staff roster listed on BCP.</div>`;
-
   container.innerHTML = `
     <div class="event-news-hub-wrap" style="padding:0.25rem 0;">
       ${broadcastBannerHtml}
 
-      <div class="event-news-top-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:1rem; margin-bottom:1.15rem;">
-        <!-- Live Round Clock & Schedule Card -->
-        <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.09); border-radius:10px;">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.65rem;">
-            <div style="font-size:0.78rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:#38bdf8;">⏱️ Round Clock & Schedule</div>
-            <span class="badge" style="background:${clockStatus === 'running' ? 'rgba(34,197,94,0.18)' : 'rgba(148,163,184,0.15)'}; color:${clockStatus === 'running' ? '#4ade80' : '#94a3b8'}; border:1px solid ${clockStatus === 'running' ? 'rgba(34,197,94,0.35)' : 'rgba(148,163,184,0.25)'}; font-size:0.68rem; font-weight:700;">
-              ${clockStatus === 'running' ? `🔴 Round ${clockRound} Live` : (clockStatus === 'paused' ? `⏸️ Round ${clockRound} Paused` : `Standard ${bcpCfg.defaultLengthMins}m Rounds`)}
-            </span>
-          </div>
-          <div style="display:flex; align-items:baseline; justify-content:space-between; gap:0.75rem; padding:0.6rem 0.85rem; background:rgba(2,6,23,0.65); border:1px solid rgba(255,255,255,0.07); border-radius:8px; margin-bottom:0.75rem;">
-            <div>
-              <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Master Round Timer</div>
-              <div style="font-size:0.78rem; color:var(--text-secondary);">Round ${clockRound} (${bcpCfg.defaultLengthMins} min limit)</div>
-            </div>
-            <div class="live-event-master-clock-readout" style="font-family:var(--font-mono); font-size:1.45rem; font-weight:800; color:${clockStatus === 'running' ? '#fbbf24' : '#e2e8f0'};">
-              ${formatClockDurationHms(remSec)}
-            </div>
-          </div>
-          <div style="display:flex; flex-direction:column; gap:0.4rem; max-height:175px; overflow-y:auto;">
-            ${roundTimersHtml}
-          </div>
-        </div>
-
-        <!-- Staff Directory & Official Links Card -->
-        <div class="card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; justify-content:space-between; gap:0.85rem;">
+      <!-- Official BCP Event Description & Rules Pack (On Top) -->
+      <div class="card" style="padding:1.15rem 1.25rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:1.15rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.75rem; padding-bottom:0.65rem; border-bottom:1px solid rgba(255,255,255,0.08);">
           <div>
-            <div style="font-size:0.78rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:#fbbf24; margin-bottom:0.65rem;">🏛️ Tournament Organizers & Judges (${staffList.length})</div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:0.45rem; max-height:175px; overflow-y:auto;">
-              ${staffHtml}
-            </div>
+            <h3 style="margin:0; font-size:1.02rem; font-weight:800; color:#f8fafc;">📜 Official Event Details & Player Pack Information</h3>
+            <span style="font-size:0.72rem; color:var(--text-muted);">Synced from Best Coast Pairings</span>
           </div>
-          <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap; padding-top:0.5rem; border-top:1px solid rgba(255,255,255,0.07);">
+          <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap;">
             ${externalUrl ? `
               <a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="font-size:0.78rem; font-weight:700; padding:0.42rem 0.85rem; text-decoration:none;">
                 📘 Official Player Pack / Rules Doc ↗
@@ -11741,10 +11772,19 @@ async function renderEventNewsHub(ev, skipFetch = false) {
             ` : ''}
           </div>
         </div>
+        ${descriptionHtml ? `
+          <div class="event-bcp-description-body" style="font-size:0.88rem; color:#cbd5e1; line-height:1.65; overflow-wrap:break-word;">
+            ${descriptionHtml}
+          </div>
+        ` : `
+          <div style="font-size:0.85rem; color:var(--text-muted);">
+            No additional text description provided on Best Coast Pairings. Use the links above to open the official BCP event page or player pack.
+          </div>
+        `}
       </div>
 
       <!-- TO News & Bulletins Feed -->
-      <div class="card" style="padding:1.1rem 1.2rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:1.15rem;">
+      <div class="card" style="padding:1.1rem 1.2rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.85rem;">
           <div>
             <h3 style="margin:0; font-size:1.05rem; font-weight:800; color:#fff;">📰 Tournament Bulletins & News Feed</h3>
@@ -11760,19 +11800,6 @@ async function renderEventNewsHub(ev, skipFetch = false) {
           ${newsPostsHtml}
         </div>
       </div>
-
-      <!-- Official BCP Event Description & Rules Pack -->
-      ${descriptionHtml ? `
-        <div class="card" style="padding:1.15rem 1.25rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem; padding-bottom:0.6rem; border-bottom:1px solid rgba(255,255,255,0.08);">
-            <h3 style="margin:0; font-size:1.02rem; font-weight:800; color:#f8fafc;">📜 Official Event Details & Player Pack Information</h3>
-            <span style="font-size:0.72rem; color:var(--text-muted);">Synced from Best Coast Pairings</span>
-          </div>
-          <div class="event-bcp-description-body" style="font-size:0.88rem; color:#cbd5e1; line-height:1.65; overflow-wrap:break-word;">
-            ${descriptionHtml}
-          </div>
-        </div>
-      ` : ''}
     </div>
   `;
 }
@@ -12876,6 +12903,8 @@ window.getUserEventOrganizerRole = getUserEventOrganizerRole;
 window.extractEventStaffDirectory = extractEventStaffDirectory;
 window.loadEventToHubState = loadEventToHubState;
 window.renderEventNewsHub = renderEventNewsHub;
+window.renderEventClockAndScheduleWidgets = renderEventClockAndScheduleWidgets;
+window.buildEventRoundClockAndScheduleCardHtml = buildEventRoundClockAndScheduleCardHtml;
 window.renderEventToHub = renderEventToHub;
 window.switchEventToHubSubtab = switchEventToHubSubtab;
 window.setToHubRadarRound = setToHubRadarRound;
