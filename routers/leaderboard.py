@@ -712,23 +712,41 @@ def api_events_recommended(
         found_ratings = {}
         name_ratings = {}
         if all_p_ids or all_p_names:
-            try:
-                with db.get_connection() as conn:
-                    with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cur:
-                        cur.execute("""
-                            SELECT player_id, LOWER(player_name) as player_name, current_elo
-                            FROM player_ratings
-                            WHERE player_id = ANY(%s) AND COALESCE(game_system, '40k') = %s
-                            UNION ALL
-                            SELECT player_id, LOWER(player_name) as player_name, current_elo
-                            FROM player_ratings
-                            WHERE player_name = ANY(%s) AND COALESCE(game_system, '40k') = %s;
-                        """, (list(all_p_ids), target_sys, list(all_p_names), target_sys))
-                        rated_rows = cur.fetchall()
-                        found_ratings = {str(r["player_id"]): float(r["current_elo"]) for r in rated_rows if r.get("player_id")}
-                        name_ratings = {str(r["player_name"]): float(r["current_elo"]) for r in rated_rows if r.get("player_name")}
-            except Exception as dbe:
-                logger.debug(f"Batch roster rating lookup notice: {dbe}")
+            used_mem_lookup = False
+            if hasattr(db, "_is_mock_instance") and not db._is_mock_instance() and hasattr(db, "_get_itc_player_ratings_lookup"):
+                try:
+                    by_pid, by_name = db._get_itc_player_ratings_lookup(target_sys)
+                    if by_pid or by_name:
+                        for pid_k in all_p_ids:
+                            pr = by_pid.get(str(pid_k))
+                            if pr and pr.get("current_elo") is not None:
+                                found_ratings[str(pid_k)] = float(pr["current_elo"])
+                        for nm_k in all_p_names:
+                            nm_low = str(nm_k).strip().lower()
+                            pr = by_name.get(nm_low)
+                            if pr and pr.get("current_elo") is not None:
+                                name_ratings[nm_low] = float(pr["current_elo"])
+                        used_mem_lookup = True
+                except Exception:
+                    used_mem_lookup = False
+            if not used_mem_lookup:
+                try:
+                    with db.get_connection() as conn:
+                        with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cur:
+                            cur.execute("""
+                                SELECT player_id, LOWER(player_name) as player_name, current_elo
+                                FROM player_ratings
+                                WHERE player_id = ANY(%s) AND COALESCE(game_system, '40k') = %s
+                                UNION ALL
+                                SELECT player_id, LOWER(player_name) as player_name, current_elo
+                                FROM player_ratings
+                                WHERE player_name = ANY(%s) AND COALESCE(game_system, '40k') = %s;
+                            """, (list(all_p_ids), target_sys, list(all_p_names), target_sys))
+                            rated_rows = cur.fetchall()
+                            found_ratings = {str(r["player_id"]): float(r["current_elo"]) for r in rated_rows if r.get("player_id")}
+                            name_ratings = {str(r["player_name"]): float(r["current_elo"]) for r in rated_rows if r.get("player_name")}
+                except Exception as dbe:
+                    logger.debug(f"Batch roster rating lookup notice: {dbe}")
 
         for eid_res, active_p in fetched_rosters.items():
             if not active_p:
@@ -1038,41 +1056,58 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
     db_ratings_by_name = {}
     target_sys = (game_system or "40k").strip().lower()
     if db and (candidate_pids or candidate_exact_names):
-        try:
-            with db.get_connection() as conn:
-                cursor_factory = getattr(extras, "RealDictCursor", None) if extras else None
-                cursor_kw = {"cursor_factory": cursor_factory} if cursor_factory else {}
-                with conn.cursor(**cursor_kw) as cursor:
-                    cursor.execute("""
-                        SELECT player_id, player_name, current_elo, peak_elo, win_rate, top_faction, team
-                        FROM player_ratings
-                        WHERE player_id = ANY(%s) AND COALESCE(game_system, '40k') = %s
-                        UNION ALL
-                        SELECT player_id, player_name, current_elo, peak_elo, win_rate, top_faction, team
-                        FROM player_ratings
-                        WHERE player_name = ANY(%s) AND COALESCE(game_system, '40k') = %s;
-                    """, (list(candidate_pids), target_sys, list(candidate_exact_names), target_sys))
-                    for row in cursor.fetchall():
-                        if isinstance(row, dict) or hasattr(row, "keys"):
-                            r = dict(row)
-                        elif isinstance(row, (list, tuple)):
-                            r = {
-                                "player_id": row[0] if len(row) > 0 else None,
-                                "player_name": row[1] if len(row) > 1 else None,
-                                "current_elo": row[2] if len(row) > 2 else 1500.0,
-                                "peak_elo": row[3] if len(row) > 3 else 1500.0,
-                                "win_rate": row[4] if len(row) > 4 else 0.0,
-                                "top_faction": row[5] if len(row) > 5 else None,
-                                "team": row[6] if len(row) > 6 else None,
-                            }
-                        else:
-                            continue
-                        if r.get("player_id"):
-                            db_ratings_by_id[str(r["player_id"])] = r
-                        if r.get("player_name"):
-                            db_ratings_by_name[str(r["player_name"]).strip().lower()] = r
-        except Exception as e:
-            logger.debug(f"DB ratings read-only lookup notice: {e}")
+        used_mem_lookup = False
+        if hasattr(db, "_is_mock_instance") and not db._is_mock_instance() and hasattr(db, "_get_itc_player_ratings_lookup"):
+            try:
+                by_pid, by_name = db._get_itc_player_ratings_lookup(target_sys)
+                if by_pid or by_name:
+                    for pid_k in candidate_pids:
+                        pr = by_pid.get(str(pid_k))
+                        if pr:
+                            db_ratings_by_id[str(pid_k)] = pr
+                    for nm_k in candidate_names:
+                        pr = by_name.get(str(nm_k).strip().lower())
+                        if pr:
+                            db_ratings_by_name[str(nm_k).strip().lower()] = pr
+                    used_mem_lookup = True
+            except Exception:
+                used_mem_lookup = False
+        if not used_mem_lookup:
+            try:
+                with db.get_connection() as conn:
+                    cursor_factory = getattr(extras, "RealDictCursor", None) if extras else None
+                    cursor_kw = {"cursor_factory": cursor_factory} if cursor_factory else {}
+                    with conn.cursor(**cursor_kw) as cursor:
+                        cursor.execute("""
+                            SELECT player_id, player_name, current_elo, peak_elo, win_rate, top_faction, team
+                            FROM player_ratings
+                            WHERE player_id = ANY(%s) AND COALESCE(game_system, '40k') = %s
+                            UNION ALL
+                            SELECT player_id, player_name, current_elo, peak_elo, win_rate, top_faction, team
+                            FROM player_ratings
+                            WHERE player_name = ANY(%s) AND COALESCE(game_system, '40k') = %s;
+                        """, (list(candidate_pids), target_sys, list(candidate_exact_names), target_sys))
+                        for row in cursor.fetchall():
+                            if isinstance(row, dict) or hasattr(row, "keys"):
+                                r = dict(row)
+                            elif isinstance(row, (list, tuple)):
+                                r = {
+                                    "player_id": row[0] if len(row) > 0 else None,
+                                    "player_name": row[1] if len(row) > 1 else None,
+                                    "current_elo": row[2] if len(row) > 2 else 1500.0,
+                                    "peak_elo": row[3] if len(row) > 3 else 1500.0,
+                                    "win_rate": row[4] if len(row) > 4 else 0.0,
+                                    "top_faction": row[5] if len(row) > 5 else None,
+                                    "team": row[6] if len(row) > 6 else None,
+                                }
+                            else:
+                                continue
+                            if r.get("player_id"):
+                                db_ratings_by_id[str(r["player_id"])] = r
+                            if r.get("player_name"):
+                                db_ratings_by_name[str(r["player_name"]).strip().lower()] = r
+            except Exception as e:
+                logger.debug(f"DB ratings read-only lookup notice: {e}")
 
     event_max_swiss = 0
     for p in raw_players:

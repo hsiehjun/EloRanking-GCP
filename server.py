@@ -364,6 +364,7 @@ async def on_server_startup():
                 lambda: db._get_all_teams_list(game_system="aos"),
                 lambda: db.get_team_roster("Art of War", game_system="40k"),
                 lambda: db.get_team_roster("Stat Check", game_system="40k"),
+                lambda: db.get_team_roster("Team Zero Comp", game_system="40k"),
                 lambda: db.get_community_overview(lat=None, lng=None, radius_miles=50.0, include_bcp=False, game_system="40k"),
                 lambda: db.get_community_overview(lat=None, lng=None, radius_miles=50.0, include_bcp=False, game_system="aos"),
                 lambda: db.get_community_overview(lat=32.7157, lng=-117.1611, radius_miles=50.0, include_bcp=False, game_system="40k"),

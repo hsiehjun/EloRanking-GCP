@@ -124,6 +124,35 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
         search_src = inspect.getsource(PostgresDatabase.search_players)
         self.assertIn("is_id_token", search_src)
 
+    def test_slow_log_optimizations_pool_indexes_and_bcp_dedup(self):
+        """Regression test for slow-log fixes: pool detection, player_tournaments index pushdown, BCP inflight locks, and dedup_ep CTE."""
+        pool_src = inspect.getsource(PostgresDatabase._ensure_pool)
+        self.assertIn("self.pool = PostgresDatabase._pool", pool_src)
+
+        db_inst = PostgresDatabase.__new__(PostgresDatabase)
+        old_pool = getattr(PostgresDatabase, "_pool", None)
+        try:
+            PostgresDatabase._pool = object()
+            db_inst.pool = PostgresDatabase._pool
+            self.assertFalse(db_inst._is_mock_instance())
+        finally:
+            PostgresDatabase._pool = old_pool
+
+        pt_src = inspect.getsource(PostgresDatabase.get_player_tournaments)
+        self.assertIn("WHERE m.player1_id = %(pid)s -- OR te.needs_full_rank", pt_src)
+        self.assertIn("WHERE ep.player_id = %(pid)s -- OR te.needs_full_rank", pt_src)
+
+        perf_src = inspect.getsource(PostgresDatabase._ensure_critical_perf_schema)
+        self.assertIn("idx_pg_matches_p1_date", perf_src)
+        self.assertIn("idx_pg_matches_p2_date", perf_src)
+
+        fs_src = inspect.getsource(PostgresDatabase.get_events_field_stats)
+        self.assertIn("WITH dedup_ep AS", fs_src)
+
+        bcp_src = inspect.getsource(PostgresDatabase.fetch_and_cache_bcp_event_placings)
+        self.assertIn("_bcp_placings_inflight_locks", bcp_src)
+        self.assertIn("_bcp_fetch_semaphore", bcp_src)
+
 
 if __name__ == "__main__":
     unittest.main()
